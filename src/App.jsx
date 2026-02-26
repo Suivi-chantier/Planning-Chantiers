@@ -1,385 +1,581 @@
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// 🔧 REMPLACE CES DEUX VALEURS PAR LES TIENNES (voir guide étape 2)
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "COLLE_TON_URL_ICI";
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "COLLE_TA_CLE_ICI";
-
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-const OUVRIERS_DEFAULT = ["JP", "Stev", "Kev", "Reza", "Hamed", "Mady", "Yann", "Julien", "Steven"];
 
-const COULEURS = ["#c8d8f0","#ffd6cc","#fce4a0","#d4edda","#d1f7e4","#e8d0e8","#fff0c0","#ffd6e7","#d0e8ff","#e0f0e0"];
-
-const CHANTIERS_DEFAULT = [
-  { id: "lamartine", nom: "LAMARTINE", couleur: "#c8d8f0" },
-  { id: "lou", nom: "LOU", couleur: "#ffd6cc" },
-  { id: "philibert", nom: "PHILIBERT", couleur: "#fce4a0" },
-  { id: "arthur", nom: "ARTHUR", couleur: "#d4edda" },
-  { id: "metois", nom: "METOIS", couleur: "#d1f7e4" },
-  { id: "gildas", nom: "GILDAS BAUGE 2", couleur: "#e8d0e8" },
+const COULEURS_PALETTE = [
+  "#c8d8f0","#ffd6cc","#fce4a0","#d4edda","#d1f7e4","#e8d0e8",
+  "#fff0c0","#ffd6e7","#d0e8ff","#e0f0e0","#ffe4b5","#d6e4ff",
+  "#f0d6e8","#d6f0e4","#fff0d6","#e8d6f0",
 ];
 
-function getWeekId(year, week) { return `${year}-W${String(week).padStart(2, "0")}`; }
+const THEMES = {
+  dark: {
+    bg:"#1a1f2e", surface:"#1e2336", card:"rgba(255,255,255,0.04)",
+    cardHover:"rgba(255,255,255,0.08)", cardFill:"rgba(255,255,255,0.06)",
+    cardEditing:"rgba(255,255,255,0.1)", border:"rgba(255,255,255,0.07)",
+    borderHover:"rgba(255,255,255,0.15)", text:"#e8eaf0", textSub:"#9aa5c0",
+    textMuted:"#5b6a8a", accent:"#5b8af5", accentSub:"#4a76e8",
+    tagBg:"rgba(91,138,245,0.25)", tagColor:"#a0b8ff",
+    tagReelBg:"rgba(80,200,120,0.2)", tagReelColor:"#7ee8a2",
+    planColor:"#a0b8ff", reelColor:"#b0f0c0",
+    cmdColor:"#f5d08a", cmdBg:"rgba(245,208,138,0.08)", cmdBorder:"rgba(245,208,138,0.15)",
+    emptyColor:"#3a4060", headerBorder:"rgba(255,255,255,0.08)",
+    scrollThumb:"#3a4060", labelText:"#1a1f2e",
+  },
+  light: {
+    bg:"#f0f2f8", surface:"#ffffff", card:"rgba(0,0,0,0.02)",
+    cardHover:"rgba(0,0,0,0.05)", cardFill:"rgba(91,138,245,0.04)",
+    cardEditing:"rgba(91,138,245,0.08)", border:"rgba(0,0,0,0.09)",
+    borderHover:"rgba(0,0,0,0.2)", text:"#1a1f2e", textSub:"#4a5568",
+    textMuted:"#8a9ab0", accent:"#4070e8", accentSub:"#3060d0",
+    tagBg:"rgba(64,112,232,0.15)", tagColor:"#3060c0",
+    tagReelBg:"rgba(40,160,80,0.12)", tagReelColor:"#207040",
+    planColor:"#3060c0", reelColor:"#207040",
+    cmdColor:"#b06000", cmdBg:"rgba(200,140,0,0.07)", cmdBorder:"rgba(200,140,0,0.25)",
+    emptyColor:"#c0c8d8", headerBorder:"rgba(0,0,0,0.08)",
+    scrollThumb:"#c0c8d8", labelText:"#1a1f2e",
+  },
+};
 
+function getWeekId(y, w) { return `${y}-W${String(w).padStart(2,"0")}`; }
 function getCurrentWeek() {
   const now = new Date();
   const jan1 = new Date(now.getFullYear(), 0, 1);
-  const week = Math.ceil(((now - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  return { year: now.getFullYear(), week };
+  const w = Math.ceil(((now - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+  return { year: now.getFullYear(), week: w };
 }
+function emptyCell() { return { planifie:"", reel:"", ouvriers:[] }; }
 
-function emptyCell() { return { planifie: "", reel: "", ouvriers: [] }; }
+const DEFAULT_OUVRIERS = ["JP","Stev","Kev","Reza","Hamed","Mady","Yann","Julien","Steven"];
+const DEFAULT_CHANTIERS = [
+  { id:"lamartine",  nom:"LAMARTINE",      couleur:"#c8d8f0" },
+  { id:"lou",        nom:"LOU",            couleur:"#ffd6cc" },
+  { id:"philibert",  nom:"PHILIBERT",      couleur:"#fce4a0" },
+  { id:"arthur",     nom:"ARTHUR",         couleur:"#d4edda" },
+  { id:"metois",     nom:"METOIS",         couleur:"#d1f7e4" },
+  { id:"gildas",     nom:"GILDAS BAUGE 2", couleur:"#e8d0e8" },
+];
 
 export default function App() {
-  const { year: initY, week: initW } = getCurrentWeek();
-  const [year, setYear] = useState(initY);
-  const [week, setWeek] = useState(initW);
-  const [chantiers, setChantiers] = useState(CHANTIERS_DEFAULT);
-  const [cells, setCells] = useState({}); // { "chantierId_jour": {planifie, reel, ouvriers} }
-  const [commandes, setCommandes] = useState({}); // { chantierId: string }
-  const [view, setView] = useState("planifie");
-  const [editCell, setEditCell] = useState(null);
-  const [editCommande, setEditCommande] = useState(null);
-  const [showAddChantier, setShowAddChantier] = useState(false);
-  const [newNom, setNewNom] = useState("");
-  const [newColor, setNewColor] = useState(COULEURS[6]);
-  const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState(null);
-  const [connected, setConnected] = useState(false);
+  const { year:iY, week:iW } = getCurrentWeek();
+  const [year, setYear]     = useState(iY);
+  const [week, setWeek]     = useState(iW);
+  const [page, setPage]     = useState("planning");
+  const [theme, setTheme]   = useState(() => localStorage.getItem("theme") || "dark");
 
+  const [ouvriers, setOuvriers]   = useState(DEFAULT_OUVRIERS);
+  const [chantiers, setChantiers] = useState(DEFAULT_CHANTIERS);
+  const [cells, setCells]         = useState({});
+  const [commandes, setCommandes] = useState({});
+  const [notesData, setNotesData] = useState({});
+
+  const [editCell, setEditCell] = useState(null);
+  const [editCom, setEditCom]   = useState(null);
+  const [editNote, setEditNote] = useState(null);
+  const [view, setView]         = useState("planifie");
+  const [syncing, setSyncing]   = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+
+  const [adminTab, setAdminTab]       = useState("ouvriers");
+  const [newOuvrier, setNewOuvrier]   = useState("");
+  const [editOuvrier, setEditOuvrier] = useState(null);
+  const [newNom, setNewNom]           = useState("");
+  const [newColor, setNewColor]       = useState(COULEURS_PALETTE[0]);
+  const [editChIdx, setEditChIdx]     = useState(null);
+
+  const T = THEMES[theme];
   const weekId = getWeekId(year, week);
 
-  // ─── LOAD DATA FROM SUPABASE ─────────────────────────────────────────────
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("theme", next);
+  };
+
+  // ── LOAD ────────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     setSyncing(true);
     try {
-      // Load cells
-      const { data: cellsData } = await supabase
-        .from("planning_cells")
-        .select("*")
-        .eq("week_id", weekId);
-
-      if (cellsData) {
-        const map = {};
-        cellsData.forEach(row => {
-          map[`${row.chantier_id}_${row.jour}`] = {
-            planifie: row.planifie || "",
-            reel: row.reel || "",
-            ouvriers: row.ouvriers || [],
-          };
+      const { data: cfg } = await supabase.from("planning_config").select("*");
+      if (cfg?.length) {
+        cfg.forEach(r => {
+          if (r.key === "ouvriers")  setOuvriers(r.value);
+          if (r.key === "chantiers") setChantiers(r.value);
         });
-        setCells(map);
       }
-
-      // Load commandes
-      const { data: commandesData } = await supabase
-        .from("planning_commandes")
-        .select("*")
-        .eq("week_id", weekId);
-
-      if (commandesData) {
-        const map = {};
-        commandesData.forEach(row => { map[row.chantier_id] = row.contenu || ""; });
-        setCommandes(map);
+      const { data: cd } = await supabase.from("planning_cells").select("*").eq("week_id", weekId);
+      if (cd) {
+        const m = {};
+        cd.forEach(r => { m[`${r.chantier_id}_${r.jour}`] = { planifie:r.planifie||"", reel:r.reel||"", ouvriers:r.ouvriers||[] }; });
+        setCells(m);
       }
-
-      // Load custom chantiers
-      const { data: chantiersData } = await supabase
-        .from("planning_chantiers")
-        .select("*")
-        .order("created_at", { ascending: true });
-
-      if (chantiersData && chantiersData.length > 0) {
-        setChantiers(chantiersData.map(c => ({ id: c.id, nom: c.nom, couleur: c.couleur })));
+      const { data: comd } = await supabase.from("planning_commandes").select("*").eq("week_id", weekId);
+      if (comd) {
+        const m = {};
+        comd.forEach(r => { m[r.chantier_id] = r.contenu||""; });
+        setCommandes(m);
       }
-
+      const { data: nd } = await supabase.from("planning_notes").select("*");
+      if (nd) {
+        const m = {};
+        nd.forEach(r => { m[r.chantier_id] = r.contenu||""; });
+        setNotesData(m);
+      }
       setConnected(true);
       setLastSync(new Date());
-    } catch (e) {
-      console.error(e);
-    }
+    } catch(e) { console.error(e); }
     setSyncing(false);
   }, [weekId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ─── REAL-TIME SUBSCRIPTIONS ──────────────────────────────────────────────
+  // ── REALTIME ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const channel = supabase
-      .channel(`planning-${weekId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "planning_cells", filter: `week_id=eq.${weekId}` },
-        (payload) => {
-          const row = payload.new || payload.old;
-          if (!row) return;
-          const key = `${row.chantier_id}_${row.jour}`;
-          if (payload.eventType === "DELETE") {
-            setCells(prev => { const n = {...prev}; delete n[key]; return n; });
-          } else {
-            setCells(prev => ({ ...prev, [key]: { planifie: row.planifie || "", reel: row.reel || "", ouvriers: row.ouvriers || [] } }));
-          }
-          setLastSync(new Date());
-        }
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "planning_commandes", filter: `week_id=eq.${weekId}` },
-        (payload) => {
-          const row = payload.new || payload.old;
-          if (!row) return;
-          if (payload.eventType === "DELETE") {
-            setCommandes(prev => { const n = {...prev}; delete n[row.chantier_id]; return n; });
-          } else {
-            setCommandes(prev => ({ ...prev, [row.chantier_id]: row.contenu || "" }));
-          }
-          setLastSync(new Date());
-        }
-      )
+    const ch = supabase.channel(`planning-${weekId}`)
+      .on("postgres_changes", { event:"*", schema:"public", table:"planning_cells", filter:`week_id=eq.${weekId}` }, p => {
+        const r = p.new || p.old; if (!r) return;
+        const key = `${r.chantier_id}_${r.jour}`;
+        if (p.eventType === "DELETE") setCells(prev => { const n={...prev}; delete n[key]; return n; });
+        else setCells(prev => ({ ...prev, [key]: { planifie:r.planifie||"", reel:r.reel||"", ouvriers:r.ouvriers||[] } }));
+        setLastSync(new Date());
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"planning_commandes", filter:`week_id=eq.${weekId}` }, p => {
+        const r = p.new || p.old; if (!r) return;
+        if (p.eventType === "DELETE") setCommandes(prev => { const n={...prev}; delete n[r.chantier_id]; return n; });
+        else setCommandes(prev => ({ ...prev, [r.chantier_id]: r.contenu||"" }));
+        setLastSync(new Date());
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"planning_config" }, p => {
+        const r = p.new; if (!r) return;
+        if (r.key === "ouvriers")  setOuvriers(r.value);
+        if (r.key === "chantiers") setChantiers(r.value);
+        setLastSync(new Date());
+      })
       .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    return () => { supabase.removeChannel(ch); };
   }, [weekId]);
 
-  // ─── SAVE CELL ────────────────────────────────────────────────────────────
-  const saveCell = async (chantierId, jour, field, value) => {
-    const key = `${chantierId}_${jour}`;
-    const current = cells[key] || emptyCell();
-    const updated = { ...current, [field]: value };
-    setCells(prev => ({ ...prev, [key]: updated }));
+  // ── SAVE HELPERS ────────────────────────────────────────────────────────
+  const saveConfig = (key, value) => supabase.from("planning_config").upsert({ key, value }, { onConflict:"key" });
 
-    await supabase.from("planning_cells").upsert({
-      week_id: weekId,
-      chantier_id: chantierId,
-      jour,
-      planifie: updated.planifie,
-      reel: updated.reel,
-      ouvriers: updated.ouvriers,
-    }, { onConflict: "week_id,chantier_id,jour" });
+  const saveCell = async (cId, jour, field, value) => {
+    const key = `${cId}_${jour}`;
+    const cur = cells[key] || emptyCell();
+    const upd = { ...cur, [field]: value };
+    setCells(prev => ({ ...prev, [key]: upd }));
+    await supabase.from("planning_cells").upsert({ week_id:weekId, chantier_id:cId, jour, ...upd }, { onConflict:"week_id,chantier_id,jour" });
+  };
+  const toggleOuvrier = async (cId, jour, o) => {
+    const key = `${cId}_${jour}`;
+    const cur = cells[key] || emptyCell();
+    const list = [...(cur.ouvriers||[])];
+    const i = list.indexOf(o);
+    if (i >= 0) list.splice(i,1); else list.push(o);
+    await saveCell(cId, jour, "ouvriers", list);
+  };
+  const saveCommande = async (cId, v) => {
+    setCommandes(prev => ({ ...prev, [cId]: v }));
+    await supabase.from("planning_commandes").upsert({ week_id:weekId, chantier_id:cId, contenu:v }, { onConflict:"week_id,chantier_id" });
+  };
+  const saveNote = async (cId, v) => {
+    setNotesData(prev => ({ ...prev, [cId]: v }));
+    await supabase.from("planning_notes").upsert({ chantier_id:cId, contenu:v }, { onConflict:"chantier_id" });
   };
 
-  const toggleOuvrier = async (chantierId, jour, ouvrier) => {
-    const key = `${chantierId}_${jour}`;
-    const current = cells[key] || emptyCell();
-    const list = [...(current.ouvriers || [])];
-    const idx = list.indexOf(ouvrier);
-    if (idx >= 0) list.splice(idx, 1); else list.push(ouvrier);
-    await saveCell(chantierId, jour, "ouvriers", list);
-  };
-
-  const saveCommande = async (chantierId, value) => {
-    setCommandes(prev => ({ ...prev, [chantierId]: value }));
-    await supabase.from("planning_commandes").upsert({
-      week_id: weekId,
-      chantier_id: chantierId,
-      contenu: value,
-    }, { onConflict: "week_id,chantier_id" });
-  };
-
-  const addChantier = async () => {
-    if (!newNom.trim()) return;
-    const id = newNom.trim().toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
-    const nc = { id, nom: newNom.trim().toUpperCase(), couleur: newColor };
-    const { error } = await supabase.from("planning_chantiers").insert({ id, nom: nc.nom, couleur: nc.couleur });
-    if (!error) { setChantiers(prev => [...prev, nc]); }
-    setNewNom(""); setShowAddChantier(false);
-  };
-
-  // ─── NAV ──────────────────────────────────────────────────────────────────
-  const prevWeek = () => { if (week === 1) { setYear(y=>y-1); setWeek(52); } else setWeek(w=>w-1); };
-  const nextWeek = () => { if (week === 52) { setYear(y=>y+1); setWeek(1); } else setWeek(w=>w+1); };
-  const goNow = () => { const {year:y, week:w} = getCurrentWeek(); setYear(y); setWeek(w); };
-
+  // ── NAV ─────────────────────────────────────────────────────────────────
+  const prevWeek = () => { if(week===1){setYear(y=>y-1);setWeek(52);}else setWeek(w=>w-1); };
+  const nextWeek = () => { if(week===52){setYear(y=>y+1);setWeek(1);}else setWeek(w=>w+1); };
+  const goNow = () => { const {year:y,week:w}=getCurrentWeek(); setYear(y); setWeek(w); };
   const getCell = (cId, jour) => cells[`${cId}_${jour}`] || emptyCell();
-  const isEditing = (cId, jour) => editCell?.cId === cId && editCell?.jour === jour;
+  const isEditing = (cId, jour) => editCell?.cId===cId && editCell?.jour===jour;
 
+  // ── ADMIN : OUVRIERS ────────────────────────────────────────────────────
+  const addOuvrier = () => {
+    if (!newOuvrier.trim()) return;
+    const upd = [...ouvriers, newOuvrier.trim()];
+    setOuvriers(upd); saveConfig("ouvriers", upd); setNewOuvrier("");
+  };
+  const removeOuvrier = i => { const upd=ouvriers.filter((_,idx)=>idx!==i); setOuvriers(upd); saveConfig("ouvriers",upd); };
+  const renameOuvrier = (i, val) => { const upd=ouvriers.map((o,idx)=>idx===i?val:o); setOuvriers(upd); saveConfig("ouvriers",upd); setEditOuvrier(null); };
+  const moveOuvrier = (i, dir) => {
+    const a=[...ouvriers]; const j=i+dir;
+    if(j<0||j>=a.length) return;
+    [a[i],a[j]]=[a[j],a[i]]; setOuvriers(a); saveConfig("ouvriers",a);
+  };
+
+  // ── ADMIN : CHANTIERS ───────────────────────────────────────────────────
+  const addChantier = () => {
+    if (!newNom.trim()) return;
+    const id = newNom.trim().toLowerCase().replace(/\s+/g,"-")+"-"+Date.now();
+    const nc = { id, nom:newNom.trim().toUpperCase(), couleur:newColor };
+    const upd = [...chantiers, nc];
+    setChantiers(upd); saveConfig("chantiers",upd); setNewNom("");
+  };
+  const removeChantier = i => { const upd=chantiers.filter((_,idx)=>idx!==i); setChantiers(upd); saveConfig("chantiers",upd); };
+  const updateChantier = (i, changes) => { const upd=chantiers.map((c,idx)=>idx===i?{...c,...changes}:c); setChantiers(upd); saveConfig("chantiers",upd); };
+  const moveChantier = (i, dir) => {
+    const a=[...chantiers]; const j=i+dir;
+    if(j<0||j>=a.length) return;
+    [a[i],a[j]]=[a[j],a[i]]; setChantiers(a); saveConfig("chantiers",a);
+  };
+
+  // ── PRINT ───────────────────────────────────────────────────────────────
+  const handlePrint = () => {
+    const viewLabel = {"planifie":"PLANNING PLANIFIÉ","reel":"RÉEL","compare":"BILAN COMPARATIF"}[view];
+    const rows = chantiers.map(c => {
+      const cols = JOURS.map(j => {
+        const cell = getCell(c.id, j);
+        let html = "";
+        if (view==="compare") {
+          if (cell.planifie) html += `<div style="color:#3060c0;margin-bottom:3px">▸ ${cell.planifie.replace(/\n/g,"<br>")}</div>`;
+          if (cell.reel)     html += `<div style="color:#207040">✓ ${cell.reel.replace(/\n/g,"<br>")}</div>`;
+        } else {
+          if (cell[view]) html += cell[view].replace(/\n/g,"<br>");
+        }
+        if (cell.ouvriers?.length) html += `<div style="margin-top:4px;font-weight:700;color:#666;font-size:9px;border-top:1px solid #eee;padding-top:3px">${cell.ouvriers.join(" · ")}</div>`;
+        return `<td>${html||"—"}</td>`;
+      }).join("");
+      return `<tr><td style="font-weight:800;font-size:11px;letter-spacing:1px;text-transform:uppercase;background:${c.couleur};width:100px">${c.nom}</td>${cols}</tr>`;
+    }).join("");
+
+    const cmds = chantiers.filter(c=>commandes[c.id]?.trim()).map(c=>
+      `<div style="margin:4px 0;padding:4px 0;border-bottom:1px solid #eee;font-size:10px"><strong style="background:${c.couleur};padding:2px 6px;border-radius:4px;color:#1a1f2e">${c.nom}</strong> — ${commandes[c.id]}</div>`
+    ).join("");
+
+    const w = window.open("","_blank");
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+    <title>Planning S${week} — ${year}</title>
+    <style>@page{size:A4 landscape;margin:12mm}body{font-family:Arial,sans-serif;font-size:10px;color:#1a1f2e}
+    h1{font-size:16px;margin-bottom:2px}.sub{font-size:10px;color:#666;margin-bottom:12px}
+    table{width:100%;border-collapse:collapse}th{background:#1a1f2e;color:#fff;padding:6px 8px;text-align:center;font-size:11px;letter-spacing:1px}
+    td{border:1px solid #ddd;padding:6px 8px;vertical-align:top;line-height:1.4}
+    .cs{margin-top:14px}.ct{font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#666;margin-bottom:6px}
+    </style></head><body>
+    <h1>Planning — Semaine ${week} / ${year}</h1>
+    <div class="sub">${viewLabel} · ${new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+    <table><thead><tr><th>Chantier</th>${JOURS.map(j=>`<th>${j}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+    ${cmds?`<div class="cs"><div class="ct">📦 Commandes à prévoir</div>${cmds}</div>`:""}
+    </body></html>`);
+    w.document.close();
+    setTimeout(()=>w.print(), 400);
+  };
+
+  // ── STYLES ──────────────────────────────────────────────────────────────
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Barlow Condensed','Arial Narrow',sans-serif;background:${T.bg};color:${T.text};min-height:100vh}
+    ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:${T.bg}}::-webkit-scrollbar-thumb{background:${T.scrollThumb};border-radius:3px}
+    textarea,input{outline:none;font-family:inherit}
+    .cell{background:${T.card};border:1px solid ${T.border};border-radius:8px;padding:8px 10px;min-height:64px;cursor:pointer;transition:all .15s}
+    .cell:hover{background:${T.cardHover};border-color:${T.borderHover}}
+    .cell.filled{background:${T.cardFill}}
+    .cell.editing{background:${T.cardEditing};border-color:${T.accent};box-shadow:0 0 0 2px ${T.accent}33}
+    .badge{display:inline-block;background:${T.tagBg};color:${T.tagColor};border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600;margin:1px 2px 1px 0}
+    .badge.reel{background:${T.tagReelBg};color:${T.tagReelColor}}
+    .tab{padding:8px 18px;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;transition:all .15s}
+    .tab.on{background:${T.accent};color:#fff}
+    .tab.off{background:${T.card};color:${T.textSub};border:1px solid ${T.border}}
+    .tab.off:hover{background:${T.cardHover};color:${T.text}}
+    .btn-p{background:${T.accent};color:#fff;border:none;border-radius:6px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
+    .btn-p:hover{background:${T.accentSub}}
+    .btn-g{background:transparent;color:${T.textSub};border:1px solid ${T.border};border-radius:6px;padding:8px 16px;font-family:inherit;font-size:13px;cursor:pointer;transition:all .15s}
+    .btn-g:hover{background:${T.cardHover};color:${T.text}}
+    .btn-d{background:transparent;color:#e05c5c;border:1px solid rgba(224,92,92,0.3);border-radius:6px;padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;transition:all .15s}
+    .btn-d:hover{background:rgba(224,92,92,0.1)}
+    .lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;opacity:.5;margin-bottom:2px}
+    .ouvbtn{display:inline-block;padding:4px 10px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;margin:3px 3px 3px 0;border:1.5px solid ${T.border};background:transparent;color:${T.textSub};font-family:inherit;transition:all .12s}
+    .ouvbtn.on{background:${T.tagBg};border-color:${T.accent};color:${T.tagColor}}
+    .ouvbtn:hover{border-color:${T.borderHover};color:${T.text}}
+    .navbtn{background:${T.card};border:1px solid ${T.border};color:${T.text};border-radius:6px;padding:6px 14px;font-family:inherit;font-size:18px;cursor:pointer;transition:background .15s}
+    .navbtn:hover{background:${T.cardHover}}
+    .dot-pulse{width:8px;height:8px;border-radius:50%;background:#50c878;display:inline-block;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .inp{width:100%;background:transparent;border:none;color:${T.text};font-size:13px;line-height:1.5;resize:none}
+    .sec-hdr{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${T.textMuted};margin-bottom:10px}
+    .ac{background:${T.surface};border:1px solid ${T.border};border-radius:12px;padding:22px;margin-bottom:14px}
+    .ar{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid ${T.border}}
+    .ar:last-child{border-bottom:none}
+    .ti{background:${T.card};border:1px solid ${T.border};border-radius:6px;padding:8px 12px;color:${T.text};font-family:inherit;font-size:14px;flex:1}
+    .ti:focus{border-color:${T.accent}}
+    .atab{padding:8px 16px;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;letter-spacing:.5px;text-transform:uppercase}
+    .atab.on{background:${T.accent};color:#fff}
+    .atab.off{background:transparent;color:${T.textSub}}
+    .atab.off:hover{color:${T.text}}
+    .cdot{width:22px;height:22px;border-radius:50%;cursor:pointer;transition:transform .1s;flex-shrink:0}
+    .cdot:hover{transform:scale(1.2)}
+    .cdot.sel{outline:3px solid ${T.accent};outline-offset:2px}
+    .np{font-size:12px;color:${T.cmdColor};background:${T.cmdBg};border:1px solid ${T.cmdBorder};border-radius:6px;padding:6px 10px;white-space:pre-wrap;line-height:1.5;margin-top:4px;cursor:pointer}
+    .ib{background:transparent;border:none;cursor:pointer;font-size:14px;padding:2px 3px;opacity:.6;transition:opacity .15s;color:${T.text}}
+    .ib:hover{opacity:1}
+  `;
+
+  // ── RENDER ──────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: "'Barlow Condensed', 'Arial Narrow', sans-serif", background: "#1a1f2e", minHeight: "100vh", color: "#e8eaf0" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #1a1f2e; }
-        ::-webkit-scrollbar-thumb { background: #3a4060; border-radius: 3px; }
-        textarea, input { outline: none; font-family: inherit; }
-        .cell { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 8px 10px; min-height: 64px; cursor: pointer; transition: all 0.15s; }
-        .cell:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
-        .cell.filled { background: rgba(255,255,255,0.06); }
-        .cell.editing { background: rgba(255,255,255,0.1); border-color: #5b8af5; box-shadow: 0 0 0 2px rgba(91,138,245,0.2); }
-        .badge { display: inline-block; background: rgba(91,138,245,0.25); color: #a0b8ff; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 600; margin: 1px 2px 1px 0; }
-        .badge.reel { background: rgba(80,200,120,0.2); color: #7ee8a2; }
-        .tab { padding: 8px 20px; border: none; border-radius: 6px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; letter-spacing: 0.5px; text-transform: uppercase; transition: all 0.15s; }
-        .tab.on { background: #5b8af5; color: #fff; }
-        .tab.off { background: rgba(255,255,255,0.07); color: #9aa5c0; }
-        .tab.off:hover { background: rgba(255,255,255,0.12); color: #e8eaf0; }
-        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal { background: #252a3d; border-radius: 12px; padding: 28px; width: 480px; max-width: 95vw; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
-        .btn-p { background: #5b8af5; color: #fff; border: none; border-radius: 6px; padding: 9px 18px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
-        .btn-p:hover { background: #4a76e8; }
-        .btn-g { background: transparent; color: #9aa5c0; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 16px; font-family: inherit; font-size: 13px; cursor: pointer; }
-        .btn-g:hover { background: rgba(255,255,255,0.07); color: #e8eaf0; }
-        .lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.5; margin-bottom: 2px; }
-        .ouvbtn { display: inline-block; padding: 4px 10px; border-radius: 5px; font-size: 12px; font-weight: 600; cursor: pointer; margin: 3px 3px 3px 0; border: 1.5px solid rgba(255,255,255,0.15); background: transparent; color: #9aa5c0; font-family: inherit; transition: all 0.12s; }
-        .ouvbtn.on { background: rgba(91,138,245,0.3); border-color: #5b8af5; color: #a0b8ff; }
-        .ouvbtn:hover { border-color: rgba(255,255,255,0.3); color: #e8eaf0; }
-        .navbtn { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: #e8eaf0; border-radius: 6px; padding: 6px 14px; font-family: inherit; font-size: 18px; cursor: pointer; transition: background 0.15s; }
-        .navbtn:hover { background: rgba(255,255,255,0.14); }
-        .dot-pulse { width: 8px; height: 8px; border-radius: 50%; background: #50c878; display: inline-block; animation: pulse 2s infinite; }
-        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
-        textarea.inp { width: 100%; background: transparent; border: none; color: #e8eaf0; font-size: 13px; line-height: 1.5; resize: none; }
-      `}</style>
+    <div style={{ minHeight:"100vh" }}>
+      <style>{css}</style>
 
       {/* HEADER */}
-      <div style={{ background: "#1e2336", borderBottom: "1px solid rgba(255,255,255,0.08)", padding: "14px 24px", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+      <div style={{ background:T.surface, borderBottom:`1px solid ${T.headerBorder}`, padding:"14px 24px", display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", position:"sticky", top:0, zIndex:100 }}>
         <div>
-          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: "#5b6a8a", marginBottom: 2 }}>Planning Chantier</div>
-          <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 1 }}>SEMAINE {week} — {year}</div>
+          <div style={{ fontSize:10, letterSpacing:3, textTransform:"uppercase", color:T.textMuted }}>Planning Chantier</div>
+          <div style={{ fontSize:24, fontWeight:800, letterSpacing:1 }}>SEMAINE {week} — {year}</div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button className="navbtn" onClick={prevWeek}>‹</button>
-          <button className="navbtn" onClick={goNow} style={{ fontSize: 12, padding: "6px 12px", letterSpacing: 1 }}>CETTE SEMAINE</button>
-          <button className="navbtn" onClick={nextWeek}>›</button>
-        </div>
+        {page === "planning" && (
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <button className="navbtn" onClick={prevWeek}>‹</button>
+            <button className="navbtn" onClick={goNow} style={{ fontSize:11, padding:"6px 10px" }}>CETTE SEMAINE</button>
+            <button className="navbtn" onClick={nextWeek}>›</button>
+          </div>
+        )}
 
-        {/* Sync status */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: "rgba(255,255,255,0.05)", borderRadius: 8, fontSize: 12, color: "#7a8aaa" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 10px", background:T.card, borderRadius:8, fontSize:12, color:T.textSub }}>
           {syncing
-            ? <><div style={{ width: 8, height: 8, borderRadius: "50%", background: "#f5a623", display: "inline-block" }} />Sync...</>
+            ? <><span style={{ width:8,height:8,borderRadius:"50%",background:"#f5a623",display:"inline-block" }}/> Sync…</>
             : connected
-              ? <><div className="dot-pulse" />En ligne {lastSync ? `· ${lastSync.toLocaleTimeString("fr-FR", {hour:"2-digit",minute:"2-digit"})}` : ""}</>
-              : <><div style={{ width: 8, height: 8, borderRadius: "50%", background: "#e05c5c", display: "inline-block" }} />Hors ligne</>
+              ? <><span className="dot-pulse"/>{" "}En ligne {lastSync?`· ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}`:""}</>
+              : <><span style={{ width:8,height:8,borderRadius:"50%",background:"#e05c5c",display:"inline-block" }}/> Hors ligne</>
           }
         </div>
 
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className={`tab ${view === "planifie" ? "on" : "off"}`} onClick={() => setView("planifie")}>Planifié</button>
-          <button className={`tab ${view === "reel" ? "on" : "off"}`} onClick={() => setView("reel")}>Réel</button>
-          <button className={`tab ${view === "compare" ? "on" : "off"}`} onClick={() => setView("compare")}>Bilan</button>
+        <div style={{ marginLeft:"auto", display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          {page === "planning" && <>
+            <button className={`tab ${view==="planifie"?"on":"off"}`} onClick={()=>setView("planifie")}>Planifié</button>
+            <button className={`tab ${view==="reel"?"on":"off"}`}     onClick={()=>setView("reel")}>Réel</button>
+            <button className={`tab ${view==="compare"?"on":"off"}`}  onClick={()=>setView("compare")}>Bilan</button>
+            <button className="btn-g" onClick={handlePrint} title="Imprimer" style={{ fontSize:17, padding:"6px 12px" }}>🖨</button>
+          </>}
+          <button className="btn-g" onClick={toggleTheme} title="Thème" style={{ fontSize:17, padding:"6px 12px" }}>{theme==="dark"?"☀️":"🌙"}</button>
+          <button className={page==="admin"?"btn-p":"btn-g"} onClick={()=>setPage(p=>p==="admin"?"planning":"admin")}>
+            ⚙️ {page==="admin"?"← Retour":"Réglages"}
+          </button>
         </div>
       </div>
 
-      <div style={{ padding: "20px 24px", display: "flex", gap: 20, alignItems: "flex-start" }}>
-        {/* TABLE */}
-        <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
-          {/* Days header */}
-          <div style={{ display: "grid", gridTemplateColumns: "140px repeat(5, minmax(140px, 1fr))", gap: 5, marginBottom: 6 }}>
-            <div />
-            {JOURS.map(j => (
-              <div key={j} style={{ textAlign: "center", fontWeight: 800, fontSize: 12, letterSpacing: 2, textTransform: "uppercase", color: "#5b6a8a", padding: "6px 0" }}>{j}</div>
+      {/* ═══ PAGE PLANNING ═══ */}
+      {page === "planning" && (
+        <div style={{ padding:"20px 24px", display:"flex", gap:20, alignItems:"flex-start" }}>
+          <div style={{ flex:1, minWidth:0, overflowX:"auto" }}>
+            {/* En-têtes */}
+            <div style={{ display:"grid", gridTemplateColumns:`150px repeat(${JOURS.length},minmax(130px,1fr))`, gap:5, marginBottom:6 }}>
+              <div/>
+              {JOURS.map(j=>(
+                <div key={j} style={{ textAlign:"center", fontWeight:800, fontSize:12, letterSpacing:2, textTransform:"uppercase", color:T.textMuted, padding:"6px 0" }}>{j}</div>
+              ))}
+            </div>
+
+            {/* Lignes */}
+            {chantiers.map(c => (
+              <div key={c.id} style={{ display:"grid", gridTemplateColumns:`150px repeat(${JOURS.length},minmax(130px,1fr))`, gap:5, marginBottom:5 }}>
+                <div style={{ background:c.couleur, color:T.labelText, borderRadius:"8px 0 0 8px", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", textAlign:"center", fontWeight:800, fontSize:13, letterSpacing:1, textTransform:"uppercase", padding:"10px 8px", cursor:"pointer", gap:4 }}
+                  onClick={()=>setEditCom(editCom===c.id?null:c.id)}>
+                  <span>{c.nom}</span>
+                  <div style={{ display:"flex", gap:4 }}>
+                    {commandes[c.id]?.trim()  && <span style={{ width:6,height:6,borderRadius:"50%",background:"#f5a623",display:"block" }} title="Commandes"/>}
+                    {notesData[c.id]?.trim()  && <span style={{ width:6,height:6,borderRadius:"50%",background:T.accent,display:"block" }} title="Notes"/>}
+                  </div>
+                </div>
+
+                {JOURS.map(jour => {
+                  const cell    = getCell(c.id, jour);
+                  const editing = isEditing(c.id, jour);
+                  const filled  = cell.planifie||cell.reel||cell.ouvriers?.length>0;
+                  return (
+                    <div key={jour} className={`cell ${filled?"filled":""} ${editing?"editing":""}`} onClick={()=>!editing&&setEditCell({cId:c.id,jour})}>
+                      {editing ? (
+                        <div onClick={e=>e.stopPropagation()}>
+                          {view!=="reel" && <>
+                            <div className="lbl" style={{ color:T.accent }}>Planifié</div>
+                            <textarea className="inp" autoFocus={view==="planifie"} rows={3} value={cell.planifie} onChange={e=>saveCell(c.id,jour,"planifie",e.target.value)} placeholder="Tâches prévues…"/>
+                          </>}
+                          {view!=="planifie" && <>
+                            <div className="lbl" style={{ color:"#50c878", marginTop:view==="compare"?6:0 }}>Réel</div>
+                            <textarea className="inp" autoFocus={view==="reel"} rows={3} value={cell.reel} onChange={e=>saveCell(c.id,jour,"reel",e.target.value)} placeholder="Ce qui a été fait…" style={{ color:T.reelColor }}/>
+                          </>}
+                          <div style={{ marginTop:8 }}>
+                            <div className="lbl">Ouvriers</div>
+                            <div style={{ marginTop:4 }}>
+                              {ouvriers.map(o=>(
+                                <button key={o} className={`ouvbtn ${(cell.ouvriers||[]).includes(o)?"on":""}`} onClick={()=>toggleOuvrier(c.id,jour,o)}>{o}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div style={{ marginTop:10, textAlign:"right" }}>
+                            <button className="btn-p" style={{ fontSize:12, padding:"5px 14px" }} onClick={()=>setEditCell(null)}>✓ Fermer</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {view==="compare" ? <>
+                            {cell.planifie && <><div className="lbl">Planifié</div><div style={{ fontSize:12, color:T.planColor, lineHeight:1.5 }}>{cell.planifie}</div></>}
+                            {cell.reel && <><div className="lbl" style={{ marginTop:cell.planifie?4:0 }}>Réel</div><div style={{ fontSize:12, color:T.reelColor, lineHeight:1.5 }}>{cell.reel}</div></>}
+                            {!cell.planifie&&!cell.reel && <div style={{ color:T.emptyColor, fontSize:13 }}>—</div>}
+                          </> : <>
+                            <div style={{ fontSize:13, lineHeight:1.5, color:view==="reel"?T.reelColor:T.text }}>
+                              {cell[view]||<span style={{ color:T.emptyColor }}>—</span>}
+                            </div>
+                          </>}
+                          {cell.ouvriers?.length>0 && (
+                            <div style={{ marginTop:4 }}>
+                              {cell.ouvriers.map(o=><span key={o} className={`badge ${view==="reel"?"reel":""}`}>{o}</span>)}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            <button className="btn-g" style={{ marginTop:10, fontSize:13 }} onClick={()=>{ setPage("admin"); setAdminTab("chantiers"); }}>+ Gérer les chantiers</button>
+          </div>
+
+          {/* Sidebar */}
+          <div style={{ width:230, flexShrink:0 }}>
+            <div className="sec-hdr">📦 Commandes semaine</div>
+            {chantiers.map(c=>(
+              <div key={c.id} style={{ marginBottom:10 }}>
+                <div style={{ background:c.couleur, color:T.labelText, borderRadius:"6px 6px 0 0", padding:"6px 10px", fontSize:12, fontWeight:800, letterSpacing:1, textTransform:"uppercase", cursor:"pointer", display:"flex", justifyContent:"space-between" }}
+                  onClick={()=>setEditCom(editCom===c.id?null:c.id)}>
+                  {c.nom} <span style={{ opacity:.5 }}>{editCom===c.id?"▲":"▼"}</span>
+                </div>
+                {editCom===c.id
+                  ? <textarea rows={4} style={{ width:"100%", background:T.card, border:`1px solid ${T.border}`, borderTop:"none", borderRadius:"0 0 6px 6px", color:T.cmdColor, padding:"8px 10px", fontSize:13, lineHeight:1.5, fontFamily:"inherit" }} value={commandes[c.id]||""} onChange={e=>saveCommande(c.id,e.target.value)} placeholder="Matériaux, livraisons…" autoFocus/>
+                  : commandes[c.id]?.trim()
+                    ? <div className="np" onClick={()=>setEditCom(c.id)} style={{ borderRadius:"0 0 6px 6px", borderTop:"none" }}>{commandes[c.id]}</div>
+                    : <div onClick={()=>setEditCom(c.id)} style={{ background:T.card, border:`1px solid ${T.border}`, borderTop:"none", borderRadius:"0 0 6px 6px", padding:"6px 10px", fontSize:12, color:T.emptyColor, cursor:"pointer" }}>Cliquer pour ajouter</div>
+                }
+              </div>
+            ))}
+
+            <div className="sec-hdr" style={{ marginTop:22 }}>📋 Notes chantier</div>
+            <div style={{ fontSize:11, color:T.textMuted, marginBottom:10, lineHeight:1.4 }}>Informations permanentes (accès, contacts…)</div>
+            {chantiers.map(c=>(
+              <div key={c.id} style={{ marginBottom:8 }}>
+                <div style={{ background:c.couleur, color:T.labelText, borderRadius:"6px 6px 0 0", padding:"5px 10px", fontSize:11, fontWeight:800, letterSpacing:1, textTransform:"uppercase", cursor:"pointer", display:"flex", justifyContent:"space-between" }}
+                  onClick={()=>setEditNote(editNote===c.id?null:c.id)}>
+                  {c.nom} <span style={{ opacity:.5 }}>{editNote===c.id?"▲":"▼"}</span>
+                </div>
+                {editNote===c.id
+                  ? <textarea rows={3} style={{ width:"100%", background:T.card, border:`1px solid ${T.border}`, borderTop:"none", borderRadius:"0 0 6px 6px", color:T.text, padding:"8px 10px", fontSize:12, lineHeight:1.5, fontFamily:"inherit" }} value={notesData[c.id]||""} onChange={e=>saveNote(c.id,e.target.value)} placeholder="Code d'accès, contact client, infos chantier…" autoFocus/>
+                  : notesData[c.id]?.trim()
+                    ? <div className="np" onClick={()=>setEditNote(c.id)} style={{ color:T.textSub, background:T.card, borderRadius:"0 0 6px 6px", borderTop:"none" }}>{notesData[c.id]}</div>
+                    : <div onClick={()=>setEditNote(c.id)} style={{ background:T.card, border:`1px solid ${T.border}`, borderTop:"none", borderRadius:"0 0 6px 6px", padding:"5px 10px", fontSize:11, color:T.emptyColor, cursor:"pointer" }}>Ajouter une note…</div>
+                }
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ PAGE ADMIN ═══ */}
+      {page === "admin" && (
+        <div style={{ maxWidth:680, margin:"0 auto", padding:"32px 24px" }}>
+          <div style={{ fontSize:28, fontWeight:800, letterSpacing:1, marginBottom:4 }}>Réglages</div>
+          <div style={{ color:T.textSub, fontSize:14, marginBottom:24 }}>Modifications appliquées immédiatement pour toute l'équipe.</div>
+
+          <div style={{ display:"flex", gap:4, marginBottom:22, borderBottom:`1px solid ${T.border}`, paddingBottom:8 }}>
+            {[["ouvriers","👷 Ouvriers"],["chantiers","🏗️ Chantiers"],["apparence","🎨 Apparence"]].map(([k,l])=>(
+              <button key={k} className={`atab ${adminTab===k?"on":"off"}`} onClick={()=>setAdminTab(k)}>{l}</button>
             ))}
           </div>
 
-          {chantiers.map(chantier => (
-            <div key={chantier.id} style={{ display: "grid", gridTemplateColumns: "140px repeat(5, minmax(140px, 1fr))", gap: 5, marginBottom: 5 }}>
-              {/* Label chantier */}
-              <div
-                style={{ background: chantier.couleur, color: "#1a1f2e", borderRadius: "8px 0 0 8px", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontWeight: 800, fontSize: 13, letterSpacing: 1, textTransform: "uppercase", padding: "10px 8px", cursor: "pointer" }}
-                onClick={() => setEditCommande(editCommande === chantier.id ? null : chantier.id)}
-                title="Cliquer pour commandes"
-              >
-                {commandes[chantier.id]?.trim() && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#f5a623", display: "inline-block", marginRight: 6, flexShrink: 0 }} />}
-                {chantier.nom}
-              </div>
-
-              {JOURS.map(jour => {
-                const cell = getCell(chantier.id, jour);
-                const editing = isEditing(chantier.id, jour);
-                const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0;
-
-                return (
-                  <div key={jour} className={`cell ${filled ? "filled" : ""} ${editing ? "editing" : ""}`} onClick={() => !editing && setEditCell({ cId: chantier.id, jour })}>
-                    {editing ? (
-                      <div onClick={e => e.stopPropagation()}>
-                        {(view !== "reel") && <>
-                          <div className="lbl" style={{ color: "#5b8af5" }}>Planifié</div>
-                          <textarea className="inp" autoFocus={view === "planifie"} rows={3} value={cell.planifie} onChange={e => saveCell(chantier.id, jour, "planifie", e.target.value)} placeholder="Tâches prévues…" />
-                        </>}
-                        {(view !== "planifie") && <>
-                          <div className="lbl" style={{ color: "#50c878", marginTop: view === "compare" ? 6 : 0 }}>Réel</div>
-                          <textarea className="inp" autoFocus={view === "reel"} rows={3} value={cell.reel} onChange={e => saveCell(chantier.id, jour, "reel", e.target.value)} placeholder="Ce qui a été fait…" style={{ color: "#b0f0c0" }} />
-                        </>}
-                        <div style={{ marginTop: 8 }}>
-                          <div className="lbl">Ouvriers</div>
-                          <div style={{ marginTop: 4 }}>
-                            {OUVRIERS_DEFAULT.map(o => (
-                              <button key={o} className={`ouvbtn ${(cell.ouvriers||[]).includes(o) ? "on" : ""}`} onClick={() => toggleOuvrier(chantier.id, jour, o)}>{o}</button>
-                            ))}
-                          </div>
-                        </div>
-                        <div style={{ marginTop: 10, textAlign: "right" }}>
-                          <button className="btn-p" style={{ fontSize: 12, padding: "5px 14px" }} onClick={() => setEditCell(null)}>✓ Fermer</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        {view === "compare" ? <>
-                          {cell.planifie && <><div className="lbl">Planifié</div><div style={{ fontSize: 12, color: "#a0b8ff", lineHeight: 1.5 }}>{cell.planifie}</div></>}
-                          {cell.reel && <><div className="lbl" style={{ marginTop: cell.planifie ? 4 : 0 }}>Réel</div><div style={{ fontSize: 12, color: "#7ee8a2", lineHeight: 1.5 }}>{cell.reel}</div></>}
-                          {!cell.planifie && !cell.reel && <div style={{ color: "#3a4060", fontSize: 13 }}>—</div>}
-                        </> : <>
-                          <div style={{ fontSize: 13, lineHeight: 1.5, color: view === "reel" ? "#b0f0c0" : "#d0d8f0" }}>
-                            {cell[view] || <span style={{ color: "#3a4060" }}>—</span>}
-                          </div>
-                        </>}
-                        {cell.ouvriers?.length > 0 && (
-                          <div style={{ marginTop: 4 }}>
-                            {cell.ouvriers.map(o => <span key={o} className={`badge ${view === "reel" ? "reel" : ""}`}>{o}</span>)}
-                          </div>
-                        )}
-                      </>
-                    )}
+          {/* TAB : OUVRIERS */}
+          {adminTab==="ouvriers" && (
+            <div className="ac">
+              <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Liste des ouvriers</div>
+              <div style={{ color:T.textSub, fontSize:13, marginBottom:18 }}>Les noms ici apparaissent comme boutons cliquables dans chaque case du planning.</div>
+              {ouvriers.map((o,i)=>(
+                <div key={i} className="ar">
+                  <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                    <button className="ib" onClick={()=>moveOuvrier(i,-1)}>▲</button>
+                    <button className="ib" onClick={()=>moveOuvrier(i,1)}>▼</button>
                   </div>
-                );
-              })}
-            </div>
-          ))}
-
-          <button className="btn-g" style={{ marginTop: 8, fontSize: 13 }} onClick={() => setShowAddChantier(true)}>+ Ajouter un chantier</button>
-        </div>
-
-        {/* SIDEBAR COMMANDES */}
-        <div style={{ width: 230, flexShrink: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#5b6a8a", marginBottom: 10 }}>Commandes à prévoir</div>
-          {chantiers.map(chantier => (
-            <div key={chantier.id} style={{ marginBottom: 10 }}>
-              <div
-                style={{ background: chantier.couleur, color: "#1a1f2e", borderRadius: "6px 6px 0 0", padding: "6px 10px", fontSize: 12, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", display: "flex", justifyContent: "space-between" }}
-                onClick={() => setEditCommande(editCommande === chantier.id ? null : chantier.id)}
-              >
-                {chantier.nom} <span style={{ opacity: 0.5 }}>{editCommande === chantier.id ? "▲" : "▼"}</span>
+                  {editOuvrier?.index===i
+                    ? <>
+                        <input className="ti" value={editOuvrier.value} onChange={e=>setEditOuvrier({index:i,value:e.target.value})} onKeyDown={e=>{if(e.key==="Enter")renameOuvrier(i,editOuvrier.value);if(e.key==="Escape")setEditOuvrier(null);}} autoFocus/>
+                        <button className="btn-p" style={{ fontSize:12, padding:"6px 12px" }} onClick={()=>renameOuvrier(i,editOuvrier.value)}>✓</button>
+                        <button className="btn-g" style={{ fontSize:12, padding:"6px 12px" }} onClick={()=>setEditOuvrier(null)}>✕</button>
+                      </>
+                    : <>
+                        <div style={{ flex:1, fontWeight:600, fontSize:15 }}>{o}</div>
+                        <button className="ib" onClick={()=>setEditOuvrier({index:i,value:o})} title="Renommer">✏️</button>
+                        <button className="btn-d" onClick={()=>removeOuvrier(i)}>Supprimer</button>
+                      </>
+                  }
+                </div>
+              ))}
+              <div style={{ display:"flex", gap:10, marginTop:16 }}>
+                <input className="ti" value={newOuvrier} onChange={e=>setNewOuvrier(e.target.value)} placeholder="Prénom ou initiales…" onKeyDown={e=>e.key==="Enter"&&addOuvrier()}/>
+                <button className="btn-p" onClick={addOuvrier}>+ Ajouter</button>
               </div>
-              {editCommande === chantier.id
-                ? <textarea rows={4} style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderTop: "none", borderRadius: "0 0 6px 6px", color: "#f5d08a", padding: "8px 10px", fontSize: 13, lineHeight: 1.5, fontFamily: "inherit" }} value={commandes[chantier.id] || ""} onChange={e => saveCommande(chantier.id, e.target.value)} placeholder="Matériaux, livraisons…" autoFocus />
-                : commandes[chantier.id]?.trim()
-                  ? <div style={{ background: "rgba(245,208,138,0.08)", border: "1px solid rgba(245,208,138,0.15)", borderTop: "none", borderRadius: "0 0 6px 6px", padding: "6px 10px", fontSize: 12, color: "#f5d08a", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{commandes[chantier.id]}</div>
-                  : <div onClick={() => setEditCommande(chantier.id)} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderTop: "none", borderRadius: "0 0 6px 6px", padding: "6px 10px", fontSize: 12, color: "#3a4060", cursor: "pointer" }}>Cliquer pour ajouter</div>
-              }
             </div>
-          ))}
-        </div>
-      </div>
+          )}
 
-      {/* MODAL NOUVEAU CHANTIER */}
-      {showAddChantier && (
-        <div className="modal-bg" onClick={() => setShowAddChantier(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 20, letterSpacing: 1 }}>NOUVEAU CHANTIER</div>
-            <div style={{ marginBottom: 16 }}>
-              <div className="lbl" style={{ marginBottom: 6, opacity: 0.7 }}>Nom</div>
-              <input style={{ width: "100%", background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "10px 12px", color: "#e8eaf0", fontSize: 15 }} value={newNom} onChange={e => setNewNom(e.target.value)} placeholder="Ex: DUPONT GARAGE" autoFocus onKeyDown={e => e.key === "Enter" && addChantier()} />
+          {/* TAB : CHANTIERS */}
+          {adminTab==="chantiers" && (
+            <div className="ac">
+              <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Chantiers par défaut</div>
+              <div style={{ color:T.textSub, fontSize:13, marginBottom:18 }}>Ces chantiers apparaissent sur chaque semaine. Clique sur le rond coloré pour changer la couleur.</div>
+              {chantiers.map((c,i)=>(
+                <div key={c.id} className="ar" style={{ flexWrap:"wrap" }}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                    <button className="ib" onClick={()=>moveChantier(i,-1)}>▲</button>
+                    <button className="ib" onClick={()=>moveChantier(i,1)}>▼</button>
+                  </div>
+                  <div className={`cdot ${editChIdx===i?"sel":""}`} style={{ background:c.couleur, border:`2px solid ${T.border}` }} onClick={()=>setEditChIdx(editChIdx===i?null:i)} title="Changer la couleur"/>
+                  {editChIdx===i
+                    ? <div style={{ display:"flex", flexWrap:"wrap", gap:6, flex:1 }}>
+                        {COULEURS_PALETTE.map(col=>(
+                          <div key={col} className={`cdot ${c.couleur===col?"sel":""}`} style={{ background:col }} onClick={()=>{ updateChantier(i,{couleur:col}); setEditChIdx(null); }}/>
+                        ))}
+                      </div>
+                    : <input className="ti" value={c.nom} onChange={e=>updateChantier(i,{nom:e.target.value.toUpperCase()})} style={{ fontWeight:700 }}/>
+                  }
+                  {editChIdx!==i
+                    ? <button className="btn-d" onClick={()=>removeChantier(i)}>Supprimer</button>
+                    : <button className="btn-g" style={{ fontSize:12, padding:"5px 10px" }} onClick={()=>setEditChIdx(null)}>✕</button>
+                  }
+                </div>
+              ))}
+              <div style={{ display:"flex", gap:10, marginTop:18, flexWrap:"wrap", alignItems:"center" }}>
+                <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                  {COULEURS_PALETTE.map(c=>(
+                    <div key={c} className={`cdot ${newColor===c?"sel":""}`} style={{ background:c }} onClick={()=>setNewColor(c)}/>
+                  ))}
+                </div>
+                <input className="ti" value={newNom} onChange={e=>setNewNom(e.target.value)} placeholder="Nom du chantier…" style={{ flex:1, minWidth:140 }} onKeyDown={e=>e.key==="Enter"&&addChantier()}/>
+                <button className="btn-p" onClick={addChantier}>+ Ajouter</button>
+              </div>
             </div>
-            <div style={{ marginBottom: 20 }}>
-              <div className="lbl" style={{ marginBottom: 8, opacity: 0.7 }}>Couleur</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {COULEURS.map(c => (
-                  <div key={c} onClick={() => setNewColor(c)} style={{ width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer", border: newColor === c ? "3px solid #5b8af5" : "2px solid transparent" }} />
+          )}
+
+          {/* TAB : APPARENCE */}
+          {adminTab==="apparence" && (
+            <div className="ac">
+              <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Thème d'affichage</div>
+              <div style={{ color:T.textSub, fontSize:13, marginBottom:18 }}>Chaque membre de l'équipe peut choisir son thème. Le choix est sauvegardé sur son appareil.</div>
+              <div style={{ display:"flex", gap:14 }}>
+                {[["dark","🌙","Sombre","#1a1f2e","#e8eaf0"],["light","☀️","Clair","#f0f2f8","#1a1f2e"]].map(([k,ic,lb,bg,col])=>(
+                  <div key={k} onClick={()=>{ setTheme(k); localStorage.setItem("theme",k); }} style={{ flex:1, background:bg, border:`3px solid ${theme===k?T.accent:T.border}`, borderRadius:12, padding:"22px 16px", cursor:"pointer", textAlign:"center", transition:"border .15s" }}>
+                    <div style={{ fontSize:30, marginBottom:8 }}>{ic}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:col }}>{lb}</div>
+                    {theme===k && <div style={{ fontSize:11, color:T.accent, marginTop:6 }}>✓ Actif</div>}
+                  </div>
                 ))}
               </div>
+              <div style={{ marginTop:24, padding:"14px 16px", background:T.card, borderRadius:10, fontSize:13, color:T.textSub, lineHeight:1.6 }}>
+                💡 Tu veux modifier autre chose ? Nombre de jours affichés, nom de l'entreprise, ordre des colonnes… Envoie un message à celui qui a mis en place l'outil.
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="btn-g" onClick={() => setShowAddChantier(false)}>Annuler</button>
-              <button className="btn-p" onClick={addChantier}>Ajouter</button>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>
