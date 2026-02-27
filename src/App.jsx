@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -73,6 +73,12 @@ export default function App() {
   const [cells, setCells]         = useState({});
   const [commandes, setCommandes] = useState({});
   const [notesData, setNotesData] = useState({});
+
+  // Brouillons locaux : mis à jour instantanément à chaque frappe,
+  // sans attendre la confirmation Supabase
+  const [localDrafts, setLocalDrafts] = useState({});
+  // Timers de debounce : un timer par clé (chantierId_jour ou "cmd_id" ou "note_id")
+  const debounceTimers = useRef({});
 
   const [editCell, setEditCell] = useState(null);
   const [editCom, setEditCom]   = useState(null);
@@ -164,35 +170,79 @@ export default function App() {
   // ── SAVE HELPERS ────────────────────────────────────────────────────────
   const saveConfig = (key, value) => supabase.from("planning_config").upsert({ key, value }, { onConflict:"key" });
 
-  const saveCell = async (cId, jour, field, value) => {
-    const key = `${cId}_${jour}`;
-    const cur = cells[key] || emptyCell();
-    const upd = { ...cur, [field]: value };
-    setCells(prev => ({ ...prev, [key]: upd }));
-    await supabase.from("planning_cells").upsert({ week_id:weekId, chantier_id:cId, jour, ...upd }, { onConflict:"week_id,chantier_id,jour" });
+  // ── DEBOUNCE HELPER ─────────────────────────────────────────────────────
+  // Lance fn après `delay` ms. Si appelé à nouveau avant, repart à zéro.
+  const debounce = (timerKey, fn, delay = 600) => {
+    if (debounceTimers.current[timerKey]) clearTimeout(debounceTimers.current[timerKey]);
+    debounceTimers.current[timerKey] = setTimeout(() => {
+      fn();
+      delete debounceTimers.current[timerKey];
+    }, delay);
   };
+
+  // ── SAVE CELL (debounced) ────────────────────────────────────────────────
+  const saveCell = (cId, jour, field, value) => {
+    const key = `${cId}_${jour}`;
+    // 1. Mise à jour locale immédiate (ce que l'utilisateur voit en tapant)
+    setLocalDrafts(prev => {
+      const cur = prev[key] || cells[key] || emptyCell();
+      return { ...prev, [key]: { ...cur, [field]: value } };
+    });
+    // 2. Sauvegarde Supabase après 600ms sans nouvelle frappe
+    debounce(key, async () => {
+      // On relit le brouillon le plus récent depuis la ref pour ne pas capturer
+      // une valeur périmée dans la closure
+      setLocalDrafts(prev => {
+        const cur = prev[key] || cells[key] || emptyCell();
+        const upd = { ...cur, [field]: value };
+        supabase.from("planning_cells")
+          .upsert({ week_id:weekId, chantier_id:cId, jour, ...upd }, { onConflict:"week_id,chantier_id,jour" })
+          .then(() => {
+            // Une fois confirmé, on retire le brouillon local (Supabase prend le relai)
+            setLocalDrafts(p => { const n={...p}; delete n[key]; return n; });
+          });
+        return prev;
+      });
+    });
+  };
+
   const toggleOuvrier = async (cId, jour, o) => {
     const key = `${cId}_${jour}`;
-    const cur = cells[key] || emptyCell();
+    const cur = localDrafts[key] || cells[key] || emptyCell();
     const list = [...(cur.ouvriers||[])];
     const i = list.indexOf(o);
     if (i >= 0) list.splice(i,1); else list.push(o);
-    await saveCell(cId, jour, "ouvriers", list);
+    // Les ouvriers n'ont pas besoin de debounce (clic, pas frappe clavier)
+    const upd = { ...cur, ouvriers: list };
+    setLocalDrafts(prev => ({ ...prev, [key]: upd }));
+    await supabase.from("planning_cells")
+      .upsert({ week_id:weekId, chantier_id:cId, jour, ...upd }, { onConflict:"week_id,chantier_id,jour" });
+    setLocalDrafts(prev => { const n={...prev}; delete n[key]; return n; });
   };
-  const saveCommande = async (cId, v) => {
+
+  const saveCommande = (cId, v) => {
+    // Mise à jour locale immédiate
     setCommandes(prev => ({ ...prev, [cId]: v }));
-    await supabase.from("planning_commandes").upsert({ week_id:weekId, chantier_id:cId, contenu:v }, { onConflict:"week_id,chantier_id" });
+    // Sauvegarde différée
+    debounce(`cmd_${cId}`, () => {
+      supabase.from("planning_commandes")
+        .upsert({ week_id:weekId, chantier_id:cId, contenu:v }, { onConflict:"week_id,chantier_id" });
+    });
   };
-  const saveNote = async (cId, v) => {
+
+  const saveNote = (cId, v) => {
     setNotesData(prev => ({ ...prev, [cId]: v }));
-    await supabase.from("planning_notes").upsert({ chantier_id:cId, contenu:v }, { onConflict:"chantier_id" });
+    debounce(`note_${cId}`, () => {
+      supabase.from("planning_notes")
+        .upsert({ chantier_id:cId, contenu:v }, { onConflict:"chantier_id" });
+    });
   };
 
   // ── NAV ─────────────────────────────────────────────────────────────────
   const prevWeek = () => { if(week===1){setYear(y=>y-1);setWeek(52);}else setWeek(w=>w-1); };
   const nextWeek = () => { if(week===52){setYear(y=>y+1);setWeek(1);}else setWeek(w=>w+1); };
   const goNow = () => { const {year:y,week:w}=getCurrentWeek(); setYear(y); setWeek(w); };
-  const getCell = (cId, jour) => cells[`${cId}_${jour}`] || emptyCell();
+  const getCell = (cId, jour) => localDrafts[`${cId}_${jour}`] || cells[`${cId}_${jour}`] || emptyCell();
   const isEditing = (cId, jour) => editCell?.cId===cId && editCell?.jour===jour;
 
   // ── ADMIN : OUVRIERS ────────────────────────────────────────────────────
