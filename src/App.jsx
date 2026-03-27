@@ -70,139 +70,192 @@ const DEFAULT_CHANTIERS = [
 // ── MODALE CELLULE ────────────────────────────────────────────────────────────
 function CellModal({ chantier, jour, draft, setDraft, commande, note, ouvriers, saving, onClose, T }) {
   if (!chantier) return null;
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:500,
-      display:"flex", alignItems:"center", justifyContent:"center", padding:16,
-      backdropFilter:"blur(3px)" }}
-      onClick={onClose}>
-      <div style={{ background:T.modal, borderRadius:16, width:"100%", maxWidth:640,
-        maxHeight:"90vh", overflow:"hidden", display:"flex", flexDirection:"column",
-        boxShadow:"0 24px 80px rgba(0,0,0,0.4)", border:`1px solid ${T.border}` }}
-        onClick={e=>e.stopPropagation()}>
  
-        {/* ── EN-TÊTE COLORÉE ── */}
-        <div style={{ background:chantier.couleur, padding:"18px 24px", display:"flex",
+  const toggleOuvrier = (o) => {
+    const list = [...(draft.ouvriers||[])];
+    const i = list.indexOf(o);
+    if (i >= 0) list.splice(i, 1); else list.push(o);
+    setDraft(p => ({ ...p, ouvriers: list }));
+  };
+ 
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:500,
+      display:"flex", alignItems:"center", justifyContent:"center", padding:"16px",
+      backdropFilter:"blur(4px)" }}
+      onClick={onClose}>
+ 
+      {/* Fenêtre — large et haute */}
+      <div style={{ background:T.modal, borderRadius:18, width:"100%", maxWidth:860,
+        maxHeight:"92vh", overflow:"hidden", display:"flex", flexDirection:"column",
+        boxShadow:"0 32px 100px rgba(0,0,0,0.5)", border:`1px solid ${T.border}` }}
+        onClick={e => e.stopPropagation()}>
+ 
+        {/* ── EN-TÊTE ── */}
+        <div style={{ background:chantier.couleur, padding:"20px 28px", display:"flex",
           alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
           <div>
-            <div style={{ fontSize:11, fontWeight:700, letterSpacing:3, textTransform:"uppercase",
-              color:"rgba(0,0,0,0.45)", marginBottom:4 }}>{jour}</div>
-            <div style={{ fontSize:22, fontWeight:800, letterSpacing:1, color:"#1a1f2e",
-              textTransform:"uppercase" }}>{chantier.nom}</div>
+            <div style={{ fontSize:11, fontWeight:700, letterSpacing:3,
+              textTransform:"uppercase", color:"rgba(0,0,0,0.4)", marginBottom:3 }}>{jour}</div>
+            <div style={{ fontSize:26, fontWeight:800, letterSpacing:1,
+              color:"#1a1f2e", textTransform:"uppercase" }}>{chantier.nom}</div>
           </div>
           <button onClick={onClose} style={{ background:"rgba(0,0,0,0.12)", border:"none",
-            borderRadius:8, width:36, height:36, cursor:"pointer", fontSize:18,
+            borderRadius:10, width:40, height:40, cursor:"pointer", fontSize:20,
             color:"#1a1f2e", display:"flex", alignItems:"center", justifyContent:"center",
             fontWeight:700 }}>✕</button>
         </div>
  
-        {/* ── CORPS SCROLLABLE ── */}
-        <div style={{ overflowY:"auto", padding:"24px", display:"flex", flexDirection:"column", gap:20 }}>
+        {/* ── CORPS : deux colonnes ── */}
+        <div style={{ flex:1, overflow:"hidden", display:"grid",
+          gridTemplateColumns:"1fr 320px", minHeight:0 }}>
  
-          {/* OUVRIERS */}
-          <div>
-            <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase",
-              color:T.textMuted, marginBottom:10 }}>👷 Ouvriers assignés</div>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-              {ouvriers.map(o => {
-                const sel = (draft.ouvriers||[]).includes(o);
-                return (
-                  <button key={o} onClick={()=>{
-                    const list=[...(draft.ouvriers||[])];
-                    const i=list.indexOf(o); if(i>=0)list.splice(i,1); else list.push(o);
-                    setDraft(p=>({...p,ouvriers:list}));
-                  }} style={{
-                    padding:"7px 16px", borderRadius:8, fontSize:13, fontWeight:700,
-                    cursor:"pointer", fontFamily:"inherit", transition:"all .12s",
-                    background: sel ? chantier.couleur : T.fieldBg,
-                    border: sel ? `2px solid rgba(0,0,0,0.2)` : `2px solid ${T.border}`,
-                    color: sel ? "#1a1f2e" : T.textSub,
-                    transform: sel ? "scale(1.04)" : "scale(1)",
-                  }}>{o}</button>
-                );
-              })}
-            </div>
-          </div>
+          {/* COLONNE GAUCHE : Tâches + Ouvriers */}
+          <div style={{ padding:"24px 20px 24px 28px", display:"flex",
+            flexDirection:"column", gap:16, overflowY:"auto",
+            borderRight:`1px solid ${T.sectionDivider}` }}>
  
-          <div style={{ height:1, background:T.sectionDivider }}/>
- 
-          {/* TÂCHES PLANIFIÉES + RÉEL côte à côte */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase",
-                color:T.textMuted, marginBottom:8 }}>📋 Tâches planifiées</div>
+            {/* Tâches planifiées — zone principale, grande */}
+            <div style={{ flex:1, display:"flex", flexDirection:"column" }}>
+              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2,
+                textTransform:"uppercase", color:T.textMuted, marginBottom:10 }}>
+                📋 Tâches planifiées
+              </div>
               <textarea
                 autoFocus
                 value={draft.planifie||""}
-                onChange={e=>setDraft(p=>({...p,planifie:e.target.value}))}
-                placeholder="Décrire les tâches prévues…"
-                style={{ width:"100%", minHeight:120, background:T.fieldBg,
-                  border:`1px solid ${T.fieldBorder}`, borderRadius:10, padding:"12px 14px",
-                  color:T.planColor, fontSize:13, lineHeight:1.6, resize:"vertical",
-                  fontFamily:"inherit", outline:"none" }}
+                onChange={e => setDraft(p => ({ ...p, planifie:e.target.value }))}
+                placeholder="Décrire les tâches prévues pour cette journée…"
+                style={{ flex:1, minHeight:220, width:"100%",
+                  background:T.fieldBg, border:`1.5px solid ${T.fieldBorder}`,
+                  borderRadius:12, padding:"14px 16px", color:T.planColor,
+                  fontSize:14, lineHeight:1.7, resize:"none",
+                  fontFamily:"inherit", outline:"none",
+                  transition:"border-color .15s" }}
+                onFocus={e => e.target.style.borderColor = T.accent}
+                onBlur={e  => e.target.style.borderColor = T.fieldBorder}
               />
             </div>
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase",
-                color:T.textMuted, marginBottom:8 }}>✅ Réel effectué</div>
+ 
+            {/* Réel effectué */}
+            <div style={{ display:"flex", flexDirection:"column" }}>
+              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2,
+                textTransform:"uppercase", color:T.textMuted, marginBottom:10 }}>
+                ✅ Réel effectué
+              </div>
               <textarea
                 value={draft.reel||""}
-                onChange={e=>setDraft(p=>({...p,reel:e.target.value}))}
-                placeholder="Ce qui a réellement été fait…"
-                style={{ width:"100%", minHeight:120, background:T.fieldBg,
-                  border:`1px solid ${T.fieldBorder}`, borderRadius:10, padding:"12px 14px",
-                  color:T.reelColor, fontSize:13, lineHeight:1.6, resize:"vertical",
-                  fontFamily:"inherit", outline:"none" }}
+                onChange={e => setDraft(p => ({ ...p, reel:e.target.value }))}
+                placeholder="Ce qui a réellement été réalisé…"
+                style={{ minHeight:100, width:"100%",
+                  background:T.fieldBg, border:`1.5px solid ${T.fieldBorder}`,
+                  borderRadius:12, padding:"14px 16px", color:T.reelColor,
+                  fontSize:14, lineHeight:1.7, resize:"none",
+                  fontFamily:"inherit", outline:"none",
+                  transition:"border-color .15s" }}
+                onFocus={e => e.target.style.borderColor = "#50c878"}
+                onBlur={e  => e.target.style.borderColor = T.fieldBorder}
               />
+            </div>
+ 
+            {/* Ouvriers */}
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2,
+                textTransform:"uppercase", color:T.textMuted, marginBottom:10 }}>
+                👷 Ouvriers assignés
+              </div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                {ouvriers.map(o => {
+                  const sel = (draft.ouvriers||[]).includes(o);
+                  return (
+                    <button key={o} onClick={() => toggleOuvrier(o)} style={{
+                      padding:"9px 18px", borderRadius:10, fontSize:14, fontWeight:700,
+                      cursor:"pointer", fontFamily:"inherit", transition:"all .12s",
+                      background: sel ? chantier.couleur : T.fieldBg,
+                      border: `2px solid ${sel ? "rgba(0,0,0,0.15)" : T.border}`,
+                      color: sel ? "#1a1f2e" : T.textSub,
+                      transform: sel ? "scale(1.05)" : "scale(1)",
+                      boxShadow: sel ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
+                    }}>{o}</button>
+                  );
+                })}
+              </div>
             </div>
           </div>
  
-          <div style={{ height:1, background:T.sectionDivider }}/>
+          {/* COLONNE DROITE : Commandes + Notes */}
+          <div style={{ padding:"24px 28px 24px 20px", display:"flex",
+            flexDirection:"column", gap:16, overflowY:"auto" }}>
  
-          {/* COMMANDES + NOTES côte à côte */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase",
-                color:T.textMuted, marginBottom:8 }}>📦 Commandes à prévoir</div>
+            {/* Commandes */}
+            <div style={{ flex:1, display:"flex", flexDirection:"column" }}>
+              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2,
+                textTransform:"uppercase", color:T.textMuted, marginBottom:10 }}>
+                📦 Commandes à prévoir
+              </div>
               <textarea
                 value={commande.value||""}
-                onChange={e=>commande.set(e.target.value)}
-                placeholder="Matériaux, livraisons, outillage…"
-                style={{ width:"100%", minHeight:90, background:T.cmdBg,
-                  border:`1px solid ${T.cmdBorder}`, borderRadius:10, padding:"12px 14px",
-                  color:T.cmdColor, fontSize:13, lineHeight:1.6, resize:"vertical",
-                  fontFamily:"inherit", outline:"none" }}
+                onChange={e => commande.set(e.target.value)}
+                placeholder={"Matériaux\nLivraisons\nOutillage…"}
+                style={{ flex:1, minHeight:180, width:"100%",
+                  background:T.cmdBg, border:`1.5px solid ${T.cmdBorder}`,
+                  borderRadius:12, padding:"14px 16px", color:T.cmdColor,
+                  fontSize:14, lineHeight:1.7, resize:"none",
+                  fontFamily:"inherit", outline:"none",
+                  transition:"border-color .15s" }}
+                onFocus={e => e.target.style.borderColor = T.cmdColor}
+                onBlur={e  => e.target.style.borderColor = T.cmdBorder}
               />
             </div>
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase",
-                color:T.textMuted, marginBottom:8 }}>🗒️ Notes chantier</div>
+ 
+            {/* Notes permanentes */}
+            <div style={{ display:"flex", flexDirection:"column" }}>
+              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2,
+                textTransform:"uppercase", color:T.textMuted, marginBottom:10 }}>
+                🗒️ Notes chantier
+              </div>
               <textarea
                 value={note.value||""}
-                onChange={e=>note.set(e.target.value)}
-                placeholder="Accès, contacts, infos permanentes…"
-                style={{ width:"100%", minHeight:90, background:T.noteBg,
-                  border:`1px solid ${T.noteBorder}`, borderRadius:10, padding:"12px 14px",
-                  color:T.noteColor, fontSize:13, lineHeight:1.6, resize:"vertical",
-                  fontFamily:"inherit", outline:"none" }}
+                onChange={e => note.set(e.target.value)}
+                placeholder={"Code d'accès\nContact client\nInfos permanentes…"}
+                style={{ minHeight:120, width:"100%",
+                  background:T.noteBg, border:`1.5px solid ${T.noteBorder}`,
+                  borderRadius:12, padding:"14px 16px", color:T.noteColor,
+                  fontSize:14, lineHeight:1.7, resize:"none",
+                  fontFamily:"inherit", outline:"none",
+                  transition:"border-color .15s" }}
+                onFocus={e => e.target.style.borderColor = T.noteColor}
+                onBlur={e  => e.target.style.borderColor = T.noteBorder}
               />
+              <div style={{ fontSize:11, color:T.textMuted, marginTop:6, lineHeight:1.5 }}>
+                Ces notes sont permanentes et visibles sur toutes les semaines.
+              </div>
             </div>
           </div>
         </div>
  
-        {/* ── PIED : BOUTON SAUVEGARDER ── */}
-        <div style={{ padding:"16px 24px", borderTop:`1px solid ${T.border}`,
-          display:"flex", justifyContent:"flex-end", gap:10, flexShrink:0,
-          background:T.modal }}>
-          <button onClick={onClose} style={{ background:"transparent", border:`1px solid ${T.border}`,
-            borderRadius:8, padding:"10px 20px", color:T.textSub, fontFamily:"inherit",
-            fontSize:14, cursor:"pointer" }}>Annuler</button>
-          <button onClick={onClose} disabled={saving} style={{
-            background: chantier.couleur, border:"none", borderRadius:8,
-            padding:"10px 28px", color:"#1a1f2e", fontFamily:"inherit",
-            fontSize:14, fontWeight:800, cursor:"pointer", letterSpacing:.5,
-            opacity: saving ? .6 : 1 }}>
-            {saving ? "Enregistrement…" : "✓ Enregistrer"}
-          </button>
+        {/* ── PIED ── */}
+        <div style={{ padding:"16px 28px", borderTop:`1px solid ${T.border}`,
+          display:"flex", justifyContent:"space-between", alignItems:"center",
+          flexShrink:0, background:T.modal }}>
+          <div style={{ fontSize:12, color:T.textMuted }}>
+            {(draft.ouvriers||[]).length > 0
+              ? `👷 ${(draft.ouvriers||[]).join(", ")}`
+              : "Aucun ouvrier sélectionné"}
+          </div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button onClick={onClose} style={{ background:"transparent",
+              border:`1px solid ${T.border}`, borderRadius:8, padding:"10px 20px",
+              color:T.textSub, fontFamily:"inherit", fontSize:14, cursor:"pointer" }}>
+              Annuler
+            </button>
+            <button onClick={onClose} disabled={saving} style={{
+              background:chantier.couleur, border:"none", borderRadius:8,
+              padding:"10px 32px", color:"#1a1f2e", fontFamily:"inherit",
+              fontSize:14, fontWeight:800, cursor:"pointer", letterSpacing:.5,
+              opacity: saving ? .6 : 1, transition:"opacity .15s" }}>
+              {saving ? "Enregistrement…" : "✓ Enregistrer"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
