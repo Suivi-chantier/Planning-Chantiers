@@ -531,10 +531,10 @@ function PageCommandes({chantiers,T}){
       <tr style={{background:T.fieldBg}}>
         <td style={{padding:"8px 10px"}}>
           <select value={draft.chantier_id} onChange={e=>setDraft(p=>({...p,chantier_id:e.target.value}))}
-            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
-            <option value="">— Chantier —</option>
-            {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+            style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
+              color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
+            <option value="" style={{background:"#1e2336",color:"#9aa5c0"}}>— Chantier —</option>
+            {chantiers.map(c=><option key={c.id} value={c.id} style={{background:"#1e2336",color:"#e8eaf0"}}>{c.nom}</option>)}
           </select>
         </td>
         <td style={{padding:"8px 10px"}}>
@@ -557,9 +557,9 @@ function PageCommandes({chantiers,T}){
         </td>
         <td style={{padding:"8px 10px"}}>
           <select value={draft.statut} onChange={e=>setDraft(p=>({...p,statut:e.target.value}))}
-            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
-            {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+            style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
+              color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
+            {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k} style={{background:"#1e2336",color:"#e8eaf0"}}>{v.label}</option>)}
           </select>
         </td>
         <td style={{padding:"8px 10px"}}>
@@ -609,16 +609,16 @@ function PageCommandes({chantiers,T}){
       {/* Filtres */}
       <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         <select value={filterChantier} onChange={e=>setFilterChantier(e.target.value)}
-          style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",
-            color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
-          <option value="all">Tous les chantiers</option>
-          {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+          style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",
+            color:"#e8eaf0",fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="all" style={{background:"#1e2336",color:"#e8eaf0"}}>Tous les chantiers</option>
+          {chantiers.map(c=><option key={c.id} value={c.id} style={{background:"#1e2336",color:"#e8eaf0"}}>{c.nom}</option>)}
         </select>
         <select value={filterStatut} onChange={e=>setFilterStatut(e.target.value)}
-          style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",
-            color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
-          <option value="all">Tous les statuts</option>
-          {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",
+            color:"#e8eaf0",fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="all" style={{background:"#1e2336",color:"#e8eaf0"}}>Tous les statuts</option>
+          {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k} style={{background:"#1e2336",color:"#e8eaf0"}}>{v.label}</option>)}
         </select>
       </div>
  
