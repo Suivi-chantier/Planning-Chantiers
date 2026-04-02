@@ -495,12 +495,6 @@ function PageCommandes({chantiers,T}){
     (filterStatut==="all"||r.statut===filterStatut)
   );
  
-  const grouped=chantiers.reduce((acc,c)=>{
-    const items=filtered.filter(r=>r.chantier_id===c.id);
-    if(items.length>0||(filterChantier==="all"&&filterChantier!==c.id))acc.push({chantier:c,items});
-    return acc;
-  },{});
- 
   const RowEditor=({row,onSave,onCancel})=>{
     const[draft,setDraft]=useState(row);
     return(
