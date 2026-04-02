@@ -84,46 +84,78 @@ const DEFAULT_CHANTIERS=[
  
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
 function Sidebar({page,setPage,T}){
+  const[collapsed,setCollapsed]=useState(()=>localStorage.getItem("sidebar_collapsed")==="1");
   const nav=[
     {id:"dashboard",icon:"⊞",label:"Tableau de bord"},
     {id:"planning", icon:"📅",label:"Planning"},
     {id:"commandes",icon:"📦",label:"Commandes"},
     {id:"admin",    icon:"⚙️",label:"Réglages"},
   ];
+  const toggle=()=>{
+    const next=!collapsed;
+    setCollapsed(next);
+    localStorage.setItem("sidebar_collapsed",next?"1":"0");
+  };
+  const W=collapsed?64:220;
   return(
-    <div style={{width:220,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,
-      display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",zIndex:50}}>
-      <div style={{padding:"20px 20px 12px"}}>
-        <div style={{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"rgba(255,255,255,0.3)",marginBottom:4}}>
-          Mon Entreprise
-        </div>
-        <div style={{fontSize:18,fontWeight:800,letterSpacing:1,color:"#fff"}}>PLANNING PRO</div>
+    <div style={{width:W,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,
+      display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",zIndex:50,
+      transition:"width .2s ease",overflow:"hidden"}}>
+ 
+      {/* Logo + toggle */}
+      <div style={{padding:collapsed?"16px 0":"20px 16px 12px",display:"flex",
+        alignItems:"center",justifyContent:collapsed?"center":"space-between",gap:8,flexShrink:0}}>
+        {!collapsed&&<div>
+          <div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:"rgba(255,255,255,0.3)",marginBottom:3}}>Mon Entreprise</div>
+          <div style={{fontSize:16,fontWeight:800,letterSpacing:1,color:"#fff",whiteSpace:"nowrap"}}>PLANNING PRO</div>
+        </div>}
+        <button onClick={toggle} title={collapsed?"Agrandir le menu":"Réduire le menu"} style={{
+          background:"rgba(255,255,255,0.08)",border:"none",borderRadius:8,
+          width:32,height:32,cursor:"pointer",color:"rgba(255,255,255,0.6)",
+          fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",
+          flexShrink:0,transition:"background .15s",
+        }}
+        onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.15)"}
+        onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}>
+          {collapsed?"▶":"◀"}
+        </button>
       </div>
-      <div style={{height:1,background:T.sidebarBorder,margin:"0 16px 12px"}}/>
-      <nav style={{flex:1,padding:"0 10px"}}>
+ 
+      {!collapsed&&<div style={{height:1,background:T.sidebarBorder,margin:"0 14px 10px"}}/>}
+ 
+      {/* Nav items */}
+      <nav style={{flex:1,padding:collapsed?"8px 6px":"0 8px"}}>
         {nav.map(n=>{
           const active=page===n.id;
           return(
-            <button key={n.id} onClick={()=>setPage(n.id)} style={{
-              width:"100%",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",
+            <button key={n.id} onClick={()=>setPage(n.id)}
+              title={collapsed?n.label:""} style={{
+              width:"100%",display:"flex",alignItems:"center",
+              justifyContent:collapsed?"center":"flex-start",
+              gap:10,padding:collapsed?"12px 0":"11px 14px",
               borderRadius:10,border:"none",cursor:"pointer",fontFamily:"inherit",
-              fontSize:14,fontWeight:active?700:500,letterSpacing:.5,
+              fontSize:15,fontWeight:active?700:500,letterSpacing:.3,
               background:active?T.sidebarActive:"transparent",
-              color:active?"#fff":"rgba(255,255,255,0.5)",
-              marginBottom:2,transition:"all .15s",textAlign:"left",
+              color:active?"#fff":"rgba(255,255,255,0.45)",
+              marginBottom:4,transition:"all .15s",textAlign:"left",
+              whiteSpace:"nowrap",
             }}>
-              <span style={{fontSize:18,width:22,textAlign:"center"}}>{n.icon}</span>
-              {n.label}
-              {active&&<span style={{marginLeft:"auto",width:4,height:20,borderRadius:2,background:T.accent,display:"block"}}/>}
+              <span style={{fontSize:20,width:24,textAlign:"center",flexShrink:0}}>{n.icon}</span>
+              {!collapsed&&<>
+                <span>{n.label}</span>
+                {active&&<span style={{marginLeft:"auto",width:4,height:18,borderRadius:2,background:T.accent,display:"block"}}/>}
+              </>}
             </button>
           );
         })}
       </nav>
-      <div style={{padding:"12px 16px",borderTop:`1px solid ${T.sidebarBorder}`}}>
+ 
+      {/* Date en bas */}
+      {!collapsed&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.sidebarBorder}`,flexShrink:0}}>
         <div style={{fontSize:11,color:"rgba(255,255,255,0.25)",lineHeight:1.5}}>
           {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -307,135 +339,133 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
  
   return(
     <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
+ 
       {/* Titre */}
       <div style={{marginBottom:28}}>
-        <div style={{fontSize:13,color:T.textMuted,marginBottom:4}}>
+        <div style={{fontSize:15,color:T.textMuted,marginBottom:6}}>
           {now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
         </div>
-        <div style={{fontSize:32,fontWeight:800,letterSpacing:1}}>{greeting} 👋</div>
+        <div style={{fontSize:36,fontWeight:800,letterSpacing:1}}>{greeting} 👋</div>
       </div>
  
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:20,marginBottom:20}}>
+      {/* Rangée 1 : Chantiers (2/3) + Commandes urgentes (1/3) */}
+      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:20,marginBottom:20}}>
  
-        {/* CHANTIERS DU JOUR */}
-        <div style={{gridColumn:"1/3"}}>
-          <Widget title="Chantiers aujourd'hui" icon="🏗️">
-            {!todayJour?(
-              <div style={{color:T.textMuted,fontSize:14,padding:"8px 0"}}>C'est le week-end ! 🎉</div>
-            ):chantiersAujourdHui.length===0?(
-              <div style={{color:T.textMuted,fontSize:14,padding:"8px 0"}}>
-                Aucun ouvrier planifié pour {todayJour} — ouvre le planning pour remplir la journée.
-              </div>
-            ):(
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {chantiersAujourdHui.map(c=>(
-                  <div key={c.id} style={{display:"flex",alignItems:"flex-start",gap:12,
-                    padding:"12px 14px",borderRadius:10,background:c.couleur+"22",
-                    border:`1px solid ${c.couleur}55`}}>
-                    <div style={{width:12,height:12,borderRadius:3,background:c.couleur,marginTop:3,flexShrink:0}}/>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:800,fontSize:14,color:T.text,marginBottom:4}}>{c.nom}</div>
-                      {c.cell.planifie&&<div style={{fontSize:13,color:T.textSub,lineHeight:1.5,marginBottom:6}}>{c.cell.planifie}</div>}
-                      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                        {c.cell.ouvriers.map(o=>(
-                          <span key={o} style={{background:c.couleur,color:"#1a1f2e",borderRadius:6,
-                            padding:"2px 8px",fontSize:12,fontWeight:700}}>{o}</span>
-                        ))}
-                      </div>
+        <Widget title="Chantiers aujourd'hui" icon="🏗️">
+          {!todayJour?(
+            <div style={{color:T.textMuted,fontSize:16,padding:"8px 0"}}>C'est le week-end ! 🎉</div>
+          ):chantiersAujourdHui.length===0?(
+            <div style={{color:T.textMuted,fontSize:15,padding:"8px 0"}}>
+              Aucun ouvrier planifié pour {todayJour} — ouvre le planning pour remplir la journée.
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {chantiersAujourdHui.map(c=>(
+                <div key={c.id} style={{display:"flex",alignItems:"flex-start",gap:14,
+                  padding:"14px 16px",borderRadius:12,background:c.couleur+"22",border:`1px solid ${c.couleur}55`}}>
+                  <div style={{width:14,height:14,borderRadius:4,background:c.couleur,marginTop:3,flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:800,fontSize:16,color:T.text,marginBottom:5}}>{c.nom}</div>
+                    {c.cell.planifie&&<div style={{fontSize:14,color:T.textSub,lineHeight:1.6,marginBottom:8}}>{c.cell.planifie}</div>}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {c.cell.ouvriers.map(o=>(
+                        <span key={o} style={{background:c.couleur,color:"#1a1f2e",borderRadius:6,
+                          padding:"3px 10px",fontSize:13,fontWeight:700}}>{o}</span>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </Widget>
-        </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Widget>
  
-        {/* COMMANDES URGENTES */}
         <Widget title="Commandes urgentes" icon="🚨">
           {cmdDetails.length===0?(
-            <div style={{color:T.textMuted,fontSize:13}}>Aucune commande en attente ✓</div>
+            <div style={{color:T.textMuted,fontSize:15}}>Aucune commande en attente ✓</div>
           ):(
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {cmdDetails.slice(0,5).map(c=>{
+              {cmdDetails.slice(0,7).map(c=>{
                 const ch=chantiers.find(x=>x.id===c.chantier_id);
                 return(
-                  <div key={c.id} style={{fontSize:13,display:"flex",alignItems:"center",gap:8,
-                    padding:"8px 10px",borderRadius:8,background:"rgba(224,92,92,0.08)",
-                    border:"1px solid rgba(224,92,92,0.2)"}}>
-                    {ch&&<span style={{width:8,height:8,borderRadius:2,background:ch.couleur,display:"block",flexShrink:0}}/>}
+                  <div key={c.id} style={{fontSize:14,display:"flex",alignItems:"center",gap:8,
+                    padding:"9px 12px",borderRadius:8,background:"rgba(224,92,92,0.08)",border:"1px solid rgba(224,92,92,0.2)"}}>
+                    {ch&&<span style={{width:9,height:9,borderRadius:2,background:ch.couleur,display:"block",flexShrink:0}}/>}
                     <span style={{flex:1,color:T.text,fontWeight:600}}>{c.article}</span>
-                    {ch&&<span style={{fontSize:11,color:T.textMuted}}>{ch.nom}</span>}
+                    {ch&&<span style={{fontSize:12,color:T.textMuted}}>{ch.nom}</span>}
                   </div>
                 );
               })}
-              {cmdDetails.length>5&&<div style={{fontSize:12,color:T.textMuted}}>+{cmdDetails.length-5} autres…</div>}
+              {cmdDetails.length>7&&<div style={{fontSize:13,color:T.textMuted}}>+{cmdDetails.length-7} autres…</div>}
             </div>
           )}
         </Widget>
       </div>
  
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
+      {/* Rangée 2 : Accès rapides (1/3) + Agenda large (2/3) */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:20,marginBottom:24}}>
  
-        {/* RACCOURCIS GOOGLE */}
         <Widget title="Accès rapides" icon="🔗"
-          action={<button onClick={()=>setEditLinks(!editLinks)} style={{background:"transparent",border:`1px solid ${T.border}`,
-            borderRadius:6,padding:"4px 10px",color:T.textMuted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+          action={<button onClick={()=>setEditLinks(!editLinks)} style={{background:"transparent",
+            border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",
+            color:T.textMuted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
             {editLinks?"✓ Terminer":"Modifier"}
           </button>}>
-          <ExternalBtn href="https://mail.google.com" icon="📧" label="Gmail" color="#ea4335"/>
+          <ExternalBtn href="https://mail.google.com"    icon="📧" label="Gmail"         color="#ea4335"/>
           <ExternalBtn href="https://calendar.google.com" icon="📅" label="Google Agenda" color="#4285f4"/>
-          <ExternalBtn href="https://keep.google.com" icon="🗒️" label="Google Keep" color="#fbbc04"/>
-          <ExternalBtn href="https://drive.google.com" icon="💾" label="Google Drive" color="#34a853"/>
-          <ExternalBtn href="https://web.whatsapp.com" icon="💬" label="WhatsApp Web" color="#25d366"/>
- 
+          <ExternalBtn href="https://keep.google.com"    icon="🗒️" label="Google Keep"   color="#fbbc04"/>
+          <ExternalBtn href="https://drive.google.com"   icon="💾" label="Google Drive"  color="#34a853"/>
+          <ExternalBtn href="https://web.whatsapp.com"   icon="💬" label="WhatsApp Web"  color="#25d366"/>
           {driveLinks.length>0&&<>
             <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",
-              color:T.textMuted,margin:"12px 0 8px"}}>Dossiers Drive</div>
+              color:T.textMuted,margin:"14px 0 8px"}}>Dossiers Drive</div>
             {driveLinks.map((l,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                <ExternalBtn href={l.url} icon="📁" label={l.name} color="#34a853"/>
+              <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{flex:1}}><ExternalBtn href={l.url} icon="📁" label={l.name} color="#34a853"/></div>
                 {editLinks&&<button onClick={()=>removeDriveLink(i)} style={{background:"transparent",
-                  border:"none",color:"#e05c5c",cursor:"pointer",fontSize:16,flexShrink:0}}>✕</button>}
+                  border:"none",color:"#e05c5c",cursor:"pointer",fontSize:18,flexShrink:0,padding:"0 4px"}}>✕</button>}
               </div>
             ))}
           </>}
- 
           {editLinks&&(
-            <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:8}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted}}>Ajouter un dossier Drive</div>
-              <input value={newLinkName} onChange={e=>setNewLinkName(e.target.value)} placeholder="Nom du dossier"
-                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,padding:"8px 10px",
-                  color:T.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
-              <input value={newLinkUrl} onChange={e=>setNewLinkUrl(e.target.value)} placeholder="URL du dossier"
-                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,padding:"8px 10px",
-                  color:T.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+            <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:8,
+              paddingTop:14,borderTop:`1px solid ${T.sectionDivider}`}}>
+              <div style={{fontSize:12,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textMuted}}>Ajouter un dossier</div>
+              <input value={newLinkName} onChange={e=>setNewLinkName(e.target.value)} placeholder="Nom"
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,padding:"9px 12px",
+                  color:T.text,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
+              <input value={newLinkUrl} onChange={e=>setNewLinkUrl(e.target.value)} placeholder="URL Drive"
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,padding:"9px 12px",
+                  color:T.text,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
               <button onClick={addDriveLink} style={{background:T.accent,color:"#fff",border:"none",
-                borderRadius:7,padding:"8px",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                borderRadius:8,padding:"10px",fontFamily:"inherit",fontSize:14,fontWeight:700,cursor:"pointer"}}>
                 + Ajouter
               </button>
             </div>
           )}
         </Widget>
  
-        {/* GOOGLE AGENDA EMBED */}
+        {/* AGENDA — large, hauteur généreuse */}
         <Widget title="Mon Agenda" icon="📅"
-          action={<button onClick={()=>{const url=prompt("Colle l'URL d'intégration de ton agenda Google :",calEmbed);if(url!==null)saveCalEmbed(url.trim());}} style={{background:"transparent",border:`1px solid ${T.border}`,
-            borderRadius:6,padding:"4px 10px",color:T.textMuted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
-            {calEmbed?"Modifier":"Configurer"}
+          action={<button onClick={()=>{const url=prompt("Colle l'URL d'intégration Google Calendar :",calEmbed);if(url!==null)saveCalEmbed(url.trim());}}
+            style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,
+              padding:"4px 10px",color:T.textMuted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            {calEmbed?"Modifier l'URL":"Configurer"}
           </button>}>
           {calEmbed?(
-            <iframe src={calEmbed} style={{width:"100%",height:280,border:"none",borderRadius:8}} title="Google Agenda"/>
+            <iframe src={calEmbed} style={{width:"100%",height:480,border:"none",borderRadius:10,display:"block"}} title="Google Agenda"/>
           ):(
-            <div style={{padding:"20px 0",textAlign:"center"}}>
-              <div style={{fontSize:32,marginBottom:12}}>📅</div>
-              <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:8}}>Intégre ton agenda Google</div>
-              <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,marginBottom:16}}>
-                Va sur <strong>calendar.google.com</strong> → ⚙️ Paramètres → ton calendrier → "Intégrer le calendrier" → copie l'URL HTML et clique Configurer.
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+              padding:"50px 20px",textAlign:"center",minHeight:300}}>
+              <div style={{fontSize:48,marginBottom:20}}>📅</div>
+              <div style={{fontSize:18,color:T.text,fontWeight:700,marginBottom:10}}>Intègre ton agenda Google</div>
+              <div style={{fontSize:14,color:T.textMuted,lineHeight:1.8,marginBottom:24,maxWidth:400}}>
+                Va sur <strong>calendar.google.com</strong> → ⚙️ Paramètres → clique sur ton calendrier à gauche → section <strong>"Intégrer le calendrier"</strong> → copie l'<strong>Adresse intégrable</strong>.
               </div>
-              <button onClick={()=>{const url=prompt("URL d'intégration Google Calendar :");if(url)saveCalEmbed(url.trim());}}
-                style={{background:T.accent,color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",
-                  fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                Configurer l'agenda
+              <button onClick={()=>{const url=prompt("Adresse intégrable Google Calendar :");if(url)saveCalEmbed(url.trim());}}
+                style={{background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:"14px 28px",
+                  fontFamily:"inherit",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+                Coller l'URL et activer
               </button>
             </div>
           )}
