@@ -1313,20 +1313,26 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     return () => window.removeEventListener('keydown', handler);
   }, []); // stable - undo/redo ne changent plus
 
-  // Resize canvas
+  // Resize canvas — observe le parent car le canvas est en position absolue
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
-    const observer = new ResizeObserver(() => {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-      render();
-    });
-    observer.observe(canvas);
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-    render();
+    const container = canvas.parentElement; if (!container) return;
+
+    const resize = () => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w > 0 && h > 0) {
+        canvas.width  = w;
+        canvas.height = h;
+        render();
+      }
+    };
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    resize(); // premier rendu
     return () => observer.disconnect();
-  }, []);
+  }, []); // eslint-disable-line
 
   // Fit to content
   const fitView = useCallback(() => {
@@ -1594,18 +1600,23 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         </button>
       </div>
 
-      {/* Canvas */}
-      <canvas ref={canvasRef}
-        style={{flex:1,display:'block',background:'#12151f',cursor:tool==='pan'?(dragRef.current?'grabbing':'grab'):tool==='select'?'crosshair':tool==='line'?'crosshair':'default',touchAction:'none'}}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-        onWheel={onWheel}
-        onTouchStart={onMouseDown}
-        onTouchMove={onMouseMove}
-        onTouchEnd={onMouseUp}
-      />
+      {/* Zone canvas - position:relative + canvas absolu = hauteur garantie */}
+      <div style={{flex:1,position:'relative',minHeight:0,background:'#12151f'}}>
+        <canvas ref={canvasRef}
+          style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',
+            background:'#12151f',display:'block',
+            cursor:tool==='pan'?(dragRef.current?'grabbing':'grab'):tool==='select'?'crosshair':tool==='line'?'crosshair':'default',
+            touchAction:'none'}}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+          onWheel={onWheel}
+          onTouchStart={onMouseDown}
+          onTouchMove={onMouseMove}
+          onTouchEnd={onMouseUp}
+        />
+      </div>
 
       {/* Status bar */}
       <div style={{padding:'5px 16px',background:'#1a1f2e',borderTop:'1px solid rgba(255,255,255,0.06)',
