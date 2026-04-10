@@ -89,6 +89,7 @@ function Sidebar({page,setPage,T}){
     {id:"dashboard",icon:"⊞",label:"Tableau de bord"},
     {id:"planning", icon:"📅",label:"Planning"},
     {id:"commandes",icon:"📦",label:"Commandes"},
+    {id:"plans",    icon:"📐",label:"Plans"},
     {id:"admin",    icon:"⚙️",label:"Réglages"},
   ];
   const toggle=()=>{
@@ -987,6 +988,800 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
   );
 }
  
+// ─── PAGE PLANS ───────────────────────────────────────────────────────────────
+ 
+// ─── DXF PARSER ───────────────────────────────────────────────────────────────
+function parseDXF(text) {
+  const lines = text.split('\n').map(l => l.trim());
+  const points = [], segments = [];
+  const DXF_COLORS = {
+    1:'#ff0000',2:'#ffff00',3:'#00ff00',4:'#00ffff',5:'#0000ff',
+    6:'#ff00ff',7:'#ffffff',30:'#ff8000',40:'#80ff00',50:'#00ff80',
+    60:'#0080ff',70:'#8000ff',80:'#ff0080',90:'#c0c0c0',100:'#808080',
+    110:'#ffd700',113:'#a0c0ff',130:'#90ee90',150:'#ffb6c1',
+  };
+  const getColor = (c) => DXF_COLORS[c] || '#7090c0';
+  let i = 0;
+  while (i < lines.length) {
+    const tok = lines[i];
+    if (tok === 'POINT') {
+      let x=null,y=null,color=7,layer='0';
+      let j=i+1;
+      while (j < Math.min(i+30, lines.length)) {
+        const code = lines[j], val = lines[j+1];
+        if (code==='10') x=parseFloat(val);
+        else if (code==='20') y=parseFloat(val);
+        else if (code==='62') color=parseInt(val)||7;
+        else if (code==='8') layer=val||'0';
+        else if (code==='0' && j>i+1) break;
+        j+=2;
+      }
+      if (x!=null && y!=null) points.push({x,y,color:getColor(color),layer});
+    } else if (tok==='LINE') {
+      let x1=null,y1=null,x2=null,y2=null,color=7,layer='0';
+      let j=i+1;
+      while (j < Math.min(i+40, lines.length)) {
+        const code=lines[j], val=lines[j+1];
+        if (code==='10') x1=parseFloat(val);
+        else if (code==='20') y1=parseFloat(val);
+        else if (code==='11') x2=parseFloat(val);
+        else if (code==='21') y2=parseFloat(val);
+        else if (code==='62') color=parseInt(val)||7;
+        else if (code==='8') layer=val||'0';
+        else if (code==='0' && j>i+1) break;
+        j+=2;
+      }
+      if (x1!=null&&y1!=null&&x2!=null&&y2!=null) segments.push({x1,y1,x2,y2,color:getColor(color),layer,id:Math.random()});
+    } else if (tok==='LWPOLYLINE') {
+      let verts=[],color=7,layer='0',closed=false;
+      let j=i+1;
+      while (j < Math.min(i+500, lines.length)) {
+        const code=lines[j], val=lines[j+1];
+        if (code==='10') verts.push({x:parseFloat(val),y:null});
+        else if (code==='20' && verts.length) verts[verts.length-1].y=parseFloat(val);
+        else if (code==='62') color=parseInt(val)||7;
+        else if (code==='8') layer=val||'0';
+        else if (code==='70') closed=!!(parseInt(val)&1);
+        else if (code==='0' && j>i+1) break;
+        j+=2;
+      }
+      const c=getColor(color);
+      for (let k=0;k<verts.length-1;k++) {
+        if (verts[k].y!=null&&verts[k+1].y!=null)
+          segments.push({x1:verts[k].x,y1:verts[k].y,x2:verts[k+1].x,y2:verts[k+1].y,color:c,layer,id:Math.random()});
+      }
+      if (closed&&verts.length>1&&verts[0].y!=null&&verts[verts.length-1].y!=null)
+        segments.push({x1:verts[verts.length-1].x,y1:verts[verts.length-1].y,x2:verts[0].x,y2:verts[0].y,color:c,layer,id:Math.random()});
+    }
+    i++;
+  }
+  return {points, segments};
+}
+ 
+// Auto-connect point cloud → line segments
+function autoConnect(points, threshold) {
+  if (points.length === 0) return [];
+  // Group by color/layer
+  const groups = {};
+  points.forEach(p => {
+    const k = p.color+'_'+p.layer;
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(p);
+  });
+  const segs = [];
+  Object.values(groups).forEach(grp => {
+    if (grp.length < 2) return;
+    // For each point, find nearest neighbors within threshold
+    // Use spatial bucketing for performance
+    const bucket = {};
+    const bsize = threshold;
+    grp.forEach((p,idx) => {
+      const bx = Math.floor(p.x/bsize), by = Math.floor(p.y/bsize);
+      for (let dx=-1;dx<=1;dx++) for (let dy=-1;dy<=1;dy++) {
+        const key = `${bx+dx}_${by+dy}`;
+        if (!bucket[key]) continue;
+        bucket[key].forEach(j => {
+          if (j >= idx) return;
+          const q = grp[j];
+          const d = Math.sqrt((p.x-q.x)**2+(p.y-q.y)**2);
+          if (d < threshold && d > 0.001) {
+            segs.push({x1:p.x,y1:p.y,x2:q.x,y2:q.y,color:p.color,layer:p.layer,id:Math.random()});
+          }
+        });
+      }
+      const bk = `${bx}_${by}`;
+      if (!bucket[bk]) bucket[bk] = [];
+      bucket[bk].push(idx);
+    });
+  });
+  return segs;
+}
+ 
+// Compute bounding box
+function getBounds(segments, symbols=[]) {
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  segments.forEach(s => {
+    minX=Math.min(minX,s.x1,s.x2); maxX=Math.max(maxX,s.x1,s.x2);
+    minY=Math.min(minY,s.y1,s.y2); maxY=Math.max(maxY,s.y1,s.y2);
+  });
+  symbols.forEach(s => {
+    minX=Math.min(minX,s.x); maxX=Math.max(maxX,s.x);
+    minY=Math.min(minY,s.y); maxY=Math.max(maxY,s.y);
+  });
+  if (!isFinite(minX)) return {minX:0,maxX:100,minY:0,maxY:100,w:100,h:100};
+  return {minX,maxX,minY,maxY,w:maxX-minX,h:maxY-minY};
+}
+ 
+const SYMBOL_TYPES = [
+  {id:'door',  icon:'🚪', label:'Porte'},
+  {id:'window',icon:'⬜', label:'Fenêtre'},
+  {id:'stair', icon:'🪜', label:'Escalier'},
+  {id:'wc',    icon:'🚽', label:'WC'},
+  {id:'text',  icon:'T',  label:'Texte'},
+];
+ 
+const TOOL_LIST = [
+  {id:'pan',    icon:'✋', label:'Déplacer'},
+  {id:'select', icon:'↖',  label:'Sélectionner / Supprimer'},
+  {id:'line',   icon:'╱',  label:'Tracer une ligne'},
+  {id:'door',   icon:'🚪', label:'Ajouter une porte'},
+  {id:'window', icon:'⬜', label:'Ajouter une fenêtre'},
+  {id:'text',   icon:'T',  label:'Ajouter un texte'},
+  {id:'measure',icon:'📏', label:'Mesurer'},
+];
+ 
+// ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
+function PlanEditor({plan, onSave, onClose, T, chantiers}) {
+  const canvasRef = useRef(null);
+  const [segments, setSegments] = useState(plan.data?.segments || []);
+  const [symbols, setSymbols]   = useState(plan.data?.symbols || []);
+  // Historique pour undo/redo
+  const [history, setHistory]   = useState([]);  // [{segments, symbols}, ...]
+  const [future, setFuture]     = useState([]);   // états annulés (pour redo)
+ 
+  // Enregistre l'état courant avant une action destructive
+  const pushHistory = useCallback((segs, syms) => {
+    setHistory(h => [...h.slice(-30), {segments: segs, symbols: syms}]); // max 30 étapes
+    setFuture([]);
+  }, []);
+ 
+  const undo = useCallback(() => {
+    setHistory(h => {
+      if (h.length === 0) return h;
+      const prev = h[h.length - 1];
+      setFuture(f => [{ segments, symbols }, ...f.slice(0, 29)]);
+      setSegments(prev.segments);
+      setSymbols(prev.symbols);
+      return h.slice(0, -1);
+    });
+  }, [segments, symbols]);
+ 
+  const redo = useCallback(() => {
+    setFuture(f => {
+      if (f.length === 0) return f;
+      const next = f[0];
+      setHistory(h => [...h, { segments, symbols }]);
+      setSegments(next.segments);
+      setSymbols(next.symbols);
+      return f.slice(1);
+    });
+  }, [segments, symbols]);
+  const [vp, setVp]             = useState(plan.data?.viewport || {x:0,y:0,scale:1});
+  const [tool, setTool]         = useState('pan');
+  const [lineStart, setLineStart] = useState(null);
+  const [mousePos, setMousePos]   = useState(null);
+  const [saving, setSaving]       = useState(false);
+  const [measurePts, setMeasurePts] = useState([]);
+  const [measureDist, setMeasureDist] = useState(null);
+  const [threshold, setThreshold]   = useState(plan.data?.threshold || 0.5);
+  const [showThreshold, setShowThreshold] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+ 
+  // Derived
+  const vpRef = useRef(vp);
+  vpRef.current = vp;
+ 
+  // Canvas coord helpers
+  const toCanvas = (wx,wy) => ({
+    cx: (wx - vpRef.current.x) * vpRef.current.scale,
+    cy: (wy - vpRef.current.y) * vpRef.current.scale,
+  });
+  const toWorld = (cx,cy) => ({
+    wx: cx / vpRef.current.scale + vpRef.current.x,
+    wy: cy / vpRef.current.scale + vpRef.current.y,
+  });
+ 
+  // Render
+  const render = useCallback(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const {width:W, height:H} = canvas;
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#12151f';
+    ctx.fillRect(0,0,W,H);
+ 
+    // Grid
+    const gridSize = Math.max(0.1, 1 / vpRef.current.scale);
+    const gStep = gridSize * vpRef.current.scale;
+    if (gStep > 20) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.lineWidth = 0.5;
+      const ox = (-vpRef.current.x % gridSize) * vpRef.current.scale;
+      const oy = (-vpRef.current.y % gridSize) * vpRef.current.scale;
+      for (let x=ox;x<W;x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
+      for (let y=oy;y<H;y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
+    }
+ 
+    // Segments
+    segments.forEach(s => {
+      if (s.deleted) return;
+      const {cx:x1,cy:y1}=toCanvas(s.x1,s.y1);
+      const {cx:x2,cy:y2}=toCanvas(s.x2,s.y2);
+      const isSelected = selectedIds.has(s.id);
+      ctx.strokeStyle = isSelected ? '#f5a623' : (s.color || '#7090c0');
+      ctx.lineWidth = isSelected ? 3 : (s.user ? 2 : 1.5);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    });
+ 
+    // Symbols
+    symbols.forEach(sym => {
+      if (sym.deleted) return;
+      const {cx,cy} = toCanvas(sym.x, sym.y);
+      const sz = Math.max(12, vpRef.current.scale * 0.6);
+      ctx.save();
+      ctx.translate(cx,cy);
+      ctx.rotate((sym.angle||0)*Math.PI/180);
+      if (sym.type==='door') {
+        ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sz,0);
+        ctx.arc(0,0,sz,0,Math.PI/2); ctx.stroke();
+      } else if (sym.type==='window') {
+        ctx.strokeStyle='#60a0ff'; ctx.lineWidth=2;
+        ctx.strokeRect(-sz/2,-sz/4,sz,sz/2);
+        ctx.beginPath(); ctx.moveTo(-sz/2,0); ctx.lineTo(sz/2,0); ctx.stroke();
+      } else if (sym.type==='stair') {
+        ctx.strokeStyle='#80ff80'; ctx.lineWidth=1.5;
+        for (let k=0;k<4;k++) { ctx.strokeRect(-sz/2+k*sz/4,-sz/2,sz/4,sz); }
+      } else if (sym.type==='wc') {
+        ctx.strokeStyle='#a0c0ff'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.ellipse(0,0,sz/2,sz/3,0,0,Math.PI*2); ctx.stroke();
+      }
+      if (sym.text) {
+        ctx.fillStyle='#e8eaf0'; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
+        ctx.textAlign='center'; ctx.fillText(sym.text,0,sz+12);
+      }
+      if (sym.type==='text') {
+        ctx.fillStyle='#f5d08a'; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
+        ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
+      }
+      ctx.restore();
+    });
+ 
+    // Line in progress
+    if (tool==='line' && lineStart && mousePos) {
+      const {cx:x1,cy:y1}=toCanvas(lineStart.x,lineStart.y);
+      ctx.strokeStyle='#5b8af5'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mousePos.cx,mousePos.cy); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+ 
+    // Measure
+    if (measurePts.length===1 && mousePos) {
+      const {cx:x1,cy:y1}=toCanvas(measurePts[0].x,measurePts[0].y);
+      ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mousePos.cx,mousePos.cy); ctx.stroke();
+      ctx.setLineDash([]);
+      const {wx,wy}=toWorld(mousePos.cx,mousePos.cy);
+      const d=Math.sqrt((wx-measurePts[0].x)**2+(wy-measurePts[0].y)**2);
+      ctx.fillStyle='#f5a623'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+      ctx.fillText(`${d.toFixed(2)} m`, (x1+mousePos.cx)/2, (y1+mousePos.cy)/2-8);
+    }
+    if (measureDist) {
+      const {cx:x1,cy:y1}=toCanvas(measurePts[0]?.x||0,measurePts[0]?.y||0);
+      const {cx:x2,cy:y2}=toCanvas(measurePts[1]?.x||0,measurePts[1]?.y||0);
+      ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.fillStyle='#f5a623'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
+      ctx.fillText(`${measureDist.toFixed(2)} m`, (x1+x2)/2, (y1+y2)/2-10);
+    }
+  }, [segments, symbols, vp, tool, lineStart, mousePos, selectedIds, measurePts, measureDist]);
+ 
+  useEffect(() => { render(); }, [render]);
+ 
+  // Keyboard shortcuts Ctrl+Z / Ctrl+Y
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if ((e.ctrlKey && e.key==='y') || (e.ctrlKey && e.shiftKey && e.key==='z')) { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [undo, redo]);
+ 
+  // Resize canvas
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const observer = new ResizeObserver(() => {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+      render();
+    });
+    observer.observe(canvas);
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    render();
+    return () => observer.disconnect();
+  }, []);
+ 
+  // Fit to content
+  const fitView = useCallback(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const bounds = getBounds(segments.filter(s=>!s.deleted), symbols.filter(s=>!s.deleted));
+    if (bounds.w===0 && bounds.h===0) return;
+    const pad = 0.1;
+    const scaleX = canvas.width / (bounds.w * (1+pad*2));
+    const scaleY = canvas.height / (bounds.h * (1+pad*2));
+    const scale = Math.min(scaleX, scaleY);
+    const x = bounds.minX - bounds.w*pad;
+    const y = bounds.minY - bounds.h*pad;
+    setVp({x, y, scale});
+  }, [segments, symbols]);
+ 
+  useEffect(() => { if (segments.length>0) fitView(); }, []);
+ 
+  // Mouse/touch events
+  const dragRef = useRef(null);
+ 
+  const getEventPos = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return { cx: clientX-rect.left, cy: clientY-rect.top };
+  };
+ 
+  const onMouseDown = (e) => {
+    const pos = getEventPos(e);
+    const {wx,wy} = toWorld(pos.cx, pos.cy);
+    if (tool==='pan') {
+      dragRef.current = {startCx:pos.cx, startCy:pos.cy, startVx:vp.x, startVy:vp.y};
+    } else if (tool==='line') {
+      if (!lineStart) {
+        setLineStart({x:wx, y:wy});
+      } else {
+        const newSeg = {x1:lineStart.x,y1:lineStart.y,x2:wx,y2:wy,color:'#5b8af5',layer:'user',user:true,id:Date.now()+Math.random()};
+        pushHistory(segments, symbols);
+        setSegments(s=>[...s,newSeg]);
+        setLineStart(null);
+      }
+    } else if (tool==='select') {
+      // Find nearest segment
+      const hitThresh = 8 / vp.scale;
+      let bestId=null, bestDist=Infinity;
+      segments.filter(s=>!s.deleted).forEach(s => {
+        // Distance from point to segment
+        const dx=s.x2-s.x1, dy=s.y2-s.y1;
+        const len2=dx*dx+dy*dy;
+        if (len2===0) return;
+        const t=Math.max(0,Math.min(1,((wx-s.x1)*dx+(wy-s.y1)*dy)/len2));
+        const px=s.x1+t*dx-wx, py=s.y1+t*dy-wy;
+        const d=Math.sqrt(px*px+py*py);
+        if (d<hitThresh && d<bestDist) { bestDist=d; bestId=s.id; }
+      });
+      if (bestId) {
+        pushHistory(segments, symbols);
+        setSegments(s=>s.map(seg=>seg.id===bestId?{...seg,deleted:true}:seg));
+        setSelectedIds(new Set());
+      }
+    } else if (['door','window','stair','wc'].includes(tool)) {
+      const sym = {x:wx,y:wy,type:tool,angle:0,id:Date.now()+Math.random()};
+      if (tool==='door'||tool==='window') sym.angle=0;
+      pushHistory(segments, symbols);
+      setSymbols(s=>[...s,sym]);
+    } else if (tool==='text') {
+      const txt=prompt('Texte :');
+      if (txt?.trim()) {
+        pushHistory(segments, symbols);
+        setSymbols(s=>[...s,{x:wx,y:wy,type:'text',text:txt.trim(),id:Date.now()+Math.random()}]);
+      }
+    } else if (tool==='measure') {
+      if (measurePts.length===0) {
+        setMeasurePts([{x:wx,y:wy}]);
+        setMeasureDist(null);
+      } else {
+        const d=Math.sqrt((wx-measurePts[0].x)**2+(wy-measurePts[0].y)**2);
+        setMeasurePts([measurePts[0],{x:wx,y:wy}]);
+        setMeasureDist(d);
+      }
+    }
+  };
+ 
+  const onMouseMove = (e) => {
+    const pos = getEventPos(e);
+    setMousePos(pos);
+    if (dragRef.current && tool==='pan') {
+      const dx=(pos.cx-dragRef.current.startCx)/vp.scale;
+      const dy=(pos.cy-dragRef.current.startCy)/vp.scale;
+      setVp(v=>({...v, x:dragRef.current.startVx-dx, y:dragRef.current.startVy-dy}));
+    }
+  };
+ 
+  const onMouseUp = () => { dragRef.current=null; };
+ 
+  const onWheel = (e) => {
+    e.preventDefault();
+    const pos = getEventPos(e);
+    const {wx,wy} = toWorld(pos.cx, pos.cy);
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    setVp(v => {
+      const ns = v.scale * factor;
+      return { scale:ns, x: wx - pos.cx/ns, y: wy - pos.cy/ns };
+    });
+  };
+ 
+  // DXF Import
+  const importDXF = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const {points, segments:segs} = parseDXF(ev.target.result);
+      let finalSegs = segs;
+      if (segs.length === 0 && points.length > 0) {
+        finalSegs = autoConnect(points, threshold);
+      }
+      pushHistory(segments, symbols);
+      setSegments(finalSegs);
+      setSymbols([]);
+      setTimeout(fitView, 50);
+    };
+    reader.readAsText(file, 'utf-8');
+    e.target.value='';
+  };
+ 
+  // Reconnect avec nouveau threshold
+  const reconnect = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const {points,segments:segs} = parseDXF(ev.target.result);
+      if (points.length>0) {
+        setSegments(autoConnect(points, threshold));
+        setTimeout(fitView, 50);
+      }
+    };
+    reader.readAsText(file,'utf-8');
+    e.target.value='';
+  };
+ 
+  // Save
+  const handleSave = async () => {
+    setSaving(true);
+    // Generate thumbnail
+    const canvas = canvasRef.current;
+    const thumb = canvas ? canvas.toDataURL('image/png',0.3) : '';
+    const data = {segments, symbols, viewport:vp, threshold};
+    await supabase.from('plans').update({data, thumbnail:thumb, updated_at:new Date().toISOString()}).eq('id',plan.id);
+    setSaving(false);
+    onSave({...plan, data, thumbnail:thumb});
+  };
+ 
+  // Export PNG
+  const exportPNG = () => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = (plan.name||'plan')+'.png';
+    a.click();
+  };
+ 
+  // Export PDF (print)
+  const exportPDF = () => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const dataUrl = canvas.toDataURL('image/png');
+    const w = window.open('','_blank');
+    w.document.write(`<!DOCTYPE html><html><head><title>${plan.name}</title>
+    <style>@page{size:A3 landscape;margin:10mm}body{margin:0}img{width:100%;height:auto}</style>
+    </head><body><img src="${dataUrl}"/></body></html>`);
+    w.document.close();
+    setTimeout(()=>w.print(),500);
+  };
+ 
+  const segCount = segments.filter(s=>!s.deleted).length;
+  const symCount = symbols.filter(s=>!s.deleted).length;
+ 
+  const toolBtnStyle = (id) => ({
+    display:'flex',alignItems:'center',justifyContent:'center',
+    width:40,height:40,borderRadius:8,border:'none',cursor:'pointer',
+    fontFamily:'inherit',fontSize:16,transition:'all .15s',
+    background: tool===id ? '#5b8af5' : 'rgba(255,255,255,0.06)',
+    color: tool===id ? '#fff' : '#9aa5c0',
+    title: TOOL_LIST.find(t=>t.id===id)?.label||id,
+  });
+ 
+  return (
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#12151f'}}>
+      {/* Toolbar */}
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 16px',
+        background:'#1e2336',borderBottom:'1px solid rgba(255,255,255,0.08)',flexShrink:0,flexWrap:'wrap'}}>
+        {/* Back + name */}
+        <button onClick={onClose} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.15)',
+          borderRadius:8,padding:'6px 12px',color:'#9aa5c0',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
+          ← Retour
+        </button>
+        <div style={{fontSize:15,fontWeight:700,color:'#e8eaf0',marginRight:4}}>{plan.name}</div>
+        <div style={{fontSize:12,color:'#5b6a8a'}}>{segCount} segments · {symCount} symboles</div>
+ 
+        <div style={{height:24,width:1,background:'rgba(255,255,255,0.1)',margin:'0 4px'}}/>
+ 
+        {/* Tools */}
+        {TOOL_LIST.map(t=>(
+          <button key={t.id} title={t.label} onClick={()=>{setTool(t.id);setLineStart(null);setMeasurePts([]);setMeasureDist(null);}} style={toolBtnStyle(t.id)}>
+            {t.icon}
+          </button>
+        ))}
+ 
+        <div style={{height:24,width:1,background:'rgba(255,255,255,0.1)',margin:'0 4px'}}/>
+ 
+        {/* Import DXF */}
+        <label style={{display:'flex',alignItems:'center',gap:6,padding:'7px 12px',
+          background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
+          borderRadius:8,color:'#a0b8ff',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+          📂 Importer DXF
+          <input type='file' accept='.dxf' style={{display:'none'}} onChange={importDXF}/>
+        </label>
+ 
+        {/* Threshold */}
+        <button onClick={()=>setShowThreshold(s=>!s)} title="Seuil de connexion automatique"
+          style={{...toolBtnStyle('threshold'),width:'auto',padding:'0 10px',fontSize:12}}>
+          ⚙ {threshold}m
+        </button>
+        {showThreshold&&(
+          <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,0.06)',
+            borderRadius:8,padding:'6px 10px'}}>
+            <span style={{fontSize:12,color:'#9aa5c0',whiteSpace:'nowrap'}}>Seuil auto:</span>
+            <input type='number' value={threshold} min='0.01' max='10' step='0.05'
+              onChange={e=>setThreshold(parseFloat(e.target.value)||0.5)}
+              style={{width:60,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',
+                borderRadius:5,padding:'3px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:13}}/>
+            <span style={{fontSize:11,color:'#5b6a8a'}}>m</span>
+          </div>
+        )}
+ 
+        {/* Fit view */}
+        <button title="Ajuster la vue" onClick={fitView}
+          style={{...toolBtnStyle('fit'),fontSize:14}}>⊙</button>
+ 
+        {/* Undo / Redo */}
+        <button title="Annuler (Ctrl+Z)" onClick={undo} disabled={history.length===0}
+          style={{...toolBtnStyle('undo_btn'),fontSize:16,opacity:history.length===0?0.3:1}}>⟲</button>
+        <button title="Rétablir (Ctrl+Y)" onClick={redo} disabled={future.length===0}
+          style={{...toolBtnStyle('redo_btn'),fontSize:16,opacity:future.length===0?0.3:1}}>⟳</button>
+ 
+        {/* Undo all deleted */}
+        <button title="Restaurer toutes les suppressions" onClick={()=>{pushHistory(segments,symbols);setSegments(s=>s.map(seg=>({...seg,deleted:false})));setSymbols(sy=>sy.map(s=>({...s,deleted:false})));}}
+          style={{...toolBtnStyle('undo'),fontSize:14}}>↩</button>
+ 
+        <div style={{flex:1}}/>
+ 
+        {/* Export */}
+        <button onClick={exportPNG} style={{background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.3)',
+          borderRadius:8,padding:'7px 14px',color:'#7ee8a2',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+          ↓ PNG
+        </button>
+        <button onClick={exportPDF} style={{background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
+          borderRadius:8,padding:'7px 14px',color:'#f5a623',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+          ↓ PDF
+        </button>
+        <button onClick={handleSave} disabled={saving}
+          style={{background:'#5b8af5',border:'none',borderRadius:8,padding:'7px 18px',
+            color:'#fff',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.6:1}}>
+          {saving?'…':'💾 Sauvegarder'}
+        </button>
+      </div>
+ 
+      {/* Canvas */}
+      <canvas ref={canvasRef}
+        style={{flex:1,display:'block',cursor:tool==='pan'?(dragRef.current?'grabbing':'grab'):tool==='select'?'crosshair':tool==='line'?'crosshair':'default',touchAction:'none'}}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+        onWheel={onWheel}
+        onTouchStart={onMouseDown}
+        onTouchMove={onMouseMove}
+        onTouchEnd={onMouseUp}
+      />
+ 
+      {/* Status bar */}
+      <div style={{padding:'5px 16px',background:'#1a1f2e',borderTop:'1px solid rgba(255,255,255,0.06)',
+        fontSize:11,color:'#5b6a8a',display:'flex',gap:16,flexShrink:0}}>
+        <span>Outil : <strong style={{color:'#9aa5c0'}}>{TOOL_LIST.find(t=>t.id===tool)?.label||tool}</strong></span>
+        {tool==='line'&&lineStart&&<span style={{color:'#a0b8ff'}}>Cliquer pour terminer la ligne</span>}
+        {tool==='measure'&&measurePts.length===0&&<span>Cliquer sur le 1er point</span>}
+        {tool==='measure'&&measurePts.length===1&&<span style={{color:'#f5a623'}}>Cliquer sur le 2ème point</span>}
+        {measureDist&&<span style={{color:'#f5a623'}}>Distance : {measureDist.toFixed(3)} m</span>}
+        <span style={{marginLeft:'auto'}}>Scroll = zoom · Clic droit + drag = déplacer</span>
+      </div>
+    </div>
+  );
+}
+ 
+// ─── PAGE PLANS ───────────────────────────────────────────────────────────────
+function PagePlans({T, chantiers}) {
+  const [plans, setPlans]           = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [showNew, setShowNew]       = useState(false);
+  const [newName, setNewName]       = useState('');
+  const [newChantier, setNewChantier] = useState('');
+  const [creating, setCreating]     = useState(false);
+ 
+  const loadPlans = async () => {
+    setLoading(true);
+    const {data} = await supabase.from('plans').select('*').order('updated_at',{ascending:false});
+    setPlans(data||[]);
+    setLoading(false);
+  };
+ 
+  useEffect(()=>{ loadPlans(); },[]);
+ 
+  const createPlan = async () => {
+    if (!newName.trim()) return;
+    setCreating(true);
+    const {data} = await supabase.from('plans').insert({
+      name:newName.trim(), chantier_id:newChantier,
+      data:{segments:[],symbols:[],viewport:{x:0,y:0,scale:1},threshold:0.5},
+      thumbnail:'',
+    }).select().single();
+    if (data) { setPlans(p=>[data,...p]); setEditingPlan(data); }
+    setNewName(''); setNewChantier(''); setShowNew(false); setCreating(false);
+  };
+ 
+  const deletePlan = async (id) => {
+    if (!confirm('Supprimer ce plan définitivement ?')) return;
+    await supabase.from('plans').delete().eq('id',id);
+    setPlans(p=>p.filter(x=>x.id!==id));
+  };
+ 
+  const onSave = (updated) => {
+    setPlans(p=>p.map(x=>x.id===updated.id?updated:x));
+  };
+ 
+  // Editor mode
+  if (editingPlan) return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
+      <PlanEditor plan={editingPlan} onSave={onSave}
+        onClose={()=>{ setEditingPlan(null); loadPlans(); }}
+        T={T} chantiers={chantiers}/>
+    </div>
+  );
+ 
+  // List mode
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:16}}>
+        <div>
+          <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4,color:T.text}}>Plans</div>
+          <div style={{fontSize:15,color:T.textSub}}>Relevés DXF annotés par chantier</div>
+        </div>
+        <button onClick={()=>setShowNew(true)} style={{background:T.accent,color:'#fff',border:'none',
+          borderRadius:10,padding:'11px 22px',fontFamily:'inherit',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+          + Nouveau plan
+        </button>
+      </div>
+ 
+      {/* Modal nouveau plan */}
+      {showNew&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:500,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:T.modal,borderRadius:14,padding:28,width:420,border:`1px solid ${T.border}`}}>
+            <div style={{fontSize:20,fontWeight:800,marginBottom:20,color:T.text}}>Nouveau plan</div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:T.textMuted,marginBottom:6}}>Nom</div>
+              <input value={newName} onChange={e=>setNewName(e.target.value)} autoFocus
+                onKeyDown={e=>e.key==='Enter'&&createPlan()}
+                placeholder="Ex: RDC — Alfred Falloux"
+                style={{width:'100%',background:T.fieldBg,border:`1px solid ${T.fieldBorder}`,borderRadius:8,
+                  padding:'10px 12px',color:T.text,fontFamily:'inherit',fontSize:14,outline:'none'}}/>
+            </div>
+            <div style={{marginBottom:22}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:T.textMuted,marginBottom:6}}>Chantier associé</div>
+              <select value={newChantier} onChange={e=>setNewChantier(e.target.value)}
+                style={{width:'100%',background:'#1e2336',border:`1px solid ${T.fieldBorder}`,borderRadius:8,
+                  padding:'10px 12px',color:'#e8eaf0',fontFamily:'inherit',fontSize:14,outline:'none'}}>
+                <option value="" style={{background:'#1e2336'}}>— Aucun —</option>
+                {chantiers.map(c=><option key={c.id} value={c.id} style={{background:'#1e2336'}}>{c.nom}</option>)}
+              </select>
+            </div>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={()=>setShowNew(false)} style={{background:'transparent',border:`1px solid ${T.border}`,
+                borderRadius:8,padding:'9px 18px',color:T.textSub,fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>Annuler</button>
+              <button onClick={createPlan} disabled={creating||!newName.trim()} style={{background:T.accent,color:'#fff',
+                border:'none',borderRadius:8,padding:'9px 20px',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',
+                opacity:(!newName.trim()||creating)?0.5:1}}>
+                {creating?'Création…':'Créer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+ 
+      {loading&&<div style={{color:T.textMuted,fontSize:15,padding:32}}>Chargement…</div>}
+ 
+      {!loading&&plans.length===0&&(
+        <div style={{background:T.card,border:`1px dashed ${T.border}`,borderRadius:14,
+          padding:'48px 32px',textAlign:'center',maxWidth:520,margin:'0 auto'}}>
+          <div style={{fontSize:48,marginBottom:16}}>📐</div>
+          <div style={{fontSize:18,fontWeight:700,marginBottom:10,color:T.text}}>Aucun plan pour l'instant</div>
+          <div style={{fontSize:14,color:T.textSub,lineHeight:1.8,marginBottom:24}}>
+            Crée un plan, importe un fichier .DXF, et l'outil reliera automatiquement les points entre eux. Tu pourras ensuite ajouter des portes, fenêtres, annotations et exporter en PNG ou PDF.
+          </div>
+          <button onClick={()=>setShowNew(true)} style={{background:T.accent,color:'#fff',border:'none',
+            borderRadius:10,padding:'12px 24px',fontFamily:'inherit',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+            + Créer mon premier plan
+          </button>
+        </div>
+      )}
+ 
+      {/* Grille des plans */}
+      {!loading&&plans.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16}}>
+          {plans.map(plan=>{
+            const ch=chantiers.find(c=>c.id===plan.chantier_id);
+            const segCount=plan.data?.segments?.filter(s=>!s.deleted)?.length||0;
+            const symCount=plan.data?.symbols?.filter(s=>!s.deleted)?.length||0;
+            return (
+              <div key={plan.id} style={{background:T.surface,border:`1px solid ${T.border}`,
+                borderRadius:14,overflow:'hidden',transition:'all .15s'}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.2)';}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform='none';e.currentTarget.style.boxShadow='none';}}>
+ 
+                {/* Thumbnail / preview */}
+                <div onClick={()=>setEditingPlan(plan)} style={{cursor:'pointer',height:160,
+                  background:'#12151f',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
+                  borderBottom:`1px solid ${T.border}`}}>
+                  {plan.thumbnail
+                    ? <img src={plan.thumbnail} style={{width:'100%',height:'100%',objectFit:'contain'}} alt=""/>
+                    : <div style={{textAlign:'center'}}>
+                        <div style={{fontSize:40,marginBottom:8}}>📐</div>
+                        <div style={{fontSize:12,color:T.textMuted}}>Cliquer pour ouvrir</div>
+                      </div>
+                  }
+                </div>
+ 
+                <div style={{padding:'14px 16px'}}>
+                  {ch&&<div style={{display:'inline-flex',alignItems:'center',gap:5,
+                    background:ch.couleur+'33',border:`1px solid ${ch.couleur}55`,
+                    borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700,color:ch.couleur==='#fff'?'#333':ch.couleur,
+                    marginBottom:6}}>{ch.nom}</div>}
+                  <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}}>{plan.name}</div>
+                  <div style={{fontSize:12,color:T.textMuted}}>{segCount} segments · {symCount} symboles</div>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:3}}>
+                    Modifié {new Date(plan.updated_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
+                  </div>
+                </div>
+ 
+                <div style={{padding:'10px 16px',borderTop:`1px solid ${T.sectionDivider}`,
+                  display:'flex',gap:8,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setEditingPlan(plan)} style={{background:T.accent,color:'#fff',
+                    border:'none',borderRadius:7,padding:'6px 16px',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                    Ouvrir
+                  </button>
+                  <button onClick={()=>deletePlan(plan.id)} style={{background:'transparent',
+                    border:'1px solid rgba(224,92,92,0.3)',borderRadius:7,padding:'6px 12px',
+                    color:'#e05c5c',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>
+                    🗑
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+ 
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 export default function App(){
   const{year:iY,week:iW}=getCurrentWeek();
@@ -1134,6 +1929,9 @@ export default function App(){
           )}
           {page==="commandes"&&(
             <PageCommandes chantiers={chantiers} T={T}/>
+          )}
+          {page==="plans"&&(
+            <PagePlans T={T} chantiers={chantiers}/>
           )}
           {page==="admin"&&(
             <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers}
