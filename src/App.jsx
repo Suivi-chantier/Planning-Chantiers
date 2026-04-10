@@ -1,25 +1,25 @@
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
- 
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
- 
+
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 const JOURS_JS = [null,"Lundi","Mardi","Mercredi","Jeudi","Vendredi",null]; // 0=dim,6=sam
- 
+
 const COULEURS_PALETTE = [
   "#c8d8f0","#ffd6cc","#fce4a0","#d4edda","#d1f7e4","#e8d0e8",
   "#fff0c0","#ffd6e7","#d0e8ff","#e0f0e0","#ffe4b5","#d6e4ff",
   "#f0d6e8","#d6f0e4","#fff0d6","#e8d6f0",
 ];
- 
+
 const STATUTS = {
   a_commander: { label:"À commander", color:"#e05c5c", bg:"rgba(224,92,92,0.12)", border:"rgba(224,92,92,0.3)" },
   commande:    { label:"Commandé",    color:"#f5a623", bg:"rgba(245,166,35,0.12)", border:"rgba(245,166,35,0.3)" },
   retire:      { label:"Retiré ✓",    color:"#50c878", bg:"rgba(80,200,120,0.12)", border:"rgba(80,200,120,0.3)" },
 };
- 
+
 const THEMES = {
   dark: {
     bg:"#1a1f2e", surface:"#1e2336", modal:"#232840",
@@ -58,7 +58,7 @@ const THEMES = {
     widgetBg:"rgba(0,0,0,0.02)", inputBg:"rgba(0,0,0,0.04)",
   },
 };
- 
+
 function getWeekId(y,w){return`${y}-W${String(w).padStart(2,"0")}`;}
 function getCurrentWeek(){
   const now=new Date(),jan1=new Date(now.getFullYear(),0,1);
@@ -71,7 +71,7 @@ function getTodayJour(){
 }
 function emptyCell(){return{planifie:"",reel:"",ouvriers:[]};}
 function emptyCommande(){return{chantier_id:"",article:"",fournisseur:"",quantite:"",statut:"a_commander",notes:""};}
- 
+
 const DEFAULT_OUVRIERS=["JP","Stev","Kev","Reza","Hamed","Mady","Yann","Julien","Steven"];
 const DEFAULT_CHANTIERS=[
   {id:"lamartine",nom:"LAMARTINE",couleur:"#c8d8f0"},
@@ -81,7 +81,7 @@ const DEFAULT_CHANTIERS=[
   {id:"metois",nom:"METOIS",couleur:"#d1f7e4"},
   {id:"gildas",nom:"GILDAS BAUGE 2",couleur:"#e8d0e8"},
 ];
- 
+
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
 function Sidebar({page,setPage,T}){
   const[collapsed,setCollapsed]=useState(()=>localStorage.getItem("sidebar_collapsed")==="1");
@@ -102,7 +102,7 @@ function Sidebar({page,setPage,T}){
     <div style={{width:W,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,
       display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",zIndex:50,
       transition:"width .2s ease",overflow:"hidden"}}>
- 
+
       {/* Logo + toggle */}
       <div style={{padding:collapsed?"16px 0":"20px 16px 12px",display:"flex",
         alignItems:"center",justifyContent:collapsed?"center":"space-between",gap:8,flexShrink:0}}>
@@ -121,9 +121,9 @@ function Sidebar({page,setPage,T}){
           {collapsed?"▶":"◀"}
         </button>
       </div>
- 
+
       {!collapsed&&<div style={{height:1,background:T.sidebarBorder,margin:"0 14px 10px"}}/>}
- 
+
       {/* Nav items */}
       <nav style={{flex:1,padding:collapsed?"8px 6px":"0 8px"}}>
         {nav.map(n=>{
@@ -150,7 +150,7 @@ function Sidebar({page,setPage,T}){
           );
         })}
       </nav>
- 
+
       {/* Date en bas */}
       {!collapsed&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.sidebarBorder}`,flexShrink:0}}>
         <div style={{fontSize:11,color:"rgba(255,255,255,0.25)",lineHeight:1.5}}>
@@ -160,7 +160,7 @@ function Sidebar({page,setPage,T}){
     </div>
   );
 }
- 
+
 // ─── CELL MODAL ───────────────────────────────────────────────────────────────
 function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,onClose,T}){
   if(!chantier)return null;
@@ -266,26 +266,26 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
     </div>
   );
 }
- 
+
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
 function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,setSettings}){
   const todayJour=getTodayJour();
   const now=new Date();
   const greeting=now.getHours()<12?"Bonjour":"Bon après-midi";
- 
+
   // Chantiers actifs aujourd'hui
   const chantiersAujourdHui=todayJour?chantiers.map(c=>{
     const cell=cells[`${c.id}_${todayJour}`]||{planifie:"",reel:"",ouvriers:[]};
     return{...c,cell};
   }).filter(c=>c.cell.ouvriers?.length>0||c.cell.planifie):[];
- 
+
   // Commandes urgentes (à commander)
   const [cmdDetails,setCmdDetails]=useState([]);
   useEffect(()=>{
     supabase.from("commandes_detail").select("*").eq("statut","a_commander")
       .then(({data})=>setCmdDetails(data||[]));
   },[]);
- 
+
   // Config liens Google (stockée localement)
   const [calEmbed,setCalEmbed]=useState(()=>localStorage.getItem("gcal_embed")||"");
   const [driveLinks,setDriveLinks]=useState(()=>{
@@ -294,7 +294,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
   const [editLinks,setEditLinks]=useState(false);
   const [newLinkName,setNewLinkName]=useState("");
   const [newLinkUrl,setNewLinkUrl]=useState("");
- 
+
   const saveCalEmbed=(v)=>{setCalEmbed(v);localStorage.setItem("gcal_embed",v);};
   const addDriveLink=()=>{
     if(!newLinkName.trim()||!newLinkUrl.trim())return;
@@ -308,7 +308,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
     setDriveLinks(updated);
     localStorage.setItem("drive_links",JSON.stringify(updated));
   };
- 
+
   const Widget=({title,icon,children,action})=>(
     <div style={{background:T.widgetBg,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
       <div style={{padding:"14px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",
@@ -322,7 +322,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
       <div style={{padding:"14px 18px"}}>{children}</div>
     </div>
   );
- 
+
   const ExternalBtn=({href,icon,label,color="#5b8af5"})=>(
     <a href={href} target="_blank" rel="noopener noreferrer" style={{
       display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
@@ -337,10 +337,10 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
       <span style={{marginLeft:"auto",fontSize:12,color:T.textMuted}}>↗</span>
     </a>
   );
- 
+
   return(
     <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
- 
+
       {/* Titre */}
       <div style={{marginBottom:28}}>
         <div style={{fontSize:15,color:T.textMuted,marginBottom:6}}>
@@ -348,10 +348,10 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
         </div>
         <div style={{fontSize:36,fontWeight:800,letterSpacing:1}}>{greeting} 👋</div>
       </div>
- 
+
       {/* Rangée 1 : Chantiers (2/3) + Commandes urgentes (1/3) */}
       <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:20,marginBottom:20}}>
- 
+
         <Widget title="Chantiers aujourd'hui" icon="🏗️">
           {!todayJour?(
             <div style={{color:T.textMuted,fontSize:16,padding:"8px 0"}}>C'est le week-end ! 🎉</div>
@@ -380,7 +380,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
             </div>
           )}
         </Widget>
- 
+
         <Widget title="Commandes urgentes" icon="🚨">
           {cmdDetails.length===0?(
             <div style={{color:T.textMuted,fontSize:15}}>Aucune commande en attente ✓</div>
@@ -402,10 +402,10 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
           )}
         </Widget>
       </div>
- 
+
       {/* Rangée 2 : Accès rapides (1/3) + Agenda large (2/3) */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:20,marginBottom:24}}>
- 
+
         <Widget title="Accès rapides" icon="🔗"
           action={<button onClick={()=>setEditLinks(!editLinks)} style={{background:"transparent",
             border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",
@@ -445,7 +445,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
             </div>
           )}
         </Widget>
- 
+
         {/* AGENDA — large, hauteur généreuse */}
         <Widget title="Mon Agenda" icon="📅"
           action={<button onClick={()=>{const url=prompt("Colle l'URL d'intégration Google Calendar :",calEmbed);if(url!==null)saveCalEmbed(url.trim());}}
@@ -475,7 +475,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,settings,se
     </div>
   );
 }
- 
+
 // ─── PAGE COMMANDES ───────────────────────────────────────────────────────────
 function PageCommandes({chantiers,T}){
   const [rows,setRows]=useState([]);
@@ -484,7 +484,7 @@ function PageCommandes({chantiers,T}){
   const [filterStatut,setFilterStatut]=useState("all");
   const [editRow,setEditRow]=useState(null); // id en cours d'édition inline
   const [newRow,setNewRow]=useState(null);   // brouillon nouvelle ligne
- 
+
   const load=async()=>{
     setLoading(true);
     const{data}=await supabase.from("commandes_detail").select("*").order("created_at",{ascending:true});
@@ -492,7 +492,7 @@ function PageCommandes({chantiers,T}){
     setLoading(false);
   };
   useEffect(()=>{load();},[]);
- 
+
   // Realtime
   useEffect(()=>{
     const ch=supabase.channel("commandes-detail")
@@ -500,7 +500,7 @@ function PageCommandes({chantiers,T}){
       .subscribe();
     return()=>supabase.removeChannel(ch);
   },[]);
- 
+
   const saveRow=async(row)=>{
     if(row.id){
       await supabase.from("commandes_detail").update(row).eq("id",row.id);
@@ -520,12 +520,12 @@ function PageCommandes({chantiers,T}){
     await supabase.from("commandes_detail").update({statut:next}).eq("id",row.id);
     setRows(prev=>prev.map(r=>r.id===row.id?{...r,statut:next}:r));
   };
- 
+
   const filtered=rows.filter(r=>
     (filterChantier==="all"||r.chantier_id===filterChantier)&&
     (filterStatut==="all"||r.statut===filterStatut)
   );
- 
+
   const RowEditor=({row,onSave,onCancel})=>{
     const[draft,setDraft]=useState(row);
     return(
@@ -578,9 +578,9 @@ function PageCommandes({chantiers,T}){
       </tr>
     );
   };
- 
+
   const counts=Object.fromEntries(Object.keys(STATUTS).map(k=>[k,rows.filter(r=>r.statut===k).length]));
- 
+
   return(
     <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
       <div style={{marginBottom:24,display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
@@ -593,7 +593,7 @@ function PageCommandes({chantiers,T}){
           + Nouvelle ligne
         </button>
       </div>
- 
+
       {/* Compteurs statut */}
       <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
         {Object.entries(STATUTS).map(([k,v])=>(
@@ -606,7 +606,7 @@ function PageCommandes({chantiers,T}){
           </div>
         ))}
       </div>
- 
+
       {/* Filtres */}
       <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         <select value={filterChantier} onChange={e=>setFilterChantier(e.target.value)}
@@ -622,7 +622,7 @@ function PageCommandes({chantiers,T}){
           {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k} style={{background:"#1e2336",color:"#e8eaf0"}}>{v.label}</option>)}
         </select>
       </div>
- 
+
       {/* Tableau */}
       <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -684,7 +684,7 @@ function PageCommandes({chantiers,T}){
           </tbody>
         </table>
       </div>
- 
+
       {/* Résumé par fournisseur */}
       {rows.filter(r=>r.statut!=="retire"&&r.fournisseur).length>0&&(
         <div style={{marginTop:24}}>
@@ -711,7 +711,7 @@ function PageCommandes({chantiers,T}){
     </div>
   );
 }
- 
+
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
 function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T}){
   const [modal,setModal]=useState(null);
@@ -719,16 +719,16 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
   const [cmdDraft,setCmdDraft]=useState("");
   const [noteDraft,setNoteDraft]=useState("");
   const [saving,setSaving]=useState(false);
- 
+
   const prevWeek=()=>{if(week===1){setYear(y=>y-1);setWeek(52);}else setWeek(w=>w-1);};
   const nextWeek=()=>{if(week===52){setYear(y=>y+1);setWeek(1);}else setWeek(w=>w+1);};
   const goNow=()=>{const{year:y,week:w}=getCurrentWeek();setYear(y);setWeek(w);};
- 
+
   const getCell=(cId,jour)=>{
     if(modal?.cId===cId&&modal?.jour===jour&&cellDraft)return cellDraft;
     return cells[`${cId}_${jour}`]||emptyCell();
   };
- 
+
   const openModal=(cId,jour)=>{
     setModal({cId,jour});
     setCellDraft({...(cells[`${cId}_${jour}`]||emptyCell())});
@@ -749,7 +749,7 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
     ]);
     setSaving(false);setModal(null);setCellDraft(null);
   };
- 
+
   const handlePrint=()=>{
     const vl={"planifie":"PLANNING PLANIFIÉ","reel":"RÉEL","compare":"BILAN COMPARATIF"}[view];
     const rows=chantiers.map(c=>{
@@ -777,16 +777,16 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
     </body></html>`);
     w.document.close();setTimeout(()=>w.print(),400);
   };
- 
+
   const modalChantier=modal?chantiers.find(c=>c.id===modal.cId):null;
- 
+
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
       {modal&&cellDraft&&<CellModal chantier={modalChantier} jour={modal.jour} draft={cellDraft}
         setDraft={setCellDraft} commande={{value:cmdDraft,set:setCmdDraft}}
         note={{value:noteDraft,set:setNoteDraft}} ouvriers={ouvriers}
         saving={saving} onClose={closeModal} T={T}/>}
- 
+
       {/* Sous-header planning */}
       <div style={{padding:"16px 28px",borderBottom:`1px solid ${T.headerBorder}`,
         display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",background:T.surface}}>
@@ -803,7 +803,7 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
           <button className="btn-g" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>
         </div>
       </div>
- 
+
       {/* Grille */}
       <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
         <div style={{overflowX:"auto"}}>
@@ -866,7 +866,7 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
     </div>
   );
 }
- 
+
 // ─── PAGE ADMIN ───────────────────────────────────────────────────────────────
 function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme,setTheme,T}){
   const [adminTab,setAdminTab]=useState("ouvriers");
@@ -875,7 +875,7 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
   const [newNom,setNewNom]=useState("");
   const [newColor,setNewColor]=useState(COULEURS_PALETTE[0]);
   const [editChIdx,setEditChIdx]=useState(null);
- 
+
   const addOuvrier=()=>{if(!newOuvrier.trim())return;const u=[...ouvriers,newOuvrier.trim()];setOuvriers(u);saveConfig("ouvriers",u);setNewOuvrier("");};
   const removeOuvrier=i=>{const u=ouvriers.filter((_,idx)=>idx!==i);setOuvriers(u);saveConfig("ouvriers",u);};
   const renameOuvrier=(i,v)=>{const u=ouvriers.map((o,idx)=>idx===i?v:o);setOuvriers(u);saveConfig("ouvriers",u);setEditOuvrier(null);};
@@ -884,7 +884,7 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
   const removeChantier=i=>{const u=chantiers.filter((_,idx)=>idx!==i);setChantiers(u);saveConfig("chantiers",u);};
   const updateChantier=(i,ch)=>{const u=chantiers.map((c,idx)=>idx===i?{...c,...ch}:c);setChantiers(u);saveConfig("chantiers",u);};
   const moveChantier=(i,d)=>{const a=[...chantiers],j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];setChantiers(a);saveConfig("chantiers",a);};
- 
+
   return(
     <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
       <div style={{fontSize:28,fontWeight:800,letterSpacing:1,marginBottom:4}}>Réglages</div>
@@ -894,7 +894,7 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
           <button key={k} className={`atab ${adminTab===k?"on":"off"}`} onClick={()=>setAdminTab(k)}>{l}</button>
         ))}
       </div>
- 
+
       {adminTab==="ouvriers"&&(
         <div className="ac">
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Liste des ouvriers</div>
@@ -925,7 +925,7 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
           </div>
         </div>
       )}
- 
+
       {adminTab==="chantiers"&&(
         <div className="ac">
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Chantiers par défaut</div>
@@ -966,7 +966,7 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
           </div>
         </div>
       )}
- 
+
       {adminTab==="apparence"&&(
         <div className="ac">
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Thème d'affichage</div>
@@ -987,9 +987,9 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
     </div>
   );
 }
- 
+
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
- 
+
 // ─── DXF PARSER ───────────────────────────────────────────────────────────────
 function parseDXF(text) {
   const lines = text.split('\n').map(l => l.trim());
@@ -1057,7 +1057,7 @@ function parseDXF(text) {
   }
   return {points, segments};
 }
- 
+
 // Auto-connect point cloud → line segments
 function autoConnect(points, threshold) {
   if (points.length === 0) return [];
@@ -1096,7 +1096,7 @@ function autoConnect(points, threshold) {
   });
   return segs;
 }
- 
+
 // Compute bounding box
 function getBounds(segments, symbols=[]) {
   let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
@@ -1111,7 +1111,7 @@ function getBounds(segments, symbols=[]) {
   if (!isFinite(minX)) return {minX:0,maxX:100,minY:0,maxY:100,w:100,h:100};
   return {minX,maxX,minY,maxY,w:maxX-minX,h:maxY-minY};
 }
- 
+
 const SYMBOL_TYPES = [
   {id:'door',  icon:'🚪', label:'Porte'},
   {id:'window',icon:'⬜', label:'Fenêtre'},
@@ -1119,7 +1119,7 @@ const SYMBOL_TYPES = [
   {id:'wc',    icon:'🚽', label:'WC'},
   {id:'text',  icon:'T',  label:'Texte'},
 ];
- 
+
 const TOOL_LIST = [
   {id:'pan',    icon:'✋', label:'Déplacer'},
   {id:'select', icon:'↖',  label:'Sélectionner / Supprimer'},
@@ -1129,43 +1129,58 @@ const TOOL_LIST = [
   {id:'text',   icon:'T',  label:'Ajouter un texte'},
   {id:'measure',icon:'📏', label:'Mesurer'},
 ];
- 
+
 // ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
 function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const canvasRef = useRef(null);
   const [segments, setSegments] = useState(plan.data?.segments || []);
   const [symbols, setSymbols]   = useState(plan.data?.symbols || []);
-  // Historique pour undo/redo
-  const [history, setHistory]   = useState([]);  // [{segments, symbols}, ...]
-  const [future, setFuture]     = useState([]);   // états annulés (pour redo)
- 
-  // Enregistre l'état courant avant une action destructive
+
+  // Historique undo/redo — stocké dans des refs pour éviter les setState imbriqués
+  const historyRef = useRef([]);   // pile des états passés
+  const futureRef  = useRef([]);   // pile des états annulés (redo)
+  const [historyLen, setHistoryLen] = useState(0); // juste pour forcer un re-render des boutons
+  const [futureLen,  setFutureLen]  = useState(0);
+
+  // Enregistre l'état courant AVANT une modification
   const pushHistory = useCallback((segs, syms) => {
-    setHistory(h => [...h.slice(-30), {segments: segs, symbols: syms}]); // max 30 étapes
-    setFuture([]);
+    historyRef.current = [...historyRef.current.slice(-29), { segments: segs, symbols: syms }];
+    futureRef.current  = [];
+    setHistoryLen(historyRef.current.length);
+    setFutureLen(0);
   }, []);
- 
+
   const undo = useCallback(() => {
-    setHistory(h => {
-      if (h.length === 0) return h;
-      const prev = h[h.length - 1];
-      setFuture(f => [{ segments, symbols }, ...f.slice(0, 29)]);
-      setSegments(prev.segments);
-      setSymbols(prev.symbols);
-      return h.slice(0, -1);
+    if (historyRef.current.length === 0) return;
+    const prev  = historyRef.current[historyRef.current.length - 1];
+    // Sauvegarde état actuel dans future (on a besoin des valeurs courantes ici)
+    // On les récupère via les setters fonctionnels pour éviter la dépendance
+    setSegments(curSegs => {
+      setSymbols(curSyms => {
+        futureRef.current = [{ segments: curSegs, symbols: curSyms }, ...futureRef.current.slice(0, 29)];
+        setFutureLen(futureRef.current.length);
+        return prev.symbols;
+      });
+      return prev.segments;
     });
-  }, [segments, symbols]);
- 
+    historyRef.current = historyRef.current.slice(0, -1);
+    setHistoryLen(historyRef.current.length);
+  }, []);
+
   const redo = useCallback(() => {
-    setFuture(f => {
-      if (f.length === 0) return f;
-      const next = f[0];
-      setHistory(h => [...h, { segments, symbols }]);
-      setSegments(next.segments);
-      setSymbols(next.symbols);
-      return f.slice(1);
+    if (futureRef.current.length === 0) return;
+    const next = futureRef.current[0];
+    setSegments(curSegs => {
+      setSymbols(curSyms => {
+        historyRef.current = [...historyRef.current, { segments: curSegs, symbols: curSyms }];
+        setHistoryLen(historyRef.current.length);
+        return next.symbols;
+      });
+      return next.segments;
     });
-  }, [segments, symbols]);
+    futureRef.current = futureRef.current.slice(1);
+    setFutureLen(futureRef.current.length);
+  }, []);
   const [vp, setVp]             = useState(plan.data?.viewport || {x:0,y:0,scale:1});
   const [tool, setTool]         = useState('pan');
   const [lineStart, setLineStart] = useState(null);
@@ -1176,11 +1191,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [threshold, setThreshold]   = useState(plan.data?.threshold || 0.5);
   const [showThreshold, setShowThreshold] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
- 
+
   // Derived
   const vpRef = useRef(vp);
   vpRef.current = vp;
- 
+
   // Canvas coord helpers
   const toCanvas = (wx,wy) => ({
     cx: (wx - vpRef.current.x) * vpRef.current.scale,
@@ -1190,7 +1205,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     wx: cx / vpRef.current.scale + vpRef.current.x,
     wy: cy / vpRef.current.scale + vpRef.current.y,
   });
- 
+
   // Render
   const render = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -1199,7 +1214,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle = '#12151f';
     ctx.fillRect(0,0,W,H);
- 
+
     // Grid
     const gridSize = Math.max(0.1, 1 / vpRef.current.scale);
     const gStep = gridSize * vpRef.current.scale;
@@ -1211,7 +1226,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       for (let x=ox;x<W;x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
       for (let y=oy;y<H;y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
     }
- 
+
     // Segments
     segments.forEach(s => {
       if (s.deleted) return;
@@ -1222,7 +1237,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       ctx.lineWidth = isSelected ? 3 : (s.user ? 2 : 1.5);
       ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
     });
- 
+
     // Symbols
     symbols.forEach(sym => {
       if (sym.deleted) return;
@@ -1256,7 +1271,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       }
       ctx.restore();
     });
- 
+
     // Line in progress
     if (tool==='line' && lineStart && mousePos) {
       const {cx:x1,cy:y1}=toCanvas(lineStart.x,lineStart.y);
@@ -1264,7 +1279,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mousePos.cx,mousePos.cy); ctx.stroke();
       ctx.setLineDash([]);
     }
- 
+
     // Measure
     if (measurePts.length===1 && mousePos) {
       const {cx:x1,cy:y1}=toCanvas(measurePts[0].x,measurePts[0].y);
@@ -1285,19 +1300,19 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       ctx.fillText(`${measureDist.toFixed(2)} m`, (x1+x2)/2, (y1+y2)/2-10);
     }
   }, [segments, symbols, vp, tool, lineStart, mousePos, selectedIds, measurePts, measureDist]);
- 
+
   useEffect(() => { render(); }, [render]);
- 
-  // Keyboard shortcuts Ctrl+Z / Ctrl+Y
+
+  // Keyboard shortcuts Ctrl+Z / Ctrl+Y — undo/redo sont stables (useCallback sans deps)
   useEffect(() => {
     const handler = (e) => {
-      if (e.ctrlKey && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
-      if ((e.ctrlKey && e.key==='y') || (e.ctrlKey && e.shiftKey && e.key==='z')) { e.preventDefault(); redo(); }
+      if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if (((e.ctrlKey||e.metaKey) && e.key==='y') || ((e.ctrlKey||e.metaKey) && e.shiftKey && e.key==='z')) { e.preventDefault(); redo(); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [undo, redo]);
- 
+  }, []); // stable - undo/redo ne changent plus
+
   // Resize canvas
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -1312,7 +1327,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     render();
     return () => observer.disconnect();
   }, []);
- 
+
   // Fit to content
   const fitView = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -1326,12 +1341,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const y = bounds.minY - bounds.h*pad;
     setVp({x, y, scale});
   }, [segments, symbols]);
- 
+
   useEffect(() => { if (segments.length>0) fitView(); }, []);
- 
+
   // Mouse/touch events
   const dragRef = useRef(null);
- 
+
   const getEventPos = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -1339,7 +1354,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     return { cx: clientX-rect.left, cy: clientY-rect.top };
   };
- 
+
   const onMouseDown = (e) => {
     const pos = getEventPos(e);
     const {wx,wy} = toWorld(pos.cx, pos.cy);
@@ -1395,7 +1410,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       }
     }
   };
- 
+
   const onMouseMove = (e) => {
     const pos = getEventPos(e);
     setMousePos(pos);
@@ -1405,9 +1420,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       setVp(v=>({...v, x:dragRef.current.startVx-dx, y:dragRef.current.startVy-dy}));
     }
   };
- 
+
   const onMouseUp = () => { dragRef.current=null; };
- 
+
   const onWheel = (e) => {
     e.preventDefault();
     const pos = getEventPos(e);
@@ -1418,7 +1433,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       return { scale:ns, x: wx - pos.cx/ns, y: wy - pos.cy/ns };
     });
   };
- 
+
   // DXF Import
   const importDXF = (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -1437,7 +1452,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     reader.readAsText(file, 'utf-8');
     e.target.value='';
   };
- 
+
   // Reconnect avec nouveau threshold
   const reconnect = (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -1452,7 +1467,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     reader.readAsText(file,'utf-8');
     e.target.value='';
   };
- 
+
   // Save
   const handleSave = async () => {
     setSaving(true);
@@ -1464,7 +1479,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setSaving(false);
     onSave({...plan, data, thumbnail:thumb});
   };
- 
+
   // Export PNG
   const exportPNG = () => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -1473,7 +1488,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     a.download = (plan.name||'plan')+'.png';
     a.click();
   };
- 
+
   // Export PDF (print)
   const exportPDF = () => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -1485,10 +1500,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     w.document.close();
     setTimeout(()=>w.print(),500);
   };
- 
+
   const segCount = segments.filter(s=>!s.deleted).length;
   const symCount = symbols.filter(s=>!s.deleted).length;
- 
+
   const toolBtnStyle = (id) => ({
     display:'flex',alignItems:'center',justifyContent:'center',
     width:40,height:40,borderRadius:8,border:'none',cursor:'pointer',
@@ -1497,9 +1512,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     color: tool===id ? '#fff' : '#9aa5c0',
     title: TOOL_LIST.find(t=>t.id===id)?.label||id,
   });
- 
+
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#12151f'}}>
+    <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,background:'#12151f'}}>
       {/* Toolbar */}
       <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 16px',
         background:'#1e2336',borderBottom:'1px solid rgba(255,255,255,0.08)',flexShrink:0,flexWrap:'wrap'}}>
@@ -1510,18 +1525,18 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         </button>
         <div style={{fontSize:15,fontWeight:700,color:'#e8eaf0',marginRight:4}}>{plan.name}</div>
         <div style={{fontSize:12,color:'#5b6a8a'}}>{segCount} segments · {symCount} symboles</div>
- 
+
         <div style={{height:24,width:1,background:'rgba(255,255,255,0.1)',margin:'0 4px'}}/>
- 
+
         {/* Tools */}
         {TOOL_LIST.map(t=>(
           <button key={t.id} title={t.label} onClick={()=>{setTool(t.id);setLineStart(null);setMeasurePts([]);setMeasureDist(null);}} style={toolBtnStyle(t.id)}>
             {t.icon}
           </button>
         ))}
- 
+
         <div style={{height:24,width:1,background:'rgba(255,255,255,0.1)',margin:'0 4px'}}/>
- 
+
         {/* Import DXF */}
         <label style={{display:'flex',alignItems:'center',gap:6,padding:'7px 12px',
           background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
@@ -1529,7 +1544,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           📂 Importer DXF
           <input type='file' accept='.dxf' style={{display:'none'}} onChange={importDXF}/>
         </label>
- 
+
         {/* Threshold */}
         <button onClick={()=>setShowThreshold(s=>!s)} title="Seuil de connexion automatique"
           style={{...toolBtnStyle('threshold'),width:'auto',padding:'0 10px',fontSize:12}}>
@@ -1546,23 +1561,23 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             <span style={{fontSize:11,color:'#5b6a8a'}}>m</span>
           </div>
         )}
- 
+
         {/* Fit view */}
         <button title="Ajuster la vue" onClick={fitView}
           style={{...toolBtnStyle('fit'),fontSize:14}}>⊙</button>
- 
+
         {/* Undo / Redo */}
-        <button title="Annuler (Ctrl+Z)" onClick={undo} disabled={history.length===0}
-          style={{...toolBtnStyle('undo_btn'),fontSize:16,opacity:history.length===0?0.3:1}}>⟲</button>
-        <button title="Rétablir (Ctrl+Y)" onClick={redo} disabled={future.length===0}
-          style={{...toolBtnStyle('redo_btn'),fontSize:16,opacity:future.length===0?0.3:1}}>⟳</button>
- 
+        <button title="Annuler (Ctrl+Z)" onClick={undo} disabled={historyLen===0}
+          style={{...toolBtnStyle('undo_btn'),fontSize:16,opacity:historyLen===0?0.3:1}}>⟲</button>
+        <button title="Rétablir (Ctrl+Y)" onClick={redo} disabled={futureLen===0}
+          style={{...toolBtnStyle('redo_btn'),fontSize:16,opacity:futureLen===0?0.3:1}}>⟳</button>
+
         {/* Undo all deleted */}
         <button title="Restaurer toutes les suppressions" onClick={()=>{pushHistory(segments,symbols);setSegments(s=>s.map(seg=>({...seg,deleted:false})));setSymbols(sy=>sy.map(s=>({...s,deleted:false})));}}
           style={{...toolBtnStyle('undo'),fontSize:14}}>↩</button>
- 
+
         <div style={{flex:1}}/>
- 
+
         {/* Export */}
         <button onClick={exportPNG} style={{background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.3)',
           borderRadius:8,padding:'7px 14px',color:'#7ee8a2',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>
@@ -1578,10 +1593,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           {saving?'…':'💾 Sauvegarder'}
         </button>
       </div>
- 
+
       {/* Canvas */}
       <canvas ref={canvasRef}
-        style={{flex:1,display:'block',cursor:tool==='pan'?(dragRef.current?'grabbing':'grab'):tool==='select'?'crosshair':tool==='line'?'crosshair':'default',touchAction:'none'}}
+        style={{flex:1,display:'block',background:'#12151f',cursor:tool==='pan'?(dragRef.current?'grabbing':'grab'):tool==='select'?'crosshair':tool==='line'?'crosshair':'default',touchAction:'none'}}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
@@ -1591,7 +1606,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         onTouchMove={onMouseMove}
         onTouchEnd={onMouseUp}
       />
- 
+
       {/* Status bar */}
       <div style={{padding:'5px 16px',background:'#1a1f2e',borderTop:'1px solid rgba(255,255,255,0.06)',
         fontSize:11,color:'#5b6a8a',display:'flex',gap:16,flexShrink:0}}>
@@ -1605,7 +1620,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     </div>
   );
 }
- 
+
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
 function PagePlans({T, chantiers}) {
   const [plans, setPlans]           = useState([]);
@@ -1615,16 +1630,16 @@ function PagePlans({T, chantiers}) {
   const [newName, setNewName]       = useState('');
   const [newChantier, setNewChantier] = useState('');
   const [creating, setCreating]     = useState(false);
- 
+
   const loadPlans = async () => {
     setLoading(true);
     const {data} = await supabase.from('plans').select('*').order('updated_at',{ascending:false});
     setPlans(data||[]);
     setLoading(false);
   };
- 
+
   useEffect(()=>{ loadPlans(); },[]);
- 
+
   const createPlan = async () => {
     if (!newName.trim()) return;
     setCreating(true);
@@ -1636,26 +1651,26 @@ function PagePlans({T, chantiers}) {
     if (data) { setPlans(p=>[data,...p]); setEditingPlan(data); }
     setNewName(''); setNewChantier(''); setShowNew(false); setCreating(false);
   };
- 
+
   const deletePlan = async (id) => {
     if (!confirm('Supprimer ce plan définitivement ?')) return;
     await supabase.from('plans').delete().eq('id',id);
     setPlans(p=>p.filter(x=>x.id!==id));
   };
- 
+
   const onSave = (updated) => {
     setPlans(p=>p.map(x=>x.id===updated.id?updated:x));
   };
- 
+
   // Editor mode
   if (editingPlan) return (
-    <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
+    <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',width:'100%'}}>
       <PlanEditor plan={editingPlan} onSave={onSave}
         onClose={()=>{ setEditingPlan(null); loadPlans(); }}
         T={T} chantiers={chantiers}/>
     </div>
   );
- 
+
   // List mode
   return (
     <div style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
@@ -1669,7 +1684,7 @@ function PagePlans({T, chantiers}) {
           + Nouveau plan
         </button>
       </div>
- 
+
       {/* Modal nouveau plan */}
       {showNew&&(
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:500,
@@ -1705,9 +1720,9 @@ function PagePlans({T, chantiers}) {
           </div>
         </div>
       )}
- 
+
       {loading&&<div style={{color:T.textMuted,fontSize:15,padding:32}}>Chargement…</div>}
- 
+
       {!loading&&plans.length===0&&(
         <div style={{background:T.card,border:`1px dashed ${T.border}`,borderRadius:14,
           padding:'48px 32px',textAlign:'center',maxWidth:520,margin:'0 auto'}}>
@@ -1722,7 +1737,7 @@ function PagePlans({T, chantiers}) {
           </button>
         </div>
       )}
- 
+
       {/* Grille des plans */}
       {!loading&&plans.length>0&&(
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16}}>
@@ -1735,7 +1750,7 @@ function PagePlans({T, chantiers}) {
                 borderRadius:14,overflow:'hidden',transition:'all .15s'}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.2)';}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform='none';e.currentTarget.style.boxShadow='none';}}>
- 
+
                 {/* Thumbnail / preview */}
                 <div onClick={()=>setEditingPlan(plan)} style={{cursor:'pointer',height:160,
                   background:'#12151f',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
@@ -1748,7 +1763,7 @@ function PagePlans({T, chantiers}) {
                       </div>
                   }
                 </div>
- 
+
                 <div style={{padding:'14px 16px'}}>
                   {ch&&<div style={{display:'inline-flex',alignItems:'center',gap:5,
                     background:ch.couleur+'33',border:`1px solid ${ch.couleur}55`,
@@ -1760,7 +1775,7 @@ function PagePlans({T, chantiers}) {
                     Modifié {new Date(plan.updated_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
                   </div>
                 </div>
- 
+
                 <div style={{padding:'10px 16px',borderTop:`1px solid ${T.sectionDivider}`,
                   display:'flex',gap:8,justifyContent:'flex-end'}}>
                   <button onClick={()=>setEditingPlan(plan)} style={{background:T.accent,color:'#fff',
@@ -1781,7 +1796,7 @@ function PagePlans({T, chantiers}) {
     </div>
   );
 }
- 
+
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 export default function App(){
   const{year:iY,week:iW}=getCurrentWeek();
@@ -1790,7 +1805,7 @@ export default function App(){
   const[page,setPage]=useState("dashboard");
   const[theme,setTheme]=useState(()=>localStorage.getItem("theme")||"dark");
   const[view,setView]=useState("planifie");
- 
+
   const[ouvriers,setOuvriers]=useState(DEFAULT_OUVRIERS);
   const[chantiers,setChantiers]=useState(DEFAULT_CHANTIERS);
   const[cells,setCells]=useState({});
@@ -1799,10 +1814,10 @@ export default function App(){
   const[syncing,setSyncing]=useState(false);
   const[connected,setConnected]=useState(false);
   const[lastSync,setLastSync]=useState(null);
- 
+
   const T=THEMES[theme];
   const weekId=getWeekId(year,week);
- 
+
   const loadData=useCallback(async()=>{
     setSyncing(true);
     try{
@@ -1822,9 +1837,9 @@ export default function App(){
     }catch(e){console.error(e);}
     setSyncing(false);
   },[weekId]);
- 
+
   useEffect(()=>{loadData();},[loadData]);
- 
+
   useEffect(()=>{
     const ch=supabase.channel(`planning-${weekId}`)
       .on("postgres_changes",{event:"*",schema:"public",table:"planning_cells",filter:`week_id=eq.${weekId}`},p=>{
@@ -1843,7 +1858,7 @@ export default function App(){
       .subscribe();
     return()=>supabase.removeChannel(ch);
   },[weekId]);
- 
+
   const saveConfig=async(key,value)=>{
     const{error}=await supabase.from("planning_config")
       .upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"});
@@ -1852,7 +1867,7 @@ export default function App(){
       setTimeout(()=>supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"}),1000);
     }
   };
- 
+
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -1890,12 +1905,12 @@ export default function App(){
     .ib{background:transparent;border:none;cursor:pointer;font-size:14px;padding:2px 3px;opacity:.6;color:${T.text}}
     .ib:hover{opacity:1}
   `;
- 
+
   return(
     <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{css}</style>
       <Sidebar page={page} setPage={setPage} T={T}/>
- 
+
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
         {/* Top bar */}
         <div style={{background:T.surface,borderBottom:`1px solid ${T.headerBorder}`,
@@ -1914,7 +1929,7 @@ export default function App(){
               style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
           </div>
         </div>
- 
+
         {/* Page content */}
         <div style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
           {page==="dashboard"&&(
