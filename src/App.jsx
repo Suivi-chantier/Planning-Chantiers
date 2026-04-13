@@ -115,45 +115,30 @@ function BottomNav({ page, setPage, T }) {
     { id:"commandes", icon:"📦", label:"Commandes" },
     { id:"equipe",    icon:"👷", label:"Équipe" },
     { id:"plans",     icon:"📐", label:"Plans" },
+    { id:"admin",     icon:"⚙️", label:"Réglages" },
   ];
   return (
-    <div style={{
-      position:"fixed", bottom:0, left:0, right:0, zIndex:200,
-      background:"#080a0d", borderTop:"2px solid #FFC200",
-      display:"flex", alignItems:"stretch",
-      paddingBottom:"env(safe-area-inset-bottom)",
-    }}>
+    <div className="bottom-nav-mobile">
       {nav.map(n => {
         const active = page === n.id;
         return (
           <button key={n.id} onClick={() => setPage(n.id)} style={{
             flex:1, display:"flex", flexDirection:"column", alignItems:"center",
-            justifyContent:"center", padding:"8px 4px 6px", border:"none",
+            justifyContent:"center", padding:"8px 2px 6px", border:"none",
             background: active ? "rgba(255,194,0,0.1)" : "transparent",
-            cursor:"pointer", fontFamily:"inherit", transition:"all .15s",
+            cursor:"pointer", fontFamily:"inherit", transition:"all .12s",
             borderTop: active ? "2px solid #FFC200" : "2px solid transparent",
             marginTop: -2,
           }}>
-            <span style={{ fontSize:20, lineHeight:1 }}>{n.icon}</span>
+            <span style={{ fontSize:18, lineHeight:1 }}>{n.icon}</span>
             <span style={{
-              fontSize:10, fontWeight: active ? 700 : 500, marginTop:3,
+              fontSize:9, fontWeight: active ? 700 : 500, marginTop:3,
               color: active ? "#FFC200" : "rgba(255,255,255,0.4)",
-              letterSpacing: .3,
+              letterSpacing:.3, textTransform:"uppercase",
             }}>{n.label}</span>
           </button>
         );
       })}
-      {/* Bouton réglages discret */}
-      <button onClick={() => setPage("admin")} style={{
-        width:36, display:"flex", flexDirection:"column", alignItems:"center",
-        justifyContent:"center", padding:"8px 4px 6px", border:"none",
-        background: page==="admin" ? "rgba(255,194,0,0.1)" : "transparent",
-        cursor:"pointer", fontFamily:"inherit",
-        borderTop: page==="admin" ? "2px solid #FFC200" : "2px solid transparent",
-        marginTop: -2,
-      }}>
-        <span style={{ fontSize:16 }}>⚙️</span>
-      </button>
     </div>
   );
 }
@@ -245,21 +230,20 @@ function Sidebar({page,setPage,T}){
 // ─── CELL MODAL ───────────────────────────────────────────────────────────────
 function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,onClose,T}){
   if(!chantier)return null;
-  const isMob = window.innerWidth < 768;
   const toggleOuvrier=(o)=>{
     const list=[...(draft.ouvriers||[])];
     const i=list.indexOf(o);if(i>=0)list.splice(i,1);else list.push(o);
     setDraft(p=>({...p,ouvriers:list}));
   };
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:500,
-      display:"flex",alignItems: isMob ? "flex-end" : "center",
-      justifyContent:"center",padding: isMob ? 0 : 16,backdropFilter:"blur(4px)"}}
+    <div className="cell-modal-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:500,
+      display:"flex",alignItems:"center",
+      justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
       onClick={onClose}>
-      <div style={{background:T.modal,
-        borderRadius: isMob ? "20px 20px 0 0" : 18,
-        width:"100%", maxWidth: isMob ? "100%" : 860,
-        maxHeight: isMob ? "94vh" : "92vh",
+      <div className="cell-modal-box" style={{background:T.modal,
+        borderRadius:18,
+        width:"100%", maxWidth:860,
+        maxHeight:"92vh",
         overflow:"hidden",display:"flex",flexDirection:"column",
         boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",border:`1px solid ${T.border}`}}
         onClick={e=>e.stopPropagation()}>
@@ -274,8 +258,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
             borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:20,
             color:"#1a1f2e",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>✕</button>
         </div>
-        <div style={{flex:1,overflow:"hidden",display:"grid",
-          gridTemplateColumns: window.innerWidth<768 ? "1fr" : "1fr 320px",minHeight:0}}>
+        <div className="cell-modal-body" style={{flex:1,overflow:"hidden",display:"grid",
+          gridTemplateColumns:"1fr 320px",minHeight:0}}>
           <div style={{padding:"24px 20px 24px 28px",display:"flex",flexDirection:"column",gap:16,
             overflowY:"auto",borderRight:`1px solid ${T.sectionDivider}`}}>
 
@@ -445,7 +429,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
 }
 
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
-function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,isMobile}){
+function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
   const todayJour=getTodayJour();
   const now=new Date();
   const greeting=now.getHours()<12?"Bonjour":"Bon après-midi";
@@ -516,18 +500,18 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,isMobile}){
   );
 
   return(
-    <div style={{flex:1,overflowY:"auto",padding: isMobile ? "16px 16px 8px" : "28px 32px"}}>
+    <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
 
       {/* Titre */
       <div style={{marginBottom:28}}>
         <div style={{fontSize:15,color:T.textMuted,marginBottom:6}}>
           {now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
         </div>
-        <div style={{fontSize: isMobile ? 26 : 36,fontWeight:800,letterSpacing:1}}>{greeting} 👋</div>
+        <div style={{fontSize:36,fontWeight:800,letterSpacing:1}}>{greeting} 👋</div>
       </div>
 
       {/* Rangée 1 : Chantiers (2/3) + Commandes urgentes (1/3) */}
-      <div style={{display:"grid",gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr",gap: isMobile ? 12 : 20,marginBottom: isMobile ? 12 : 20}}>
+      <div className="dashboard-row-1" style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:20,marginBottom:20}}>
 
         <Widget title="Chantiers aujourd'hui" icon="🏗️">
           {!todayJour?(
@@ -581,7 +565,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,isMobile}){
       </div>
 
       {/* Rangée 2 : Accès rapides (1/3) + Agenda large (2/3) */}
-      <div style={{display:"grid",gridTemplateColumns: isMobile ? "1fr" : "1fr 2fr",gap: isMobile ? 12 : 20,marginBottom:24}}>
+      <div className="dashboard-row-2" style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:20,marginBottom:24}}>
 
         <Widget title="Accès rapides" icon="🔗"
           action={<button onClick={()=>setEditLinks(!editLinks)} style={{background:"transparent",
@@ -654,7 +638,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T,isMobile}){
 }
 
 // ─── PAGE COMMANDES ───────────────────────────────────────────────────────────
-function PageCommandes({chantiers,T,isMobile}){
+function PageCommandes({chantiers,T}){
   const [rows,setRows]=useState([]);
   const [loading,setLoading]=useState(true);
   const [filterChantier,setFilterChantier]=useState("all");
@@ -761,10 +745,10 @@ function PageCommandes({chantiers,T,isMobile}){
   const counts=Object.fromEntries(Object.keys(STATUTS).map(k=>[k,rows.filter(r=>r.statut===k).length]));
 
   return(
-    <div style={{flex:1,overflowY:"auto",padding: isMobile ? "14px 12px" : "28px 32px"}}>
+    <div className="page-padding" style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
       <div style={{marginBottom:24,display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
         <div>
-          <div style={{fontSize: isMobile ? 22 : 28,fontWeight:800,letterSpacing:1,marginBottom:4}}>Commandes</div>
+          <div style={{fontSize:28,fontWeight:800,letterSpacing:1,marginBottom:4}}>Commandes</div>
           <div style={{fontSize:14,color:T.textSub}}>Suivi des besoins par chantier et par fournisseur</div>
         </div>
         <button onClick={()=>setNewRow(emptyCommande())} style={{background:T.accent,color:"#fff",border:"none",
@@ -804,49 +788,7 @@ function PageCommandes({chantiers,T,isMobile}){
 
       {/* Tableau */}
       {/* Vue mobile : cartes | Vue desktop : tableau */}
-      {isMobile ? (
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {loading&&<div style={{color:T.textMuted,padding:24,textAlign:"center"}}>Chargement…</div>}
-          {!loading&&filtered.length===0&&!newRow&&(
-            <div style={{color:T.textMuted,padding:24,textAlign:"center",background:T.card,borderRadius:12}}>
-              Aucune commande — clique sur "+ Nouvelle ligne"
-            </div>
-          )}
-          {filtered.map(row=>{
-            const ch=chantiers.find(c=>c.id===row.chantier_id);
-            const st=STATUTS[row.statut]||STATUTS.a_commander;
-            return(
-              <div key={row.id} style={{background:T.surface,borderRadius:12,padding:"14px 16px",
-                border:`1px solid ${T.border}`,
-                borderLeft:`4px solid ${row.statut==="besoin_ouvrier"?"#b060ff":(ch?.couleur||T.border)}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                  <div>
-                    {ch&&<div style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{ch.nom}</div>}
-                    <div style={{fontSize:15,fontWeight:700,color:row.statut==="besoin_ouvrier"?"#c080ff":T.text}}>{row.article||"—"}</div>
-                  </div>
-                  <button onClick={()=>cycleStatut(row)} style={{
-                    background:st.bg,border:`1px solid ${st.border}`,borderRadius:6,
-                    padding:"5px 10px",fontSize:12,fontWeight:700,color:st.color,
-                    cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>
-                    {st.label}
-                  </button>
-                </div>
-                <div style={{display:"flex",gap:12,fontSize:13,color:T.textSub,flexWrap:"wrap",marginBottom:row.notes?8:0}}>
-                  {row.fournisseur&&<span>🏪 {row.fournisseur}</span>}
-                  {row.quantite&&<span>📦 {row.quantite}</span>}
-                </div>
-                {row.notes&&<div style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>{row.notes}</div>}
-                <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setEditRow(row.id)} style={{background:"transparent",border:`1px solid ${T.border}`,
-                    borderRadius:6,padding:"5px 12px",color:T.textSub,fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>✏️ Modifier</button>
-                  <button onClick={()=>deleteRow(row.id)} style={{background:"transparent",border:"1px solid rgba(224,92,92,0.3)",
-                    borderRadius:6,padding:"5px 10px",color:"#e05c5c",fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>🗑</button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
+
       <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead>
@@ -913,7 +855,8 @@ function PageCommandes({chantiers,T,isMobile}){
           </tbody>
         </table>
       </div>
-      )} {/* fin condition !isMobile */}
+
+
 
       {/* Résumé par fournisseur */}
       {rows.filter(r=>r.statut!=="retire"&&r.fournisseur).length>0&&(
@@ -943,7 +886,7 @@ function PageCommandes({chantiers,T,isMobile}){
 }
 
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
-function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T,isMobile}){
+function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T}){
   const [modal,setModal]=useState(null);
   const [cellDraft,setCellDraft]=useState(null);
   const [cmdDraft,setCmdDraft]=useState("");
@@ -1025,32 +968,31 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
         saving={saving} onClose={closeModal} T={T}/>}
 
       {/* Sous-header planning */}
-      <div style={{padding: isMobile ? "10px 12px" : "16px 28px",
+      <div className="planning-header" style={{padding:"16px 28px",
         borderBottom:`1px solid ${T.headerBorder}`,
-        display:"flex",alignItems:"center",gap: isMobile ? 8 : 16,
+        display:"flex",alignItems:"center",gap:16,
         flexWrap:"wrap",background:T.surface}}>
-        <div style={{fontSize: isMobile ? 15 : 20,fontWeight:800,letterSpacing:1}}>
-          S.{week} — {year}
+        <div className="planning-title" style={{fontSize:20,fontWeight:800,letterSpacing:1}}>
+          SEMAINE {week} — {year}
         </div>
         <div style={{display:"flex",gap:6}}>
-          <button className="navbtn" onClick={prevWeek} style={isMobile?{padding:"6px 10px",fontSize:16}:{}}>‹</button>
-          {!isMobile&&<button className="navbtn" onClick={goNow} style={{fontSize:11,padding:"6px 10px"}}>CETTE SEMAINE</button>}
-          <button className="navbtn" onClick={nextWeek} style={isMobile?{padding:"6px 10px",fontSize:16}:{}}>›</button>
-          {isMobile&&<button className="navbtn" onClick={goNow} style={{fontSize:10,padding:"6px 8px",letterSpacing:.5}}>Auj.</button>}
+          <button className="navbtn" onClick={prevWeek} >‹</button>
+          {<button className="navbtn navbtn-today" onClick={goNow} style={{fontSize:11,padding:"6px 10px"}}>CETTE SEMAINE</button>}
+          <button className="navbtn" onClick={nextWeek} >›</button>
         </div>
-        <div style={{marginLeft:"auto",display:"flex",gap: isMobile ? 4 : 8,alignItems:"center"}}>
+        <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
           <button className={`tab ${view==="planifie"?"on":"off"}`} onClick={()=>setView("planifie")}
-            style={isMobile?{padding:"6px 10px",fontSize:12}:{}}>Planifié</button>
+            >Planifié</button>
           <button className={`tab ${view==="reel"?"on":"off"}`} onClick={()=>setView("reel")}
-            style={isMobile?{padding:"6px 10px",fontSize:12}:{}}>Réel</button>
+            >Réel</button>
           <button className={`tab ${view==="compare"?"on":"off"}`} onClick={()=>setView("compare")}
-            style={isMobile?{padding:"6px 10px",fontSize:12}:{}}>Bilan</button>
-          {!isMobile&&<button className="btn-g" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>}
+            >Bilan</button>
+          <button className="btn-g btn-print" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>
         </div>
       </div>
 
       {/* Grille */}
-      <div style={{flex:1,overflowY:"auto",padding: isMobile ? "10px 8px" : "20px 28px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
         <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
           <div style={{display:"grid",gridTemplateColumns:`160px repeat(${JOURS.length},minmax(140px,1fr))`,gap:5,marginBottom:6,minWidth:860}}>
             <div/>
@@ -1878,7 +1820,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 }
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
-function PagePlans({T, chantiers, isMobile}) {
+function PagePlans({T, chantiers}) {
   const [plans, setPlans]           = useState([]);
   const [loading, setLoading]       = useState(true);
   const [editingPlan, setEditingPlan] = useState(null);
@@ -1929,7 +1871,7 @@ function PagePlans({T, chantiers, isMobile}) {
 
   // List mode
   return (
-    <div style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
+    <div className="page-padding" style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
       <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:16}}>
         <div>
           <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4,color:T.text}}>Plans</div>
@@ -2462,7 +2404,7 @@ function PageRapportMobile() {
 }
 
 // ─── PAGE ÉQUIPE ──────────────────────────────────────────────────────────────
-function PageEquipe({chantiers, ouvriers, weekId, T, isMobile}) {
+function PageEquipe({chantiers, ouvriers, weekId, T}) {
   const [rapports, setRapports]     = useState([]);
   const [loading, setLoading]       = useState(true);
   const [filterOuvrier, setFilterOuvrier] = useState("all");
@@ -2509,15 +2451,15 @@ function PageEquipe({chantiers, ouvriers, weekId, T, isMobile}) {
   }
 
   return (
-    <div style={{flex:1,overflowY:"auto",padding: isMobile ? "14px 12px" : "28px 32px"}}>
+    <div className="page-padding" style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
       {/* Header */}
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom: isMobile ? 16 : 28,flexWrap:"wrap",gap:12}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28,flexWrap:"wrap",gap:12}}>
         <div>
-          <div style={{fontSize: isMobile ? 22 : 36,fontWeight:800,letterSpacing:1,marginBottom:4}}>Équipe</div>
+          <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4}}>Équipe</div>
           <div style={{fontSize:15,color:T.textSub}}>Comptes rendus et lien mobile pour les ouvriers</div>
         </div>
         {/* Lien mobile */}
-        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",width: isMobile ? "100%" : "auto"}}>
+        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",width:"auto"}}>
           <div>
             <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textMuted,marginBottom:4}}>Lien pour l'équipe</div>
             <code style={{fontSize:13,color:T.accent}}>{appUrl}</code>
@@ -2645,7 +2587,6 @@ function PageEquipe({chantiers, ouvriers, weekId, T, isMobile}) {
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 function MainApp(){
   // ─── Routage mobile ───────────────────────────────────────────────────────
-  const isMobile = useIsMobile();
   const{year:iY,week:iW}=getCurrentWeek();
   const[year,setYear]=useState(iY);
   const[week,setWeek]=useState(iW);
@@ -2751,6 +2692,51 @@ function MainApp(){
     .cdot.sel{outline:3px solid ${T.accent};outline-offset:2px}
     .ib{background:transparent;border:none;cursor:pointer;font-size:14px;padding:2px 3px;opacity:.6;color:${T.text}}
     .ib:hover{opacity:1}
+
+    /* ── BOTTOM NAV : cachée par défaut (desktop) ─────────────── */
+    .bottom-nav-mobile{display:none!important}
+
+    /* ── RESPONSIVE MOBILE ────────────────────────────────────── */
+    @media (max-width: 767px) {
+
+      /* Sidebar cachée, bottom nav visible */
+      .app-sidebar{display:none!important}
+      .bottom-nav-mobile{display:flex!important;position:fixed;bottom:0;left:0;right:0;z-index:200;
+        background:#080a0d;border-top:2px solid #FFC200;align-items:stretch;
+        padding-bottom:env(safe-area-inset-bottom)}
+
+      /* Contenu avec padding bas pour la nav */
+      .page-content-area{padding-bottom:64px!important}
+      .page-padding{padding:14px 12px!important}
+
+      /* Topbar */
+      .app-topbar{padding:10px 14px!important}
+      .topbar-logo-mobile{display:block!important}
+      .topbar-text-desktop{display:none!important}
+
+      /* Pages padding */
+      .page-padding{padding:12px 14px!important}
+
+      /* Planning header */
+      .planning-header{padding:10px 12px!important;flex-wrap:wrap;gap:8px!important}
+      .planning-title{font-size:15px!important}
+      .navbtn-today{display:none!important}
+      .btn-print{display:none!important}
+
+      /* Dashboard grilles en 1 colonne */
+      .dashboard-row-1,.dashboard-row-2{grid-template-columns:1fr!important;gap:12px!important}
+
+      /* Modal bas d'écran */
+      .cell-modal-backdrop{align-items:flex-end!important}
+      .cell-modal-box{border-radius:20px 20px 0 0!important;max-height:94vh!important;max-width:100%!important}
+      .cell-modal-body{grid-template-columns:1fr!important}
+
+      /* Tabs plus compacts */
+      .tab{padding:6px 10px!important;font-size:12px!important}
+
+      /* Tableaux : scroll horizontal */
+      .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    }
   `;
 
   return(
@@ -2758,24 +2744,20 @@ function MainApp(){
       <style>{css}</style>
 
       {/* Sidebar — desktop uniquement */}
-      {!isMobile && <Sidebar page={page} setPage={setPage} T={T}/>}
+      <div className="app-sidebar"><Sidebar page={page} setPage={setPage} T={T}/></div>
 
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
 
         {/* Top bar */}
-        <div style={{background:T.surface,borderBottom:`2px solid #FFC200`,
-          padding: isMobile ? "10px 16px" : "8px 28px",
+        <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,
+          padding:"8px 28px",
           display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
 
           {/* Logo mobile dans le header */}
-          {isMobile && (
-            <img src={LOGO_HORIZ} alt="Profero" style={{height:26,objectFit:"contain"}}/>
-          )}
-          {!isMobile && (
-            <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
-              Profero · Planning
-            </div>
-          )}
+          <img src={LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
+          <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
+            Profero · Planning
+          </div>
 
           <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",
             background:T.card,borderRadius:8,fontSize:12,color:T.textSub}}>
@@ -2792,27 +2774,26 @@ function MainApp(){
           </div>
         </div>
 
-        {/* Page content — avec padding bas sur mobile pour la nav */}
-        <div style={{flex:1,display:"flex",minHeight:0,overflow:"hidden",
-          paddingBottom: isMobile ? 62 : 0}}>
+        {/* Page content */}
+        <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
           {page==="dashboard"&&(
             <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes}
-              notesData={notesData} weekId={weekId} T={T} isMobile={isMobile}/>
+              notesData={notesData} weekId={weekId} T={T}/>
           )}
           {page==="planning"&&(
             <PagePlanning chantiers={chantiers} ouvriers={ouvriers} cells={cells} setCells={setCells}
               commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData}
               weekId={weekId} view={view} setView={setView} year={year} week={week}
-              setYear={setYear} setWeek={setWeek} T={T} isMobile={isMobile}/>
+              setYear={setYear} setWeek={setWeek} T={T}/>
           )}
           {page==="commandes"&&(
-            <PageCommandes chantiers={chantiers} T={T} isMobile={isMobile}/>
+            <PageCommandes chantiers={chantiers} T={T}/>
           )}
           {page==="equipe"&&(
-            <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} T={T} isMobile={isMobile}/>
+            <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} T={T}/>
           )}
           {page==="plans"&&(
-            <PagePlans T={T} chantiers={chantiers} isMobile={isMobile}/>
+            <PagePlans T={T} chantiers={chantiers}/>
           )}
           {page==="admin"&&(
             <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers}
@@ -2823,7 +2804,7 @@ function MainApp(){
       </div>
 
       {/* Navigation bas — mobile uniquement */}
-      {isMobile && <BottomNav page={page} setPage={setPage} T={T}/>}
+      <BottomNav page={page} setPage={setPage} T={T}/>
     </div>
   );
 }
