@@ -502,7 +502,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
   return(
     <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
 
-      {/* Titre */
+      {/* Titre */}
       <div style={{marginBottom:28}}>
         <div style={{fontSize:15,color:T.textMuted,marginBottom:6}}>
           {now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
