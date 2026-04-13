@@ -69,7 +69,15 @@ function getTodayJour(){
   const d=new Date().getDay(); // 0=dim ... 6=sam
   return JOURS_JS[d]||null; // null si week-end
 }
-function emptyCell(){return{planifie:"",reel:"",ouvriers:[]};}
+function emptyCell(){return{planifie:"",reel:"",ouvriers:[],taches:[]};}
+// Convertit le texte libre en tâches structurées (migration données existantes)
+function parseTachesFromPlanifie(planifie,tachesExistantes){
+  if(tachesExistantes&&tachesExistantes.length>0)return tachesExistantes;
+  if(!planifie?.trim())return[];
+  return planifie.split("\n").filter(l=>l.trim()).map(l=>({
+    id:Math.random().toString(36).slice(2),text:l.trim(),ouvriers:[]
+  }));
+}
 function emptyCommande(){return{chantier_id:"",article:"",fournisseur:"",quantite:"",statut:"a_commander",notes:""};}
 
 const DEFAULT_OUVRIERS=["JP","Stev","Kev","Reza","Hamed","Mady","Yann","Julien","Steven"];
@@ -192,13 +200,85 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
         <div style={{flex:1,overflow:"hidden",display:"grid",gridTemplateColumns:"1fr 320px",minHeight:0}}>
           <div style={{padding:"24px 20px 24px 28px",display:"flex",flexDirection:"column",gap:16,
             overflowY:"auto",borderRight:`1px solid ${T.sectionDivider}`}}>
-            <div style={{flex:1,display:"flex",flexDirection:"column"}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>📋 Tâches planifiées</div>
-              <textarea autoFocus value={draft.planifie||""} onChange={e=>setDraft(p=>({...p,planifie:e.target.value}))}
-                placeholder="Décrire les tâches prévues…"
-                style={{flex:1,minHeight:220,width:"100%",background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
-                  borderRadius:12,padding:"14px 16px",color:T.planColor,fontSize:14,lineHeight:1.7,
-                  resize:"none",fontFamily:"inherit",outline:"none"}}/>
+
+            {/* ── TÂCHES STRUCTURÉES ── */}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted}}>📋 Tâches planifiées</div>
+                <span style={{fontSize:11,color:T.textMuted}}>Assigne des ouvriers à chaque tâche</span>
+              </div>
+
+              {(draft.taches||[]).map((tache,idx)=>(
+                <div key={tache.id} style={{background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
+                  borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                  {/* Texte de la tâche */}
+                  <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <span style={{color:T.textMuted,fontSize:13,marginTop:2,flexShrink:0}}>{idx+1}.</span>
+                    <textarea
+                      value={tache.text}
+                      autoFocus={idx===0 && (draft.taches||[]).length===1}
+                      onChange={e=>{
+                        const t=[...(draft.taches||[])];
+                        t[idx]={...t[idx],text:e.target.value};
+                        setDraft(p=>({...p,taches:t,planifie:t.map(x=>x.text).join("\n")}));
+                      }}
+                      placeholder="Décrire la tâche…"
+                      rows={2}
+                      style={{flex:1,background:"transparent",border:"none",color:T.planColor,
+                        fontSize:14,lineHeight:1.5,resize:"none",fontFamily:"inherit",outline:"none"}}
+                    />
+                    <button onClick={()=>{
+                      const t=(draft.taches||[]).filter((_,i)=>i!==idx);
+                      setDraft(p=>({...p,taches:t,planifie:t.map(x=>x.text).join("\n")}));
+                    }} style={{background:"transparent",border:"none",cursor:"pointer",
+                      color:"#e05c5c",fontSize:16,padding:"0 2px",flexShrink:0,opacity:.6}}
+                      title="Supprimer cette tâche">✕</button>
+                  </div>
+
+                  {/* Ouvriers assignés à cette tâche */}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,paddingLeft:18}}>
+                    <span style={{fontSize:11,color:T.textMuted,alignSelf:"center",marginRight:2}}>Pour :</span>
+                    {(draft.ouvriers||[]).map(o=>{
+                      const sel=(tache.ouvriers||[]).includes(o);
+                      return(
+                        <button key={o} onClick={()=>{
+                          const list=[...(tache.ouvriers||[])];
+                          const i=list.indexOf(o);
+                          if(i>=0)list.splice(i,1);else list.push(o);
+                          const t=[...(draft.taches||[])];
+                          t[idx]={...t[idx],ouvriers:list};
+                          setDraft(p=>({...p,taches:t}));
+                        }} style={{
+                          padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:700,
+                          cursor:"pointer",fontFamily:"inherit",transition:"all .1s",
+                          background:sel?chantier.couleur:"transparent",
+                          border:`1.5px solid ${sel?"rgba(0,0,0,0.15)":T.border}`,
+                          color:sel?"#1a1f2e":T.textSub,
+                        }}>{o}</button>
+                      );
+                    })}
+                    {(draft.ouvriers||[]).length===0&&(
+                      <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
+                        Ajoute des ouvriers au chantier ci-dessous
+                      </span>
+                    )}
+                    {(tache.ouvriers||[]).length===0&&(draft.ouvriers||[]).length>0&&(
+                      <span style={{fontSize:11,color:T.accent,marginLeft:4}}>→ Visible par tous</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Bouton ajouter tâche */}
+              <button onClick={()=>{
+                const newT={id:Math.random().toString(36).slice(2),text:"",ouvriers:[]};
+                const t=[...(draft.taches||[]),newT];
+                setDraft(p=>({...p,taches:t}));
+              }} style={{
+                padding:"10px",border:`1.5px dashed ${T.border}`,borderRadius:10,
+                background:"transparent",color:T.textMuted,cursor:"pointer",
+                fontFamily:"inherit",fontSize:13,fontWeight:600,transition:"all .15s"
+              }}>+ Ajouter une tâche</button>
             </div>
             <div style={{display:"flex",flexDirection:"column"}}>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>✅ Réel effectué</div>
@@ -732,7 +812,10 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
 
   const openModal=(cId,jour)=>{
     setModal({cId,jour});
-    setCellDraft({...(cells[`${cId}_${jour}`]||emptyCell())});
+    const existing = cells[`${cId}_${jour}`]||emptyCell();
+    // Migration : si pas de tâches structurées mais texte libre, on convertit
+    const taches = parseTachesFromPlanifie(existing.planifie, existing.taches);
+    setCellDraft({...existing, taches});
     setCmdDraft(commandes[cId]||"");
     setNoteDraft(notesData[cId]||"");
   };
@@ -740,11 +823,15 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
     if(!modal||!cellDraft){setModal(null);return;}
     const{cId,jour}=modal;
     setSaving(true);
-    setCells(prev=>({...prev,[`${cId}_${jour}`]:cellDraft}));
+    // Dérive planifie depuis les tâches structurées pour la compatibilité
+    const taches=(cellDraft.taches||[]).filter(t=>t.text.trim());
+    const planifie=taches.map(t=>t.text).join("\n");
+    const finalDraft={...cellDraft, taches, planifie};
+    setCells(prev=>({...prev,[`${cId}_${jour}`]:finalDraft}));
     setCommandes(prev=>({...prev,[cId]:cmdDraft}));
     setNotesData(prev=>({...prev,[cId]:noteDraft}));
     await Promise.all([
-      supabase.from("planning_cells").upsert({week_id:weekId,chantier_id:cId,jour,...cellDraft},{onConflict:"week_id,chantier_id,jour"}),
+      supabase.from("planning_cells").upsert({week_id:weekId,chantier_id:cId,jour,...finalDraft},{onConflict:"week_id,chantier_id,jour"}),
       supabase.from("planning_commandes").upsert({week_id:weekId,chantier_id:cId,contenu:cmdDraft},{onConflict:"week_id,chantier_id"}),
       supabase.from("planning_notes").upsert({chantier_id:cId,contenu:noteDraft},{onConflict:"chantier_id"}),
     ]);
@@ -1892,39 +1979,50 @@ function PageRapportMobile() {
     const { data: cells } = await supabase
       .from("planning_cells").select("*").eq("week_id", weekId);
 
-    // Trouver toutes les cases où cet ouvrier est assigné aujourd'hui
-    const mesChantiers = [];
-    (cells||[]).forEach(cell => {
-      if (cell.jour === todayJour && (cell.ouvriers||[]).includes(nom) && cell.planifie) {
-        mesChantiers.push({ chantier_id: cell.chantier_id, planifie: cell.planifie });
-      }
-    });
-
-    // Charger les noms des chantiers
+    // Charger config chantiers
     const { data: cfg } = await supabase.from("planning_config").select("*");
     let chantiersData = DEFAULT_CHANTIERS;
     if (cfg?.length) { const c=cfg.find(r=>r.key==="chantiers"); if(c) chantiersData=c.value; }
 
     const tachesInit = [];
-    mesChantiers.forEach(mc => {
-      const ch = chantiersData.find(c => c.id === mc.chantier_id);
-      const lignes = mc.planifie.split("\n").filter(l => l.trim());
-      lignes.forEach(ligne => {
-        tachesInit.push({
-          chantier_id: mc.chantier_id,
-          chantier_nom: ch?.nom || mc.chantier_id,
-          chantier_couleur: ch?.couleur || "#c8d8f0",
-          planifie: ligne.trim(),
-          statut: null, // pas encore coché
-          remarque: ""
+    (cells||[]).forEach(cell => {
+      if (cell.jour !== todayJour) return;
+      if (!(cell.ouvriers||[]).includes(nom)) return;
+      const ch = chantiersData.find(c => c.id === cell.chantier_id);
+
+      // Tâches structurées (Option A)
+      if (cell.taches && cell.taches.length > 0) {
+        cell.taches.forEach(t => {
+          if (!t.text?.trim()) return;
+          const pourTout = !t.ouvriers || t.ouvriers.length === 0;
+          const pourMoi  = (t.ouvriers||[]).includes(nom);
+          if (pourTout || pourMoi) {
+            tachesInit.push({
+              chantier_id: cell.chantier_id,
+              chantier_nom: ch?.nom || cell.chantier_id,
+              chantier_couleur: ch?.couleur || "#c8d8f0",
+              planifie: t.text,
+              statut: null, remarque: "",
+              pourTout,
+            });
+          }
         });
-      });
+      } else if (cell.planifie?.trim()) {
+        // Rétrocompatibilité texte libre → visible par tous
+        cell.planifie.split("\n").filter(l=>l.trim()).forEach(ligne => {
+          tachesInit.push({
+            chantier_id: cell.chantier_id,
+            chantier_nom: ch?.nom || cell.chantier_id,
+            chantier_couleur: ch?.couleur || "#c8d8f0",
+            planifie: ligne.trim(),
+            statut: null, remarque: "", pourTout: true,
+          });
+        });
+      }
     });
 
-    setPlanData({ mesChantiers, chantiersData });
-    setTaches(tachesInit.length > 0 ? tachesInit : [
-      { chantier_id:"", chantier_nom:"", chantier_couleur:"#c8d8f0", planifie:"", statut:null, remarque:"", libre:true }
-    ]);
+    setPlanData({ chantiersData });
+    setTaches(tachesInit);
     setStep("rapport");
   };
 
@@ -2088,11 +2186,17 @@ function PageRapportMobile() {
 
       {taches.map((t, idx) => (
         <div key={idx} style={{...S.card, borderLeft:`4px solid ${t.chantier_couleur||"#5b8af5"}`}}>
-          {t.chantier_nom && (
-            <div style={{display:"inline-block",background:t.chantier_couleur+"33",color:"#1a1f2e",
-              borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700,textTransform:"uppercase",
-              letterSpacing:1,marginBottom:10}}>{t.chantier_nom}</div>
-          )}
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+            {t.chantier_nom && (
+              <div style={{display:"inline-block",background:t.chantier_couleur+"33",color:"#1a1f2e",
+                borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700,textTransform:"uppercase",
+                letterSpacing:1}}>{t.chantier_nom}</div>
+            )}
+            {t.pourTout && (
+              <div style={{display:"inline-block",background:"rgba(91,138,245,0.12)",color:"#5b8af5",
+                borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700}}>👥 Pour tous</div>
+            )}
+          </div>
           {t.libre ? (
             <textarea value={t.planifie} onChange={e=>setTachePlanifie(idx,e.target.value)}
               placeholder="Décris la tâche…"
