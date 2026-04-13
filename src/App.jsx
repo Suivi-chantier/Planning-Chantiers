@@ -931,69 +931,44 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
   };
 
 
-  // ── Google Calendar sync ────────────────────────────────────────────────
-  const[gcalSyncing,setGcalSyncing]=useState(false);
-  const[gcalMsg,setGcalMsg]=useState(null);
-
-  const getWeekDate=(dayIndex)=>{
-    // ISO week → real date (Monday = dayIndex 0 … Friday = 4)
+  // ── Google Calendar – lien direct par cellule ───────────────────────────
+  const makeGCalUrl=(chantier, jour, dayIndex, cell)=>{
+    // Calcul date ISO de la case (Lundi = 0, Vendredi = 4)
     const jan4=new Date(year,0,4);
     const mon=new Date(jan4);
-    mon.setDate(jan4.getDate()-(((jan4.getDay()||7)-1))+( week-1)*7);
-    const d=new Date(mon);d.setDate(mon.getDate()+dayIndex);
-    return d.toISOString().split('T')[0];
-  };
+    mon.setDate(jan4.getDate()-(((jan4.getDay()||7)-1))+(week-1)*7);
+    const d=new Date(mon); d.setDate(mon.getDate()+dayIndex);
+    const dateStr=d.toISOString().split('T')[0].replace(/-/g,''); // YYYYMMDD
 
-  const doGoogleSync=async(token)=>{
-    setGcalSyncing(true);setGcalMsg(null);
-    let ok=0,ko=0;
-    for(const chantier of chantiers){
-      for(let di=0;di<JOURS.length;di++){
-        const jour=JOURS[di];
-        const cell=getCell(chantier.id,jour);
-        const taches=(cell.taches||[]).filter(t=>t.text?.trim());
-        if(!taches.length&&!cell.planifie?.trim())continue;
-        const dateStr=getWeekDate(di);
-        const attendees=(cell.ouvriers||[])
-          .map(nom=>ouvrierEmails?.[nom]).filter(Boolean).map(email=>({email}));
-        const lines=taches.length
-          ?taches.map(t=>`• ${t.text}${t.duree?` (${t.duree}h)`:''}${t.ouvriers?.length?` → ${t.ouvriers.join(', ')}`:' → tous'}`)
-          :(cell.planifie||'').split('\n').filter(l=>l.trim()).map(l=>`• ${l}`);
-        const ouv=(cell.ouvriers||[]).join(', ');
-        const ev={
-          summary:`[${chantier.nom}]${ouv?` – ${ouv}`:''}`,
-          description:lines.join('\n')+(cell.reel?`\n\nRéalisé :\n${cell.reel}`:''),
-          start:{date:dateStr},end:{date:dateStr},
-          colorId:'5',
-          attendees,
-        };
-        try{
-          const r=await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all',{
-            method:'POST',
-            headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
-            body:JSON.stringify(ev),
-          });
-          r.ok?ok++:ko++;
-        }catch{ko++;}
-      }
-    }
-    setGcalSyncing(false);
-    setGcalMsg(ok>0&&ko===0
-      ?{type:'ok',text:`✅ ${ok} événement${ok>1?'s':''} créé${ok>1?'s':''} dans Google Agenda !`}
-      :{type:'err',text:`⚠️ ${ok} créé${ok>1?'s':''}${ko>0?`, ${ko} erreur${ko>1?'s':''}`:''}. Vérifie la console.`});
-    setTimeout(()=>setGcalMsg(null),7000);
-  };
+    // Horaires : lun-mer 7h30→17h30 / jeu-ven 7h30→16h30
+    const endHour=dayIndex<=2?'173000':'163000';
+    const startDt=`${dateStr}T073000`;
+    const endDt=`${dateStr}T${endHour}`;
 
-  const handleGoogleSync=()=>{
-    const cid=import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if(!cid){setGcalMsg({type:'err',text:'⚠️ VITE_GOOGLE_CLIENT_ID manquant dans Vercel'});setTimeout(()=>setGcalMsg(null),5000);return;}
-    if(!window.google?.accounts?.oauth2){setGcalMsg({type:'err',text:'⚠️ Google Identity Services pas encore chargé — réessaie dans 2 sec'});setTimeout(()=>setGcalMsg(null),4000);return;}
-    const tc=window.google.accounts.oauth2.initTokenClient({
-      client_id:cid,
-      scope:'https://www.googleapis.com/auth/calendar.events',
-      callback:(resp)=>{if(resp.error){setGcalMsg({type:'err',text:`Erreur OAuth: ${resp.error}`});return;}doGoogleSync(resp.access_token);},
+    const taches=(cell.taches||[]).filter(t=>t.text?.trim());
+    const lignes=taches.length
+      ?taches.map(t=>`• ${t.text}${t.duree?` (${t.duree}h)`:''}${t.ouvriers?.length?` → ${t.ouvriers.join(', ')}`:' → tous'}`)
+      :(cell.planifie||'').split('\n').filter(l=>l.trim()).map(l=>`• ${l}`);
+
+    // Titre : "LAMARTINE / JP STEV"
+    const ouv=(cell.ouvriers||[]).map(n=>n.toUpperCase()).join(' ');
+    const title=ouv?`${chantier.nom} / ${ouv}`:chantier.nom;
+
+    // Description + lien compte rendu
+    const descLines=[...lignes];
+    if(cell.reel) descLines.push('','Réalisé :',cell.reel);
+    descLines.push('','📱 Compte rendu : https://planning-chantiers.vercel.app/rapport');
+
+    const params=new URLSearchParams({
+      action:'TEMPLATE',
+      text:title,
+      dates:`${startDt}/${endDt}`,
+      details:descLines.join('\n'),
+      ctz:'Europe/Paris',
     });
-    tc.requestAccessToken();
+    const emails=(cell.ouvriers||[]).map(n=>ouvrierEmails?.[n]).filter(Boolean);
+    if(emails.length) params.append('add',emails.join(','));
+    return`https://calendar.google.com/calendar/render?${params.toString()}`;
   };
 
   const handlePrint=()=>{
@@ -1054,22 +1029,9 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
           <button className={`tab ${view==="compare"?"on":"off"}`} onClick={()=>setView("compare")}
             >Bilan</button>
           <button className="btn-g btn-print" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>
-          <button onClick={handleGoogleSync} disabled={gcalSyncing}
-            style={{fontSize:13,padding:"6px 14px",fontWeight:700,fontFamily:"inherit",cursor:gcalSyncing?"wait":"pointer",
-              background:"#4285F4",color:"#fff",border:"none",borderRadius:8,display:"flex",alignItems:"center",gap:6,opacity:gcalSyncing?.6:1}}>
-            {gcalSyncing?"⏳ Envoi…":"📅 Google Agenda"}
-          </button>
+
         </div>
       </div>
-
-      {gcalMsg&&(
-        <div style={{padding:"8px 28px",fontSize:13,fontWeight:600,
-          background:gcalMsg.type==="ok"?"#1a3a1a":"#3a1a1a",
-          color:gcalMsg.type==="ok"?"#6ddc6d":"#dc6d6d",
-          borderBottom:`1px solid ${T.border}`}}>
-          {gcalMsg.text}
-        </div>
-      )}
 
       {/* Grille */}
       <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
@@ -1092,7 +1054,7 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
                   {notesData[c.id]?.trim()&&<span style={{width:6,height:6,borderRadius:"50%",background:"#8070d0",display:"block"}}/>}
                 </div>
               </div>
-              {JOURS.map(jour=>{
+              {JOURS.map((jour,di)=>{
                 const cell=getCell(c.id,jour);
                 const filled=cell.planifie||cell.reel||cell.ouvriers?.length>0;
                 return(
@@ -1117,6 +1079,17 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
                             ))}
                           </div>
                         )}
+                        {/* Bouton Google Agenda */}
+                        <a href={makeGCalUrl(c,jour,di,cell)} target="_blank" rel="noopener noreferrer"
+                          onClick={e=>e.stopPropagation()}
+                          title="Ajouter à Google Agenda"
+                          style={{position:"absolute",bottom:4,right:4,fontSize:13,textDecoration:"none",
+                            background:"#4285F4",color:"#fff",borderRadius:5,padding:"1px 5px",
+                            lineHeight:"20px",opacity:.75,transition:"opacity .15s"}}
+                          onMouseEnter={e=>e.currentTarget.style.opacity="1"}
+                          onMouseLeave={e=>e.currentTarget.style.opacity=".75"}>
+                          📅
+                        </a>
                       </>
                     ):(
                       <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",
@@ -2761,14 +2734,6 @@ function MainApp(){
       setTimeout(()=>supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"}),1000);
     }
   };
-
-  // Load Google Identity Services
-  useEffect(()=>{
-    if(document.getElementById('gsi-script'))return;
-    const s=document.createElement('script');
-    s.id='gsi-script';s.src='https://accounts.google.com/gsi/client';
-    s.async=true;s.defer=true;document.head.appendChild(s);
-  },[]);
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
