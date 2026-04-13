@@ -2642,11 +2642,9 @@ function PageEquipe({chantiers, ouvriers, weekId, T, isMobile}) {
 }
 
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
-export default function App(){
+// ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
+function MainApp(){
   // ─── Routage mobile ───────────────────────────────────────────────────────
-  if (window.location.pathname.startsWith("/rapport")) {
-    return <PageRapportMobile />;
-  }
   const isMobile = useIsMobile();
   const{year:iY,week:iW}=getCurrentWeek();
   const[year,setYear]=useState(iY);
@@ -2828,4 +2826,12 @@ export default function App(){
       {isMobile && <BottomNav page={page} setPage={setPage} T={T}/>}
     </div>
   );
+}
+
+// ─── ROUTEUR RACINE ───────────────────────────────────────────────────────────
+export default function App(){
+  if (window.location.pathname.startsWith("/rapport")) {
+    return <PageRapportMobile />;
+  }
+  return <MainApp />;
 }
