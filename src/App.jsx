@@ -938,7 +938,9 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
     const mon=new Date(jan4);
     mon.setDate(jan4.getDate()-(((jan4.getDay()||7)-1))+(week-1)*7);
     const d=new Date(mon); d.setDate(mon.getDate()+dayIndex);
-    const dateStr=d.toISOString().split('T')[0].replace(/-/g,''); // YYYYMMDD
+    // Formatage LOCAL (pas toISOString qui décale en UTC)
+    const pad=n=>String(n).padStart(2,'0');
+    const dateStr=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
 
     // Horaires : lun-mer 7h30→17h30 / jeu-ven 7h30→16h30
     const endHour=dayIndex<=2?'173000':'163000';
