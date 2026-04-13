@@ -2310,7 +2310,7 @@ function PageRapportMobile() {
       <div style={{...S.card}}>
         <span style={S.label}>Remarque générale de la journée</span>
         <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
-          placeholder="Problèmes rencontrés, informations pour le chef…"
+          placeholder="Informations utiles…"
           style={{...S.input,resize:"none",minHeight:80,fontSize:14}}/>
       </div>
 
