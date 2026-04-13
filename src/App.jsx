@@ -2696,7 +2696,7 @@ function MainApp(){
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
       });
       const{data:cd}=await supabase.from("planning_cells").select("*").eq("week_id",weekId);
-      if(cd){const m={};cd.forEach(r=>{m[`${r.chantier_id}_${r.jour}`]={planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[]};});setCells(m);}
+      if(cd){const m={};cd.forEach(r=>{m[`${r.chantier_id}_${r.jour}`]={planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],taches:r.taches||[]};});setCells(m);}
       const{data:comd}=await supabase.from("planning_commandes").select("*").eq("week_id",weekId);
       if(comd){const m={};comd.forEach(r=>{m[r.chantier_id]=r.contenu||"";});setCommandes(m);}
       const{data:nd}=await supabase.from("planning_notes").select("*");
@@ -2714,7 +2714,7 @@ function MainApp(){
         const r=p.new||p.old;if(!r)return;
         const key=`${r.chantier_id}_${r.jour}`;
         if(p.eventType==="DELETE")setCells(prev=>{const n={...prev};delete n[key];return n;});
-        else setCells(prev=>({...prev,[key]:{planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[]}}));
+        else setCells(prev=>({...prev,[key]:{planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],taches:r.taches||[]}}));
         setLastSync(new Date());
       })
       .on("postgres_changes",{event:"*",schema:"public",table:"planning_config"},p=>{
