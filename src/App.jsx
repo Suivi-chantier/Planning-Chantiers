@@ -89,6 +89,7 @@ function Sidebar({page,setPage,T}){
     {id:"dashboard",icon:"⊞",label:"Tableau de bord"},
     {id:"planning", icon:"📅",label:"Planning"},
     {id:"commandes",icon:"📦",label:"Commandes"},
+    {id:"equipe",   icon:"👷",label:"Équipe"},
     {id:"plans",    icon:"📐",label:"Plans"},
     {id:"admin",    icon:"⚙️",label:"Réglages"},
   ];
@@ -1808,8 +1809,524 @@ function PagePlans({T, chantiers}) {
   );
 }
 
+// ─── HELPERS EMAIL ────────────────────────────────────────────────────────────
+async function sendRapportEmail(rapport, chantierNom) {
+  const RESEND_KEY = import.meta.env.VITE_RESEND_KEY;
+  if (!RESEND_KEY) { console.warn("VITE_RESEND_KEY non configuré"); return; }
+
+  const tachesHtml = rapport.taches.map(t => {
+    const icon = t.statut==="faite"?"✅":t.statut==="en_cours"?"🔄":"❌";
+    return `<tr>
+      <td style="padding:8px;border-bottom:1px solid #eee">${icon} <strong>${t.planifie}</strong></td>
+      <td style="padding:8px;border-bottom:1px solid #eee;color:#666">${t.remarque||"—"}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#1a1f2e;padding:20px;border-radius:8px 8px 0 0">
+        <h2 style="color:#fff;margin:0">Compte rendu — ${rapport.ouvrier}</h2>
+        <p style="color:#9aa5c0;margin:6px 0 0">${rapport.chantier_nom} · ${rapport.date_rapport}</p>
+      </div>
+      <div style="background:#f9f9f9;padding:20px;border-radius:0 0 8px 8px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd">Tâche</th>
+            <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd">Remarque</th>
+          </tr></thead>
+          <tbody>${tachesHtml}</tbody>
+        </table>
+        ${rapport.remarque?`<div style="margin-top:16px;padding:12px;background:#fff;border-radius:6px;border-left:4px solid #5b8af5">
+          <strong>Remarque générale :</strong><br>${rapport.remarque}
+        </div>`:""}
+      </div>
+    </div>`;
+
+  await fetch("https://api.resend.com/emails", {
+    method:"POST",
+    headers:{"Authorization":`Bearer ${RESEND_KEY}`,"Content-Type":"application/json"},
+    body: JSON.stringify({
+      from:"Planning Pro <onboarding@resend.dev>",
+      to:["suivi.chantier@groupe-profero.com"],
+      subject:`CR ${rapport.ouvrier} — ${chantierNom} — ${rapport.date_rapport}`,
+      html,
+    })
+  });
+}
+
+// ─── PAGE RAPPORT MOBILE ──────────────────────────────────────────────────────
+function PageRapportMobile() {
+  const [step, setStep]         = useState("login"); // login | rapport | done
+  const [ouvrier, setOuvrier]   = useState(() => localStorage.getItem("mon_prenom") || "");
+  const [chantiers, setChantiers] = useState([]);
+  const [ouvriers, setOuvriers]   = useState(DEFAULT_OUVRIERS);
+  const [taches, setTaches]       = useState([]);
+  const [remarque, setRemarque]   = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [planData, setPlanData]   = useState(null); // {chantier, cell}
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+  const dateKey = today.toLocaleDateString("fr-FR");
+  const {year, week} = getCurrentWeek();
+  const weekId = getWeekId(year, week);
+  const todayJour = getTodayJour();
+
+  // Load config + planning
+  useEffect(() => {
+    const load = async () => {
+      const { data: cfg } = await supabase.from("planning_config").select("*");
+      if (cfg?.length) {
+        cfg.forEach(r => {
+          if (r.key === "chantiers") setChantiers(r.value);
+          if (r.key === "ouvriers")  setOuvriers(r.value);
+        });
+      }
+    };
+    load();
+  }, []);
+
+  // Quand ouvrier confirmé, charge ses tâches du jour
+  const loadTaches = async (nom) => {
+    if (!todayJour) { setStep("rapport"); return; }
+    const { data: cells } = await supabase
+      .from("planning_cells").select("*").eq("week_id", weekId);
+
+    // Trouver toutes les cases où cet ouvrier est assigné aujourd'hui
+    const mesChantiers = [];
+    (cells||[]).forEach(cell => {
+      if (cell.jour === todayJour && (cell.ouvriers||[]).includes(nom) && cell.planifie) {
+        mesChantiers.push({ chantier_id: cell.chantier_id, planifie: cell.planifie });
+      }
+    });
+
+    // Charger les noms des chantiers
+    const { data: cfg } = await supabase.from("planning_config").select("*");
+    let chantiersData = DEFAULT_CHANTIERS;
+    if (cfg?.length) { const c=cfg.find(r=>r.key==="chantiers"); if(c) chantiersData=c.value; }
+
+    const tachesInit = [];
+    mesChantiers.forEach(mc => {
+      const ch = chantiersData.find(c => c.id === mc.chantier_id);
+      const lignes = mc.planifie.split("\n").filter(l => l.trim());
+      lignes.forEach(ligne => {
+        tachesInit.push({
+          chantier_id: mc.chantier_id,
+          chantier_nom: ch?.nom || mc.chantier_id,
+          chantier_couleur: ch?.couleur || "#c8d8f0",
+          planifie: ligne.trim(),
+          statut: null, // pas encore coché
+          remarque: ""
+        });
+      });
+    });
+
+    setPlanData({ mesChantiers, chantiersData });
+    setTaches(tachesInit.length > 0 ? tachesInit : [
+      { chantier_id:"", chantier_nom:"", chantier_couleur:"#c8d8f0", planifie:"", statut:null, remarque:"", libre:true }
+    ]);
+    setStep("rapport");
+  };
+
+  const confirmerPrenom = () => {
+    if (!ouvrier.trim()) return;
+    localStorage.setItem("mon_prenom", ouvrier.trim());
+    loadTaches(ouvrier.trim());
+  };
+
+  const setStatut = (idx, statut) => {
+    setTaches(t => t.map((x,i) => i===idx ? {...x, statut} : x));
+  };
+  const setTacheRemarque = (idx, val) => {
+    setTaches(t => t.map((x,i) => i===idx ? {...x, remarque:val} : x));
+  };
+  const setTachePlanifie = (idx, val) => {
+    setTaches(t => t.map((x,i) => i===idx ? {...x, planifie:val} : x));
+  };
+  const addTacheLibre = () => {
+    setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",libre:true}]);
+  };
+
+  const soumettre = async () => {
+    const tachesRemplies = taches.filter(t => t.planifie.trim());
+    if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
+
+    setSubmitting(true);
+
+    // Regrouper par chantier
+    const parChantier = {};
+    tachesRemplies.forEach(t => {
+      const k = t.chantier_id || "divers";
+      if (!parChantier[k]) parChantier[k] = { chantier_id:t.chantier_id, chantier_nom:t.chantier_nom||"Divers", taches:[] };
+      parChantier[k].taches.push({ planifie:t.planifie, statut:t.statut||"non_faite", remarque:t.remarque });
+    });
+
+    for (const k of Object.keys(parChantier)) {
+      const grp = parChantier[k];
+      const rapport = {
+        ouvrier: ouvrier.trim(),
+        chantier_id: grp.chantier_id,
+        chantier_nom: grp.chantier_nom,
+        date_rapport: dateKey,
+        semaine: weekId,
+        taches: grp.taches,
+        remarque,
+      };
+      await supabase.from("rapports").insert(rapport);
+      try { await sendRapportEmail(rapport, grp.chantier_nom); } catch(e) { console.error("Email:",e); }
+    }
+
+    setSubmitting(false);
+    setStep("done");
+  };
+
+  const progress = taches.filter(t=>t.statut!==null).length;
+  const total    = taches.length;
+
+  const S = {
+    wrap: { minHeight:"100vh", background:"#f4f6fa", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" },
+    header: { background:"#1a1f2e", padding:"20px 20px 16px", position:"sticky", top:0, zIndex:10 },
+    card: { background:"#fff", borderRadius:14, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)" },
+    label: { fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"#8a9ab0", marginBottom:8, display:"block" },
+    input: { width:"100%", border:"1.5px solid #e0e4ef", borderRadius:10, padding:"14px 14px", fontSize:16, fontFamily:"inherit", outline:"none", boxSizing:"border-box" },
+    btn: (color,bg) => ({ width:"100%", padding:"16px", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"inherit", background:bg, color:color, marginTop:8 }),
+  };
+
+  // ── STEP: LOGIN ──
+  if (step === "login") return (
+    <div style={S.wrap}>
+      <div style={S.header}>
+        <div style={{fontSize:11,letterSpacing:3,textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:4}}>Planning Pro</div>
+        <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>Mon compte rendu</div>
+        <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",marginTop:4}}>{dateStr}</div>
+      </div>
+      <div style={{...S.card, marginTop:32}}>
+        <span style={S.label}>C'est qui ?</span>
+        <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
+          {ouvriers.map(o => (
+            <button key={o} onClick={()=>setOuvrier(o)} style={{
+              padding:"10px 18px",borderRadius:10,fontSize:15,fontWeight:700,
+              cursor:"pointer",fontFamily:"inherit",border:"2px solid",transition:"all .12s",
+              background: ouvrier===o ? "#1a1f2e" : "#f4f6fa",
+              borderColor: ouvrier===o ? "#1a1f2e" : "#e0e4ef",
+              color: ouvrier===o ? "#fff" : "#1a1f2e",
+            }}>{o}</button>
+          ))}
+        </div>
+        <div style={{fontSize:13,color:"#8a9ab0",marginBottom:8}}>Ou saisis ton prénom :</div>
+        <input style={S.input} value={ouvrier} onChange={e=>setOuvrier(e.target.value)}
+          placeholder="Ton prénom…" onKeyDown={e=>e.key==="Enter"&&confirmerPrenom()}/>
+        <button onClick={confirmerPrenom} disabled={!ouvrier.trim()} style={{
+          ...S.btn("#fff","#1a1f2e"), opacity:ouvrier.trim()?1:0.4, marginTop:16
+        }}>C'est parti →</button>
+      </div>
+    </div>
+  );
+
+  // ── STEP: DONE ──
+  if (step === "done") return (
+    <div style={S.wrap}>
+      <div style={S.header}>
+        <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>Mon compte rendu</div>
+      </div>
+      <div style={{...S.card, textAlign:"center", padding:"40px 24px", marginTop:32}}>
+        <div style={{fontSize:56,marginBottom:16}}>✅</div>
+        <div style={{fontSize:22,fontWeight:800,color:"#1a1f2e",marginBottom:8}}>Compte rendu envoyé !</div>
+        <div style={{fontSize:15,color:"#8a9ab0",lineHeight:1.6,marginBottom:28}}>
+          Merci {ouvrier}. Ton compte rendu du {dateKey} a bien été enregistré.
+        </div>
+        <button onClick={()=>{setStep("rapport");setTaches([]);loadTaches(ouvrier);}} style={{...S.btn("#fff","#1a1f2e")}}>
+          Voir mes tâches
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── STEP: RAPPORT ──
+  const faites   = taches.filter(t=>t.statut==="faite").length;
+  const enCours  = taches.filter(t=>t.statut==="en_cours").length;
+  const nonFaite = taches.filter(t=>t.statut==="non_faite").length;
+
+  return (
+    <div style={S.wrap}>
+      <div style={S.header}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontSize:11,letterSpacing:3,textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:2}}>Bonjour {ouvrier} 👋</div>
+            <div style={{fontSize:20,fontWeight:800,color:"#fff"}}>{dateStr}</div>
+          </div>
+          <button onClick={()=>setStep("login")} style={{background:"rgba(255,255,255,0.1)",border:"none",
+            borderRadius:8,padding:"6px 12px",color:"rgba(255,255,255,0.6)",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+            Changer
+          </button>
+        </div>
+        {total>0 && (
+          <div style={{marginTop:12}}>
+            <div style={{display:"flex",gap:8,marginBottom:6}}>
+              {faites>0&&<span style={{background:"rgba(80,200,120,0.2)",color:"#7ee8a2",borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700}}>✅ {faites} faite{faites>1?"s":""}</span>}
+              {enCours>0&&<span style={{background:"rgba(245,166,35,0.2)",color:"#f5a623",borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700}}>🔄 {enCours}</span>}
+              {nonFaite>0&&<span style={{background:"rgba(224,92,92,0.2)",color:"#ff8888",borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700}}>❌ {nonFaite}</span>}
+            </div>
+            <div style={{background:"rgba(255,255,255,0.1)",borderRadius:4,height:4}}>
+              <div style={{background:"#50c878",height:4,borderRadius:4,width:`${(progress/total)*100}%`,transition:"width .3s"}}/>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tâches */}
+      {taches.length===0 && (
+        <div style={{...S.card, textAlign:"center", padding:"32px 24px"}}>
+          <div style={{fontSize:36,marginBottom:12}}>📋</div>
+          <div style={{fontSize:16,fontWeight:700,color:"#1a1f2e",marginBottom:6}}>Aucune tâche planifiée</div>
+          <div style={{fontSize:14,color:"#8a9ab0",marginBottom:16}}>
+            {todayJour ? `Rien n'est planifié pour toi ce ${todayJour}.` : "C'est le week-end ! 🎉"}
+          </div>
+          <button onClick={addTacheLibre} style={S.btn("#fff","#1a1f2e")}>+ Ajouter une tâche manuellement</button>
+        </div>
+      )}
+
+      {taches.map((t, idx) => (
+        <div key={idx} style={{...S.card, borderLeft:`4px solid ${t.chantier_couleur||"#5b8af5"}`}}>
+          {t.chantier_nom && (
+            <div style={{display:"inline-block",background:t.chantier_couleur+"33",color:"#1a1f2e",
+              borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700,textTransform:"uppercase",
+              letterSpacing:1,marginBottom:10}}>{t.chantier_nom}</div>
+          )}
+          {t.libre ? (
+            <textarea value={t.planifie} onChange={e=>setTachePlanifie(idx,e.target.value)}
+              placeholder="Décris la tâche…"
+              style={{...S.input,resize:"none",minHeight:60,marginBottom:10,fontSize:15}}/>
+          ) : (
+            <div style={{fontSize:16,fontWeight:600,color:"#1a1f2e",marginBottom:12,lineHeight:1.4}}>{t.planifie}</div>
+          )}
+
+          {/* Boutons statut */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+            {[["faite","✅","Faite","#50c878","rgba(80,200,120,0.12)"],
+              ["en_cours","🔄","En cours","#f5a623","rgba(245,166,35,0.12)"],
+              ["non_faite","❌","Non faite","#e05c5c","rgba(224,92,92,0.12)"]].map(([val,ic,lb,col,bg])=>(
+              <button key={val} onClick={()=>setStatut(idx,val)} style={{
+                padding:"10px 4px",borderRadius:10,border:`2px solid`,cursor:"pointer",
+                fontFamily:"inherit",fontSize:13,fontWeight:700,transition:"all .12s",
+                borderColor: t.statut===val ? col : "#e0e4ef",
+                background: t.statut===val ? bg : "#fff",
+                color: t.statut===val ? col : "#aaa",
+              }}>{ic}<br/><span style={{fontSize:11}}>{lb}</span></button>
+            ))}
+          </div>
+
+          {/* Remarque */}
+          <textarea value={t.remarque} onChange={e=>setTacheRemarque(idx,e.target.value)}
+            placeholder="Remarque, précision… (optionnel)"
+            style={{...S.input,resize:"none",minHeight:52,fontSize:14,color:"#4a5568"}}/>
+        </div>
+      ))}
+
+      {/* Ajouter tâche + remarque générale + soumettre */}
+      <div style={{padding:"0 16px 8px"}}>
+        <button onClick={addTacheLibre} style={{
+          width:"100%",padding:"12px",border:"1.5px dashed #c0c8d8",borderRadius:12,
+          fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+          background:"transparent",color:"#8a9ab0",marginBottom:4
+        }}>+ Ajouter une tâche</button>
+      </div>
+
+      <div style={{...S.card}}>
+        <span style={S.label}>Remarque générale de la journée</span>
+        <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
+          placeholder="Problèmes rencontrés, matériaux manquants, remarques pour le chef…"
+          style={{...S.input,resize:"none",minHeight:80,fontSize:14}}/>
+      </div>
+
+      <div style={{padding:"8px 16px 32px"}}>
+        <button onClick={soumettre} disabled={submitting} style={{
+          width:"100%",padding:"18px",border:"none",borderRadius:14,fontSize:17,
+          fontWeight:800,cursor:"pointer",fontFamily:"inherit",letterSpacing:.5,
+          background:submitting?"#c0c8d8":"#1a1f2e",color:"#fff",
+          boxShadow:"0 4px 20px rgba(26,31,46,0.3)",
+        }}>
+          {submitting ? "Envoi en cours…" : "✓ Valider mon compte rendu"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── PAGE ÉQUIPE ──────────────────────────────────────────────────────────────
+function PageEquipe({chantiers, ouvriers, weekId, T}) {
+  const [rapports, setRapports]     = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [filterOuvrier, setFilterOuvrier] = useState("all");
+  const [filterSemaine, setFilterSemaine] = useState(weekId);
+  const [selectedRapport, setSelectedRapport] = useState(null);
+
+  const appUrl = window.location.origin + "/rapport";
+  const [copied, setCopied] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    let q = supabase.from("rapports").select("*").order("submitted_at",{ascending:false});
+    if (filterOuvrier !== "all") q = q.eq("ouvrier", filterOuvrier);
+    if (filterSemaine) q = q.eq("semaine", filterSemaine);
+    const { data } = await q;
+    setRapports(data||[]);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [filterOuvrier, filterSemaine]);
+
+  // Realtime
+  useEffect(() => {
+    const ch = supabase.channel("rapports-live")
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"rapports"},()=>load())
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [filterOuvrier, filterSemaine]);
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(appUrl);
+    setCopied(true);
+    setTimeout(()=>setCopied(false), 2000);
+  };
+
+  const STATUT_ICONS = { faite:"✅", en_cours:"🔄", non_faite:"❌" };
+
+  const semaines = [];
+  const now = getCurrentWeek();
+  for (let i=0; i<8; i++) {
+    let w = now.week - i; let y = now.year;
+    if (w <= 0) { w += 52; y--; }
+    semaines.push(getWeekId(y,w));
+  }
+
+  return (
+    <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28,flexWrap:"wrap",gap:16}}>
+        <div>
+          <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4}}>Équipe</div>
+          <div style={{fontSize:15,color:T.textSub}}>Comptes rendus et lien mobile pour les ouvriers</div>
+        </div>
+        {/* Lien mobile */}
+        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textMuted,marginBottom:4}}>Lien pour l'équipe</div>
+            <code style={{fontSize:13,color:T.accent}}>{appUrl}</code>
+          </div>
+          <button onClick={copyLink} style={{background:T.accent,color:"#fff",border:"none",
+            borderRadius:8,padding:"8px 16px",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {copied ? "✓ Copié !" : "📋 Copier le lien"}
+          </button>
+        </div>
+      </div>
+
+      {/* Filtres */}
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+        <select value={filterOuvrier} onChange={e=>setFilterOuvrier(e.target.value)}
+          style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="all" style={{background:"#1e2336"}}>Tous les ouvriers</option>
+          {ouvriers.map(o=><option key={o} value={o} style={{background:"#1e2336"}}>{o}</option>)}
+        </select>
+        <select value={filterSemaine} onChange={e=>setFilterSemaine(e.target.value)}
+          style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="" style={{background:"#1e2336"}}>Toutes les semaines</option>
+          {semaines.map(s=><option key={s} value={s} style={{background:"#1e2336"}}>{s}</option>)}
+        </select>
+      </div>
+
+      {/* Stats rapides */}
+      {rapports.length>0&&(
+        <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+          {[
+            {label:"Comptes rendus",val:rapports.length,color:T.accent},
+            {label:"Tâches faites",val:rapports.reduce((a,r)=>a+(r.taches||[]).filter(t=>t.statut==="faite").length,0),color:"#50c878"},
+            {label:"En cours",val:rapports.reduce((a,r)=>a+(r.taches||[]).filter(t=>t.statut==="en_cours").length,0),color:"#f5a623"},
+            {label:"Non faites",val:rapports.reduce((a,r)=>a+(r.taches||[]).filter(t=>t.statut==="non_faite").length,0),color:"#e05c5c"},
+          ].map(s=>(
+            <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 18px",minWidth:120}}>
+              <div style={{fontSize:24,fontWeight:800,color:s.color}}>{s.val}</div>
+              <div style={{fontSize:12,color:T.textMuted}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Liste des rapports */}
+      {loading&&<div style={{color:T.textMuted,fontSize:15,padding:32}}>Chargement…</div>}
+      {!loading&&rapports.length===0&&(
+        <div style={{background:T.card,border:`1px dashed ${T.border}`,borderRadius:14,padding:"48px 32px",textAlign:"center"}}>
+          <div style={{fontSize:40,marginBottom:12}}>📋</div>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:8}}>Aucun compte rendu</div>
+          <div style={{fontSize:14,color:T.textSub}}>Partage le lien ci-dessus à ton équipe pour qu'ils saisissent leur compte rendu.</div>
+        </div>
+      )}
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {rapports.map(r => {
+          const ch = chantiers.find(c=>c.id===r.chantier_id);
+          const taches = r.taches||[];
+          const f=taches.filter(t=>t.statut==="faite").length;
+          const ec=taches.filter(t=>t.statut==="en_cours").length;
+          const nf=taches.filter(t=>t.statut==="non_faite").length;
+          const isOpen = selectedRapport === r.id;
+          return (
+            <div key={r.id} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",
+              borderLeft:`4px solid ${ch?.couleur||T.accent}`}}>
+              <div onClick={()=>setSelectedRapport(isOpen?null:r.id)}
+                style={{padding:"14px 18px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:800,fontSize:16,color:T.text}}>{r.ouvrier}</span>
+                    {ch&&<span style={{background:ch.couleur+"44",color:"#1a1f2e",borderRadius:4,padding:"1px 8px",fontSize:11,fontWeight:700}}>{ch.nom||r.chantier_nom}</span>}
+                    <span style={{fontSize:12,color:T.textMuted}}>{r.date_rapport}</span>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    {f>0&&<span style={{fontSize:13,color:"#50c878"}}>✅ {f}</span>}
+                    {ec>0&&<span style={{fontSize:13,color:"#f5a623"}}>🔄 {ec}</span>}
+                    {nf>0&&<span style={{fontSize:13,color:"#e05c5c"}}>❌ {nf}</span>}
+                    {taches.length===0&&<span style={{fontSize:13,color:T.textMuted}}>Aucune tâche</span>}
+                  </div>
+                </div>
+                <span style={{color:T.textMuted,fontSize:14}}>{isOpen?"▲":"▼"}</span>
+              </div>
+              {isOpen&&(
+                <div style={{padding:"0 18px 16px",borderTop:`1px solid ${T.sectionDivider}`}}>
+                  {taches.map((t,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",
+                      borderBottom:i<taches.length-1?`1px solid ${T.sectionDivider}`:"none"}}>
+                      <span style={{fontSize:18,flexShrink:0,marginTop:1}}>{STATUT_ICONS[t.statut]||"⬜"}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,color:T.text,fontWeight:600}}>{t.planifie}</div>
+                        {t.remarque&&<div style={{fontSize:13,color:T.textSub,marginTop:3,fontStyle:"italic"}}>"{t.remarque}"</div>}
+                      </div>
+                    </div>
+                  ))}
+                  {r.remarque&&(
+                    <div style={{marginTop:10,padding:"10px 12px",background:T.card,borderRadius:8,borderLeft:`3px solid ${T.accent}`}}>
+                      <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1,color:T.textMuted,marginBottom:4}}>Remarque générale</div>
+                      <div style={{fontSize:14,color:T.text}}>{r.remarque}</div>
+                    </div>
+                  )}
+                  <div style={{marginTop:8,fontSize:11,color:T.textMuted}}>
+                    Soumis le {new Date(r.submitted_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 export default function App(){
+  // ─── Routage mobile ───────────────────────────────────────────────────────
+  if (window.location.pathname.startsWith("/rapport")) {
+    return <PageRapportMobile />;
+  }
   const{year:iY,week:iW}=getCurrentWeek();
   const[year,setYear]=useState(iY);
   const[week,setWeek]=useState(iW);
@@ -1955,6 +2472,9 @@ export default function App(){
           )}
           {page==="commandes"&&(
             <PageCommandes chantiers={chantiers} T={T}/>
+          )}
+          {page==="equipe"&&(
+            <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} T={T}/>
           )}
           {page==="plans"&&(
             <PagePlans T={T} chantiers={chantiers}/>
