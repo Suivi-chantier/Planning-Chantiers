@@ -2483,8 +2483,20 @@ function PageEquipe({chantiers, ouvriers, weekId, T}) {
                       <div style={{fontSize:14,color:T.text}}>{r.remarque}</div>
                     </div>
                   )}
-                  <div style={{marginTop:8,fontSize:11,color:T.textMuted}}>
-                    Soumis le {new Date(r.submitted_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}
+                  <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div style={{fontSize:11,color:T.textMuted}}>
+                      Soumis le {new Date(r.submitted_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}
+                    </div>
+                    <button onClick={async()=>{
+                      if(!confirm(`Supprimer le compte rendu de ${r.ouvrier} du ${r.date_rapport} ?`)) return;
+                      await supabase.from("rapports").delete().eq("id",r.id);
+                      setRapports(p=>p.filter(x=>x.id!==r.id));
+                      setSelectedRapport(null);
+                    }} style={{background:"transparent",border:"1px solid rgba(224,92,92,0.3)",
+                      borderRadius:6,padding:"4px 12px",color:"#e05c5c",fontFamily:"inherit",
+                      fontSize:12,cursor:"pointer"}}>
+                      🗑 Supprimer
+                    </button>
                   </div>
                 </div>
               )}
