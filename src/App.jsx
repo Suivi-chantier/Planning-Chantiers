@@ -15,9 +15,10 @@ const COULEURS_PALETTE = [
 ];
 
 const STATUTS = {
-  a_commander: { label:"À commander", color:"#e05c5c", bg:"rgba(224,92,92,0.12)", border:"rgba(224,92,92,0.3)" },
-  commande:    { label:"Commandé",    color:"#f5a623", bg:"rgba(245,166,35,0.12)", border:"rgba(245,166,35,0.3)" },
-  retire:      { label:"Retiré ✓",    color:"#50c878", bg:"rgba(80,200,120,0.12)", border:"rgba(80,200,120,0.3)" },
+  besoin_ouvrier:{ label:"⚡ Besoin équipe", color:"#b060ff", bg:"rgba(176,96,255,0.12)", border:"rgba(176,96,255,0.35)" },
+  a_commander:   { label:"À commander",     color:"#e05c5c", bg:"rgba(224,92,92,0.12)",  border:"rgba(224,92,92,0.3)"  },
+  commande:      { label:"Commandé",         color:"#f5a623", bg:"rgba(245,166,35,0.12)", border:"rgba(245,166,35,0.3)" },
+  retire:        { label:"Retiré ✓",         color:"#50c878", bg:"rgba(80,200,120,0.12)", border:"rgba(80,200,120,0.3)" },
 };
 
 const THEMES = {
@@ -227,6 +228,24 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                       style={{flex:1,background:"transparent",border:"none",color:T.planColor,
                         fontSize:14,lineHeight:1.5,resize:"none",fontFamily:"inherit",outline:"none"}}
                     />
+                    {/* Durée estimée */}
+                    <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0,
+                      background:T.fieldBg,border:`1px solid ${T.border}`,borderRadius:7,padding:"4px 8px"}}>
+                      <span style={{fontSize:12,color:T.textMuted}}>⏱</span>
+                      <input
+                        type="number" min="0.5" max="24" step="0.5"
+                        value={tache.duree||""}
+                        onChange={e=>{
+                          const t=[...(draft.taches||[])];
+                          t[idx]={...t[idx],duree:e.target.value?parseFloat(e.target.value):null};
+                          setDraft(p=>({...p,taches:t}));
+                        }}
+                        placeholder="h"
+                        style={{width:38,background:"transparent",border:"none",color:T.text,
+                          fontSize:13,fontFamily:"inherit",outline:"none",textAlign:"center"}}
+                      />
+                      <span style={{fontSize:11,color:T.textMuted}}>h</span>
+                    </div>
                     <button onClick={()=>{
                       const t=(draft.taches||[]).filter((_,i)=>i!==idx);
                       setDraft(p=>({...p,taches:t,planifie:t.map(x=>x.text).join("\n")}));
@@ -596,8 +615,10 @@ function PageCommandes({chantiers,T}){
     load();
   };
   const cycleStatut=async(row)=>{
-    const order=["a_commander","commande","retire"];
-    const next=order[(order.indexOf(row.statut)+1)%3];
+    const order=["besoin_ouvrier","a_commander","commande","retire"];
+    // Si le statut actuel n'est pas dans l'ordre (cas rare), on commence à a_commander
+    const curIdx = order.indexOf(row.statut);
+    const next = order[(curIdx>=0 ? curIdx+1 : 1) % order.length];
     await supabase.from("commandes_detail").update({statut:next}).eq("id",row.id);
     setRows(prev=>prev.map(r=>r.id===row.id?{...r,statut:next}:r));
   };
@@ -730,17 +751,23 @@ function PageCommandes({chantiers,T}){
               const st=STATUTS[row.statut]||STATUTS.a_commander;
               if(editRow===row.id)return<RowEditor key={row.id} row={row} onSave={saveRow} onCancel={()=>setEditRow(null)}/>;
               return(
-                <tr key={row.id} style={{borderBottom:`1px solid ${T.sectionDivider}`,transition:"background .1s"}}
-                  onMouseEnter={e=>e.currentTarget.style.background=T.card}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <tr key={row.id} style={{
+                    borderBottom:`1px solid ${T.sectionDivider}`,transition:"background .1s",
+                    background: row.statut==="besoin_ouvrier" ? "rgba(176,96,255,0.06)" : "transparent",
+                    borderLeft: row.statut==="besoin_ouvrier" ? "3px solid #b060ff" : "3px solid transparent",
+                  }}
+                  onMouseEnter={e=>e.currentTarget.style.background=row.statut==="besoin_ouvrier"?"rgba(176,96,255,0.1)":T.card}
+                  onMouseLeave={e=>e.currentTarget.style.background=row.statut==="besoin_ouvrier"?"rgba(176,96,255,0.06)":"transparent"}>
                   <td style={{padding:"11px 10px"}}>
                     {ch?<span style={{display:"inline-flex",alignItems:"center",gap:7}}>
                       <span style={{width:10,height:10,borderRadius:3,background:ch.couleur,display:"block",flexShrink:0}}/>
                       <span style={{fontSize:13,fontWeight:700,color:T.text}}>{ch.nom}</span>
                     </span>:<span style={{fontSize:12,color:T.textMuted}}>—</span>}
                   </td>
-                  <td style={{padding:"11px 10px",fontSize:13,color:T.text,fontWeight:600}}>{row.article||"—"}</td>
-                  <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>{row.fournisseur||"—"}</td>
+                  <td style={{padding:"11px 10px",fontSize:13,color:row.statut==="besoin_ouvrier"?"#c080ff":T.text,fontWeight:600}}>
+                    {row.article||"—"}
+                  </td>
+                  <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>{row.fournisseur||<span style={{color:T.emptyColor,fontSize:12}}>À renseigner</span>}</td>
                   <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>{row.quantite||"—"}</td>
                   <td style={{padding:"11px 10px"}}>
                     <button onClick={()=>cycleStatut(row)} style={{
@@ -1949,6 +1976,7 @@ function PageRapportMobile() {
   const [ouvriers, setOuvriers]   = useState(DEFAULT_OUVRIERS);
   const [taches, setTaches]       = useState([]);
   const [remarque, setRemarque]   = useState("");
+  const [besoins, setBesoins]     = useState({}); // { chantier_id: "texte des besoins" }
   const [submitting, setSubmitting] = useState(false);
   const [planData, setPlanData]   = useState(null); // {chantier, cell}
 
@@ -2072,6 +2100,23 @@ function PageRapportMobile() {
       };
       await supabase.from("rapports").insert(rapport);
       try { await sendRapportEmail(rapport, grp.chantier_nom); } catch(e) { console.error("Email:",e); }
+
+      // Créer les besoins en commande → onglet Commandes
+      const besoinTexte = besoins[grp.chantier_id];
+      if (besoinTexte?.trim()) {
+        // Une ligne par besoin (séparé par retour à la ligne)
+        const lignes = besoinTexte.split("\n").filter(l=>l.trim());
+        for (const ligne of lignes) {
+          await supabase.from("commandes_detail").insert({
+            chantier_id: grp.chantier_id,
+            article: ligne.trim(),
+            fournisseur: "",
+            quantite: "",
+            statut: "besoin_ouvrier",
+            notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
+          });
+        }
+      }
     }
 
     setSubmitting(false);
@@ -2196,6 +2241,10 @@ function PageRapportMobile() {
               <div style={{display:"inline-block",background:"rgba(91,138,245,0.12)",color:"#5b8af5",
                 borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700}}>👥 Pour tous</div>
             )}
+            {t.duree && (
+              <div style={{display:"inline-block",background:"rgba(245,166,35,0.12)",color:"#c07800",
+                borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700}}>⏱ {t.duree}h estimée{t.duree>1?"s":""}</div>
+            )}
           </div>
           {t.libre ? (
             <textarea value={t.planifie} onChange={e=>setTachePlanifie(idx,e.target.value)}
@@ -2227,7 +2276,7 @@ function PageRapportMobile() {
         </div>
       ))}
 
-      {/* Ajouter tâche + remarque générale + soumettre */}
+      {/* Ajouter tâche */}
       <div style={{padding:"0 16px 8px"}}>
         <button onClick={addTacheLibre} style={{
           width:"100%",padding:"12px",border:"1.5px dashed #c0c8d8",borderRadius:12,
@@ -2236,10 +2285,32 @@ function PageRapportMobile() {
         }}>+ Ajouter une tâche</button>
       </div>
 
+      {/* Besoins en commande par chantier */}
+      {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
+        const ct = taches.find(t=>t.chantier_id===cId);
+        return (
+          <div key={cId} style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
+            <span style={{...S.label, color:"#9040c0"}}>
+              📦 Besoins commande
+              {ct?.chantier_nom && <span style={{marginLeft:6,background:ct.chantier_couleur+"44",color:"#1a1f2e",
+                borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{ct.chantier_nom}</span>}
+            </span>
+            <textarea
+              value={besoins[cId]||""}
+              onChange={e=>setBesoins(b=>({...b,[cId]:e.target.value}))}
+              placeholder={"Matériaux manquants, outils à prévoir…\nEx: 10m de gaine Ø80, visserie placo..."}
+              style={{...S.input,resize:"none",minHeight:80,fontSize:14,color:"#6020a0"}}/>
+            <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
+              ⚡ Sera transmis automatiquement dans l'onglet Commandes
+            </div>
+          </div>
+        );
+      })}
+
       <div style={{...S.card}}>
         <span style={S.label}>Remarque générale de la journée</span>
         <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
-          placeholder="Problèmes rencontrés, matériaux manquants, remarques pour le chef…"
+          placeholder="Problèmes rencontrés, informations pour le chef…"
           style={{...S.input,resize:"none",minHeight:80,fontSize:14}}/>
       </div>
 
