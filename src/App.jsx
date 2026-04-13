@@ -886,7 +886,7 @@ function PageCommandes({chantiers,T}){
 }
 
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
-function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T}){
+function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T}){
   const [modal,setModal]=useState(null);
   const [cellDraft,setCellDraft]=useState(null);
   const [cmdDraft,setCmdDraft]=useState("");
@@ -928,6 +928,72 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
       supabase.from("planning_notes").upsert({chantier_id:cId,contenu:noteDraft},{onConflict:"chantier_id"}),
     ]);
     setSaving(false);setModal(null);setCellDraft(null);
+  };
+
+
+  // ── Google Calendar sync ────────────────────────────────────────────────
+  const[gcalSyncing,setGcalSyncing]=useState(false);
+  const[gcalMsg,setGcalMsg]=useState(null);
+
+  const getWeekDate=(dayIndex)=>{
+    // ISO week → real date (Monday = dayIndex 0 … Friday = 4)
+    const jan4=new Date(year,0,4);
+    const mon=new Date(jan4);
+    mon.setDate(jan4.getDate()-(((jan4.getDay()||7)-1))+( week-1)*7);
+    const d=new Date(mon);d.setDate(mon.getDate()+dayIndex);
+    return d.toISOString().split('T')[0];
+  };
+
+  const doGoogleSync=async(token)=>{
+    setGcalSyncing(true);setGcalMsg(null);
+    let ok=0,ko=0;
+    for(const chantier of chantiers){
+      for(let di=0;di<JOURS.length;di++){
+        const jour=JOURS[di];
+        const cell=getCell(chantier.id,jour);
+        const taches=(cell.taches||[]).filter(t=>t.text?.trim());
+        if(!taches.length&&!cell.planifie?.trim())continue;
+        const dateStr=getWeekDate(di);
+        const attendees=(cell.ouvriers||[])
+          .map(nom=>ouvrierEmails?.[nom]).filter(Boolean).map(email=>({email}));
+        const lines=taches.length
+          ?taches.map(t=>`• ${t.text}${t.duree?` (${t.duree}h)`:''}${t.ouvriers?.length?` → ${t.ouvriers.join(', ')}`:' → tous'}`)
+          :(cell.planifie||'').split('\n').filter(l=>l.trim()).map(l=>`• ${l}`);
+        const ouv=(cell.ouvriers||[]).join(', ');
+        const ev={
+          summary:`[${chantier.nom}]${ouv?` – ${ouv}`:''}`,
+          description:lines.join('\n')+(cell.reel?`\n\nRéalisé :\n${cell.reel}`:''),
+          start:{date:dateStr},end:{date:dateStr},
+          colorId:'5',
+          attendees,
+        };
+        try{
+          const r=await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all',{
+            method:'POST',
+            headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+            body:JSON.stringify(ev),
+          });
+          r.ok?ok++:ko++;
+        }catch{ko++;}
+      }
+    }
+    setGcalSyncing(false);
+    setGcalMsg(ok>0&&ko===0
+      ?{type:'ok',text:`✅ ${ok} événement${ok>1?'s':''} créé${ok>1?'s':''} dans Google Agenda !`}
+      :{type:'err',text:`⚠️ ${ok} créé${ok>1?'s':''}${ko>0?`, ${ko} erreur${ko>1?'s':''}`:''}. Vérifie la console.`});
+    setTimeout(()=>setGcalMsg(null),7000);
+  };
+
+  const handleGoogleSync=()=>{
+    const cid=import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if(!cid){setGcalMsg({type:'err',text:'⚠️ VITE_GOOGLE_CLIENT_ID manquant dans Vercel'});setTimeout(()=>setGcalMsg(null),5000);return;}
+    if(!window.google?.accounts?.oauth2){setGcalMsg({type:'err',text:'⚠️ Google Identity Services pas encore chargé — réessaie dans 2 sec'});setTimeout(()=>setGcalMsg(null),4000);return;}
+    const tc=window.google.accounts.oauth2.initTokenClient({
+      client_id:cid,
+      scope:'https://www.googleapis.com/auth/calendar.events',
+      callback:(resp)=>{if(resp.error){setGcalMsg({type:'err',text:`Erreur OAuth: ${resp.error}`});return;}doGoogleSync(resp.access_token);},
+    });
+    tc.requestAccessToken();
   };
 
   const handlePrint=()=>{
@@ -988,8 +1054,22 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
           <button className={`tab ${view==="compare"?"on":"off"}`} onClick={()=>setView("compare")}
             >Bilan</button>
           <button className="btn-g btn-print" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>
+          <button onClick={handleGoogleSync} disabled={gcalSyncing}
+            style={{fontSize:13,padding:"6px 14px",fontWeight:700,fontFamily:"inherit",cursor:gcalSyncing?"wait":"pointer",
+              background:"#4285F4",color:"#fff",border:"none",borderRadius:8,display:"flex",alignItems:"center",gap:6,opacity:gcalSyncing?.6:1}}>
+            {gcalSyncing?"⏳ Envoi…":"📅 Google Agenda"}
+          </button>
         </div>
       </div>
+
+      {gcalMsg&&(
+        <div style={{padding:"8px 28px",fontSize:13,fontWeight:600,
+          background:gcalMsg.type==="ok"?"#1a3a1a":"#3a1a1a",
+          color:gcalMsg.type==="ok"?"#6ddc6d":"#dc6d6d",
+          borderBottom:`1px solid ${T.border}`}}>
+          {gcalMsg.text}
+        </div>
+      )}
 
       {/* Grille */}
       <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
@@ -1055,7 +1135,7 @@ function PagePlanning({chantiers,ouvriers,cells,setCells,commandes,setCommandes,
 }
 
 // ─── PAGE ADMIN ───────────────────────────────────────────────────────────────
-function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme,setTheme,T}){
+function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,chantiers,setChantiers,saveConfig,theme,setTheme,T}){
   const [adminTab,setAdminTab]=useState("ouvriers");
   const [newOuvrier,setNewOuvrier]=useState("");
   const [editOuvrier,setEditOuvrier]=useState(null);
@@ -1065,7 +1145,15 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
 
   const addOuvrier=()=>{if(!newOuvrier.trim())return;const u=[...ouvriers,newOuvrier.trim()];setOuvriers(u);saveConfig("ouvriers",u);setNewOuvrier("");};
   const removeOuvrier=i=>{const u=ouvriers.filter((_,idx)=>idx!==i);setOuvriers(u);saveConfig("ouvriers",u);};
-  const renameOuvrier=(i,v)=>{const u=ouvriers.map((o,idx)=>idx===i?v:o);setOuvriers(u);saveConfig("ouvriers",u);setEditOuvrier(null);};
+  const renameOuvrier=(i,v,email)=>{
+    const oldNom=ouvriers[i];
+    const u=ouvriers.map((o,idx)=>idx===i?v:o);
+    setOuvriers(u);saveConfig("ouvriers",u);
+    const ne={...ouvrierEmails};delete ne[oldNom];
+    if(email?.trim())ne[v]=email.trim();
+    setOuvrierEmails(ne);saveConfig("ouvrier_emails",ne);
+    setEditOuvrier(null);
+  };
   const moveOuvrier=(i,d)=>{const a=[...ouvriers],j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];setOuvriers(a);saveConfig("ouvriers",a);};
   const addChantier=()=>{if(!newNom.trim())return;const id=newNom.trim().toLowerCase().replace(/\s+/g,"-")+"-"+Date.now();const nc={id,nom:newNom.trim().toUpperCase(),couleur:newColor};const u=[...chantiers,nc];setChantiers(u);saveConfig("chantiers",u);setNewNom("");};
   const removeChantier=i=>{const u=chantiers.filter((_,idx)=>idx!==i);setChantiers(u);saveConfig("chantiers",u);};
@@ -1085,29 +1173,44 @@ function PageAdmin({ouvriers,setOuvriers,chantiers,setChantiers,saveConfig,theme
       {adminTab==="ouvriers"&&(
         <div className="ac">
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Liste des ouvriers</div>
-          <div style={{color:T.textSub,fontSize:13,marginBottom:18}}>Ces noms apparaissent dans la modale d'édition de chaque case.</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:18}}>Nom + email — l'email permet d'inviter automatiquement sur Google Agenda.</div>
           {ouvriers.map((o,i)=>(
-            <div key={i} className="ar">
+            <div key={i} className="ar" style={{flexWrap:"wrap",gap:6}}>
               <div style={{display:"flex",flexDirection:"column",gap:1}}>
                 <button className="ib" onClick={()=>moveOuvrier(i,-1)}>▲</button>
                 <button className="ib" onClick={()=>moveOuvrier(i,1)}>▼</button>
               </div>
               {editOuvrier?.index===i
-                ?<><input className="ti" value={editOuvrier.value}
-                    onChange={e=>setEditOuvrier({index:i,value:e.target.value})}
-                    onKeyDown={e=>{if(e.key==="Enter")renameOuvrier(i,editOuvrier.value);if(e.key==="Escape")setEditOuvrier(null);}}
+                ?<>
+                  <input className="ti" value={editOuvrier.value} placeholder="Prénom"
+                    style={{flex:"1 1 80px",minWidth:70}}
+                    onChange={e=>setEditOuvrier({...editOuvrier,value:e.target.value})}
+                    onKeyDown={e=>{if(e.key==="Enter")renameOuvrier(i,editOuvrier.value,editOuvrier.email);if(e.key==="Escape")setEditOuvrier(null);}}
                     autoFocus/>
-                  <button className="btn-p" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>renameOuvrier(i,editOuvrier.value)}>✓</button>
-                  <button className="btn-g" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>setEditOuvrier(null)}>✕</button></>
-                :<><div style={{flex:1,fontWeight:600,fontSize:15}}>{o}</div>
-                  <button className="ib" onClick={()=>setEditOuvrier({index:i,value:o})}>✏️</button>
-                  <button className="btn-d" onClick={()=>removeOuvrier(i)}>Supprimer</button></>
+                  <input className="ti" value={editOuvrier.email||""} placeholder="email@exemple.com"
+                    style={{flex:"2 1 160px",minWidth:140}}
+                    onChange={e=>setEditOuvrier({...editOuvrier,email:e.target.value})}
+                    onKeyDown={e=>{if(e.key==="Enter")renameOuvrier(i,editOuvrier.value,editOuvrier.email);if(e.key==="Escape")setEditOuvrier(null);}}/>
+                  <button className="btn-p" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>renameOuvrier(i,editOuvrier.value,editOuvrier.email)}>✓</button>
+                  <button className="btn-g" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>setEditOuvrier(null)}>✕</button>
+                </>
+                :<>
+                  <div style={{flex:1,minWidth:120}}>
+                    <div style={{fontWeight:700,fontSize:15}}>{o}</div>
+                    {ouvrierEmails?.[o]
+                      ?<div style={{fontSize:12,color:T.textMuted,marginTop:1}}>{ouvrierEmails[o]}</div>
+                      :<div style={{fontSize:11,color:"#e06060",fontStyle:"italic",marginTop:1}}>Pas d'email — cliquer ✏️ pour ajouter</div>}
+                  </div>
+                  <button className="ib" onClick={()=>setEditOuvrier({index:i,value:o,email:ouvrierEmails?.[o]||""})}>✏️</button>
+                  <button className="btn-d" onClick={()=>removeOuvrier(i)}>Supprimer</button>
+                </>
               }
             </div>
           ))}
-          <div style={{display:"flex",gap:10,marginTop:16}}>
+          <div style={{display:"flex",gap:10,marginTop:16,flexWrap:"wrap"}}>
             <input className="ti" value={newOuvrier} onChange={e=>setNewOuvrier(e.target.value)}
-              placeholder="Prénom ou initiales…" onKeyDown={e=>e.key==="Enter"&&addOuvrier()}/>
+              placeholder="Prénom ou initiales…" style={{flex:1,minWidth:120}}
+              onKeyDown={e=>e.key==="Enter"&&addOuvrier()}/>
             <button className="btn-p" onClick={addOuvrier}>+ Ajouter</button>
           </div>
         </div>
@@ -2595,6 +2698,7 @@ function MainApp(){
   const[view,setView]=useState("planifie");
 
   const[ouvriers,setOuvriers]=useState(DEFAULT_OUVRIERS);
+  const[ouvrierEmails,setOuvrierEmails]=useState({});
   const[chantiers,setChantiers]=useState(DEFAULT_CHANTIERS);
   const[cells,setCells]=useState({});
   const[commandes,setCommandes]=useState({});
@@ -2614,6 +2718,7 @@ function MainApp(){
       else if(cfg?.length)cfg.forEach(r=>{
         if(r.key==="ouvriers")setOuvriers(r.value);
         if(r.key==="chantiers")setChantiers(r.value);
+        if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
       });
       const{data:cd}=await supabase.from("planning_cells").select("*").eq("week_id",weekId);
       if(cd){const m={};cd.forEach(r=>{m[`${r.chantier_id}_${r.jour}`]={planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[]};});setCells(m);}
@@ -2641,6 +2746,7 @@ function MainApp(){
         const r=p.new;if(!r)return;
         if(r.key==="ouvriers")setOuvriers(r.value);
         if(r.key==="chantiers")setChantiers(r.value);
+        if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
         setLastSync(new Date());
       })
       .subscribe();
@@ -2655,6 +2761,14 @@ function MainApp(){
       setTimeout(()=>supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"}),1000);
     }
   };
+
+  // Load Google Identity Services
+  useEffect(()=>{
+    if(document.getElementById('gsi-script'))return;
+    const s=document.createElement('script');
+    s.id='gsi-script';s.src='https://accounts.google.com/gsi/client';
+    s.async=true;s.defer=true;document.head.appendChild(s);
+  },[]);
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
@@ -2781,7 +2895,7 @@ function MainApp(){
               notesData={notesData} weekId={weekId} T={T}/>
           )}
           {page==="planning"&&(
-            <PagePlanning chantiers={chantiers} ouvriers={ouvriers} cells={cells} setCells={setCells}
+            <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells}
               commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData}
               weekId={weekId} view={view} setView={setView} year={year} week={week}
               setYear={setYear} setWeek={setWeek} T={T}/>
@@ -2797,6 +2911,7 @@ function MainApp(){
           )}
           {page==="admin"&&(
             <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers}
+              ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails}
               chantiers={chantiers} setChantiers={setChantiers}
               saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>
           )}
