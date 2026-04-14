@@ -1435,12 +1435,39 @@ const LINE_COLORS = [
   { label:'Gris',     value:'#7090c0' },
 ];
 
+const SURFACE_COLORS = [
+  { label:'Bleu clair',  value:'#3b82f6', alpha:0.15 },
+  { label:'Vert',        value:'#22c55e', alpha:0.15 },
+  { label:'Jaune',       value:'#eab308', alpha:0.15 },
+  { label:'Orange',      value:'#f97316', alpha:0.15 },
+  { label:'Rouge',       value:'#ef4444', alpha:0.15 },
+  { label:'Violet',      value:'#a855f7', alpha:0.15 },
+  { label:'Rose',        value:'#ec4899', alpha:0.15 },
+  { label:'Cyan',        value:'#06b6d4', alpha:0.15 },
+  { label:'Gris',        value:'#94a3b8', alpha:0.15 },
+];
+
+// Calcul surface polygone (Shoelace formula) — retourne m²
+function calcSurface(pts) {
+  let s = 0;
+  const n = pts.length;
+  for (let i=0; i<n; i++) {
+    const j = (i+1)%n;
+    s += pts[i].x * pts[j].y;
+    s -= pts[j].x * pts[i].y;
+  }
+  return Math.abs(s/2);
+}
+
 // ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
 function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const canvasRef = useRef(null);
   const [segments,  setSegments]  = useState(plan.data?.segments || []);
   const [symbols,   setSymbols]   = useState(plan.data?.symbols  || []);
   const [cotes,     setCotes]     = useState(plan.data?.cotes    || []);
+  const [surfaces,  setSurfaces]  = useState(plan.data?.surfaces || []);
+  const [surfaceColor, setSurfaceColor] = useState('#3b82f6');
+  const [polyPoints, setPolyPoints]     = useState([]); // points en cours de tracé
 
   // Historique undo/redo
   const historyRef = useRef([]);
@@ -1449,7 +1476,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [futureLen,  setFutureLen]  = useState(0);
 
   const pushHistory = useCallback((segs, syms, cots) => {
-    historyRef.current = [...historyRef.current.slice(-29), { segments:segs, symbols:syms, cotes:cots }];
+    historyRef.current = [...historyRef.current.slice(-29), { segments:segs, symbols:syms, cotes:cots, surfaces:surfacesRef.current }];
     futureRef.current  = [];
     setHistoryLen(historyRef.current.length);
     setFutureLen(0);
@@ -1459,8 +1486,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     if (!historyRef.current.length) return;
     const prev = historyRef.current[historyRef.current.length-1];
     setSegments(cur => { setSymbols(cs => { setCotes(cc => {
-      futureRef.current = [{ segments:cur, symbols:cs, cotes:cc }, ...futureRef.current.slice(0,29)];
+      futureRef.current = [{ segments:cur, symbols:cs, cotes:cc, surfaces:surfacesRef.current }, ...futureRef.current.slice(0,29)];
       setFutureLen(futureRef.current.length);
+      if(prev.surfaces) setSurfaces(prev.surfaces);
       return prev.cotes;
     }); return prev.symbols; }); return prev.segments; });
     historyRef.current = historyRef.current.slice(0,-1);
@@ -1471,8 +1499,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     if (!futureRef.current.length) return;
     const next = futureRef.current[0];
     setSegments(cur => { setSymbols(cs => { setCotes(cc => {
-      historyRef.current = [...historyRef.current, { segments:cur, symbols:cs, cotes:cc }];
+      historyRef.current = [...historyRef.current, { segments:cur, symbols:cs, cotes:cc, surfaces:surfacesRef.current }];
       setHistoryLen(historyRef.current.length);
+      if(next.surfaces) setSurfaces(next.surfaces);
       return next.cotes;
     }); return next.symbols; }); return next.segments; });
     futureRef.current = futureRef.current.slice(1);
@@ -1501,6 +1530,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const segmentsRef   = useRef(segments);
   const symbolsRef    = useRef(symbols);
   const cotesRef      = useRef(cotes);
+  const surfacesRef   = useRef(surfaces);
+  const polyPtsRef    = useRef(polyPoints);
+  const surfColorRef  = useRef(surfaceColor);
   const toolRef       = useRef(tool);
   const lineStartRef  = useRef(lineStart);
   const mousePosRef   = useRef(mousePos);
@@ -1516,6 +1548,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   segmentsRef.current   = segments;
   symbolsRef.current    = symbols;
   cotesRef.current      = cotes;
+  surfacesRef.current   = surfaces;
+  polyPtsRef.current    = polyPoints;
+  surfColorRef.current  = surfaceColor;
   toolRef.current       = tool;
   lineStartRef.current  = lineStart;
   mousePosRef.current   = mousePos;
@@ -1586,6 +1621,53 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         for (let x=ox;x<W;x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
         for (let y=oy;y<H;y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
       }
+
+      // Surfaces (polygones remplis)
+      surfacesRef.current.forEach(surf => {
+        if (surf.deleted || surf.points.length < 3) return;
+        const pts = surf.points;
+        const sel = selectedRef.current.has(surf.id);
+        ctx.save();
+        ctx.beginPath();
+        const {cx:fx,cy:fy}=toC(pts[0].x,pts[0].y);
+        ctx.moveTo(fx,fy);
+        for(let i=1;i<pts.length;i++){
+          const{cx,cy}=toC(pts[i].x,pts[i].y);
+          ctx.lineTo(cx,cy);
+        }
+        ctx.closePath();
+        // Remplissage semi-transparent
+        const col = surf.color||'#3b82f6';
+        ctx.fillStyle = sel ? 'rgba(245,166,35,0.2)' : col.replace('#','').match(/.{2}/g).reduce((a,c,i)=>
+          i<3?a+parseInt(c,16)*(i===0?',':i===1?',':')'):a,
+          'rgba('
+        ) + (surf.alpha||0.15) + ')';
+        // Fallback plus simple
+        const r=parseInt(col.slice(1,3),16),g=parseInt(col.slice(3,5),16),b=parseInt(col.slice(5,7),16);
+        ctx.fillStyle = sel ? `rgba(245,166,35,0.2)` : `rgba(${r},${g},${b},${surf.alpha||0.15})`;
+        ctx.fill();
+        // Contour
+        ctx.strokeStyle = sel ? '#f5a623' : col;
+        ctx.lineWidth = sel ? 2.5 : 1.5;
+        ctx.setLineDash([5,3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+        // Label surface au centroïde
+        const cx_c = pts.reduce((a,p)=>a+p.x,0)/pts.length;
+        const cy_c = pts.reduce((a,p)=>a+p.y,0)/pts.length;
+        const {cx:lx,cy:ly}=toC(cx_c,cy_c);
+        const area = calcSurface(pts);
+        const label = area>=1 ? `${area.toFixed(2)} m²` : `${(area*10000).toFixed(0)} cm²`;
+        const fontSize = Math.max(10, Math.min(14, vp.scale*0.4));
+        ctx.font=`bold ${fontSize}px sans-serif`;
+        ctx.textAlign='center';
+        const tw=ctx.measureText(label).width+10;
+        ctx.fillStyle='rgba(18,21,31,0.75)';
+        ctx.beginPath(); ctx.roundRect(lx-tw/2,ly-fontSize-2,tw,fontSize+8,4); ctx.fill();
+        ctx.fillStyle= sel ? '#f5a623' : col;
+        ctx.fillText(label,lx,ly+2);
+      });
 
       // Segments
       segmentsRef.current.forEach(s => {
@@ -1730,6 +1812,52 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.setLineDash([]);
       }
 
+      // Polygone surface en cours de tracé
+      const ppts = polyPtsRef.current, mp2 = mousePosRef.current;
+      if (toolRef.current==='surface' && ppts.length>0) {
+        ctx.save();
+        ctx.strokeStyle=surfColorRef.current; ctx.lineWidth=2; ctx.setLineDash([4,3]);
+        ctx.beginPath();
+        const{cx:px0,cy:py0}=toC(ppts[0].x,ppts[0].y);
+        ctx.moveTo(px0,py0);
+        for(let i=1;i<ppts.length;i++){const{cx,cy}=toC(ppts[i].x,ppts[i].y);ctx.lineTo(cx,cy);}
+        // Ligne vers le curseur
+        if(mp2) ctx.lineTo(mp2.cx,mp2.cy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Points de contrôle
+        ppts.forEach((p,i)=>{
+          const{cx,cy}=toC(p.x,p.y);
+          ctx.fillStyle=i===0?'#f5a623':surfColorRef.current;
+          ctx.beginPath(); ctx.arc(cx,cy,i===0?6:4,0,Math.PI*2); ctx.fill();
+          // Cercle de fermeture sur 1er point
+          if(i===0&&ppts.length>=3){
+            ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
+            ctx.beginPath(); ctx.arc(cx,cy,10,0,Math.PI*2); ctx.stroke();
+          }
+        });
+        // Surface provisoire si ≥3 points
+        if(ppts.length>=2){
+          const r=parseInt(surfColorRef.current.slice(1,3),16);
+          const g=parseInt(surfColorRef.current.slice(3,5),16);
+          const b=parseInt(surfColorRef.current.slice(5,7),16);
+          ctx.beginPath();
+          ctx.moveTo(px0,py0);
+          for(let i=1;i<ppts.length;i++){const{cx,cy}=toC(ppts[i].x,ppts[i].y);ctx.lineTo(cx,cy);}
+          ctx.closePath();
+          ctx.fillStyle=`rgba(${r},${g},${b},0.08)`;
+          ctx.fill();
+          // Surface provisoire
+          const area=calcSurface(ppts);
+          if(area>0.001&&mp2){
+            const areaLabel=area>=1?`${area.toFixed(2)} m²`:`${(area*10000).toFixed(0)} cm²`;
+            ctx.fillStyle=surfColorRef.current; ctx.font='bold 13px sans-serif'; ctx.textAlign='left';
+            ctx.fillText(`≈ ${areaLabel}`, mp2.cx+12, mp2.cy-8);
+          }
+        }
+        ctx.restore();
+      }
+
       // Indicateur ortho
       if (orthoRef.current) {
         ctx.fillStyle='rgba(80,200,120,0.85)';
@@ -1763,10 +1891,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           setSegments(s=>s.map(x=>ids.has(x.id)?{...x,deleted:true}:x));
           setSymbols(s=>s.map(x=>ids.has(x.id)?{...x,deleted:true}:x));
           setCotes(s=>s.map(x=>ids.has(x.id)?{...x,deleted:true}:x));
+          setSurfaces(s=>s.map(x=>ids.has(x.id)?{...x,deleted:true}:x));
           setSelectedIds(new Set());
         }
       }
-      if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); }
+      if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); setPolyPoints([]); }
       if (e.key==='o'||e.key==='O') setOrthoMode(v=>!v);
       if (e.key==='s'||e.key==='S') setSnapEnabled(v=>!v);
       if ((e.ctrlKey||e.metaKey)&&e.key==='d') {
@@ -1884,6 +2013,16 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const px=s.x1+t*dx-wx,py=s.y1+t*dy-wy;
         if (Math.sqrt(px*px+py*py)<hitThresh) { hit=s.id; break; }
       }
+      // Hit test surfaces
+      if (!hit) for (const surf of surfacesRef.current.filter(x=>!x.deleted)) {
+        // Point dans polygone (ray casting)
+        const pts=surf.points; let inside=false;
+        for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+          if(((pts[i].y>wy)!=(pts[j].y>wy))&&(wx<(pts[j].x-pts[i].x)*(wy-pts[i].y)/(pts[j].y-pts[i].y)+pts[i].x))
+            inside=!inside;
+        }
+        if(inside){hit=surf.id;break;}
+      }
       if (hit) {
         setSelectedIds(prev => {
           const n=new Set(prev);
@@ -1956,6 +2095,30 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         pushHistory(segments,symbols,cotes);
         setSymbols(s=>[...s,{x:wx,y:wy,type:'text',text:txt.trim(),id:Date.now()+Math.random()}]);
       }
+
+    } else if (tool==='surface') {
+      const s=snapToPoint(wx,wy);
+      const cur=polyPtsRef.current;
+      // Clic sur le 1er point (≥3 pts) → fermer le polygone
+      if(cur.length>=3){
+        const first=cur[0];
+        const dx=first.x-s.wx, dy=first.y-s.wy;
+        const distClose=Math.sqrt(dx*dx+dy*dy);
+        const closeThresh=12/vpRef.current.scale;
+        if(distClose<closeThresh){
+          // Fermer et créer la surface
+          pushHistory(segments,symbols,cotes);
+          setSurfaces(prev=>[...prev,{
+            id:Date.now()+Math.random(),
+            points:[...cur],
+            color:surfColorRef.current,
+            alpha:0.15,
+          }]);
+          setPolyPoints([]);
+          return;
+        }
+      }
+      setPolyPoints(prev=>[...prev,{x:s.wx,y:s.wy}]);
     }
   };
 
@@ -2005,6 +2168,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       symbolsRef.current.filter(s=>!s.deleted).forEach(s=>{
         if(inRect(s.x,s.y)) ids.add(s.id);
       });
+      surfacesRef.current.filter(s=>!s.deleted).forEach(s=>{
+        if(s.points.every(p=>inRect(p.x,p.y))) ids.add(s.id);
+      });
       if (e.shiftKey) setSelectedIds(prev=>{const n=new Set([...prev,...ids]);return n;});
       else setSelectedIds(ids);
     }
@@ -2046,7 +2212,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setSaving(true);
     const canvas=canvasRef.current;
     const thumb=canvas?canvas.toDataURL('image/png',0.3):'';
-    const data={segments,symbols,cotes,viewport:vp,threshold};
+    const data={segments,symbols,cotes,surfaces,viewport:vp,threshold};
     await supabase.from('plans').update({data,thumbnail:thumb,updated_at:new Date().toISOString()}).eq('id',plan.id);
     setSaving(false);
     onSave({...plan,data,thumbnail:thumb});
@@ -2072,6 +2238,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const segCount=segments.filter(s=>!s.deleted).length;
   const symCount=symbols.filter(s=>!s.deleted).length;
   const coteCount=cotes.filter(c=>!c.deleted).length;
+  const surfCount=surfaces.filter(s=>!s.deleted).length;
   const selCount=selectedIds.size;
 
   const TOOLS = [
@@ -2083,6 +2250,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     {id:'door',   icon:'🚪', label:'Porte'},
     {id:'window', icon:'⬜', label:'Fenêtre'},
     {id:'text',   icon:'T',  label:'Texte'},
+    {id:'surface',icon:'⬡',  label:'Surface — cliquer les points, clic sur le 1er point pour fermer'},
   ];
 
   const btnStyle=(id)=>({
@@ -2105,7 +2273,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ← Retour
         </button>
         <div style={{fontSize:14,fontWeight:700,color:'#e8eaf0'}}>{plan.name}</div>
-        <div style={{fontSize:11,color:'#5b6a8a'}}>{segCount} seg · {symCount} sym · {coteCount} cotes</div>
+        <div style={{fontSize:11,color:'#5b6a8a'}}>{segCount} seg · {symCount} sym · {coteCount} cotes · {surfCount} zones</div>
         {selCount>0&&<div style={{fontSize:11,color:'#f5a623',fontWeight:700}}>{selCount} sélectionné{selCount>1?'s':''}</div>}
 
         <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
@@ -2129,6 +2297,26 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             }}/>
           ))}
         </div>
+
+        {/* Palette couleur surface — visible quand outil surface actif */}
+        {tool==='surface'&&(
+          <div style={{display:'flex',gap:4,alignItems:'center',padding:'3px 8px',
+            background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
+            <span style={{fontSize:11,color:'#9aa5c0',marginRight:2}}>Zone :</span>
+            {SURFACE_COLORS.map(c=>(
+              <button key={c.value} title={c.label} onClick={()=>setSurfaceColor(c.value)} style={{
+                width:20,height:20,borderRadius:4,border:`2px solid ${surfaceColor===c.value?'#fff':'transparent'}`,
+                background:c.value,cursor:'pointer',padding:0,transition:'all .1s',
+                transform:surfaceColor===c.value?'scale(1.25)':'scale(1)',
+              }}/>
+            ))}
+            {polyPoints.length>0&&(
+              <span style={{fontSize:11,color:'#f5a623',marginLeft:4,fontWeight:700}}>
+                {polyPoints.length} pts — clic sur ⭕ 1er pt pour fermer
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Recolorer la sélection */}
         {selCount>0&&(
@@ -2184,7 +2372,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         {/* Fit / Undo / Redo */}
         <button title="Ajuster la vue (tout afficher)" onClick={fitView} style={{...btnStyle('fit'),fontSize:14}}>⊙</button>
         <button title="Tout sélectionner (Ctrl+A)" onClick={()=>{
-          const allIds=new Set([...segments.filter(s=>!s.deleted).map(s=>s.id),...symbols.filter(s=>!s.deleted).map(s=>s.id),...cotes.filter(s=>!s.deleted).map(s=>s.id)]);
+          const allIds=new Set([...segments.filter(s=>!s.deleted).map(s=>s.id),...symbols.filter(s=>!s.deleted).map(s=>s.id),...cotes.filter(s=>!s.deleted).map(s=>s.id),...surfaces.filter(s=>!s.deleted).map(s=>s.id)]);
           setSelectedIds(allIds);
         }} style={{...btnStyle('sela'),fontSize:13}}>⊞</button>
         <button title="Annuler Ctrl+Z" onClick={undo} disabled={historyLen===0} style={{...btnStyle('u'),fontSize:16,opacity:historyLen===0?0.3:1}}>⟲</button>
@@ -2214,6 +2402,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             ['Ctrl+D','Dupliquer sélection'],['Shift+clic','Ajouter à la sélection'],
             ['Outil Ligne','Clic = point, re-clic = chaîne, Échap = fin'],
             ['Outil Cote','Clic 1er point → clic 2ème point = cote fixée'],
+            ['Outil Surface','Clic = points du polygone, clic sur ⭕ 1er point = fermer'],
           ].map(([k,v])=>(
             <div key={k} style={{display:'flex',gap:6,alignItems:'center'}}>
               <code style={{background:'rgba(255,255,255,0.1)',borderRadius:4,padding:'2px 7px',fontSize:11,color:'#f5a623',fontWeight:700}}>{k}</code>
@@ -2253,6 +2442,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         {tool==='cote'&&measurePts.length===0&&<span>Clic sur le 1er point de la cote</span>}
         {tool==='cote'&&measurePts.length===1&&<span style={{color:'#f5d08a'}}>Clic sur le 2ème point</span>}
         {tool==='select'&&<span>Clic = sélectionner · Glisser = rectangle · Shift = ajouter · Suppr = effacer</span>}
+        {tool==='surface'&&polyPoints.length===0&&<span style={{color:'#a0e0a0'}}>Clic = 1er point de la zone</span>}
+        {tool==='surface'&&polyPoints.length>0&&<span style={{color:'#a0e0a0'}}>{polyPoints.length} points — clic sur ⭕ pour fermer · Échap = annuler</span>}
         {selCount>0&&<span style={{color:'#f5a623'}}>{selCount} élément{selCount>1?'s':''} sélectionné{selCount>1?'s':''} — Suppr pour effacer</span>}
         <span style={{marginLeft:'auto'}}>Clic molette = déplacer · Scroll = zoom · ? = raccourcis</span>
       </div>
