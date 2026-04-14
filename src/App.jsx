@@ -360,14 +360,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                 fontFamily:"inherit",fontSize:13,fontWeight:600,transition:"all .15s"
               }}>+ Ajouter une tâche</button>
             </div>
-            <div style={{display:"flex",flexDirection:"column"}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>✅ Réel effectué</div>
-              <textarea value={draft.reel||""} onChange={e=>setDraft(p=>({...p,reel:e.target.value}))}
-                placeholder="Ce qui a réellement été réalisé…"
-                style={{minHeight:100,width:"100%",background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
-                  borderRadius:12,padding:"14px 16px",color:T.reelColor,fontSize:14,lineHeight:1.7,
-                  resize:"none",fontFamily:"inherit",outline:"none"}}/>
-            </div>
+
             <div>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>👷 Ouvriers assignés</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
@@ -886,7 +879,7 @@ function PageCommandes({chantiers,T}){
 }
 
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
-function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T}){
+function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,year,week,setYear,setWeek,T}){
   const [modal,setModal]=useState(null);
   const [cellDraft,setCellDraft]=useState(null);
   const [cmdDraft,setCmdDraft]=useState("");
@@ -974,14 +967,10 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
   };
 
   const handlePrint=()=>{
-    const vl={"planifie":"PLANNING PLANIFIÉ","reel":"RÉEL","compare":"BILAN COMPARATIF"}[view];
     const rows=chantiers.map(c=>{
       const cols=JOURS.map(j=>{
         const cell=getCell(c.id,j);let html="";
-        if(view==="compare"){
-          if(cell.planifie)html+=`<div style="color:#3060c0">▸ ${cell.planifie.replace(/\n/g,"<br>")}</div>`;
-          if(cell.reel)html+=`<div style="color:#207040">✓ ${cell.reel.replace(/\n/g,"<br>")}</div>`;
-        }else if(cell[view])html+=cell[view].replace(/\n/g,"<br>");
+        if(cell.planifie)html+=cell.planifie.replace(/\n/g,"<br>");
         if(cell.ouvriers?.length)html+=`<div style="font-weight:700;color:#666;font-size:9px;border-top:1px solid #eee;padding-top:3px;margin-top:4px">${cell.ouvriers.join(" · ")}</div>`;
         return`<td>${html||"—"}</td>`;
       }).join("");
@@ -995,7 +984,7 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
     td{border:1px solid #ddd;padding:6px 8px;vertical-align:top;line-height:1.4}
     </style></head><body>
     <h1>Planning — Semaine ${week} / ${year}</h1>
-    <div class="sub">${vl} · ${new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+    <div class="sub">PLANNING · ${new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
     <table><thead><tr><th>Chantier</th>${JOURS.map(j=>`<th>${j}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
     </body></html>`);
     w.document.close();setTimeout(()=>w.print(),400);
@@ -1024,12 +1013,7 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
           <button className="navbtn" onClick={nextWeek} >›</button>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-          <button className={`tab ${view==="planifie"?"on":"off"}`} onClick={()=>setView("planifie")}
-            >Planifié</button>
-          <button className={`tab ${view==="reel"?"on":"off"}`} onClick={()=>setView("reel")}
-            >Réel</button>
-          <button className={`tab ${view==="compare"?"on":"off"}`} onClick={()=>setView("compare")}
-            >Bilan</button>
+
           <button className="btn-g btn-print" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>
 
         </div>
@@ -1064,15 +1048,9 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
                     style={{position:"relative"}}>
                     {filled?(
                       <>
-                        {view==="compare"?<>
-                          {cell.planifie&&<div style={{fontSize:12,color:T.planColor,lineHeight:1.5,marginBottom:2}}>{cell.planifie}</div>}
-                          {cell.reel&&<div style={{fontSize:12,color:T.reelColor,lineHeight:1.5}}>{cell.reel}</div>}
-                          {!cell.planifie&&!cell.reel&&<div style={{color:T.emptyColor,fontSize:12}}>—</div>}
-                        </>:(
-                          <div style={{fontSize:12,lineHeight:1.5,color:view==="reel"?T.reelColor:T.text}}>
-                            {cell[view]||<span style={{color:T.emptyColor}}>—</span>}
-                          </div>
-                        )}
+                        <div style={{fontSize:12,lineHeight:1.5,color:T.text}}>
+                          {cell.planifie||<span style={{color:T.emptyColor}}>—</span>}
+                        </div>
                         {cell.ouvriers?.length>0&&(
                           <div style={{marginTop:5,display:"flex",flexWrap:"wrap",gap:3}}>
                             {cell.ouvriers.map(o=>(
@@ -2670,7 +2648,7 @@ function MainApp(){
   const[week,setWeek]=useState(iW);
   const[page,setPage]=useState("dashboard");
   const[theme,setTheme]=useState(()=>localStorage.getItem("theme")||"dark");
-  const[view,setView]=useState("planifie");
+  
 
   const[ouvriers,setOuvriers]=useState(DEFAULT_OUVRIERS);
   const[ouvrierEmails,setOuvrierEmails]=useState({});
@@ -2864,7 +2842,7 @@ function MainApp(){
           {page==="planning"&&(
             <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells}
               commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData}
-              weekId={weekId} view={view} setView={setView} year={year} week={week}
+              weekId={weekId} year={year} week={week}
               setYear={setYear} setWeek={setWeek} T={T}/>
           )}
           {page==="commandes"&&(
