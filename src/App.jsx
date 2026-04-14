@@ -360,7 +360,14 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                 fontFamily:"inherit",fontSize:13,fontWeight:600,transition:"all .15s"
               }}>+ Ajouter une tâche</button>
             </div>
-
+            <div style={{display:"flex",flexDirection:"column"}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>✅ Réel effectué</div>
+              <textarea value={draft.reel||""} onChange={e=>setDraft(p=>({...p,reel:e.target.value}))}
+                placeholder="Ce qui a réellement été réalisé…"
+                style={{minHeight:100,width:"100%",background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
+                  borderRadius:12,padding:"14px 16px",color:T.reelColor,fontSize:14,lineHeight:1.7,
+                  resize:"none",fontFamily:"inherit",outline:"none"}}/>
+            </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>👷 Ouvriers assignés</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
@@ -879,7 +886,7 @@ function PageCommandes({chantiers,T}){
 }
 
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
-function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,year,week,setYear,setWeek,T}){
+function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T}){
   const [modal,setModal]=useState(null);
   const [cellDraft,setCellDraft]=useState(null);
   const [cmdDraft,setCmdDraft]=useState("");
@@ -967,10 +974,14 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
   };
 
   const handlePrint=()=>{
+    const vl={"planifie":"PLANNING PLANIFIÉ","reel":"RÉEL","compare":"BILAN COMPARATIF"}[view];
     const rows=chantiers.map(c=>{
       const cols=JOURS.map(j=>{
         const cell=getCell(c.id,j);let html="";
-        if(cell.planifie)html+=cell.planifie.replace(/\n/g,"<br>");
+        if(view==="compare"){
+          if(cell.planifie)html+=`<div style="color:#3060c0">▸ ${cell.planifie.replace(/\n/g,"<br>")}</div>`;
+          if(cell.reel)html+=`<div style="color:#207040">✓ ${cell.reel.replace(/\n/g,"<br>")}</div>`;
+        }else if(cell[view])html+=cell[view].replace(/\n/g,"<br>");
         if(cell.ouvriers?.length)html+=`<div style="font-weight:700;color:#666;font-size:9px;border-top:1px solid #eee;padding-top:3px;margin-top:4px">${cell.ouvriers.join(" · ")}</div>`;
         return`<td>${html||"—"}</td>`;
       }).join("");
@@ -984,7 +995,7 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
     td{border:1px solid #ddd;padding:6px 8px;vertical-align:top;line-height:1.4}
     </style></head><body>
     <h1>Planning — Semaine ${week} / ${year}</h1>
-    <div class="sub">PLANNING · ${new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+    <div class="sub">${vl} · ${new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
     <table><thead><tr><th>Chantier</th>${JOURS.map(j=>`<th>${j}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
     </body></html>`);
     w.document.close();setTimeout(()=>w.print(),400);
@@ -1013,7 +1024,12 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
           <button className="navbtn" onClick={nextWeek} >›</button>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-
+          <button className={`tab ${view==="planifie"?"on":"off"}`} onClick={()=>setView("planifie")}
+            >Planifié</button>
+          <button className={`tab ${view==="reel"?"on":"off"}`} onClick={()=>setView("reel")}
+            >Réel</button>
+          <button className={`tab ${view==="compare"?"on":"off"}`} onClick={()=>setView("compare")}
+            >Bilan</button>
           <button className="btn-g btn-print" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>
 
         </div>
@@ -1048,9 +1064,15 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
                     style={{position:"relative"}}>
                     {filled?(
                       <>
-                        <div style={{fontSize:12,lineHeight:1.5,color:T.text}}>
-                          {cell.planifie||<span style={{color:T.emptyColor}}>—</span>}
-                        </div>
+                        {view==="compare"?<>
+                          {cell.planifie&&<div style={{fontSize:12,color:T.planColor,lineHeight:1.5,marginBottom:2}}>{cell.planifie}</div>}
+                          {cell.reel&&<div style={{fontSize:12,color:T.reelColor,lineHeight:1.5}}>{cell.reel}</div>}
+                          {!cell.planifie&&!cell.reel&&<div style={{color:T.emptyColor,fontSize:12}}>—</div>}
+                        </>:(
+                          <div style={{fontSize:12,lineHeight:1.5,color:view==="reel"?T.reelColor:T.text}}>
+                            {cell[view]||<span style={{color:T.emptyColor}}>—</span>}
+                          </div>
+                        )}
                         {cell.ouvriers?.length>0&&(
                           <div style={{marginTop:5,display:"flex",flexWrap:"wrap",gap:3}}>
                             {cell.ouvriers.map(o=>(
@@ -2460,12 +2482,415 @@ function PageRapportMobile() {
 }
 
 // ─── PAGE ÉQUIPE ──────────────────────────────────────────────────────────────
-function PageEquipe({chantiers, ouvriers, weekId, T}) {
+// ─── HEURES PAR JOUR ─────────────────────────────────────────────────────────
+const HEURES_PAR_JOUR = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9 };
+
+// ─── MODAL BILAN SEMAINE ──────────────────────────────────────────────────────
+function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const [draftStatus, setDraftStatus]     = useState(null); // null | "ok" | "error"
+
+  // Génère le HTML du bilan et crée un brouillon Gmail via l'API Anthropic + MCP Gmail
+  const creerBrouillonGmail = async () => {
+    setCreatingDraft(true);
+    setDraftStatus(null);
+    try {
+      // Construire le corps du mail en texte structuré
+      const lignes = [];
+      lignes.push(`Bonjour,`);
+      lignes.push(``);
+      lignes.push(`Veuillez trouver ci-dessous le bilan de la semaine ${weekId}.`);
+      lignes.push(``);
+
+      // Total heures
+      const heuresParChantier = {};
+      Object.entries(cells).forEach(([key, cell]) => {
+        const parts = key.split("_");
+        const jour = parts[parts.length - 1];
+        const chantier_id = parts.slice(0, -1).join("_");
+        const heuresJour = HEURES_PAR_JOUR[jour];
+        if (!heuresJour) return;
+        const nb = (cell.ouvriers || []).length;
+        if (nb === 0) return;
+        if (!heuresParChantier[chantier_id]) heuresParChantier[chantier_id] = 0;
+        heuresParChantier[chantier_id] += heuresJour * nb;
+      });
+      const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
+      lignes.push(`TOTAL HEURES SEMAINE : ${totalHeures}h`);
+      lignes.push(`─────────────────────────────────────────`);
+      lignes.push(``);
+
+      // Par chantier
+      const parChantier = {};
+      rapports.forEach(r => {
+        const key = r.chantier_id || "__divers__";
+        if (!parChantier[key]) parChantier[key] = { rapports: [], nom: r.chantier_nom || "Divers" };
+        parChantier[key].rapports.push(r);
+      });
+
+      Object.entries(parChantier).forEach(([cId, grp]) => {
+        const heures = heuresParChantier[cId] || 0;
+        lignes.push(`▌ ${grp.nom.toUpperCase()}${heures > 0 ? `  —  ${heures}h cumulées` : ""}`);
+
+        // Présences
+        const presences = [];
+        Object.entries(HEURES_PAR_JOUR).forEach(([jour, h]) => {
+          const cell = cells[`${cId}_${jour}`];
+          if (!cell || (cell.ouvriers || []).length === 0) return;
+          presences.push(`  ${jour} : ${cell.ouvriers.join(", ")} (${h * cell.ouvriers.length}h)`);
+        });
+        if (presences.length > 0) {
+          lignes.push(`  Présences :`);
+          presences.forEach(p => lignes.push(p));
+        }
+
+        // Tâches
+        const toutesTouches = [];
+        grp.rapports.forEach(r => {
+          (r.taches || []).forEach(t => toutesTouches.push({ ...t, ouvrier: r.ouvrier }));
+        });
+        const faites   = toutesTouches.filter(t => t.statut === "faite");
+        const enCours  = toutesTouches.filter(t => t.statut === "en_cours");
+        const nonFaite = toutesTouches.filter(t => t.statut === "non_faite");
+
+        if (faites.length > 0) {
+          lignes.push(`  ✅ Réalisé :`);
+          faites.forEach(t => lignes.push(`    • ${t.planifie}${t.remarque ? " — " + t.remarque : ""} (${t.ouvrier})`));
+        }
+        if (enCours.length > 0) {
+          lignes.push(`  🔄 En cours :`);
+          enCours.forEach(t => lignes.push(`    • ${t.planifie}${t.remarque ? " — " + t.remarque : ""} (${t.ouvrier})`));
+        }
+        if (nonFaite.length > 0) {
+          lignes.push(`  ❌ Non réalisé :`);
+          nonFaite.forEach(t => lignes.push(`    • ${t.planifie}${t.remarque ? " — " + t.remarque : ""} (${t.ouvrier})`));
+        }
+
+        // Remarques
+        grp.rapports.filter(r => r.remarque?.trim()).forEach(r => {
+          lignes.push(`  💬 ${r.ouvrier} : ${r.remarque}`);
+        });
+
+        lignes.push(``);
+      });
+
+      lignes.push(`Cordialement,`);
+
+      const body = lignes.join("\n");
+      const subject = `Bilan chantiers — ${weekId}`;
+
+      // Appel API Anthropic avec MCP Gmail pour créer le brouillon
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: "Tu es un assistant qui crée des brouillons Gmail. Quand on te donne un sujet et un corps de mail, tu utilises l'outil Gmail pour créer un brouillon. Ne réponds qu'avec le résultat de l'outil, rien d'autre.",
+          messages: [{
+            role: "user",
+            content: `Crée un brouillon Gmail avec :\nSujet : ${subject}\nCorps du mail :\n${body}`
+          }],
+          mcp_servers: [{
+            type: "url",
+            url: "https://gmail.mcp.claude.com/mcp",
+            name: "gmail-mcp"
+          }]
+        })
+      });
+
+      if (!response.ok) throw new Error("Erreur API");
+      setDraftStatus("ok");
+    } catch (e) {
+      console.error(e);
+      setDraftStatus("error");
+    }
+    setCreatingDraft(false);
+  };
+  // Calcule les heures par chantier depuis le planning (cells)
+  // cells = { "chantier_id_Jour": { ouvriers: [...] } }
+  const heuresParChantier = {};
+  Object.entries(cells).forEach(([key, cell]) => {
+    const parts = key.split("_");
+    // key = "chantier_id_Jour" — le jour est le dernier segment
+    const jour = parts[parts.length - 1];
+    const chantier_id = parts.slice(0, -1).join("_");
+    const heuresJour = HEURES_PAR_JOUR[jour];
+    if (!heuresJour) return; // Vendredi ou week-end ignorés
+    const nbOuvriers = (cell.ouvriers || []).length;
+    if (nbOuvriers === 0) return;
+    if (!heuresParChantier[chantier_id]) heuresParChantier[chantier_id] = 0;
+    heuresParChantier[chantier_id] += heuresJour * nbOuvriers;
+  });
+
+  // Regrouper les rapports par chantier
+  const parChantier = {};
+  rapports.forEach(r => {
+    const key = r.chantier_id || "__divers__";
+    if (!parChantier[key]) parChantier[key] = { rapports: [], nom: r.chantier_nom || "Divers" };
+    parChantier[key].rapports.push(r);
+  });
+
+  const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
+  const totalFaites = rapports.reduce((a, r) => a + (r.taches || []).filter(t => t.statut === "faite").length, 0);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 600,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 16, backdropFilter: "blur(4px)"
+    }} onClick={onClose}>
+      <div style={{
+        background: T.modal, borderRadius: 18, width: "100%", maxWidth: 720,
+        maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column",
+        border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)"
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{
+          background: "linear-gradient(135deg, #1a1f2e 0%, #252b3d 100%)",
+          padding: "22px 28px", display: "flex", alignItems: "center",
+          justifyContent: "space-between", borderBottom: `2px solid ${T.accent}`, flexShrink: 0
+        }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 3, textTransform: "uppercase", color: T.accent, marginBottom: 4 }}>
+              Bilan de la semaine
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{weekId}</div>
+          </div>
+          <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: T.accent }}>{totalHeures}h</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>Total cumulé</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#50c878" }}>{totalFaites}</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>Tâches faites</div>
+            </div>
+            <button
+              onClick={creerBrouillonGmail}
+              disabled={creatingDraft}
+              title="Créer un brouillon Gmail"
+              style={{
+                background: creatingDraft ? "rgba(255,255,255,0.1)" : "rgba(234,67,53,0.85)",
+                border: "none", borderRadius: 10, padding: "0 16px", height: 40,
+                cursor: creatingDraft ? "wait" : "pointer", fontSize: 13, fontWeight: 700,
+                color: "#fff", display: "flex", alignItems: "center", gap: 7,
+                transition: "all .15s", whiteSpace: "nowrap",
+                opacity: creatingDraft ? 0.7 : 1,
+              }}>
+              {creatingDraft ? "⏳ Création…" : draftStatus === "ok" ? "✅ Brouillon créé !" : draftStatus === "error" ? "❌ Erreur" : "✉️ Brouillon Gmail"}
+            </button>
+            <button onClick={onClose} style={{
+              background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 10,
+              width: 40, height: 40, cursor: "pointer", fontSize: 20, color: "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center"
+            }}>✕</button>
+          </div>
+        </div>
+
+        {/* Corps */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {Object.keys(parChantier).length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px 0", color: T.textMuted, fontSize: 15 }}>
+              Aucun compte rendu pour cette semaine.
+            </div>
+          )}
+
+          {Object.entries(parChantier).map(([cId, grp]) => {
+            const ch = chantiers.find(c => c.id === cId);
+            const heures = heuresParChantier[cId] || 0;
+
+            // Calcul détail heures par jour pour ce chantier
+            const detailJours = [];
+            Object.entries(HEURES_PAR_JOUR).forEach(([jour, h]) => {
+              const cell = cells[`${cId}_${jour}`];
+              if (!cell || (cell.ouvriers || []).length === 0) return;
+              detailJours.push({ jour, ouvriers: cell.ouvriers, heures: h * cell.ouvriers.length });
+            });
+
+            // Tâches faites / en cours / non faites
+            const toutesTouches = [];
+            grp.rapports.forEach(r => {
+              (r.taches || []).forEach(t => {
+                toutesTouches.push({ ...t, ouvrier: r.ouvrier });
+              });
+            });
+            const faites   = toutesTouches.filter(t => t.statut === "faite");
+            const enCours  = toutesTouches.filter(t => t.statut === "en_cours");
+            const nonFaite = toutesTouches.filter(t => t.statut === "non_faite");
+
+            // Remarques générales
+            const remarques = grp.rapports.filter(r => r.remarque?.trim());
+
+            return (
+              <div key={cId} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderRadius: 14, overflow: "hidden",
+                borderLeft: `5px solid ${ch?.couleur || "#5b8af5"}`
+              }}>
+                {/* En-tête chantier */}
+                <div style={{
+                  padding: "16px 20px", display: "flex", alignItems: "center",
+                  justifyContent: "space-between", flexWrap: "wrap", gap: 12,
+                  background: ch ? ch.couleur + "18" : T.card
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    {ch && <div style={{ width: 14, height: 14, borderRadius: 4, background: ch.couleur, flexShrink: 0 }} />}
+                    <div style={{ fontSize: 18, fontWeight: 800, color: T.text, textTransform: "uppercase", letterSpacing: 1 }}>
+                      {grp.nom}
+                    </div>
+                  </div>
+                  {heures > 0 && (
+                    <div style={{
+                      background: T.accent + "22", border: `1.5px solid ${T.accent}55`,
+                      borderRadius: 10, padding: "8px 16px", textAlign: "center"
+                    }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: T.accent, lineHeight: 1 }}>{heures}h</div>
+                      <div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>cumulées</div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ padding: "14px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+                  {/* Détail heures par jour */}
+                  {detailJours.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
+                        ⏱ Présences
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {detailJours.map(({ jour, ouvriers: ouv, heures: h }) => (
+                          <div key={jour} style={{
+                            background: T.card, border: `1px solid ${T.border}`,
+                            borderRadius: 8, padding: "7px 12px"
+                          }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, marginBottom: 4 }}>{jour}</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                              {ouv.map(o => (
+                                <span key={o} style={{
+                                  background: ch?.couleur + "44" || T.tagBg, color: T.text,
+                                  borderRadius: 4, padding: "1px 7px", fontSize: 11, fontWeight: 700
+                                }}>{o}</span>
+                              ))}
+                            </div>
+                            <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>{h}h cumulées</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tâches faites */}
+                  {faites.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#50c878", marginBottom: 8 }}>
+                        ✅ Réalisé ({faites.length})
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {faites.map((t, i) => (
+                          <div key={i} style={{
+                            display: "flex", gap: 10, alignItems: "flex-start",
+                            padding: "7px 10px", background: "rgba(80,200,120,0.06)",
+                            borderRadius: 7, border: "1px solid rgba(80,200,120,0.15)"
+                          }}>
+                            <span style={{ fontSize: 13, color: "#50c878", flexShrink: 0 }}>✅</span>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{t.planifie}</span>
+                              {t.remarque && <span style={{ fontSize: 12, color: T.textSub, marginLeft: 8, fontStyle: "italic" }}>— {t.remarque}</span>}
+                            </div>
+                            <span style={{ fontSize: 11, color: T.textMuted, flexShrink: 0 }}>{t.ouvrier}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tâches en cours */}
+                  {enCours.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#f5a623", marginBottom: 8 }}>
+                        🔄 En cours ({enCours.length})
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {enCours.map((t, i) => (
+                          <div key={i} style={{
+                            display: "flex", gap: 10, alignItems: "flex-start",
+                            padding: "7px 10px", background: "rgba(245,166,35,0.06)",
+                            borderRadius: 7, border: "1px solid rgba(245,166,35,0.15)"
+                          }}>
+                            <span style={{ fontSize: 13, color: "#f5a623", flexShrink: 0 }}>🔄</span>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{t.planifie}</span>
+                              {t.remarque && <span style={{ fontSize: 12, color: T.textSub, marginLeft: 8, fontStyle: "italic" }}>— {t.remarque}</span>}
+                            </div>
+                            <span style={{ fontSize: 11, color: T.textMuted, flexShrink: 0 }}>{t.ouvrier}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tâches non faites */}
+                  {nonFaite.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#e05c5c", marginBottom: 8 }}>
+                        ❌ Non réalisé ({nonFaite.length})
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {nonFaite.map((t, i) => (
+                          <div key={i} style={{
+                            display: "flex", gap: 10, alignItems: "flex-start",
+                            padding: "7px 10px", background: "rgba(224,92,92,0.06)",
+                            borderRadius: 7, border: "1px solid rgba(224,92,92,0.15)"
+                          }}>
+                            <span style={{ fontSize: 13, color: "#e05c5c", flexShrink: 0 }}>❌</span>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{t.planifie}</span>
+                              {t.remarque && <span style={{ fontSize: 12, color: T.textSub, marginLeft: 8, fontStyle: "italic" }}>— {t.remarque}</span>}
+                            </div>
+                            <span style={{ fontSize: 11, color: T.textMuted, flexShrink: 0 }}>{t.ouvrier}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Remarques générales */}
+                  {remarques.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
+                        💬 Remarques
+                      </div>
+                      {remarques.map((r, i) => (
+                        <div key={i} style={{
+                          padding: "8px 12px", background: T.card, borderRadius: 8,
+                          borderLeft: `3px solid ${T.accent}`, marginBottom: 6
+                        }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginRight: 8 }}>{r.ouvrier}</span>
+                          <span style={{ fontSize: 13, color: T.text }}>{r.remarque}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
   const [rapports, setRapports]     = useState([]);
   const [loading, setLoading]       = useState(true);
   const [filterOuvrier, setFilterOuvrier] = useState("all");
   const [filterSemaine, setFilterSemaine] = useState(weekId);
   const [selectedRapport, setSelectedRapport] = useState(null);
+  const [showBilan, setShowBilan]   = useState(false);
 
   const appUrl = window.location.origin + "/rapport";
   const [copied, setCopied] = useState(false);
@@ -2508,22 +2933,45 @@ function PageEquipe({chantiers, ouvriers, weekId, T}) {
 
   return (
     <div className="page-padding" style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
+      {/* Modal Bilan */}
+      {showBilan&&(
+        <BilanSemaine
+          rapports={rapports}
+          chantiers={chantiers}
+          cells={cells}
+          weekId={filterSemaine||weekId}
+          onClose={()=>setShowBilan(false)}
+          T={T}
+        />
+      )}
       {/* Header */}
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28,flexWrap:"wrap",gap:12}}>
         <div>
           <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4}}>Équipe</div>
           <div style={{fontSize:15,color:T.textSub}}>Comptes rendus et lien mobile pour les ouvriers</div>
         </div>
-        {/* Lien mobile */}
-        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",width:"auto"}}>
-          <div>
-            <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textMuted,marginBottom:4}}>Lien pour l'équipe</div>
-            <code style={{fontSize:13,color:T.accent}}>{appUrl}</code>
-          </div>
-          <button onClick={copyLink} style={{background:T.accent,color:"#fff",border:"none",
-            borderRadius:8,padding:"8px 16px",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-            {copied ? "✓ Copié !" : "📋 Copier le lien"}
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          {/* Bouton Bilan */}
+          <button onClick={()=>setShowBilan(true)} style={{
+            background:"linear-gradient(135deg, #FFC200, #e6ae00)",
+            color:"#111",border:"none",borderRadius:10,padding:"10px 20px",
+            fontFamily:"inherit",fontSize:14,fontWeight:800,cursor:"pointer",
+            boxShadow:"0 4px 16px rgba(255,194,0,0.3)",letterSpacing:.5,
+            display:"flex",alignItems:"center",gap:8,
+          }}>
+            📊 Bilan semaine
           </button>
+          {/* Lien mobile */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textMuted,marginBottom:4}}>Lien pour l'équipe</div>
+              <code style={{fontSize:13,color:T.accent}}>{appUrl}</code>
+            </div>
+            <button onClick={copyLink} style={{background:T.accent,color:"#fff",border:"none",
+              borderRadius:8,padding:"8px 16px",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+              {copied ? "✓ Copié !" : "📋 Copier le lien"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2648,7 +3096,7 @@ function MainApp(){
   const[week,setWeek]=useState(iW);
   const[page,setPage]=useState("dashboard");
   const[theme,setTheme]=useState(()=>localStorage.getItem("theme")||"dark");
-  
+  const[view,setView]=useState("planifie");
 
   const[ouvriers,setOuvriers]=useState(DEFAULT_OUVRIERS);
   const[ouvrierEmails,setOuvrierEmails]=useState({});
@@ -2842,14 +3290,14 @@ function MainApp(){
           {page==="planning"&&(
             <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells}
               commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData}
-              weekId={weekId} year={year} week={week}
+              weekId={weekId} view={view} setView={setView} year={year} week={week}
               setYear={setYear} setWeek={setWeek} T={T}/>
           )}
           {page==="commandes"&&(
             <PageCommandes chantiers={chantiers} T={T}/>
           )}
           {page==="equipe"&&(
-            <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} T={T}/>
+            <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>
           )}
           {page==="plans"&&(
             <PagePlans T={T} chantiers={chantiers}/>
