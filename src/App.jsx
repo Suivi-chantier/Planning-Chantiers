@@ -2281,11 +2281,25 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const onWheel = (e) => {
     e.preventDefault();
     const pos=getEventPos(e);
+    // Point monde sous le curseur (toWorld gère déjà la rotation inverse)
     const {wx,wy}=toWorld(pos.cx,pos.cy);
     const factor=e.deltaY<0?1.15:0.87;
     setVp(v=>{
       const ns=Math.max(0.01,Math.min(1000,v.scale*factor));
-      return {scale:ns, x:wx-pos.cx/ns, y:wy-pos.cy/ns};
+      // Après zoom, on veut que le point monde (wx,wy) reste sous le curseur.
+      // toC(wx,wy) avec le nouveau viewport doit donner pos.cx, pos.cy.
+      // toC = rotation( (wx-nx)*ns, (wy-ny)*ns ) autour du centre canvas
+      // On résout pour nx, ny :
+      // Étape 1 : contre-rotation de pos pour obtenir le point non-roté équivalent
+      const rot=planRotRef.current*Math.PI/180;
+      const canvas=canvasRef.current;
+      const cx0=canvas?canvas.width/2:400, cy0=canvas?canvas.height/2:300;
+      const pdx=pos.cx-cx0, pdy=pos.cy-cy0;
+      const cosNR=Math.cos(-rot), sinNR=Math.sin(-rot);
+      const unrotX=cx0+pdx*cosNR-pdy*sinNR;
+      const unrotY=cy0+pdx*sinNR+pdy*cosNR;
+      // Étape 2 : résoudre (wx-nx)*ns = unrotX-cx0+cx0  =>  nx = wx-(unrotX)/ns
+      return {scale:ns, x:wx-unrotX/ns, y:wy-unrotY/ns};
     });
   };
 
