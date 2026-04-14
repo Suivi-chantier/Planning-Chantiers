@@ -2213,8 +2213,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const midDrag=midDragRef.current;
     if (midDrag) {
       const scale=vpRef.current.scale;
-      const dx=(pos.cx-midDrag.startCx)/scale;
-      const dy=(pos.cy-midDrag.startCy)/scale;
+      const rot=planRotRef.current*Math.PI/180;
+      const cosR=Math.cos(-rot), sinR=Math.sin(-rot);
+      const rawDx=(pos.cx-midDrag.startCx)/scale;
+      const rawDy=(pos.cy-midDrag.startCy)/scale;
+      // Contre-rotation du delta pour qu'il suive le curseur quelle que soit la rotation
+      const dx=rawDx*cosR-rawDy*sinR;
+      const dy=rawDx*sinR+rawDy*cosR;
       setVp(v=>({...v,x:midDrag.startVx-dx,y:midDrag.startVy-dy}));
       return;
     }
@@ -2222,8 +2227,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const drag=dragRef.current;
     if (drag && toolRef.current==='pan') {
       const scale=vpRef.current.scale;
-      const dx=(pos.cx-drag.startCx)/scale;
-      const dy=(pos.cy-drag.startCy)/scale;
+      const rot=planRotRef.current*Math.PI/180;
+      const cosR=Math.cos(-rot), sinR=Math.sin(-rot);
+      const rawDx=(pos.cx-drag.startCx)/scale;
+      const rawDy=(pos.cy-drag.startCy)/scale;
+      // Contre-rotation du delta
+      const dx=rawDx*cosR-rawDy*sinR;
+      const dy=rawDx*sinR+rawDy*cosR;
       setVp(v=>({...v,x:drag.startVx-dx,y:drag.startVy-dy}));
       return;
     }
