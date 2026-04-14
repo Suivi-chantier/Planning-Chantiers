@@ -1469,6 +1469,117 @@ function calcSurface(pts) {
   return Math.abs(s/2);
 }
 
+// ─── BIBLIOTHÈQUE DXF ────────────────────────────────────────────────────────
+// Symboles prédéfinis sous forme de segments (coordonnées relatives, unité = 1m)
+const DXF_LIBRARY = [
+  { id:'douche_carre', name:'Douche carrée', icon:'🚿', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:1,y2:0},{x1:1,y1:0,x2:1,y2:1},{x1:1,y1:1,x2:0,y2:1},{x1:0,y1:1,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:0.95,y2:0.05},{x1:0.95,y1:0.05,x2:0.95,y2:0.95},{x1:0.95,y1:0.95,x2:0.05,y2:0.95},{x1:0.05,y1:0.95,x2:0.05,y2:0.05},
+      {x1:0.8,y1:0.2,x2:0.9,y2:0.2},{x1:0.9,y1:0.2,x2:0.9,y2:0.35},{x1:0.9,y1:0.35,x2:0.8,y2:0.35},{x1:0.8,y1:0.35,x2:0.8,y2:0.2},
+    ]},
+  { id:'wc_plan', name:'WC', icon:'🚽', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:0.38,y2:0},{x1:0.38,y1:0,x2:0.38,y2:0.75},{x1:0.38,y1:0.75,x2:0,y2:0.75},{x1:0,y1:0.75,x2:0,y2:0},
+      {x1:0.04,y1:0.04,x2:0.34,y2:0.04},{x1:0.34,y1:0.04,x2:0.34,y2:0.48},{x1:0.34,y1:0.48,x2:0.04,y2:0.48},{x1:0.04,y1:0.48,x2:0.04,y2:0.04},
+      {x1:0.04,y1:0.52,x2:0.34,y2:0.52},{x1:0.34,y1:0.52,x2:0.38,y2:0.75},{x1:0,y1:0.75,x2:0.04,y2:0.52},
+      {x1:0.19,y1:0.58,x2:0.19,y2:0.72},{x1:0.12,y1:0.65,x2:0.26,y2:0.65},
+    ]},
+  { id:'lavabo', name:'Lavabo', icon:'🪣', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:0.6,y2:0},{x1:0.6,y1:0,x2:0.6,y2:0.5},{x1:0.6,y1:0.5,x2:0,y2:0.5},{x1:0,y1:0.5,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:0.55,y2:0.05},{x1:0.55,y1:0.05,x2:0.55,y2:0.45},{x1:0.55,y1:0.45,x2:0.05,y2:0.45},{x1:0.05,y1:0.45,x2:0.05,y2:0.05},
+      {x1:0.27,y1:0.18,x2:0.33,y2:0.18},{x1:0.33,y1:0.18,x2:0.33,y2:0.32},{x1:0.33,y1:0.32,x2:0.27,y2:0.32},{x1:0.27,y1:0.32,x2:0.27,y2:0.18},
+    ]},
+  { id:'baignoire', name:'Baignoire', icon:'🛁', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:1.7,y2:0},{x1:1.7,y1:0,x2:1.7,y2:0.75},{x1:1.7,y1:0.75,x2:0,y2:0.75},{x1:0,y1:0.75,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:1.65,y2:0.05},{x1:1.65,y1:0.05,x2:1.65,y2:0.7},{x1:1.65,y1:0.7,x2:0.05,y2:0.7},{x1:0.05,y1:0.7,x2:0.05,y2:0.05},
+      {x1:1.45,y1:0.25,x2:1.6,y2:0.25},{x1:1.6,y1:0.25,x2:1.6,y2:0.5},{x1:1.6,y1:0.5,x2:1.45,y2:0.5},{x1:1.45,y1:0.5,x2:1.45,y2:0.25},
+    ]},
+  { id:'escalier', name:'Escalier (12 marches)', icon:'🪜', category:'Structure',
+    segments: Array.from({length:12},(_,i)=>[
+      {x1:0,y1:i*0.17,x2:1,y2:i*0.17},
+    ]).flat().concat([{x1:0,y1:0,x2:0,y2:2},{x1:1,y1:0,x2:1,y2:2},{x1:0,y1:2,x2:1,y2:2}])},
+  { id:'porte_simple', name:'Porte simple 90cm', icon:'🚪', category:'Ouvertures',
+    segments:[
+      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:0,x2:0,y2:0.9},
+    ]},
+  { id:'porte_double', name:'Porte double 1.4m', icon:'🚪', category:'Ouvertures',
+    segments:[
+      {x1:0,y1:0,x2:1.4,y2:0},
+      {x1:0,y1:0,x2:0,y2:0.7},
+      {x1:1.4,y1:0,x2:1.4,y2:0.7},
+    ]},
+  { id:'fenetre_std', name:'Fenêtre 1.2m', icon:'⬜', category:'Ouvertures',
+    segments:[
+      {x1:0,y1:0,x2:1.2,y2:0},
+      {x1:0,y1:-0.1,x2:1.2,y2:-0.1},
+      {x1:0,y1:0,x2:0,y2:-0.1},
+      {x1:1.2,y1:0,x2:1.2,y2:-0.1},
+      {x1:0.6,y1:0,x2:0.6,y2:-0.1},
+    ]},
+  { id:'lit_2p', name:'Lit 2 personnes', icon:'🛏', category:'Mobilier',
+    segments:[
+      {x1:0,y1:0,x2:1.6,y2:0},{x1:1.6,y1:0,x2:1.6,y2:2},{x1:1.6,y1:2,x2:0,y2:2},{x1:0,y1:2,x2:0,y2:0},
+      {x1:0,y1:1.7,x2:1.6,y2:1.7},
+      {x1:0.1,y1:1.75,x2:0.75,y2:1.75},{x1:0.75,y1:1.75,x2:0.75,y2:1.95},{x1:0.75,y1:1.95,x2:0.1,y2:1.95},{x1:0.1,y1:1.95,x2:0.1,y2:1.75},
+      {x1:0.85,y1:1.75,x2:1.5,y2:1.75},{x1:1.5,y1:1.75,x2:1.5,y2:1.95},{x1:1.5,y1:1.95,x2:0.85,y2:1.95},{x1:0.85,y1:1.95,x2:0.85,y2:1.75},
+    ]},
+  { id:'cuisine_L', name:'Cuisine en L', icon:'🍳', category:'Mobilier',
+    segments:[
+      {x1:0,y1:0,x2:3,y2:0},{x1:3,y1:0,x2:3,y2:0.6},{x1:3,y1:0.6,x2:0,y2:0.6},{x1:0,y1:0.6,x2:0,y2:0},
+      {x1:0,y1:0.6,x2:0,y2:2.4},{x1:0,y1:2.4,x2:0.6,y2:2.4},{x1:0.6,y1:2.4,x2:0.6,y2:0.6},
+      {x1:0.5,y1:0.1,x2:2.5,y2:0.1},{x1:2.5,y1:0.1,x2:2.5,y2:0.5},{x1:2.5,y1:0.5,x2:0.5,y2:0.5},{x1:0.5,y1:0.5,x2:0.5,y2:0.1},
+    ]},
+  { id:'douche_italienne', name:'Douche italienne', icon:'🚿', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.9},{x1:1.2,y1:0.9,x2:0,y2:0.9},{x1:0,y1:0.9,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:1.15,y2:0.05},{x1:1.15,y1:0.05,x2:1.15,y2:0.85},{x1:1.15,y1:0.85,x2:0.05,y2:0.85},{x1:0.05,y1:0.85,x2:0.05,y2:0.05},
+      {x1:0.9,y1:0.1,x2:1.1,y2:0.1},{x1:1.1,y1:0.1,x2:1.1,y2:0.4},{x1:1.1,y1:0.4,x2:0.9,y2:0.4},{x1:0.9,y1:0.4,x2:0.9,y2:0.1},
+    ]},
+  { id:'evier_2bacs', name:'Évier 2 bacs', icon:'🪣', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.6},{x1:1.2,y1:0.6,x2:0,y2:0.6},{x1:0,y1:0.6,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:0.57,y2:0.05},{x1:0.57,y1:0.05,x2:0.57,y2:0.55},{x1:0.57,y1:0.55,x2:0.05,y2:0.55},{x1:0.05,y1:0.55,x2:0.05,y2:0.05},
+      {x1:0.63,y1:0.05,x2:1.15,y2:0.05},{x1:1.15,y1:0.05,x2:1.15,y2:0.55},{x1:1.15,y1:0.55,x2:0.63,y2:0.55},{x1:0.63,y1:0.55,x2:0.63,y2:0.05},
+      {x1:0.59,y1:0.25,x2:0.61,y2:0.25},
+    ]},
+  { id:'radiateur', name:'Radiateur', icon:'🔥', category:'Équipements',
+    segments:[
+      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.2},{x1:1.2,y1:0.2,x2:0,y2:0.2},{x1:0,y1:0.2,x2:0,y2:0},
+      ...Array.from({length:7},(_,i)=>[{x1:0.05+i*0.17,y1:0,x2:0.05+i*0.17,y2:0.2}]).flat(),
+    ]},
+  { id:'tableau_elec', name:'Tableau électrique', icon:'⚡', category:'Équipements',
+    segments:[
+      {x1:0,y1:0,x2:0.5,y2:0},{x1:0.5,y1:0,x2:0.5,y2:0.7},{x1:0.5,y1:0.7,x2:0,y2:0.7},{x1:0,y1:0.7,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:0.45,y2:0.05},{x1:0.05,y1:0.05,x2:0.05,y2:0.65},{x1:0.05,y1:0.65,x2:0.45,y2:0.65},{x1:0.45,y1:0.65,x2:0.45,y2:0.05},
+      {x1:0.1,y1:0.15,x2:0.4,y2:0.15},{x1:0.1,y1:0.25,x2:0.4,y2:0.25},{x1:0.1,y1:0.35,x2:0.4,y2:0.35},
+      {x1:0.1,y1:0.45,x2:0.4,y2:0.45},{x1:0.1,y1:0.55,x2:0.4,y2:0.55},
+    ]},
+  { id:'table_rect', name:'Table rectangulaire', icon:'🪑', category:'Mobilier',
+    segments:[
+      {x1:0,y1:0,x2:1.6,y2:0},{x1:1.6,y1:0,x2:1.6,y2:0.9},{x1:1.6,y1:0.9,x2:0,y2:0.9},{x1:0,y1:0.9,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:1.55,y2:0.05},{x1:1.55,y1:0.05,x2:1.55,y2:0.85},{x1:1.55,y1:0.85,x2:0.05,y2:0.85},{x1:0.05,y1:0.85,x2:0.05,y2:0.05},
+    ]},
+  { id:'lit_1p', name:'Lit 1 personne', icon:'🛏', category:'Mobilier',
+    segments:[
+      {x1:0,y1:0,x2:0.9,y2:0},{x1:0.9,y1:0,x2:0.9,y2:2},{x1:0.9,y1:2,x2:0,y2:2},{x1:0,y1:2,x2:0,y2:0},
+      {x1:0,y1:1.7,x2:0.9,y2:1.7},
+      {x1:0.1,y1:1.75,x2:0.8,y2:1.75},{x1:0.8,y1:1.75,x2:0.8,y2:1.95},{x1:0.8,y1:1.95,x2:0.1,y2:1.95},{x1:0.1,y1:1.95,x2:0.1,y2:1.75},
+    ]},
+  { id:'fenetre_angle', name:'Fenêtre en angle', icon:'⬜', category:'Ouvertures',
+    segments:[
+      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:-0.1,x2:0.9,y2:-0.1},{x1:0,y1:0,x2:0,y2:-0.1},{x1:0.9,y1:0,x2:0.9,y2:-0.1},
+      {x1:0.9,y1:0,x2:0.9,y2:-0.9},{x1:1.0,y1:0,x2:1.0,y2:-0.9},{x1:0.9,y1:0,x2:1.0,y2:0},{x1:0.9,y1:-0.9,x2:1.0,y2:-0.9},
+    ]},
+  { id:'porte_coulissante', name:'Porte coulissante', icon:'🚪', category:'Ouvertures',
+    segments:[
+      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:0,x2:0,y2:0.1},{x1:0.9,y1:0,x2:0.9,y2:0.1},
+      {x1:0.05,y1:0.02,x2:0.85,y2:0.02},{x1:0.05,y1:0.08,x2:0.85,y2:0.08},
+    ]},
+];
+
 // ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
 function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const canvasRef = useRef(null);
@@ -1535,9 +1646,22 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   // Sélection par rectangle
   const [rectSel, setRectSel]       = useState(null); // {x1,y1,x2,y2} en coords canvas
   // Clipboard copier/coller
-  const clipboardRef = useRef(null); // {segments, symbols, cotes, surfaces}
+  const clipboardRef = useRef(null);
+  // Mode impression (fond blanc)
+  const [printMode, setPrintMode] = useState(false);
+  const printModeRef = useRef(false);
+  // Taille police cotes
+  const [coteFontSize, setCoteFontSize] = useState(12);
+  const coteFontRef = useRef(12);
+  // Cote sélectionnée pour déplacement (offset de la ligne de cote)
+  // Bibliothèque DXF
+  const [showLibrary, setShowLibrary] = useState(false);
+  // Fermeture automatique des lignes (snap gap)
+  const [autoClose, setAutoClose] = useState(true);
+  const autoCloseRef = useRef(true); // {segments, symbols, cotes, surfaces}
   // Déplacement de la sélection par glisser
   const movingSelRef = useRef(null); // {startWx, startWy, origSegs, origSyms, origCotes, origSurfs}
+  const movingCoteRef = useRef(null); // {id, origOffset, startWx, startWy, perpX, perpY}
   // Rotation globale du plan
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0); // degrés
   // Calques visibilité
@@ -1585,6 +1709,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   lineColorRef.current  = lineColor;
   layersRef.current     = layers;
   planRotRef.current    = planRotation;
+  printModeRef.current  = printMode;
+  coteFontRef.current   = coteFontSize;
+  autoCloseRef.current  = autoClose;
 
   // ── Helpers coords ──────────────────────────────────────────────────────────
   const toWorld = (cx, cy) => {
@@ -1604,7 +1731,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   // Snap au point le plus proche
   const snapToPoint = useCallback((wx, wy) => {
     if (!snapRef.current) return { wx, wy, snapped: false };
-    const snapDist = 8 / vpRef.current.scale;
+    // autoClose : seuil plus grand pour fermer automatiquement les petits écarts
+    const baseSnap = autoCloseRef.current ? 20 : 8;
+    const snapDist = baseSnap / vpRef.current.scale;
     let best = null, bestD = snapDist;
     segmentsRef.current.filter(s=>!s.deleted).forEach(s => {
       [[s.x1,s.y1],[s.x2,s.y2]].forEach(([px,py]) => {
@@ -1637,8 +1766,28 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
     try {
       ctx.clearRect(0,0,W,H);
-      ctx.fillStyle = '#12151f';
+      const isPrint = printModeRef.current;
+      ctx.fillStyle = isPrint ? '#ffffff' : '#12151f';
       ctx.fillRect(0,0,W,H);
+      // Couleurs adaptées impression
+      const C = {
+        seg:    isPrint ? (col) => { // Assombrit les couleurs claires pour l'impression
+          if (!col || col==='#7090c0' || col==='#c8d0e0') return '#1a1f2e';
+          const r=parseInt(col.slice(1,3),16),g=parseInt(col.slice(3,5),16),b=parseInt(col.slice(5,7),16);
+          const lum=(r*299+g*587+b*114)/1000;
+          return lum>180?'#1a1f2e':col;
+        } : (col) => col||'#7090c0',
+        cote:   isPrint ? '#333333' : '#f5d08a',
+        selC:   isPrint ? '#c05000' : '#f5a623',
+        symC:   isPrint ? '#1a1f2e' : '#f5a623',
+        symW:   isPrint ? '#1a4080' : '#60a0ff',
+        symG:   isPrint ? '#206040' : '#80ff80',
+        symA:   isPrint ? '#204060' : '#a0c0ff',
+        symT:   isPrint ? '#604000' : '#f5d08a',
+        txt:    isPrint ? '#1a1f2e' : '#e8eaf0',
+        surfFg: isPrint ? '#333333' : null,
+        grid:   isPrint ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)',
+      };
 
       const vp = vpRef.current;
       const rot = planRotRef.current * Math.PI / 180;
@@ -1658,11 +1807,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       };
       const lyrs = layersRef.current;
 
-      // Grille
+      // Grille (masquée en impression)
       const gridSize = Math.max(0.1, 1/vp.scale);
       const gStep = gridSize * vp.scale;
-      if (gStep > 15 && isFinite(gStep)) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      if (!isPrint && gStep > 15 && isFinite(gStep)) {
+        ctx.strokeStyle = C.grid;
         ctx.lineWidth = 0.5;
         const ox = (-vp.x % gridSize) * vp.scale;
         const oy = (-vp.y % gridSize) * vp.scale;
@@ -1690,7 +1839,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.fillStyle = sel ? 'rgba(245,166,35,0.2)' : `rgba(${r},${g},${b},${surf.alpha||0.15})`;
         ctx.fill();
         // Contour
-        ctx.strokeStyle = sel ? '#f5a623' : col;
+        ctx.strokeStyle = sel ? C.selC : (isPrint ? (C.surfFg||col) : col);
         ctx.lineWidth = sel ? 2.5 : 1.5;
         ctx.setLineDash([5,3]);
         ctx.stroke();
@@ -1706,12 +1855,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.font=`bold ${fontSize}px sans-serif`;
         ctx.textAlign='center';
         const tw=ctx.measureText(label).width+10;
-        ctx.fillStyle='rgba(18,21,31,0.75)';
+        ctx.fillStyle= isPrint ? 'rgba(245,245,240,0.9)' : 'rgba(18,21,31,0.75)';
         ctx.beginPath();
         if (ctx.roundRect) { ctx.roundRect(lx-tw/2,ly-fontSize-2,tw,fontSize+8,4); }
         else { ctx.rect(lx-tw/2,ly-fontSize-2,tw,fontSize+8); }
         ctx.fill();
-        ctx.fillStyle= sel ? '#f5a623' : col;
+        ctx.fillStyle= sel ? C.selC : (isPrint ? '#333' : col);
         ctx.fillText(label,lx,ly+2);
       }); // fin surfaces
 
@@ -1740,9 +1889,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const {cx:x2,cy:y2}=toC(s.x2,s.y2);
         if (!isFinite(x1)||!isFinite(y1)||!isFinite(x2)||!isFinite(y2)) return;
         const sel = selectedRef.current.has(s.id);
-        ctx.strokeStyle = sel ? '#f5a623' : (s.color||'#7090c0');
+        ctx.strokeStyle = sel ? C.selC : C.seg(s.color);
         ctx.lineWidth   = sel ? 3 : (s.user ? 2 : 1.5);
-        if (sel) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=6; }
+        if (sel && !isPrint) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=6; }
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
         ctx.shadowBlur=0;
       }); // fin segments
@@ -1759,9 +1908,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const mx=(x1+x2)/2, my=(y1+y2)/2;
         const angle=Math.atan2(y2-y1,x2-x1);
         const perp=angle-Math.PI/2;
-        const offset=18;
+        const offset=(c.offset||0)+24;
         const ox=Math.cos(perp)*offset, oy=Math.sin(perp)*offset;
-        ctx.strokeStyle = sel ? '#f5a623' : '#f5d08a';
+        ctx.strokeStyle = sel ? C.selC : C.cote;
         ctx.lineWidth = 1.5;
         // Ligne principale
         ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy); ctx.stroke();
@@ -1783,13 +1932,15 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.save();
         ctx.translate(mx+ox, my+oy-8);
         ctx.rotate(Math.abs(angle) > Math.PI/2 ? angle+Math.PI : angle);
-        ctx.fillStyle = sel ? '#f5a623' : '#f5d08a';
-        ctx.font = `bold ${Math.max(10, Math.min(13, vp.scale*0.5))}px sans-serif`;
+        const fs = coteFontRef.current;
+        ctx.fillStyle = sel ? C.selC : C.cote;
+        ctx.font = `bold ${fs}px sans-serif`;
         ctx.textAlign='center';
-        ctx.fillStyle='#12151f';
+        ctx.fillStyle= isPrint ? '#f5f5f0' : '#12151f';
         const tw = ctx.measureText(label).width + 8;
-        ctx.fillRect(-tw/2,-12,tw,14);
-        ctx.fillStyle = sel ? '#f5a623' : '#f5d08a';
+        if (ctx.roundRect) { ctx.roundRect(-tw/2,-fs-2,tw,fs+6,3); } else { ctx.rect(-tw/2,-fs-2,tw,fs+6); }
+        ctx.fill();
+        ctx.fillStyle = sel ? C.selC : C.cote;
         ctx.fillText(label, 0, 0);
         ctx.restore();
       }); // fin cotes
@@ -1804,26 +1955,26 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.translate(cx,cy);
         ctx.rotate((sym.angle||0)*Math.PI/180);
         if (sym.type==='door') {
-          ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
+          ctx.strokeStyle=C.symC; ctx.lineWidth=2;
           ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sz,0);
           ctx.arc(0,0,sz,0,Math.PI/2); ctx.stroke();
         } else if (sym.type==='window') {
-          ctx.strokeStyle='#60a0ff'; ctx.lineWidth=2;
+          ctx.strokeStyle=C.symW; ctx.lineWidth=2;
           ctx.strokeRect(-sz/2,-sz/4,sz,sz/2);
           ctx.beginPath(); ctx.moveTo(-sz/2,0); ctx.lineTo(sz/2,0); ctx.stroke();
         } else if (sym.type==='stair') {
-          ctx.strokeStyle='#80ff80'; ctx.lineWidth=1.5;
+          ctx.strokeStyle=C.symG; ctx.lineWidth=1.5;
           for (let k=0;k<4;k++) ctx.strokeRect(-sz/2+k*sz/4,-sz/2,sz/4,sz);
         } else if (sym.type==='wc') {
-          ctx.strokeStyle='#a0c0ff'; ctx.lineWidth=1.5;
+          ctx.strokeStyle=C.symA; ctx.lineWidth=1.5;
           ctx.beginPath(); ctx.ellipse(0,0,sz/2,sz/3,0,0,Math.PI*2); ctx.stroke();
         }
         if (sym.text && sym.type!=='text') {
-          ctx.fillStyle='#e8eaf0'; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
+          ctx.fillStyle=C.txt; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
           ctx.textAlign='center'; ctx.fillText(sym.text,0,sz+12);
         }
         if (sym.type==='text') {
-          ctx.fillStyle='#f5d08a'; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
+          ctx.fillStyle=C.symT; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
           ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
         }
         // Poignées si sélectionné
@@ -1871,19 +2022,42 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         // Point de départ
         ctx.fillStyle='#5b8af5';
         ctx.beginPath(); ctx.arc(sx,sy,4,0,Math.PI*2); ctx.fill();
+        // ── Dimension en temps réel ──
+        const {wx:lwx,wy:lwy}=toWorld(ex,ey);
+        const lineDist=Math.sqrt((lwx-ls.x)**2+(lwy-ls.y)**2);
+        if(lineDist>0.001){
+          const dimLabel=lineDist>=1?`${lineDist.toFixed(3)} m`:`${(lineDist*100).toFixed(1)} cm`;
+          const midCx=(sx+ex)/2, midCy=(sy+ey)/2;
+          ctx.save();
+          ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+          const dw=ctx.measureText(dimLabel).width+10;
+          ctx.fillStyle='rgba(91,138,245,0.85)';
+          ctx.beginPath(); ctx.roundRect?ctx.roundRect(midCx-dw/2,midCy-22,dw,18,4):ctx.rect(midCx-dw/2,midCy-22,dw,18); ctx.fill();
+          ctx.fillStyle='#ffffff';
+          ctx.fillText(dimLabel, midCx, midCy-8);
+          ctx.restore();
+        }
       }
 
       // Outil cote en cours
       const mpts=measurePtsRef.current;
       if (toolRef.current==='cote' && mpts.length===1 && mp) {
-        const {cx:x1,cy:y1}=(p=>{return{cx:(p.x-vp.x)*vp.scale,cy:(p.y-vp.y)*vp.scale};})(mpts[0]);
+        const {cx:x1,cy:y1}=toC(mpts[0].x,mpts[0].y);
         ctx.strokeStyle='#f5d08a'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mp.cx,mp.cy); ctx.stroke();
         ctx.setLineDash([]);
         const {wx,wy}=toWorld(mp.cx,mp.cy);
         const d=Math.sqrt((wx-mpts[0].x)**2+(wy-mpts[0].y)**2);
-        ctx.fillStyle='#f5d08a'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
-        ctx.fillText(d>=1?`${d.toFixed(2)} m`:`${(d*100).toFixed(0)} cm`, (x1+mp.cx)/2, (y1+mp.cy)/2-10);
+        const dLabel=d>=1?`${d.toFixed(3)} m`:`${(d*100).toFixed(1)} cm`;
+        const midCx=(x1+mp.cx)/2, midCy=(y1+mp.cy)/2;
+        ctx.save();
+        ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+        const dw2=ctx.measureText(dLabel).width+10;
+        ctx.fillStyle='rgba(245,208,138,0.9)';
+        ctx.beginPath(); if(ctx.roundRect)ctx.roundRect(midCx-dw2/2,midCy-22,dw2,18,4);else ctx.rect(midCx-dw2/2,midCy-22,dw2,18); ctx.fill();
+        ctx.fillStyle='#1a1f2e';
+        ctx.fillText(dLabel, midCx, midCy-8);
+        ctx.restore();
       }
 
       // Rectangle de sélection
@@ -1901,6 +2075,23 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       // Polygone surface en cours de tracé
       const ppts = polyPtsRef.current, mp2 = mousePosRef.current;
       if (toolRef.current==='surface' && ppts.length>0) {
+        // Dimension temps réel du dernier segment
+        if (mp2 && ppts.length>=1) {
+          const lastPt=ppts[ppts.length-1];
+          const {wx:mpwx,wy:mpwy}=toWorld(mp2.cx,mp2.cy);
+          const segD=Math.sqrt((mpwx-lastPt.x)**2+(mpwy-lastPt.y)**2);
+          if (segD>0.001) {
+            const sLabel=segD>=1?`${segD.toFixed(3)} m`:`${(segD*100).toFixed(1)} cm`;
+            ctx.save();
+            ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
+            const sw=ctx.measureText(sLabel).width+10;
+            ctx.fillStyle='rgba(80,200,120,0.85)';
+            ctx.beginPath(); if(ctx.roundRect)ctx.roundRect(mp2.cx-sw/2+12,mp2.cy-32,sw,18,4);else ctx.rect(mp2.cx-sw/2+12,mp2.cy-32,sw,18); ctx.fill();
+            ctx.fillStyle='#fff';
+            ctx.fillText(sLabel,mp2.cx+12,mp2.cy-18);
+            ctx.restore();
+          }
+        }
         ctx.save();
         ctx.strokeStyle=surfColorRef.current; ctx.lineWidth=2; ctx.setLineDash([4,3]);
         ctx.beginPath();
@@ -1991,6 +2182,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); setPolyPoints([]); }
       if (e.key==='o'||e.key==='O') setOrthoMode(v=>!v);
       if (e.key==='r'||e.key==='R') setPlanRotation(v=>(v+15)%360);
+      if ((e.ctrlKey||e.metaKey)&&e.key==='p') { e.preventDefault(); setPrintMode(v=>!v); }
       if (e.key==='R'&&e.shiftKey)  setPlanRotation(0);
       if (e.key==='s'||e.key==='S') setSnapEnabled(v=>!v);
       // Ctrl+C — Copier la sélection
@@ -2156,6 +2348,29 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           }
           if(inside){hitExisting=true;break;}
         }
+      }
+      // Vérifier si on clique sur le label d'une cote sélectionnée → déplacer son offset
+      let coteDragHit = null;
+      if (selectedRef.current.size === 1) {
+        const selId = [...selectedRef.current][0];
+        const selCote = cotesRef.current.find(c=>c.id===selId&&!c.deleted);
+        if (selCote) {
+          const angle = Math.atan2(selCote.y2-selCote.y1, selCote.x2-selCote.x1);
+          const perp = angle - Math.PI/2;
+          const offset = (selCote.offset||0)+24;
+          const midX = (selCote.x1+selCote.x2)/2 + Math.cos(perp)*offset;
+          const midY = (selCote.y1+selCote.y2)/2 + Math.sin(perp)*offset;
+          const hitR = 20/vpRef.current.scale;
+          if (Math.sqrt((wx-midX)**2+(wy-midY)**2) < hitR) {
+            coteDragHit = { id:selId, origOffset:selCote.offset||0,
+              startWx:wx, startWy:wy,
+              perpX:Math.cos(perp), perpY:Math.sin(perp) };
+          }
+        }
+      }
+      if (coteDragHit) {
+        movingCoteRef.current = coteDragHit;
+        return;
       }
       if (hitExisting) {
         // Démarrer le déplacement de la sélection
@@ -2366,6 +2581,17 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       setVp(v=>({...v,x:drag.startVx-dx,y:drag.startVy-dy}));
       return;
     }
+    // Déplacement offset cote
+    const mc = movingCoteRef.current;
+    if (mc) {
+      const {wx:cwx, wy:cwy} = toWorld(pos.cx, pos.cy);
+      // Projection du déplacement sur l'axe perpendiculaire
+      const dx = cwx - mc.startWx, dy = cwy - mc.startWy;
+      const proj = dx*mc.perpX + dy*mc.perpY;
+      const newOffset = mc.origOffset + proj;
+      setCotes(arr => arr.map(c => c.id===mc.id ? {...c, offset:newOffset} : c));
+      return;
+    }
     // Déplacement de la sélection
     const mv = movingSelRef.current;
     if (mv) {
@@ -2394,6 +2620,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const onMouseUp = (e) => {
     midDragRef.current=null;
     dragRef.current=null;
+    // Finaliser drag cote offset
+    if (movingCoteRef.current) {
+      movingCoteRef.current = null;
+      return;
+    }
     // Finaliser déplacement sélection
     if (movingSelRef.current) {
       // Les states ont déjà été mis à jour en live dans onMouseMove
@@ -2440,6 +2671,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   const onMouseLeave = () => {
     dragRef.current=null; midDragRef.current=null;
+    movingCoteRef.current=null;
     // Annuler le déplacement en cours → remettre les positions originales
     if (movingSelRef.current) {
       const mv = movingSelRef.current;
@@ -2536,21 +2768,39 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     onSave({...plan,data,thumbnail:thumb});
   };
 
-  const exportPNG = () => {
+  const exportPNG = (forPrint=false) => {
     const canvas=canvasRef.current; if(!canvas) return;
-    const a=document.createElement('a');
-    a.href=canvas.toDataURL('image/png');
-    a.download=(plan.name||'plan')+'.png';
-    a.click();
+    // En mode impression on fait un export propre sans les indicateurs UI
+    if (forPrint) {
+      // Activer mode impression, re-render, exporter, puis désactiver
+      printModeRef.current=true; render();
+      setTimeout(()=>{
+        const a=document.createElement('a');
+        a.href=canvas.toDataURL('image/png');
+        a.download=(plan.name||'plan')+'-impression.png';
+        a.click();
+        printModeRef.current=false; render();
+      },50);
+    } else {
+      const a=document.createElement('a');
+      a.href=canvas.toDataURL('image/png');
+      a.download=(plan.name||'plan')+'.png';
+      a.click();
+    }
   };
-  const exportPDF = () => {
+  const exportPDF = (forPrint=false) => {
     const canvas=canvasRef.current; if(!canvas) return;
-    const dataUrl=canvas.toDataURL('image/png');
-    const w=window.open('','_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>${plan.name}</title>
+    const doExport = () => {
+      const dataUrl=canvas.toDataURL('image/png');
+      const w=window.open('','_blank');
+      w.document.write(`<!DOCTYPE html><html><head><title>${plan.name}</title>
     <style>@page{size:A3 landscape;margin:10mm}body{margin:0}img{width:100%;height:auto}</style>
     </head><body><img src="${dataUrl}"/></body></html>`);
-    w.document.close(); setTimeout(()=>w.print(),500);
+      w.document.close(); setTimeout(()=>w.print(),500);
+      if (forPrint) { printModeRef.current=false; render(); }
+    };
+    if (forPrint) { printModeRef.current=true; render(); setTimeout(doExport,50); }
+    else doExport();
   };
 
   const segCount=segments.filter(s=>!s.deleted).length;
@@ -2735,6 +2985,43 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         <button title="Rétablir Ctrl+Y" onClick={redo} disabled={futureLen===0}  style={{...btnStyle('r'),fontSize:16,opacity:futureLen===0?0.3:1}}>⟳</button>
         <button title="Aide raccourcis ?" onClick={()=>setShowHelp(h=>!h)} style={{...btnStyle('h'),fontSize:14,background:showHelp?'rgba(255,194,0,0.2)':'rgba(255,255,255,0.06)'}}>?</button>
 
+        {/* Mode impression */}
+        <button onClick={()=>setPrintMode(v=>!v)} title="Basculer fond blanc pour impression (Ctrl+P)"
+          style={{...btnStyle('print'),
+            background:printMode?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.06)',
+            color:printMode?'#1a1f2e':'#9aa5c0',border:`1px solid ${printMode?'rgba(255,255,255,0.5)':'transparent'}`,
+            width:'auto',padding:'0 10px',fontSize:11,fontWeight:700}}>
+          🖨 {printMode?'Impression ON':'Impression'}
+        </button>
+
+        {/* Taille police cotes */}
+        <div style={{display:'flex',alignItems:'center',gap:4,padding:'3px 8px',
+          background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
+          <span style={{fontSize:10,color:'#9aa5c0'}}>↔ Police</span>
+          <button onClick={()=>setCoteFontSize(v=>Math.max(7,v-1))} style={{
+            background:'rgba(255,255,255,0.06)',border:'none',borderRadius:4,
+            width:20,height:20,cursor:'pointer',color:'#9aa5c0',fontSize:12,fontFamily:'inherit'}}>−</button>
+          <span style={{fontSize:11,color:'#f5a623',fontWeight:700,minWidth:22,textAlign:'center'}}>{coteFontSize}</span>
+          <button onClick={()=>setCoteFontSize(v=>Math.min(24,v+1))} style={{
+            background:'rgba(255,255,255,0.06)',border:'none',borderRadius:4,
+            width:20,height:20,cursor:'pointer',color:'#9aa5c0',fontSize:12,fontFamily:'inherit'}}>+</button>
+        </div>
+
+        {/* Auto-fermeture lignes */}
+        <button title={`Fermeture auto des écarts ${autoClose?'ON':'OFF'}`} onClick={()=>setAutoClose(v=>!v)} style={{
+          ...btnStyle('ac'), background:autoClose?'rgba(80,200,120,0.3)':'rgba(255,255,255,0.06)',
+          width:'auto',padding:'0 8px',fontSize:11,fontWeight:700,
+          color:autoClose?'#7ee8a2':'#9aa5c0',border:`1px solid ${autoClose?'rgba(80,200,120,0.5)':'transparent'}`,
+        }}>⊂ GAP</button>
+
+        {/* Bibliothèque DXF */}
+        <button onClick={()=>setShowLibrary(true)} title="Bibliothèque de symboles DXF" style={{
+          background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
+          borderRadius:8,padding:'6px 11px',color:'#f5a623',fontFamily:'inherit',
+          fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+          📚 Bibliothèque
+        </button>
+
         {/* Import plan existant */}
         <button onClick={openImportModal} title="Importer les éléments d'un autre plan" style={{
           background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
@@ -2743,10 +3030,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         </button>
 
         {/* Export */}
-        <button onClick={exportPNG} style={{background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.3)',
+        <button onClick={()=>exportPNG()} style={{background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.3)',
           borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PNG</button>
-        <button onClick={exportPDF} style={{background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
+        <button onClick={()=>exportPNG(true)} style={{background:'rgba(80,200,120,0.2)',border:'1px solid rgba(80,200,120,0.4)',
+          borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:'pointer'}}>🖨 PNG</button>
+        <button onClick={()=>exportPDF()} style={{background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
           borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PDF</button>
+        <button onClick={()=>exportPDF(true)} style={{background:'rgba(245,166,35,0.2)',border:'1px solid rgba(245,166,35,0.4)',
+          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:'pointer'}}>🖨 PDF</button>
         <button onClick={handleSave} disabled={saving} style={{background:'#5b8af5',border:'none',borderRadius:8,
           padding:'6px 16px',color:'#fff',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.6:1}}>
           {saving?'…':'💾 Sauvegarder'}
@@ -2763,6 +3054,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             ['Échap','Désélectionner / Annuler'],['O','Toggle Ortho 0/45/90°'],
             ['S','Toggle Snap aux points'],['Ctrl+A','Tout sélectionner'],
             ['Ctrl+C / Ctrl+V','Copier / Coller la sélection (V multiple = décalé)'],
+            ['Ctrl+P','Basculer mode impression (fond blanc)'],
+            ['⊂ GAP (toolbar)','Fermeture auto des petits écarts de lignes'],
             ['Ctrl+D','Dupliquer immédiat'],['Glisser sélection','Déplacer les éléments sélectionnés'],
             ['Shift+clic','Ajouter à la sélection'],
             ['Outil Ligne','Clic = point, re-clic = chaîne, Échap = fin'],
@@ -2875,6 +3168,71 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
                   borderRadius:5,padding:'6px 8px',color:'#e8eaf0',fontFamily:'inherit',fontSize:12,boxSizing:'border-box'}}/>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Modal bibliothèque ── */}
+      {showLibrary&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:2000,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+          onClick={()=>setShowLibrary(false)}>
+          <div style={{background:'#1e2336',borderRadius:14,padding:24,width:580,maxHeight:'85vh',
+            overflow:'hidden',display:'flex',flexDirection:'column',border:'1px solid rgba(255,255,255,0.12)'}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <div style={{fontSize:18,fontWeight:800,color:'#e8eaf0'}}>📚 Bibliothèque de symboles</div>
+              <button onClick={()=>setShowLibrary(false)} style={{background:'transparent',border:'none',color:'#5b6a8a',fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{fontSize:12,color:'#5b6a8a',marginBottom:16}}>
+              Cliquer sur un symbole pour l'insérer au centre de la vue. Il sera sélectionné — tu peux le déplacer immédiatement.
+            </div>
+            <div style={{flex:1,overflowY:'auto'}}>
+              {['Sanitaires','Ouvertures','Structure','Mobilier','Équipements'].map(cat=>{
+                const items=DXF_LIBRARY.filter(x=>x.category===cat);
+                if(!items.length) return null;
+                return(
+                  <div key={cat} style={{marginBottom:20}}>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',
+                      color:'#5b6a8a',marginBottom:10,paddingBottom:6,borderBottom:'1px solid rgba(255,255,255,0.06)'}}>{cat}</div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:8}}>
+                      {items.map(sym=>(
+                        <button key={sym.id} onClick={()=>{
+                          // Insérer au centre de la vue courante
+                          const canvas=canvasRef.current;
+                          const cx=canvas?canvas.width/2:400, cy=canvas?canvas.height/2:300;
+                          const {wx,wy}=toWorld(cx,cy);
+                          // Calculer le centre du symbole
+                          const allX=sym.segments.flatMap(s=>[s.x1,s.x2]);
+                          const allY=sym.segments.flatMap(s=>[s.y1,s.y2]);
+                          const minX=Math.min(...allX),maxX=Math.max(...allX);
+                          const minY=Math.min(...allY),maxY=Math.max(...allY);
+                          const offX=wx-(minX+maxX)/2, offY=wy-(minY+maxY)/2;
+                          const newSegs=sym.segments.map(s=>({
+                            x1:s.x1+offX,y1:s.y1+offY,x2:s.x2+offX,y2:s.y2+offY,
+                            color:'#e8eaf0',layer:'library',user:true,id:Date.now()+Math.random()
+                          }));
+                          pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
+                          setSegments(s=>[...s,...newSegs]);
+                          setSelectedIds(new Set(newSegs.map(s=>s.id)));
+                          setShowLibrary(false);
+                        }} style={{
+                          background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)',
+                          borderRadius:10,padding:'12px 8px',cursor:'pointer',
+                          display:'flex',flexDirection:'column',alignItems:'center',gap:6,
+                          fontFamily:'inherit',color:'#e8eaf0',transition:'all .15s',
+                        }}
+                        onMouseEnter={e=>{e.currentTarget.style.background='rgba(91,138,245,0.2)';e.currentTarget.style.borderColor='rgba(91,138,245,0.4)';}}
+                        onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.08)';}}>
+                          <span style={{fontSize:26}}>{sym.icon}</span>
+                          <span style={{fontSize:11,fontWeight:600,textAlign:'center',lineHeight:1.3}}>{sym.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
