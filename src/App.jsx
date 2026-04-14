@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -1395,6 +1395,32 @@ const TOOL_LIST = [
   {id:'measure',icon:'📏', label:'Mesurer'},
 ];
 
+// ─── ERROR BOUNDARY pour PlanEditor ─────────────────────────────────────────
+class PlanEditorErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error('PlanEditor crash:', error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+          background:'#12151f',color:'#e8eaf0',padding:40,gap:16}}>
+          <div style={{fontSize:48}}>⚠️</div>
+          <div style={{fontSize:20,fontWeight:700}}>Une erreur est survenue dans l'éditeur</div>
+          <div style={{fontSize:14,color:'#5b6a8a',maxWidth:400,textAlign:'center'}}>
+            {this.state.error?.message || 'Erreur inconnue'}
+          </div>
+          <button onClick={this.props.onClose} style={{background:'#5b8af5',color:'#fff',border:'none',
+            borderRadius:10,padding:'12px 28px',fontSize:15,fontWeight:700,cursor:'pointer',marginTop:8}}>
+            ← Retour à la liste
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
 function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const canvasRef = useRef(null);
@@ -1471,104 +1497,136 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     wy: cy / vpRef.current.scale + vpRef.current.y,
   });
 
-  // Render
+  // ── Toutes les données de rendu dans des refs pour éviter les dépendances circulaires ──
+  const segmentsRef   = useRef(segments);
+  const symbolsRef    = useRef(symbols);
+  const toolRef       = useRef(tool);
+  const lineStartRef  = useRef(lineStart);
+  const mousePosRef   = useRef(mousePos);
+  const selectedRef   = useRef(selectedIds);
+  const measurePtsRef = useRef(measurePts);
+  const measureDistRef= useRef(measureDist);
+
+  segmentsRef.current    = segments;
+  symbolsRef.current     = symbols;
+  toolRef.current        = tool;
+  lineStartRef.current   = lineStart;
+  mousePosRef.current    = mousePos;
+  selectedRef.current    = selectedIds;
+  measurePtsRef.current  = measurePts;
+  measureDistRef.current = measureDist;
+
+  // Render — stable, lit tout via refs, jamais recréée
   const render = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const {width:W, height:H} = canvas;
-    ctx.clearRect(0,0,W,H);
-    ctx.fillStyle = '#12151f';
-    ctx.fillRect(0,0,W,H);
+    const W = canvas.width, H = canvas.height;
+    if (!W || !H) return;
 
-    // Grid
-    const gridSize = Math.max(0.1, 1 / vpRef.current.scale);
-    const gStep = gridSize * vpRef.current.scale;
-    if (gStep > 20) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-      ctx.lineWidth = 0.5;
-      const ox = (-vpRef.current.x % gridSize) * vpRef.current.scale;
-      const oy = (-vpRef.current.y % gridSize) * vpRef.current.scale;
-      for (let x=ox;x<W;x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
-      for (let y=oy;y<H;y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
-    }
+    try {
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle = '#12151f';
+      ctx.fillRect(0,0,W,H);
 
-    // Segments
-    segments.forEach(s => {
-      if (s.deleted) return;
-      const {cx:x1,cy:y1}=toCanvas(s.x1,s.y1);
-      const {cx:x2,cy:y2}=toCanvas(s.x2,s.y2);
-      const isSelected = selectedIds.has(s.id);
-      ctx.strokeStyle = isSelected ? '#f5a623' : (s.color || '#7090c0');
-      ctx.lineWidth = isSelected ? 3 : (s.user ? 2 : 1.5);
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-    });
+      const vp = vpRef.current;
 
-    // Symbols
-    symbols.forEach(sym => {
-      if (sym.deleted) return;
-      const {cx,cy} = toCanvas(sym.x, sym.y);
-      const sz = Math.max(12, vpRef.current.scale * 0.6);
-      ctx.save();
-      ctx.translate(cx,cy);
-      ctx.rotate((sym.angle||0)*Math.PI/180);
-      if (sym.type==='door') {
+      // Grid
+      const gridSize = Math.max(0.1, 1 / vp.scale);
+      const gStep = gridSize * vp.scale;
+      if (gStep > 20 && isFinite(gStep)) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = 0.5;
+        const ox = (-vp.x % gridSize) * vp.scale;
+        const oy = (-vp.y % gridSize) * vp.scale;
+        for (let x=ox; x<W; x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
+        for (let y=oy; y<H; y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
+      }
+
+      // Segments
+      segmentsRef.current.forEach(s => {
+        if (s.deleted) return;
+        const x1=(s.x1-vp.x)*vp.scale, y1=(s.y1-vp.y)*vp.scale;
+        const x2=(s.x2-vp.x)*vp.scale, y2=(s.y2-vp.y)*vp.scale;
+        if (!isFinite(x1)||!isFinite(y1)||!isFinite(x2)||!isFinite(y2)) return;
+        const isSelected = selectedRef.current.has(s.id);
+        ctx.strokeStyle = isSelected ? '#f5a623' : (s.color || '#7090c0');
+        ctx.lineWidth = isSelected ? 3 : (s.user ? 2 : 1.5);
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      });
+
+      // Symbols
+      symbolsRef.current.forEach(sym => {
+        if (sym.deleted) return;
+        const cx=(sym.x-vp.x)*vp.scale, cy=(sym.y-vp.y)*vp.scale;
+        if (!isFinite(cx)||!isFinite(cy)) return;
+        const sz = Math.max(12, vp.scale * 0.6);
+        ctx.save();
+        ctx.translate(cx,cy);
+        ctx.rotate((sym.angle||0)*Math.PI/180);
+        if (sym.type==='door') {
+          ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
+          ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sz,0);
+          ctx.arc(0,0,sz,0,Math.PI/2); ctx.stroke();
+        } else if (sym.type==='window') {
+          ctx.strokeStyle='#60a0ff'; ctx.lineWidth=2;
+          ctx.strokeRect(-sz/2,-sz/4,sz,sz/2);
+          ctx.beginPath(); ctx.moveTo(-sz/2,0); ctx.lineTo(sz/2,0); ctx.stroke();
+        } else if (sym.type==='stair') {
+          ctx.strokeStyle='#80ff80'; ctx.lineWidth=1.5;
+          for (let k=0;k<4;k++) { ctx.strokeRect(-sz/2+k*sz/4,-sz/2,sz/4,sz); }
+        } else if (sym.type==='wc') {
+          ctx.strokeStyle='#a0c0ff'; ctx.lineWidth=1.5;
+          ctx.beginPath(); ctx.ellipse(0,0,sz/2,sz/3,0,0,Math.PI*2); ctx.stroke();
+        }
+        if (sym.text) {
+          ctx.fillStyle='#e8eaf0'; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
+          ctx.textAlign='center'; ctx.fillText(sym.text,0,sz+12);
+        }
+        if (sym.type==='text') {
+          ctx.fillStyle='#f5d08a'; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
+          ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
+        }
+        ctx.restore();
+      });
+
+      // Ligne en cours
+      const ls = lineStartRef.current, mp = mousePosRef.current;
+      if (toolRef.current==='line' && ls && mp) {
+        const x1=(ls.x-vp.x)*vp.scale, y1=(ls.y-vp.y)*vp.scale;
+        ctx.strokeStyle='#5b8af5'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mp.cx,mp.cy); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Mesure
+      const mpts = measurePtsRef.current, mdist = measureDistRef.current;
+      if (mpts.length===1 && mp) {
+        const x1=(mpts[0].x-vp.x)*vp.scale, y1=(mpts[0].y-vp.y)*vp.scale;
+        ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mp.cx,mp.cy); ctx.stroke();
+        ctx.setLineDash([]);
+        const wx=mp.cx/vp.scale+vp.x, wy=mp.cy/vp.scale+vp.y;
+        const d=Math.sqrt((wx-mpts[0].x)**2+(wy-mpts[0].y)**2);
+        ctx.fillStyle='#f5a623'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+        ctx.fillText(`${d.toFixed(2)} m`, (x1+mp.cx)/2, (y1+mp.cy)/2-8);
+      }
+      if (mdist && mpts.length>=2) {
+        const x1=(mpts[0].x-vp.x)*vp.scale, y1=(mpts[0].y-vp.y)*vp.scale;
+        const x2=(mpts[1].x-vp.x)*vp.scale, y2=(mpts[1].y-vp.y)*vp.scale;
         ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
-        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sz,0);
-        ctx.arc(0,0,sz,0,Math.PI/2); ctx.stroke();
-      } else if (sym.type==='window') {
-        ctx.strokeStyle='#60a0ff'; ctx.lineWidth=2;
-        ctx.strokeRect(-sz/2,-sz/4,sz,sz/2);
-        ctx.beginPath(); ctx.moveTo(-sz/2,0); ctx.lineTo(sz/2,0); ctx.stroke();
-      } else if (sym.type==='stair') {
-        ctx.strokeStyle='#80ff80'; ctx.lineWidth=1.5;
-        for (let k=0;k<4;k++) { ctx.strokeRect(-sz/2+k*sz/4,-sz/2,sz/4,sz); }
-      } else if (sym.type==='wc') {
-        ctx.strokeStyle='#a0c0ff'; ctx.lineWidth=1.5;
-        ctx.beginPath(); ctx.ellipse(0,0,sz/2,sz/3,0,0,Math.PI*2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        ctx.fillStyle='#f5a623'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
+        ctx.fillText(`${mdist.toFixed(2)} m`, (x1+x2)/2, (y1+y2)/2-10);
       }
-      if (sym.text) {
-        ctx.fillStyle='#e8eaf0'; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
-        ctx.textAlign='center'; ctx.fillText(sym.text,0,sz+12);
-      }
-      if (sym.type==='text') {
-        ctx.fillStyle='#f5d08a'; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
-        ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
-      }
-      ctx.restore();
-    });
-
-    // Line in progress
-    if (tool==='line' && lineStart && mousePos) {
-      const {cx:x1,cy:y1}=toCanvas(lineStart.x,lineStart.y);
-      ctx.strokeStyle='#5b8af5'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mousePos.cx,mousePos.cy); ctx.stroke();
-      ctx.setLineDash([]);
+    } catch(e) {
+      console.error('Render error:', e);
     }
+  }, []); // ← stable, pas de dépendances — tout passe par les refs
 
-    // Measure
-    if (measurePts.length===1 && mousePos) {
-      const {cx:x1,cy:y1}=toCanvas(measurePts[0].x,measurePts[0].y);
-      ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mousePos.cx,mousePos.cy); ctx.stroke();
-      ctx.setLineDash([]);
-      const {wx,wy}=toWorld(mousePos.cx,mousePos.cy);
-      const d=Math.sqrt((wx-measurePts[0].x)**2+(wy-measurePts[0].y)**2);
-      ctx.fillStyle='#f5a623'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
-      ctx.fillText(`${d.toFixed(2)} m`, (x1+mousePos.cx)/2, (y1+mousePos.cy)/2-8);
-    }
-    if (measureDist) {
-      const {cx:x1,cy:y1}=toCanvas(measurePts[0]?.x||0,measurePts[0]?.y||0);
-      const {cx:x2,cy:y2}=toCanvas(measurePts[1]?.x||0,measurePts[1]?.y||0);
-      ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-      ctx.fillStyle='#f5a623'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
-      ctx.fillText(`${measureDist.toFixed(2)} m`, (x1+x2)/2, (y1+y2)/2-10);
-    }
-  }, [segments, symbols, vp, tool, lineStart, mousePos, selectedIds, measurePts, measureDist]);
+  // Déclenche un rendu à chaque changement d'état
+  useEffect(() => { render(); });
 
-  useEffect(() => { render(); }, [render]);
-
-  // Keyboard shortcuts Ctrl+Z / Ctrl+Y — undo/redo sont stables (useCallback sans deps)
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
@@ -1576,42 +1634,49 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []); // stable - undo/redo ne changent plus
+  }, []);
 
-  // Resize canvas — observe le parent car le canvas est en position absolue
+  // Resize canvas — debounce pour éviter les boucles ResizeObserver
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const container = canvas.parentElement; if (!container) return;
+    let rafId = null;
 
     const resize = () => {
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w > 0 && h > 0) {
-        canvas.width  = w;
-        canvas.height = h;
-        render();
-      }
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+          canvas.width  = w;
+          canvas.height = h;
+          render();
+        }
+      });
     };
 
     const observer = new ResizeObserver(resize);
     observer.observe(container);
-    resize(); // premier rendu
-    return () => observer.disconnect();
-  }, []); // eslint-disable-line
+    resize();
+    return () => { observer.disconnect(); if (rafId) cancelAnimationFrame(rafId); };
+  }, []);
 
   // Fit to content
   const fitView = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
-    const bounds = getBounds(segments.filter(s=>!s.deleted), symbols.filter(s=>!s.deleted));
+    const segs = segmentsRef.current.filter(s=>!s.deleted);
+    const syms = symbolsRef.current.filter(s=>!s.deleted);
+    const bounds = getBounds(segs, syms);
     if (bounds.w===0 && bounds.h===0) return;
     const pad = 0.1;
-    const scaleX = canvas.width / (bounds.w * (1+pad*2));
+    const scaleX = canvas.width  / (bounds.w * (1+pad*2));
     const scaleY = canvas.height / (bounds.h * (1+pad*2));
     const scale = Math.min(scaleX, scaleY);
+    if (!isFinite(scale) || scale <= 0) return;
     const x = bounds.minX - bounds.w*pad;
     const y = bounds.minY - bounds.h*pad;
     setVp({x, y, scale});
-  }, [segments, symbols]);
+  }, []);
 
   useEffect(() => { if (segments.length>0) fitView(); }, []);
 
@@ -1941,9 +2006,11 @@ function PagePlans({T, chantiers}) {
   // Editor mode
   if (editingPlan) return (
     <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',width:'100%'}}>
-      <PlanEditor plan={editingPlan} onSave={onSave}
-        onClose={()=>{ setEditingPlan(null); loadPlans(); }}
-        T={T} chantiers={chantiers}/>
+      <PlanEditorErrorBoundary onClose={()=>{ setEditingPlan(null); loadPlans(); }}>
+        <PlanEditor plan={editingPlan} onSave={onSave}
+          onClose={()=>{ setEditingPlan(null); loadPlans(); }}
+          T={T} chantiers={chantiers}/>
+      </PlanEditorErrorBoundary>
     </div>
   );
 
