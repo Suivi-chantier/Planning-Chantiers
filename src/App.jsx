@@ -1534,10 +1534,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [orthoMode, setOrthoMode]   = useState(false);
   // Sélection par rectangle
   const [rectSel, setRectSel]       = useState(null); // {x1,y1,x2,y2} en coords canvas
+  // Clipboard copier/coller
+  const clipboardRef = useRef(null); // {segments, symbols, cotes, surfaces}
+  // Déplacement de la sélection par glisser
+  const movingSelRef = useRef(null); // {startWx, startWy, origSegs, origSyms, origCotes, origSurfs}
   // Rotation globale du plan
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0); // degrés
   // Calques visibilité
-  const [layers, setLayers] = useState({ segments:true, symbols:true, surfaces:true, cotes:true });
+  const [layers, setLayers] = useState({ segments:true, points:true, symbols:true, surfaces:true, cotes:true });
   // Panneau propriétés symbole sélectionné
   const [symProps, setSymProps] = useState(null); // {id, x, y, angle, size, type, text}
 
@@ -1710,6 +1714,24 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.fillStyle= sel ? '#f5a623' : col;
         ctx.fillText(label,lx,ly+2);
       }); // fin surfaces
+
+      // Points (extrémités des segments) — calque séparé
+      if (lyrs.points) {
+        const ptMap = new Map();
+        segmentsRef.current.filter(s=>!s.deleted).forEach(s=>{
+          [[s.x1,s.y1],[s.x2,s.y2]].forEach(([px,py])=>{
+            const k=`${px.toFixed(4)}_${py.toFixed(4)}`;
+            if(!ptMap.has(k)) ptMap.set(k,{x:px,y:py,color:s.color||'#7090c0'});
+          });
+        });
+        ptMap.forEach(p=>{
+          const {cx,cy}=toC(p.x,p.y);
+          if(!isFinite(cx)||!isFinite(cy)) return;
+          const r=Math.max(1.5, vp.scale*0.04);
+          ctx.fillStyle=p.color;
+          ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+        });
+      }
 
       // Segments
       if (lyrs.segments) segmentsRef.current.forEach(s => {
@@ -1922,6 +1944,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.restore();
       }
 
+      // Indicateur déplacement sélection en cours
+      if (movingSelRef.current && mousePosRef.current) {
+        ctx.fillStyle='rgba(91,138,245,0.7)';
+        ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+        ctx.fillText('⊹ Déplacement en cours — relâcher pour poser', W/2, 22);
+      }
+
       // Indicateur ortho
       if (orthoRef.current) {
         ctx.fillStyle='rgba(80,200,120,0.85)';
@@ -1964,19 +1993,55 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       if (e.key==='r'||e.key==='R') setPlanRotation(v=>(v+15)%360);
       if (e.key==='R'&&e.shiftKey)  setPlanRotation(0);
       if (e.key==='s'||e.key==='S') setSnapEnabled(v=>!v);
+      // Ctrl+C — Copier la sélection
+      if ((e.ctrlKey||e.metaKey)&&e.key==='c') {
+        e.preventDefault();
+        if (selectedRef.current.size>0) {
+          const ids=selectedRef.current;
+          clipboardRef.current = {
+            segments: segmentsRef.current.filter(s=>ids.has(s.id)&&!s.deleted),
+            symbols:  symbolsRef.current.filter(s=>ids.has(s.id)&&!s.deleted),
+            cotes:    cotesRef.current.filter(s=>ids.has(s.id)&&!s.deleted),
+            surfaces: surfacesRef.current.filter(s=>ids.has(s.id)&&!s.deleted),
+          };
+        }
+      }
+      // Ctrl+V — Coller avec décalage
+      if ((e.ctrlKey||e.metaKey)&&e.key==='v') {
+        e.preventDefault();
+        const cb=clipboardRef.current;
+        if (cb) {
+          const offset=30/vpRef.current.scale;
+          const newSegs  = cb.segments.map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
+          const newSyms  = cb.symbols.map(s=>({...s,x:s.x+offset,y:s.y+offset,id:Date.now()+Math.random()}));
+          const newCotes = cb.cotes.map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
+          const newSurfs = cb.surfaces.map(s=>({...s,points:s.points.map(p=>({x:p.x+offset,y:p.y+offset})),id:Date.now()+Math.random()}));
+          pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
+          setSegments(s=>[...s,...newSegs]);
+          setSymbols(s=>[...s,...newSyms]);
+          setCotes(s=>[...s,...newCotes]);
+          setSurfaces(s=>[...s,...newSurfs]);
+          setSelectedIds(new Set([...newSegs,...newSyms,...newCotes,...newSurfs].map(x=>x.id)));
+          // Décaler le clipboard pour coller plusieurs fois
+          clipboardRef.current = { segments:newSegs, symbols:newSyms, cotes:newCotes, surfaces:newSurfs };
+        }
+      }
+      // Ctrl+D — Dupliquer (copie immédiate avec décalage)
       if ((e.ctrlKey||e.metaKey)&&e.key==='d') {
         e.preventDefault();
         if (selectedRef.current.size>0) {
           const offset=20/vpRef.current.scale;
           const ids=selectedRef.current;
-          const newSegs=segmentsRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
-          const newSyms=symbolsRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x:s.x+offset,y:s.y+offset,id:Date.now()+Math.random()}));
-          const newCotes=cotesRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
+          const newSegs  = segmentsRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
+          const newSyms  = symbolsRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x:s.x+offset,y:s.y+offset,id:Date.now()+Math.random()}));
+          const newCotes = cotesRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
+          const newSurfs = surfacesRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,points:s.points.map(p=>({x:p.x+offset,y:p.y+offset})),id:Date.now()+Math.random()}));
           pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
           setSegments(s=>[...s,...newSegs]);
           setSymbols(s=>[...s,...newSyms]);
           setCotes(s=>[...s,...newCotes]);
-          setSelectedIds(new Set([...newSegs,...newSyms,...newCotes].map(x=>x.id)));
+          setSurfaces(s=>[...s,...newSurfs]);
+          setSelectedIds(new Set([...newSegs,...newSyms,...newCotes,...newSurfs].map(x=>x.id)));
         }
       }
       if (e.key==='a'&&(e.ctrlKey||e.metaKey)) {
@@ -2062,10 +2127,50 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       dragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:v.x,startVy:v.y};
 
     } else if (tool==='select') {
+      // Vérifier si on clique sur un élément déjà sélectionné → déplacer
+      const hitThresh=10/vpRef.current.scale;
+      let hitExisting=false;
+      if (selectedRef.current.size>0) {
+        // Test rapide : clic dans la bbox de la sélection
+        const ids=selectedRef.current;
+        // Cherche si un élément sélectionné est sous le curseur
+        for (const s of segmentsRef.current.filter(x=>!x.deleted&&ids.has(x.id))) {
+          const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
+          if(!len2) continue;
+          const t=Math.max(0,Math.min(1,((wx-s.x1)*dx+(wy-s.y1)*dy)/len2));
+          if(Math.sqrt((s.x1+t*dx-wx)**2+(s.y1+t*dy-wy)**2)<hitThresh){hitExisting=true;break;}
+        }
+        if(!hitExisting) for (const s of symbolsRef.current.filter(x=>!x.deleted&&ids.has(x.id))) {
+          if(Math.sqrt((wx-s.x)**2+(wy-s.y)**2)<Math.max(0.8,(12/vpRef.current.scale)*(s.size||1))){hitExisting=true;break;}
+        }
+        if(!hitExisting) for (const s of cotesRef.current.filter(x=>!x.deleted&&ids.has(x.id))) {
+          const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
+          if(!len2) continue;
+          const t=Math.max(0,Math.min(1,((wx-s.x1)*dx+(wy-s.y1)*dy)/len2));
+          if(Math.sqrt((s.x1+t*dx-wx)**2+(s.y1+t*dy-wy)**2)<hitThresh){hitExisting=true;break;}
+        }
+        if(!hitExisting) for (const s of surfacesRef.current.filter(x=>!x.deleted&&ids.has(x.id))) {
+          const pts=s.points; let inside=false;
+          for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+            if(((pts[i].y>wy)!=(pts[j].y>wy))&&(wx<(pts[j].x-pts[i].x)*(wy-pts[i].y)/(pts[j].y-pts[i].y)+pts[i].x)) inside=!inside;
+          }
+          if(inside){hitExisting=true;break;}
+        }
+      }
+      if (hitExisting) {
+        // Démarrer le déplacement de la sélection
+        movingSelRef.current = {
+          startWx: wx, startWy: wy,
+          origSegs:  segmentsRef.current.map(s=>({...s})),
+          origSyms:  symbolsRef.current.map(s=>({...s})),
+          origCotes: cotesRef.current.map(s=>({...s})),
+          origSurfs: surfacesRef.current.map(s=>({...s,points:s.points?[...s.points.map(p=>({...p}))]:[]})),
+        };
+        return;
+      }
       // Si on clique sans glisser → désélection. Le rectangle se gère dans onMouseMove
       rectRef.current={ cx:pos.cx, cy:pos.cy, moved:false };
       // Clic simple sur un élément → toggle sélection
-      const hitThresh=10/vpRef.current.scale;
       let hit=null;
       // Cherche cote
       for (const c of cotesRef.current.filter(x=>!x.deleted)) {
@@ -2261,6 +2366,24 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       setVp(v=>({...v,x:drag.startVx-dx,y:drag.startVy-dy}));
       return;
     }
+    // Déplacement de la sélection
+    const mv = movingSelRef.current;
+    if (mv) {
+      const {wx:cwx, wy:cwy} = toWorld(pos.cx, pos.cy);
+      const ddx = cwx - mv.startWx;
+      const ddy = cwy - mv.startWy;
+      const ids = selectedRef.current;
+      // Appliquer le delta sur les copies originales
+      setSegments(mv.origSegs.map(s=>ids.has(s.id)&&!s.deleted
+        ?{...s,x1:s.x1+ddx,y1:s.y1+ddy,x2:s.x2+ddx,y2:s.y2+ddy}:s));
+      setSymbols(mv.origSyms.map(s=>ids.has(s.id)&&!s.deleted
+        ?{...s,x:s.x+ddx,y:s.y+ddy}:s));
+      setCotes(mv.origCotes.map(s=>ids.has(s.id)&&!s.deleted
+        ?{...s,x1:s.x1+ddx,y1:s.y1+ddy,x2:s.x2+ddx,y2:s.y2+ddy}:s));
+      setSurfaces(mv.origSurfs.map(s=>ids.has(s.id)&&!s.deleted
+        ?{...s,points:s.points.map(p=>({x:p.x+ddx,y:p.y+ddy}))}:s));
+      return;
+    }
     // Rectangle de sélection
     if (rectRef.current && toolRef.current==='select') {
       rectRef.current.moved=true;
@@ -2271,6 +2394,21 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const onMouseUp = (e) => {
     midDragRef.current=null;
     dragRef.current=null;
+    // Finaliser déplacement sélection
+    if (movingSelRef.current) {
+      // Les states ont déjà été mis à jour en live dans onMouseMove
+      // On push l'historique avec les positions originales (avant le move)
+      const mv = movingSelRef.current;
+      historyRef.current = [...historyRef.current.slice(-29), {
+        segments: mv.origSegs, symbols: mv.origSyms,
+        cotes: mv.origCotes, surfaces: mv.origSurfs,
+      }];
+      futureRef.current = [];
+      setHistoryLen(historyRef.current.length);
+      setFutureLen(0);
+      movingSelRef.current = null;
+      return;
+    }
     // Finaliser rectangle de sélection
     const rs=rectSelRef.current;
     if (rectRef.current?.moved && rs) {
@@ -2300,7 +2438,18 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setRectSel(null);
   };
 
-  const onMouseLeave = () => { dragRef.current=null; midDragRef.current=null; };
+  const onMouseLeave = () => {
+    dragRef.current=null; midDragRef.current=null;
+    // Annuler le déplacement en cours → remettre les positions originales
+    if (movingSelRef.current) {
+      const mv = movingSelRef.current;
+      setSegments(mv.origSegs);
+      setSymbols(mv.origSyms);
+      setCotes(mv.origCotes);
+      setSurfaces(mv.origSurfs);
+      movingSelRef.current = null;
+    }
+  };
 
   const onWheel = (e) => {
     e.preventDefault();
@@ -2344,6 +2493,39 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   };
 
   // ── Save ────────────────────────────────────────────────────────────────────
+  // Import depuis un autre plan Supabase
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importablePlans, setImportablePlans] = useState([]);
+  const [importLoading, setImportLoading] = useState(false);
+
+  const openImportModal = async () => {
+    setImportLoading(true);
+    const {data} = await supabase.from('plans').select('id,name,thumbnail,updated_at').order('updated_at',{ascending:false});
+    setImportablePlans((data||[]).filter(p=>p.id!==plan.id));
+    setImportLoading(false);
+    setShowImportModal(true);
+  };
+
+  const importFromPlan = (srcPlan) => {
+    const d = srcPlan.data||{};
+    const offset = 0; // Import sans décalage (le plan se superpose)
+    const reId = arr => (arr||[]).map(x=>({...x, id:Date.now()+Math.random(),
+      ...(x.points?{points:x.points.map(p=>({...p}))}:{})}));
+    const newSegs  = reId(d.segments);
+    const newSyms  = reId(d.symbols);
+    const newCotes = reId(d.cotes);
+    const newSurfs = reId(d.surfaces);
+    pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+    setSegments(s=>[...s,...newSegs]);
+    setSymbols(s=>[...s,...newSyms]);
+    setCotes(s=>[...s,...newCotes]);
+    setSurfaces(s=>[...s,...newSurfs]);
+    // Sélectionner les éléments importés
+    setSelectedIds(new Set([...newSegs,...newSyms,...newCotes,...newSurfs].map(x=>x.id)));
+    setShowImportModal(false);
+    setTimeout(fitView, 50);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     const canvas=canvasRef.current;
@@ -2489,6 +2671,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           <span style={{fontSize:10,color:'#9aa5c0',marginRight:2}}>CALQUES</span>
           {[
             {k:'segments', icon:'╱', label:'Lignes'},
+            {k:'points',   icon:'·', label:'Points de relevé'},
             {k:'symbols',  icon:'🚪', label:'Symboles'},
             {k:'surfaces', icon:'⬡', label:'Surfaces'},
             {k:'cotes',    icon:'↔', label:'Cotes'},
@@ -2552,6 +2735,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         <button title="Rétablir Ctrl+Y" onClick={redo} disabled={futureLen===0}  style={{...btnStyle('r'),fontSize:16,opacity:futureLen===0?0.3:1}}>⟳</button>
         <button title="Aide raccourcis ?" onClick={()=>setShowHelp(h=>!h)} style={{...btnStyle('h'),fontSize:14,background:showHelp?'rgba(255,194,0,0.2)':'rgba(255,255,255,0.06)'}}>?</button>
 
+        {/* Import plan existant */}
+        <button onClick={openImportModal} title="Importer les éléments d'un autre plan" style={{
+          background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
+          borderRadius:8,padding:'6px 12px',color:'#a0b8ff',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+          ⎘ Importer plan
+        </button>
+
         {/* Export */}
         <button onClick={exportPNG} style={{background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.3)',
           borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PNG</button>
@@ -2572,7 +2762,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             ['Ctrl+Z / Ctrl+Y','Annuler / Rétablir'],['Suppr / Backspace','Supprimer sélection'],
             ['Échap','Désélectionner / Annuler'],['O','Toggle Ortho 0/45/90°'],
             ['S','Toggle Snap aux points'],['Ctrl+A','Tout sélectionner'],
-            ['Ctrl+D','Dupliquer sélection'],['Shift+clic','Ajouter à la sélection'],
+            ['Ctrl+C / Ctrl+V','Copier / Coller la sélection (V multiple = décalé)'],
+            ['Ctrl+D','Dupliquer immédiat'],['Glisser sélection','Déplacer les éléments sélectionnés'],
+            ['Shift+clic','Ajouter à la sélection'],
             ['Outil Ligne','Clic = point, re-clic = chaîne, Échap = fin'],
             ['Outil Cote','Clic 1er point → clic 2ème point = cote fixée'],
             ['Outil Surface','Clic = points du polygone, clic sur ⭕ 1er point = fermer'],
@@ -2683,6 +2875,51 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
                   borderRadius:5,padding:'6px 8px',color:'#e8eaf0',fontFamily:'inherit',fontSize:12,boxSizing:'border-box'}}/>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Modal import plan ── */}
+      {showImportModal&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:2000,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+          onClick={()=>setShowImportModal(false)}>
+          <div style={{background:'#1e2336',borderRadius:14,padding:24,width:500,maxHeight:'80vh',
+            overflow:'hidden',display:'flex',flexDirection:'column',border:'1px solid rgba(255,255,255,0.12)'}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div style={{fontSize:18,fontWeight:800,color:'#e8eaf0'}}>⎘ Importer depuis un plan</div>
+              <button onClick={()=>setShowImportModal(false)} style={{background:'transparent',border:'none',color:'#5b6a8a',fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{fontSize:13,color:'#5b6a8a',marginBottom:16}}>
+              Les éléments du plan sélectionné seront fusionnés dans le plan actuel. Ils seront sélectionnés après import, tu pourras les déplacer.
+            </div>
+            {importLoading&&<div style={{color:'#5b6a8a',textAlign:'center',padding:32}}>Chargement…</div>}
+            <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:10}}>
+              {importablePlans.map(p=>(
+                <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',
+                  background:'rgba(255,255,255,0.04)',borderRadius:10,border:'1px solid rgba(255,255,255,0.08)',
+                  cursor:'pointer',transition:'background .15s'}}
+                  onMouseEnter={e=>e.currentTarget.style.background='rgba(91,138,245,0.15)'}
+                  onMouseLeave={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'}
+                  onClick={()=>importFromPlan(p)}>
+                  {p.thumbnail
+                    ?<img src={p.thumbnail} style={{width:64,height:48,objectFit:'contain',borderRadius:6,background:'#12151f',flexShrink:0}}/>
+                    :<div style={{width:64,height:48,background:'#12151f',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📐</div>
+                  }
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700,color:'#e8eaf0',marginBottom:2}}>{p.name}</div>
+                    <div style={{fontSize:11,color:'#5b6a8a'}}>
+                      Modifié {new Date(p.updated_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
+                    </div>
+                  </div>
+                  <div style={{color:'#a0b8ff',fontSize:13,fontWeight:700,flexShrink:0}}>Importer →</div>
+                </div>
+              ))}
+              {!importLoading&&importablePlans.length===0&&(
+                <div style={{color:'#5b6a8a',textAlign:'center',padding:32}}>Aucun autre plan disponible.</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -2884,10 +3121,38 @@ function PagePlans({T, chantiers}) {
                 </div>
 
                 <div style={{padding:'10px 16px',borderTop:`1px solid ${T.sectionDivider}`,
-                  display:'flex',gap:8,justifyContent:'flex-end'}}>
+                  display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}}>
                   <button onClick={()=>setEditingPlan(plan)} style={{background:T.accent,color:'#fff',
                     border:'none',borderRadius:7,padding:'6px 16px',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
                     Ouvrir
+                  </button>
+                  <button onClick={async()=>{
+                    // Crée un nouveau plan avec les données de celui-ci
+                    const nom=prompt(`Nom du nouveau plan (copie de "${plan.name}") :`, `${plan.name} — copie`);
+                    if(!nom?.trim()) return;
+                    // Copie des données avec nouveaux IDs
+                    const srcData=plan.data||{};
+                    const reId=arr=>(arr||[]).map(x=>({...x,id:Date.now()+Math.random(),
+                      ...(x.points?{points:x.points.map(p=>({...p}))}:{})}));
+                    const newData={
+                      segments: reId(srcData.segments),
+                      symbols:  reId(srcData.symbols),
+                      cotes:    reId(srcData.cotes),
+                      surfaces: reId(srcData.surfaces),
+                      viewport: srcData.viewport,
+                      threshold: srcData.threshold,
+                      planRotation: srcData.planRotation||0,
+                    };
+                    const{data:created}=await supabase.from('plans').insert({
+                      name:nom.trim(), chantier_id:'',
+                      data:newData, thumbnail:plan.thumbnail||'',
+                    }).select().single();
+                    if(created){ setPlans(p=>[created,...p]); setEditingPlan(created); }
+                  }} title="Dupliquer ce plan (avant/après, copie, variante…)" style={{
+                    background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
+                    borderRadius:7,padding:'6px 12px',color:'#a0b8ff',
+                    fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>
+                    ⎘ Dupliquer
                   </button>
                   <button onClick={()=>deletePlan(plan.id)} style={{background:'transparent',
                     border:'1px solid rgba(224,92,92,0.3)',borderRadius:7,padding:'6px 12px',
