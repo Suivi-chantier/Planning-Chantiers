@@ -1421,102 +1421,146 @@ class PlanEditorErrorBoundary extends React.Component {
   }
 }
 
+// ─── COULEURS LIGNES ──────────────────────────────────────────────────────────
+const LINE_COLORS = [
+  { label:'Blanc',    value:'#e8eaf0' },
+  { label:'Bleu',     value:'#5b8af5' },
+  { label:'Rouge',    value:'#e05c5c' },
+  { label:'Vert',     value:'#50c878' },
+  { label:'Jaune',    value:'#FFC200' },
+  { label:'Orange',   value:'#f5a623' },
+  { label:'Violet',   value:'#b060ff' },
+  { label:'Cyan',     value:'#40d0e0' },
+  { label:'Rose',     value:'#ff80c0' },
+  { label:'Gris',     value:'#7090c0' },
+];
+
 // ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
 function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const canvasRef = useRef(null);
-  const [segments, setSegments] = useState(plan.data?.segments || []);
-  const [symbols, setSymbols]   = useState(plan.data?.symbols || []);
+  const [segments,  setSegments]  = useState(plan.data?.segments || []);
+  const [symbols,   setSymbols]   = useState(plan.data?.symbols  || []);
+  const [cotes,     setCotes]     = useState(plan.data?.cotes    || []);
 
-  // Historique undo/redo — stocké dans des refs pour éviter les setState imbriqués
-  const historyRef = useRef([]);   // pile des états passés
-  const futureRef  = useRef([]);   // pile des états annulés (redo)
-  const [historyLen, setHistoryLen] = useState(0); // juste pour forcer un re-render des boutons
+  // Historique undo/redo
+  const historyRef = useRef([]);
+  const futureRef  = useRef([]);
+  const [historyLen, setHistoryLen] = useState(0);
   const [futureLen,  setFutureLen]  = useState(0);
 
-  // Enregistre l'état courant AVANT une modification
-  const pushHistory = useCallback((segs, syms) => {
-    historyRef.current = [...historyRef.current.slice(-29), { segments: segs, symbols: syms }];
+  const pushHistory = useCallback((segs, syms, cots) => {
+    historyRef.current = [...historyRef.current.slice(-29), { segments:segs, symbols:syms, cotes:cots }];
     futureRef.current  = [];
     setHistoryLen(historyRef.current.length);
     setFutureLen(0);
   }, []);
 
   const undo = useCallback(() => {
-    if (historyRef.current.length === 0) return;
-    const prev  = historyRef.current[historyRef.current.length - 1];
-    // Sauvegarde état actuel dans future (on a besoin des valeurs courantes ici)
-    // On les récupère via les setters fonctionnels pour éviter la dépendance
-    setSegments(curSegs => {
-      setSymbols(curSyms => {
-        futureRef.current = [{ segments: curSegs, symbols: curSyms }, ...futureRef.current.slice(0, 29)];
-        setFutureLen(futureRef.current.length);
-        return prev.symbols;
-      });
-      return prev.segments;
-    });
-    historyRef.current = historyRef.current.slice(0, -1);
+    if (!historyRef.current.length) return;
+    const prev = historyRef.current[historyRef.current.length-1];
+    setSegments(cur => { setSymbols(cs => { setCotes(cc => {
+      futureRef.current = [{ segments:cur, symbols:cs, cotes:cc }, ...futureRef.current.slice(0,29)];
+      setFutureLen(futureRef.current.length);
+      return prev.cotes;
+    }); return prev.symbols; }); return prev.segments; });
+    historyRef.current = historyRef.current.slice(0,-1);
     setHistoryLen(historyRef.current.length);
   }, []);
 
   const redo = useCallback(() => {
-    if (futureRef.current.length === 0) return;
+    if (!futureRef.current.length) return;
     const next = futureRef.current[0];
-    setSegments(curSegs => {
-      setSymbols(curSyms => {
-        historyRef.current = [...historyRef.current, { segments: curSegs, symbols: curSyms }];
-        setHistoryLen(historyRef.current.length);
-        return next.symbols;
-      });
-      return next.segments;
-    });
+    setSegments(cur => { setSymbols(cs => { setCotes(cc => {
+      historyRef.current = [...historyRef.current, { segments:cur, symbols:cs, cotes:cc }];
+      setHistoryLen(historyRef.current.length);
+      return next.cotes;
+    }); return next.symbols; }); return next.segments; });
     futureRef.current = futureRef.current.slice(1);
     setFutureLen(futureRef.current.length);
   }, []);
-  const [vp, setVp]             = useState(plan.data?.viewport || {x:0,y:0,scale:1});
-  const [tool, setTool]         = useState('pan');
-  const [lineStart, setLineStart] = useState(null);
-  const [mousePos, setMousePos]   = useState(null);
-  const [saving, setSaving]       = useState(false);
+
+  const [vp, setVp] = useState(plan.data?.viewport || {x:0,y:0,scale:1});
+  const [tool, setTool]             = useState('pan');
+  const [lineColor, setLineColor]   = useState('#e8eaf0');
+  const [lineStart, setLineStart]   = useState(null);
+  const [mousePos, setMousePos]     = useState(null);
+  const [saving, setSaving]         = useState(false);
   const [measurePts, setMeasurePts] = useState([]);
   const [measureDist, setMeasureDist] = useState(null);
   const [threshold, setThreshold]   = useState(plan.data?.threshold || 0.5);
   const [showThreshold, setShowThreshold] = useState(false);
+  const [showHelp, setShowHelp]     = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [orthoMode, setOrthoMode]   = useState(false);
+  // Sélection par rectangle
+  const [rectSel, setRectSel]       = useState(null); // {x1,y1,x2,y2} en coords canvas
 
-  // Derived
-  const vpRef = useRef(vp);
-  vpRef.current = vp;
-
-  // Canvas coord helpers
-  const toCanvas = (wx,wy) => ({
-    cx: (wx - vpRef.current.x) * vpRef.current.scale,
-    cy: (wy - vpRef.current.y) * vpRef.current.scale,
-  });
-  const toWorld = (cx,cy) => ({
-    wx: cx / vpRef.current.scale + vpRef.current.x,
-    wy: cy / vpRef.current.scale + vpRef.current.y,
-  });
-
-  // ── Toutes les données de rendu dans des refs pour éviter les dépendances circulaires ──
+  // Refs pour render stable
+  const vpRef         = useRef(vp);
   const segmentsRef   = useRef(segments);
   const symbolsRef    = useRef(symbols);
+  const cotesRef      = useRef(cotes);
   const toolRef       = useRef(tool);
   const lineStartRef  = useRef(lineStart);
   const mousePosRef   = useRef(mousePos);
   const selectedRef   = useRef(selectedIds);
   const measurePtsRef = useRef(measurePts);
   const measureDistRef= useRef(measureDist);
+  const snapRef       = useRef(snapEnabled);
+  const orthoRef      = useRef(orthoMode);
+  const rectSelRef    = useRef(rectSel);
+  const lineColorRef  = useRef(lineColor);
 
-  segmentsRef.current    = segments;
-  symbolsRef.current     = symbols;
-  toolRef.current        = tool;
-  lineStartRef.current   = lineStart;
-  mousePosRef.current    = mousePos;
-  selectedRef.current    = selectedIds;
-  measurePtsRef.current  = measurePts;
-  measureDistRef.current = measureDist;
+  vpRef.current         = vp;
+  segmentsRef.current   = segments;
+  symbolsRef.current    = symbols;
+  cotesRef.current      = cotes;
+  toolRef.current       = tool;
+  lineStartRef.current  = lineStart;
+  mousePosRef.current   = mousePos;
+  selectedRef.current   = selectedIds;
+  measurePtsRef.current = measurePts;
+  measureDistRef.current= measureDist;
+  snapRef.current       = snapEnabled;
+  orthoRef.current      = orthoMode;
+  rectSelRef.current    = rectSel;
+  lineColorRef.current  = lineColor;
 
-  // Render — stable, lit tout via refs, jamais recréée
+  // ── Helpers coords ──────────────────────────────────────────────────────────
+  const toWorld = (cx, cy) => ({
+    wx: cx / vpRef.current.scale + vpRef.current.x,
+    wy: cy / vpRef.current.scale + vpRef.current.y,
+  });
+
+  // Snap au point le plus proche
+  const snapToPoint = useCallback((wx, wy) => {
+    if (!snapRef.current) return { wx, wy, snapped: false };
+    const snapDist = 8 / vpRef.current.scale;
+    let best = null, bestD = snapDist;
+    segmentsRef.current.filter(s=>!s.deleted).forEach(s => {
+      [[s.x1,s.y1],[s.x2,s.y2]].forEach(([px,py]) => {
+        const d = Math.sqrt((wx-px)**2+(wy-py)**2);
+        if (d < bestD) { bestD=d; best={wx:px,wy:py}; }
+      });
+    });
+    return best ? { ...best, snapped:true } : { wx, wy, snapped:false };
+  }, []);
+
+  // Ortho : contraint à 0/45/90°
+  const applyOrtho = (startX, startY, wx, wy) => {
+    if (!orthoRef.current || !startX) return {wx,wy};
+    const dx = wx-startX, dy = wy-startY;
+    const angle = Math.atan2(dy,dx) * 180/Math.PI;
+    const snap45 = Math.round(angle/45)*45;
+    const len = Math.sqrt(dx*dx+dy*dy);
+    return {
+      wx: startX + len*Math.cos(snap45*Math.PI/180),
+      wy: startY + len*Math.sin(snap45*Math.PI/180),
+    };
+  };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   const render = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -1529,37 +1573,87 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       ctx.fillRect(0,0,W,H);
 
       const vp = vpRef.current;
+      const toC = (wx,wy) => ({ cx:(wx-vp.x)*vp.scale, cy:(wy-vp.y)*vp.scale });
 
-      // Grid
-      const gridSize = Math.max(0.1, 1 / vp.scale);
+      // Grille
+      const gridSize = Math.max(0.1, 1/vp.scale);
       const gStep = gridSize * vp.scale;
-      if (gStep > 20 && isFinite(gStep)) {
+      if (gStep > 15 && isFinite(gStep)) {
         ctx.strokeStyle = 'rgba(255,255,255,0.04)';
         ctx.lineWidth = 0.5;
         const ox = (-vp.x % gridSize) * vp.scale;
         const oy = (-vp.y % gridSize) * vp.scale;
-        for (let x=ox; x<W; x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
-        for (let y=oy; y<H; y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
+        for (let x=ox;x<W;x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
+        for (let y=oy;y<H;y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
       }
 
       // Segments
       segmentsRef.current.forEach(s => {
         if (s.deleted) return;
-        const x1=(s.x1-vp.x)*vp.scale, y1=(s.y1-vp.y)*vp.scale;
-        const x2=(s.x2-vp.x)*vp.scale, y2=(s.y2-vp.y)*vp.scale;
+        const {cx:x1,cy:y1}=toC(s.x1,s.y1);
+        const {cx:x2,cy:y2}=toC(s.x2,s.y2);
         if (!isFinite(x1)||!isFinite(y1)||!isFinite(x2)||!isFinite(y2)) return;
-        const isSelected = selectedRef.current.has(s.id);
-        ctx.strokeStyle = isSelected ? '#f5a623' : (s.color || '#7090c0');
-        ctx.lineWidth = isSelected ? 3 : (s.user ? 2 : 1.5);
+        const sel = selectedRef.current.has(s.id);
+        ctx.strokeStyle = sel ? '#f5a623' : (s.color||'#7090c0');
+        ctx.lineWidth   = sel ? 3 : (s.user ? 2 : 1.5);
+        if (sel) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=6; }
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        ctx.shadowBlur=0;
       });
 
-      // Symbols
+      // Cotes
+      cotesRef.current.forEach(c => {
+        if (c.deleted) return;
+        const {cx:x1,cy:y1}=toC(c.x1,c.y1);
+        const {cx:x2,cy:y2}=toC(c.x2,c.y2);
+        if (!isFinite(x1)||!isFinite(y1)||!isFinite(x2)||!isFinite(y2)) return;
+        const sel = selectedRef.current.has(c.id);
+        const dist = Math.sqrt((c.x2-c.x1)**2+(c.y2-c.y1)**2);
+        const label = dist >= 1 ? `${dist.toFixed(2)} m` : `${(dist*100).toFixed(0)} cm`;
+        const mx=(x1+x2)/2, my=(y1+y2)/2;
+        const angle=Math.atan2(y2-y1,x2-x1);
+        const perp=angle-Math.PI/2;
+        const offset=18;
+        const ox=Math.cos(perp)*offset, oy=Math.sin(perp)*offset;
+        ctx.strokeStyle = sel ? '#f5a623' : '#f5d08a';
+        ctx.lineWidth = 1.5;
+        // Ligne principale
+        ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy); ctx.stroke();
+        // Flèches
+        const aw=10;
+        [0,1].forEach(end => {
+          const [bx,by] = end===0 ? [x1+ox,y1+oy] : [x2+ox,y2+oy];
+          const dir = end===0 ? 1 : -1;
+          ctx.beginPath();
+          ctx.moveTo(bx,by);
+          ctx.lineTo(bx+Math.cos(angle)*aw*dir, by+Math.sin(angle)*aw*dir);
+          ctx.stroke();
+        });
+        // Traits de rappel
+        [[x1,y1],[x2,y2]].forEach(([px,py]) => {
+          ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+ox*1.2,py+oy*1.2); ctx.stroke();
+        });
+        // Texte
+        ctx.save();
+        ctx.translate(mx+ox, my+oy-8);
+        ctx.rotate(Math.abs(angle) > Math.PI/2 ? angle+Math.PI : angle);
+        ctx.fillStyle = sel ? '#f5a623' : '#f5d08a';
+        ctx.font = `bold ${Math.max(10, Math.min(13, vp.scale*0.5))}px sans-serif`;
+        ctx.textAlign='center';
+        ctx.fillStyle='#12151f';
+        const tw = ctx.measureText(label).width + 8;
+        ctx.fillRect(-tw/2,-12,tw,14);
+        ctx.fillStyle = sel ? '#f5a623' : '#f5d08a';
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+      });
+
+      // Symboles
       symbolsRef.current.forEach(sym => {
         if (sym.deleted) return;
-        const cx=(sym.x-vp.x)*vp.scale, cy=(sym.y-vp.y)*vp.scale;
+        const {cx,cy}=toC(sym.x,sym.y);
         if (!isFinite(cx)||!isFinite(cy)) return;
-        const sz = Math.max(12, vp.scale * 0.6);
+        const sz = Math.max(12, vp.scale*0.6);
         ctx.save();
         ctx.translate(cx,cy);
         ctx.rotate((sym.angle||0)*Math.PI/180);
@@ -1573,12 +1667,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.beginPath(); ctx.moveTo(-sz/2,0); ctx.lineTo(sz/2,0); ctx.stroke();
         } else if (sym.type==='stair') {
           ctx.strokeStyle='#80ff80'; ctx.lineWidth=1.5;
-          for (let k=0;k<4;k++) { ctx.strokeRect(-sz/2+k*sz/4,-sz/2,sz/4,sz); }
+          for (let k=0;k<4;k++) ctx.strokeRect(-sz/2+k*sz/4,-sz/2,sz/4,sz);
         } else if (sym.type==='wc') {
           ctx.strokeStyle='#a0c0ff'; ctx.lineWidth=1.5;
           ctx.beginPath(); ctx.ellipse(0,0,sz/2,sz/3,0,0,Math.PI*2); ctx.stroke();
         }
-        if (sym.text) {
+        if (sym.text && sym.type!=='text') {
           ctx.fillStyle='#e8eaf0'; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
           ctx.textAlign='center'; ctx.fillText(sym.text,0,sz+12);
         }
@@ -1589,378 +1683,583 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.restore();
       });
 
-      // Ligne en cours
-      const ls = lineStartRef.current, mp = mousePosRef.current;
+      // Ligne en cours + snap indicator
+      const ls=lineStartRef.current, mp=mousePosRef.current;
       if (toolRef.current==='line' && ls && mp) {
-        const x1=(ls.x-vp.x)*vp.scale, y1=(ls.y-vp.y)*vp.scale;
-        ctx.strokeStyle='#5b8af5'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mp.cx,mp.cy); ctx.stroke();
+        let {wx,wy}=toWorld(mp.cx,mp.cy);
+        const ortho=applyOrtho(ls.x,ls.y,wx,wy);
+        wx=ortho.wx; wy=ortho.wy;
+        const snapped=snapToPoint(wx,wy);
+        const ex=(snapped.wx-vp.x)*vp.scale, ey=(snapped.wy-vp.y)*vp.scale;
+        const sx=(ls.x-vp.x)*vp.scale, sy=(ls.y-vp.y)*vp.scale;
+        ctx.strokeStyle=lineColorRef.current; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey); ctx.stroke();
         ctx.setLineDash([]);
+        // Curseur snap
+        if (snapped.snapped) {
+          ctx.strokeStyle='#50c878'; ctx.lineWidth=2;
+          ctx.beginPath(); ctx.arc(ex,ey,7,0,Math.PI*2); ctx.stroke();
+        }
+        // Point de départ
+        ctx.fillStyle='#5b8af5';
+        ctx.beginPath(); ctx.arc(sx,sy,4,0,Math.PI*2); ctx.fill();
       }
 
-      // Mesure
-      const mpts = measurePtsRef.current, mdist = measureDistRef.current;
-      if (mpts.length===1 && mp) {
-        const x1=(mpts[0].x-vp.x)*vp.scale, y1=(mpts[0].y-vp.y)*vp.scale;
-        ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
+      // Outil cote en cours
+      const mpts=measurePtsRef.current;
+      if (toolRef.current==='cote' && mpts.length===1 && mp) {
+        const {cx:x1,cy:y1}=(p=>{return{cx:(p.x-vp.x)*vp.scale,cy:(p.y-vp.y)*vp.scale};})(mpts[0]);
+        ctx.strokeStyle='#f5d08a'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(mp.cx,mp.cy); ctx.stroke();
         ctx.setLineDash([]);
-        const wx=mp.cx/vp.scale+vp.x, wy=mp.cy/vp.scale+vp.y;
+        const {wx,wy}=toWorld(mp.cx,mp.cy);
         const d=Math.sqrt((wx-mpts[0].x)**2+(wy-mpts[0].y)**2);
-        ctx.fillStyle='#f5a623'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
-        ctx.fillText(`${d.toFixed(2)} m`, (x1+mp.cx)/2, (y1+mp.cy)/2-8);
+        ctx.fillStyle='#f5d08a'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+        ctx.fillText(d>=1?`${d.toFixed(2)} m`:`${(d*100).toFixed(0)} cm`, (x1+mp.cx)/2, (y1+mp.cy)/2-10);
       }
-      if (mdist && mpts.length>=2) {
-        const x1=(mpts[0].x-vp.x)*vp.scale, y1=(mpts[0].y-vp.y)*vp.scale;
-        const x2=(mpts[1].x-vp.x)*vp.scale, y2=(mpts[1].y-vp.y)*vp.scale;
-        ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-        ctx.fillStyle='#f5a623'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
-        ctx.fillText(`${mdist.toFixed(2)} m`, (x1+x2)/2, (y1+y2)/2-10);
-      }
-    } catch(e) {
-      console.error('Render error:', e);
-    }
-  }, []); // ← stable, pas de dépendances — tout passe par les refs
 
-  // Déclenche un rendu à chaque changement d'état
+      // Rectangle de sélection
+      const rs=rectSelRef.current;
+      if (rs) {
+        const rx=Math.min(rs.x1,rs.x2), ry=Math.min(rs.y1,rs.y2);
+        const rw=Math.abs(rs.x2-rs.x1), rh=Math.abs(rs.y2-rs.y1);
+        ctx.strokeStyle='#5b8af5'; ctx.lineWidth=1.5; ctx.setLineDash([5,3]);
+        ctx.fillStyle='rgba(91,138,245,0.08)';
+        ctx.fillRect(rx,ry,rw,rh);
+        ctx.strokeRect(rx,ry,rw,rh);
+        ctx.setLineDash([]);
+      }
+
+      // Indicateur ortho
+      if (orthoRef.current) {
+        ctx.fillStyle='rgba(80,200,120,0.85)';
+        ctx.font='bold 11px sans-serif';
+        ctx.textAlign='left';
+        ctx.fillText('ORTHO', 10, H-10);
+      }
+      // Indicateur snap
+      if (snapRef.current) {
+        ctx.fillStyle='rgba(91,138,245,0.85)';
+        ctx.font='bold 11px sans-serif';
+        ctx.textAlign='left';
+        ctx.fillText('SNAP', orthoRef.current ? 70 : 10, H-10);
+      }
+
+    } catch(e) { console.error('Render error:',e); }
+  }, []);
+
   useEffect(() => { render(); });
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
+      if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
       if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
-      if (((e.ctrlKey||e.metaKey) && e.key==='y') || ((e.ctrlKey||e.metaKey) && e.shiftKey && e.key==='z')) { e.preventDefault(); redo(); }
+      if (((e.ctrlKey||e.metaKey)&&e.key==='y')||((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key==='z')) { e.preventDefault(); redo(); }
+      if (e.key==='Delete'||e.key==='Backspace') {
+        if (selectedRef.current.size>0) {
+          pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+          const ids=selectedRef.current;
+          setSegments(s=>s.map(x=>ids.has(x.id)?{...x,deleted:true}:x));
+          setSymbols(s=>s.map(x=>ids.has(x.id)?{...x,deleted:true}:x));
+          setCotes(s=>s.map(x=>ids.has(x.id)?{...x,deleted:true}:x));
+          setSelectedIds(new Set());
+        }
+      }
+      if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); }
+      if (e.key==='o'||e.key==='O') setOrthoMode(v=>!v);
+      if (e.key==='s'||e.key==='S') setSnapEnabled(v=>!v);
+      if ((e.ctrlKey||e.metaKey)&&e.key==='d') {
+        e.preventDefault();
+        if (selectedRef.current.size>0) {
+          const offset=20/vpRef.current.scale;
+          const ids=selectedRef.current;
+          const newSegs=segmentsRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
+          const newSyms=symbolsRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x:s.x+offset,y:s.y+offset,id:Date.now()+Math.random()}));
+          const newCotes=cotesRef.current.filter(s=>ids.has(s.id)&&!s.deleted).map(s=>({...s,x1:s.x1+offset,y1:s.y1+offset,x2:s.x2+offset,y2:s.y2+offset,id:Date.now()+Math.random()}));
+          pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
+          setSegments(s=>[...s,...newSegs]);
+          setSymbols(s=>[...s,...newSyms]);
+          setCotes(s=>[...s,...newCotes]);
+          setSelectedIds(new Set([...newSegs,...newSyms,...newCotes].map(x=>x.id)));
+        }
+      }
+      if (e.key==='a'&&(e.ctrlKey||e.metaKey)) {
+        e.preventDefault();
+        const allIds=new Set([
+          ...segmentsRef.current.filter(s=>!s.deleted).map(s=>s.id),
+          ...symbolsRef.current.filter(s=>!s.deleted).map(s=>s.id),
+          ...cotesRef.current.filter(s=>!s.deleted).map(s=>s.id),
+        ]);
+        setSelectedIds(allIds);
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Resize canvas — debounce pour éviter les boucles ResizeObserver
+  // Resize canvas avec debounce
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const container = canvas.parentElement; if (!container) return;
     let rafId = null;
-
     const resize = () => {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const w = container.clientWidth;
-        const h = container.clientHeight;
-        if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
-          canvas.width  = w;
-          canvas.height = h;
-          render();
+        const w=container.clientWidth, h=container.clientHeight;
+        if (w>0&&h>0&&(canvas.width!==w||canvas.height!==h)) {
+          canvas.width=w; canvas.height=h; render();
         }
       });
     };
-
     const observer = new ResizeObserver(resize);
     observer.observe(container);
     resize();
-    return () => { observer.disconnect(); if (rafId) cancelAnimationFrame(rafId); };
+    return () => { observer.disconnect(); if(rafId) cancelAnimationFrame(rafId); };
   }, []);
 
   // Fit to content
   const fitView = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
-    const segs = segmentsRef.current.filter(s=>!s.deleted);
-    const syms = symbolsRef.current.filter(s=>!s.deleted);
+    const segs  = segmentsRef.current.filter(s=>!s.deleted);
+    const syms  = symbolsRef.current.filter(s=>!s.deleted);
     const bounds = getBounds(segs, syms);
-    if (bounds.w===0 && bounds.h===0) return;
-    const pad = 0.1;
-    const scaleX = canvas.width  / (bounds.w * (1+pad*2));
-    const scaleY = canvas.height / (bounds.h * (1+pad*2));
-    const scale = Math.min(scaleX, scaleY);
-    if (!isFinite(scale) || scale <= 0) return;
-    const x = bounds.minX - bounds.w*pad;
-    const y = bounds.minY - bounds.h*pad;
-    setVp({x, y, scale});
+    if (bounds.w===0&&bounds.h===0) return;
+    const pad=0.1;
+    const scaleX=canvas.width/(bounds.w*(1+pad*2));
+    const scaleY=canvas.height/(bounds.h*(1+pad*2));
+    const scale=Math.min(scaleX,scaleY);
+    if (!isFinite(scale)||scale<=0) return;
+    setVp({ x:bounds.minX-bounds.w*pad, y:bounds.minY-bounds.h*pad, scale });
   }, []);
 
   useEffect(() => { if (segments.length>0) fitView(); }, []);
 
-  // Mouse/touch events
-  const dragRef = useRef(null);
+  // ── Mouse events ────────────────────────────────────────────────────────────
+  const dragRef    = useRef(null); // pan drag
+  const rectRef    = useRef(null); // rectangle selection start (canvas coords)
+  const midDragRef = useRef(null); // clic molette pan
 
   const getEventPos = (e) => {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { cx: clientX-rect.left, cy: clientY-rect.top };
+    const canvas=canvasRef.current;
+    const rect=canvas.getBoundingClientRect();
+    const clientX=e.touches?e.touches[0].clientX:e.clientX;
+    const clientY=e.touches?e.touches[0].clientY:e.clientY;
+    return { cx:clientX-rect.left, cy:clientY-rect.top };
   };
 
   const onMouseDown = (e) => {
-    const pos = getEventPos(e);
-    const {wx,wy} = toWorld(pos.cx, pos.cy);
+    // Clic molette → pan dans tous les modes
+    if (e.button===1) {
+      e.preventDefault();
+      const pos=getEventPos(e);
+      midDragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:vp.x,startVy:vp.y};
+      return;
+    }
+    const pos=getEventPos(e);
+    const {wx,wy}=toWorld(pos.cx,pos.cy);
+
     if (tool==='pan') {
-      dragRef.current = {startCx:pos.cx, startCy:pos.cy, startVx:vp.x, startVy:vp.y};
-    } else if (tool==='line') {
-      if (!lineStart) {
-        setLineStart({x:wx, y:wy});
-      } else {
-        const newSeg = {x1:lineStart.x,y1:lineStart.y,x2:wx,y2:wy,color:'#5b8af5',layer:'user',user:true,id:Date.now()+Math.random()};
-        pushHistory(segments, symbols);
-        setSegments(s=>[...s,newSeg]);
-        setLineStart(null);
-      }
+      dragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:vp.x,startVy:vp.y};
+
     } else if (tool==='select') {
-      // Find nearest segment
-      const hitThresh = 8 / vp.scale;
-      let bestId=null, bestDist=Infinity;
-      segments.filter(s=>!s.deleted).forEach(s => {
-        // Distance from point to segment
-        const dx=s.x2-s.x1, dy=s.y2-s.y1;
-        const len2=dx*dx+dy*dy;
-        if (len2===0) return;
+      // Si on clique sans glisser → désélection. Le rectangle se gère dans onMouseMove
+      rectRef.current={ cx:pos.cx, cy:pos.cy, moved:false };
+      // Clic simple sur un élément → toggle sélection
+      const hitThresh=10/vp.scale;
+      let hit=null;
+      // Cherche cote
+      for (const c of cotesRef.current.filter(x=>!x.deleted)) {
+        const dx=c.x2-c.x1,dy=c.y2-c.y1,len2=dx*dx+dy*dy;
+        if (!len2) continue;
+        const t=Math.max(0,Math.min(1,((wx-c.x1)*dx+(wy-c.y1)*dy)/len2));
+        const px=c.x1+t*dx-wx,py=c.y1+t*dy-wy;
+        if (Math.sqrt(px*px+py*py)<hitThresh) { hit=c.id; break; }
+      }
+      // Cherche segment
+      if (!hit) for (const s of segmentsRef.current.filter(x=>!x.deleted)) {
+        const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
+        if (!len2) continue;
         const t=Math.max(0,Math.min(1,((wx-s.x1)*dx+(wy-s.y1)*dy)/len2));
-        const px=s.x1+t*dx-wx, py=s.y1+t*dy-wy;
+        const px=s.x1+t*dx-wx,py=s.y1+t*dy-wy;
+        if (Math.sqrt(px*px+py*py)<hitThresh) { hit=s.id; break; }
+      }
+      if (hit) {
+        setSelectedIds(prev => {
+          const n=new Set(prev);
+          if (e.shiftKey) { n.has(hit)?n.delete(hit):n.add(hit); }
+          else { n.clear(); n.add(hit); }
+          return n;
+        });
+        rectRef.current=null;
+      }
+
+    } else if (tool==='delete') {
+      // Suppression directe au clic
+      const hitThresh=10/vp.scale;
+      let bestId=null,bestDist=Infinity;
+      [...segmentsRef.current.filter(s=>!s.deleted),...cotesRef.current.filter(s=>!s.deleted)].forEach(s=>{
+        const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
+        if(!len2) return;
+        const t=Math.max(0,Math.min(1,((wx-s.x1)*dx+(wy-s.y1)*dy)/len2));
+        const px=s.x1+t*dx-wx,py=s.y1+t*dy-wy;
         const d=Math.sqrt(px*px+py*py);
-        if (d<hitThresh && d<bestDist) { bestDist=d; bestId=s.id; }
+        if(d<hitThresh&&d<bestDist){bestDist=d;bestId=s.id;}
       });
-      if (bestId) {
-        pushHistory(segments, symbols);
-        setSegments(s=>s.map(seg=>seg.id===bestId?{...seg,deleted:true}:seg));
-        setSelectedIds(new Set());
+      if(bestId){
+        pushHistory(segments,symbols,cotes);
+        setSegments(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
+        setCotes(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
       }
-    } else if (['door','window','stair','wc'].includes(tool)) {
-      const sym = {x:wx,y:wy,type:tool,angle:0,id:Date.now()+Math.random()};
-      if (tool==='door'||tool==='window') sym.angle=0;
-      pushHistory(segments, symbols);
-      setSymbols(s=>[...s,sym]);
-    } else if (tool==='text') {
-      const txt=prompt('Texte :');
-      if (txt?.trim()) {
-        pushHistory(segments, symbols);
-        setSymbols(s=>[...s,{x:wx,y:wy,type:'text',text:txt.trim(),id:Date.now()+Math.random()}]);
+
+    } else if (tool==='line') {
+      let lx=wx,ly=wy;
+      if (lineStartRef.current) {
+        const o=applyOrtho(lineStartRef.current.x,lineStartRef.current.y,lx,ly);
+        lx=o.wx; ly=o.wy;
       }
-    } else if (tool==='measure') {
-      if (measurePts.length===0) {
-        setMeasurePts([{x:wx,y:wy}]);
+      const s=snapToPoint(lx,ly);
+      lx=s.wx; ly=s.wy;
+      if (!lineStartRef.current) {
+        setLineStart({x:lx,y:ly});
+      } else {
+        const newSeg={x1:lineStartRef.current.x,y1:lineStartRef.current.y,x2:lx,y2:ly,
+          color:lineColorRef.current,layer:'user',user:true,id:Date.now()+Math.random()};
+        pushHistory(segments,symbols,cotes);
+        setSegments(s=>[...s,newSeg]);
+        // Chaîner : le point d'arrivée devient le départ
+        setLineStart({x:lx,y:ly});
+      }
+
+    } else if (tool==='cote') {
+      const s=snapToPoint(wx,wy);
+      if (measurePtsRef.current.length===0) {
+        setMeasurePts([{x:s.wx,y:s.wy}]);
         setMeasureDist(null);
       } else {
-        const d=Math.sqrt((wx-measurePts[0].x)**2+(wy-measurePts[0].y)**2);
-        setMeasurePts([measurePts[0],{x:wx,y:wy}]);
-        setMeasureDist(d);
+        const es=snapToPoint(wx,wy);
+        const newCote={x1:measurePtsRef.current[0].x,y1:measurePtsRef.current[0].y,
+          x2:es.wx,y2:es.wy,id:Date.now()+Math.random()};
+        pushHistory(segments,symbols,cotes);
+        setCotes(c=>[...c,newCote]);
+        setMeasurePts([]);
+        setMeasureDist(null);
+      }
+
+    } else if (['door','window','stair','wc'].includes(tool)) {
+      pushHistory(segments,symbols,cotes);
+      setSymbols(s=>[...s,{x:wx,y:wy,type:tool,angle:0,id:Date.now()+Math.random()}]);
+
+    } else if (tool==='text') {
+      const txt=prompt('Texte à afficher sur le plan :');
+      if (txt?.trim()) {
+        pushHistory(segments,symbols,cotes);
+        setSymbols(s=>[...s,{x:wx,y:wy,type:'text',text:txt.trim(),id:Date.now()+Math.random()}]);
       }
     }
   };
 
   const onMouseMove = (e) => {
-    const pos = getEventPos(e);
+    const pos=getEventPos(e);
     setMousePos(pos);
+
+    // Pan molette
+    if (midDragRef.current) {
+      const dx=(pos.cx-midDragRef.current.startCx)/vp.scale;
+      const dy=(pos.cy-midDragRef.current.startCy)/vp.scale;
+      setVp(v=>({...v,x:midDragRef.current.startVx-dx,y:midDragRef.current.startVy-dy}));
+      return;
+    }
+    // Pan normal
     if (dragRef.current && tool==='pan') {
       const dx=(pos.cx-dragRef.current.startCx)/vp.scale;
       const dy=(pos.cy-dragRef.current.startCy)/vp.scale;
-      setVp(v=>({...v, x:dragRef.current.startVx-dx, y:dragRef.current.startVy-dy}));
+      setVp(v=>({...v,x:dragRef.current.startVx-dx,y:dragRef.current.startVy-dy}));
+      return;
+    }
+    // Rectangle de sélection
+    if (rectRef.current && tool==='select') {
+      rectRef.current.moved=true;
+      setRectSel({x1:rectRef.current.cx,y1:rectRef.current.cy,x2:pos.cx,y2:pos.cy});
     }
   };
 
-  const onMouseUp = () => { dragRef.current=null; };
+  const onMouseUp = (e) => {
+    midDragRef.current=null;
+    dragRef.current=null;
+    // Finaliser rectangle de sélection
+    if (rectRef.current?.moved && rectSel) {
+      const vp=vpRef.current;
+      const rx1=Math.min(rectSel.x1,rectSel.x2)/vp.scale+vp.x;
+      const rx2=Math.max(rectSel.x1,rectSel.x2)/vp.scale+vp.x;
+      const ry1=Math.min(rectSel.y1,rectSel.y2)/vp.scale+vp.y;
+      const ry2=Math.max(rectSel.y1,rectSel.y2)/vp.scale+vp.y;
+      const inRect=(x,y)=>x>=rx1&&x<=rx2&&y>=ry1&&y<=ry2;
+      const ids=new Set();
+      segmentsRef.current.filter(s=>!s.deleted).forEach(s=>{
+        if(inRect(s.x1,s.y1)&&inRect(s.x2,s.y2)) ids.add(s.id);
+      });
+      cotesRef.current.filter(s=>!s.deleted).forEach(s=>{
+        if(inRect(s.x1,s.y1)&&inRect(s.x2,s.y2)) ids.add(s.id);
+      });
+      symbolsRef.current.filter(s=>!s.deleted).forEach(s=>{
+        if(inRect(s.x,s.y)) ids.add(s.id);
+      });
+      if (e.shiftKey) setSelectedIds(prev=>{const n=new Set([...prev,...ids]);return n;});
+      else setSelectedIds(ids);
+    }
+    rectRef.current=null;
+    setRectSel(null);
+  };
+
+  const onMouseLeave = () => { dragRef.current=null; midDragRef.current=null; };
 
   const onWheel = (e) => {
     e.preventDefault();
-    const pos = getEventPos(e);
-    const {wx,wy} = toWorld(pos.cx, pos.cy);
-    const factor = e.deltaY < 0 ? 1.15 : 0.87;
-    setVp(v => {
-      const ns = v.scale * factor;
-      return { scale:ns, x: wx - pos.cx/ns, y: wy - pos.cy/ns };
+    const pos=getEventPos(e);
+    const {wx,wy}=toWorld(pos.cx,pos.cy);
+    const factor=e.deltaY<0?1.15:0.87;
+    setVp(v=>{
+      const ns=Math.max(0.01,Math.min(1000,v.scale*factor));
+      return {scale:ns, x:wx-pos.cx/ns, y:wy-pos.cy/ns};
     });
   };
 
-  // DXF Import
+  // ── Import DXF ──────────────────────────────────────────────────────────────
   const importDXF = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const {points, segments:segs} = parseDXF(ev.target.result);
-      let finalSegs = segs;
-      if (segs.length === 0 && points.length > 0) {
-        finalSegs = autoConnect(points, threshold);
-      }
-      pushHistory(segments, symbols);
-      setSegments(finalSegs);
-      setSymbols([]);
-      setTimeout(fitView, 50);
-    };
-    reader.readAsText(file, 'utf-8');
-    e.target.value='';
-  };
-
-  // Reconnect avec nouveau threshold
-  const reconnect = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const {points,segments:segs} = parseDXF(ev.target.result);
-      if (points.length>0) {
-        setSegments(autoConnect(points, threshold));
-        setTimeout(fitView, 50);
-      }
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const {points,segments:segs}=parseDXF(ev.target.result);
+      let finalSegs=segs;
+      if(segs.length===0&&points.length>0) finalSegs=autoConnect(points,threshold);
+      pushHistory(segments,symbols,cotes);
+      setSegments(finalSegs); setSymbols([]); setCotes([]);
+      setTimeout(fitView,50);
     };
     reader.readAsText(file,'utf-8');
     e.target.value='';
   };
 
-  // Save
+  // ── Save ────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
-    // Generate thumbnail
-    const canvas = canvasRef.current;
-    const thumb = canvas ? canvas.toDataURL('image/png',0.3) : '';
-    const data = {segments, symbols, viewport:vp, threshold};
-    await supabase.from('plans').update({data, thumbnail:thumb, updated_at:new Date().toISOString()}).eq('id',plan.id);
+    const canvas=canvasRef.current;
+    const thumb=canvas?canvas.toDataURL('image/png',0.3):'';
+    const data={segments,symbols,cotes,viewport:vp,threshold};
+    await supabase.from('plans').update({data,thumbnail:thumb,updated_at:new Date().toISOString()}).eq('id',plan.id);
     setSaving(false);
-    onSave({...plan, data, thumbnail:thumb});
+    onSave({...plan,data,thumbnail:thumb});
   };
 
-  // Export PNG
   const exportPNG = () => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = (plan.name||'plan')+'.png';
+    const canvas=canvasRef.current; if(!canvas) return;
+    const a=document.createElement('a');
+    a.href=canvas.toDataURL('image/png');
+    a.download=(plan.name||'plan')+'.png';
     a.click();
   };
-
-  // Export PDF (print)
   const exportPDF = () => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const dataUrl = canvas.toDataURL('image/png');
-    const w = window.open('','_blank');
+    const canvas=canvasRef.current; if(!canvas) return;
+    const dataUrl=canvas.toDataURL('image/png');
+    const w=window.open('','_blank');
     w.document.write(`<!DOCTYPE html><html><head><title>${plan.name}</title>
     <style>@page{size:A3 landscape;margin:10mm}body{margin:0}img{width:100%;height:auto}</style>
     </head><body><img src="${dataUrl}"/></body></html>`);
-    w.document.close();
-    setTimeout(()=>w.print(),500);
+    w.document.close(); setTimeout(()=>w.print(),500);
   };
 
-  const segCount = segments.filter(s=>!s.deleted).length;
-  const symCount = symbols.filter(s=>!s.deleted).length;
+  const segCount=segments.filter(s=>!s.deleted).length;
+  const symCount=symbols.filter(s=>!s.deleted).length;
+  const coteCount=cotes.filter(c=>!c.deleted).length;
+  const selCount=selectedIds.size;
 
-  const toolBtnStyle = (id) => ({
+  const TOOLS = [
+    {id:'pan',    icon:'✋', label:'Déplacer (clic molette fonctionne dans tous les modes)'},
+    {id:'select', icon:'⬚',  label:'Sélectionner (clic simple ou glisser pour sélection rectangle, Shift = ajouter)'},
+    {id:'delete', icon:'✕',  label:'Supprimer au clic (clic molette pour se déplacer)'},
+    {id:'line',   icon:'╱',  label:'Tracer une ligne (double-clic pour terminer, O = ortho, S = snap)'},
+    {id:'cote',   icon:'↔',  label:'Ajouter une cote'},
+    {id:'door',   icon:'🚪', label:'Porte'},
+    {id:'window', icon:'⬜', label:'Fenêtre'},
+    {id:'text',   icon:'T',  label:'Texte'},
+  ];
+
+  const btnStyle=(id)=>({
     display:'flex',alignItems:'center',justifyContent:'center',
-    width:40,height:40,borderRadius:8,border:'none',cursor:'pointer',
-    fontFamily:'inherit',fontSize:16,transition:'all .15s',
-    background: tool===id ? '#5b8af5' : 'rgba(255,255,255,0.06)',
-    color: tool===id ? '#fff' : '#9aa5c0',
-    title: TOOL_LIST.find(t=>t.id===id)?.label||id,
+    width:38,height:38,borderRadius:8,border:'none',cursor:'pointer',
+    fontSize:15,transition:'all .12s',
+    background:tool===id?'#5b8af5':'rgba(255,255,255,0.06)',
+    color:tool===id?'#fff':'#9aa5c0',
   });
 
   return (
     <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,background:'#12151f'}}>
-      {/* Toolbar */}
-      <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 16px',
+
+      {/* ── Toolbar ── */}
+      <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',
         background:'#1e2336',borderBottom:'1px solid rgba(255,255,255,0.08)',flexShrink:0,flexWrap:'wrap'}}>
-        {/* Back + name */}
+
         <button onClick={onClose} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.15)',
-          borderRadius:8,padding:'6px 12px',color:'#9aa5c0',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
+          borderRadius:8,padding:'5px 12px',color:'#9aa5c0',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
           ← Retour
         </button>
-        <div style={{fontSize:15,fontWeight:700,color:'#e8eaf0',marginRight:4}}>{plan.name}</div>
-        <div style={{fontSize:12,color:'#5b6a8a'}}>{segCount} segments · {symCount} symboles</div>
+        <div style={{fontSize:14,fontWeight:700,color:'#e8eaf0'}}>{plan.name}</div>
+        <div style={{fontSize:11,color:'#5b6a8a'}}>{segCount} seg · {symCount} sym · {coteCount} cotes</div>
+        {selCount>0&&<div style={{fontSize:11,color:'#f5a623',fontWeight:700}}>{selCount} sélectionné{selCount>1?'s':''}</div>}
 
-        <div style={{height:24,width:1,background:'rgba(255,255,255,0.1)',margin:'0 4px'}}/>
+        <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
 
-        {/* Tools */}
-        {TOOL_LIST.map(t=>(
-          <button key={t.id} title={t.label} onClick={()=>{setTool(t.id);setLineStart(null);setMeasurePts([]);setMeasureDist(null);}} style={toolBtnStyle(t.id)}>
+        {/* Outils */}
+        {TOOLS.map(t=>(
+          <button key={t.id} title={t.label} onClick={()=>{setTool(t.id);setLineStart(null);setMeasurePts([]);setMeasureDist(null);setRectSel(null);}} style={btnStyle(t.id)}>
             {t.icon}
           </button>
         ))}
 
-        <div style={{height:24,width:1,background:'rgba(255,255,255,0.1)',margin:'0 4px'}}/>
+        <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
+
+        {/* Couleurs de ligne */}
+        <div style={{display:'flex',gap:4,alignItems:'center'}}>
+          {LINE_COLORS.map(c=>(
+            <button key={c.value} title={c.label} onClick={()=>setLineColor(c.value)} style={{
+              width:20,height:20,borderRadius:'50%',border:`2px solid ${lineColor===c.value?'#fff':'transparent'}`,
+              background:c.value,cursor:'pointer',padding:0,transition:'all .1s',
+              transform:lineColor===c.value?'scale(1.25)':'scale(1)',
+            }}/>
+          ))}
+        </div>
+
+        {/* Recolorer la sélection */}
+        {selCount>0&&(
+          <button title="Recolorer la sélection" onClick={()=>{
+            pushHistory(segments,symbols,cotes);
+            const ids=selectedIds;
+            setSegments(s=>s.map(x=>ids.has(x.id)?{...x,color:lineColor}:x));
+          }} style={{...btnStyle('recolor'),width:'auto',padding:'0 10px',fontSize:11,fontWeight:700}}>
+            🎨 Recolorer
+          </button>
+        )}
+
+        <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
+
+        {/* Toggles */}
+        <button title={`Snap aux points ${snapEnabled?'ON':'OFF'} (S)`} onClick={()=>setSnapEnabled(v=>!v)} style={{
+          ...btnStyle('snap'), background:snapEnabled?'rgba(91,138,245,0.3)':'rgba(255,255,255,0.06)',
+          width:'auto',padding:'0 10px',fontSize:11,fontWeight:700,
+          color:snapEnabled?'#8ab4ff':'#9aa5c0',border:`1px solid ${snapEnabled?'rgba(91,138,245,0.5)':'transparent'}`,
+        }}>⊕ SNAP</button>
+
+        <button title={`Ortho 0/45/90° ${orthoMode?'ON':'OFF'} (O)`} onClick={()=>setOrthoMode(v=>!v)} style={{
+          ...btnStyle('ortho'), background:orthoMode?'rgba(80,200,120,0.3)':'rgba(255,255,255,0.06)',
+          width:'auto',padding:'0 10px',fontSize:11,fontWeight:700,
+          color:orthoMode?'#7ee8a2':'#9aa5c0',border:`1px solid ${orthoMode?'rgba(80,200,120,0.5)':'transparent'}`,
+        }}>⊞ ORTHO</button>
 
         {/* Import DXF */}
-        <label style={{display:'flex',alignItems:'center',gap:6,padding:'7px 12px',
+        <label style={{display:'flex',alignItems:'center',gap:5,padding:'6px 11px',
           background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
-          borderRadius:8,color:'#a0b8ff',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
-          📂 Importer DXF
+          borderRadius:8,color:'#a0b8ff',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+          📂 DXF
           <input type='file' accept='.dxf' style={{display:'none'}} onChange={importDXF}/>
         </label>
 
-        {/* Threshold */}
-        <button onClick={()=>setShowThreshold(s=>!s)} title="Seuil de connexion automatique"
-          style={{...toolBtnStyle('threshold'),width:'auto',padding:'0 10px',fontSize:12}}>
+        {/* Seuil */}
+        <button onClick={()=>setShowThreshold(s=>!s)} style={{...btnStyle('thr'),width:'auto',padding:'0 8px',fontSize:11}}>
           ⚙ {threshold}m
         </button>
         {showThreshold&&(
-          <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,0.06)',
-            borderRadius:8,padding:'6px 10px'}}>
-            <span style={{fontSize:12,color:'#9aa5c0',whiteSpace:'nowrap'}}>Seuil auto:</span>
+          <div style={{display:'flex',alignItems:'center',gap:5,background:'rgba(255,255,255,0.06)',borderRadius:8,padding:'5px 10px'}}>
+            <span style={{fontSize:11,color:'#9aa5c0'}}>Seuil:</span>
             <input type='number' value={threshold} min='0.01' max='10' step='0.05'
               onChange={e=>setThreshold(parseFloat(e.target.value)||0.5)}
-              style={{width:60,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',
+              style={{width:55,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',
                 borderRadius:5,padding:'3px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:13}}/>
             <span style={{fontSize:11,color:'#5b6a8a'}}>m</span>
           </div>
         )}
 
-        {/* Fit view */}
-        <button title="Ajuster la vue" onClick={fitView}
-          style={{...toolBtnStyle('fit'),fontSize:14}}>⊙</button>
-
-        {/* Undo / Redo */}
-        <button title="Annuler (Ctrl+Z)" onClick={undo} disabled={historyLen===0}
-          style={{...toolBtnStyle('undo_btn'),fontSize:16,opacity:historyLen===0?0.3:1}}>⟲</button>
-        <button title="Rétablir (Ctrl+Y)" onClick={redo} disabled={futureLen===0}
-          style={{...toolBtnStyle('redo_btn'),fontSize:16,opacity:futureLen===0?0.3:1}}>⟳</button>
-
-        {/* Undo all deleted */}
-        <button title="Restaurer toutes les suppressions" onClick={()=>{pushHistory(segments,symbols);setSegments(s=>s.map(seg=>({...seg,deleted:false})));setSymbols(sy=>sy.map(s=>({...s,deleted:false})));}}
-          style={{...toolBtnStyle('undo'),fontSize:14}}>↩</button>
-
         <div style={{flex:1}}/>
+
+        {/* Fit / Undo / Redo */}
+        <button title="Ajuster la vue (tout afficher)" onClick={fitView} style={{...btnStyle('fit'),fontSize:14}}>⊙</button>
+        <button title="Tout sélectionner (Ctrl+A)" onClick={()=>{
+          const allIds=new Set([...segments.filter(s=>!s.deleted).map(s=>s.id),...symbols.filter(s=>!s.deleted).map(s=>s.id),...cotes.filter(s=>!s.deleted).map(s=>s.id)]);
+          setSelectedIds(allIds);
+        }} style={{...btnStyle('sela'),fontSize:13}}>⊞</button>
+        <button title="Annuler Ctrl+Z" onClick={undo} disabled={historyLen===0} style={{...btnStyle('u'),fontSize:16,opacity:historyLen===0?0.3:1}}>⟲</button>
+        <button title="Rétablir Ctrl+Y" onClick={redo} disabled={futureLen===0}  style={{...btnStyle('r'),fontSize:16,opacity:futureLen===0?0.3:1}}>⟳</button>
+        <button title="Aide raccourcis ?" onClick={()=>setShowHelp(h=>!h)} style={{...btnStyle('h'),fontSize:14,background:showHelp?'rgba(255,194,0,0.2)':'rgba(255,255,255,0.06)'}}>?</button>
 
         {/* Export */}
         <button onClick={exportPNG} style={{background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.3)',
-          borderRadius:8,padding:'7px 14px',color:'#7ee8a2',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>
-          ↓ PNG
-        </button>
+          borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PNG</button>
         <button onClick={exportPDF} style={{background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
-          borderRadius:8,padding:'7px 14px',color:'#f5a623',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>
-          ↓ PDF
-        </button>
-        <button onClick={handleSave} disabled={saving}
-          style={{background:'#5b8af5',border:'none',borderRadius:8,padding:'7px 18px',
-            color:'#fff',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.6:1}}>
+          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PDF</button>
+        <button onClick={handleSave} disabled={saving} style={{background:'#5b8af5',border:'none',borderRadius:8,
+          padding:'6px 16px',color:'#fff',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.6:1}}>
           {saving?'…':'💾 Sauvegarder'}
         </button>
       </div>
 
-      {/* Zone canvas - position:relative + canvas absolu = hauteur garantie */}
+      {/* ── Panneau aide ── */}
+      {showHelp&&(
+        <div style={{background:'#1a1f2e',borderBottom:'1px solid rgba(255,255,255,0.08)',
+          padding:'10px 18px',display:'flex',flexWrap:'wrap',gap:'8px 28px',flexShrink:0}}>
+          {[
+            ['Molette','Zoom'],['Clic molette + glisser','Se déplacer (tous modes)'],
+            ['Ctrl+Z / Ctrl+Y','Annuler / Rétablir'],['Suppr / Backspace','Supprimer sélection'],
+            ['Échap','Désélectionner / Annuler'],['O','Toggle Ortho 0/45/90°'],
+            ['S','Toggle Snap aux points'],['Ctrl+A','Tout sélectionner'],
+            ['Ctrl+D','Dupliquer sélection'],['Shift+clic','Ajouter à la sélection'],
+            ['Outil Ligne','Clic = point, re-clic = chaîne, Échap = fin'],
+            ['Outil Cote','Clic 1er point → clic 2ème point = cote fixée'],
+          ].map(([k,v])=>(
+            <div key={k} style={{display:'flex',gap:6,alignItems:'center'}}>
+              <code style={{background:'rgba(255,255,255,0.1)',borderRadius:4,padding:'2px 7px',fontSize:11,color:'#f5a623',fontWeight:700}}>{k}</code>
+              <span style={{fontSize:12,color:'#9aa5c0'}}>{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Canvas ── */}
       <div style={{flex:1,position:'relative',minHeight:0,background:'#12151f'}}>
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',
-            background:'#12151f',display:'block',
-            cursor:tool==='pan'?(dragRef.current?'grabbing':'grab'):tool==='select'?'crosshair':tool==='line'?'crosshair':'default',
-            touchAction:'none'}}
+            background:'#12151f',display:'block',touchAction:'none',
+            cursor:tool==='pan'?(dragRef.current?'grabbing':'grab')
+              :tool==='select'?'crosshair'
+              :tool==='delete'?'not-allowed'
+              :tool==='line'?'crosshair'
+              :'default'}}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
-          onMouseLeave={onMouseUp}
+          onMouseLeave={onMouseLeave}
           onWheel={onWheel}
           onTouchStart={onMouseDown}
           onTouchMove={onMouseMove}
           onTouchEnd={onMouseUp}
+          onContextMenu={e=>e.preventDefault()}
         />
       </div>
 
-      {/* Status bar */}
-      <div style={{padding:'5px 16px',background:'#1a1f2e',borderTop:'1px solid rgba(255,255,255,0.06)',
-        fontSize:11,color:'#5b6a8a',display:'flex',gap:16,flexShrink:0}}>
-        <span>Outil : <strong style={{color:'#9aa5c0'}}>{TOOL_LIST.find(t=>t.id===tool)?.label||tool}</strong></span>
-        {tool==='line'&&lineStart&&<span style={{color:'#a0b8ff'}}>Cliquer pour terminer la ligne</span>}
-        {tool==='measure'&&measurePts.length===0&&<span>Cliquer sur le 1er point</span>}
-        {tool==='measure'&&measurePts.length===1&&<span style={{color:'#f5a623'}}>Cliquer sur le 2ème point</span>}
-        {measureDist&&<span style={{color:'#f5a623'}}>Distance : {measureDist.toFixed(3)} m</span>}
-        <span style={{marginLeft:'auto'}}>Scroll = zoom · Clic droit + drag = déplacer</span>
+      {/* ── Status bar ── */}
+      <div style={{padding:'4px 14px',background:'#1a1f2e',borderTop:'1px solid rgba(255,255,255,0.06)',
+        fontSize:11,color:'#5b6a8a',display:'flex',gap:16,flexShrink:0,flexWrap:'wrap'}}>
+        <span>Outil : <strong style={{color:'#9aa5c0'}}>{TOOLS.find(t=>t.id===tool)?.label?.split('(')[0]||tool}</strong></span>
+        {tool==='line'&&lineStart&&<span style={{color:'#a0b8ff'}}>Clic = point suivant · Échap = terminer</span>}
+        {tool==='cote'&&measurePts.length===0&&<span>Clic sur le 1er point de la cote</span>}
+        {tool==='cote'&&measurePts.length===1&&<span style={{color:'#f5d08a'}}>Clic sur le 2ème point</span>}
+        {tool==='select'&&<span>Clic = sélectionner · Glisser = rectangle · Shift = ajouter · Suppr = effacer</span>}
+        {selCount>0&&<span style={{color:'#f5a623'}}>{selCount} élément{selCount>1?'s':''} sélectionné{selCount>1?'s':''} — Suppr pour effacer</span>}
+        <span style={{marginLeft:'auto'}}>Clic molette = déplacer · Scroll = zoom · ? = raccourcis</span>
       </div>
     </div>
   );
 }
+
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
 function PagePlans({T, chantiers}) {
