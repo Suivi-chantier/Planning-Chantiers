@@ -1541,7 +1541,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   // Rotation globale du plan
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0); // degrés
   // Calques visibilité
-  const [layers, setLayers] = useState({ segments:true, points:true, symbols:true, surfaces:true, cotes:true });
+  const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true });
   // Panneau propriétés symbole sélectionné
   const [symProps, setSymProps] = useState(null); // {id, x, y, angle, size, type, text}
 
@@ -1727,7 +1727,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ptMap.forEach(p=>{
           const {cx,cy}=toC(p.x,p.y);
           if(!isFinite(cx)||!isFinite(cy)) return;
-          const r=Math.max(1.5, vp.scale*0.04);
+          const r=Math.min(3, Math.max(1.5, vp.scale*0.015));
           ctx.fillStyle=p.color;
           ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
         });
