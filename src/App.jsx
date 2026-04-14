@@ -1476,7 +1476,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [futureLen,  setFutureLen]  = useState(0);
 
   const pushHistory = useCallback((segs, syms, cots) => {
-    historyRef.current = [...historyRef.current.slice(-29), { segments:segs, symbols:syms, cotes:cots, surfaces:surfacesRef.current }];
+    historyRef.current = [...historyRef.current.slice(-29), { segments:segs, symbols:syms, cotes:cots, surfaces: Array.isArray(surfacesRef.current) ? [...surfacesRef.current] : [] }];
     futureRef.current  = [];
     setHistoryLen(historyRef.current.length);
     setFutureLen(0);
@@ -1584,7 +1584,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   // Ortho : contraint à 0/45/90°
   const applyOrtho = (startX, startY, wx, wy) => {
-    if (!orthoRef.current || !startX) return {wx,wy};
+    if (!orthoRef.current || startX==null) return {wx,wy};
     const dx = wx-startX, dy = wy-startY;
     const angle = Math.atan2(dy,dx) * 180/Math.PI;
     const snap45 = Math.round(angle/45)*45;
@@ -1638,13 +1638,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.closePath();
         // Remplissage semi-transparent
         const col = surf.color||'#3b82f6';
-        ctx.fillStyle = sel ? 'rgba(245,166,35,0.2)' : col.replace('#','').match(/.{2}/g).reduce((a,c,i)=>
-          i<3?a+parseInt(c,16)*(i===0?',':i===1?',':')'):a,
-          'rgba('
-        ) + (surf.alpha||0.15) + ')';
-        // Fallback plus simple
-        const r=parseInt(col.slice(1,3),16),g=parseInt(col.slice(3,5),16),b=parseInt(col.slice(5,7),16);
-        ctx.fillStyle = sel ? `rgba(245,166,35,0.2)` : `rgba(${r},${g},${b},${surf.alpha||0.15})`;
+        const r=parseInt(col.slice(1,3),16)||59,g=parseInt(col.slice(3,5),16)||130,b=parseInt(col.slice(5,7),16)||246;
+        ctx.fillStyle = sel ? 'rgba(245,166,35,0.2)' : `rgba(${r},${g},${b},${surf.alpha||0.15})`;
         ctx.fill();
         // Contour
         ctx.strokeStyle = sel ? '#f5a623' : col;
@@ -1664,7 +1659,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.textAlign='center';
         const tw=ctx.measureText(label).width+10;
         ctx.fillStyle='rgba(18,21,31,0.75)';
-        ctx.beginPath(); ctx.roundRect(lx-tw/2,ly-fontSize-2,tw,fontSize+8,4); ctx.fill();
+        ctx.beginPath();
+        if (ctx.roundRect) { ctx.roundRect(lx-tw/2,ly-fontSize-2,tw,fontSize+8,4); }
+        else { ctx.rect(lx-tw/2,ly-fontSize-2,tw,fontSize+8); }
+        ctx.fill();
         ctx.fillStyle= sel ? '#f5a623' : col;
         ctx.fillText(label,lx,ly+2);
       });
@@ -1971,6 +1969,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   const getEventPos = (e) => {
     const canvas=canvasRef.current;
+    if (!canvas) return {cx:0,cy:0};
     const rect=canvas.getBoundingClientRect();
     const clientX=e.touches?e.touches[0].clientX:e.clientX;
     const clientY=e.touches?e.touches[0].clientY:e.clientY;
@@ -1978,24 +1977,27 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   };
 
   const onMouseDown = (e) => {
+    if (!canvasRef.current) return;
     // Clic molette → pan dans tous les modes
     if (e.button===1) {
       e.preventDefault();
       const pos=getEventPos(e);
-      midDragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:vp.x,startVy:vp.y};
+      const v=vpRef.current;
+      midDragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:v.x,startVy:v.y};
       return;
     }
     const pos=getEventPos(e);
     const {wx,wy}=toWorld(pos.cx,pos.cy);
 
     if (tool==='pan') {
-      dragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:vp.x,startVy:vp.y};
+      const v=vpRef.current;
+      dragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:v.x,startVy:v.y};
 
     } else if (tool==='select') {
       // Si on clique sans glisser → désélection. Le rectangle se gère dans onMouseMove
       rectRef.current={ cx:pos.cx, cy:pos.cy, moved:false };
       // Clic simple sur un élément → toggle sélection
-      const hitThresh=10/vp.scale;
+      const hitThresh=10/vpRef.current.scale;
       let hit=null;
       // Cherche cote
       for (const c of cotesRef.current.filter(x=>!x.deleted)) {
@@ -2034,8 +2036,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       }
 
     } else if (tool==='delete') {
-      // Suppression directe au clic
-      const hitThresh=10/vp.scale;
+      // Suppression directe au clic — segments et cotes
+      const hitThresh=10/vpRef.current.scale;
       let bestId=null,bestDist=Infinity;
       [...segmentsRef.current.filter(s=>!s.deleted),...cotesRef.current.filter(s=>!s.deleted)].forEach(s=>{
         const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
@@ -2045,10 +2047,22 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const d=Math.sqrt(px*px+py*py);
         if(d<hitThresh&&d<bestDist){bestDist=d;bestId=s.id;}
       });
+      // Hit test surfaces (clic à l'intérieur)
+      if(!bestId){
+        for(const surf of surfacesRef.current.filter(s=>!s.deleted)){
+          const pts=surf.points; let inside=false;
+          for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+            if(((pts[i].y>wy)!==(pts[j].y>wy))&&(wx<(pts[j].x-pts[i].x)*(wy-pts[i].y)/(pts[j].y-pts[i].y)+pts[i].x))
+              inside=!inside;
+          }
+          if(inside){bestId=surf.id;break;}
+        }
+      }
       if(bestId){
-        pushHistory(segments,symbols,cotes);
+        pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
         setSegments(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
         setCotes(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
+        setSurfaces(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
       }
 
     } else if (tool==='line') {
@@ -2126,22 +2140,26 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const pos=getEventPos(e);
     setMousePos(pos);
 
-    // Pan molette
-    if (midDragRef.current) {
-      const dx=(pos.cx-midDragRef.current.startCx)/vp.scale;
-      const dy=(pos.cy-midDragRef.current.startCy)/vp.scale;
-      setVp(v=>({...v,x:midDragRef.current.startVx-dx,y:midDragRef.current.startVy-dy}));
+    // Pan molette — snapshot local pour éviter la race condition
+    const midDrag=midDragRef.current;
+    if (midDrag) {
+      const scale=vpRef.current.scale;
+      const dx=(pos.cx-midDrag.startCx)/scale;
+      const dy=(pos.cy-midDrag.startCy)/scale;
+      setVp(v=>({...v,x:midDrag.startVx-dx,y:midDrag.startVy-dy}));
       return;
     }
     // Pan normal
-    if (dragRef.current && tool==='pan') {
-      const dx=(pos.cx-dragRef.current.startCx)/vp.scale;
-      const dy=(pos.cy-dragRef.current.startCy)/vp.scale;
-      setVp(v=>({...v,x:dragRef.current.startVx-dx,y:dragRef.current.startVy-dy}));
+    const drag=dragRef.current;
+    if (drag && toolRef.current==='pan') {
+      const scale=vpRef.current.scale;
+      const dx=(pos.cx-drag.startCx)/scale;
+      const dy=(pos.cy-drag.startCy)/scale;
+      setVp(v=>({...v,x:drag.startVx-dx,y:drag.startVy-dy}));
       return;
     }
     // Rectangle de sélection
-    if (rectRef.current && tool==='select') {
+    if (rectRef.current && toolRef.current==='select') {
       rectRef.current.moved=true;
       setRectSel({x1:rectRef.current.cx,y1:rectRef.current.cy,x2:pos.cx,y2:pos.cy});
     }
@@ -2151,12 +2169,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     midDragRef.current=null;
     dragRef.current=null;
     // Finaliser rectangle de sélection
-    if (rectRef.current?.moved && rectSel) {
+    const rs=rectSelRef.current;
+    if (rectRef.current?.moved && rs) {
       const vp=vpRef.current;
-      const rx1=Math.min(rectSel.x1,rectSel.x2)/vp.scale+vp.x;
-      const rx2=Math.max(rectSel.x1,rectSel.x2)/vp.scale+vp.x;
-      const ry1=Math.min(rectSel.y1,rectSel.y2)/vp.scale+vp.y;
-      const ry2=Math.max(rectSel.y1,rectSel.y2)/vp.scale+vp.y;
+      const rx1=Math.min(rs.x1,rs.x2)/vp.scale+vp.x;
+      const rx2=Math.max(rs.x1,rs.x2)/vp.scale+vp.x;
+      const ry1=Math.min(rs.y1,rs.y2)/vp.scale+vp.y;
+      const ry2=Math.max(rs.y1,rs.y2)/vp.scale+vp.y;
       const inRect=(x,y)=>x>=rx1&&x<=rx2&&y>=ry1&&y<=ry2;
       const ids=new Set();
       segmentsRef.current.filter(s=>!s.deleted).forEach(s=>{
