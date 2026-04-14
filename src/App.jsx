@@ -2083,6 +2083,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const px=s.x1+t*dx-wx,py=s.y1+t*dy-wy;
         if (Math.sqrt(px*px+py*py)<hitThresh) { hit=s.id; break; }
       }
+      // Hit test symboles (prioritaire — on clique dessus en premier)
+      if (!hit) for (const sym of symbolsRef.current.filter(x=>!x.deleted)) {
+        const hitR = Math.max(0.8, (12 / vpRef.current.scale) * (sym.size||1));
+        const d = Math.sqrt((wx-sym.x)**2+(wy-sym.y)**2);
+        if (d < hitR) { hit=sym.id; break; }
+      }
       // Hit test surfaces
       if (!hit) for (const surf of surfacesRef.current.filter(x=>!x.deleted)) {
         // Point dans polygone (ray casting)
@@ -2126,6 +2132,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const d=Math.sqrt(px*px+py*py);
         if(d<hitThresh&&d<bestDist){bestDist=d;bestId=s.id;}
       });
+      // Hit test symboles
+      if(!bestId){
+        for(const sym of symbolsRef.current.filter(s=>!s.deleted)){
+          const hitR=Math.max(0.8,(12/vpRef.current.scale)*(sym.size||1));
+          if(Math.sqrt((wx-sym.x)**2+(wy-sym.y)**2)<hitR){bestId=sym.id;break;}
+        }
+      }
       // Hit test surfaces (clic à l'intérieur)
       if(!bestId){
         for(const surf of surfacesRef.current.filter(s=>!s.deleted)){
@@ -2142,6 +2155,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         setSegments(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
         setCotes(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
         setSurfaces(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
+        setSymbols(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
       }
 
     } else if (tool==='line') {
@@ -2384,7 +2398,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   });
 
   return (
-    <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,background:'#12151f'}}>
+    <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,background:'#12151f',position:'relative'}}>
 
       {/* ── Toolbar ── */}
       <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',
@@ -2576,7 +2590,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       {/* ── Panneau propriétés symbole ── */}
       {symProps&&(
         <div style={{
-          position:'absolute',top:56,right:16,zIndex:100,
+          position:'fixed',top:80,right:24,zIndex:1000,
           background:'#1e2336',border:'1px solid rgba(255,255,255,0.12)',
           borderRadius:12,padding:16,width:220,
           boxShadow:'0 8px 32px rgba(0,0,0,0.5)',
