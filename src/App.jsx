@@ -1524,6 +1524,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [orthoMode, setOrthoMode]   = useState(false);
   // Sélection par rectangle
   const [rectSel, setRectSel]       = useState(null); // {x1,y1,x2,y2} en coords canvas
+  // Rotation globale du plan
+  const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0); // degrés
+  // Calques visibilité
+  const [layers, setLayers] = useState({ segments:true, symbols:true, surfaces:true, cotes:true });
+  // Panneau propriétés symbole sélectionné
+  const [symProps, setSymProps] = useState(null); // {id, x, y, angle, size, type, text}
 
   // Refs pour render stable
   const vpRef         = useRef(vp);
@@ -1543,6 +1549,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const orthoRef      = useRef(orthoMode);
   const rectSelRef    = useRef(rectSel);
   const lineColorRef  = useRef(lineColor);
+  const layersRef       = useRef(layers);
+  const planRotRef      = useRef(planRotation);
 
   vpRef.current         = vp;
   segmentsRef.current   = segments;
@@ -1561,12 +1569,23 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   orthoRef.current      = orthoMode;
   rectSelRef.current    = rectSel;
   lineColorRef.current  = lineColor;
+  layersRef.current     = layers;
+  planRotRef.current    = planRotation;
 
   // ── Helpers coords ──────────────────────────────────────────────────────────
-  const toWorld = (cx, cy) => ({
-    wx: cx / vpRef.current.scale + vpRef.current.x,
-    wy: cy / vpRef.current.scale + vpRef.current.y,
-  });
+  const toWorld = (cx, cy) => {
+    const vp = vpRef.current;
+    const rot = planRotRef.current * Math.PI / 180;
+    const cosR = Math.cos(-rot), sinR = Math.sin(-rot);
+    const W = canvasRef.current ? canvasRef.current.width  : 800;
+    const H = canvasRef.current ? canvasRef.current.height : 600;
+    const cx0 = W/2, cy0 = H/2;
+    // Rotation inverse
+    const dx = cx - cx0, dy = cy - cy0;
+    const rx = cx0 + dx*cosR - dy*sinR;
+    const ry = cy0 + dx*sinR + dy*cosR;
+    return { wx: rx / vp.scale + vp.x, wy: ry / vp.scale + vp.y };
+  };
 
   // Snap au point le plus proche
   const snapToPoint = useCallback((wx, wy) => {
@@ -1608,7 +1627,22 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       ctx.fillRect(0,0,W,H);
 
       const vp = vpRef.current;
-      const toC = (wx,wy) => ({ cx:(wx-vp.x)*vp.scale, cy:(wy-vp.y)*vp.scale });
+      const rot = planRotRef.current * Math.PI / 180;
+      const cosR = Math.cos(rot), sinR = Math.sin(rot);
+      // Rotation autour du centre du canvas
+      const cx0 = W/2, cy0 = H/2;
+      const toC = (wx, wy) => {
+        // world → écran non-roté
+        const sx = (wx - vp.x) * vp.scale;
+        const sy = (wy - vp.y) * vp.scale;
+        // rotation canvas autour du centre
+        const dx = sx - cx0, dy = sy - cy0;
+        return {
+          cx: cx0 + dx*cosR - dy*sinR,
+          cy: cy0 + dx*sinR + dy*cosR,
+        };
+      };
+      const lyrs = layersRef.current;
 
       // Grille
       const gridSize = Math.max(0.1, 1/vp.scale);
@@ -1623,7 +1657,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       }
 
       // Surfaces (polygones remplis)
-      surfacesRef.current.forEach(surf => {
+      if (lyrs.surfaces) surfacesRef.current.forEach(surf => {
         if (surf.deleted || surf.points.length < 3) return;
         const pts = surf.points;
         const sel = selectedRef.current.has(surf.id);
@@ -1665,10 +1699,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.fill();
         ctx.fillStyle= sel ? '#f5a623' : col;
         ctx.fillText(label,lx,ly+2);
-      });
+      }); // fin surfaces
 
       // Segments
-      segmentsRef.current.forEach(s => {
+      if (lyrs.segments) segmentsRef.current.forEach(s => {
         if (s.deleted) return;
         const {cx:x1,cy:y1}=toC(s.x1,s.y1);
         const {cx:x2,cy:y2}=toC(s.x2,s.y2);
@@ -1679,10 +1713,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         if (sel) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=6; }
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
         ctx.shadowBlur=0;
-      });
+      }); // fin segments
 
       // Cotes
-      cotesRef.current.forEach(c => {
+      if (lyrs.cotes) cotesRef.current.forEach(c => {
         if (c.deleted) return;
         const {cx:x1,cy:y1}=toC(c.x1,c.y1);
         const {cx:x2,cy:y2}=toC(c.x2,c.y2);
@@ -1726,14 +1760,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.fillStyle = sel ? '#f5a623' : '#f5d08a';
         ctx.fillText(label, 0, 0);
         ctx.restore();
-      });
+      }); // fin cotes
 
       // Symboles
-      symbolsRef.current.forEach(sym => {
+      if (lyrs.symbols) symbolsRef.current.forEach(sym => {
         if (sym.deleted) return;
         const {cx,cy}=toC(sym.x,sym.y);
         if (!isFinite(cx)||!isFinite(cy)) return;
-        const sz = Math.max(12, vp.scale*0.6);
+        const sz = Math.max(12, vp.scale*0.6) * (sym.size||1);
         ctx.save();
         ctx.translate(cx,cy);
         ctx.rotate((sym.angle||0)*Math.PI/180);
@@ -1760,8 +1794,30 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.fillStyle='#f5d08a'; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
           ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
         }
-        ctx.restore();
-      });
+        // Poignées si sélectionné
+        if (selectedRef.current.has(sym.id)) {
+          ctx.restore();
+          // Recalcul position pour les poignées
+          const {cx:scx,cy:scy}=toC(sym.x,sym.y);
+          const ssz=Math.max(12,vp.scale*0.6);
+          // Cadre de sélection
+          ctx.save();
+          ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+          ctx.strokeRect(scx-ssz-4,scy-ssz-4,ssz*2+8,ssz*2+8);
+          ctx.setLineDash([]);
+          // Poignée rotation (haut centre)
+          ctx.fillStyle='#f5a623';
+          ctx.beginPath(); ctx.arc(scx,scy-ssz-14,5,0,Math.PI*2); ctx.fill();
+          ctx.strokeStyle='#f5a623'; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.moveTo(scx,scy-ssz-4); ctx.lineTo(scx,scy-ssz-10); ctx.stroke();
+          // Poignée taille (coin bas-droit)
+          ctx.fillStyle='#5b8af5';
+          ctx.fillRect(scx+ssz,scy+ssz,8,8);
+          ctx.restore();
+        } else {
+          ctx.restore();
+        }
+      }); // fin symboles
 
       // Ligne en cours + snap indicator
       const ls=lineStartRef.current, mp=mousePosRef.current;
@@ -1895,6 +1951,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       }
       if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); setPolyPoints([]); }
       if (e.key==='o'||e.key==='O') setOrthoMode(v=>!v);
+      if (e.key==='r'||e.key==='R') setPlanRotation(v=>(v+15)%360);
+      if (e.key==='R'&&e.shiftKey)  setPlanRotation(0);
       if (e.key==='s'||e.key==='S') setSnapEnabled(v=>!v);
       if ((e.ctrlKey||e.metaKey)&&e.key==='d') {
         e.preventDefault();
@@ -2032,7 +2090,18 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           else { n.clear(); n.add(hit); }
           return n;
         });
+        // Si c'est un symbole → ouvrir le panneau propriétés
+        const hitSym = symbolsRef.current.find(s=>s.id===hit&&!s.deleted);
+        if (hitSym) {
+          setSymProps({id:hitSym.id,x:hitSym.x,y:hitSym.y,
+            angle:hitSym.angle||0, size:hitSym.size||1,
+            type:hitSym.type, text:hitSym.text||''});
+        } else {
+          setSymProps(null);
+        }
         rectRef.current=null;
+      } else {
+        setSymProps(null);
       }
 
     } else if (tool==='delete') {
@@ -2231,7 +2300,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setSaving(true);
     const canvas=canvasRef.current;
     const thumb=canvas?canvas.toDataURL('image/png',0.3):'';
-    const data={segments,symbols,cotes,surfaces,viewport:vp,threshold};
+    const data={segments,symbols,cotes,surfaces,viewport:vp,threshold,planRotation};
     await supabase.from('plans').update({data,thumbnail:thumb,updated_at:new Date().toISOString()}).eq('id',plan.id);
     setSaving(false);
     onSave({...plan,data,thumbnail:thumb});
@@ -2262,7 +2331,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   const TOOLS = [
     {id:'pan',    icon:'✋', label:'Déplacer (clic molette fonctionne dans tous les modes)'},
-    {id:'select', icon:'⬚',  label:'Sélectionner (clic simple ou glisser pour sélection rectangle, Shift = ajouter)'},
+    {id:'select', icon:'⬚',  label:'Sélectionner / Transformer (clic simple, glisser = rectangle, Shift = ajouter)'},
     {id:'delete', icon:'✕',  label:'Supprimer au clic (clic molette pour se déplacer)'},
     {id:'line',   icon:'╱',  label:'Tracer une ligne (double-clic pour terminer, O = ortho, S = snap)'},
     {id:'cote',   icon:'↔',  label:'Ajouter une cote'},
@@ -2350,6 +2419,43 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
         <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
 
+        {/* Rotation du plan */}
+        <div style={{display:'flex',alignItems:'center',gap:4,padding:'3px 6px',
+          background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
+          <span style={{fontSize:11,color:'#9aa5c0'}}>↻</span>
+          <button onClick={()=>setPlanRotation(v=>(v-15+360)%360)} title="Pivoter -15°" style={{
+            background:'rgba(255,255,255,0.06)',border:'none',borderRadius:5,
+            width:24,height:24,cursor:'pointer',color:'#9aa5c0',fontSize:13,fontFamily:'inherit'}}>−</button>
+          <span style={{fontSize:11,color:'#f5a623',fontWeight:700,minWidth:28,textAlign:'center'}}>{planRotation}°</span>
+          <button onClick={()=>setPlanRotation(v=>(v+15)%360)} title="Pivoter +15° (R)" style={{
+            background:'rgba(255,255,255,0.06)',border:'none',borderRadius:5,
+            width:24,height:24,cursor:'pointer',color:'#9aa5c0',fontSize:13,fontFamily:'inherit'}}>+</button>
+          <button onClick={()=>setPlanRotation(0)} title="Réinitialiser rotation" style={{
+            background:'rgba(255,255,255,0.06)',border:'none',borderRadius:5,
+            width:24,height:24,cursor:'pointer',color:'#9aa5c0',fontSize:11,fontFamily:'inherit'}}>⊙</button>
+        </div>
+
+        {/* Calques */}
+        <div style={{display:'flex',alignItems:'center',gap:4,padding:'3px 8px',
+          background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
+          <span style={{fontSize:10,color:'#9aa5c0',marginRight:2}}>CALQUES</span>
+          {[
+            {k:'segments', icon:'╱', label:'Lignes'},
+            {k:'symbols',  icon:'🚪', label:'Symboles'},
+            {k:'surfaces', icon:'⬡', label:'Surfaces'},
+            {k:'cotes',    icon:'↔', label:'Cotes'},
+          ].map(({k,icon,label})=>(
+            <button key={k} title={`${layers[k]?'Masquer':'Afficher'} ${label}`}
+              onClick={()=>setLayers(l=>({...l,[k]:!l[k]}))} style={{
+              background: layers[k]?'rgba(91,138,245,0.25)':'rgba(255,255,255,0.04)',
+              border:`1px solid ${layers[k]?'rgba(91,138,245,0.5)':'rgba(255,255,255,0.08)'}`,
+              borderRadius:5,width:26,height:26,cursor:'pointer',
+              fontSize:13,opacity:layers[k]?1:0.35,transition:'all .15s',
+              display:'flex',alignItems:'center',justifyContent:'center',
+            }}>{icon}</button>
+          ))}
+        </div>
+
         {/* Toggles */}
         <button title={`Snap aux points ${snapEnabled?'ON':'OFF'} (S)`} onClick={()=>setSnapEnabled(v=>!v)} style={{
           ...btnStyle('snap'), background:snapEnabled?'rgba(91,138,245,0.3)':'rgba(255,255,255,0.06)',
@@ -2422,6 +2528,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             ['Outil Ligne','Clic = point, re-clic = chaîne, Échap = fin'],
             ['Outil Cote','Clic 1er point → clic 2ème point = cote fixée'],
             ['Outil Surface','Clic = points du polygone, clic sur ⭕ 1er point = fermer'],
+            ['R','Pivoter le plan +15° (Shift+R = réinitialiser)'],
+            ['Clic symbole','Ouvre le panneau rotation/taille/position'],
           ].map(([k,v])=>(
             <div key={k} style={{display:'flex',gap:6,alignItems:'center'}}>
               <code style={{background:'rgba(255,255,255,0.1)',borderRadius:4,padding:'2px 7px',fontSize:11,color:'#f5a623',fontWeight:700}}>{k}</code>
@@ -2431,8 +2539,107 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         </div>
       )}
 
+      {/* ── Panneau propriétés symbole ── */}
+      {symProps&&(
+        <div style={{
+          position:'absolute',top:56,right:16,zIndex:100,
+          background:'#1e2336',border:'1px solid rgba(255,255,255,0.12)',
+          borderRadius:12,padding:16,width:220,
+          boxShadow:'0 8px 32px rgba(0,0,0,0.5)',
+        }}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <span style={{fontSize:13,fontWeight:700,color:'#e8eaf0'}}>
+              {symProps.type==='door'?'🚪 Porte':symProps.type==='window'?'⬜ Fenêtre':symProps.type==='text'?'T Texte':'Symbole'}
+            </span>
+            <button onClick={()=>setSymProps(null)} style={{background:'transparent',border:'none',color:'#5b6a8a',cursor:'pointer',fontSize:16}}>✕</button>
+          </div>
+          {/* Rotation */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Rotation</div>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <input type='range' min={0} max={359} step={5} value={symProps.angle}
+                onChange={e=>{
+                  const a=parseInt(e.target.value);
+                  setSymProps(p=>({...p,angle:a}));
+                  setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,angle:a}:x));
+                }}
+                style={{flex:1,accentColor:'#5b8af5'}}/>
+              <span style={{fontSize:12,color:'#f5a623',fontWeight:700,minWidth:34}}>{symProps.angle}°</span>
+            </div>
+            <div style={{display:'flex',gap:4,marginTop:4}}>
+              {[0,45,90,135,180,270].map(a=>(
+                <button key={a} onClick={()=>{
+                  setSymProps(p=>({...p,angle:a}));
+                  setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,angle:a}:x));
+                }} style={{
+                  background:symProps.angle===a?'#5b8af5':'rgba(255,255,255,0.06)',
+                  border:'none',borderRadius:4,padding:'2px 5px',
+                  color:symProps.angle===a?'#fff':'#9aa5c0',fontSize:10,cursor:'pointer',fontFamily:'inherit',
+                }}>{a}°</button>
+              ))}
+            </div>
+          </div>
+          {/* Taille */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Taille</div>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <input type='range' min={0.2} max={5} step={0.1} value={symProps.size||1}
+                onChange={e=>{
+                  const sz=parseFloat(e.target.value);
+                  setSymProps(p=>({...p,size:sz}));
+                  setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,size:sz}:x));
+                }}
+                style={{flex:1,accentColor:'#5b8af5'}}/>
+              <span style={{fontSize:12,color:'#f5a623',fontWeight:700,minWidth:34}}>×{(symProps.size||1).toFixed(1)}</span>
+            </div>
+          </div>
+          {/* Position */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Position</div>
+            <div style={{display:'flex',gap:6}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:9,color:'#5b6a8a',marginBottom:2}}>X</div>
+                <input type='number' step={0.1} value={parseFloat(symProps.x.toFixed(2))}
+                  onChange={e=>{
+                    const v=parseFloat(e.target.value)||0;
+                    setSymProps(p=>({...p,x:v}));
+                    setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,x:v}:x));
+                  }}
+                  style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
+                    borderRadius:5,padding:'4px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:11,boxSizing:'border-box'}}/>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:9,color:'#5b6a8a',marginBottom:2}}>Y</div>
+                <input type='number' step={0.1} value={parseFloat(symProps.y.toFixed(2))}
+                  onChange={e=>{
+                    const v=parseFloat(e.target.value)||0;
+                    setSymProps(p=>({...p,y:v}));
+                    setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,y:v}:x));
+                  }}
+                  style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
+                    borderRadius:5,padding:'4px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:11,boxSizing:'border-box'}}/>
+              </div>
+            </div>
+          </div>
+          {/* Texte si applicable */}
+          {(symProps.type==='text'||symProps.type==='door'||symProps.type==='window')&&(
+            <div style={{marginBottom:4}}>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Étiquette</div>
+              <input type='text' value={symProps.text||''} placeholder="ex: Porte 90cm"
+                onChange={e=>{
+                  const v=e.target.value;
+                  setSymProps(p=>({...p,text:v}));
+                  setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,text:v}:x));
+                }}
+                style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
+                  borderRadius:5,padding:'6px 8px',color:'#e8eaf0',fontFamily:'inherit',fontSize:12,boxSizing:'border-box'}}/>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Canvas ── */}
-      <div style={{flex:1,position:'relative',minHeight:0,background:'#12151f'}}>
+      <div style={{flex:1,position:'relative',minHeight:0,background:'#12151f',overflow:'hidden'}}>
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',
             background:'#12151f',display:'block',touchAction:'none',
