@@ -1320,6 +1320,16 @@ function parseDXF(text) {
     }
     i++;
   }
+  // ── Flip Y : DXF a Y vers le haut, canvas a Y vers le bas ──────────────────
+  // On calcule le maxY pour centrer correctement le flip
+  let maxY = -Infinity;
+  points.forEach(p  => { if (p.y  > maxY) maxY = p.y; });
+  segments.forEach(s => { if (s.y1 > maxY) maxY = s.y1; if (s.y2 > maxY) maxY = s.y2; });
+  if (!isFinite(maxY)) maxY = 0;
+
+  points.forEach(p   => { p.y  = maxY - p.y; });
+  segments.forEach(s => { s.y1 = maxY - s.y1; s.y2 = maxY - s.y2; });
+
   return {points, segments};
 }
 
