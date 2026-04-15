@@ -84,7 +84,7 @@ function parseTachesFromPlanifie(planifie,tachesExistantes){
     id:Math.random().toString(36).slice(2),text:l.trim(),ouvriers:[]
   }));
 }
-function emptyCommande(){return{chantier_id:"",article:"",fournisseur:"",quantite:"",statut:"a_commander",notes:""};}
+function emptyCommande(){return{chantier_id:"",article:"",fournisseur:"",quantite:"",statut:"a_commander",priorite:"normal",ouvrier_demandeur:"",notes:""};}
 
 const DEFAULT_OUVRIERS=["JP","Stev","Kev","Reza","Hamed","Mady","Yann","Julien","Steven"];
 const DEFAULT_CHANTIERS=[
@@ -643,8 +643,21 @@ function PageCommandes({chantiers,T}){
   const [loading,setLoading]=useState(true);
   const [filterChantier,setFilterChantier]=useState("all");
   const [filterStatut,setFilterStatut]=useState("all");
+  const [filterOuvrier,setFilterOuvrier]=useState("all");
   const [editRow,setEditRow]=useState(null); // id en cours d'édition inline
   const [newRow,setNewRow]=useState(null);   // brouillon nouvelle ligne
+
+  // Calcul retard : ligne non traitée (pas commande/retire) depuis > 2 jours
+  const isEnRetard = (row) => {
+    if (row.statut==="commande"||row.statut==="retire") return false;
+    if (!row.created_at) return false;
+    const created = new Date(row.created_at);
+    const now = new Date();
+    const diffJ = (now - created) / (1000*60*60*24);
+    // Urgent = retard si > 2 jours, Normal = retard si > 5 jours
+    const seuilJ = row.priorite==="urgent" ? 2 : 5;
+    return diffJ > seuilJ;
+  };
 
   const load=async()=>{
     setLoading(true);
@@ -686,8 +699,12 @@ function PageCommandes({chantiers,T}){
 
   const filtered=rows.filter(r=>
     (filterChantier==="all"||r.chantier_id===filterChantier)&&
-    (filterStatut==="all"||r.statut===filterStatut)
+    (filterStatut==="all"||r.statut===filterStatut)&&
+    (filterOuvrier==="all"||r.ouvrier_demandeur===filterOuvrier)
   );
+
+  // Liste des ouvriers ayant des commandes
+  const ouvriersDansCmds=[...new Set(rows.map(r=>r.ouvrier_demandeur).filter(Boolean))];
 
   const RowEditor=({row,onSave,onCancel})=>{
     const[draft,setDraft]=useState(row);
@@ -722,11 +739,22 @@ function PageCommandes({chantiers,T}){
         <td style={{padding:"8px 10px"}}>
           <select value={draft.statut} onChange={e=>setDraft(p=>({...p,statut:e.target.value}))}
             style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
+              color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none",marginBottom:4}}>
             {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k} style={{background:"#1e2336",color:"#e8eaf0"}}>{v.label}</option>)}
+          </select>
+          <select value={draft.priorite||"normal"} onChange={e=>setDraft(p=>({...p,priorite:e.target.value}))}
+            style={{background:"#1e2336",border:`1px solid ${draft.priorite==="urgent"?"rgba(224,92,92,0.6)":"rgba(255,255,255,0.1)"}`,
+              borderRadius:6,padding:"5px 8px",color:draft.priorite==="urgent"?"#e05c5c":"#9aa5c0",
+              fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",fontWeight:700}}>
+            <option value="normal" style={{background:"#1e2336",color:"#9aa5c0"}}>🟡 Normal (vendredi)</option>
+            <option value="urgent" style={{background:"#1e2336",color:"#e05c5c"}}>🔴 URGENT (sous 2 jours)</option>
           </select>
         </td>
         <td style={{padding:"8px 10px"}}>
+          <input value={draft.ouvrier_demandeur||""} onChange={e=>setDraft(p=>({...p,ouvrier_demandeur:e.target.value}))}
+            placeholder="Ouvrier demandeur"
+            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
+              color:T.text,fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",marginBottom:4}}/>
           <input value={draft.notes} onChange={e=>setDraft(p=>({...p,notes:e.target.value}))}
             placeholder="Notes"
             style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
@@ -784,6 +812,19 @@ function PageCommandes({chantiers,T}){
           <option value="all" style={{background:"#1e2336",color:"#e8eaf0"}}>Tous les statuts</option>
           {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k} style={{background:"#1e2336",color:"#e8eaf0"}}>{v.label}</option>)}
         </select>
+        <select value={filterOuvrier} onChange={e=>setFilterOuvrier(e.target.value)}
+          style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",
+            color:"#e8eaf0",fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="all" style={{background:"#1e2336",color:"#e8eaf0"}}>Tous les ouvriers</option>
+          {ouvriersDansCmds.map(o=><option key={o} value={o} style={{background:"#1e2336",color:"#e8eaf0"}}>{o}</option>)}
+        </select>
+        {rows.filter(r=>isEnRetard(r)).length>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",
+            background:"rgba(224,92,92,0.12)",border:"1px solid rgba(224,92,92,0.3)",
+            borderRadius:8,fontSize:12,fontWeight:700,color:"#e05c5c"}}>
+            ⚠️ {rows.filter(r=>isEnRetard(r)).length} en retard
+          </div>
+        )}
       </div>
 
       {/* Tableau */}
@@ -793,7 +834,7 @@ function PageCommandes({chantiers,T}){
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead>
             <tr style={{background:T.card,borderBottom:`2px solid ${T.border}`}}>
-              {["Chantier","Article / Matériau","Fournisseur","Quantité","Statut","Notes",""].map(h=>(
+              {["Chantier","Article / Matériau","Fournisseur","Qté","Statut / Priorité","Ouvrier · Notes","Date",""].map(h=>(
                 <th key={h} style={{padding:"12px 10px",fontSize:11,fontWeight:700,letterSpacing:1.5,
                   textTransform:"uppercase",color:T.textMuted,textAlign:"left"}}>{h}</th>
               ))}
@@ -804,45 +845,91 @@ function PageCommandes({chantiers,T}){
               <RowEditor row={newRow} onSave={saveRow} onCancel={()=>setNewRow(null)}/>
             )}
             {loading?(
-              <tr><td colSpan={7} style={{padding:32,textAlign:"center",color:T.textMuted}}>Chargement…</td></tr>
+              <tr><td colSpan={8} style={{padding:32,textAlign:"center",color:T.textMuted}}>Chargement…</td></tr>
             ):filtered.length===0&&!newRow?(
-              <tr><td colSpan={7} style={{padding:32,textAlign:"center",color:T.textMuted}}>
+              <tr><td colSpan={8} style={{padding:32,textAlign:"center",color:T.textMuted}}>
                 Aucune commande — clique sur "+ Nouvelle ligne" pour commencer.
               </td></tr>
             ):filtered.map(row=>{
               const ch=chantiers.find(c=>c.id===row.chantier_id);
               const st=STATUTS[row.statut]||STATUTS.a_commander;
+              const retard=isEnRetard(row);
+              const urgent=row.priorite==="urgent";
               if(editRow===row.id)return<RowEditor key={row.id} row={row} onSave={saveRow} onCancel={()=>setEditRow(null)}/>;
+              // Couleur de fond selon priorité / retard
+              const rowBg = retard ? "rgba(224,92,92,0.10)"
+                : urgent ? "rgba(224,92,92,0.05)"
+                : row.statut==="besoin_ouvrier" ? "rgba(176,96,255,0.06)"
+                : "transparent";
+              const rowBorderLeft = retard ? "3px solid #e05c5c"
+                : urgent ? "3px solid rgba(224,92,92,0.5)"
+                : row.statut==="besoin_ouvrier" ? "3px solid #b060ff"
+                : "3px solid transparent";
+              // Date de création formatée
+              const dateCreation = row.created_at
+                ? new Date(row.created_at).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit"})
+                : "—";
+              const heureCreation = row.created_at
+                ? new Date(row.created_at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})
+                : "";
               return(
                 <tr key={row.id} style={{
                     borderBottom:`1px solid ${T.sectionDivider}`,transition:"background .1s",
-                    background: row.statut==="besoin_ouvrier" ? "rgba(176,96,255,0.06)" : "transparent",
-                    borderLeft: row.statut==="besoin_ouvrier" ? "3px solid #b060ff" : "3px solid transparent",
+                    background:rowBg, borderLeft:rowBorderLeft,
                   }}
-                  onMouseEnter={e=>e.currentTarget.style.background=row.statut==="besoin_ouvrier"?"rgba(176,96,255,0.1)":T.card}
-                  onMouseLeave={e=>e.currentTarget.style.background=row.statut==="besoin_ouvrier"?"rgba(176,96,255,0.06)":"transparent"}>
+                  onMouseEnter={e=>e.currentTarget.style.background=retard?"rgba(224,92,92,0.16)":urgent?"rgba(224,92,92,0.1)":T.card}
+                  onMouseLeave={e=>e.currentTarget.style.background=rowBg}>
                   <td style={{padding:"11px 10px"}}>
                     {ch?<span style={{display:"inline-flex",alignItems:"center",gap:7}}>
                       <span style={{width:10,height:10,borderRadius:3,background:ch.couleur,display:"block",flexShrink:0}}/>
                       <span style={{fontSize:13,fontWeight:700,color:T.text}}>{ch.nom}</span>
                     </span>:<span style={{fontSize:12,color:T.textMuted}}>—</span>}
                   </td>
-                  <td style={{padding:"11px 10px",fontSize:13,color:row.statut==="besoin_ouvrier"?"#c080ff":T.text,fontWeight:600}}>
-                    {row.article||"—"}
+                  <td style={{padding:"11px 10px",fontWeight:600}}>
+                    <div style={{fontSize:13,color:retard?"#f08080":row.statut==="besoin_ouvrier"?"#c080ff":T.text}}>
+                      {retard&&<span title="En retard !" style={{marginRight:5}}>⚠️</span>}
+                      {row.article||"—"}
+                    </div>
                   </td>
                   <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>{row.fournisseur||<span style={{color:T.emptyColor,fontSize:12}}>À renseigner</span>}</td>
                   <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>{row.quantite||"—"}</td>
                   <td style={{padding:"11px 10px"}}>
-                    <button onClick={()=>cycleStatut(row)} style={{
-                      background:st.bg,border:`1px solid ${st.border}`,borderRadius:6,
-                      padding:"5px 10px",fontSize:12,fontWeight:700,color:st.color,
-                      cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",
-                      transition:"all .15s"}} title="Cliquer pour changer le statut">
-                      {st.label}
-                    </button>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      <button onClick={()=>cycleStatut(row)} style={{
+                        background:st.bg,border:`1px solid ${st.border}`,borderRadius:6,
+                        padding:"4px 10px",fontSize:12,fontWeight:700,color:st.color,
+                        cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",
+                        transition:"all .15s"}} title="Cliquer pour changer le statut">
+                        {st.label}
+                      </button>
+                      <span style={{
+                        display:"inline-block",borderRadius:5,padding:"2px 7px",fontSize:11,fontWeight:700,
+                        background:urgent?"rgba(224,92,92,0.15)":"rgba(245,166,35,0.10)",
+                        color:urgent?"#e05c5c":"#c0a060",border:`1px solid ${urgent?"rgba(224,92,92,0.35)":"rgba(245,166,35,0.2)"}`,
+                        alignSelf:"flex-start",
+                      }}>
+                        {urgent?"🔴 Urgent":"🟡 Normal"}
+                      </span>
+                    </div>
                   </td>
-                  <td style={{padding:"11px 10px",fontSize:13,color:T.textSub,maxWidth:180,
-                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.notes||""}</td>
+                  <td style={{padding:"11px 10px"}}>
+                    {row.ouvrier_demandeur&&(
+                      <div style={{fontSize:12,color:"#a0b8ff",fontWeight:700,marginBottom:2}}>
+                        👤 {row.ouvrier_demandeur}
+                      </div>
+                    )}
+                    <div style={{fontSize:13,color:T.textSub,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {row.notes||""}
+                    </div>
+                  </td>
+                  <td style={{padding:"11px 10px",whiteSpace:"nowrap"}}>
+                    <div style={{fontSize:12,fontWeight:700,
+                      color:retard?"#e05c5c":urgent?"#f5a070":T.textMuted}}>
+                      {dateCreation}
+                    </div>
+                    <div style={{fontSize:11,color:T.textMuted}}>{heureCreation}</div>
+                    {retard&&<div style={{fontSize:10,color:"#e05c5c",fontWeight:700,marginTop:2}}>EN RETARD</div>}
+                  </td>
                   <td style={{padding:"11px 10px",whiteSpace:"nowrap"}}>
                     <button onClick={()=>setEditRow(row.id)} style={{background:"transparent",border:"none",
                       cursor:"pointer",fontSize:15,opacity:.6,marginRight:4,color:T.text}} title="Modifier">✏️</button>
