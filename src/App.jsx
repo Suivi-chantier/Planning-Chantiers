@@ -720,71 +720,7 @@ function PageCommandes({chantiers,T}){
   // Liste des ouvriers ayant des commandes
   const ouvriersDansCmds=[...new Set(rows.map(r=>r.ouvrier_demandeur).filter(Boolean))];
 
-  // renderRowEditor utilise editDraft (state du parent) — pas de sous-composant
-  // pour éviter la réinitialisation du state à chaque re-render
-  const renderRowEditor = (onCancel) => {
-    if (!editDraft) return null;
-    return (
-      <tr style={{background:T.fieldBg}}>
-        <td style={{padding:"8px 10px"}}>
-          <select value={editDraft.chantier_id} onChange={e=>setEditDraft(p=>({...p,chantier_id:e.target.value}))}
-            style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
-            <option value="" style={{background:"#1e2336",color:"#9aa5c0"}}>— Chantier —</option>
-            {chantiers.map(c=><option key={c.id} value={c.id} style={{background:"#1e2336",color:"#e8eaf0"}}>{c.nom}</option>)}
-          </select>
-        </td>
-        <td style={{padding:"8px 10px"}}>
-          <input value={editDraft.article} onChange={e=>setEditDraft(p=>({...p,article:e.target.value}))}
-            placeholder="Article / matériau" autoFocus
-            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
-        </td>
-        <td style={{padding:"8px 10px"}}>
-          <input value={editDraft.fournisseur} onChange={e=>setEditDraft(p=>({...p,fournisseur:e.target.value}))}
-            placeholder="Fournisseur"
-            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
-        </td>
-        <td style={{padding:"8px 10px"}}>
-          <input value={editDraft.quantite} onChange={e=>setEditDraft(p=>({...p,quantite:e.target.value}))}
-            placeholder="Qté"
-            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
-        </td>
-        <td style={{padding:"8px 10px"}}>
-          <select value={editDraft.statut} onChange={e=>setEditDraft(p=>({...p,statut:e.target.value}))}
-            style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none",marginBottom:4}}>
-            {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k} style={{background:"#1e2336",color:"#e8eaf0"}}>{v.label}</option>)}
-          </select>
-          <select value={editDraft.priorite||"normal"} onChange={e=>setEditDraft(p=>({...p,priorite:e.target.value}))}
-            style={{background:"#1e2336",border:`1px solid ${editDraft.priorite==="urgent"?"rgba(224,92,92,0.6)":"rgba(255,255,255,0.1)"}`,
-              borderRadius:6,padding:"5px 8px",color:editDraft.priorite==="urgent"?"#e05c5c":"#9aa5c0",
-              fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",fontWeight:700}}>
-            <option value="normal" style={{background:"#1e2336",color:"#9aa5c0"}}>🟡 Normal (vendredi)</option>
-            <option value="urgent" style={{background:"#1e2336",color:"#e05c5c"}}>🔴 URGENT (sous 2 jours)</option>
-          </select>
-        </td>
-        <td style={{padding:"8px 10px"}}>
-          <input value={editDraft.ouvrier_demandeur||""} onChange={e=>setEditDraft(p=>({...p,ouvrier_demandeur:e.target.value}))}
-            placeholder="Ouvrier demandeur"
-            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:T.text,fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",marginBottom:4}}/>
-          <input value={editDraft.notes} onChange={e=>setEditDraft(p=>({...p,notes:e.target.value}))}
-            placeholder="Notes"
-            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",
-              color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
-        </td>
-        <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
-          <button onClick={()=>saveRow(editDraft)} style={{background:T.accent,color:"#fff",border:"none",
-            borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginRight:6}}>✓</button>
-          <button onClick={onCancel} style={{background:"transparent",border:`1px solid ${T.border}`,
-            borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer",color:T.textSub,fontFamily:"inherit"}}>✕</button>
-        </td>
-      </tr>
-    );
-  };
+  // editDraft est dans le state du parent pour survivre aux re-renders
 
   const counts=Object.fromEntries(Object.keys(STATUTS).map(k=>[k,rows.filter(r=>r.statut===k).length]));
 
@@ -858,7 +794,52 @@ function PageCommandes({chantiers,T}){
           </thead>
           <tbody>
             {newRow&&editDraft&&(
-              renderRowEditor(()=>{setNewRow(null);setEditDraft(null);})
+              <tr style={{background:T.fieldBg}}>
+                <td style={{padding:"8px 10px"}}>
+                  <select value={editDraft.chantier_id} onChange={e=>setEditDraft(p=>({...p,chantier_id:e.target.value}))}
+                    style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
+                    <option value="">— Chantier —</option>
+                    {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+                  </select>
+                </td>
+                <td style={{padding:"8px 10px"}}>
+                  <input value={editDraft.article||""} onChange={e=>setEditDraft(p=>({...p,article:e.target.value}))}
+                    placeholder="Article" autoFocus
+                    style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                </td>
+                <td style={{padding:"8px 10px"}}>
+                  <input value={editDraft.fournisseur||""} onChange={e=>setEditDraft(p=>({...p,fournisseur:e.target.value}))}
+                    placeholder="Fournisseur"
+                    style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                </td>
+                <td style={{padding:"8px 10px"}}>
+                  <input value={editDraft.quantite||""} onChange={e=>setEditDraft(p=>({...p,quantite:e.target.value}))}
+                    placeholder="Qté"
+                    style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                </td>
+                <td style={{padding:"8px 10px"}}>
+                  <select value={editDraft.statut||"a_commander"} onChange={e=>setEditDraft(p=>({...p,statut:e.target.value}))}
+                    style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none",marginBottom:4}}>
+                    {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                  </select>
+                  <select value={editDraft.priorite||"normal"} onChange={e=>setEditDraft(p=>({...p,priorite:e.target.value}))}
+                    style={{background:"#1e2336",border:`1px solid ${editDraft.priorite==="urgent"?"rgba(224,92,92,0.5)":"rgba(255,255,255,0.1)"}`,borderRadius:6,padding:"5px 8px",color:editDraft.priorite==="urgent"?"#e05c5c":"#9aa5c0",fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",fontWeight:700}}>
+                    <option value="normal">🟡 Normal</option>
+                    <option value="urgent">🔴 URGENT</option>
+                  </select>
+                </td>
+                <td style={{padding:"8px 10px"}}>
+                  <input value={editDraft.ouvrier_demandeur||""} onChange={e=>setEditDraft(p=>({...p,ouvrier_demandeur:e.target.value}))}
+                    placeholder="Ouvrier" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 8px",color:T.text,fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",marginBottom:4}}/>
+                  <input value={editDraft.notes||""} onChange={e=>setEditDraft(p=>({...p,notes:e.target.value}))}
+                    placeholder="Notes" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                </td>
+                <td style={{padding:"8px 10px"}}></td>
+                <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
+                  <button onClick={()=>saveRow(editDraft)} style={{background:T.accent,color:"#fff",border:"none",borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginRight:6}}>✓</button>
+                  <button onClick={()=>{setNewRow(null);setEditDraft(null);}} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer",color:T.textSub,fontFamily:"inherit"}}>✕</button>
+                </td>
+              </tr>
             )}
             {loading?(
               <tr><td colSpan={8} style={{padding:32,textAlign:"center",color:T.textMuted}}>Chargement…</td></tr>
@@ -871,7 +852,54 @@ function PageCommandes({chantiers,T}){
               const st=STATUTS[row.statut]||STATUTS.a_commander;
               const retard=isEnRetard(row);
               const urgent=row.priorite==="urgent";
-              if(editRow===row.id)return(<tr key={row.id}><td colSpan={8} style={{padding:0}}><table style={{width:"100%",borderCollapse:"collapse"}}><tbody>{renderRowEditor(()=>{setEditRow(null);setEditDraft(null);})}</tbody></table></td></tr>);
+              if(editRow===row.id&&editDraft)return(
+                <tr key={row.id} style={{background:T.fieldBg}}>
+                  <td style={{padding:"8px 10px"}}>
+                    <select value={editDraft.chantier_id} onChange={e=>setEditDraft(p=>({...p,chantier_id:e.target.value}))}
+                      style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}>
+                      <option value="">— Chantier —</option>
+                      {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+                    </select>
+                  </td>
+                  <td style={{padding:"8px 10px"}}>
+                    <input value={editDraft.article||""} onChange={e=>setEditDraft(p=>({...p,article:e.target.value}))}
+                      placeholder="Article" autoFocus
+                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                  </td>
+                  <td style={{padding:"8px 10px"}}>
+                    <input value={editDraft.fournisseur||""} onChange={e=>setEditDraft(p=>({...p,fournisseur:e.target.value}))}
+                      placeholder="Fournisseur"
+                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                  </td>
+                  <td style={{padding:"8px 10px"}}>
+                    <input value={editDraft.quantite||""} onChange={e=>setEditDraft(p=>({...p,quantite:e.target.value}))}
+                      placeholder="Qté"
+                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                  </td>
+                  <td style={{padding:"8px 10px"}}>
+                    <select value={editDraft.statut||"a_commander"} onChange={e=>setEditDraft(p=>({...p,statut:e.target.value}))}
+                      style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 8px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,width:"100%",outline:"none",marginBottom:4}}>
+                      {Object.entries(STATUTS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                    <select value={editDraft.priorite||"normal"} onChange={e=>setEditDraft(p=>({...p,priorite:e.target.value}))}
+                      style={{background:"#1e2336",border:`1px solid ${editDraft.priorite==="urgent"?"rgba(224,92,92,0.5)":"rgba(255,255,255,0.1)"}`,borderRadius:6,padding:"5px 8px",color:editDraft.priorite==="urgent"?"#e05c5c":"#9aa5c0",fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",fontWeight:700}}>
+                      <option value="normal">🟡 Normal</option>
+                      <option value="urgent">🔴 URGENT</option>
+                    </select>
+                  </td>
+                  <td style={{padding:"8px 10px"}}>
+                    <input value={editDraft.ouvrier_demandeur||""} onChange={e=>setEditDraft(p=>({...p,ouvrier_demandeur:e.target.value}))}
+                      placeholder="Ouvrier" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 8px",color:T.text,fontFamily:"inherit",fontSize:12,width:"100%",outline:"none",marginBottom:4}}/>
+                    <input value={editDraft.notes||""} onChange={e=>setEditDraft(p=>({...p,notes:e.target.value}))}
+                      placeholder="Notes" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 8px",color:T.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"}}/>
+                  </td>
+                  <td style={{padding:"8px 10px"}}></td>
+                  <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
+                    <button onClick={()=>saveRow(editDraft)} style={{background:T.accent,color:"#fff",border:"none",borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginRight:6}}>✓</button>
+                    <button onClick={()=>{setEditRow(null);setEditDraft(null);}} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer",color:T.textSub,fontFamily:"inherit"}}>✕</button>
+                  </td>
+                </tr>
+              );
               // Couleur de fond selon priorité / retard
               const rowBg = retard ? "rgba(224,92,92,0.10)"
                 : urgent ? "rgba(224,92,92,0.05)"
@@ -4051,7 +4079,30 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   const creerBrouillonGmail = async () => {
     setCreatingDraft(true); setDraftStatus(null);
     try {
-      const hpc = calcHeuresParChantier();
+      // Calcul inline des heures (calcHeuresParChantier peut ne pas être encore définie)
+      const hpc = (() => {
+        const res = {};
+        const JOURS2 = Object.keys(HEURES_PAR_JOUR);
+        JOURS2.forEach(jour => {
+          const heuresJour = HEURES_PAR_JOUR[jour];
+          const conflitsJour2 = conflits.filter(c => c.jour === jour);
+          const ouvrierEnConflit2 = new Set(conflitsJour2.map(c => c.ouvrier));
+          Object.entries(cells).forEach(([key, cell]) => {
+            const parts = key.split("_");
+            if (parts[parts.length-1] !== jour) return;
+            const cid = parts.slice(0,-1).join("_");
+            (cell.ouvriers||[]).forEach(o => {
+              if (!res[cid]) res[cid] = 0;
+              if (ouvrierEnConflit2.has(o)) {
+                res[cid] += parseFloat(heuresSaisies[jour]?.[o]?.[cid] || 0);
+              } else {
+                res[cid] += heuresJour;
+              }
+            });
+          });
+        });
+        return res;
+      })();
       const totalH = Object.values(hpc).reduce((a,b)=>a+b,0);
       const L = [];
       L.push(`Bonjour,`); L.push(``);
