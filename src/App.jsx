@@ -852,7 +852,17 @@ function PageCommandes({chantiers,T}){
               const st=STATUTS[row.statut]||STATUTS.a_commander;
               const retard=isEnRetard(row);
               const urgent=row.priorite==="urgent";
-              if(editRow===row.id&&editDraft)return(
+              // Couleur de fond selon priorité / retard
+              const rowBg = retard ? "rgba(224,92,92,0.10)"
+                : urgent ? "rgba(224,92,92,0.05)"
+                : row.statut==="besoin_ouvrier" ? "rgba(176,96,255,0.06)"
+                : "transparent";
+              const rowBorderLeft = retard ? "3px solid #e05c5c"
+                : urgent ? "3px solid rgba(224,92,92,0.5)"
+                : row.statut==="besoin_ouvrier" ? "3px solid #b060ff"
+                : "3px solid transparent";
+              // Ligne en mode édition
+              if(editRow===row.id&&editDraft) return(
                 <tr key={row.id} style={{background:T.fieldBg}}>
                   <td style={{padding:"8px 10px"}}>
                     <select value={editDraft.chantier_id} onChange={e=>setEditDraft(p=>({...p,chantier_id:e.target.value}))}
@@ -900,15 +910,6 @@ function PageCommandes({chantiers,T}){
                   </td>
                 </tr>
               );
-              // Couleur de fond selon priorité / retard
-              const rowBg = retard ? "rgba(224,92,92,0.10)"
-                : urgent ? "rgba(224,92,92,0.05)"
-                : row.statut==="besoin_ouvrier" ? "rgba(176,96,255,0.06)"
-                : "transparent";
-              const rowBorderLeft = retard ? "3px solid #e05c5c"
-                : urgent ? "3px solid rgba(224,92,92,0.5)"
-                : row.statut==="besoin_ouvrier" ? "3px solid #b060ff"
-                : "3px solid transparent";
               // Date de création formatée
               const dateCreation = row.created_at
                 ? new Date(row.created_at).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit"})
@@ -4076,80 +4077,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   const [draftStatus, setDraftStatus]     = useState(null);
 
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
-  const creerBrouillonGmail = async () => {
-    setCreatingDraft(true); setDraftStatus(null);
-    try {
-      // Calcul inline des heures (calcHeuresParChantier peut ne pas être encore définie)
-      const hpc = (() => {
-        const res = {};
-        const JOURS2 = Object.keys(HEURES_PAR_JOUR);
-        JOURS2.forEach(jour => {
-          const heuresJour = HEURES_PAR_JOUR[jour];
-          const conflitsJour2 = conflits.filter(c => c.jour === jour);
-          const ouvrierEnConflit2 = new Set(conflitsJour2.map(c => c.ouvrier));
-          Object.entries(cells).forEach(([key, cell]) => {
-            const parts = key.split("_");
-            if (parts[parts.length-1] !== jour) return;
-            const cid = parts.slice(0,-1).join("_");
-            (cell.ouvriers||[]).forEach(o => {
-              if (!res[cid]) res[cid] = 0;
-              if (ouvrierEnConflit2.has(o)) {
-                res[cid] += parseFloat(heuresSaisies[jour]?.[o]?.[cid] || 0);
-              } else {
-                res[cid] += heuresJour;
-              }
-            });
-          });
-        });
-        return res;
-      })();
-      const totalH = Object.values(hpc).reduce((a,b)=>a+b,0);
-      const L = [];
-      L.push(`Bonjour,`); L.push(``);
-      L.push(`Voici le bilan de la semaine ${weekId}.`); L.push(``);
-      L.push(`TOTAL HEURES : ${totalH.toFixed(1)}h`);
-      L.push(`─────────────────────────────────────────`); L.push(``);
-      const parChantierMail = {};
-      rapports.forEach(r => {
-        const k = r.chantier_id || "__divers__";
-        if (!parChantierMail[k]) parChantierMail[k] = { rapports:[], nom:r.chantier_nom||"Divers" };
-        parChantierMail[k].rapports.push(r);
-      });
-      Object.entries(parChantierMail).forEach(([cId, grp]) => {
-        const hCh = hpc[cId] || 0;
-        L.push(`▌ ${grp.nom.toUpperCase()}${hCh>0?`  —  ${hCh.toFixed(1)}h`:""}`);
-        const JOURS = Object.keys(HEURES_PAR_JOUR);
-        JOURS.forEach(jour => {
-          const cell = cells[`${cId}_${jour}`];
-          if (!cell||(cell.ouvriers||[]).length===0) return;
-          L.push(`  ${jour} : ${cell.ouvriers.join(", ")}`);
-        });
-        const taches = grp.rapports.flatMap(r=>(r.taches||[]).map(t=>({...t,ouvrier:r.ouvrier})));
-        taches.filter(t=>t.statut==="faite").forEach(t=>L.push(`  ✅ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
-        taches.filter(t=>t.statut==="en_cours").forEach(t=>L.push(`  🔄 ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
-        taches.filter(t=>t.statut==="non_faite").forEach(t=>L.push(`  ❌ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
-        grp.rapports.filter(r=>r.remarque?.trim()).forEach(r=>L.push(`  💬 ${r.ouvrier} : ${r.remarque}`));
-        L.push(``);
-      });
-      L.push(`Cordialement`);
-      const body = L.join("\n");
-      const subject = `Bilan chantiers — ${weekId}`;
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: "Tu es un assistant qui crée des brouillons Gmail. Quand on te donne un sujet et un corps de mail, utilise l'outil Gmail pour créer un brouillon. Réponds uniquement avec le résultat de l'outil.",
-          messages: [{ role: "user", content: `Crée un brouillon Gmail.\nSujet : ${subject}\nCorps :\n${body}` }],
-          mcp_servers: [{ type:"url", url:"https://gmailmcp.googleapis.com/mcp/v1", name:"gmail-mcp" }]
-        })
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setDraftStatus("ok");
-    } catch(e) { console.error(e); setDraftStatus("error"); }
-    setCreatingDraft(false);
-  };
+};
 
   // ── Étape saisie heures ──────────────────────────────────────────────────────
   // Détecte les ouvriers sur plusieurs chantiers un même jour
@@ -4234,6 +4162,81 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   const heuresParChantier = etape === "bilan" ? calcHeuresParChantier() : {};
   const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
   const totalFaites = rapports.reduce((a, r) => a + (r.taches || []).filter(t => t.statut === "faite").length, 0);
+
+  const creerBrouillonGmail = async () => {
+    setCreatingDraft(true); setDraftStatus(null);
+    try {
+      // Calcul inline des heures (calcHeuresParChantier peut ne pas être encore définie)
+      const hpc = (() => {
+        const res = {};
+        const JOURS2 = Object.keys(HEURES_PAR_JOUR);
+        JOURS2.forEach(jour => {
+          const heuresJour = HEURES_PAR_JOUR[jour];
+          const conflitsJour2 = conflits.filter(c => c.jour === jour);
+          const ouvrierEnConflit2 = new Set(conflitsJour2.map(c => c.ouvrier));
+          Object.entries(cells).forEach(([key, cell]) => {
+            const parts = key.split("_");
+            if (parts[parts.length-1] !== jour) return;
+            const cid = parts.slice(0,-1).join("_");
+            (cell.ouvriers||[]).forEach(o => {
+              if (!res[cid]) res[cid] = 0;
+              if (ouvrierEnConflit2.has(o)) {
+                res[cid] += parseFloat(heuresSaisies[jour]?.[o]?.[cid] || 0);
+              } else {
+                res[cid] += heuresJour;
+              }
+            });
+          });
+        });
+        return res;
+      })();
+      const totalH = Object.values(hpc).reduce((a,b)=>a+b,0);
+      const L = [];
+      L.push(`Bonjour,`); L.push(``);
+      L.push(`Voici le bilan de la semaine ${weekId}.`); L.push(``);
+      L.push(`TOTAL HEURES : ${totalH.toFixed(1)}h`);
+      L.push(`─────────────────────────────────────────`); L.push(``);
+      const parChantierMail = {};
+      rapports.forEach(r => {
+        const k = r.chantier_id || "__divers__";
+        if (!parChantierMail[k]) parChantierMail[k] = { rapports:[], nom:r.chantier_nom||"Divers" };
+        parChantierMail[k].rapports.push(r);
+      });
+      Object.entries(parChantierMail).forEach(([cId, grp]) => {
+        const hCh = hpc[cId] || 0;
+        L.push(`▌ ${grp.nom.toUpperCase()}${hCh>0?`  —  ${hCh.toFixed(1)}h`:""}`);
+        const JOURS = Object.keys(HEURES_PAR_JOUR);
+        JOURS.forEach(jour => {
+          const cell = cells[`${cId}_${jour}`];
+          if (!cell||(cell.ouvriers||[]).length===0) return;
+          L.push(`  ${jour} : ${cell.ouvriers.join(", ")}`);
+        });
+        const taches = grp.rapports.flatMap(r=>(r.taches||[]).map(t=>({...t,ouvrier:r.ouvrier})));
+        taches.filter(t=>t.statut==="faite").forEach(t=>L.push(`  ✅ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
+        taches.filter(t=>t.statut==="en_cours").forEach(t=>L.push(`  🔄 ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
+        taches.filter(t=>t.statut==="non_faite").forEach(t=>L.push(`  ❌ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
+        grp.rapports.filter(r=>r.remarque?.trim()).forEach(r=>L.push(`  💬 ${r.ouvrier} : ${r.remarque}`));
+        L.push(``);
+      });
+      L.push(`Cordialement`);
+      const body = L.join("\n");
+      const subject = `Bilan chantiers — ${weekId}`;
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: "Tu es un assistant qui crée des brouillons Gmail. Quand on te donne un sujet et un corps de mail, utilise l'outil Gmail pour créer un brouillon. Réponds uniquement avec le résultat de l'outil.",
+          messages: [{ role: "user", content: `Crée un brouillon Gmail.\nSujet : ${subject}\nCorps :\n${body}` }],
+          mcp_servers: [{ type:"url", url:"https://gmailmcp.googleapis.com/mcp/v1", name:"gmail-mcp" }]
+        })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setDraftStatus("ok");
+    } catch(e) { console.error(e); setDraftStatus("error"); }
+    setCreatingDraft(false);
+  
 
   // Regrouper les rapports par chantier
   const parChantier = {};
