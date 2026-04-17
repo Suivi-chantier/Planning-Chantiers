@@ -676,10 +676,23 @@ function PageCommandes({chantiers,T}){
   },[]);
 
   const saveRow=async(row)=>{
+    // N'envoyer que les champs éditables — pas id/created_at/updated_at qui sont gérés par Supabase
+    const fields={
+      chantier_id:   row.chantier_id   ?? "",
+      article:       row.article       ?? "",
+      fournisseur:   row.fournisseur   ?? "",
+      quantite:      row.quantite      ?? "",
+      statut:        row.statut        ?? "a_commander",
+      priorite:      row.priorite      ?? "normal",
+      ouvrier_demandeur: row.ouvrier_demandeur ?? "",
+      notes:         row.notes         ?? "",
+    };
     if(row.id){
-      await supabase.from("commandes_detail").update(row).eq("id",row.id);
+      const {error}=await supabase.from("commandes_detail").update(fields).eq("id",row.id);
+      if(error) console.error("Erreur update commande:",error);
     } else {
-      await supabase.from("commandes_detail").insert(row);
+      const {error}=await supabase.from("commandes_detail").insert(fields);
+      if(error) console.error("Erreur insert commande:",error);
     }
     setEditRow(null);setNewRow(null);load();
   };
@@ -4029,140 +4042,144 @@ const HEURES_PAR_JOUR = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9 }
 // ─── MODAL BILAN SEMAINE ──────────────────────────────────────────────────────
 function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   const [creatingDraft, setCreatingDraft] = useState(false);
-  const [draftStatus, setDraftStatus]     = useState(null); // null | "ok" | "error"
+  const [draftStatus, setDraftStatus]     = useState(null);
 
-  // Génère le HTML du bilan et crée un brouillon Gmail via l'API Anthropic + MCP Gmail
+  // ── Création brouillon Gmail ─────────────────────────────────────────────────
   const creerBrouillonGmail = async () => {
-    setCreatingDraft(true);
-    setDraftStatus(null);
+    setCreatingDraft(true); setDraftStatus(null);
     try {
-      // Construire le corps du mail en texte structuré
-      const lignes = [];
-      lignes.push(`Bonjour,`);
-      lignes.push(``);
-      lignes.push(`Veuillez trouver ci-dessous le bilan de la semaine ${weekId}.`);
-      lignes.push(``);
-
-      // Total heures
-      const heuresParChantier = {};
-      Object.entries(cells).forEach(([key, cell]) => {
-        const parts = key.split("_");
-        const jour = parts[parts.length - 1];
-        const chantier_id = parts.slice(0, -1).join("_");
-        const heuresJour = HEURES_PAR_JOUR[jour];
-        if (!heuresJour) return;
-        const nb = (cell.ouvriers || []).length;
-        if (nb === 0) return;
-        if (!heuresParChantier[chantier_id]) heuresParChantier[chantier_id] = 0;
-        heuresParChantier[chantier_id] += heuresJour * nb;
-      });
-      const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
-      lignes.push(`TOTAL HEURES SEMAINE : ${totalHeures}h`);
-      lignes.push(`─────────────────────────────────────────`);
-      lignes.push(``);
-
-      // Par chantier
-      const parChantier = {};
+      const hpc = calcHeuresParChantier();
+      const totalH = Object.values(hpc).reduce((a,b)=>a+b,0);
+      const L = [];
+      L.push(`Bonjour,`); L.push(``);
+      L.push(`Voici le bilan de la semaine ${weekId}.`); L.push(``);
+      L.push(`TOTAL HEURES : ${totalH.toFixed(1)}h`);
+      L.push(`─────────────────────────────────────────`); L.push(``);
+      const parChantierMail = {};
       rapports.forEach(r => {
-        const key = r.chantier_id || "__divers__";
-        if (!parChantier[key]) parChantier[key] = { rapports: [], nom: r.chantier_nom || "Divers" };
-        parChantier[key].rapports.push(r);
+        const k = r.chantier_id || "__divers__";
+        if (!parChantierMail[k]) parChantierMail[k] = { rapports:[], nom:r.chantier_nom||"Divers" };
+        parChantierMail[k].rapports.push(r);
       });
-
-      Object.entries(parChantier).forEach(([cId, grp]) => {
-        const heures = heuresParChantier[cId] || 0;
-        lignes.push(`▌ ${grp.nom.toUpperCase()}${heures > 0 ? `  —  ${heures}h cumulées` : ""}`);
-
-        // Présences
-        const presences = [];
-        Object.entries(HEURES_PAR_JOUR).forEach(([jour, h]) => {
+      Object.entries(parChantierMail).forEach(([cId, grp]) => {
+        const hCh = hpc[cId] || 0;
+        L.push(`▌ ${grp.nom.toUpperCase()}${hCh>0?`  —  ${hCh.toFixed(1)}h`:""}`);
+        const JOURS = Object.keys(HEURES_PAR_JOUR);
+        JOURS.forEach(jour => {
           const cell = cells[`${cId}_${jour}`];
-          if (!cell || (cell.ouvriers || []).length === 0) return;
-          presences.push(`  ${jour} : ${cell.ouvriers.join(", ")} (${h * cell.ouvriers.length}h)`);
+          if (!cell||(cell.ouvriers||[]).length===0) return;
+          L.push(`  ${jour} : ${cell.ouvriers.join(", ")}`);
         });
-        if (presences.length > 0) {
-          lignes.push(`  Présences :`);
-          presences.forEach(p => lignes.push(p));
-        }
-
-        // Tâches
-        const toutesTouches = [];
-        grp.rapports.forEach(r => {
-          (r.taches || []).forEach(t => toutesTouches.push({ ...t, ouvrier: r.ouvrier }));
-        });
-        const faites   = toutesTouches.filter(t => t.statut === "faite");
-        const enCours  = toutesTouches.filter(t => t.statut === "en_cours");
-        const nonFaite = toutesTouches.filter(t => t.statut === "non_faite");
-
-        if (faites.length > 0) {
-          lignes.push(`  ✅ Réalisé :`);
-          faites.forEach(t => lignes.push(`    • ${t.planifie}${t.remarque ? " — " + t.remarque : ""} (${t.ouvrier})`));
-        }
-        if (enCours.length > 0) {
-          lignes.push(`  🔄 En cours :`);
-          enCours.forEach(t => lignes.push(`    • ${t.planifie}${t.remarque ? " — " + t.remarque : ""} (${t.ouvrier})`));
-        }
-        if (nonFaite.length > 0) {
-          lignes.push(`  ❌ Non réalisé :`);
-          nonFaite.forEach(t => lignes.push(`    • ${t.planifie}${t.remarque ? " — " + t.remarque : ""} (${t.ouvrier})`));
-        }
-
-        // Remarques
-        grp.rapports.filter(r => r.remarque?.trim()).forEach(r => {
-          lignes.push(`  💬 ${r.ouvrier} : ${r.remarque}`);
-        });
-
-        lignes.push(``);
+        const taches = grp.rapports.flatMap(r=>(r.taches||[]).map(t=>({...t,ouvrier:r.ouvrier})));
+        taches.filter(t=>t.statut==="faite").forEach(t=>L.push(`  ✅ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
+        taches.filter(t=>t.statut==="en_cours").forEach(t=>L.push(`  🔄 ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
+        taches.filter(t=>t.statut==="non_faite").forEach(t=>L.push(`  ❌ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
+        grp.rapports.filter(r=>r.remarque?.trim()).forEach(r=>L.push(`  💬 ${r.ouvrier} : ${r.remarque}`));
+        L.push(``);
       });
-
-      lignes.push(`Cordialement,`);
-
-      const body = lignes.join("\n");
+      L.push(`Cordialement`);
+      const body = L.join("\n");
       const subject = `Bilan chantiers — ${weekId}`;
-
-      // Appel API Anthropic avec MCP Gmail pour créer le brouillon
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
-          system: "Tu es un assistant qui crée des brouillons Gmail. Quand on te donne un sujet et un corps de mail, tu utilises l'outil Gmail pour créer un brouillon. Ne réponds qu'avec le résultat de l'outil, rien d'autre.",
-          messages: [{
-            role: "user",
-            content: `Crée un brouillon Gmail avec :\nSujet : ${subject}\nCorps du mail :\n${body}`
-          }],
-          mcp_servers: [{
-            type: "url",
-            url: "https://gmail.mcp.claude.com/mcp",
-            name: "gmail-mcp"
-          }]
+          system: "Tu es un assistant qui crée des brouillons Gmail. Quand on te donne un sujet et un corps de mail, utilise l'outil Gmail pour créer un brouillon. Réponds uniquement avec le résultat de l'outil.",
+          messages: [{ role: "user", content: `Crée un brouillon Gmail.\nSujet : ${subject}\nCorps :\n${body}` }],
+          mcp_servers: [{ type:"url", url:"https://gmailmcp.googleapis.com/mcp/v1", name:"gmail-mcp" }]
         })
       });
-
-      if (!response.ok) throw new Error("Erreur API");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setDraftStatus("ok");
-    } catch (e) {
-      console.error(e);
-      setDraftStatus("error");
-    }
+    } catch(e) { console.error(e); setDraftStatus("error"); }
     setCreatingDraft(false);
   };
-  // Calcule les heures par chantier depuis le planning (cells)
-  // cells = { "chantier_id_Jour": { ouvriers: [...] } }
-  const heuresParChantier = {};
-  Object.entries(cells).forEach(([key, cell]) => {
-    const parts = key.split("_");
-    // key = "chantier_id_Jour" — le jour est le dernier segment
-    const jour = parts[parts.length - 1];
-    const chantier_id = parts.slice(0, -1).join("_");
-    const heuresJour = HEURES_PAR_JOUR[jour];
-    if (!heuresJour) return; // Vendredi ou week-end ignorés
-    const nbOuvriers = (cell.ouvriers || []).length;
-    if (nbOuvriers === 0) return;
-    if (!heuresParChantier[chantier_id]) heuresParChantier[chantier_id] = 0;
-    heuresParChantier[chantier_id] += heuresJour * nbOuvriers;
+
+  // ── Étape saisie heures ──────────────────────────────────────────────────────
+  // Détecte les ouvriers sur plusieurs chantiers un même jour
+  const conflits = (() => {
+    const result = []; // [{jour, ouvrier, chantiers:[{id,nom,couleur}], heures:{[chantierId]:nb}}]
+    const JOURS = Object.keys(HEURES_PAR_JOUR);
+    JOURS.forEach(jour => {
+      // Récupère tous les chantiers où cet ouvrier est planifié ce jour
+      const parOuvrier = {};
+      Object.entries(cells).forEach(([key, cell]) => {
+        const parts = key.split("_");
+        const j = parts[parts.length - 1];
+        if (j !== jour) return;
+        const cid = parts.slice(0, -1).join("_");
+        (cell.ouvriers || []).forEach(o => {
+          if (!parOuvrier[o]) parOuvrier[o] = [];
+          parOuvrier[o].push(cid);
+        });
+      });
+      // Garde seulement ceux sur 2+ chantiers
+      Object.entries(parOuvrier).forEach(([ouvrier, chantierIds]) => {
+        if (chantierIds.length < 2) return;
+        const heuresJour = HEURES_PAR_JOUR[jour];
+        // Heures initiales : répartition égale
+        const heuresInit = {};
+        chantierIds.forEach(cid => { heuresInit[cid] = parseFloat((heuresJour / chantierIds.length).toFixed(1)); });
+        result.push({ jour, ouvrier, chantierIds, heures: heuresInit, heuresJour });
+      });
+    });
+    return result;
+  })();
+
+  const [etape, setEtape] = useState(conflits.length > 0 ? "saisie" : "bilan");
+  // heuresSaisies[jour][ouvrier][chantierId] = nb heures
+  const [heuresSaisies, setHeuresSaisies] = useState(() => {
+    const init = {};
+    conflits.forEach(c => {
+      if (!init[c.jour]) init[c.jour] = {};
+      init[c.jour][c.ouvrier] = { ...c.heures };
+    });
+    return init;
   });
+
+  const setH = (jour, ouvrier, chantierId, val) => {
+    setHeuresSaisies(prev => ({
+      ...prev,
+      [jour]: { ...prev[jour], [ouvrier]: { ...prev[jour]?.[ouvrier], [chantierId]: val } }
+    }));
+  };
+
+  // Calcule les heures finales par chantier en tenant compte des saisies
+  const calcHeuresParChantier = () => {
+    const result = {};
+    const JOURS = Object.keys(HEURES_PAR_JOUR);
+    JOURS.forEach(jour => {
+      const heuresJour = HEURES_PAR_JOUR[jour];
+      // Ouvriers en conflit ce jour
+      const conflitsJour = conflits.filter(c => c.jour === jour);
+      const ouvrierEnConflit = new Set(conflitsJour.map(c => c.ouvrier));
+
+      Object.entries(cells).forEach(([key, cell]) => {
+        const parts = key.split("_");
+        const j = parts[parts.length - 1];
+        if (j !== jour) return;
+        const cid = parts.slice(0, -1).join("_");
+        (cell.ouvriers || []).forEach(o => {
+          if (!result[cid]) result[cid] = 0;
+          if (ouvrierEnConflit.has(o)) {
+            // Utilise l'heure saisie
+            const h = parseFloat(heuresSaisies[jour]?.[o]?.[cid] || 0);
+            result[cid] += h;
+          } else {
+            // Ouvrier sur 1 seul chantier : journée complète
+            result[cid] += heuresJour;
+          }
+        });
+      });
+    });
+    return result;
+  };
+
+  const heuresParChantier = etape === "bilan" ? calcHeuresParChantier() : {};
+  const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
+  const totalFaites = rapports.reduce((a, r) => a + (r.taches || []).filter(t => t.statut === "faite").length, 0);
 
   // Regrouper les rapports par chantier
   const parChantier = {};
@@ -4172,8 +4189,127 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
     parChantier[key].rapports.push(r);
   });
 
-  const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
   const totalFaites = rapports.reduce((a, r) => a + (r.taches || []).filter(t => t.statut === "faite").length, 0);
+
+  // ── Écran de saisie des heures (étape 1) ───────────────────────────────────
+  if (etape === "saisie") {
+    return (
+      <div style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.80)", zIndex: 600,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 16, backdropFilter: "blur(4px)"
+      }} onClick={onClose}>
+        <div style={{
+          background: T.modal, borderRadius: 18, width: "100%", maxWidth: 580,
+          maxHeight: "88vh", overflow: "hidden", display: "flex", flexDirection: "column",
+          border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)"
+        }} onClick={e => e.stopPropagation()}>
+          {/* Header saisie */}
+          <div style={{
+            background: "linear-gradient(135deg, #1a1f2e 0%, #252b3d 100%)",
+            padding: "20px 24px", borderBottom: `2px solid ${T.accent}`, flexShrink: 0
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 3, textTransform: "uppercase", color: T.accent, marginBottom: 4 }}>
+              Étape 1 / 2
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 6 }}>
+              Répartition des heures
+            </div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
+              Ces ouvriers étaient planifiés sur plusieurs chantiers le même jour.
+              Indique combien d'heures ils ont passé sur chaque chantier.
+            </div>
+          </div>
+
+          {/* Corps saisie */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20, minHeight: 0 }}>
+            {conflits.map((c, idx) => {
+              const total = c.chantierIds.reduce((s, cid) => s + parseFloat(heuresSaisies[c.jour]?.[c.ouvrier]?.[cid] || 0), 0);
+              const ecart = parseFloat((c.heuresJour - total).toFixed(2));
+              const ok = Math.abs(ecart) < 0.05;
+              return (
+                <div key={idx} style={{
+                  background: T.surface, border: `1px solid ${ok ? T.border : "rgba(224,92,92,0.4)"}`,
+                  borderRadius: 12, padding: "16px 18px"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                    <div style={{
+                      background: "rgba(255,194,0,0.15)", border: "1px solid rgba(255,194,0,0.3)",
+                      borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, color: T.accent
+                    }}>{c.jour}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: "#e8eaf0" }}>👷 {c.ouvrier}</div>
+                    <div style={{ fontSize: 12, color: T.textMuted }}>({c.heuresJour}h dans la journée)</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {c.chantierIds.map(cid => {
+                      const ch = chantiers.find(x => x.id === cid);
+                      const val = heuresSaisies[c.jour]?.[c.ouvrier]?.[cid] ?? c.heures[cid];
+                      return (
+                        <div key={cid} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 3, background: ch?.couleur || "#5b8af5", flexShrink: 0 }} />
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eaf0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {ch?.nom || cid}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                            <input
+                              type="number" min={0} max={c.heuresJour} step={0.5}
+                              value={val}
+                              onChange={e => setH(c.jour, c.ouvrier, cid, parseFloat(e.target.value) || 0)}
+                              style={{
+                                width: 68, background: T.fieldBg || "#1a1d28",
+                                border: `1.5px solid ${ok ? T.border : "rgba(224,92,92,0.5)"}`,
+                                borderRadius: 8, padding: "7px 10px", color: "#e8eaf0",
+                                fontFamily: "inherit", fontSize: 15, fontWeight: 700,
+                                textAlign: "center", outline: "none"
+                              }}
+                            />
+                            <span style={{ fontSize: 13, color: T.textMuted }}>h</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Indicateur total */}
+                  <div style={{
+                    marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}`,
+                    display: "flex", justifyContent: "space-between", alignItems: "center"
+                  }}>
+                    <span style={{ fontSize: 12, color: T.textMuted }}>Total saisi</span>
+                    <span style={{
+                      fontSize: 14, fontWeight: 800,
+                      color: ok ? "#50c878" : Math.abs(ecart) < 1 ? T.accent : "#e05c5c"
+                    }}>
+                      {total.toFixed(1)}h / {c.heuresJour}h
+                      {ok ? " ✓" : ecart > 0 ? ` (${ecart.toFixed(1)}h restantes)` : ` (dépassement de ${Math.abs(ecart).toFixed(1)}h)`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Footer saisie */}
+          <div style={{
+            padding: "16px 24px", borderTop: `1px solid ${T.border}`,
+            display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0
+          }}>
+            <button onClick={onClose} style={{
+              background: "transparent", border: `1px solid ${T.border}`,
+              borderRadius: 10, padding: "10px 20px", color: T.textSub,
+              fontFamily: "inherit", fontSize: 14, cursor: "pointer"
+            }}>Annuler</button>
+            <button onClick={() => setEtape("bilan")} style={{
+              background: T.accent, border: "none", borderRadius: 10,
+              padding: "10px 24px", color: "#111",
+              fontFamily: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer"
+            }}>Voir le bilan →</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -4182,9 +4318,10 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       padding: 16, backdropFilter: "blur(4px)"
     }} onClick={onClose}>
       <div style={{
-        background: T.modal, borderRadius: 18, width: "100%", maxWidth: 720,
-        maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column",
-        border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)"
+        background: T.modal, borderRadius: 18, width: "100%", maxWidth: 740,
+        maxHeight: "88vh", overflow: "hidden", display: "flex", flexDirection: "column",
+        border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+        minHeight: 0
       }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
@@ -4201,8 +4338,8 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
           </div>
           <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: T.accent }}>{totalHeures}h</div>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>Total cumulé</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: T.accent }}>{totalHeures.toFixed(1)}h</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>Heures réelles</div>
             </div>
             <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: 28, fontWeight: 800, color: "#50c878" }}>{totalFaites}</div>
@@ -4231,7 +4368,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
         </div>
 
         {/* Corps */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px", display: "flex", flexDirection: "column", gap: 16, minHeight: 0 }}>
           {Object.keys(parChantier).length === 0 && (
             <div style={{ textAlign: "center", padding: "40px 0", color: T.textMuted, fontSize: 15 }}>
               Aucun compte rendu pour cette semaine.
@@ -4240,14 +4377,12 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
 
           {Object.entries(parChantier).map(([cId, grp]) => {
             const ch = chantiers.find(c => c.id === cId);
-            const heures = heuresParChantier[cId] || 0;
-
-            // Calcul détail heures par jour pour ce chantier
+            // Détail présences par jour pour ce chantier
             const detailJours = [];
-            Object.entries(HEURES_PAR_JOUR).forEach(([jour, h]) => {
+            Object.entries(HEURES_PAR_JOUR).forEach(([jour]) => {
               const cell = cells[`${cId}_${jour}`];
               if (!cell || (cell.ouvriers || []).length === 0) return;
-              detailJours.push({ jour, ouvriers: cell.ouvriers, heures: h * cell.ouvriers.length });
+              detailJours.push({ jour, ouvriers: cell.ouvriers });
             });
 
             // Tâches faites / en cours / non faites
@@ -4282,13 +4417,13 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                       {grp.nom}
                     </div>
                   </div>
-                  {heures > 0 && (
+                  {(heuresParChantier[cId] || 0) > 0 && (
                     <div style={{
                       background: T.accent + "22", border: `1.5px solid ${T.accent}55`,
                       borderRadius: 10, padding: "8px 16px", textAlign: "center"
                     }}>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: T.accent, lineHeight: 1 }}>{heures}h</div>
-                      <div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>cumulées</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: T.accent, lineHeight: 1 }}>{(heuresParChantier[cId] || 0).toFixed(1)}h</div>
+                      <div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>heures réelles</div>
                     </div>
                   )}
                 </div>
@@ -4302,7 +4437,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                         ⏱ Présences
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {detailJours.map(({ jour, ouvriers: ouv, heures: h }) => (
+                        {detailJours.map(({ jour, ouvriers: ouv }) => (
                           <div key={jour} style={{
                             background: T.card, border: `1px solid ${T.border}`,
                             borderRadius: 8, padding: "7px 12px"
@@ -4316,7 +4451,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                                 }}>{o}</span>
                               ))}
                             </div>
-                            <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>{h}h cumulées</div>
+                            <div style={{ fontSize: 11, color: T.textMuted }}>{ouv.length} ouvrier{ouv.length>1?"s":""} présent{ouv.length>1?"s":""}</div>
                           </div>
                         ))}
                       </div>
