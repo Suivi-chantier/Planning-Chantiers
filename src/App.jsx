@@ -4180,49 +4180,40 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   });
 
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
-  const creerBrouillonGmail = async () => {
-    setCreatingDraft(true);
-    setDraftStatus(null);
-    try {
-      const hpc = calcHeuresParChantier();
-      const totalH = Object.values(hpc).reduce((a, b) => a + b, 0);
-      const L = [];
-      L.push("Bonjour,"); L.push("");
-      L.push(`Voici le bilan de la semaine ${weekId}.`); L.push("");
-      L.push(`TOTAL HEURES : ${totalH.toFixed(1)}h`);
-      L.push("─────────────────────────────────────────"); L.push("");
-      Object.entries(parChantier).forEach(([cId, grp]) => {
-        const hCh = hpc[cId] || 0;
-        L.push(`▌ ${grp.nom.toUpperCase()}${hCh > 0 ? `  —  ${hCh.toFixed(1)}h` : ""}`);
-        Object.keys(HEURES_PAR_JOUR).forEach(jour => {
-          const cell = cells[`${cId}_${jour}`];
-          if (!cell || !(cell.ouvriers||[]).length) return;
-          L.push(`  ${jour} : ${cell.ouvriers.join(", ")}`);
-        });
-        const taches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier: r.ouvrier})));
-        taches.filter(t => t.statut==="faite").forEach(t => L.push(`  ✅ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
-        taches.filter(t => t.statut==="en_cours").forEach(t => L.push(`  🔄 ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
-        taches.filter(t => t.statut==="non_faite").forEach(t => L.push(`  ❌ ${t.planifie||t.text||""}${t.remarque?" — "+t.remarque:""} (${t.ouvrier})`));
-        grp.rapports.filter(r => r.remarque?.trim()).forEach(r => L.push(`  💬 ${r.ouvrier} : ${r.remarque}`));
-        L.push("");
+  const creerBrouillonGmail = () => {
+    // Construire le corps du mail
+    const hpc = calcHeuresParChantier();
+    const totalH = Object.values(hpc).reduce((a, b) => a + b, 0);
+    const L = [];
+    L.push("Bonjour,"); L.push("");
+    L.push(`Voici le bilan de la semaine ${weekId}.`); L.push("");
+    L.push(`TOTAL HEURES : ${totalH.toFixed(1)}h`);
+    L.push("-----------------------------------------"); L.push("");
+    Object.entries(parChantier).forEach(([cId, grp]) => {
+      const hCh = hpc[cId] || 0;
+      L.push(`${grp.nom.toUpperCase()}${hCh > 0 ? `  -  ${hCh.toFixed(1)}h` : ""}`);
+      Object.keys(HEURES_PAR_JOUR).forEach(jour => {
+        const cell = cells[`${cId}_${jour}`];
+        if (!cell || !(cell.ouvriers||[]).length) return;
+        L.push(`  ${jour} : ${cell.ouvriers.join(", ")}`);
       });
-      L.push("Cordialement");
-      const body    = L.join("\n");
-      const subject = `Bilan chantiers — ${weekId}`;
-      // Appel via la fonction serverless Vercel /api/gmail-draft
-      const response = await fetch("/api/gmail-draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, body })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-      setDraftStatus("ok");
-    } catch(e) {
-      console.error("Gmail error:", e);
-      setDraftStatus("error");
-    }
-    setCreatingDraft(false);
+      const taches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier: r.ouvrier})));
+      taches.filter(t => t.statut==="faite").forEach(t => L.push(`  OK : ${t.planifie||t.text||""}${t.remarque?" - "+t.remarque:""} (${t.ouvrier})`));
+      taches.filter(t => t.statut==="en_cours").forEach(t => L.push(`  En cours : ${t.planifie||t.text||""}${t.remarque?" - "+t.remarque:""} (${t.ouvrier})`));
+      taches.filter(t => t.statut==="non_faite").forEach(t => L.push(`  Non fait : ${t.planifie||t.text||""}${t.remarque?" - "+t.remarque:""} (${t.ouvrier})`));
+      grp.rapports.filter(r => r.remarque?.trim()).forEach(r => L.push(`  Note ${r.ouvrier} : ${r.remarque}`));
+      L.push("");
+    });
+    L.push("Cordialement");
+
+    const subject = `Bilan chantiers - ${weekId}`;
+    const body = L.join("\n");
+
+    // Ouvrir Gmail avec le contenu pré-rempli
+    // L'URL Gmail de composition accepte su= (sujet) et body= (corps)
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(gmailUrl, "_blank");
+    setDraftStatus("ok");
   };
 
   // ── Écran saisie heures (étape 1) ────────────────────────────────────────────
@@ -4337,12 +4328,12 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
               <div style={{ fontSize:28, fontWeight:800, color:"#50c878" }}>{totalFaites}</div>
               <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Tâches faites</div>
             </div>
-            <button onClick={creerBrouillonGmail} disabled={creatingDraft}
-              style={{ background:creatingDraft?"rgba(255,255,255,0.1)":"rgba(234,67,53,0.85)",
+            <button onClick={creerBrouillonGmail}
+              style={{ background: draftStatus==="ok" ? "rgba(80,200,120,0.85)" : "rgba(234,67,53,0.85)",
                 border:"none", borderRadius:10, padding:"0 16px", height:40,
-                cursor:creatingDraft?"wait":"pointer", fontSize:13, fontWeight:700,
+                cursor:"pointer", fontSize:13, fontWeight:700,
                 color:"#fff", display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
-              {creatingDraft ? "⏳ Création…" : draftStatus==="ok" ? "✅ Brouillon créé !" : draftStatus==="error" ? "❌ Erreur" : "✉️ Brouillon Gmail"}
+              {draftStatus==="ok" ? "✅ Gmail ouvert !" : "✉️ Ouvrir dans Gmail"}
             </button>
             <button onClick={onClose} style={{ background:"rgba(255,255,255,0.08)", border:"none",
               borderRadius:10, width:40, height:40, cursor:"pointer", fontSize:20, color:"#fff",
