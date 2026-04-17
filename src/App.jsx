@@ -4181,6 +4181,8 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
 
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
   const [generatingDoc, setGeneratingDoc] = useState(false);
+  const [showNotes, setShowNotes]         = useState(false);
+  const [notesLibres, setNotesLibres]     = useState("");
 
   const genererDocx = async () => {
     setGeneratingDoc(true);
@@ -4213,7 +4215,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       const response = await fetch("/api/generate-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekId, totalH, chantierData })
+        body: JSON.stringify({ weekId, totalH, chantierData, notesLibres })
       });
 
       if (!response.ok) {
@@ -4349,7 +4351,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
               <div style={{ fontSize:28, fontWeight:800, color:"#50c878" }}>{totalFaites}</div>
               <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Tâches faites</div>
             </div>
-            <button onClick={genererDocx} disabled={generatingDoc}
+            <button onClick={()=>setShowNotes(true)} disabled={generatingDoc}
               style={{ background: draftStatus==="ok" ? "rgba(80,200,120,0.85)" : generatingDoc ? "rgba(255,255,255,0.1)" : "rgba(91,138,245,0.85)",
                 border:"none", borderRadius:10, padding:"0 16px", height:40,
                 cursor: generatingDoc ? "wait" : "pointer", fontSize:13, fontWeight:700,
@@ -4362,6 +4364,71 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
               display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
           </div>
         </div>
+
+        {/* Modale notes libres */}
+        {showNotes&&(
+          <div style={{
+            position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:700,
+            display:"flex", alignItems:"center", justifyContent:"center", padding:16
+          }} onClick={()=>setShowNotes(false)}>
+            <div style={{
+              background:"#1e2336", borderRadius:16, width:"100%", maxWidth:560,
+              border:"1px solid rgba(255,255,255,0.12)", boxShadow:"0 24px 60px rgba(0,0,0,0.6)",
+              display:"flex", flexDirection:"column", overflow:"hidden"
+            }} onClick={e=>e.stopPropagation()}>
+              {/* Header */}
+              <div style={{padding:"20px 24px", borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
+                <div style={{fontSize:18, fontWeight:800, color:"#e8eaf0", marginBottom:6}}>
+                  📝 Enrichir le compte rendu
+                </div>
+                <div style={{fontSize:13, color:"#5b6a8a", lineHeight:1.6}}>
+                  Ajoute ici toutes les précisions que tu veux inclure dans le document :
+                  contexte supplémentaire, corrections, points importants, instructions de mise en forme…
+                  Ces notes seront transmises à la génération du .docx.
+                </div>
+              </div>
+              {/* Zone texte */}
+              <div style={{padding:"20px 24px"}}>
+                <textarea
+                  value={notesLibres}
+                  onChange={e=>setNotesLibres(e.target.value)}
+                  placeholder={`Exemple :
+- Le chantier LOU a pris du retard à cause des livraisons
+- Mettre en avant la bonne avancée sur ARTHUR
+- Le vélux a été posé mais avec difficulté, mentionner que c'est soldé
+- Ajouter une mention sur les malfaçons corrigées`}
+                  autoFocus
+                  style={{
+                    width:"100%", minHeight:180, background:"rgba(255,255,255,0.05)",
+                    border:"1.5px solid rgba(255,255,255,0.12)", borderRadius:10,
+                    padding:"14px 16px", color:"#e8eaf0", fontFamily:"inherit",
+                    fontSize:14, lineHeight:1.7, resize:"vertical", outline:"none",
+                    boxSizing:"border-box"
+                  }}
+                />
+                <div style={{fontSize:11, color:"#5b6a8a", marginTop:8}}>
+                  Laisse vide pour générer le document sans notes supplémentaires.
+                </div>
+              </div>
+              {/* Footer */}
+              <div style={{
+                padding:"16px 24px", borderTop:"1px solid rgba(255,255,255,0.08)",
+                display:"flex", gap:10, justifyContent:"flex-end"
+              }}>
+                <button onClick={()=>setShowNotes(false)} style={{
+                  background:"transparent", border:"1px solid rgba(255,255,255,0.15)",
+                  borderRadius:10, padding:"10px 20px", color:"#9aa5c0",
+                  fontFamily:"inherit", fontSize:14, cursor:"pointer"
+                }}>Annuler</button>
+                <button onClick={()=>{ setShowNotes(false); genererDocx(); }} style={{
+                  background:"rgba(91,138,245,0.9)", border:"none",
+                  borderRadius:10, padding:"10px 24px", color:"#fff",
+                  fontFamily:"inherit", fontSize:14, fontWeight:800, cursor:"pointer"
+                }}>📄 Générer le .docx</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Corps */}
         <div style={{ flex:1, overflowY:"auto", padding:"20px 28px", display:"flex", flexDirection:"column", gap:16, minHeight:0 }}>
