@@ -677,25 +677,48 @@ function PageCommandes({chantiers,T}){
   },[]);
 
   const saveRow=async(row)=>{
-    // N'envoyer que les champs éditables — pas id/created_at/updated_at qui sont gérés par Supabase
-    const fields={
-      chantier_id:   row.chantier_id   ?? "",
-      article:       row.article       ?? "",
-      fournisseur:   row.fournisseur   ?? "",
-      quantite:      row.quantite      ?? "",
-      statut:        row.statut        ?? "a_commander",
-      priorite:      row.priorite      ?? "normal",
-      ouvrier_demandeur: row.ouvrier_demandeur ?? "",
-      notes:         row.notes         ?? "",
-    };
+    setEditRow(null); setNewRow(null); setEditDraft(null);
     if(row.id){
-      const {error}=await supabase.from("commandes_detail").update(fields).eq("id",row.id);
-      if(error) console.error("Erreur update commande:",error);
+      // Mise à jour optimiste immédiate du state local
+      setRows(prev=>prev.map(r=>r.id===row.id?{...r,...row}:r));
+      // Champs de base (colonnes qui existent depuis le début)
+      const baseFields={
+        chantier_id:       row.chantier_id       ?? "",
+        article:           row.article           ?? "",
+        fournisseur:       row.fournisseur       ?? "",
+        quantite:          row.quantite          ?? "",
+        statut:            row.statut            ?? "a_commander",
+        notes:             row.notes             ?? "",
+      };
+      const {error:e1}=await supabase.from("commandes_detail").update(baseFields).eq("id",row.id);
+      if(e1){ console.error("Erreur update base:",e1); alert("Erreur sauvegarde: "+e1.message); load(); return; }
+      // Champs additionnels (peuvent ne pas exister selon la migration Supabase)
+      const extraFields={
+        priorite:          row.priorite          ?? "normal",
+        ouvrier_demandeur: row.ouvrier_demandeur ?? "",
+      };
+      const {error:e2}=await supabase.from("commandes_detail").update(extraFields).eq("id",row.id);
+      if(e2) console.warn("Colonnes priorite/ouvrier absentes de la table:",e2.message);
     } else {
-      const {error}=await supabase.from("commandes_detail").insert(fields);
-      if(error) console.error("Erreur insert commande:",error);
+      const fields={
+        chantier_id:       row.chantier_id       ?? "",
+        article:           row.article           ?? "",
+        fournisseur:       row.fournisseur       ?? "",
+        quantite:          row.quantite          ?? "",
+        statut:            row.statut            ?? "a_commander",
+        notes:             row.notes             ?? "",
+      };
+      const {data:created, error}=await supabase.from("commandes_detail").insert(fields).select().single();
+      if(error){ console.error("Erreur insert:",error); alert("Erreur création: "+error.message); }
+      else if(created){
+        // Ajouter les champs extra si possible
+        await supabase.from("commandes_detail").update({
+          priorite: row.priorite??"normal",
+          ouvrier_demandeur: row.ouvrier_demandeur??""
+        }).eq("id",created.id);
+      }
     }
-    setEditRow(null);setNewRow(null);setEditDraft(null);load();
+    load();
   };
   const deleteRow=async(id)=>{
     if(!confirm("Supprimer cette ligne ?"))return;
@@ -4186,18 +4209,14 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       L.push("Cordialement");
       const body    = L.join("\n");
       const subject = `Bilan chantiers — ${weekId}`;
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      // Appel via la fonction serverless Vercel /api/gmail-draft
+      const response = await fetch("/api/gmail-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: "Tu es un assistant qui crée des brouillons Gmail. Utilise l'outil Gmail pour créer le brouillon avec le sujet et le corps fournis.",
-          messages: [{ role: "user", content: `Crée un brouillon Gmail.\nSujet : ${subject}\nCorps :\n${body}` }],
-          mcp_servers: [{ type: "url", url: "https://gmailmcp.googleapis.com/mcp/v1", name: "gmail-mcp" }]
-        })
+        body: JSON.stringify({ subject, body })
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
       setDraftStatus("ok");
     } catch(e) {
       console.error("Gmail error:", e);
