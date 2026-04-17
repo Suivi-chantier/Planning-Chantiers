@@ -4182,15 +4182,6 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   const totalFaites = rapports.reduce((a, r) => a + (r.taches || []).filter(t => t.statut === "faite").length, 0);
 
   // Regrouper les rapports par chantier
-  const parChantier = {};
-  rapports.forEach(r => {
-    const key = r.chantier_id || "__divers__";
-    if (!parChantier[key]) parChantier[key] = { rapports: [], nom: r.chantier_nom || "Divers" };
-    parChantier[key].rapports.push(r);
-  });
-
-  const totalFaites = rapports.reduce((a, r) => a + (r.taches || []).filter(t => t.statut === "faite").length, 0);
-
   // ── Écran de saisie des heures (étape 1) ───────────────────────────────────
   if (etape === "saisie") {
     return (
