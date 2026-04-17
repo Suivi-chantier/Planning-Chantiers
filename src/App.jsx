@@ -4180,40 +4180,61 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   });
 
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
-  const creerBrouillonGmail = () => {
-    // Construire le corps du mail
-    const hpc = calcHeuresParChantier();
-    const totalH = Object.values(hpc).reduce((a, b) => a + b, 0);
-    const L = [];
-    L.push("Bonjour,"); L.push("");
-    L.push(`Voici le bilan de la semaine ${weekId}.`); L.push("");
-    L.push(`TOTAL HEURES : ${totalH.toFixed(1)}h`);
-    L.push("-----------------------------------------"); L.push("");
-    Object.entries(parChantier).forEach(([cId, grp]) => {
-      const hCh = hpc[cId] || 0;
-      L.push(`${grp.nom.toUpperCase()}${hCh > 0 ? `  -  ${hCh.toFixed(1)}h` : ""}`);
-      Object.keys(HEURES_PAR_JOUR).forEach(jour => {
-        const cell = cells[`${cId}_${jour}`];
-        if (!cell || !(cell.ouvriers||[]).length) return;
-        L.push(`  ${jour} : ${cell.ouvriers.join(", ")}`);
+  const [generatingDoc, setGeneratingDoc] = useState(false);
+
+  const genererDocx = async () => {
+    setGeneratingDoc(true);
+    setDraftStatus(null);
+    try {
+      const hpc = calcHeuresParChantier();
+      const totalH = Object.values(hpc).reduce((a, b) => a + b, 0);
+
+      // Construire les données structurées pour le document
+      const chantierData = Object.entries(parChantier).map(([cId, grp]) => {
+        const hCh = hpc[cId] || 0;
+        const taches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier: r.ouvrier})));
+        const presences = [];
+        Object.keys(HEURES_PAR_JOUR).forEach(jour => {
+          const cell = cells[`${cId}_${jour}`];
+          if (cell && (cell.ouvriers||[]).length)
+            presences.push(`${jour} : ${cell.ouvriers.join(", ")}`);
+        });
+        return {
+          nom: grp.nom,
+          heures: hCh,
+          presences,
+          faites:    taches.filter(t=>t.statut==="faite").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier })),
+          enCours:   taches.filter(t=>t.statut==="en_cours").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier })),
+          nonFaites: taches.filter(t=>t.statut==="non_faite").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier })),
+          remarques: grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque })),
+        };
       });
-      const taches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier: r.ouvrier})));
-      taches.filter(t => t.statut==="faite").forEach(t => L.push(`  OK : ${t.planifie||t.text||""}${t.remarque?" - "+t.remarque:""} (${t.ouvrier})`));
-      taches.filter(t => t.statut==="en_cours").forEach(t => L.push(`  En cours : ${t.planifie||t.text||""}${t.remarque?" - "+t.remarque:""} (${t.ouvrier})`));
-      taches.filter(t => t.statut==="non_faite").forEach(t => L.push(`  Non fait : ${t.planifie||t.text||""}${t.remarque?" - "+t.remarque:""} (${t.ouvrier})`));
-      grp.rapports.filter(r => r.remarque?.trim()).forEach(r => L.push(`  Note ${r.ouvrier} : ${r.remarque}`));
-      L.push("");
-    });
-    L.push("Cordialement");
 
-    const subject = `Bilan chantiers - ${weekId}`;
-    const body = L.join("\n");
+      const response = await fetch("/api/generate-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weekId, totalH, chantierData })
+      });
 
-    // Ouvrir Gmail avec le contenu pré-rempli
-    // L'URL Gmail de composition accepte su= (sujet) et body= (corps)
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.open(gmailUrl, "_blank");
-    setDraftStatus("ok");
+      if (!response.ok) {
+        const err = await response.json().catch(()=>({error:"Erreur serveur"}));
+        throw new Error(err.error || `HTTP ${response.status}`);
+      }
+
+      // Télécharger le fichier
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Compte-rendu-${weekId}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setDraftStatus("ok");
+    } catch(e) {
+      console.error("Erreur génération docx:", e);
+      setDraftStatus("error");
+    }
+    setGeneratingDoc(false);
   };
 
   // ── Écran saisie heures (étape 1) ────────────────────────────────────────────
@@ -4328,12 +4349,13 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
               <div style={{ fontSize:28, fontWeight:800, color:"#50c878" }}>{totalFaites}</div>
               <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Tâches faites</div>
             </div>
-            <button onClick={creerBrouillonGmail}
-              style={{ background: draftStatus==="ok" ? "rgba(80,200,120,0.85)" : "rgba(234,67,53,0.85)",
+            <button onClick={genererDocx} disabled={generatingDoc}
+              style={{ background: draftStatus==="ok" ? "rgba(80,200,120,0.85)" : generatingDoc ? "rgba(255,255,255,0.1)" : "rgba(91,138,245,0.85)",
                 border:"none", borderRadius:10, padding:"0 16px", height:40,
-                cursor:"pointer", fontSize:13, fontWeight:700,
-                color:"#fff", display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
-              {draftStatus==="ok" ? "✅ Gmail ouvert !" : "✉️ Ouvrir dans Gmail"}
+                cursor: generatingDoc ? "wait" : "pointer", fontSize:13, fontWeight:700,
+                color:"#fff", display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap",
+                opacity: generatingDoc ? 0.7 : 1 }}>
+              {generatingDoc ? "⏳ Génération…" : draftStatus==="ok" ? "✅ Téléchargé !" : draftStatus==="error" ? "❌ Erreur" : "📄 Compte rendu .docx"}
             </button>
             <button onClick={onClose} style={{ background:"rgba(255,255,255,0.08)", border:"none",
               borderRadius:10, width:40, height:40, cursor:"pointer", fontSize:20, color:"#fff",
