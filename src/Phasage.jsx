@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getCurrentWeek, getWeekId } from "./constants";
 
 // ─── PAGE PHASAGE ─────────────────────────────────────────────────────────────
 function PagePhasage({chantiers,ouvriers,tauxHoraires,T}) {
@@ -176,6 +176,22 @@ function PhasageDetail({phasage,bibliotheque,T,chantiers,ouvriers,tauxHoraires,o
   const [expandedTache,setExpandedTache]=useState(null);
   const ch=chantiers.find(c=>c.id===phasage.chantier_id);
 
+  // ─── ÉTAT POUR LA MODALE DE PLANIFICATION ───
+  const [planifierTask, setPlanifierTask] = useState(null);
+  const [planifierWeek, setPlanifierWeek] = useState("");
+  const [planifierJour, setPlanifierJour] = useState("Lundi");
+  const [isPlanningSaving, setIsPlanningSaving] = useState(false);
+
+  // Générer les 8 prochaines semaines pour le menu déroulant
+  const semainesFutures = [];
+  const now = getCurrentWeek();
+  for (let i=0; i<8; i++) {
+    let w = now.week + i; 
+    let y = now.year;
+    if (w > 52) { w -= 52; y++; }
+    semainesFutures.push(getWeekId(y,w));
+  }
+
   function genererTaches(ouvrageId,heures){
     const bibl=bibliotheque.find(b=>b.id===ouvrageId);
     if(!bibl)return[];
@@ -289,6 +305,58 @@ function PhasageDetail({phasage,bibliotheque,T,chantiers,ouvriers,tauxHoraires,o
     setTimeout(()=>setSaved(false),2000);
   }
 
+  // ─── FONCTION POUR ENVOYER LA TÂCHE AU PLANNING ───
+  async function executerPlanification() {
+    if (!planifierWeek || !planifierJour || !planifierTask) return;
+    setIsPlanningSaving(true);
+    
+    const chantierId = phasage.chantier_id;
+    const { tache } = planifierTask;
+
+    try {
+      // 1. On va chercher la case existante dans le planning
+      const { data: existing } = await supabase
+        .from("planning_cells")
+        .select("*")
+        .eq("week_id", planifierWeek)
+        .eq("chantier_id", chantierId)
+        .eq("jour", planifierJour)
+        .maybeSingle();
+
+      const baseCell = existing || { planifie: "", reel: "", ouvriers: [], taches: [] };
+      const currentTaches = baseCell.taches || [];
+
+      // 2. On fabrique la nouvelle tâche pour le planning
+      const newTachePlanning = {
+        id: Math.random().toString(36).slice(2),
+        text: tache.nom,
+        duree: tache.heures,
+        ouvriers: []
+      };
+
+      const updatedTaches = [...currentTaches, newTachePlanning];
+      const updatedPlanifie = updatedTaches.map(t => t.text).join("\n");
+
+      // 3. On sauvegarde dans Supabase (ça mettra à jour l'appli en temps réel !)
+      await supabase.from("planning_cells").upsert({
+        week_id: planifierWeek,
+        chantier_id: chantierId,
+        jour: planifierJour,
+        planifie: updatedPlanifie,
+        taches: updatedTaches,
+        reel: baseCell.reel,
+        ouvriers: baseCell.ouvriers
+      }, { onConflict: "week_id,chantier_id,jour" });
+
+      setPlanifierTask(null);
+      alert("Tâche ajoutée au planning avec succès !");
+    } catch (err) {
+      console.error(err);
+      alert("Une erreur est survenue lors de la planification.");
+    }
+    setIsPlanningSaving(false);
+  }
+
   const totalH=ouvrages.reduce((s,o)=>s+(parseFloat(o.heures_devis)||0),0);
   const totalTaches=ouvrages.flatMap(o=>o.taches||[]);
   const avgAv=totalTaches.length>0
@@ -301,6 +369,58 @@ function PhasageDetail({phasage,bibliotheque,T,chantiers,ouvriers,tauxHoraires,o
 
   return(
     <div style={{flex:1,overflowY:"auto",padding:"28px 32px",background:T.bg}}>
+      
+      {/* ── MODALE DE PLANIFICATION ── */}
+      {planifierTask && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:700,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)" }}
+          onClick={() => setPlanifierTask(null)}>
+          <div style={{ background:T.modal, borderRadius:16, width:"100%", maxWidth:400,
+            border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.6)",
+            display:"flex", flexDirection:"column", overflow:"hidden" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ padding:"20px 24px", borderBottom:`1px solid ${T.sectionDivider}`, background:T.surface }}>
+              <div style={{ fontSize:18, fontWeight:800, color:T.text, marginBottom:4 }}>📅 Planifier une tâche</div>
+              <div style={{ fontSize:13, color:T.textSub }}>Envoie cette tâche directement dans le planning.</div>
+            </div>
+            <div style={{ padding:"20px 24px", display:"flex", flexDirection:"column", gap:16 }}>
+              <div style={{ background:T.card, padding:"12px", borderRadius:8, border:`1px solid ${T.border}` }}>
+                <div style={{ fontSize:14, fontWeight:700, color:T.text }}>{planifierTask.tache.nom}</div>
+                <div style={{ fontSize:12, color:T.textMuted, marginTop:4 }}>Durée estimée : {planifierTask.tache.heures}h</div>
+              </div>
+              
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                <label style={{ fontSize:12, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1 }}>Semaine</label>
+                <select value={planifierWeek} onChange={e => setPlanifierWeek(e.target.value)}
+                  style={{ padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`,
+                    background:T.inputBg, color:T.text, fontFamily:"inherit", fontSize:14, outline:"none" }}>
+                  <option value="" disabled>Choisir une semaine...</option>
+                  {semainesFutures.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                <label style={{ fontSize:12, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1 }}>Jour</label>
+                <select value={planifierJour} onChange={e => setPlanifierJour(e.target.value)}
+                  style={{ padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`,
+                    background:T.inputBg, color:T.text, fontFamily:"inherit", fontSize:14, outline:"none" }}>
+                  {JOURS.map(j => <option key={j} value={j}>{j}</option>)}
+                </select>
+              </div>
+            </div>
+            
+            <div style={{ padding:"16px 24px", borderTop:`1px solid ${T.sectionDivider}`, display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={() => setPlanifierTask(null)} style={{ background:"transparent", border:`1px solid ${T.border}`,
+                borderRadius:8, padding:"10px 20px", color:T.textSub, fontFamily:"inherit", fontSize:14, cursor:"pointer" }}>Annuler</button>
+              <button onClick={executerPlanification} disabled={isPlanningSaving || !planifierWeek} style={{ background:T.accent, border:"none",
+                borderRadius:8, padding:"10px 24px", color:"#111", fontFamily:"inherit", fontSize:14, fontWeight:800, cursor:"pointer" }}>
+                {isPlanningSaving ? "Envoi..." : "✓ Confirmer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{maxWidth:960,margin:"0 auto"}}>
 
         {/* ── HEADER ── */}
@@ -469,6 +589,21 @@ function PhasageDetail({phasage,bibliotheque,T,chantiers,ouvriers,tauxHoraires,o
                               <div style={{width:6,height:6,borderRadius:"50%",
                                 background:av===100?"#50c878":av>0?"#f5a623":T.border,flexShrink:0}}/>
                               <span style={{flex:1,fontSize:13,color:T.text,fontWeight:600}}>{tache.nom}</span>
+                              
+                              {/* NOUVEAU BOUTON PLANIFIER */}
+                              <button onClick={(e) => { 
+                                e.stopPropagation(); 
+                                setPlanifierWeek(semainesFutures[0]); // Par défaut, la semaine en cours
+                                setPlanifierTask({ ouvrageId: ouvrage.id, tacheIdx: ti, tache }); 
+                              }}
+                                style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${T.accent}55`,
+                                  background:T.accent+"15", color:T.accent, fontFamily:"inherit", fontSize:11,
+                                  fontWeight:700, cursor:"pointer", transition:"all .2s" }}
+                                onMouseEnter={e => e.currentTarget.style.background = T.accent+"30"}
+                                onMouseLeave={e => e.currentTarget.style.background = T.accent+"15"}>
+                                📅 Planifier
+                              </button>
+
                               <span style={{fontSize:11,color:T.textMuted,minWidth:30,textAlign:"right"}}>{tache.ratio}%</span>
                               {/* Mini barre ratio */}
                               <div style={{width:50,height:3,background:T.border,borderRadius:2,flexShrink:0}}>
