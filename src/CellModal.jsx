@@ -201,6 +201,5 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
     </div>
   );
 }
-
--e 
+ 
 export default CellModal;
