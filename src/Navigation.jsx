@@ -133,6 +133,4 @@ function Sidebar({page,setPage,T}){
   );
 }
 
-// ─── CELL MODAL ───────────────────────────────────────────────────────────────
--e 
 export { useIsMobile, BottomNav, Sidebar };
