@@ -13,6 +13,45 @@ import PageBibliotheque from "./Bibliotheque";
 import PageAdmin        from "./Admin";
 import PageRapportMobile from "./RapportMobile";
 
+// ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
+if (typeof window !== 'undefined') {
+  window.onerror = function(msg, src, line, col, err) {
+    document.body.innerHTML = `<div style="background:#1a0000;color:#ff8888;padding:30px;font-family:monospace;min-height:100vh">
+      <h2 style="color:#ff4444">🔴 Erreur JS</h2>
+      <p><b>Message:</b> ${msg}</p>
+      <p><b>Fichier:</b> ${src}</p>
+      <p><b>Ligne:</b> ${line}:${col}</p>
+      <pre style="margin-top:16px;font-size:12px;opacity:.8">${err?.stack||''}</pre>
+    </div>`;
+    return false;
+  };
+  window.onunhandledrejection = function(ev) {
+    document.body.innerHTML = `<div style="background:#1a0000;color:#ff8888;padding:30px;font-family:monospace;min-height:100vh">
+      <h2 style="color:#ff4444">🔴 Promise rejetée</h2>
+      <pre>${ev.reason?.stack || ev.reason}</pre>
+    </div>`;
+  };
+}
+
+
+
+// ─── ERROR BOUNDARY (affiche l'erreur au lieu de page blanche) ───────────────
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{background:"#1a0000",color:"#ff8888",padding:30,fontFamily:"monospace",minHeight:"100vh"}}>
+          <h2 style={{color:"#ff4444",marginBottom:16}}>🔴 Erreur — {this.state.error?.message}</h2>
+          <pre style={{whiteSpace:"pre-wrap",fontSize:12,lineHeight:1.6,opacity:.8}}>{this.state.error?.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 function MainApp(){
   const{year:iY,week:iW}=getCurrentWeek();
@@ -196,5 +235,5 @@ export default function App(){
   if (window.location.pathname.startsWith("/rapport")) {
     return <PageRapportMobile />;
   }
-  return <MainApp />;
+  return <ErrorBoundary><MainApp /></ErrorBoundary>;
 }
