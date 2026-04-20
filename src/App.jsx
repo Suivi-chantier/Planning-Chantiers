@@ -113,8 +113,7 @@ function BottomNav({ page, setPage, T }) {
     { id:"dashboard", icon:"⊞", label:"Accueil" },
     { id:"planning",  icon:"📅", label:"Planning" },
     { id:"commandes", icon:"📦", label:"Commandes" },
-    { id:"equipe",    icon:"👷", label:"Équipe" },
-    { id:"plans",     icon:"📐", label:"Plans" },
+    { id:"phasage",   icon:"📋", label:"Phasage" },
     { id:"admin",     icon:"⚙️", label:"Réglages" },
   ];
   return (
@@ -147,12 +146,14 @@ function BottomNav({ page, setPage, T }) {
 function Sidebar({page,setPage,T}){
   const[collapsed,setCollapsed]=useState(()=>localStorage.getItem("sidebar_collapsed")==="1");
   const nav=[
-    {id:"dashboard",icon:"⊞",label:"Tableau de bord"},
-    {id:"planning", icon:"📅",label:"Planning"},
-    {id:"commandes",icon:"📦",label:"Commandes"},
-    {id:"equipe",   icon:"👷",label:"Équipe"},
-    {id:"plans",    icon:"📐",label:"Plans"},
-    {id:"admin",    icon:"⚙️",label:"Réglages"},
+    {id:"dashboard",   icon:"⊞", label:"Tableau de bord"},
+    {id:"planning",    icon:"📅", label:"Planning"},
+    {id:"commandes",   icon:"📦", label:"Commandes"},
+    {id:"equipe",      icon:"👷", label:"Équipe"},
+    {id:"plans",       icon:"📐", label:"Plans"},
+    {id:"phasage",     icon:"📋", label:"Phasage"},
+    {id:"bibliotheque",icon:"📚", label:"Bibliothèque"},
+    {id:"admin",       icon:"⚙️", label:"Réglages"},
   ];
   const toggle=()=>{
     const next=!collapsed;
@@ -4747,6 +4748,779 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
   );
 }
 
+// ─── DONNÉES BIBLIOTHÈQUE ─────────────────────────────────────────────────────
+const BIBLIOTHEQUE_INITIALE = [
+  // CLOISONS
+  { identifiant:"cloison_48_standard_isol", libelle:"Cloison 48, BA13 standard + isol", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:25},
+      {nom:"Isolation laine minérale",ratio:15},
+      {nom:"Plaquage BA13",ratio:35},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"cloison_48_hydro_isol", libelle:"Cloison 48 BA13 Hydro + isol", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:25},
+      {nom:"Isolation laine minérale",ratio:15},
+      {nom:"Plaquage BA13 Hydro",ratio:35},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"cloison_48_standard_sans_isol", libelle:"Cloison 48, BA13 standard sans isolation", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:30},
+      {nom:"Plaquage BA13",ratio:40},
+      {nom:"Bandes et enduits",ratio:30}
+    ]},
+  { identifiant:"cloison_70_standard_isol", libelle:"Cloison 70, BA13 standard + isol", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:25},
+      {nom:"Isolation laine minérale",ratio:15},
+      {nom:"Plaquage BA13",ratio:35},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"cloison_70_hydro_isol", libelle:"Cloison 70 BA13 Hydro + isol", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:25},
+      {nom:"Isolation laine minérale",ratio:15},
+      {nom:"Plaquage BA13 Hydro",ratio:35},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"double_cloison_sad", libelle:"DOUBLE Cloison placo SAD + isol", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature double",ratio:20},
+      {nom:"Isolation laine minérale",ratio:10},
+      {nom:"Plaquage double parement",ratio:40},
+      {nom:"Bandes et enduits",ratio:30}
+    ]},
+  // DOUBLAGES
+  { identifiant:"doublage_om_laine_120", libelle:"Doublage ossature métallique + laine 120", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:25},
+      {nom:"Isolation laine 120mm",ratio:20},
+      {nom:"Plaquage BA13",ratio:30},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"doublage_om_laine_140", libelle:"Doublage ossature métallique + laine 140", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:25},
+      {nom:"Isolation laine 140mm",ratio:20},
+      {nom:"Plaquage BA13",ratio:30},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"doublage_om_sans_laine", libelle:"Doublage ossature métallique SANS lainage", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature métallique",ratio:35},
+      {nom:"Plaquage BA13",ratio:40},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  // FAUX PLAFONDS
+  { identifiant:"plafond_ba13_suspente", libelle:"Plafond BA13 suspente longue (sans isolation)", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature et suspentes",ratio:35},
+      {nom:"Plaquage BA13",ratio:40},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"faux_plafond_rampant_laine_240", libelle:"Faux plafond rampant, laine épaisseur 240mm", unite:"m²",
+    sous_taches:[
+      {nom:"Pose ossature",ratio:25},
+      {nom:"Isolation laine 240mm",ratio:20},
+      {nom:"Plaquage BA13",ratio:30},
+      {nom:"Bandes et enduits",ratio:25}
+    ]},
+  { identifiant:"lainage_plafond_200", libelle:"Lainage plafond ep 200", unite:"m²",
+    sous_taches:[
+      {nom:"Pose isolation",ratio:100}
+    ]},
+  // ÉLECTRICITÉ
+  { identifiant:"install_elec_t1_sans_chauf", libelle:"Installation électrique Logement T1 SANS chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"install_elec_t1_avec_chauf", libelle:"Installation électrique Logement T1 AVEC chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"install_elec_t2_sans_chauf", libelle:"Installation électrique Logement T2 SANS chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"install_elec_t2_avec_chauf", libelle:"Installation électrique Logement T2 AVEC chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"install_elec_t3_sans_chauf", libelle:"Installation électrique Logement T3 SANS chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"install_elec_t3_avec_chauf", libelle:"Installation électrique Logement T3 AVEC chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"install_elec_t4_sans_chauf", libelle:"Installation électrique Logement T4 sans chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"install_elec_t4_avec_chauf", libelle:"Installation électrique Logement T4 AVEC chauffage", unite:"U",
+    sous_taches:[
+      {nom:"Saignées et passages de câbles",ratio:20},
+      {nom:"Pose boîtes et appareillages",ratio:25},
+      {nom:"Réseau et câblage",ratio:30},
+      {nom:"Tableau électrique",ratio:15},
+      {nom:"Finitions et tests (CONSUEL)",ratio:10}
+    ]},
+  { identifiant:"tableau_2r_t1", libelle:"Tableau 2R T1", unite:"U",
+    sous_taches:[
+      {nom:"Pose et fixation coffret",ratio:20},
+      {nom:"Raccordement des circuits",ratio:60},
+      {nom:"Tests et vérifications",ratio:20}
+    ]},
+  { identifiant:"radiateur_1000w", libelle:"Radiateur 1000W", unite:"U",
+    sous_taches:[
+      {nom:"Fixation murale",ratio:40},
+      {nom:"Raccordement électrique",ratio:60}
+    ]},
+  { identifiant:"radiateur_1500w", libelle:"Radiateur 1500W", unite:"U",
+    sous_taches:[
+      {nom:"Fixation murale",ratio:40},
+      {nom:"Raccordement électrique",ratio:60}
+    ]},
+  { identifiant:"radiateur_2000w", libelle:"Radiateur 2000W", unite:"U",
+    sous_taches:[
+      {nom:"Fixation murale",ratio:40},
+      {nom:"Raccordement électrique",ratio:60}
+    ]},
+  { identifiant:"vmc_hygro", libelle:"VMC Hygro simple flux", unite:"U",
+    sous_taches:[
+      {nom:"Pose appareil et fixation",ratio:30},
+      {nom:"Pose des bouches",ratio:30},
+      {nom:"Raccordements électrique et conduits",ratio:40}
+    ]},
+  { identifiant:"prise_simple", libelle:"Prise de courant simple ODACE", unite:"U",
+    sous_taches:[{nom:"Dépose + repose",ratio:100}]},
+  { identifiant:"prise_double", libelle:"Prise de courant double ODACE", unite:"U",
+    sous_taches:[{nom:"Dépose + repose",ratio:100}]},
+  { identifiant:"prise_triple", libelle:"Prise de courant Triple ODACE", unite:"U",
+    sous_taches:[{nom:"Dépose + repose",ratio:100}]},
+  { identifiant:"prise_usbc", libelle:"Prise de courant + Usb-c", unite:"U",
+    sous_taches:[{nom:"Dépose + repose",ratio:100}]},
+  { identifiant:"mise_a_terre", libelle:"Circuit de mise à la terre avec piquet", unite:"U",
+    sous_taches:[{nom:"Pose piquet et câblage",ratio:100}]},
+  // PLOMBERIE
+  { identifiant:"chauffe_eau_40l", libelle:"Chauffe-eau plat électrique 40 litres", unite:"U",
+    sous_taches:[
+      {nom:"Pose et fixation",ratio:20},
+      {nom:"Canalisations eau froide/chaude",ratio:40},
+      {nom:"Évacuation",ratio:20},
+      {nom:"Raccordement électrique + groupe sécu",ratio:20}
+    ]},
+  { identifiant:"chauffe_eau_65l", libelle:"Chauffe-eau plat électrique 65 litres", unite:"U",
+    sous_taches:[
+      {nom:"Pose et fixation",ratio:20},
+      {nom:"Canalisations eau froide/chaude",ratio:40},
+      {nom:"Évacuation",ratio:20},
+      {nom:"Raccordement électrique + groupe sécu",ratio:20}
+    ]},
+  { identifiant:"chauffe_eau_80l", libelle:"Chauffe-eau plat électrique 80 litres", unite:"U",
+    sous_taches:[
+      {nom:"Pose et fixation",ratio:20},
+      {nom:"Canalisations eau froide/chaude",ratio:40},
+      {nom:"Évacuation",ratio:20},
+      {nom:"Raccordement électrique + groupe sécu",ratio:20}
+    ]},
+  { identifiant:"wc_sol", libelle:"WC au sol", unite:"U",
+    sous_taches:[
+      {nom:"Pose et fixation",ratio:40},
+      {nom:"Raccordement évacuation",ratio:35},
+      {nom:"Raccordement alimentation + robinet",ratio:25}
+    ]},
+  { identifiant:"meuble_vasque_60", libelle:"Meuble simple vasque 60cm", unite:"U",
+    sous_taches:[
+      {nom:"Pose meuble et fixation",ratio:40},
+      {nom:"Raccordement alimentation",ratio:30},
+      {nom:"Raccordement évacuation",ratio:30}
+    ]},
+  { identifiant:"meuble_vasque_80", libelle:"Meuble simple vasque 80cm", unite:"U",
+    sous_taches:[
+      {nom:"Pose meuble et fixation",ratio:40},
+      {nom:"Raccordement alimentation",ratio:30},
+      {nom:"Raccordement évacuation",ratio:30}
+    ]},
+  { identifiant:"receveur_douche_80", libelle:"Receveur de douche 80x80 cm", unite:"U",
+    sous_taches:[
+      {nom:"Pose receveur + étanchéité + bonde",ratio:20},
+      {nom:"Pose porte et paroi vitrée",ratio:20},
+      {nom:"Pose Dumawall",ratio:25},
+      {nom:"Robinetterie mitigeur thermostatique",ratio:20},
+      {nom:"Raccordements alimentation et évacuation",ratio:15}
+    ]},
+  // MENUISERIE / GROS ŒUVRE
+  { identifiant:"porte_pvc_2000x800", libelle:"Porte 2000 x 800 PVC", unite:"U",
+    sous_taches:[
+      {nom:"Dépose existant",ratio:20},
+      {nom:"Pose et calage",ratio:50},
+      {nom:"Calfeutrage + finitions + quincaillerie",ratio:30}
+    ]},
+  { identifiant:"escalier_quart_tournant", libelle:"Escalier 1/4 tournant bas gauche/droite sapin", unite:"U",
+    sous_taches:[
+      {nom:"Préparation et traçage",ratio:15},
+      {nom:"Pose de la structure",ratio:50},
+      {nom:"Fixation rampe et finitions",ratio:35}
+    ]},
+  { identifiant:"plancher_solives_osb_3m", libelle:"Plancher Solive 63x175 + OSB18 portée ≤3m", unite:"m²",
+    sous_taches:[
+      {nom:"Pose solives et fixations murales",ratio:45},
+      {nom:"Pose OSB découpe et vissage",ratio:40},
+      {nom:"Bande résiliente et finitions",ratio:15}
+    ]},
+  { identifiant:"plancher_solives_osb_4m5", libelle:"Plancher Solive 63x175 + OSB18 portée >3m", unite:"m²",
+    sous_taches:[
+      {nom:"Pose solives et fixations murales",ratio:45},
+      {nom:"Pose OSB découpe et vissage",ratio:40},
+      {nom:"Bande résiliente et finitions",ratio:15}
+    ]},
+  // FINITIONS
+  { identifiant:"peinture_finition_c", libelle:"Peinture Finition C sur plaques de plâtre", unite:"m²",
+    sous_taches:[
+      {nom:"Ponçage et époussetage",ratio:20},
+      {nom:"Impression",ratio:20},
+      {nom:"Reprise enduit",ratio:25},
+      {nom:"Couche de finition",ratio:35}
+    ]},
+  { identifiant:"parquet_stratifie_10mm", libelle:"Parquet stratifié ép 10mm + sous-couche", unite:"m²",
+    sous_taches:[
+      {nom:"Préparation sol et sous-couche",ratio:25},
+      {nom:"Pose des lames",ratio:55},
+      {nom:"Pose plinthes et finitions",ratio:20}
+    ]},
+  { identifiant:"parquet_pvc", libelle:"Parquet lame PVC ép 3/4mm + sous-couche", unite:"m²",
+    sous_taches:[
+      {nom:"Préparation sol et sous-couche",ratio:25},
+      {nom:"Pose des lames",ratio:55},
+      {nom:"Pose plinthes et finitions",ratio:20}
+    ]},
+  { identifiant:"ragreage_fibre", libelle:"Ragréage fibre", unite:"m²",
+    sous_taches:[
+      {nom:"Préparation du support",ratio:30},
+      {nom:"Application ragréage",ratio:70}
+    ]},
+];
+
+// ─── PAGE BIBLIOTHÈQUE ────────────────────────────────────────────────────────
+function PageBibliotheque({T}) {
+  const [ouvrages, setOuvrages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null);
+  const [search, setSearch] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => { loadOuvrages(); }, []);
+
+  async function loadOuvrages() {
+    setLoading(true);
+    const { data } = await supabase.from("bibliotheque_ratios").select("*").order("libelle");
+    if (data && data.length > 0) {
+      setOuvrages(data);
+    } else {
+      const inserts = BIBLIOTHEQUE_INITIALE.map(o => ({
+        identifiant: o.identifiant, libelle: o.libelle, unite: o.unite || "", sous_taches: o.sous_taches,
+      }));
+      const { data: inserted } = await supabase.from("bibliotheque_ratios").insert(inserts).select();
+      setOuvrages(inserted || []);
+    }
+    setLoading(false);
+  }
+
+  async function saveOuvrage(ouvrage) {
+    setSaving(ouvrage.id);
+    const total = ouvrage.sous_taches.reduce((s, t) => s + (parseFloat(t.ratio) || 0), 0);
+    if (Math.abs(total - 100) > 0.5) {
+      setMsg({ type:"error", text:`⚠️ La somme des ratios doit être 100% (actuellement ${total.toFixed(1)}%)` });
+      setSaving(null); return;
+    }
+    await supabase.from("bibliotheque_ratios").update({
+      sous_taches: ouvrage.sous_taches, updated_at: new Date().toISOString(),
+    }).eq("id", ouvrage.id);
+    setMsg({ type:"ok", text:"✓ Ratios sauvegardés" });
+    setSaving(null);
+    setTimeout(() => setMsg(null), 2500);
+    setEditId(null);
+  }
+
+  const categories = [
+    { label:"Plâtrerie", ids:["cloison","doublage","plafond","lainage","faux_plafond","double"] },
+    { label:"Électricité", ids:["install_elec","tableau","radiateur","vmc","prise","mise_a_terre"] },
+    { label:"Plomberie / Sanitaire", ids:["chauffe_eau","wc","meuble_vasque","receveur"] },
+    { label:"Menuiserie / Gros œuvre", ids:["porte","escalier","plancher"] },
+    { label:"Finitions", ids:["peinture","parquet","ragreage"] },
+  ];
+  function getCat(identifiant) {
+    for (const cat of categories) {
+      if (cat.ids.some(k => identifiant && identifiant.startsWith(k))) return cat.label;
+    }
+    return "Autre";
+  }
+  const filtered = ouvrages.filter(o => !search || o.libelle?.toLowerCase().includes(search.toLowerCase()));
+  const grouped = {};
+  filtered.forEach(o => { const cat=getCat(o.identifiant); if(!grouped[cat])grouped[cat]=[]; grouped[cat].push(o); });
+
+  return (
+    <div style={{flex:1,overflowY:"auto",padding:"28px 32px",background:T.bg}}>
+      <div style={{maxWidth:900,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:28}}>
+          <div>
+            <div style={{fontSize:22,fontWeight:800,letterSpacing:1,color:T.text}}>📚 Bibliothèque de ratios</div>
+            <div style={{fontSize:13,color:T.textMuted,marginTop:4}}>Ratios de décomposition — ajustez selon votre expérience terrain</div>
+          </div>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un ouvrage…"
+            style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,background:T.inputBg,
+              color:T.text,fontFamily:"inherit",fontSize:13,width:240,outline:"none"}}/>
+        </div>
+        {msg&&(
+          <div style={{padding:"10px 16px",borderRadius:8,marginBottom:16,fontSize:13,fontWeight:600,
+            background:msg.type==="ok"?"rgba(80,200,120,0.12)":"rgba(224,92,92,0.12)",
+            color:msg.type==="ok"?"#50c878":"#e05c5c",
+            border:`1px solid ${msg.type==="ok"?"rgba(80,200,120,0.3)":"rgba(224,92,92,0.3)"}`}}>
+            {msg.text}
+          </div>
+        )}
+        {loading ? (
+          <div style={{color:T.textMuted,textAlign:"center",padding:60}}>Chargement…</div>
+        ) : (
+          Object.entries(grouped).map(([cat,items])=>(
+            <div key={cat} style={{marginBottom:32}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:3,textTransform:"uppercase",
+                color:T.accent,marginBottom:12,paddingLeft:2}}>{cat}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {items.map(ouvrage=>{
+                  const isEdit=editId===ouvrage.id;
+                  const editData=isEdit?ouvrages.find(o=>o.id===ouvrage.id):ouvrage;
+                  const total=(editData.sous_taches||[]).reduce((s,t)=>s+(parseFloat(t.ratio)||0),0);
+                  return(
+                    <div key={ouvrage.id} style={{background:T.surface,border:`1px solid ${isEdit?T.accent:T.border}`,
+                      borderRadius:12,overflow:"hidden",transition:"border .2s"}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                        padding:"12px 16px",cursor:"pointer"}} onClick={()=>setEditId(isEdit?null:ouvrage.id)}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:13,fontWeight:700,color:T.text}}>{ouvrage.libelle}</span>
+                          <span style={{fontSize:11,color:T.textMuted,background:T.card,padding:"2px 8px",borderRadius:4}}>{ouvrage.unite}</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:11,color:T.textMuted}}>{(ouvrage.sous_taches||[]).length} tâches</span>
+                          <span style={{fontSize:12,color:isEdit?T.accent:T.textMuted}}>{isEdit?"▲":"▼"}</span>
+                        </div>
+                      </div>
+                      {isEdit&&(
+                        <div style={{padding:"0 16px 16px",borderTop:`1px solid ${T.sectionDivider}`}}>
+                          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
+                            {(editData.sous_taches||[]).map((tache,idx)=>(
+                              <div key={idx} style={{display:"flex",alignItems:"center",gap:10}}>
+                                <div style={{flex:1,padding:"8px 12px",background:T.fieldBg,borderRadius:8,fontSize:13,color:T.text}}>{tache.nom}</div>
+                                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                  <input type="number" min="0" max="100" step="1" value={tache.ratio}
+                                    onChange={e=>{
+                                      const updated=ouvrages.map(o=>{
+                                        if(o.id!==ouvrage.id)return o;
+                                        const st=[...o.sous_taches];
+                                        st[idx]={...st[idx],ratio:parseFloat(e.target.value)||0};
+                                        return{...o,sous_taches:st};
+                                      });
+                                      setOuvrages(updated);
+                                    }}
+                                    style={{width:60,padding:"6px 8px",borderRadius:6,textAlign:"center",
+                                      border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,
+                                      fontFamily:"inherit",fontSize:14,fontWeight:700,outline:"none"}}/>
+                                  <span style={{fontSize:13,color:T.textMuted}}>%</span>
+                                </div>
+                                <div style={{width:80,height:6,background:T.border,borderRadius:3}}>
+                                  <div style={{height:"100%",borderRadius:3,background:T.accent,
+                                    width:`${Math.min(tache.ratio,100)}%`,transition:"width .2s"}}/>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:12}}>
+                            <div style={{fontSize:13,fontWeight:700,color:Math.abs(total-100)<0.5?"#50c878":"#e05c5c"}}>
+                              Total : {total.toFixed(0)}% {Math.abs(total-100)<0.5?"✓":"⚠️ doit être 100%"}
+                            </div>
+                            <button onClick={()=>saveOuvrage(editData)} disabled={saving===ouvrage.id}
+                              style={{padding:"8px 20px",borderRadius:8,border:"none",background:T.accent,
+                                color:"#111",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                              {saving===ouvrage.id?"…":"Sauvegarder"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── PAGE PHASAGE ─────────────────────────────────────────────────────────────
+function PagePhasage({chantiers,T}) {
+  const [phasages,setPhasages]=useState([]);
+  const [bibliotheque,setBibliotheque]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [selected,setSelected]=useState(null);
+  const [showNew,setShowNew]=useState(false);
+  const [newChantier,setNewChantier]=useState("");
+
+  useEffect(()=>{loadAll();},[]);
+
+  async function loadAll(){
+    setLoading(true);
+    const [{data:p},{data:b}]=await Promise.all([
+      supabase.from("phasages").select("*").order("created_at",{ascending:false}),
+      supabase.from("bibliotheque_ratios").select("*").order("libelle"),
+    ]);
+    setPhasages(p||[]);
+    setBibliotheque(b||[]);
+    setLoading(false);
+  }
+
+  async function creerPhasage(){
+    if(!newChantier)return;
+    const ch=chantiers.find(c=>c.id===newChantier);
+    const{data}=await supabase.from("phasages").insert({
+      chantier_id:newChantier,
+      chantier_nom:ch?ch.nom:newChantier,
+      ouvrages:[],
+    }).select().single();
+    if(data){setPhasages(p=>[data,...p]);setSelected(data);setShowNew(false);setNewChantier("");}
+  }
+
+  async function savePhasage(phasage){
+    await supabase.from("phasages").update({ouvrages:phasage.ouvrages,updated_at:new Date().toISOString()}).eq("id",phasage.id);
+    setPhasages(prev=>prev.map(p=>p.id===phasage.id?phasage:p));
+    if(selected?.id===phasage.id)setSelected(phasage);
+  }
+
+  async function supprimerPhasage(id){
+    if(!confirm("Supprimer ce phasage ?"))return;
+    await supabase.from("phasages").delete().eq("id",id);
+    setPhasages(prev=>prev.filter(p=>p.id!==id));
+    if(selected?.id===id)setSelected(null);
+  }
+
+  if(selected){
+    return(
+      <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers}
+        onBack={()=>setSelected(null)} onSave={savePhasage} onDelete={()=>supprimerPhasage(selected.id)}/>
+    );
+  }
+
+  return(
+    <div style={{flex:1,overflowY:"auto",padding:"28px 32px",background:T.bg}}>
+      <div style={{maxWidth:860,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:28}}>
+          <div>
+            <div style={{fontSize:22,fontWeight:800,letterSpacing:1,color:T.text}}>📋 Phasages chantiers</div>
+            <div style={{fontSize:13,color:T.textMuted,marginTop:4}}>Générez automatiquement les tâches à partir des heures du devis</div>
+          </div>
+          <button onClick={()=>setShowNew(true)}
+            style={{padding:"10px 20px",borderRadius:8,border:"none",background:T.accent,
+              color:"#111",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+            + Nouveau phasage
+          </button>
+        </div>
+        {showNew&&(
+          <div style={{background:T.surface,border:`1px solid ${T.accent}`,borderRadius:12,padding:"20px 24px",marginBottom:24}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:12}}>Nouveau phasage</div>
+            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+              <select value={newChantier} onChange={e=>setNewChantier(e.target.value)}
+                style={{flex:1,padding:"9px 12px",borderRadius:8,border:`1px solid ${T.border}`,
+                  background:T.inputBg,color:newChantier?T.text:T.textMuted,fontFamily:"inherit",fontSize:14,outline:"none"}}>
+                <option value="">Choisir un chantier…</option>
+                {chantiers.map(c=>(<option key={c.id} value={c.id}>{c.nom}</option>))}
+              </select>
+              <button onClick={creerPhasage} disabled={!newChantier}
+                style={{padding:"9px 20px",borderRadius:8,border:"none",
+                  background:newChantier?T.accent:T.border,color:"#111",
+                  fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:newChantier?"pointer":"default"}}>Créer</button>
+              <button onClick={()=>{setShowNew(false);setNewChantier("");}}
+                style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+                  background:"transparent",color:T.textMuted,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Annuler</button>
+            </div>
+          </div>
+        )}
+        {loading?(
+          <div style={{color:T.textMuted,textAlign:"center",padding:60}}>Chargement…</div>
+        ):phasages.length===0?(
+          <div style={{textAlign:"center",padding:60,color:T.textMuted}}>
+            <div style={{fontSize:32,marginBottom:12}}>📋</div>
+            <div>Aucun phasage. Créez-en un pour commencer.</div>
+          </div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {phasages.map(p=>{
+              const ch=chantiers.find(c=>c.id===p.chantier_id);
+              const totalH=(p.ouvrages||[]).reduce((s,o)=>s+(parseFloat(o.heures_devis)||0),0);
+              const nbO=(p.ouvrages||[]).length;
+              return(
+                <div key={p.id} style={{background:T.surface,border:`1px solid ${T.border}`,
+                  borderRadius:12,padding:"16px 20px",display:"flex",alignItems:"center",
+                  gap:16,cursor:"pointer",transition:"border .15s"}}
+                  onClick={()=>setSelected(p)}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+                  <div style={{width:10,height:48,borderRadius:5,background:ch?ch.couleur:T.accent,flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:16,fontWeight:800,color:T.text,letterSpacing:.5}}>{p.chantier_nom}</div>
+                    <div style={{fontSize:12,color:T.textMuted,marginTop:3}}>
+                      {nbO} ouvrage{nbO>1?"s":""} · {totalH.toFixed(1)}h au devis · Créé le {new Date(p.created_at).toLocaleDateString("fr-FR")}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={e=>{e.stopPropagation();supprimerPhasage(p.id);}}
+                      style={{padding:"6px 12px",borderRadius:6,border:"1px solid rgba(224,92,92,0.3)",
+                        background:"transparent",color:"#e05c5c",fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>🗑</button>
+                    <span style={{fontSize:18,color:T.textMuted,alignSelf:"center"}}>▶</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── PHASAGE DÉTAIL ───────────────────────────────────────────────────────────
+function PhasageDetail({phasage,bibliotheque,T,chantiers,onBack,onSave,onDelete}){
+  const [ouvrages,setOuvrages]=useState(phasage.ouvrages||[]);
+  const [showAjout,setShowAjout]=useState(false);
+  const [selectedOuvrage,setSelectedOuvrage]=useState("");
+  const [heuresInput,setHeuresInput]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
+  const [search,setSearch]=useState("");
+  const ch=chantiers.find(c=>c.id===phasage.chantier_id);
+
+  function genererTaches(ouvrageId,heures){
+    const bibl=bibliotheque.find(b=>b.id===ouvrageId);
+    if(!bibl)return[];
+    return(bibl.sous_taches||[]).map(st=>({
+      nom:st.nom, ratio:st.ratio,
+      heures:parseFloat(((heures*st.ratio)/100).toFixed(1)),
+    }));
+  }
+
+  function ajouterOuvrage(){
+    if(!selectedOuvrage||!heuresInput)return;
+    const bibl=bibliotheque.find(b=>b.id===selectedOuvrage);
+    if(!bibl)return;
+    const taches=genererTaches(selectedOuvrage,parseFloat(heuresInput));
+    const newOuvrage={
+      id:Math.random().toString(36).slice(2),
+      bibliotheque_id:selectedOuvrage,
+      libelle:bibl.libelle, unite:bibl.unite,
+      heures_devis:parseFloat(heuresInput), taches,
+    };
+    setOuvrages(prev=>[...prev,newOuvrage]);
+    setShowAjout(false); setSelectedOuvrage(""); setHeuresInput(""); setSearch("");
+  }
+
+  function supprimerOuvrage(id){setOuvrages(prev=>prev.filter(o=>o.id!==id));}
+
+  function updateHeures(id,val){
+    setOuvrages(prev=>prev.map(o=>{
+      if(o.id!==id)return o;
+      const heures=parseFloat(val)||0;
+      const bibl=bibliotheque.find(b=>b.id===o.bibliotheque_id);
+      const taches=bibl?genererTaches(o.bibliotheque_id,heures):o.taches;
+      return{...o,heures_devis:heures,taches};
+    }));
+  }
+
+  async function sauvegarder(){
+    setSaving(true);
+    await onSave({...phasage,ouvrages});
+    setSaving(false); setSaved(true);
+    setTimeout(()=>setSaved(false),2000);
+  }
+
+  const totalH=ouvrages.reduce((s,o)=>s+(parseFloat(o.heures_devis)||0),0);
+  const biblFiltered=bibliotheque.filter(b=>!search||b.libelle.toLowerCase().includes(search.toLowerCase()));
+
+  return(
+    <div style={{flex:1,overflowY:"auto",padding:"28px 32px",background:T.bg}}>
+      <div style={{maxWidth:900,margin:"0 auto"}}>
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:28}}>
+          <button onClick={onBack}
+            style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+              background:"transparent",color:T.textSub,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>← Retour</button>
+          <div style={{width:12,height:36,borderRadius:6,background:ch?ch.couleur:T.accent}}/>
+          <div>
+            <div style={{fontSize:20,fontWeight:800,color:T.text}}>{phasage.chantier_nom}</div>
+            <div style={{fontSize:12,color:T.textMuted}}>{totalH.toFixed(1)}h total · {ouvrages.length} ouvrage(s)</div>
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:10}}>
+            <button onClick={onDelete}
+              style={{padding:"8px 14px",borderRadius:8,border:"1px solid rgba(224,92,92,0.3)",
+                background:"transparent",color:"#e05c5c",fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Supprimer</button>
+            <button onClick={sauvegarder} disabled={saving}
+              style={{padding:"8px 20px",borderRadius:8,border:"none",
+                background:saved?"#50c878":T.accent,color:"#111",
+                fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",transition:"background .3s"}}>
+              {saving?"…":saved?"✓ Sauvegardé":"Sauvegarder"}
+            </button>
+          </div>
+        </div>
+
+        {/* Bouton ajouter */}
+        {!showAjout&&(
+          <button onClick={()=>setShowAjout(true)}
+            style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px dashed ${T.border}`,
+              background:"transparent",color:T.textMuted,fontFamily:"inherit",
+              fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:20}}>
+            + Ajouter un ouvrage du devis
+          </button>
+        )}
+
+        {/* Formulaire ajout */}
+        {showAjout&&(
+          <div style={{background:T.surface,border:`1px solid ${T.accent}`,borderRadius:12,padding:"20px 24px",marginBottom:20}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:14}}>Ajouter un ouvrage</div>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filtrer les ouvrages…"
+              style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,
+                background:T.inputBg,color:T.text,fontFamily:"inherit",fontSize:13,outline:"none",marginBottom:10}}/>
+            <select value={selectedOuvrage} onChange={e=>setSelectedOuvrage(e.target.value)}
+              style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${T.border}`,
+                background:T.inputBg,color:selectedOuvrage?T.text:T.textMuted,
+                fontFamily:"inherit",fontSize:13,outline:"none",marginBottom:12}}>
+              <option value="">Choisir un ouvrage…</option>
+              {biblFiltered.map(b=>(<option key={b.id} value={b.id}>{b.libelle} ({b.unite})</option>))}
+            </select>
+            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flex:1}}>
+                <span style={{fontSize:13,color:T.textMuted,whiteSpace:"nowrap"}}>Heures devis :</span>
+                <input type="number" min="0.5" step="0.5" value={heuresInput} onChange={e=>setHeuresInput(e.target.value)}
+                  placeholder="ex: 16"
+                  style={{flex:1,padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,
+                    background:T.inputBg,color:T.text,fontFamily:"inherit",fontSize:14,fontWeight:700,outline:"none"}}/>
+                <span style={{fontSize:13,color:T.textMuted}}>h</span>
+              </div>
+              <button onClick={ajouterOuvrage} disabled={!selectedOuvrage||!heuresInput}
+                style={{padding:"9px 20px",borderRadius:8,border:"none",
+                  background:selectedOuvrage&&heuresInput?T.accent:T.border,color:"#111",
+                  fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:selectedOuvrage&&heuresInput?"pointer":"default"}}>
+                Générer les tâches
+              </button>
+              <button onClick={()=>{setShowAjout(false);setSearch("");setSelectedOuvrage("");setHeuresInput("");}}
+                style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+                  background:"transparent",color:T.textMuted,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Annuler</button>
+            </div>
+            {/* Prévisualisation */}
+            {selectedOuvrage&&heuresInput&&(
+              <div style={{marginTop:14,padding:"12px 14px",background:T.card,borderRadius:8,border:`1px solid ${T.border}`}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:8}}>Aperçu des tâches générées</div>
+                {genererTaches(selectedOuvrage,parseFloat(heuresInput)).map((t,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:5}}>
+                    <span style={{fontSize:13,color:T.text,flex:1}}>{t.nom}</span>
+                    <span style={{fontSize:12,color:T.textMuted}}>{t.ratio}%</span>
+                    <span style={{fontSize:13,fontWeight:700,color:T.accent,minWidth:50,textAlign:"right"}}>{t.heures}h</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Liste ouvrages */}
+        {ouvrages.length===0?(
+          <div style={{textAlign:"center",padding:40,color:T.textMuted}}>Aucun ouvrage. Ajoutez les postes du devis ci-dessus.</div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {ouvrages.map(ouvrage=>(
+              <div key={ouvrage.id} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",borderBottom:`1px solid ${T.sectionDivider}`}}>
+                  <div style={{flex:1}}>
+                    <span style={{fontSize:14,fontWeight:700,color:T.text}}>{ouvrage.libelle}</span>
+                    <span style={{fontSize:11,color:T.textMuted,marginLeft:8}}>{ouvrage.unite}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:12,color:T.textMuted}}>Heures devis :</span>
+                    <input type="number" min="0.5" step="0.5" value={ouvrage.heures_devis}
+                      onChange={e=>updateHeures(ouvrage.id,e.target.value)}
+                      style={{width:70,padding:"5px 8px",borderRadius:6,textAlign:"center",
+                        border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                        fontFamily:"inherit",fontSize:14,fontWeight:700,outline:"none"}}/>
+                    <span style={{fontSize:12,color:T.textMuted}}>h</span>
+                  </div>
+                  <button onClick={()=>supprimerOuvrage(ouvrage.id)}
+                    style={{padding:"5px 10px",borderRadius:6,border:"1px solid rgba(224,92,92,0.3)",
+                      background:"transparent",color:"#e05c5c",fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>🗑</button>
+                </div>
+                <div style={{padding:"10px 18px 14px"}}>
+                  {(ouvrage.taches||[]).map((tache,ti)=>(
+                    <div key={ti} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",
+                      borderBottom:ti<ouvrage.taches.length-1?`1px solid ${T.sectionDivider}`:"none"}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>
+                      <span style={{flex:1,fontSize:13,color:T.text}}>{tache.nom}</span>
+                      <span style={{fontSize:12,color:T.textMuted,minWidth:35,textAlign:"right"}}>{tache.ratio}%</span>
+                      <div style={{width:80,height:4,background:T.border,borderRadius:2,flexShrink:0}}>
+                        <div style={{height:"100%",borderRadius:2,background:T.accent,width:`${Math.min(tache.ratio,100)}%`}}/>
+                      </div>
+                      <span style={{fontSize:14,fontWeight:700,color:T.accent,minWidth:46,textAlign:"right"}}>{tache.heures}h</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
+                    <span style={{fontSize:12,color:T.textMuted,fontWeight:600}}>
+                      Total : <span style={{color:T.accent}}>{ouvrage.heures_devis}h</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div style={{background:T.surface,border:`1px solid ${T.accent}`,borderRadius:12,
+              padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontSize:14,fontWeight:700,color:T.text}}>Total chantier</span>
+              <span style={{fontSize:20,fontWeight:800,color:T.accent}}>{totalH.toFixed(1)}h</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 function MainApp(){
@@ -4961,6 +5735,12 @@ function MainApp(){
           )}
           {page==="plans"&&(
             <PagePlans T={T} chantiers={chantiers}/>
+          )}
+          {page==="phasage"&&(
+            <PagePhasage chantiers={chantiers} T={T}/>
+          )}
+          {page==="bibliotheque"&&(
+            <PageBibliotheque T={T}/>
           )}
           {page==="admin"&&(
             <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers}
