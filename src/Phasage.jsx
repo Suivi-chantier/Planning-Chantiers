@@ -524,13 +524,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const [expandedTache, setExpandedTache] = useState(null);
   const [showPlanTravaux, setShowPlanTravaux] = useState(false);
   const ch = chantiers.find(c => c.id === phasage.chantier_id);
-
-  if (showPlanTravaux) {
-    return <PlanTravaux phasage={phasage} ouvrages={ouvrages} T={T} ouvriers={ouvriers}
-      onBack={() => setShowPlanTravaux(false)}
-      onSavePlan={async (plan) => { await onSave({ ...phasage, plan_travaux: plan, ouvrages }); }}
-    />;
-  }
   const BLEU = "#5b9cf6";
 
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
@@ -624,6 +617,13 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const hEstAjout = cadSel && quantiteInput ? parseFloat((cadSel * parseFloat(quantiteInput)).toFixed(2)) : null;
   const autoColor = autoSaveStatus === "saved" ? "#50c878" : autoSaveStatus === "saving" ? T.accent : "#f5a623";
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
+
+  if (showPlanTravaux) {
+    return <PlanTravaux phasage={phasage} ouvrages={ouvrages} T={T} ouvriers={ouvriers}
+      onBack={() => setShowPlanTravaux(false)}
+      onSavePlan={async (plan) => { await onSave({ ...phasage, plan_travaux: plan, ouvrages }); }}
+    />;
+  }
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
@@ -920,6 +920,13 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   }
 
   if (selected) return <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} onBack={() => setSelected(null)} onSave={savePhasage} onDelete={() => supprimerPhasage(selected.id)} />;
+
+  if (showPlanTravaux) {
+    return <PlanTravaux phasage={phasage} ouvrages={ouvrages} T={T} ouvriers={ouvriers}
+      onBack={() => setShowPlanTravaux(false)}
+      onSavePlan={async (plan) => { await onSave({ ...phasage, plan_travaux: plan, ouvrages }); }}
+    />;
+  }
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
