@@ -611,7 +611,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const allTaches = PHASES.flatMap(ph => (plan[ph.id] || []));
   const nbTaches = allTaches.length;
   const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
-  const avgAv = nbTaches > 0 ? Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches) : 0;
+  const totalHVenduGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+  const avgAv = totalHVenduGlobal > 0
+    ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVenduGlobal)
+    : nbTaches > 0 ? Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches) : 0;
 
   // Pour le coût MO on prend le premier ouvrier (taux de référence) ou taux par défaut
   const totalMO = allTaches.reduce((s, t) => {
@@ -724,7 +727,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           {PHASES.map((phase) => {
             const taches = plan[phase.id] || [];
             const isExp = expandedPhases[phase.id];
-            const phAv = taches.length > 0 ? Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length) : 0;
+            const phHVendu = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+            const phAv = phHVendu > 0
+              ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / phHVendu)
+              : taches.length > 0 ? Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length) : 0;
             const phVendu = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
             const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
             const phPrixHt = taches.reduce((s, t) => s + (parseFloat(t.prix_ht) || 0), 0);
