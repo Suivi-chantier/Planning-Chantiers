@@ -149,23 +149,55 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                   <button key={label} onClick={() => setLignes(fn)} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>{label}</button>
                 ))}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {lignes.map((ligne, idx) => (
-                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1px solid ${ligne.selectionne ? (ligne.match ? "rgba(80,200,120,0.35)" : T.border) : T.border}`, background: ligne.selectionne ? (ligne.match ? "rgba(80,200,120,0.06)" : T.card) : `${T.card}55`, opacity: ligne.selectionne ? 1 : 0.45, transition: "all .15s" }}>
-                    <input type="checkbox" checked={ligne.selectionne} onChange={() => setLignes(p => p.map((l, i) => i === idx ? { ...l, selectionne: !l.selectionne } : l))} style={{ width: 16, height: 16, accentColor: T.accent, cursor: "pointer", flexShrink: 0 }} />
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: ligne.match ? "#50c878" : T.border, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ligne.libelle}</div>
-                      {ligne.match
-                        ? <div style={{ fontSize: 11, color: "#50c878", marginTop: 2 }}>→ {ligne.match.libelle}{ligne.match.cadence ? ` · ${ligne.match.cadence}h/${ligne.match.unite}` : ""}</div>
-                        : <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>Aucune correspondance — importé tel quel</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {lignes.map((ligne, idx) => {
+                  const cadence = parseFloat(ligne.match?.cadence) || null;
+                  const unite = ligne.match?.unite || "";
+                  const quantite = parseFloat(ligne.quantite) || null;
+                  const hEstimees = cadence && quantite ? parseFloat((cadence * quantite).toFixed(2)) : null;
+                  return (
+                    <div key={idx} style={{ borderRadius: 10, border: `1px solid ${ligne.selectionne ? (ligne.match ? "rgba(80,200,120,0.35)" : T.border) : T.border}`, background: ligne.selectionne ? (ligne.match ? "rgba(80,200,120,0.06)" : T.card) : `${T.card}55`, opacity: ligne.selectionne ? 1 : 0.45, transition: "all .15s", overflow: "hidden" }}>
+                      {/* Ligne principale */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px" }}>
+                        <input type="checkbox" checked={ligne.selectionne} onChange={() => setLignes(p => p.map((l, i) => i === idx ? { ...l, selectionne: !l.selectionne } : l))} style={{ width: 16, height: 16, accentColor: T.accent, cursor: "pointer", flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: ligne.match ? "#50c878" : T.border, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ligne.libelle}</div>
+                          {ligne.match
+                            ? <div style={{ fontSize: 11, color: "#50c878", marginTop: 2 }}>→ {ligne.match.libelle}{cadence ? ` · cadence ${cadence}h/${unite}` : " · pas de cadence"}</div>
+                            : <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>Aucune correspondance — importé tel quel</div>}
+                        </div>
+                        {/* Heures devis */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, color: T.textMuted }}>Devis</span>
+                          <input type="number" min="0.5" step="0.5" value={ligne.heures} onChange={e => setLignes(p => p.map((l, i) => i === idx ? { ...l, heures: parseFloat(e.target.value) || l.heures } : l))} style={{ width: 60, padding: "5px 8px", borderRadius: 6, textAlign: "center", border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 800, outline: "none" }} />
+                          <span style={{ fontSize: 11, color: T.textMuted }}>h</span>
+                        </div>
+                      </div>
+                      {/* Bloc cadence — uniquement si match avec cadence */}
+                      {ligne.match && cadence && (
+                        <div style={{ margin: "0 14px 10px 38px", padding: "8px 12px", background: "rgba(91,156,246,0.08)", border: "1px solid rgba(91,156,246,0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#5b9cf6" }}>⏱ Cadence {cadence}h/{unite}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 12, color: T.textMuted }}>Qté :</span>
+                            <input
+                              type="number" min="0" step="1"
+                              value={ligne.quantite || ""}
+                              placeholder="ex: 50"
+                              onChange={e => setLignes(p => p.map((l, i) => i === idx ? { ...l, quantite: e.target.value } : l))}
+                              style={{ width: 72, padding: "5px 8px", borderRadius: 6, textAlign: "center", border: "1px solid rgba(91,156,246,0.4)", background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }}
+                            />
+                            <span style={{ fontSize: 12, color: T.textMuted }}>{unite}</span>
+                          </div>
+                          {hEstimees
+                            ? <span style={{ fontSize: 12, fontWeight: 800, color: "#5b9cf6", background: "rgba(91,156,246,0.15)", padding: "3px 10px", borderRadius: 6 }}>→ {hEstimees}h estimées</span>
+                            : <span style={{ fontSize: 11, color: T.textMuted, fontStyle: "italic" }}>Saisis la quantité pour calculer les heures estimées</span>
+                          }
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                      <input type="number" min="0.5" step="0.5" value={ligne.heures} onChange={e => setLignes(p => p.map((l, i) => i === idx ? { ...l, heures: parseFloat(e.target.value) || l.heures } : l))} style={{ width: 64, padding: "5px 8px", borderRadius: 6, textAlign: "center", border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 800, outline: "none" }} />
-                      <span style={{ fontSize: 11, color: T.textMuted }}>h</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -327,7 +359,10 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   function handleImportExcel(lignesSelectionnees) {
     const nouveaux = lignesSelectionnees.map(ligne => {
       const bibl = ligne.match;
-      return { id: Math.random().toString(36).slice(2), bibliotheque_id: bibl?.id || null, libelle: bibl ? bibl.libelle : ligne.libelle, libelle_devis: ligne.libelle, unite: bibl?.unite || "U", heures_devis: ligne.heures, heures_estimees: null, quantite: null, taches: bibl ? genererTaches(bibl.id, ligne.heures, null) : [] };
+      const quantite = parseFloat(ligne.quantite) || null;
+      const cadence = parseFloat(bibl?.cadence) || null;
+      const heuresEstimees = cadence && quantite ? parseFloat((cadence * quantite).toFixed(2)) : null;
+      return { id: Math.random().toString(36).slice(2), bibliotheque_id: bibl?.id || null, libelle: bibl ? bibl.libelle : ligne.libelle, libelle_devis: ligne.libelle, unite: bibl?.unite || "U", heures_devis: ligne.heures, heures_estimees: heuresEstimees, quantite, taches: bibl ? genererTaches(bibl.id, ligne.heures, heuresEstimees) : [] };
     });
     setOuvrages(prev => [...prev, ...nouveaux]);
     setShowImport(false);
