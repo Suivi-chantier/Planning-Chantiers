@@ -438,7 +438,48 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
   const initPlan = () => {
     if (phasage.plan_travaux && Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length > 0) {
-      return phasage.plan_travaux;
+      const plan = phasage.plan_travaux;
+
+      // Migration silencieuse : recalcule prix_ht sur les tâches qui n'en ont pas,
+      // en croisant avec les ouvrages (par ouvrage_libelle + nom de tâche)
+      const needsMigration = Object.values(plan)
+        .filter(arr => Array.isArray(arr))
+        .flat()
+        .some(t => t.prix_ht == null && t.ouvrage_libelle);
+
+      if (!needsMigration) return plan;
+
+      // Construire un index ouvrage par libelle → prix_ht et sous-tâches
+      const ouvrageIndex = {};
+      ouvrages.forEach(o => {
+        if (o.prix_ht) ouvrageIndex[o.libelle] = o;
+      });
+
+      const migrated = {};
+      Object.keys(plan).forEach(phaseId => {
+        if (!Array.isArray(plan[phaseId])) { migrated[phaseId] = plan[phaseId]; return; }
+        migrated[phaseId] = plan[phaseId].map(tache => {
+          if (tache.prix_ht != null) return tache;
+          const ouvrage = ouvrageIndex[tache.ouvrage_libelle];
+          if (!ouvrage) return tache;
+          // Trouver le ratio de la sous-tâche correspondante
+          // Chercher le ratio dans les sous-tâches de l'ouvrage
+          const stMatch = (ouvrage.taches || []).find(st => st.nom === tache.nom);
+          const ratio = stMatch?.ratio || null;
+          let prixHt = null;
+          if (ratio) {
+            prixHt = parseFloat(((ouvrage.prix_ht * ratio) / 100).toFixed(2));
+          } else if ((ouvrage.taches || []).length > 0) {
+            // Fallback : répartition égale entre toutes les sous-tâches
+            prixHt = parseFloat((ouvrage.prix_ht / ouvrage.taches.length).toFixed(2));
+          } else {
+            // Pas de sous-tâches : prix complet sur la tâche
+            prixHt = ouvrage.prix_ht;
+          }
+          return { ...tache, prix_ht: prixHt };
+        });
+      });
+      return migrated;
     }
     return distribuerTaches(ouvrages);
   };
