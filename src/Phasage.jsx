@@ -50,7 +50,7 @@ function parseExcel(file) {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-        let colL = -1, colH = -1, colQ = -1;
+        let colL = -1, colH = -1, colQ = -1, colP = -1;
         const hRow = rows.find(r => r.some(c => typeof c === "string" && c.length > 0));
         const hIdx = rows.indexOf(hRow);
         if (hRow) {
