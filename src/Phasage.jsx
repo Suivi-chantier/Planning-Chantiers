@@ -59,7 +59,16 @@ function parseExcel(file) {
             if (colL === -1 && (c.includes("libelle") || c.includes("designation") || c.includes("description") || c.includes("ouvrage") || c.includes("poste"))) colL = i;
             if (colH === -1 && (c.includes("heure") || c.includes("h mo") || c.includes("mo") || c.includes("main") || c.includes("temps") || c.includes("duree"))) colH = i;
             if (colQ === -1 && (c.includes("quantite") || c === "qte" || c === "q" || c.includes("nombre") || c.includes("surface") || c.includes("volume") || c.includes("m2") || c.includes("ml"))) colQ = i;
+            // Priorité : "total h t" ou "total ht" avant le simple "total"
+            if (colP === -1 && (c.includes("total h") || c.includes("montant ht") || c.includes("montant h") || c.includes("prix ht"))) colP = i;
           });
+          // Fallback : si pas trouvé, chercher colonne "total" seul
+          if (colP === -1) {
+            hRow.forEach((cell, i) => {
+              const c = normalise(String(cell));
+              if (colP === -1 && c === "total") colP = i;
+            });
+          }
           if (colL === -1) colL = 0;
           if (colH === -1) {
             for (let i = 1; i < Math.min(hRow.length, 10); i++) {
