@@ -485,7 +485,13 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   };
 
   const [plan, setPlan] = useState(initPlan);
-  const [prixVendu, setPrixVendu] = useState(() => phasage.plan_travaux?.meta?.prix_vendu || 0);
+  const [prixVendu, setPrixVendu] = useState(() => {
+    // Si déjà saisi manuellement, on garde
+    if (phasage.plan_travaux?.meta?.prix_vendu) return phasage.plan_travaux.meta.prix_vendu;
+    // Sinon on calcule depuis la somme des prix_ht des ouvrages
+    const totalHT = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+    return totalHT > 0 ? parseFloat(totalHT.toFixed(2)) : 0;
+  });
   const [expandedPhases, setExpandedPhases] = useState(() =>
     PHASES.reduce((acc, p) => ({ ...acc, [p.id]: true }), {})
   );
