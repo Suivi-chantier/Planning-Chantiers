@@ -921,13 +921,6 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
 
   if (selected) return <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} onBack={() => setSelected(null)} onSave={savePhasage} onDelete={() => supprimerPhasage(selected.id)} />;
 
-  if (showPlanTravaux) {
-    return <PlanTravaux phasage={phasage} ouvrages={ouvrages} T={T} ouvriers={ouvriers}
-      onBack={() => setShowPlanTravaux(false)}
-      onSavePlan={async (plan) => { await onSave({ ...phasage, plan_travaux: plan, ouvrages }); }}
-    />;
-  }
-
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
