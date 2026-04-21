@@ -50,15 +50,19 @@ function parseExcel(file) {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-        let colL = -1, colH = -1;
+        let colL = -1, colH = -1, colQ = -1;
+        
         const hRow = rows.find(r => r.some(c => typeof c === "string" && c.length > 0));
         const hIdx = rows.indexOf(hRow);
+        
         if (hRow) {
           hRow.forEach((cell, i) => {
             const c = normalise(String(cell));
             if (colL === -1 && (c.includes("libelle") || c.includes("designation") || c.includes("description") || c.includes("ouvrage") || c.includes("poste"))) colL = i;
             if (colH === -1 && (c.includes("heure") || c.includes("h mo") || c.includes("mo") || c.includes("main") || c.includes("temps") || c.includes("duree"))) colH = i;
+            if (colQ === -1 && (c.includes("quantite") || c === "qte" || c === "q" || c.includes("nombre") || c.includes("surface") || c.includes("volume") || c.includes("m2") || c.includes("ml"))) colQ = i;
           });
+          
           if (colL === -1) colL = 0;
           if (colH === -1) {
             for (let i = 1; i < Math.min(hRow.length, 10); i++) {
@@ -67,12 +71,22 @@ function parseExcel(file) {
             }
           }
         }
+        
         const lignes = [];
         for (let i = hIdx + 1; i < rows.length; i++) {
           const row = rows[i];
           const lib = String(row[colL] || "").trim();
           const h = parseFloat(String(row[colH] || "").replace(",", ".").replace(/[^0-9.]/g, ""));
-          if (lib.length > 2 && !isNaN(h) && h > 0) lignes.push({ libelle: lib, heures: h });
+          
+          let q = null;
+          if (colQ !== -1) {
+            const qRaw = parseFloat(String(row[colQ] || "").replace(",", ".").replace(/[^0-9.]/g, ""));
+            if (!isNaN(qRaw)) q = qRaw;
+          }
+
+          if (lib.length > 2 && !isNaN(h) && h > 0) {
+            lignes.push({ libelle: lib, heures: h, quantite: q });
+          }
         }
         resolve(lignes);
       } catch (err) { reject(err); }
@@ -129,7 +143,11 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
               {erreur && <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(224,92,92,0.1)", border: "1px solid rgba(224,92,92,0.3)", borderRadius: 8, color: "#e05c5c", fontSize: 13 }}>⚠️ {erreur}</div>}
               <div style={{ marginTop: 18, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${T.border}` }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Format attendu</div>
-                <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.8 }}>• Une colonne <strong style={{ color: T.text }}>libellé / désignation</strong><br />• Une colonne <strong style={{ color: T.text }}>heures</strong> (ex : 16 ou 16.5)</div>
+                <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.8 }}>
+                  • Une colonne <strong style={{ color: T.text }}>libellé / désignation</strong><br />
+                  • Une colonne <strong style={{ color: T.text }}>heures</strong> (ex : 16 ou 16.5)<br />
+                  • Une colonne <strong style={{ color: T.text }}>quantité</strong> (optionnelle, ex : 50)
+                </div>
               </div>
             </>
           )}
