@@ -499,13 +499,20 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       const { data: ex } = await supabase.from("planning_cells").select("*").eq("week_id", planifierWeek).eq("chantier_id", phasage.chantier_id).eq("jour", planifierJour).maybeSingle();
       const base = ex || { planifie: "", reel: "", ouvriers: [], taches: [] };
 
-      // ← utilise le tableau ouvriers
       const ouvriersAssignes = planifierTask.tache.ouvriers || [];
-      const nouveauPlanifieTexte = base.planifie ? `${base.planifie}\n${planifierTask.tache.nom}` : planifierTask.tache.nom;
+
+      // Inclure l'ouvrage dans le nom pour lever l'ambiguïté (ex: "Alimentation PER (Chauffe-eau)")
+      const nomComplet = planifierTask.tache.ouvrage_libelle
+        ? `${planifierTask.tache.nom} (${planifierTask.tache.ouvrage_libelle})`
+        : planifierTask.tache.nom;
+
+      const nouveauPlanifieTexte = base.planifie
+        ? `${base.planifie}\n${nomComplet}`
+        : nomComplet;
 
       const upd = [...(base.taches || []), {
         id: Math.random().toString(36).slice(2),
-        text: planifierTask.tache.nom,
+        text: nomComplet,
         duree: planifierTask.tache.heures_vendues,
         ouvriers: ouvriersAssignes,
       }];
