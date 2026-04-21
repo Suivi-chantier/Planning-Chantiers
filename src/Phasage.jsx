@@ -222,97 +222,295 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
   );
 }
 
-function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
-  const [phasages, setPhasages] = useState([]);
-  const [bibliotheque, setBibliotheque] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState(null);
-  const [showNew, setShowNew] = useState(false);
-  const [newChantier, setNewChantier] = useState("");
+function PlanTravaux({ phasage, ouvrages, T, ouvriers, onBack, onSavePlan }) {
+  const BLEU = "#5b9cf6";
 
-  useEffect(() => { loadAll(); }, []);
-  async function loadAll() {
-    setLoading(true);
-    const [{ data: p }, { data: b }] = await Promise.all([supabase.from("phasages").select("*").order("created_at", { ascending: false }), supabase.from("bibliotheque_ratios").select("*").order("libelle")]);
-    setPhasages(p || []); setBibliotheque(b || []); setLoading(false);
-  }
-  async function creerPhasage() {
-    if (!newChantier) return;
-    const ch = chantiers.find(c => c.id === newChantier);
-    const { data, error } = await supabase.from("phasages").insert({ chantier_id: newChantier, chantier_nom: ch ? ch.nom : newChantier, ouvrages: [] }).select().single();
-    if (error) { console.error(error.message); return; }
-    if (data) { setPhasages(p => [data, ...p]); setSelected(data); setShowNew(false); setNewChantier(""); }
-  }
-  async function savePhasage(phasage) {
-    const { error } = await supabase.from("phasages").update({ ouvrages: phasage.ouvrages, updated_at: new Date().toISOString() }).eq("id", phasage.id);
-    if (error) { console.error(error.message); return; }
-    setPhasages(prev => prev.map(p => p.id === phasage.id ? phasage : p));
-    if (selected?.id === phasage.id) setSelected(phasage);
-  }
-  async function supprimerPhasage(id) {
-    if (!confirm("Supprimer ce phasage ?")) return;
-    await supabase.from("phasages").delete().eq("id", id);
-    setPhasages(prev => prev.filter(p => p.id !== id));
-    if (selected?.id === id) setSelected(null);
+  // Initialise le plan depuis phasage.plan_travaux ou crée les phases vides
+  const initPlan = () => {
+    if (phasage.plan_travaux) return phasage.plan_travaux;
+    // Distribuer les tâches existantes des ouvrages dans les phases selon la catégorie bibliothèque
+    const plan = {};
+    PHASES.forEach(p => { plan[p.id] = []; });
+    // Aplatir toutes les tâches des ouvrages comme point de départ
+    ouvrages.forEach(o => {
+      (o.taches || []).forEach(t => {
+        // On met tout dans "non classé" → l'utilisateur répartit manuellement
+        // En pratique on ne pré-assigne pas automatiquement
+      });
+    });
+    return plan;
+  };
+
+  const [plan, setPlan] = useState(initPlan);
+  const [expandedPhase, setExpandedPhase] = useState(PHASES[0].id);
+  const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
+  const autoSaveTimer = useRef(null);
+  const isFirstRender = useRef(true);
+  const [ajoutPhase, setAjoutPhase] = useState(null); // id de la phase en cours d'ajout
+  const [ajoutForm, setAjoutForm] = useState({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] });
+
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    setAutoSaveStatus("pending");
+    clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      setAutoSaveStatus("saving");
+      await onSavePlan(plan);
+      setAutoSaveStatus("saved");
+    }, 1200);
+    return () => clearTimeout(autoSaveTimer.current);
+  }, [plan]);
+
+  function addTache(phaseId) {
+    if (!ajoutForm.nom) return;
+    const newT = {
+      id: Math.random().toString(36).slice(2),
+      nom: ajoutForm.nom,
+      heures_vendues: parseFloat(ajoutForm.heures_vendues) || 0,
+      heures_estimees: parseFloat(ajoutForm.heures_estimees) || null,
+      heures_reelles: parseFloat(ajoutForm.heures_reelles) || 0,
+      ouvrier: ajoutForm.ouvrier || "",
+      date_prevue: ajoutForm.date_prevue || "",
+      avancement: 0,
+      ressources: [],
+    };
+    setPlan(p => ({ ...p, [phaseId]: [...(p[phaseId] || []), newT] }));
+    setAjoutPhase(null);
+    setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] });
   }
 
-  if (selected) return <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} onBack={() => setSelected(null)} onSave={savePhasage} onDelete={() => supprimerPhasage(selected.id)} />;
+  function updateTache(phaseId, tacheId, updates) {
+    setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).map(t => t.id === tacheId ? { ...t, ...updates } : t) }));
+  }
+
+  function deleteTache(phaseId, tacheId) {
+    setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).filter(t => t.id !== tacheId) }));
+  }
+
+  // Totaux globaux
+  const allTaches = PHASES.flatMap(ph => (plan[ph.id] || []));
+  const totalVendu = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+  const totalEstime = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+  const totalReel = allTaches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+  const totalTaches = allTaches.length;
+  const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
+  const avgAv = totalTaches > 0 ? Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / totalTaches) : 0;
+
+  const autoColor = autoSaveStatus === "saved" ? "#50c878" : autoSaveStatus === "saving" ? T.accent : "#f5a623";
+  const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
-      <div style={{ maxWidth: 860, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, color: T.text }}>📋 Phasages chantiers</div>
-            <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>Avancement, coûts MO et ressources par tâche</div>
+    <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
+      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+          <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Retour au devis</button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>📋 Plan de travaux — {phasage.chantier_nom}</div>
+            <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>{totalTaches} tâche{totalTaches > 1 ? "s" : ""} · {terminees} terminée{terminees > 1 ? "s" : ""}</div>
           </div>
-          <button onClick={() => setShowNew(true)} style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Nouveau phasage</button>
+          <div style={{ fontSize: 12, fontWeight: 600, color: autoColor, display: "flex", alignItems: "center", gap: 5 }}>
+            {autoSaveStatus === "saving" && <svg width="12" height="12" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70" /></svg>}
+            {autoLabel}
+          </div>
         </div>
-        {showNew && (
-          <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Nouveau phasage</div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <select value={newChantier} onChange={e => setNewChantier(e.target.value)} style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: newChantier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 14, outline: "none" }}>
-                <option value="">Choisir un chantier…</option>
-                {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-              </select>
-              <button onClick={creerPhasage} disabled={!newChantier} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: newChantier ? T.accent : T.border, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: newChantier ? "pointer" : "default" }}>Créer</button>
-              <button onClick={() => { setShowNew(false); setNewChantier(""); }} style={{ padding: "9px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
+
+        {/* Récap global */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
+          {[
+            ["Avancement", `${avgAv}%`, avgAv === 100 ? "#50c878" : T.accent],
+            ["Total vendu", totalVendu > 0 ? `${totalVendu.toFixed(1)}h` : "—", T.accent],
+            ["Total estimé", totalEstime > 0 ? `${totalEstime.toFixed(1)}h` : "—", BLEU],
+            ["Total réel", totalReel > 0 ? `${totalReel.toFixed(1)}h` : "—", totalReel > totalVendu && totalVendu > 0 ? "#e05c5c" : "#50c878"],
+          ].map(([label, val, color]) => (
+            <div key={label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color }}>{val}</div>
             </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+          <div style={{ flex: 1, height: 8, background: T.border, borderRadius: 4 }}>
+            <div style={{ height: "100%", borderRadius: 4, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} />
           </div>
-        )}
-        {loading ? <div style={{ color: T.textMuted, textAlign: "center", padding: 60 }}>Chargement…</div>
-          : phasages.length === 0 ? <div style={{ textAlign: "center", padding: 60, color: T.textMuted }}><div style={{ fontSize: 32, marginBottom: 12 }}>📋</div><div>Aucun phasage. Créez-en un pour commencer.</div></div>
-          : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {phasages.map(p => {
-                const ch = chantiers.find(c => c.id === p.chantier_id);
-                const ol = p.ouvrages || [];
-                const totalH = ol.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
-                const totalTaches = ol.flatMap(o => o.taches || []);
-                const avgAv = totalTaches.length > 0 ? Math.round(totalTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / totalTaches.length) : 0;
-                const cout = ol.reduce((s, o) => s + (o.taches || []).reduce((s2, t) => s2 + (t.heures_reelles || []).reduce((s3, h) => s3 + ((parseFloat(h.heures) || 0) * (parseFloat(tauxHoraires?.[h.ouvrier]) || 0)), 0) + (t.ressources || []).reduce((s3, r) => s3 + (parseFloat(r.montant) || 0), 0), 0), 0);
-                return (
-                  <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer", transition: "border .15s" }} onClick={() => setSelected(p)} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
-                    <div style={{ width: 10, height: 56, borderRadius: 5, background: ch ? ch.couleur : T.accent, flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{p.chantier_nom}</div>
-                      <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>{ol.length} ouvrage{ol.length > 1 ? "s" : ""} · {totalH.toFixed(1)}h devis · {cout > 0 ? `${cout.toFixed(0)}€` : "Pas de coûts saisis"}</div>
-                      {totalTaches.length > 0 && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", borderRadius: 2, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} /></div><span style={{ fontSize: 11, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 32 }}>{avgAv}%</span></div>}
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={e => { e.stopPropagation(); supprimerPhasage(p.id); }} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
-                      <span style={{ fontSize: 18, color: T.textMuted, alignSelf: "center" }}>▶</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 40 }}>{avgAv}%</span>
+        </div>
+
+        {/* Phases */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {PHASES.map((phase, phaseIdx) => {
+            const taches = plan[phase.id] || [];
+            const isExp = expandedPhase === phase.id;
+            const phAv = taches.length > 0 ? Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length) : 0;
+            const phVendu = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+            const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+
+            return (
+              <div key={phase.id} style={{ background: T.surface, border: `1px solid ${isExp ? phase.couleur + "88" : T.border}`, borderRadius: 12, overflow: "hidden", transition: "border .2s" }}>
+
+                {/* En-tête phase */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px", cursor: "pointer", borderBottom: isExp ? `1px solid ${T.sectionDivider}` : "none" }}
+                  onClick={() => setExpandedPhase(isExp ? null : phase.id)}>
+                  <div style={{ width: 4, height: 36, borderRadius: 2, background: phase.couleur, flexShrink: 0 }} />
+                  <span style={{ fontSize: 16 }}>{phase.emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{phase.label}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>
+                      {taches.length} tâche{taches.length > 1 ? "s" : ""}
+                      {phVendu > 0 && <> · <span style={{ color: T.accent, fontWeight: 700 }}>{phVendu.toFixed(1)}h vendues</span></>}
+                      {phReel > 0 && <> · <span style={{ color: phReel > phVendu && phVendu > 0 ? "#e05c5c" : "#50c878", fontWeight: 700 }}>{phReel.toFixed(1)}h réelles</span></>}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  {taches.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 120 }}>
+                      <div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}>
+                        <div style={{ height: "100%", borderRadius: 2, background: phAv === 100 ? "#50c878" : phase.couleur, width: `${phAv}%`, transition: "width .3s" }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: phAv === 100 ? "#50c878" : T.textMuted, minWidth: 32 }}>{phAv}%</span>
+                    </div>
+                  )}
+                  <span style={{ fontSize: 12, color: isExp ? phase.couleur : T.textMuted }}>{isExp ? "▲" : "▼"}</span>
+                </div>
+
+                {/* Corps phase */}
+                {isExp && (
+                  <div style={{ padding: "0 18px 16px" }}>
+
+                    {/* En-têtes colonnes */}
+                    {taches.length > 0 && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 72px 110px 130px 70px 100px 32px", gap: 8, padding: "8px 10px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
+                        {["Tâche", "Vendu", "Estimé", "Réel", "Écart", "Ouvrier", "Date", "Avancement", ""].map((h, i) => (
+                          <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, textAlign: i > 0 ? "center" : "left" }}>{h}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Lignes de tâches */}
+                    {taches.map(tache => {
+                      const av = parseFloat(tache.avancement) || 0;
+                      const hV = parseFloat(tache.heures_vendues) || 0;
+                      const hE = parseFloat(tache.heures_estimees) || null;
+                      const hR = parseFloat(tache.heures_reelles) || 0;
+                      return (
+                        <div key={tache.id} style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 72px 110px 130px 70px 100px 32px", gap: 8, padding: "10px 10px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center" }}>
+
+                          {/* Nom */}
+                          <input value={tache.nom} onChange={e => updateTache(phase.id, tache.id, { nom: e.target.value })}
+                            style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none", width: "100%" }} />
+
+                          {/* Vendu */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <input type="number" min="0" step="0.5" value={tache.heures_vendues || ""} placeholder="0" onChange={e => updateTache(phase.id, tache.id, { heures_vendues: parseFloat(e.target.value) || 0 })}
+                              style={{ width: "100%", padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          </div>
+
+                          {/* Estimé */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <input type="number" min="0" step="0.5" value={tache.heures_estimees || ""} placeholder="—" onChange={e => updateTache(phase.id, tache.id, { heures_estimees: parseFloat(e.target.value) || null })}
+                              style={{ width: "100%", padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: BLEU, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          </div>
+
+                          {/* Réel */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <input type="number" min="0" step="0.5" value={tache.heures_reelles || ""} placeholder="0" onChange={e => updateTache(phase.id, tache.id, { heures_reelles: parseFloat(e.target.value) || 0 })}
+                              style={{ width: "100%", padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          </div>
+
+                          {/* Écart */}
+                          <div style={{ display: "flex", justifyContent: "center" }}>
+                            <EcartReel vendu={hV} reel={hR} />
+                          </div>
+
+                          {/* Ouvrier */}
+                          <select value={tache.ouvrier || ""} onChange={e => updateTache(phase.id, tache.id, { ouvrier: e.target.value })}
+                            style={{ padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.inputBg, color: tache.ouvrier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 12, outline: "none", width: "100%" }}>
+                            <option value="">—</option>
+                            {ouvriers.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+
+                          {/* Date prévue */}
+                          <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })}
+                            style={{ padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 12, outline: "none", width: "100%", colorScheme: "dark" }} />
+
+                          {/* Avancement */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                            <input type="range" min="0" max="100" step="5" value={av} onChange={e => updateTache(phase.id, tache.id, { avancement: parseInt(e.target.value) })}
+                              style={{ flex: 1, accentColor: av === 100 ? "#50c878" : phase.couleur }} />
+                            <span style={{ fontSize: 11, fontWeight: 700, color: av === 100 ? "#50c878" : av > 0 ? "#f5a623" : T.textMuted, minWidth: 28, textAlign: "right" }}>{av}%</span>
+                          </div>
+
+                          {/* Supprimer */}
+                          <button onClick={() => deleteTache(phase.id, tache.id)} style={{ background: "transparent", border: "none", color: "#e05c5c", cursor: "pointer", fontSize: 16, padding: 0, lineHeight: 1 }}>✕</button>
+                        </div>
+                      );
+                    })}
+
+                    {/* Formulaire ajout */}
+                    {ajoutPhase === phase.id ? (
+                      <div style={{ marginTop: 12, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${phase.couleur}55` }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: phase.couleur, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>{phase.emoji} Nouvelle tâche — {phase.label}</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Nom de la tâche *</div>
+                            <input value={ajoutForm.nom} onChange={e => setAjoutForm(f => ({ ...f, nom: e.target.value }))} placeholder="ex: Pose plaques BA13"
+                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none" }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Heures vendues</div>
+                            <input type="number" min="0" step="0.5" value={ajoutForm.heures_vendues} onChange={e => setAjoutForm(f => ({ ...f, heures_vendues: e.target.value }))} placeholder="0h"
+                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Heures estimées</div>
+                            <input type="number" min="0" step="0.5" value={ajoutForm.heures_estimees} onChange={e => setAjoutForm(f => ({ ...f, heures_estimees: e.target.value }))} placeholder="—"
+                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: BLEU, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Ouvrier</div>
+                            <select value={ajoutForm.ouvrier} onChange={e => setAjoutForm(f => ({ ...f, ouvrier: e.target.value }))}
+                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: ajoutForm.ouvrier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 13, outline: "none" }}>
+                              <option value="">— Non assigné</option>
+                              {ouvriers.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Date prévue</div>
+                            <input type="date" value={ajoutForm.date_prevue} onChange={e => setAjoutForm(f => ({ ...f, date_prevue: e.target.value }))}
+                              style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none", colorScheme: "dark" }} />
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 10 }}>
+                          <button onClick={() => addTache(phase.id)} disabled={!ajoutForm.nom}
+                            style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: ajoutForm.nom ? phase.couleur : T.border, color: ajoutForm.nom ? "#fff" : T.textMuted, fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: ajoutForm.nom ? "pointer" : "default" }}>
+                            ✓ Ajouter la tâche
+                          </button>
+                          <button onClick={() => { setAjoutPhase(null); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] }); }}
+                            style={{ padding: "9px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setAjoutPhase(phase.id); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] }); }}
+                        style={{ marginTop: 12, width: "100%", padding: "9px", borderRadius: 8, border: `1.5px dashed ${phase.couleur}55`, background: "transparent", color: phase.couleur, fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                        + Ajouter une tâche
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
+
 
 function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHoraires, onBack, onSave, onDelete }) {
   const [ouvrages, setOuvrages] = useState(phasage.ouvrages || []);
@@ -687,302 +885,94 @@ const PHASES = [
   { id: "finitions_gen",   label: "Finitions générales",            emoji: "✨", couleur: "#a78bfa" },
 ];
 
-function EcartReel({ vendu, reel }) {
-  if (!vendu || !reel || vendu === 0) return null;
-  const ecart = ((reel - vendu) / vendu) * 100;
-  if (Math.abs(ecart) < 1) return <span style={{ fontSize: 11, fontWeight: 700, color: "#50c878", background: "rgba(80,200,120,0.12)", border: "1px solid rgba(80,200,120,0.3)", borderRadius: 5, padding: "2px 7px" }}>✓ Dans les temps</span>;
-  const depasse = reel > vendu;
-  const color = depasse ? "#e05c5c" : "#50c878";
-  const bg = depasse ? "rgba(224,92,92,0.12)" : "rgba(80,200,120,0.12)";
-  const brd = depasse ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)";
-  return <span style={{ fontSize: 11, fontWeight: 700, color, background: bg, border: `1px solid ${brd}`, borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap" }}>{depasse ? "▲" : "▼"} {Math.abs(ecart).toFixed(0)}% {depasse ? "dépassement" : "marge"}</span>;
-}
+function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
+  const [phasages, setPhasages] = useState([]);
+  const [bibliotheque, setBibliotheque] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const [newChantier, setNewChantier] = useState("");
 
-function PlanTravaux({ phasage, ouvrages, T, ouvriers, onBack, onSavePlan }) {
-  const BLEU = "#5b9cf6";
-
-  // Initialise le plan depuis phasage.plan_travaux ou crée les phases vides
-  const initPlan = () => {
-    if (phasage.plan_travaux) return phasage.plan_travaux;
-    // Distribuer les tâches existantes des ouvrages dans les phases selon la catégorie bibliothèque
-    const plan = {};
-    PHASES.forEach(p => { plan[p.id] = []; });
-    // Aplatir toutes les tâches des ouvrages comme point de départ
-    ouvrages.forEach(o => {
-      (o.taches || []).forEach(t => {
-        // On met tout dans "non classé" → l'utilisateur répartit manuellement
-        // En pratique on ne pré-assigne pas automatiquement
-      });
-    });
-    return plan;
-  };
-
-  const [plan, setPlan] = useState(initPlan);
-  const [expandedPhase, setExpandedPhase] = useState(PHASES[0].id);
-  const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
-  const autoSaveTimer = useRef(null);
-  const isFirstRender = useRef(true);
-  const [ajoutPhase, setAjoutPhase] = useState(null); // id de la phase en cours d'ajout
-  const [ajoutForm, setAjoutForm] = useState({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] });
-
-  useEffect(() => {
-    if (isFirstRender.current) { isFirstRender.current = false; return; }
-    setAutoSaveStatus("pending");
-    clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      setAutoSaveStatus("saving");
-      await onSavePlan(plan);
-      setAutoSaveStatus("saved");
-    }, 1200);
-    return () => clearTimeout(autoSaveTimer.current);
-  }, [plan]);
-
-  function addTache(phaseId) {
-    if (!ajoutForm.nom) return;
-    const newT = {
-      id: Math.random().toString(36).slice(2),
-      nom: ajoutForm.nom,
-      heures_vendues: parseFloat(ajoutForm.heures_vendues) || 0,
-      heures_estimees: parseFloat(ajoutForm.heures_estimees) || null,
-      heures_reelles: parseFloat(ajoutForm.heures_reelles) || 0,
-      ouvrier: ajoutForm.ouvrier || "",
-      date_prevue: ajoutForm.date_prevue || "",
-      avancement: 0,
-      ressources: [],
-    };
-    setPlan(p => ({ ...p, [phaseId]: [...(p[phaseId] || []), newT] }));
-    setAjoutPhase(null);
-    setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] });
+  useEffect(() => { loadAll(); }, []);
+  async function loadAll() {
+    setLoading(true);
+    const [{ data: p }, { data: b }] = await Promise.all([supabase.from("phasages").select("*").order("created_at", { ascending: false }), supabase.from("bibliotheque_ratios").select("*").order("libelle")]);
+    setPhasages(p || []); setBibliotheque(b || []); setLoading(false);
+  }
+  async function creerPhasage() {
+    if (!newChantier) return;
+    const ch = chantiers.find(c => c.id === newChantier);
+    const { data, error } = await supabase.from("phasages").insert({ chantier_id: newChantier, chantier_nom: ch ? ch.nom : newChantier, ouvrages: [] }).select().single();
+    if (error) { console.error(error.message); return; }
+    if (data) { setPhasages(p => [data, ...p]); setSelected(data); setShowNew(false); setNewChantier(""); }
+  }
+  async function savePhasage(phasage) {
+    const { error } = await supabase.from("phasages").update({ ouvrages: phasage.ouvrages, updated_at: new Date().toISOString() }).eq("id", phasage.id);
+    if (error) { console.error(error.message); return; }
+    setPhasages(prev => prev.map(p => p.id === phasage.id ? phasage : p));
+    if (selected?.id === phasage.id) setSelected(phasage);
+  }
+  async function supprimerPhasage(id) {
+    if (!confirm("Supprimer ce phasage ?")) return;
+    await supabase.from("phasages").delete().eq("id", id);
+    setPhasages(prev => prev.filter(p => p.id !== id));
+    if (selected?.id === id) setSelected(null);
   }
 
-  function updateTache(phaseId, tacheId, updates) {
-    setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).map(t => t.id === tacheId ? { ...t, ...updates } : t) }));
-  }
-
-  function deleteTache(phaseId, tacheId) {
-    setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).filter(t => t.id !== tacheId) }));
-  }
-
-  // Totaux globaux
-  const allTaches = PHASES.flatMap(ph => (plan[ph.id] || []));
-  const totalVendu = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-  const totalEstime = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-  const totalReel = allTaches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-  const totalTaches = allTaches.length;
-  const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
-  const avgAv = totalTaches > 0 ? Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / totalTaches) : 0;
-
-  const autoColor = autoSaveStatus === "saved" ? "#50c878" : autoSaveStatus === "saving" ? T.accent : "#f5a623";
-  const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
+  if (selected) return <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} onBack={() => setSelected(null)} onSave={savePhasage} onDelete={() => supprimerPhasage(selected.id)} />;
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
-      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-          <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Retour au devis</button>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>📋 Plan de travaux — {phasage.chantier_nom}</div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>{totalTaches} tâche{totalTaches > 1 ? "s" : ""} · {terminees} terminée{terminees > 1 ? "s" : ""}</div>
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+      <div style={{ maxWidth: 860, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, color: T.text }}>📋 Phasages chantiers</div>
+            <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>Avancement, coûts MO et ressources par tâche</div>
           </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: autoColor, display: "flex", alignItems: "center", gap: 5 }}>
-            {autoSaveStatus === "saving" && <svg width="12" height="12" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70" /></svg>}
-            {autoLabel}
-          </div>
+          <button onClick={() => setShowNew(true)} style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Nouveau phasage</button>
         </div>
-
-        {/* Récap global */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
-          {[
-            ["Avancement", `${avgAv}%`, avgAv === 100 ? "#50c878" : T.accent],
-            ["Total vendu", totalVendu > 0 ? `${totalVendu.toFixed(1)}h` : "—", T.accent],
-            ["Total estimé", totalEstime > 0 ? `${totalEstime.toFixed(1)}h` : "—", BLEU],
-            ["Total réel", totalReel > 0 ? `${totalReel.toFixed(1)}h` : "—", totalReel > totalVendu && totalVendu > 0 ? "#e05c5c" : "#50c878"],
-          ].map(([label, val, color]) => (
-            <div key={label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
-              <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color }}>{val}</div>
+        {showNew && (
+          <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Nouveau phasage</div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <select value={newChantier} onChange={e => setNewChantier(e.target.value)} style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: newChantier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 14, outline: "none" }}>
+                <option value="">Choisir un chantier…</option>
+                {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+              </select>
+              <button onClick={creerPhasage} disabled={!newChantier} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: newChantier ? T.accent : T.border, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: newChantier ? "pointer" : "default" }}>Créer</button>
+              <button onClick={() => { setShowNew(false); setNewChantier(""); }} style={{ padding: "9px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
             </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
-          <div style={{ flex: 1, height: 8, background: T.border, borderRadius: 4 }}>
-            <div style={{ height: "100%", borderRadius: 4, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} />
           </div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 40 }}>{avgAv}%</span>
-        </div>
-
-        {/* Phases */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {PHASES.map((phase, phaseIdx) => {
-            const taches = plan[phase.id] || [];
-            const isExp = expandedPhase === phase.id;
-            const phAv = taches.length > 0 ? Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length) : 0;
-            const phVendu = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-            const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-
-            return (
-              <div key={phase.id} style={{ background: T.surface, border: `1px solid ${isExp ? phase.couleur + "88" : T.border}`, borderRadius: 12, overflow: "hidden", transition: "border .2s" }}>
-
-                {/* En-tête phase */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px", cursor: "pointer", borderBottom: isExp ? `1px solid ${T.sectionDivider}` : "none" }}
-                  onClick={() => setExpandedPhase(isExp ? null : phase.id)}>
-                  <div style={{ width: 4, height: 36, borderRadius: 2, background: phase.couleur, flexShrink: 0 }} />
-                  <span style={{ fontSize: 16 }}>{phase.emoji}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{phase.label}</div>
-                    <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>
-                      {taches.length} tâche{taches.length > 1 ? "s" : ""}
-                      {phVendu > 0 && <> · <span style={{ color: T.accent, fontWeight: 700 }}>{phVendu.toFixed(1)}h vendues</span></>}
-                      {phReel > 0 && <> · <span style={{ color: phReel > phVendu && phVendu > 0 ? "#e05c5c" : "#50c878", fontWeight: 700 }}>{phReel.toFixed(1)}h réelles</span></>}
+        )}
+        {loading ? <div style={{ color: T.textMuted, textAlign: "center", padding: 60 }}>Chargement…</div>
+          : phasages.length === 0 ? <div style={{ textAlign: "center", padding: 60, color: T.textMuted }}><div style={{ fontSize: 32, marginBottom: 12 }}>📋</div><div>Aucun phasage. Créez-en un pour commencer.</div></div>
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {phasages.map(p => {
+                const ch = chantiers.find(c => c.id === p.chantier_id);
+                const ol = p.ouvrages || [];
+                const totalH = ol.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
+                const totalTaches = ol.flatMap(o => o.taches || []);
+                const avgAv = totalTaches.length > 0 ? Math.round(totalTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / totalTaches.length) : 0;
+                const cout = ol.reduce((s, o) => s + (o.taches || []).reduce((s2, t) => s2 + (t.heures_reelles || []).reduce((s3, h) => s3 + ((parseFloat(h.heures) || 0) * (parseFloat(tauxHoraires?.[h.ouvrier]) || 0)), 0) + (t.ressources || []).reduce((s3, r) => s3 + (parseFloat(r.montant) || 0), 0), 0), 0);
+                return (
+                  <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer", transition: "border .15s" }} onClick={() => setSelected(p)} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
+                    <div style={{ width: 10, height: 56, borderRadius: 5, background: ch ? ch.couleur : T.accent, flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{p.chantier_nom}</div>
+                      <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>{ol.length} ouvrage{ol.length > 1 ? "s" : ""} · {totalH.toFixed(1)}h devis · {cout > 0 ? `${cout.toFixed(0)}€` : "Pas de coûts saisis"}</div>
+                      {totalTaches.length > 0 && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", borderRadius: 2, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} /></div><span style={{ fontSize: 11, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 32 }}>{avgAv}%</span></div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={e => { e.stopPropagation(); supprimerPhasage(p.id); }} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
+                      <span style={{ fontSize: 18, color: T.textMuted, alignSelf: "center" }}>▶</span>
                     </div>
                   </div>
-                  {taches.length > 0 && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 120 }}>
-                      <div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}>
-                        <div style={{ height: "100%", borderRadius: 2, background: phAv === 100 ? "#50c878" : phase.couleur, width: `${phAv}%`, transition: "width .3s" }} />
-                      </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: phAv === 100 ? "#50c878" : T.textMuted, minWidth: 32 }}>{phAv}%</span>
-                    </div>
-                  )}
-                  <span style={{ fontSize: 12, color: isExp ? phase.couleur : T.textMuted }}>{isExp ? "▲" : "▼"}</span>
-                </div>
-
-                {/* Corps phase */}
-                {isExp && (
-                  <div style={{ padding: "0 18px 16px" }}>
-
-                    {/* En-têtes colonnes */}
-                    {taches.length > 0 && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 72px 110px 130px 70px 100px 32px", gap: 8, padding: "8px 10px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
-                        {["Tâche", "Vendu", "Estimé", "Réel", "Écart", "Ouvrier", "Date", "Avancement", ""].map((h, i) => (
-                          <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, textAlign: i > 0 ? "center" : "left" }}>{h}</div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Lignes de tâches */}
-                    {taches.map(tache => {
-                      const av = parseFloat(tache.avancement) || 0;
-                      const hV = parseFloat(tache.heures_vendues) || 0;
-                      const hE = parseFloat(tache.heures_estimees) || null;
-                      const hR = parseFloat(tache.heures_reelles) || 0;
-                      return (
-                        <div key={tache.id} style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 72px 110px 130px 70px 100px 32px", gap: 8, padding: "10px 10px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center" }}>
-
-                          {/* Nom */}
-                          <input value={tache.nom} onChange={e => updateTache(phase.id, tache.id, { nom: e.target.value })}
-                            style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none", width: "100%" }} />
-
-                          {/* Vendu */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <input type="number" min="0" step="0.5" value={tache.heures_vendues || ""} placeholder="0" onChange={e => updateTache(phase.id, tache.id, { heures_vendues: parseFloat(e.target.value) || 0 })}
-                              style={{ width: "100%", padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
-                          </div>
-
-                          {/* Estimé */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <input type="number" min="0" step="0.5" value={tache.heures_estimees || ""} placeholder="—" onChange={e => updateTache(phase.id, tache.id, { heures_estimees: parseFloat(e.target.value) || null })}
-                              style={{ width: "100%", padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: BLEU, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
-                          </div>
-
-                          {/* Réel */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <input type="number" min="0" step="0.5" value={tache.heures_reelles || ""} placeholder="0" onChange={e => updateTache(phase.id, tache.id, { heures_reelles: parseFloat(e.target.value) || 0 })}
-                              style={{ width: "100%", padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
-                          </div>
-
-                          {/* Écart */}
-                          <div style={{ display: "flex", justifyContent: "center" }}>
-                            <EcartReel vendu={hV} reel={hR} />
-                          </div>
-
-                          {/* Ouvrier */}
-                          <select value={tache.ouvrier || ""} onChange={e => updateTache(phase.id, tache.id, { ouvrier: e.target.value })}
-                            style={{ padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.inputBg, color: tache.ouvrier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 12, outline: "none", width: "100%" }}>
-                            <option value="">—</option>
-                            {ouvriers.map(o => <option key={o} value={o}>{o}</option>)}
-                          </select>
-
-                          {/* Date prévue */}
-                          <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })}
-                            style={{ padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 12, outline: "none", width: "100%", colorScheme: "dark" }} />
-
-                          {/* Avancement */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                            <input type="range" min="0" max="100" step="5" value={av} onChange={e => updateTache(phase.id, tache.id, { avancement: parseInt(e.target.value) })}
-                              style={{ flex: 1, accentColor: av === 100 ? "#50c878" : phase.couleur }} />
-                            <span style={{ fontSize: 11, fontWeight: 700, color: av === 100 ? "#50c878" : av > 0 ? "#f5a623" : T.textMuted, minWidth: 28, textAlign: "right" }}>{av}%</span>
-                          </div>
-
-                          {/* Supprimer */}
-                          <button onClick={() => deleteTache(phase.id, tache.id)} style={{ background: "transparent", border: "none", color: "#e05c5c", cursor: "pointer", fontSize: 16, padding: 0, lineHeight: 1 }}>✕</button>
-                        </div>
-                      );
-                    })}
-
-                    {/* Formulaire ajout */}
-                    {ajoutPhase === phase.id ? (
-                      <div style={{ marginTop: 12, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${phase.couleur}55` }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: phase.couleur, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>{phase.emoji} Nouvelle tâche — {phase.label}</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                          <div>
-                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Nom de la tâche *</div>
-                            <input value={ajoutForm.nom} onChange={e => setAjoutForm(f => ({ ...f, nom: e.target.value }))} placeholder="ex: Pose plaques BA13"
-                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none" }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Heures vendues</div>
-                            <input type="number" min="0" step="0.5" value={ajoutForm.heures_vendues} onChange={e => setAjoutForm(f => ({ ...f, heures_vendues: e.target.value }))} placeholder="0h"
-                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Heures estimées</div>
-                            <input type="number" min="0" step="0.5" value={ajoutForm.heures_estimees} onChange={e => setAjoutForm(f => ({ ...f, heures_estimees: e.target.value }))} placeholder="—"
-                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: BLEU, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Ouvrier</div>
-                            <select value={ajoutForm.ouvrier} onChange={e => setAjoutForm(f => ({ ...f, ouvrier: e.target.value }))}
-                              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: ajoutForm.ouvrier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 13, outline: "none" }}>
-                              <option value="">— Non assigné</option>
-                              {ouvriers.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Date prévue</div>
-                            <input type="date" value={ajoutForm.date_prevue} onChange={e => setAjoutForm(f => ({ ...f, date_prevue: e.target.value }))}
-                              style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none", colorScheme: "dark" }} />
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: 10 }}>
-                          <button onClick={() => addTache(phase.id)} disabled={!ajoutForm.nom}
-                            style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: ajoutForm.nom ? phase.couleur : T.border, color: ajoutForm.nom ? "#fff" : T.textMuted, fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: ajoutForm.nom ? "pointer" : "default" }}>
-                            ✓ Ajouter la tâche
-                          </button>
-                          <button onClick={() => { setAjoutPhase(null); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] }); }}
-                            style={{ padding: "9px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>
-                            Annuler
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => { setAjoutPhase(phase.id); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "", ressources: [] }); }}
-                        style={{ marginTop: 12, width: "100%", padding: "9px", borderRadius: 8, border: `1.5px dashed ${phase.couleur}55`, background: "transparent", color: phase.couleur, fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                        + Ajouter une tâche
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          )}
       </div>
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
