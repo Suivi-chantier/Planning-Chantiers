@@ -2,6 +2,21 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 import { BIBLIOTHEQUE_INITIALE } from "./constants";
 
+// ─── LISTE DES FAMILLES (PHASES) POUR LE MENU DÉROULANT ───────────────────────
+const FAMILLES_TACHES = [
+  { id: "demolition", label: "Démolition" },
+  { id: "plomberie_ro", label: "Réseaux plomberie (gros œuvre)" },
+  { id: "menuiserie", label: "Menuiserie ext. & int." },
+  { id: "feraillage", label: "Feraillage cloisons & doublages" },
+  { id: "elec_vmc", label: "Réseaux élec & VMC" },
+  { id: "placo", label: "Lainage / Placo / Bandes & enduits" },
+  { id: "peinture_sols", label: "Peintures & sols" },
+  { id: "finition_elec", label: "Finitions électricité" },
+  { id: "finition_plomb", label: "Finitions plomberie" },
+  { id: "cuisine", label: "Cuisine" },
+  { id: "finitions_gen", label: "Finitions générales" },
+];
+
 // ─── PAGE BIBLIOTHÈQUE ────────────────────────────────────────────────────────
 function PageBibliotheque({ T }) {
   const [ouvrages, setOuvrages] = useState([]);
@@ -203,231 +218,4 @@ function PageBibliotheque({ T }) {
         {/* ── NOTIFICATIONS ── */}
         {msg && (
           <div style={{ padding: "10px 16px", borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600,
-            background: msg.type === "ok" ? "rgba(80,200,120,0.12)" : "rgba(224,92,92,0.12)",
-            color: msg.type === "ok" ? "#50c878" : "#e05c5c",
-            border: `1px solid ${msg.type === "ok" ? "rgba(80,200,120,0.3)" : "rgba(224,92,92,0.3)"}` }}>
-            {msg.text}
-          </div>
-        )}
-
-        {/* ── FORMULAIRE NOUVELLE CATÉGORIE ── */}
-        {showNewCat && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Créer une nouvelle catégorie</div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <input value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)} placeholder="Nom de la catégorie"
-                style={{ flex: 2, minWidth: 200, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none" }} />
-              <input value={newCatId} onChange={e => setNewCatId(e.target.value)} placeholder="Préfixe identifiant"
-                style={{ flex: 1, minWidth: 160, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none" }} />
-              <button onClick={creerCategorie} disabled={!newCatLabel.trim()} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: newCatLabel.trim() ? T.accent : T.border, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: newCatLabel.trim() ? "pointer" : "default" }}>Créer</button>
-              <button onClick={() => setShowNewCat(false)} style={{ padding: "9px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── FORMULAIRE NOUVEL OUVRAGE ── */}
-        {showNew && (
-          <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Créer un nouvel ouvrage</div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <input value={newLibelle} onChange={e => setNewLibelle(e.target.value)} placeholder="Nom de l'ouvrage"
-                style={{ flex: 2, minWidth: 200, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none" }} />
-              <select value={newCatPrefix} onChange={e => setNewCatPrefix(e.target.value)}
-                style={{ flex: 1, minWidth: 140, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none" }}>
-                {categories.map(c => <option key={c.label} value={c.ids[0]}>{c.label}</option>)}
-                <option value="autre">Autre</option>
-              </select>
-              <input value={newUnite} onChange={e => setNewUnite(e.target.value)} placeholder="Unité"
-                style={{ width: 80, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none", textAlign: "center" }} />
-              <button onClick={creerOuvrage} disabled={!newLibelle.trim()} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: newLibelle.trim() ? T.accent : T.border, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: newLibelle.trim() ? "pointer" : "default" }}>Créer</button>
-              <button onClick={() => setShowNew(false)} style={{ padding: "9px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── LISTE DES OUVRAGES ── */}
-        {loading ? (
-          <div style={{ color: T.textMuted, textAlign: "center", padding: 60 }}>Chargement…</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ color: T.textMuted, textAlign: "center", padding: 60, fontSize: 14 }}>Aucun ouvrage trouvé.</div>
-        ) : (
-          Object.entries(grouped).map(([cat, items]) => (
-            <div key={cat} style={{ marginBottom: 32 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingLeft: 2 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 3, textTransform: "uppercase", color: T.accent }}>{cat}</div>
-                <div style={{ fontSize: 11, color: T.textMuted }}>({items.length})</div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {items.map(ouvrage => {
-                  const isEdit = editId === ouvrage.id;
-                  const editData = isEdit ? ouvrages.find(o => o.id === ouvrage.id) : ouvrage;
-                  const total = (editData.sous_taches || []).reduce((s, t) => s + (parseFloat(t.ratio) || 0), 0);
-                  const currentCat = getCat(ouvrage.identifiant);
-                  const cadence = parseFloat(ouvrage.cadence) || null;
-
-                  return (
-                    <div key={ouvrage.id} style={{ background: T.surface, border: `1px solid ${isEdit ? T.accent : T.border}`, borderRadius: 12, overflow: "hidden", transition: "border .2s" }}>
-
-                      {/* En-tête */}
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", cursor: "pointer" }}
-                        onClick={() => setEditId(isEdit ? null : ouvrage.id)}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{ouvrage.libelle}</span>
-                          <span style={{ fontSize: 11, color: T.textMuted, background: T.card, padding: "2px 8px", borderRadius: 4 }}>{ouvrage.unite}</span>
-                          {cadence ? (
-                            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}18`, padding: "2px 10px", borderRadius: 20, border: `1px solid ${T.accent}33` }}>
-                              ⏱ {cadence}h / {ouvrage.unite}
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 11, color: T.textMuted, fontStyle: "italic" }}>Pas de cadence</span>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 11, color: T.textMuted }}>{(ouvrage.sous_taches || []).length} tâches</span>
-                          <span style={{ fontSize: 12, color: isEdit ? T.accent : T.textMuted }}>{isEdit ? "▲" : "▼"}</span>
-                        </div>
-                      </div>
-
-                      {/* Zone d'édition */}
-                      {isEdit && (
-                        <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${T.sectionDivider}` }}>
-
-                          {/* ── Propriétés de l'ouvrage ── */}
-                          <div style={{ display: "flex", gap: 14, alignItems: "flex-end", marginTop: 14, marginBottom: 14, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${T.border}`, flexWrap: "wrap" }}>
-
-                            <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 2, minWidth: 160 }}>
-                              <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Nom</label>
-                              <input value={editData.libelle}
-                                onChange={e => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, libelle: e.target.value }))}
-                                onClick={e => e.stopPropagation()}
-                                style={{ padding: "8px 12px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 14, fontWeight: 700, outline: "none" }} />
-                            </div>
-
-                            <div style={{ display: "flex", flexDirection: "column", gap: 5, width: 80 }}>
-                              <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Unité</label>
-                              <input value={editData.unite}
-                                onChange={e => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, unite: e.target.value }))}
-                                onClick={e => e.stopPropagation()}
-                                style={{ padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none", textAlign: "center" }} />
-                            </div>
-
-                            <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 140 }}>
-                              <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Catégorie</label>
-                              <select value={currentCat}
-                                onChange={e => { e.stopPropagation(); changerCategorieOuvrage(ouvrage.id, e.target.value); }}
-                                onClick={e => e.stopPropagation()}
-                                style={{ padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.accent}55`, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none", cursor: "pointer" }}>
-                                {categories.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
-                                <option value="Autre">Autre</option>
-                              </select>
-                            </div>
-
-                            {/* ── CADENCE ── */}
-                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                              <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Cadence estimée</label>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <input type="number" min="0.01" step="0.05" value={editData.cadence ?? ""}
-                                  onChange={e => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, cadence: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                                  onClick={e => e.stopPropagation()}
-                                  placeholder="ex: 0.5"
-                                  style={{ width: 80, padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.accent}55`, color: T.accent, fontFamily: "inherit", fontSize: 15, fontWeight: 800, outline: "none", textAlign: "center" }} />
-                                <span style={{ fontSize: 12, color: T.textMuted, whiteSpace: "nowrap" }}>h / {editData.unite || "unité"}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* ── Aperçu cadence par sous-tâche ── */}
-                          {editData.cadence > 0 && (editData.sous_taches || []).length > 0 && (
-                            <div style={{ marginBottom: 14, padding: "10px 14px", background: `${T.accent}0D`, borderRadius: 8, border: `1px solid ${T.accent}22` }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>⏱ Cadence calculée par sous-tâche</div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                                {(editData.sous_taches || []).filter(st => st.nom).map((st, i) => {
-                                  const heuresParUnite = parseFloat(((editData.cadence * st.ratio) / 100).toFixed(3));
-                                  return (
-                                    <div key={i} style={{ fontSize: 11, color: T.textMuted, background: T.card, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6 }}>
-                                      <span style={{ color: T.text, fontWeight: 600 }}>{st.nom}</span>
-                                      <span style={{ color: T.textMuted }}>({st.ratio}%)</span>
-                                      <span style={{ color: T.accent, fontWeight: 700 }}>→ {heuresParUnite}h/{editData.unite}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* ── Sous-tâches ── */}
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                            {(editData.sous_taches || []).map((tache, idx) => {
-                              const cadenceST = editData.cadence > 0 ? parseFloat(((editData.cadence * tache.ratio) / 100).toFixed(3)) : null;
-                              return (
-                                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                  <input value={tache.nom}
-                                    onChange={e => {
-                                      const st = [...(editData.sous_taches || [])];
-                                      st[idx] = { ...st[idx], nom: e.target.value };
-                                      setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: st }));
-                                    }}
-                                    placeholder="Nom de la sous-tâche"
-                                    style={{ flex: 1, padding: "8px 12px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none" }} />
-                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    <input type="number" min="0" max="100" step="1" value={tache.ratio}
-                                      onChange={e => {
-                                        const st = [...(editData.sous_taches || [])];
-                                        st[idx] = { ...st[idx], ratio: parseFloat(e.target.value) || 0 };
-                                        setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: st }));
-                                      }}
-                                      style={{ width: 60, padding: "6px 8px", borderRadius: 6, textAlign: "center", border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, fontWeight: 700, outline: "none" }} />
-                                    <span style={{ fontSize: 13, color: T.textMuted }}>%</span>
-                                  </div>
-                                  {/* Cadence calculée inline */}
-                                  {cadenceST !== null && (
-                                    <span style={{ fontSize: 11, color: T.accent, fontWeight: 700, minWidth: 72, textAlign: "right", background: `${T.accent}12`, padding: "3px 8px", borderRadius: 5 }}>
-                                      {cadenceST}h/{editData.unite}
-                                    </span>
-                                  )}
-                                  <div style={{ width: 70, height: 6, background: T.border, borderRadius: 3 }}>
-                                    <div style={{ height: "100%", borderRadius: 3, background: T.accent, width: `${Math.min(tache.ratio, 100)}%`, transition: "width .2s" }} />
-                                  </div>
-                                  <button onClick={() => {
-                                    const st = [...(editData.sous_taches || [])].filter((_, i) => i !== idx);
-                                    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: st }));
-                                  }} style={{ background: "transparent", border: "none", color: "#e05c5c", cursor: "pointer", padding: "0 6px", fontSize: 14 }}>✕</button>
-                                </div>
-                              );
-                            })}
-                            <button onClick={() => {
-                              const st = [...(editData.sous_taches || []), { nom: "", ratio: 0 }];
-                              setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: st }));
-                            }} style={{ padding: "10px", border: `1.5px dashed ${T.border}`, borderRadius: 8, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>
-                              + Ajouter une sous-tâche
-                            </button>
-                          </div>
-
-                          {/* Footer */}
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.sectionDivider}` }}>
-                            <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-                              <button onClick={() => supprimerOuvrage(ouvrage.id)} style={{ background: "transparent", border: "1px solid rgba(224,92,92,0.3)", borderRadius: 8, padding: "8px 16px", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑️ Supprimer l'ouvrage</button>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: (total === 100 || editData.sous_taches?.length === 0) ? "#50c878" : "#e05c5c" }}>
-                                Total : {total.toFixed(0)}% {(total === 100 || editData.sous_taches?.length === 0) ? "✓" : "⚠️ doit être 100%"}
-                              </div>
-                            </div>
-                            <button onClick={() => saveOuvrage(editData)} disabled={saving === ouvrage.id}
-                              style={{ padding: "8px 24px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                              {saving === ouvrage.id ? "Sauvegarde…" : "✓ Sauvegarder"}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default PageBibliotheque;
+            background: msg.type === "ok" ? "rgba(80,200,120,0.12)" : "rgba(
