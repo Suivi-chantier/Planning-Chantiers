@@ -371,9 +371,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       const { data: ex } = await supabase.from("planning_cells").select("*").eq("week_id", planifierWeek).eq("chantier_id", phasage.chantier_id).eq("jour", planifierJour).maybeSingle();
       const base = ex || { planifie: "", reel: "", ouvriers: [], taches: [] };
       
-      // On ajoute l'ouvrier assigné s'il y en a un
       const ouvriersAssignes = planifierTask.tache.ouvrier ? [planifierTask.tache.ouvrier] : [];
-      // On met à jour le texte planifié classique (pour compatibilité)
       const nouveauPlanifieTexte = base.planifie ? `${base.planifie}\n${planifierTask.tache.nom}` : planifierTask.tache.nom;
 
       const upd = [...(base.taches || []), { 
@@ -671,7 +669,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const [heuresInput, setHeuresInput] = useState("");
   const [quantiteInput, setQuantiteInput] = useState("");
   const [search, setSearch] = useState("");
-  const [expandedOuvrage, setExpandedOuvrage] = useState(null);
   
   const ch = chantiers.find(c => c.id === phasage.chantier_id);
   const BLEU = "#5b9cf6";
@@ -752,7 +749,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   }
 
   const totalH = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
-  const totalHEst = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_estimees) || 0), 0);
   const biblF = bibliotheque.filter(b => !search || b.libelle.toLowerCase().includes(search.toLowerCase()));
   const biblSel = bibliotheque.find(b => b.id === selectedOuvrage);
   const cadSel = parseFloat(biblSel?.cadence) || null;
@@ -772,7 +768,17 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <button onClick={onDelete} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Supprimer</button>
-            <button onClick={() => setView("plan")} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Générer le plan de travail →</button>
+            <button 
+              onClick={async () => {
+                if (!phasage.plan_travaux || Object.keys(phasage.plan_travaux).length === 0) {
+                  const newPlan = distribuerTaches(ouvrages);
+                  await onSave({ ...phasage, plan_travaux: newPlan, ouvrages });
+                }
+                setView("plan");
+              }} 
+              style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Générer le plan de travail →
+            </button>
           </div>
         </div>
 
