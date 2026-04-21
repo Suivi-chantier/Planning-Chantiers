@@ -282,12 +282,17 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const BLEU = "#5b9cf6";
 
   const initPlan = () => {
-    if (phasage.plan_travaux && Object.keys(phasage.plan_travaux).length > 0) return phasage.plan_travaux;
+    // Si le plan existe et a des phases (sans compter notre paramètre caché 'meta')
+    if (phasage.plan_travaux && Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length > 0) {
+      return phasage.plan_travaux;
+    }
     return distribuerTaches(ouvrages);
   };
 
   const [plan, setPlan] = useState(initPlan);
-  const [prixVendu, setPrixVendu] = useState(phasage.prix_vendu || 0);
+  
+  // On récupère le prix de vente depuis l'objet meta caché dans plan_travaux
+  const [prixVendu, setPrixVendu] = useState(() => phasage.plan_travaux?.meta?.prix_vendu || 0);
   
   const [expandedPhases, setExpandedPhases] = useState(() => 
     PHASES.reduce((acc, p) => ({ ...acc, [p.id]: true }), {})
@@ -303,7 +308,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const dragOver = useRef(null);
   const [dragActive, setDragActive] = useState(false);
 
-  // ÉTATS POUR LA PLANIFICATION DIRECTE DANS LE PLANNING
   const [planifierTask, setPlanifierTask] = useState(null);
   const [planifierWeek, setPlanifierWeek] = useState("");
   const [planifierJour, setPlanifierJour] = useState("Lundi");
@@ -319,7 +323,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus("saving");
-      await onSavePlan(plan, prixVendu);
+      // On emballe le plan et le prix de vente ensemble pour esquiver les erreurs Supabase
+      const planToSave = { ...plan, meta: { prix_vendu: prixVendu } };
+      await onSavePlan(planToSave);
       setAutoSaveStatus("saved");
     }, 1200);
     return () => clearTimeout(autoSaveTimer.current);
@@ -363,7 +369,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
   const stopDrag = (e) => { e.stopPropagation(); };
 
-  // FONCTION POUR EXÉCUTER L'INSERTION DANS LE PLANNING
   async function executerPlanification() {
     if (!planifierWeek || !planifierJour || !planifierTask) return;
     setIsPlanningSaving(true);
@@ -418,7 +423,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
       
-      {/* MODALE DE PLANIFICATION */}
       {planifierTask && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={() => setPlanifierTask(null)}>
           <div style={{ background: T.modal || T.surface, borderRadius: 16, width: "100%", maxWidth: 400, border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
@@ -742,8 +746,8 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
       ouvriers={ouvriers} 
       tauxHoraires={tauxHoraires}
       onBack={() => setView("preparation")}
-      onSavePlan={async (plan, prixVendu) => { 
-        await onSave({ ...phasage, plan_travaux: plan, prix_vendu: prixVendu, ouvrages }); 
+      onSavePlan={async (planToSave) => { 
+        await onSave({ ...phasage, plan_travaux: planToSave, ouvrages }); 
       }}
     />;
   }
@@ -770,8 +774,10 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
             <button onClick={onDelete} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Supprimer</button>
             <button 
               onClick={async () => {
-                if (!phasage.plan_travaux || Object.keys(phasage.plan_travaux).length === 0) {
+                // On s'assure de modifier le state LOCAL de manière synchrone
+                if (!phasage.plan_travaux || Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length === 0) {
                   const newPlan = distribuerTaches(ouvrages);
+                  phasage.plan_travaux = newPlan; // Met à jour l'objet pour la vue suivante
                   await onSave({ ...phasage, plan_travaux: newPlan, ouvrages });
                 }
                 setView("plan");
@@ -885,10 +891,10 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   }
 
   async function savePhasage(phasage) {
+    // ⚠️ On enlève prix_vendu de l'update global pour que Supabase ne crashe pas si la colonne n'existe pas.
     const { error } = await supabase.from("phasages").update({ 
       ouvrages: phasage.ouvrages, 
       plan_travaux: phasage.plan_travaux || null, 
-      prix_vendu: phasage.prix_vendu || 0,
       updated_at: new Date().toISOString() 
     }).eq("id", phasage.id);
     
@@ -938,11 +944,12 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
               {phasages.map(p => {
                 const ch = chantiers.find(c => c.id === p.chantier_id);
                 
-                const tPlan = p.plan_travaux ? Object.values(p.plan_travaux).flat() : [];
+                const tPlan = p.plan_travaux ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat() : [];
                 const avgAv = tPlan.length > 0 ? Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length) : 0;
                 const coutMO = tPlan.reduce((s, t) => s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[t.ouvrier] || 45)), 0);
                 const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
                 const coutTotal = coutMO + coutMat;
+                const prixVendu = p.plan_travaux?.meta?.prix_vendu || 0;
                 
                 return (
                   <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer", transition: "border .15s" }} onClick={() => setSelected(p)} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
@@ -951,7 +958,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
                       <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{p.chantier_nom}</div>
                       <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>
                         {tPlan.length} tâche{tPlan.length > 1 ? "s" : ""} · Coûts cumulés : <span style={{fontWeight: 700, color: T.text}}>{coutTotal > 0 ? `${coutTotal.toFixed(0)}€` : "0€"}</span>
-                        {p.prix_vendu > 0 && ` / Vendu : ${p.prix_vendu}€`}
+                        {prixVendu > 0 && ` / Vendu : ${prixVendu}€`}
                       </div>
                       {tPlan.length > 0 && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", borderRadius: 2, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} /></div><span style={{ fontSize: 11, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 32 }}>{avgAv}%</span></div>}
                     </div>
