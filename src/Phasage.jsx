@@ -20,7 +20,7 @@ function EcartReel({ vendu, reel }) {
   const ecart = ((reel - vendu) / vendu) * 100;
   if (Math.abs(ecart) < 1) return <span style={{ fontSize: 11, fontWeight: 700, color: "#50c878", background: "rgba(80,200,120,0.12)", border: "1px solid rgba(80,200,120,0.3)", borderRadius: 5, padding: "2px 6px" }}>✓</span>;
   const dep = reel > vendu;
-  return <span style={{ fontSize: 11, fontWeight: 700, color: dep ? "#e05c5c" : "#50c878", background: dep ? "rgba(224,92,92,0.12)" : "rgba(80,200,120,0.12)", border: `1px solid ${dep ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)"}`, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{dep ? "▲" : "▼"}{Math.abs(ecart).toFixed(0)}%</span>;
+  return <span style={{ fontSize: 11, fontWeight: 700, color: dep ? "#e05c5c" : "#50c878", background: dep ? "rgba(224,92,92,0.12)", border: `1px solid ${dep ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)"}`, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{dep ? "▲" : "▼"}{Math.abs(ecart).toFixed(0)}%</span>;
 }
 
 function normalise(str) {
@@ -201,13 +201,13 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
 
 // ─── PHASES & MAPPING ────────────────────────────────────────────────────────
 const PHASES = [
-  { id: "demolition",     label: "Démolition",                        emoji: "🔨", couleur: "#e05c5c" },
+  { id: "demolition",     label: "Démolition",                       emoji: "🔨", couleur: "#e05c5c" },
   { id: "plomberie_ro",   label: "Réseaux plomberie (gros œuvre)",    emoji: "🔵", couleur: "#3b82f6" },
-  { id: "menuiserie",     label: "Menuiserie ext. & int.",             emoji: "🚪", couleur: "#8b5cf6" },
+  { id: "menuiserie",     label: "Menuiserie ext. & int.",            emoji: "🚪", couleur: "#8b5cf6" },
   { id: "feraillage",     label: "Feraillage cloisons & doublages",   emoji: "🧱", couleur: "#f59e0b" },
   { id: "elec_vmc",       label: "Réseaux élec & VMC",                emoji: "⚡", couleur: "#eab308" },
   { id: "placo",          label: "Lainage / Placo / Bandes & enduits",emoji: "🪣", couleur: "#6366f1" },
-  { id: "peinture_sols",  label: "Peintures & sols",                   emoji: "🎨", couleur: "#ec4899" },
+  { id: "peinture_sols",  label: "Peintures & sols",                  emoji: "🎨", couleur: "#ec4899" },
   { id: "finition_elec",  label: "Finitions électricité",             emoji: "💡", couleur: "#f97316" },
   { id: "finition_plomb", label: "Finitions plomberie",               emoji: "🚿", couleur: "#06b6d4" },
   { id: "cuisine",        label: "Cuisine",                           emoji: "🍳", couleur: "#10b981" },
@@ -241,7 +241,8 @@ function distribuerTaches(ouvrages) {
   PHASES.forEach(p => { plan[p.id] = []; });
   ouvrages.forEach(ouvrage => {
     (ouvrage.taches || []).forEach(t => {
-      const phaseId = matchPhase(t.nom);
+      // Priorité à la phase assignée manuellement, sinon on utilise la détection auto
+      const phaseId = (t.phaseId && plan[t.phaseId]) ? t.phaseId : matchPhase(t.nom);
       plan[phaseId].push({
         id: Math.random().toString(36).slice(2),
         nom: t.nom,
@@ -539,7 +540,16 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   function genererTaches(ouvrageId, heuresDevis, heuresEstimees) {
     const bibl = bibliotheque.find(b => b.id === ouvrageId);
     if (!bibl) return [];
-    return (bibl.sous_taches || []).map(st => ({ nom: st.nom, ratio: st.ratio, heures: parseFloat(((heuresDevis * st.ratio) / 100).toFixed(1)), heures_estimees: heuresEstimees ? parseFloat(((heuresEstimees * st.ratio) / 100).toFixed(2)) : null, avancement: 0, heures_reelles: [], ressources: [] }));
+    return (bibl.sous_taches || []).map(st => ({ 
+      nom: st.nom, 
+      ratio: st.ratio, 
+      phaseId: st.phaseId, 
+      heures: parseFloat(((heuresDevis * st.ratio) / 100).toFixed(1)), 
+      heures_estimees: heuresEstimees ? parseFloat(((heuresEstimees * st.ratio) / 100).toFixed(2)) : null, 
+      avancement: 0, 
+      heures_reelles: [], 
+      ressources: [] 
+    }));
   }
 
   function handleImportExcel(lignesSelectionnees) {
