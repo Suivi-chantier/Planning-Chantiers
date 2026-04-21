@@ -20,7 +20,7 @@ function EcartReel({ vendu, reel }) {
   const ecart = ((reel - vendu) / vendu) * 100;
   if (Math.abs(ecart) < 1) return <span style={{ fontSize: 11, fontWeight: 700, color: "#50c878", background: "rgba(80,200,120,0.12)", border: "1px solid rgba(80,200,120,0.3)", borderRadius: 5, padding: "2px 6px" }}>✓</span>;
   const dep = reel > vendu;
-  return <span style={{ fontSize: 11, fontWeight: 700, color: dep ? "#e05c5c" : "#50c878", background: dep ? "rgba(224,92,92,0.12)", border: `1px solid ${dep ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)"}`, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{dep ? "▲" : "▼"}{Math.abs(ecart).toFixed(0)}%</span>;
+  return <span style={{ fontSize: 11, fontWeight: 700, color: dep ? "#e05c5c" : "#50c878", background: dep ? "rgba(224,92,92,0.12)" : "rgba(80,200,120,0.12)", border: `1px solid ${dep ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)"}`, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{dep ? "▲" : "▼"}{Math.abs(ecart).toFixed(0)}%</span>;
 }
 
 function normalise(str) {
