@@ -96,6 +96,25 @@ function parseExcel(file) {
   });
 }
 
+function getDateFromWeekAndDay(weekId, jourName) {
+  if (!weekId || !jourName) return "";
+  const parts = weekId.split('-W');
+  if (parts.length !== 2) return "";
+  const year = parseInt(parts[0], 10);
+  const week = parseInt(parts[1], 10);
+  const joursList = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+  const dayIndex = joursList.indexOf(jourName);
+
+  const jan4 = new Date(year, 0, 4);
+  const mon = new Date(jan4);
+  mon.setDate(jan4.getDate() - (((jan4.getDay() || 7) - 1)) + (week - 1) * 7);
+  const d = new Date(mon);
+  d.setDate(mon.getDate() + dayIndex);
+
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
   const [etape, setEtape] = useState("upload");
   const [parsing, setParsing] = useState(false);
@@ -282,7 +301,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const BLEU = "#5b9cf6";
 
   const initPlan = () => {
-    // Si le plan existe et a des phases (sans compter notre paramètre caché 'meta')
     if (phasage.plan_travaux && Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length > 0) {
       return phasage.plan_travaux;
     }
@@ -290,8 +308,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   };
 
   const [plan, setPlan] = useState(initPlan);
-  
-  // On récupère le prix de vente depuis l'objet meta caché dans plan_travaux
   const [prixVendu, setPrixVendu] = useState(() => phasage.plan_travaux?.meta?.prix_vendu || 0);
   
   const [expandedPhases, setExpandedPhases] = useState(() => 
@@ -316,14 +332,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const now = getCurrentWeek();
   for (let i = 0; i < 8; i++) { let w = now.week + i, y = now.year; if (w > 52) { w -= 52; y++; } semainesFutures.push(getWeekId(y, w)); }
 
-
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     setAutoSaveStatus("pending");
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus("saving");
-      // On emballe le plan et le prix de vente ensemble pour esquiver les erreurs Supabase
       const planToSave = { ...plan, meta: { prix_vendu: prixVendu } };
       await onSavePlan(planToSave);
       setAutoSaveStatus("saved");
@@ -396,6 +410,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         ouvriers: [...new Set([...(base.ouvriers || []), ...ouvriersAssignes])] 
       }, { onConflict: "week_id,chantier_id,jour" });
       
+      // Mise à jour de la date dans le plan
+      const exactDate = getDateFromWeekAndDay(planifierWeek, planifierJour);
+      updateTache(planifierTask.phaseId, planifierTask.tache.id, { date_prevue: exactDate });
+
       setPlanifierTask(null); 
       alert("Tâche ajoutée au planning !");
     } catch (err) { 
@@ -419,6 +437,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
   const autoColor = autoSaveStatus === "saved" ? "#50c878" : autoSaveStatus === "saving" ? T.accent : "#f5a623";
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
+
+  const gridCols = "20px 1.5fr 110px 55px 55px 70px 70px 110px 70px 90px 26px";
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
@@ -453,7 +473,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           </div>
         </div>
       )}
-
 
       <div style={{ maxWidth: 1150, margin: "0 auto" }}>
         
@@ -538,8 +557,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 {isExp && (
                   <div style={{ padding: "0 0 14px" }}>
                     {taches.length > 0 && (
-                      <div style={{ display: "grid", gridTemplateColumns: "20px 1.5fr 110px 55px 55px 70px 70px 110px 80px 80px 26px", gap: 8, padding: "7px 16px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
-                        {["", "Tâche", "Ouvrier", "Vendu", "Estimé", "Réel", "Mat. €", "Date", "Avancement", "Planning", ""].map((h, i) => (
+                      <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
+                        {["", "Tâche", "Ouvrier", "Vendu", "Estimé", "Réel", "Mat. €", "Date", "Avanc.", "Planning", ""].map((h, i) => (
                           <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, textAlign: i > 2 ? "center" : "left" }}>{h}</div>
                         ))}
                       </div>
@@ -558,7 +577,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           onDragEnter={() => onDragEnter(phase.id, ti)}
                           onDragEnd={onDragEnd}
                           onDragOver={e => e.preventDefault()}
-                          style={{ display: "grid", gridTemplateColumns: "20px 1.5fr 110px 55px 55px 70px 70px 110px 80px 80px 26px", gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s", cursor: "grab" }}>
+                          style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s", cursor: "grab" }}>
                           
                           <div style={{ color: T.textMuted, fontSize: 13, cursor: "grab", userSelect: "none", textAlign: "center" }}>⠿</div>
                           
@@ -593,15 +612,20 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                             onPointerDown={stopDrag}
                             style={{ padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 11, outline: "none", width: "100%", colorScheme: "dark" }} />
                           
-                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <input type="range" min="0" max="100" step="5" value={av} 
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                            <input type="number" min="0" max="100" step="5" value={av} 
                               onPointerDown={stopDrag}
-                              onChange={e => updateTache(phase.id, tache.id, { avancement: parseInt(e.target.value) })} 
-                              style={{ flex: 1, accentColor: av === 100 ? "#50c878" : phase.couleur }} />
-                            <span style={{ fontSize: 10, fontWeight: 700, color: av === 100 ? "#50c878" : av > 0 ? "#f5a623" : T.textMuted, minWidth: 24, textAlign: "right" }}>{av}%</span>
+                              onChange={e => {
+                                let val = parseInt(e.target.value);
+                                if (isNaN(val)) val = 0;
+                                if (val > 100) val = 100;
+                                if (val < 0) val = 0;
+                                updateTache(phase.id, tache.id, { avancement: val });
+                              }} 
+                              style={{ width: 45, padding: "4px", borderRadius: 6, border: `1px solid ${av === 100 ? "#50c878" : T.border}`, background: T.inputBg, color: av === 100 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                            <span style={{ fontSize: 11, color: T.textMuted }}>%</span>
                           </div>
                           
-                          {/* BOUTON PLANIFIER */}
                           <div style={{ textAlign: "center" }}>
                             <button 
                               onClick={() => { setPlanifierWeek(semainesFutures[0]); setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache }); }} 
@@ -774,10 +798,9 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
             <button onClick={onDelete} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Supprimer</button>
             <button 
               onClick={async () => {
-                // On s'assure de modifier le state LOCAL de manière synchrone
                 if (!phasage.plan_travaux || Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length === 0) {
                   const newPlan = distribuerTaches(ouvrages);
-                  phasage.plan_travaux = newPlan; // Met à jour l'objet pour la vue suivante
+                  phasage.plan_travaux = newPlan; 
                   await onSave({ ...phasage, plan_travaux: newPlan, ouvrages });
                 }
                 setView("plan");
@@ -891,7 +914,6 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   }
 
   async function savePhasage(phasage) {
-    // ⚠️ On enlève prix_vendu de l'update global pour que Supabase ne crashe pas si la colonne n'existe pas.
     const { error } = await supabase.from("phasages").update({ 
       ouvrages: phasage.ouvrages, 
       plan_travaux: phasage.plan_travaux || null, 
