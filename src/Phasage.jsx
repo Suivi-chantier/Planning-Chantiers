@@ -291,7 +291,9 @@ function distribuerTaches(ouvrages) {
 // ─── COMPOSANT SÉLECTEUR MULTI-OUVRIERS ──────────────────────────────────────
 function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
   const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
   const ref = useRef();
+  const triggerRef = useRef();
 
   useEffect(() => {
     if (!open) return;
@@ -302,13 +304,30 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  function handleToggle(e) {
+    e.stopPropagation();
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const estimatedHeight = ouvriers.length * 32 + 20;
+      setOpenUp(window.innerHeight - rect.bottom < estimatedHeight);
+    }
+    setOpen(o => !o);
+  }
+
   const selectedList = selected || [];
+
+  const dropdownPos = () => {
+    if (!triggerRef.current) return { top: 0, left: 0 };
+    const rect = triggerRef.current.getBoundingClientRect();
+    if (openUp) return { bottom: window.innerHeight - rect.top + 4, left: rect.left };
+    return { top: rect.bottom + 4, left: rect.left };
+  };
 
   return (
     <div ref={ref} style={{ position: "relative" }} onPointerDown={stopDrag}>
-      {/* Trigger */}
       <div
-        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        ref={triggerRef}
+        onClick={handleToggle}
         style={{
           display: "flex", alignItems: "center", flexWrap: "wrap", gap: 3,
           minHeight: 30, padding: "3px 6px",
@@ -318,7 +337,7 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
         }}
       >
         {selectedList.length === 0
-          ? <span style={{ fontSize: 11, color: T.textMuted, userSelect: "none" }}>—</span>
+          ? <span style={{ fontSize: 11, color: T.textMuted, userSelect: "none" }}>&#8212;</span>
           : selectedList.map(o => (
             <span key={o} style={{
               fontSize: 10, fontWeight: 700,
@@ -333,15 +352,16 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
         </span>
       </div>
 
-      {/* Dropdown */}
       {open && (
         <div style={{
-          position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 100,
+          position: "fixed",
+          zIndex: 9999,
           background: T.surface, border: `1px solid ${T.accent}55`,
           borderRadius: 10, padding: 6,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
-          minWidth: 150, maxWidth: 200,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.55)",
+          minWidth: 160, maxWidth: 220,
           display: "flex", flexDirection: "column", gap: 2,
+          ...dropdownPos(),
         }}>
           {ouvriers.map(o => {
             const sel = selectedList.includes(o);
@@ -350,9 +370,7 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
                 key={o}
                 onClick={e => {
                   e.stopPropagation();
-                  const next = sel
-                    ? selectedList.filter(x => x !== o)
-                    : [...selectedList, o];
+                  const next = sel ? selectedList.filter(x => x !== o) : [...selectedList, o];
                   onChange(next);
                 }}
                 style={{
@@ -364,7 +382,6 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
                 onMouseEnter={e => { if (!sel) e.currentTarget.style.background = `${T.accent}0D`; }}
                 onMouseLeave={e => { if (!sel) e.currentTarget.style.background = "transparent"; }}
               >
-                {/* Checkbox */}
                 <div style={{
                   width: 15, height: 15, borderRadius: 4, flexShrink: 0,
                   border: `2px solid ${sel ? T.accent : T.border}`,
@@ -378,12 +395,11 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
               </div>
             );
           })}
-          {/* Effacer */}
           {selectedList.length > 0 && (
             <>
               <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
               <div
-                onClick={e => { e.stopPropagation(); onChange([]); }}
+                onClick={e => { e.stopPropagation(); onChange([]); setOpen(false); }}
                 style={{ padding: "5px 10px", fontSize: 11, color: "#e05c5c", cursor: "pointer", borderRadius: 6, textAlign: "center" }}
               >
                 Effacer la sélection
@@ -500,19 +516,11 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       const base = ex || { planifie: "", reel: "", ouvriers: [], taches: [] };
 
       const ouvriersAssignes = planifierTask.tache.ouvriers || [];
-
-      // Inclure l'ouvrage dans le nom pour lever l'ambiguïté (ex: "Alimentation PER (Chauffe-eau)")
-      const nomComplet = planifierTask.tache.ouvrage_libelle
-        ? `${planifierTask.tache.nom} (${planifierTask.tache.ouvrage_libelle})`
-        : planifierTask.tache.nom;
-
-      const nouveauPlanifieTexte = base.planifie
-        ? `${base.planifie}\n${nomComplet}`
-        : nomComplet;
+      const nouveauPlanifieTexte = base.planifie ? `${base.planifie}\n${planifierTask.tache.nom}` : planifierTask.tache.nom;
 
       const upd = [...(base.taches || []), {
         id: Math.random().toString(36).slice(2),
-        text: nomComplet,
+        text: planifierTask.tache.nom,
         duree: planifierTask.tache.heures_vendues,
         ouvriers: ouvriersAssignes,
       }];
@@ -714,14 +722,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
                       return (
                         <div key={tache.id}
-                          draggable
-                          onDragStart={() => onDragStart(phase.id, ti)}
                           onDragEnter={() => onDragEnter(phase.id, ti)}
                           onDragEnd={onDragEnd}
                           onDragOver={e => e.preventDefault()}
-                          style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s", cursor: "grab" }}>
+                          style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s" }}>
 
-                          <div style={{ color: T.textMuted, fontSize: 13, cursor: "grab", userSelect: "none", textAlign: "center" }}>⠿</div>
+                          <div draggable onDragStart={() => onDragStart(phase.id, ti)} style={{ color: T.textMuted, fontSize: 13, cursor: "grab", userSelect: "none", textAlign: "center" }}>⠿</div>
 
                           {/* Nom */}
                           <div style={{ minWidth: 0 }}>
