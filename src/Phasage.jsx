@@ -51,10 +51,8 @@ function parseExcel(file) {
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
         let colL = -1, colH = -1, colQ = -1;
-        
         const hRow = rows.find(r => r.some(c => typeof c === "string" && c.length > 0));
         const hIdx = rows.indexOf(hRow);
-        
         if (hRow) {
           hRow.forEach((cell, i) => {
             const c = normalise(String(cell));
@@ -62,7 +60,6 @@ function parseExcel(file) {
             if (colH === -1 && (c.includes("heure") || c.includes("h mo") || c.includes("mo") || c.includes("main") || c.includes("temps") || c.includes("duree"))) colH = i;
             if (colQ === -1 && (c.includes("quantite") || c === "qte" || c === "q" || c.includes("nombre") || c.includes("surface") || c.includes("volume") || c.includes("m2") || c.includes("ml"))) colQ = i;
           });
-          
           if (colL === -1) colL = 0;
           if (colH === -1) {
             for (let i = 1; i < Math.min(hRow.length, 10); i++) {
@@ -71,19 +68,16 @@ function parseExcel(file) {
             }
           }
         }
-        
         const lignes = [];
         for (let i = hIdx + 1; i < rows.length; i++) {
           const row = rows[i];
           const lib = String(row[colL] || "").trim();
           const h = parseFloat(String(row[colH] || "").replace(",", ".").replace(/[^0-9.]/g, ""));
-          
           let q = null;
           if (colQ !== -1) {
             const qRaw = parseFloat(String(row[colQ] || "").replace(",", ".").replace(/[^0-9.]/g, ""));
             if (!isNaN(qRaw)) q = qRaw;
           }
-
           if (lib.length > 2 && !isNaN(h) && h > 0) {
             lignes.push({ libelle: lib, heures: h, quantite: q });
           }
@@ -104,13 +98,11 @@ function getDateFromWeekAndDay(weekId, jourName) {
   const week = parseInt(parts[1], 10);
   const joursList = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
   const dayIndex = joursList.indexOf(jourName);
-
   const jan4 = new Date(year, 0, 4);
   const mon = new Date(jan4);
   mon.setDate(jan4.getDate() - (((jan4.getDay() || 7) - 1)) + (week - 1) * 7);
   const d = new Date(mon);
   d.setDate(mon.getDate() + dayIndex);
-
   const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
@@ -287,13 +279,121 @@ function distribuerTaches(ouvrages) {
         heures_estimees: parseFloat(t.heures_estimees) || null,
         heures_reelles: 0,
         cout_materiel: 0,
-        ouvrier: "",
+        ouvriers: [],        // ← tableau (multi-ouvriers)
         date_prevue: "",
         avancement: 0,
       });
     });
   });
   return plan;
+}
+
+// ─── COMPOSANT SÉLECTEUR MULTI-OUVRIERS ──────────────────────────────────────
+function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const selectedList = selected || [];
+
+  return (
+    <div ref={ref} style={{ position: "relative" }} onPointerDown={stopDrag}>
+      {/* Trigger */}
+      <div
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        style={{
+          display: "flex", alignItems: "center", flexWrap: "wrap", gap: 3,
+          minHeight: 30, padding: "3px 6px",
+          borderRadius: 6, border: `1px solid ${open ? T.accent : T.border}`,
+          background: T.inputBg, cursor: "pointer",
+          transition: "border-color .15s",
+        }}
+      >
+        {selectedList.length === 0
+          ? <span style={{ fontSize: 11, color: T.textMuted, userSelect: "none" }}>—</span>
+          : selectedList.map(o => (
+            <span key={o} style={{
+              fontSize: 10, fontWeight: 700,
+              background: `${T.accent}25`, color: T.accent,
+              borderRadius: 4, padding: "1px 5px",
+              whiteSpace: "nowrap",
+            }}>{o}</span>
+          ))
+        }
+        <span style={{ fontSize: 9, color: T.textMuted, marginLeft: "auto", paddingLeft: 2, userSelect: "none" }}>
+          {open ? "▴" : "▾"}
+        </span>
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 100,
+          background: T.surface, border: `1px solid ${T.accent}55`,
+          borderRadius: 10, padding: 6,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
+          minWidth: 150, maxWidth: 200,
+          display: "flex", flexDirection: "column", gap: 2,
+        }}>
+          {ouvriers.map(o => {
+            const sel = selectedList.includes(o);
+            return (
+              <div
+                key={o}
+                onClick={e => {
+                  e.stopPropagation();
+                  const next = sel
+                    ? selectedList.filter(x => x !== o)
+                    : [...selectedList, o];
+                  onChange(next);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "6px 10px", borderRadius: 7, cursor: "pointer",
+                  background: sel ? `${T.accent}18` : "transparent",
+                  transition: "background .1s",
+                }}
+                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = `${T.accent}0D`; }}
+                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = "transparent"; }}
+              >
+                {/* Checkbox */}
+                <div style={{
+                  width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+                  border: `2px solid ${sel ? T.accent : T.border}`,
+                  background: sel ? T.accent : "transparent",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "all .1s",
+                }}>
+                  {sel && <span style={{ fontSize: 9, color: "#111", fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                </div>
+                <span style={{ fontSize: 13, color: T.text, fontWeight: sel ? 700 : 400 }}>{o}</span>
+              </div>
+            );
+          })}
+          {/* Effacer */}
+          {selectedList.length > 0 && (
+            <>
+              <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
+              <div
+                onClick={e => { e.stopPropagation(); onChange([]); }}
+                style={{ padding: "5px 10px", fontSize: 11, color: "#e05c5c", cursor: "pointer", borderRadius: 6, textAlign: "center" }}
+              >
+                Effacer la sélection
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── PLAN TRAVAUX (VUE PRINCIPALE DU PHASAGE) ─────────────────────────────────
@@ -309,8 +409,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
   const [plan, setPlan] = useState(initPlan);
   const [prixVendu, setPrixVendu] = useState(() => phasage.plan_travaux?.meta?.prix_vendu || 0);
-  
-  const [expandedPhases, setExpandedPhases] = useState(() => 
+  const [expandedPhases, setExpandedPhases] = useState(() =>
     PHASES.reduce((acc, p) => ({ ...acc, [p.id]: true }), {})
   );
 
@@ -318,8 +417,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const autoSaveTimer = useRef(null);
   const isFirstRender = useRef(true);
   const [ajoutPhase, setAjoutPhase] = useState(null);
-  const [ajoutForm, setAjoutForm] = useState({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "" });
-  
+  const [ajoutForm, setAjoutForm] = useState({ nom: "", heures_vendues: "", heures_estimees: "", ouvriers: [], date_prevue: "" });
+
   const dragItem = useRef(null);
   const dragOver = useRef(null);
   const [dragActive, setDragActive] = useState(false);
@@ -353,10 +452,20 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   }
   function addTache(phaseId) {
     if (!ajoutForm.nom) return;
-    const newT = { id: Math.random().toString(36).slice(2), nom: ajoutForm.nom, heures_vendues: parseFloat(ajoutForm.heures_vendues) || 0, heures_estimees: parseFloat(ajoutForm.heures_estimees) || null, heures_reelles: 0, cout_materiel: 0, ouvrier: ajoutForm.ouvrier || "", date_prevue: ajoutForm.date_prevue || "", avancement: 0 };
+    const newT = {
+      id: Math.random().toString(36).slice(2),
+      nom: ajoutForm.nom,
+      heures_vendues: parseFloat(ajoutForm.heures_vendues) || 0,
+      heures_estimees: parseFloat(ajoutForm.heures_estimees) || null,
+      heures_reelles: 0,
+      cout_materiel: 0,
+      ouvriers: ajoutForm.ouvriers || [],   // ← tableau
+      date_prevue: ajoutForm.date_prevue || "",
+      avancement: 0,
+    };
     setPlan(p => ({ ...p, [phaseId]: [...(p[phaseId] || []), newT] }));
     setAjoutPhase(null);
-    setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "" });
+    setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvriers: [], date_prevue: "" });
   }
 
   function togglePhase(id) {
@@ -389,36 +498,36 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     try {
       const { data: ex } = await supabase.from("planning_cells").select("*").eq("week_id", planifierWeek).eq("chantier_id", phasage.chantier_id).eq("jour", planifierJour).maybeSingle();
       const base = ex || { planifie: "", reel: "", ouvriers: [], taches: [] };
-      
-      const ouvriersAssignes = planifierTask.tache.ouvrier ? [planifierTask.tache.ouvrier] : [];
+
+      // ← utilise le tableau ouvriers
+      const ouvriersAssignes = planifierTask.tache.ouvriers || [];
       const nouveauPlanifieTexte = base.planifie ? `${base.planifie}\n${planifierTask.tache.nom}` : planifierTask.tache.nom;
 
-      const upd = [...(base.taches || []), { 
-        id: Math.random().toString(36).slice(2), 
-        text: planifierTask.tache.nom, 
-        duree: planifierTask.tache.heures_vendues, 
-        ouvriers: ouvriersAssignes 
+      const upd = [...(base.taches || []), {
+        id: Math.random().toString(36).slice(2),
+        text: planifierTask.tache.nom,
+        duree: planifierTask.tache.heures_vendues,
+        ouvriers: ouvriersAssignes,
       }];
 
-      await supabase.from("planning_cells").upsert({ 
-        week_id: planifierWeek, 
-        chantier_id: phasage.chantier_id, 
-        jour: planifierJour, 
-        planifie: nouveauPlanifieTexte, 
-        taches: upd, 
-        reel: base.reel, 
-        ouvriers: [...new Set([...(base.ouvriers || []), ...ouvriersAssignes])] 
+      await supabase.from("planning_cells").upsert({
+        week_id: planifierWeek,
+        chantier_id: phasage.chantier_id,
+        jour: planifierJour,
+        planifie: nouveauPlanifieTexte,
+        taches: upd,
+        reel: base.reel,
+        ouvriers: [...new Set([...(base.ouvriers || []), ...ouvriersAssignes])],
       }, { onConflict: "week_id,chantier_id,jour" });
-      
-      // Mise à jour de la date dans le plan
+
       const exactDate = getDateFromWeekAndDay(planifierWeek, planifierJour);
       updateTache(planifierTask.phaseId, planifierTask.tache.id, { date_prevue: exactDate });
 
-      setPlanifierTask(null); 
+      setPlanifierTask(null);
       alert("Tâche ajoutée au planning !");
-    } catch (err) { 
+    } catch (err) {
       console.error(err);
-      alert("Erreur lors de la planification."); 
+      alert("Erreur lors de la planification.");
     }
     setIsPlanningSaving(false);
   }
@@ -427,8 +536,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const nbTaches = allTaches.length;
   const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
   const avgAv = nbTaches > 0 ? Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches) : 0;
-  
-  const totalMO = allTaches.reduce((s, t) => s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[t.ouvrier] || 45)), 0);
+
+  // Pour le coût MO on prend le premier ouvrier (taux de référence) ou taux par défaut
+  const totalMO = allTaches.reduce((s, t) => {
+    const premierOuvrier = (t.ouvriers || [])[0] || "";
+    return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[premierOuvrier] || 45));
+  }, 0);
   const totalMat = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = totalMO + totalMat;
   const pVendu = parseFloat(prixVendu) || 0;
@@ -438,11 +551,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const autoColor = autoSaveStatus === "saved" ? "#50c878" : autoSaveStatus === "saving" ? T.accent : "#f5a623";
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
 
-  const gridCols = "20px 1.5fr 110px 55px 55px 70px 70px 110px 70px 90px 26px";
+  const gridCols = "20px 1.5fr 120px 55px 55px 70px 70px 110px 70px 90px 26px";
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
-      
+
+      {/* ── Modale planification ── */}
       {planifierTask && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={() => setPlanifierTask(null)}>
           <div style={{ background: T.modal || T.surface, borderRadius: 16, width: "100%", maxWidth: 400, border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
@@ -450,7 +564,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ background: T.card, padding: "12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{planifierTask.tache.nom}</div>
-                <div style={{ fontSize: 12, color: T.textMuted, marginTop: 4 }}>Durée : {planifierTask.tache.heures_vendues}h {planifierTask.tache.ouvrier ? ` · Assignée à ${planifierTask.tache.ouvrier}` : " · Aucun ouvrier assigné"}</div>
+                <div style={{ fontSize: 12, color: T.textMuted, marginTop: 4 }}>
+                  Durée : {planifierTask.tache.heures_vendues}h
+                  {(planifierTask.tache.ouvriers || []).length > 0
+                    ? ` · ${planifierTask.tache.ouvriers.join(", ")}`
+                    : " · Aucun ouvrier assigné"}
+                </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Semaine</label>
@@ -474,8 +593,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         </div>
       )}
 
-      <div style={{ maxWidth: 1150, margin: "0 auto" }}>
-        
+      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+
+        {/* ── Header ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
           <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Préparation du devis</button>
           <div style={{ flex: 1 }}>
@@ -488,6 +608,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           </div>
         </div>
 
+        {/* ── KPIs ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
           <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 10, padding: "12px 16px" }}>
             <div style={{ fontSize: 11, color: T.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Prix de vente final</div>
@@ -514,11 +635,15 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           </div>
         </div>
 
+        {/* ── Barre d'avancement ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
-          <div style={{ flex: 1, height: 8, background: T.border, borderRadius: 4 }}><div style={{ height: "100%", borderRadius: 4, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} /></div>
+          <div style={{ flex: 1, height: 8, background: T.border, borderRadius: 4 }}>
+            <div style={{ height: "100%", borderRadius: 4, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} />
+          </div>
           <span style={{ fontSize: 13, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 40 }}>{avgAv}% avancement global</span>
         </div>
 
+        {/* ── Phases ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {PHASES.map((phase) => {
             const taches = plan[phase.id] || [];
@@ -533,6 +658,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 onDrop={onDragEnd}
                 style={{ background: T.surface, border: `1px solid ${isExp ? phase.couleur + "99" : T.border}`, borderRadius: 12, overflow: "hidden", transition: "border .2s" }}>
 
+                {/* En-tête phase */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", cursor: "pointer", borderBottom: isExp ? `1px solid ${T.sectionDivider}` : "none" }}
                   onClick={() => togglePhase(phase.id)}>
                   <div style={{ width: 4, height: 32, borderRadius: 2, background: phase.couleur, flexShrink: 0 }} />
@@ -547,7 +673,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                   </div>
                   {taches.length > 0 && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 110 }}>
-                      <div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", borderRadius: 2, background: phAv === 100 ? "#50c878" : phase.couleur, width: `${phAv}%`, transition: "width .3s" }} /></div>
+                      <div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}>
+                        <div style={{ height: "100%", borderRadius: 2, background: phAv === 100 ? "#50c878" : phase.couleur, width: `${phAv}%`, transition: "width .3s" }} />
+                      </div>
                       <span style={{ fontSize: 11, fontWeight: 700, color: phAv === 100 ? "#50c878" : T.textMuted, minWidth: 28 }}>{phAv}%</span>
                     </div>
                   )}
@@ -556,20 +684,27 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
                 {isExp && (
                   <div style={{ padding: "0 0 14px" }}>
+                    {/* En-tête colonnes */}
                     {taches.length > 0 && (
                       <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
-                        {["", "Tâche", "Ouvrier", "Vendu", "Estimé", "Réel", "Mat. €", "Date", "Avanc.", "Planning", ""].map((h, i) => (
+                        {["", "Tâche", "Ouvrier(s)", "Vendu", "Estimé", "Réel", "Mat. €", "Date", "Avanc.", "Planning", ""].map((h, i) => (
                           <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, textAlign: i > 2 ? "center" : "left" }}>{h}</div>
                         ))}
                       </div>
                     )}
 
+                    {/* Lignes tâches */}
                     {taches.map((tache, ti) => {
                       const av = parseFloat(tache.avancement) || 0;
                       const hV = parseFloat(tache.heures_vendues) || 0;
                       const hR = parseFloat(tache.heures_reelles) || 0;
                       const isDragging = dragActive && dragItem.current?.phaseId === phase.id && dragItem.current?.index === ti;
-                      
+
+                      // Migration : si l'ancienne donnée a ouvrier (string) mais pas ouvriers (array)
+                      const ouvriersActuels = tache.ouvriers
+                        ? tache.ouvriers
+                        : (tache.ouvrier ? [tache.ouvrier] : []);
+
                       return (
                         <div key={tache.id}
                           draggable
@@ -578,24 +713,28 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           onDragEnd={onDragEnd}
                           onDragOver={e => e.preventDefault()}
                           style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s", cursor: "grab" }}>
-                          
+
                           <div style={{ color: T.textMuted, fontSize: 13, cursor: "grab", userSelect: "none", textAlign: "center" }}>⠿</div>
-                          
+
+                          {/* Nom */}
                           <div style={{ minWidth: 0 }}>
                             <input value={tache.nom} onChange={e => updateTache(phase.id, tache.id, { nom: e.target.value })}
-                              onPointerDown={stopDrag} 
+                              onPointerDown={stopDrag}
                               style={{ width: "100%", padding: "4px 6px", borderRadius: 6, border: "1px solid transparent", background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none" }}
                               onFocus={e => e.target.style.borderColor = T.border} onBlur={e => e.target.style.borderColor = "transparent"} />
                             {tache.ouvrage_libelle && <div style={{ fontSize: 10, color: T.textMuted, paddingLeft: 6, marginTop: 1 }}>↳ {tache.ouvrage_libelle}</div>}
                           </div>
-                          
-                          <select value={tache.ouvrier || ""} onChange={e => updateTache(phase.id, tache.id, { ouvrier: e.target.value })}
-                            onPointerDown={stopDrag}
-                            style={{ padding: "4px 5px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.inputBg, color: tache.ouvrier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 11, outline: "none", width: "100%" }}>
-                            <option value="">—</option>
-                            {ouvriers.map(o => <option key={o} value={o}>{o}</option>)}
-                          </select>
-                          
+
+                          {/* ── SÉLECTEUR MULTI-OUVRIERS ── */}
+                          <OuvriersSelect
+                            ouvriers={ouvriers}
+                            selected={ouvriersActuels}
+                            onChange={next => updateTache(phase.id, tache.id, { ouvriers: next })}
+                            T={T}
+                            stopDrag={stopDrag}
+                          />
+
+                          {/* Heures vendues / estimées / réelles */}
                           {[["heures_vendues", T.accent], ["heures_estimees", BLEU], ["heures_reelles", hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text]].map(([field, color]) => (
                             <input key={field} type="number" min="0" step="0.5" value={tache[field] || ""} placeholder={field === "heures_estimees" ? "—" : "0"}
                               onPointerDown={stopDrag}
@@ -603,17 +742,20 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                               style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
                           ))}
 
+                          {/* Coût matériel */}
                           <input type="number" min="0" step="1" value={tache.cout_materiel || ""} placeholder="0"
                             onPointerDown={stopDrag}
                             onChange={e => updateTache(phase.id, tache.id, { cout_materiel: parseFloat(e.target.value) || 0 })}
                             style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none" }} />
-                          
+
+                          {/* Date */}
                           <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })}
                             onPointerDown={stopDrag}
                             style={{ padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 11, outline: "none", width: "100%", colorScheme: "dark" }} />
-                          
+
+                          {/* Avancement */}
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                            <input type="number" min="0" max="100" step="5" value={av} 
+                            <input type="number" min="0" max="100" step="5" value={av}
                               onPointerDown={stopDrag}
                               onChange={e => {
                                 let val = parseInt(e.target.value);
@@ -621,23 +763,25 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                                 if (val > 100) val = 100;
                                 if (val < 0) val = 0;
                                 updateTache(phase.id, tache.id, { avancement: val });
-                              }} 
+                              }}
                               style={{ width: 45, padding: "4px", borderRadius: 6, border: `1px solid ${av === 100 ? "#50c878" : T.border}`, background: T.inputBg, color: av === 100 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
                             <span style={{ fontSize: 11, color: T.textMuted }}>%</span>
                           </div>
-                          
+
+                          {/* Planifier */}
                           <div style={{ textAlign: "center" }}>
-                            <button 
-                              onClick={() => { setPlanifierWeek(semainesFutures[0]); setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache }); }} 
+                            <button
+                              onClick={() => { setPlanifierWeek(semainesFutures[0]); setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache: { ...tache, ouvriers: ouvriersActuels } }); }}
                               onPointerDown={stopDrag}
-                              style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.accent}55`, background: T.accent + "15", color: T.accent, fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer" }} 
-                              onMouseEnter={e => e.currentTarget.style.background = T.accent + "30"} 
+                              style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.accent}55`, background: T.accent + "15", color: T.accent, fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                              onMouseEnter={e => e.currentTarget.style.background = T.accent + "30"}
                               onMouseLeave={e => e.currentTarget.style.background = T.accent + "15"}
                             >
                               📅 Planifier
                             </button>
                           </div>
 
+                          {/* Supprimer */}
                           <button onClick={() => deleteTache(phase.id, tache.id)} onPointerDown={stopDrag} style={{ background: "transparent", border: "none", color: "#e05c5c", cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>
                         </div>
                       );
@@ -647,6 +791,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                       <div style={{ margin: "8px 16px", padding: "14px", borderRadius: 8, border: `2px dashed ${phase.couleur}55`, textAlign: "center", color: T.textMuted, fontSize: 12 }}>Déposer ici</div>
                     )}
 
+                    {/* Formulaire ajout tâche */}
                     {ajoutPhase === phase.id ? (
                       <div style={{ margin: "10px 16px 0", padding: "14px", background: T.card, borderRadius: 10, border: `1px solid ${phase.couleur}55` }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: phase.couleur, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>{phase.emoji} Nouvelle tâche</div>
@@ -654,25 +799,29 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           {[["Nom *", "nom", "text", T.text, "ex: Pose plaques"], ["H. vendues", "heures_vendues", "number", T.accent, "0h"], ["H. estimées", "heures_estimees", "number", BLEU, "—"], ["Date prévue", "date_prevue", "date", T.text, ""]].map(([label, field, type, color, ph]) => (
                             <div key={field}>
                               <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3 }}>{label}</div>
-                              <input type={type} value={ajoutForm[field]} onChange={e => setAjoutForm(f => ({ ...f, [field]: e.target.value }))} placeholder={ph}
+                              <input type={type} value={ajoutForm[field] || ""} onChange={e => setAjoutForm(f => ({ ...f, [field]: e.target.value }))} placeholder={ph}
                                 style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color, fontFamily: "inherit", fontSize: 13, fontWeight: field.includes("heure") ? 700 : 400, outline: "none", colorScheme: "dark" }} />
                             </div>
                           ))}
+                          {/* Ouvrier(s) dans le formulaire d'ajout */}
                           <div>
-                            <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3 }}>Ouvrier</div>
-                            <select value={ajoutForm.ouvrier} onChange={e => setAjoutForm(f => ({ ...f, ouvrier: e.target.value }))} style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 12, outline: "none" }}>
-                              <option value="">— Non assigné</option>
-                              {ouvriers.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
+                            <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3 }}>Ouvrier(s)</div>
+                            <OuvriersSelect
+                              ouvriers={ouvriers}
+                              selected={ajoutForm.ouvriers || []}
+                              onChange={next => setAjoutForm(f => ({ ...f, ouvriers: next }))}
+                              T={T}
+                              stopDrag={() => {}}
+                            />
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 10 }}>
                           <button onClick={() => addTache(phase.id)} disabled={!ajoutForm.nom} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: ajoutForm.nom ? phase.couleur : T.border, color: ajoutForm.nom ? "#fff" : T.textMuted, fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: ajoutForm.nom ? "pointer" : "default" }}>✓ Ajouter</button>
-                          <button onClick={() => { setAjoutPhase(null); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvrier: "", date_prevue: "" }); }} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
+                          <button onClick={() => { setAjoutPhase(null); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvriers: [], date_prevue: "" }); }} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => { setAjoutPhase(phase.id); setExpandedPhases(prev => ({...prev, [phase.id]: true})); }} style={{ margin: "10px 16px 0", padding: "8px", borderRadius: 8, border: `1.5px dashed ${phase.couleur}55`, background: "transparent", color: phase.couleur, fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "block", width: "calc(100% - 32px)" }}>
+                      <button onClick={() => { setAjoutPhase(phase.id); setExpandedPhases(prev => ({ ...prev, [phase.id]: true })); }} style={{ margin: "10px 16px 0", padding: "8px", borderRadius: 8, border: `1.5px dashed ${phase.couleur}55`, background: "transparent", color: phase.couleur, fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "block", width: "calc(100% - 32px)" }}>
                         + Ajouter une tâche
                       </button>
                     )}
@@ -697,7 +846,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const [heuresInput, setHeuresInput] = useState("");
   const [quantiteInput, setQuantiteInput] = useState("");
   const [search, setSearch] = useState("");
-  
+
   const ch = chantiers.find(c => c.id === phasage.chantier_id);
   const BLEU = "#5b9cf6";
 
@@ -724,15 +873,15 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   function genererTaches(ouvrageId, heuresDevis, heuresEstimees) {
     const bibl = bibliotheque.find(b => b.id === ouvrageId);
     if (!bibl) return [];
-    return (bibl.sous_taches || []).map(st => ({ 
-      nom: st.nom, 
-      ratio: st.ratio, 
-      phaseId: st.phaseId, 
-      heures: parseFloat(((heuresDevis * st.ratio) / 100).toFixed(1)), 
-      heures_estimees: heuresEstimees ? parseFloat(((heuresEstimees * st.ratio) / 100).toFixed(2)) : null, 
-      avancement: 0, 
-      heures_reelles: [], 
-      ressources: [] 
+    return (bibl.sous_taches || []).map(st => ({
+      nom: st.nom,
+      ratio: st.ratio,
+      phaseId: st.phaseId,
+      heures: parseFloat(((heuresDevis * st.ratio) / 100).toFixed(1)),
+      heures_estimees: heuresEstimees ? parseFloat(((heuresEstimees * st.ratio) / 100).toFixed(2)) : null,
+      avancement: 0,
+      heures_reelles: [],
+      ressources: [],
     }));
   }
 
@@ -763,15 +912,15 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   function updateHeures(id, val) { setOuvrages(prev => prev.map(o => { if (o.id !== id) return o; const h = parseFloat(val) || 0; const bibl = bibliotheque.find(b => b.id === o.bibliotheque_id); return { ...o, heures_devis: h, taches: bibl ? genererTaches(o.bibliotheque_id, h, o.heures_estimees) : o.taches }; })); }
 
   if (view === "plan") {
-    return <PlanTravaux 
-      phasage={{...phasage, ouvrages}} 
-      ouvrages={ouvrages} 
-      T={T} 
-      ouvriers={ouvriers} 
+    return <PlanTravaux
+      phasage={{ ...phasage, ouvrages }}
+      ouvrages={ouvrages}
+      T={T}
+      ouvriers={ouvriers}
       tauxHoraires={tauxHoraires}
       onBack={() => setView("preparation")}
-      onSavePlan={async (planToSave) => { 
-        await onSave({ ...phasage, plan_travaux: planToSave, ouvrages }); 
+      onSavePlan={async (planToSave) => {
+        await onSave({ ...phasage, plan_travaux: planToSave, ouvrages });
       }}
     />;
   }
@@ -785,7 +934,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
       {showImport && <ModaleImportExcel T={T} bibliotheque={bibliotheque} onImporter={handleImportExcel} onFermer={() => setShowImport(false)} />}
-      
+
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
           <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Retour aux phasages</button>
@@ -796,15 +945,15 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <button onClick={onDelete} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Supprimer</button>
-            <button 
+            <button
               onClick={async () => {
                 if (!phasage.plan_travaux || Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length === 0) {
                   const newPlan = distribuerTaches(ouvrages);
-                  phasage.plan_travaux = newPlan; 
+                  phasage.plan_travaux = newPlan;
                   await onSave({ ...phasage, plan_travaux: newPlan, ouvrages });
                 }
                 setView("plan");
-              }} 
+              }}
               style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               Générer le plan de travail →
             </button>
@@ -899,27 +1048,26 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
     const [{ data: p }, { data: b }] = await Promise.all([supabase.from("phasages").select("*").order("created_at", { ascending: false }), supabase.from("bibliotheque_ratios").select("*").order("libelle")]);
     setPhasages(p || []); setBibliotheque(b || []); setLoading(false);
   }
-  
+
   async function creerPhasage() {
     if (!newChantier) return;
     const ch = chantiers.find(c => c.id === newChantier);
     const { data, error } = await supabase.from("phasages").insert({ chantier_id: newChantier, chantier_nom: ch ? ch.nom : newChantier, ouvrages: [] }).select().single();
     if (error) { console.error(error.message); return; }
-    if (data) { 
-      setPhasages(p => [data, ...p]); 
-      setSelected(data); 
-      setShowNew(false); 
-      setNewChantier(""); 
+    if (data) {
+      setPhasages(p => [data, ...p]);
+      setSelected(data);
+      setShowNew(false);
+      setNewChantier("");
     }
   }
 
   async function savePhasage(phasage) {
-    const { error } = await supabase.from("phasages").update({ 
-      ouvrages: phasage.ouvrages, 
-      plan_travaux: phasage.plan_travaux || null, 
-      updated_at: new Date().toISOString() 
+    const { error } = await supabase.from("phasages").update({
+      ouvrages: phasage.ouvrages,
+      plan_travaux: phasage.plan_travaux || null,
+      updated_at: new Date().toISOString(),
     }).eq("id", phasage.id);
-    
     if (error) { console.error(error.message); return; }
     setPhasages(prev => prev.map(p => p.id === phasage.id ? phasage : p));
     if (selected?.id === phasage.id) setSelected(phasage);
@@ -944,7 +1092,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
           </div>
           <button onClick={() => setShowNew(true)} style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Nouveau phasage</button>
         </div>
-        
+
         {showNew && (
           <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Nouveau phasage</div>
@@ -965,21 +1113,23 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {phasages.map(p => {
                 const ch = chantiers.find(c => c.id === p.chantier_id);
-                
                 const tPlan = p.plan_travaux ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat() : [];
                 const avgAv = tPlan.length > 0 ? Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length) : 0;
-                const coutMO = tPlan.reduce((s, t) => s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[t.ouvrier] || 45)), 0);
+                const coutMO = tPlan.reduce((s, t) => {
+                  const premierOuvrier = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
+                  return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[premierOuvrier] || 45));
+                }, 0);
                 const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
                 const coutTotal = coutMO + coutMat;
                 const prixVendu = p.plan_travaux?.meta?.prix_vendu || 0;
-                
+
                 return (
                   <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer", transition: "border .15s" }} onClick={() => setSelected(p)} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
                     <div style={{ width: 10, height: 56, borderRadius: 5, background: ch ? ch.couleur : T.accent, flexShrink: 0 }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{p.chantier_nom}</div>
                       <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>
-                        {tPlan.length} tâche{tPlan.length > 1 ? "s" : ""} · Coûts cumulés : <span style={{fontWeight: 700, color: T.text}}>{coutTotal > 0 ? `${coutTotal.toFixed(0)}€` : "0€"}</span>
+                        {tPlan.length} tâche{tPlan.length > 1 ? "s" : ""} · Coûts cumulés : <span style={{ fontWeight: 700, color: T.text }}>{coutTotal > 0 ? `${coutTotal.toFixed(0)}€` : "0€"}</span>
                         {prixVendu > 0 && ` / Vendu : ${prixVendu}€`}
                       </div>
                       {tPlan.length > 0 && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", borderRadius: 2, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} /></div><span style={{ fontSize: 11, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 32 }}>{avgAv}%</span></div>}
