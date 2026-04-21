@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_HORIZ, LOGO_SQ } from "./constants";
+// NOUVEL IMPORT AVEC getCurrentWeek, getWeekId ET getTodayJour AJOUTÉS ICI 👇
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_HORIZ, LOGO_SQ, getCurrentWeek, getWeekId, getTodayJour } from "./constants";
 
 // ─── HELPER EMAIL ─────────────────────────────────────────────────────────────
 async function sendRapportEmail(rapport, chantierNom) {
