@@ -69,23 +69,17 @@ function parseDXF(text) {
     }
     i++;
   }
-  // ── Flip Y : DXF a Y vers le haut, canvas a Y vers le bas ──────────────────
-  // On calcule le maxY pour centrer correctement le flip
   let maxY = -Infinity;
   points.forEach(p  => { if (p.y  > maxY) maxY = p.y; });
   segments.forEach(s => { if (s.y1 > maxY) maxY = s.y1; if (s.y2 > maxY) maxY = s.y2; });
   if (!isFinite(maxY)) maxY = 0;
-
   points.forEach(p   => { p.y  = maxY - p.y; });
   segments.forEach(s => { s.y1 = maxY - s.y1; s.y2 = maxY - s.y2; });
-
   return {points, segments};
 }
 
-// Auto-connect point cloud → line segments
 function autoConnect(points, threshold) {
   if (points.length === 0) return [];
-  // Group by color/layer
   const groups = {};
   points.forEach(p => {
     const k = p.color+'_'+p.layer;
@@ -95,8 +89,6 @@ function autoConnect(points, threshold) {
   const segs = [];
   Object.values(groups).forEach(grp => {
     if (grp.length < 2) return;
-    // For each point, find nearest neighbors within threshold
-    // Use spatial bucketing for performance
     const bucket = {};
     const bsize = threshold;
     grp.forEach((p,idx) => {
@@ -121,7 +113,6 @@ function autoConnect(points, threshold) {
   return segs;
 }
 
-// Compute bounding box
 function getBounds(segments, symbols=[]) {
   let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
   segments.forEach(s => {
@@ -206,7 +197,6 @@ const SURFACE_COLORS = [
   { label:'Gris',        value:'#94a3b8', alpha:0.15 },
 ];
 
-// Calcul surface polygone (Shoelace formula) — retourne m²
 function calcSurface(pts) {
   let s = 0;
   const n = pts.length;
@@ -219,48 +209,104 @@ function calcSurface(pts) {
 }
 
 // ─── BIBLIOTHÈQUE DXF ────────────────────────────────────────────────────────
-// Symboles prédéfinis sous forme de segments (coordonnées relatives, unité = 1m)
 const DXF_LIBRARY = [
-  { id:'douche_carre', name:'Douche carrée', icon:'🚿', category:'Sanitaires',
+  // ── SANITAIRES ──────────────────────────────────────────────────────────────
+  { id:'receveur_90x90', name:'Receveur douche 90×90 cm', icon:'🚿', category:'Sanitaires',
     segments:[
-      {x1:0,y1:0,x2:1,y2:0},{x1:1,y1:0,x2:1,y2:1},{x1:1,y1:1,x2:0,y2:1},{x1:0,y1:1,x2:0,y2:0},
-      {x1:0.05,y1:0.05,x2:0.95,y2:0.05},{x1:0.95,y1:0.05,x2:0.95,y2:0.95},{x1:0.95,y1:0.95,x2:0.05,y2:0.95},{x1:0.05,y1:0.95,x2:0.05,y2:0.05},
-      {x1:0.8,y1:0.2,x2:0.9,y2:0.2},{x1:0.9,y1:0.2,x2:0.9,y2:0.35},{x1:0.9,y1:0.35,x2:0.8,y2:0.35},{x1:0.8,y1:0.35,x2:0.8,y2:0.2},
+      // Bordure extérieure 0.90×0.90
+      {x1:0,y1:0,x2:0.9,y2:0},{x1:0.9,y1:0,x2:0.9,y2:0.9},{x1:0.9,y1:0.9,x2:0,y2:0.9},{x1:0,y1:0.9,x2:0,y2:0},
+      // Rebord intérieur 3 cm
+      {x1:0.03,y1:0.03,x2:0.87,y2:0.03},{x1:0.87,y1:0.03,x2:0.87,y2:0.87},{x1:0.87,y1:0.87,x2:0.03,y2:0.87},{x1:0.03,y1:0.87,x2:0.03,y2:0.03},
+      // Bonde centrale (croix)
+      {x1:0.42,y1:0.45,x2:0.48,y2:0.45},{x1:0.45,y1:0.42,x2:0.45,y2:0.48},
     ]},
-  { id:'wc_plan', name:'WC', icon:'🚽', category:'Sanitaires',
+
+  { id:'receveur_80x80', name:'Receveur douche 80×80 cm', icon:'🚿', category:'Sanitaires',
     segments:[
-      {x1:0,y1:0,x2:0.38,y2:0},{x1:0.38,y1:0,x2:0.38,y2:0.75},{x1:0.38,y1:0.75,x2:0,y2:0.75},{x1:0,y1:0.75,x2:0,y2:0},
-      {x1:0.04,y1:0.04,x2:0.34,y2:0.04},{x1:0.34,y1:0.04,x2:0.34,y2:0.48},{x1:0.34,y1:0.48,x2:0.04,y2:0.48},{x1:0.04,y1:0.48,x2:0.04,y2:0.04},
-      {x1:0.04,y1:0.52,x2:0.34,y2:0.52},{x1:0.34,y1:0.52,x2:0.38,y2:0.75},{x1:0,y1:0.75,x2:0.04,y2:0.52},
-      {x1:0.19,y1:0.58,x2:0.19,y2:0.72},{x1:0.12,y1:0.65,x2:0.26,y2:0.65},
+      // Bordure extérieure 0.80×0.80
+      {x1:0,y1:0,x2:0.8,y2:0},{x1:0.8,y1:0,x2:0.8,y2:0.8},{x1:0.8,y1:0.8,x2:0,y2:0.8},{x1:0,y1:0.8,x2:0,y2:0},
+      // Rebord intérieur 3 cm
+      {x1:0.03,y1:0.03,x2:0.77,y2:0.03},{x1:0.77,y1:0.03,x2:0.77,y2:0.77},{x1:0.77,y1:0.77,x2:0.03,y2:0.77},{x1:0.03,y1:0.77,x2:0.03,y2:0.03},
+      // Bonde centrale
+      {x1:0.37,y1:0.40,x2:0.43,y2:0.40},{x1:0.40,y1:0.37,x2:0.40,y2:0.43},
     ]},
-  { id:'lavabo', name:'Lavabo', icon:'🪣', category:'Sanitaires',
+
+  { id:'wc_365x60', name:'WC 36.5×60 cm', icon:'🚽', category:'Sanitaires',
+    segments:[
+      // Réservoir (partie haute) : 36.5 cm large × 15 cm haut
+      {x1:0,y1:0,x2:0.365,y2:0},{x1:0.365,y1:0,x2:0.365,y2:0.15},{x1:0.365,y1:0.15,x2:0,y2:0.15},{x1:0,y1:0.15,x2:0,y2:0},
+      // Intérieur réservoir
+      {x1:0.02,y1:0.02,x2:0.345,y2:0.02},{x1:0.345,y1:0.02,x2:0.345,y2:0.13},{x1:0.345,y1:0.13,x2:0.02,y2:0.13},{x1:0.02,y1:0.13,x2:0.02,y2:0.02},
+      // Cuvette : 36.5 cm large × 45 cm profond (total 60 cm)
+      {x1:0,y1:0.15,x2:0.365,y2:0.15},
+      {x1:0,y1:0.15,x2:0,y2:0.60},{x1:0.365,y1:0.15,x2:0.365,y2:0.60},
+      // Avant arrondi (simplifié)
+      {x1:0,y1:0.60,x2:0.18,y2:0.63},{x1:0.18,y1:0.63,x2:0.365,y2:0.60},
+      // Contour intérieur cuvette
+      {x1:0.03,y1:0.18,x2:0.335,y2:0.18},{x1:0.335,y1:0.18,x2:0.335,y2:0.55},{x1:0.335,y1:0.55,x2:0.18,y2:0.60},{x1:0.18,y1:0.60,x2:0.03,y2:0.55},{x1:0.03,y1:0.55,x2:0.03,y2:0.18},
+      // Bouton chasse (centre réservoir)
+      {x1:0.155,y1:0.06,x2:0.21,y2:0.06},{x1:0.21,y1:0.06,x2:0.21,y2:0.10},{x1:0.21,y1:0.10,x2:0.155,y2:0.10},{x1:0.155,y1:0.10,x2:0.155,y2:0.06},
+    ]},
+
+  { id:'vasque_25x35', name:'Vasque à poser 25×35 cm', icon:'🪣', category:'Sanitaires',
+    segments:[
+      // Contour extérieur 0.25×0.35
+      {x1:0,y1:0,x2:0.25,y2:0},{x1:0.25,y1:0,x2:0.25,y2:0.35},{x1:0.25,y1:0.35,x2:0,y2:0.35},{x1:0,y1:0.35,x2:0,y2:0},
+      // Rebord intérieur 2 cm
+      {x1:0.02,y1:0.02,x2:0.23,y2:0.02},{x1:0.23,y1:0.02,x2:0.23,y2:0.33},{x1:0.23,y1:0.33,x2:0.02,y2:0.33},{x1:0.02,y1:0.33,x2:0.02,y2:0.02},
+      // Bonde (centre)
+      {x1:0.11,y1:0.165,x2:0.14,y2:0.165},{x1:0.125,y1:0.15,x2:0.125,y2:0.18},
+    ]},
+
+  { id:'lavabo', name:'Lavabo 60×50 cm', icon:'🪣', category:'Sanitaires',
     segments:[
       {x1:0,y1:0,x2:0.6,y2:0},{x1:0.6,y1:0,x2:0.6,y2:0.5},{x1:0.6,y1:0.5,x2:0,y2:0.5},{x1:0,y1:0.5,x2:0,y2:0},
       {x1:0.05,y1:0.05,x2:0.55,y2:0.05},{x1:0.55,y1:0.05,x2:0.55,y2:0.45},{x1:0.55,y1:0.45,x2:0.05,y2:0.45},{x1:0.05,y1:0.45,x2:0.05,y2:0.05},
       {x1:0.27,y1:0.18,x2:0.33,y2:0.18},{x1:0.33,y1:0.18,x2:0.33,y2:0.32},{x1:0.33,y1:0.32,x2:0.27,y2:0.32},{x1:0.27,y1:0.32,x2:0.27,y2:0.18},
     ]},
-  { id:'baignoire', name:'Baignoire', icon:'🛁', category:'Sanitaires',
+
+  { id:'baignoire', name:'Baignoire 170×75 cm', icon:'🛁', category:'Sanitaires',
     segments:[
       {x1:0,y1:0,x2:1.7,y2:0},{x1:1.7,y1:0,x2:1.7,y2:0.75},{x1:1.7,y1:0.75,x2:0,y2:0.75},{x1:0,y1:0.75,x2:0,y2:0},
       {x1:0.05,y1:0.05,x2:1.65,y2:0.05},{x1:1.65,y1:0.05,x2:1.65,y2:0.7},{x1:1.65,y1:0.7,x2:0.05,y2:0.7},{x1:0.05,y1:0.7,x2:0.05,y2:0.05},
       {x1:1.45,y1:0.25,x2:1.6,y2:0.25},{x1:1.6,y1:0.25,x2:1.6,y2:0.5},{x1:1.6,y1:0.5,x2:1.45,y2:0.5},{x1:1.45,y1:0.5,x2:1.45,y2:0.25},
     ]},
-  { id:'escalier', name:'Escalier (12 marches)', icon:'🪜', category:'Structure',
-    segments: Array.from({length:12},(_,i)=>[
-      {x1:0,y1:i*0.17,x2:1,y2:i*0.17},
-    ]).flat().concat([{x1:0,y1:0,x2:0,y2:2},{x1:1,y1:0,x2:1,y2:2},{x1:0,y1:2,x2:1,y2:2}])},
-  { id:'porte_simple', name:'Porte simple 90cm', icon:'🚪', category:'Ouvertures',
+
+  { id:'douche_italienne', name:'Douche italienne 120×90 cm', icon:'🚿', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.9},{x1:1.2,y1:0.9,x2:0,y2:0.9},{x1:0,y1:0.9,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:1.15,y2:0.05},{x1:1.15,y1:0.05,x2:1.15,y2:0.85},{x1:1.15,y1:0.85,x2:0.05,y2:0.85},{x1:0.05,y1:0.85,x2:0.05,y2:0.05},
+      {x1:0.9,y1:0.1,x2:1.1,y2:0.1},{x1:1.1,y1:0.1,x2:1.1,y2:0.4},{x1:1.1,y1:0.4,x2:0.9,y2:0.4},{x1:0.9,y1:0.4,x2:0.9,y2:0.1},
+    ]},
+
+  { id:'evier_2bacs', name:'Évier 2 bacs 120×60 cm', icon:'🪣', category:'Sanitaires',
+    segments:[
+      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.6},{x1:1.2,y1:0.6,x2:0,y2:0.6},{x1:0,y1:0.6,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:0.57,y2:0.05},{x1:0.57,y1:0.05,x2:0.57,y2:0.55},{x1:0.57,y1:0.55,x2:0.05,y2:0.55},{x1:0.05,y1:0.55,x2:0.05,y2:0.05},
+      {x1:0.63,y1:0.05,x2:1.15,y2:0.05},{x1:1.15,y1:0.05,x2:1.15,y2:0.55},{x1:1.15,y1:0.55,x2:0.63,y2:0.55},{x1:0.63,y1:0.55,x2:0.63,y2:0.05},
+      {x1:0.59,y1:0.25,x2:0.61,y2:0.25},
+    ]},
+
+  // ── OUVERTURES ──────────────────────────────────────────────────────────────
+  { id:'porte_simple', name:'Porte simple 90 cm', icon:'🚪', category:'Ouvertures',
     segments:[
       {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:0,x2:0,y2:0.9},
     ]},
-  { id:'porte_double', name:'Porte double 1.4m', icon:'🚪', category:'Ouvertures',
+
+  { id:'porte_double', name:'Porte double 140 cm', icon:'🚪', category:'Ouvertures',
     segments:[
       {x1:0,y1:0,x2:1.4,y2:0},
       {x1:0,y1:0,x2:0,y2:0.7},
       {x1:1.4,y1:0,x2:1.4,y2:0.7},
     ]},
-  { id:'fenetre_std', name:'Fenêtre 1.2m', icon:'⬜', category:'Ouvertures',
+
+  { id:'porte_coulissante', name:'Porte coulissante 90 cm', icon:'🚪', category:'Ouvertures',
+    segments:[
+      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:0,x2:0,y2:0.1},{x1:0.9,y1:0,x2:0.9,y2:0.1},
+      {x1:0.05,y1:0.02,x2:0.85,y2:0.02},{x1:0.05,y1:0.08,x2:0.85,y2:0.08},
+    ]},
+
+  { id:'fenetre_std', name:'Fenêtre standard 120 cm', icon:'⬜', category:'Ouvertures',
     segments:[
       {x1:0,y1:0,x2:1.2,y2:0},
       {x1:0,y1:-0.1,x2:1.2,y2:-0.1},
@@ -268,64 +314,85 @@ const DXF_LIBRARY = [
       {x1:1.2,y1:0,x2:1.2,y2:-0.1},
       {x1:0.6,y1:0,x2:0.6,y2:-0.1},
     ]},
-  { id:'lit_2p', name:'Lit 2 personnes', icon:'🛏', category:'Mobilier',
+
+  { id:'fenetre_angle', name:'Fenêtre en angle 90+90 cm', icon:'⬜', category:'Ouvertures',
+    segments:[
+      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:-0.1,x2:0.9,y2:-0.1},{x1:0,y1:0,x2:0,y2:-0.1},{x1:0.9,y1:0,x2:0.9,y2:-0.1},
+      {x1:0.9,y1:0,x2:0.9,y2:-0.9},{x1:1.0,y1:0,x2:1.0,y2:-0.9},{x1:0.9,y1:0,x2:1.0,y2:0},{x1:0.9,y1:-0.9,x2:1.0,y2:-0.9},
+    ]},
+
+  // ── STRUCTURE ───────────────────────────────────────────────────────────────
+  { id:'escalier', name:'Escalier 12 marches (1m × 2m)', icon:'🪜', category:'Structure',
+    segments: Array.from({length:12},(_,i)=>[
+      {x1:0,y1:i*0.17,x2:1,y2:i*0.17},
+    ]).flat().concat([{x1:0,y1:0,x2:0,y2:2},{x1:1,y1:0,x2:1,y2:2},{x1:0,y1:2,x2:1,y2:2}])},
+
+  // ── MOBILIER ────────────────────────────────────────────────────────────────
+  { id:'cuisine_180x60', name:'Cuisine droite 180×60 cm', icon:'🍳', category:'Mobilier',
+    segments:[
+      // Plan de travail extérieur : 1.80 m × 0.60 m
+      {x1:0,y1:0,x2:1.8,y2:0},{x1:1.8,y1:0,x2:1.8,y2:0.6},{x1:1.8,y1:0.6,x2:0,y2:0.6},{x1:0,y1:0.6,x2:0,y2:0},
+      // Façade avant (épaisseur de porte 4 cm)
+      {x1:0,y1:0.04,x2:1.8,y2:0.04},
+      // Séparations de caissons (3 caissons de 60 cm)
+      {x1:0.60,y1:0.04,x2:0.60,y2:0.6},
+      {x1:1.20,y1:0.04,x2:1.20,y2:0.6},
+      // Évier intégré (caisson de droite, centré)
+      {x1:1.27,y1:0.07,x2:1.73,y2:0.07},{x1:1.73,y1:0.07,x2:1.73,y2:0.50},{x1:1.73,y1:0.50,x2:1.27,y2:0.50},{x1:1.27,y1:0.50,x2:1.27,y2:0.07},
+      {x1:1.28,y1:0.08,x2:1.50,y2:0.08},{x1:1.50,y1:0.08,x2:1.50,y2:0.49},{x1:1.50,y1:0.49,x2:1.28,y2:0.49},{x1:1.28,y1:0.49,x2:1.28,y2:0.08},
+      {x1:1.51,y1:0.08,x2:1.72,y2:0.08},{x1:1.72,y1:0.08,x2:1.72,y2:0.49},{x1:1.72,y1:0.49,x2:1.51,y2:0.49},{x1:1.51,y1:0.49,x2:1.51,y2:0.08},
+      // Robinet évier
+      {x1:1.495,y1:0.22,x2:1.505,y2:0.22},{x1:1.50,y1:0.10,x2:1.50,y2:0.22},
+      // Plaque de cuisson (caisson central)
+      {x1:0.68,y1:0.10,x2:1.12,y2:0.10},{x1:1.12,y1:0.10,x2:1.12,y2:0.50},{x1:1.12,y1:0.50,x2:0.68,y2:0.50},{x1:0.68,y1:0.50,x2:0.68,y2:0.10},
+      // 4 feux
+      {x1:0.75,y1:0.20,x2:0.83,y2:0.20},{x1:0.83,y1:0.20,x2:0.83,y2:0.30},{x1:0.83,y1:0.30,x2:0.75,y2:0.30},{x1:0.75,y1:0.30,x2:0.75,y2:0.20},
+      {x1:0.97,y1:0.20,x2:1.05,y2:0.20},{x1:1.05,y1:0.20,x2:1.05,y2:0.30},{x1:1.05,y1:0.30,x2:0.97,y2:0.30},{x1:0.97,y1:0.30,x2:0.97,y2:0.20},
+      {x1:0.75,y1:0.36,x2:0.83,y2:0.36},{x1:0.83,y1:0.36,x2:0.83,y2:0.46},{x1:0.83,y1:0.46,x2:0.75,y2:0.46},{x1:0.75,y1:0.46,x2:0.75,y2:0.36},
+      {x1:0.97,y1:0.36,x2:1.05,y2:0.36},{x1:1.05,y1:0.36,x2:1.05,y2:0.46},{x1:1.05,y1:0.46,x2:0.97,y2:0.46},{x1:0.97,y1:0.46,x2:0.97,y2:0.36},
+    ]},
+
+  { id:'cuisine_L', name:'Cuisine en L (300×240 cm)', icon:'🍳', category:'Mobilier',
+    segments:[
+      {x1:0,y1:0,x2:3,y2:0},{x1:3,y1:0,x2:3,y2:0.6},{x1:3,y1:0.6,x2:0,y2:0.6},{x1:0,y1:0.6,x2:0,y2:0},
+      {x1:0,y1:0.6,x2:0,y2:2.4},{x1:0,y1:2.4,x2:0.6,y2:2.4},{x1:0.6,y1:2.4,x2:0.6,y2:0.6},
+      {x1:0.5,y1:0.1,x2:2.5,y2:0.1},{x1:2.5,y1:0.1,x2:2.5,y2:0.5},{x1:2.5,y1:0.5,x2:0.5,y2:0.5},{x1:0.5,y1:0.5,x2:0.5,y2:0.1},
+    ]},
+
+  { id:'lit_2p', name:'Lit 2 personnes 160×200 cm', icon:'🛏', category:'Mobilier',
     segments:[
       {x1:0,y1:0,x2:1.6,y2:0},{x1:1.6,y1:0,x2:1.6,y2:2},{x1:1.6,y1:2,x2:0,y2:2},{x1:0,y1:2,x2:0,y2:0},
       {x1:0,y1:1.7,x2:1.6,y2:1.7},
       {x1:0.1,y1:1.75,x2:0.75,y2:1.75},{x1:0.75,y1:1.75,x2:0.75,y2:1.95},{x1:0.75,y1:1.95,x2:0.1,y2:1.95},{x1:0.1,y1:1.95,x2:0.1,y2:1.75},
       {x1:0.85,y1:1.75,x2:1.5,y2:1.75},{x1:1.5,y1:1.75,x2:1.5,y2:1.95},{x1:1.5,y1:1.95,x2:0.85,y2:1.95},{x1:0.85,y1:1.95,x2:0.85,y2:1.75},
     ]},
-  { id:'cuisine_L', name:'Cuisine en L', icon:'🍳', category:'Mobilier',
-    segments:[
-      {x1:0,y1:0,x2:3,y2:0},{x1:3,y1:0,x2:3,y2:0.6},{x1:3,y1:0.6,x2:0,y2:0.6},{x1:0,y1:0.6,x2:0,y2:0},
-      {x1:0,y1:0.6,x2:0,y2:2.4},{x1:0,y1:2.4,x2:0.6,y2:2.4},{x1:0.6,y1:2.4,x2:0.6,y2:0.6},
-      {x1:0.5,y1:0.1,x2:2.5,y2:0.1},{x1:2.5,y1:0.1,x2:2.5,y2:0.5},{x1:2.5,y1:0.5,x2:0.5,y2:0.5},{x1:0.5,y1:0.5,x2:0.5,y2:0.1},
-    ]},
-  { id:'douche_italienne', name:'Douche italienne', icon:'🚿', category:'Sanitaires',
-    segments:[
-      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.9},{x1:1.2,y1:0.9,x2:0,y2:0.9},{x1:0,y1:0.9,x2:0,y2:0},
-      {x1:0.05,y1:0.05,x2:1.15,y2:0.05},{x1:1.15,y1:0.05,x2:1.15,y2:0.85},{x1:1.15,y1:0.85,x2:0.05,y2:0.85},{x1:0.05,y1:0.85,x2:0.05,y2:0.05},
-      {x1:0.9,y1:0.1,x2:1.1,y2:0.1},{x1:1.1,y1:0.1,x2:1.1,y2:0.4},{x1:1.1,y1:0.4,x2:0.9,y2:0.4},{x1:0.9,y1:0.4,x2:0.9,y2:0.1},
-    ]},
-  { id:'evier_2bacs', name:'Évier 2 bacs', icon:'🪣', category:'Sanitaires',
-    segments:[
-      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.6},{x1:1.2,y1:0.6,x2:0,y2:0.6},{x1:0,y1:0.6,x2:0,y2:0},
-      {x1:0.05,y1:0.05,x2:0.57,y2:0.05},{x1:0.57,y1:0.05,x2:0.57,y2:0.55},{x1:0.57,y1:0.55,x2:0.05,y2:0.55},{x1:0.05,y1:0.55,x2:0.05,y2:0.05},
-      {x1:0.63,y1:0.05,x2:1.15,y2:0.05},{x1:1.15,y1:0.05,x2:1.15,y2:0.55},{x1:1.15,y1:0.55,x2:0.63,y2:0.55},{x1:0.63,y1:0.55,x2:0.63,y2:0.05},
-      {x1:0.59,y1:0.25,x2:0.61,y2:0.25},
-    ]},
-  { id:'radiateur', name:'Radiateur', icon:'🔥', category:'Équipements',
-    segments:[
-      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.2},{x1:1.2,y1:0.2,x2:0,y2:0.2},{x1:0,y1:0.2,x2:0,y2:0},
-      ...Array.from({length:7},(_,i)=>[{x1:0.05+i*0.17,y1:0,x2:0.05+i*0.17,y2:0.2}]).flat(),
-    ]},
-  { id:'tableau_elec', name:'Tableau électrique', icon:'⚡', category:'Équipements',
-    segments:[
-      {x1:0,y1:0,x2:0.5,y2:0},{x1:0.5,y1:0,x2:0.5,y2:0.7},{x1:0.5,y1:0.7,x2:0,y2:0.7},{x1:0,y1:0.7,x2:0,y2:0},
-      {x1:0.05,y1:0.05,x2:0.45,y2:0.05},{x1:0.05,y1:0.05,x2:0.05,y2:0.65},{x1:0.05,y1:0.65,x2:0.45,y2:0.65},{x1:0.45,y1:0.65,x2:0.45,y2:0.05},
-      {x1:0.1,y1:0.15,x2:0.4,y2:0.15},{x1:0.1,y1:0.25,x2:0.4,y2:0.25},{x1:0.1,y1:0.35,x2:0.4,y2:0.35},
-      {x1:0.1,y1:0.45,x2:0.4,y2:0.45},{x1:0.1,y1:0.55,x2:0.4,y2:0.55},
-    ]},
-  { id:'table_rect', name:'Table rectangulaire', icon:'🪑', category:'Mobilier',
-    segments:[
-      {x1:0,y1:0,x2:1.6,y2:0},{x1:1.6,y1:0,x2:1.6,y2:0.9},{x1:1.6,y1:0.9,x2:0,y2:0.9},{x1:0,y1:0.9,x2:0,y2:0},
-      {x1:0.05,y1:0.05,x2:1.55,y2:0.05},{x1:1.55,y1:0.05,x2:1.55,y2:0.85},{x1:1.55,y1:0.85,x2:0.05,y2:0.85},{x1:0.05,y1:0.85,x2:0.05,y2:0.05},
-    ]},
-  { id:'lit_1p', name:'Lit 1 personne', icon:'🛏', category:'Mobilier',
+
+  { id:'lit_1p', name:'Lit 1 personne 90×200 cm', icon:'🛏', category:'Mobilier',
     segments:[
       {x1:0,y1:0,x2:0.9,y2:0},{x1:0.9,y1:0,x2:0.9,y2:2},{x1:0.9,y1:2,x2:0,y2:2},{x1:0,y1:2,x2:0,y2:0},
       {x1:0,y1:1.7,x2:0.9,y2:1.7},
       {x1:0.1,y1:1.75,x2:0.8,y2:1.75},{x1:0.8,y1:1.75,x2:0.8,y2:1.95},{x1:0.8,y1:1.95,x2:0.1,y2:1.95},{x1:0.1,y1:1.95,x2:0.1,y2:1.75},
     ]},
-  { id:'fenetre_angle', name:'Fenêtre en angle', icon:'⬜', category:'Ouvertures',
+
+  { id:'table_rect', name:'Table rectangulaire 160×90 cm', icon:'🪑', category:'Mobilier',
     segments:[
-      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:-0.1,x2:0.9,y2:-0.1},{x1:0,y1:0,x2:0,y2:-0.1},{x1:0.9,y1:0,x2:0.9,y2:-0.1},
-      {x1:0.9,y1:0,x2:0.9,y2:-0.9},{x1:1.0,y1:0,x2:1.0,y2:-0.9},{x1:0.9,y1:0,x2:1.0,y2:0},{x1:0.9,y1:-0.9,x2:1.0,y2:-0.9},
+      {x1:0,y1:0,x2:1.6,y2:0},{x1:1.6,y1:0,x2:1.6,y2:0.9},{x1:1.6,y1:0.9,x2:0,y2:0.9},{x1:0,y1:0.9,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:1.55,y2:0.05},{x1:1.55,y1:0.05,x2:1.55,y2:0.85},{x1:1.55,y1:0.85,x2:0.05,y2:0.85},{x1:0.05,y1:0.85,x2:0.05,y2:0.05},
     ]},
-  { id:'porte_coulissante', name:'Porte coulissante', icon:'🚪', category:'Ouvertures',
+
+  // ── ÉQUIPEMENTS ─────────────────────────────────────────────────────────────
+  { id:'radiateur', name:'Radiateur 120×20 cm', icon:'🔥', category:'Équipements',
     segments:[
-      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:0,x2:0,y2:0.1},{x1:0.9,y1:0,x2:0.9,y2:0.1},
-      {x1:0.05,y1:0.02,x2:0.85,y2:0.02},{x1:0.05,y1:0.08,x2:0.85,y2:0.08},
+      {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.2},{x1:1.2,y1:0.2,x2:0,y2:0.2},{x1:0,y1:0.2,x2:0,y2:0},
+      ...Array.from({length:7},(_,i)=>[{x1:0.05+i*0.17,y1:0,x2:0.05+i*0.17,y2:0.2}]).flat(),
+    ]},
+
+  { id:'tableau_elec', name:'Tableau électrique 50×70 cm', icon:'⚡', category:'Équipements',
+    segments:[
+      {x1:0,y1:0,x2:0.5,y2:0},{x1:0.5,y1:0,x2:0.5,y2:0.7},{x1:0.5,y1:0.7,x2:0,y2:0.7},{x1:0,y1:0.7,x2:0,y2:0},
+      {x1:0.05,y1:0.05,x2:0.45,y2:0.05},{x1:0.05,y1:0.05,x2:0.05,y2:0.65},{x1:0.05,y1:0.65,x2:0.45,y2:0.65},{x1:0.45,y1:0.65,x2:0.45,y2:0.05},
+      {x1:0.1,y1:0.15,x2:0.4,y2:0.15},{x1:0.1,y1:0.25,x2:0.4,y2:0.25},{x1:0.1,y1:0.35,x2:0.4,y2:0.35},
+      {x1:0.1,y1:0.45,x2:0.4,y2:0.45},{x1:0.1,y1:0.55,x2:0.4,y2:0.55},
     ]},
 ];
 
@@ -337,9 +404,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [cotes,     setCotes]     = useState(plan.data?.cotes    || []);
   const [surfaces,  setSurfaces]  = useState(plan.data?.surfaces || []);
   const [surfaceColor, setSurfaceColor] = useState('#3b82f6');
-  const [polyPoints, setPolyPoints]     = useState([]); // points en cours de tracé
+  const [polyPoints, setPolyPoints]     = useState([]);
 
-  // Historique undo/redo
   const historyRef = useRef([]);
   const futureRef  = useRef([]);
   const [historyLen, setHistoryLen] = useState(0);
@@ -392,33 +458,21 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [orthoMode, setOrthoMode]   = useState(false);
-  // Sélection par rectangle
-  const [rectSel, setRectSel]       = useState(null); // {x1,y1,x2,y2} en coords canvas
-  // Clipboard copier/coller
+  const [rectSel, setRectSel]       = useState(null);
   const clipboardRef = useRef(null);
-  // Mode impression (fond blanc)
   const [printMode, setPrintMode] = useState(false);
   const printModeRef = useRef(false);
-  // Taille police cotes
   const [coteFontSize, setCoteFontSize] = useState(12);
   const coteFontRef = useRef(12);
-  // Cote sélectionnée pour déplacement (offset de la ligne de cote)
-  // Bibliothèque DXF
   const [showLibrary, setShowLibrary] = useState(false);
-  // Fermeture automatique des lignes (snap gap)
   const [autoClose, setAutoClose] = useState(true);
-  const autoCloseRef = useRef(true); // {segments, symbols, cotes, surfaces}
-  // Déplacement de la sélection par glisser
-  const movingSelRef = useRef(null); // {startWx, startWy, origSegs, origSyms, origCotes, origSurfs}
-  const movingCoteRef = useRef(null); // {id, origOffset, startWx, startWy, perpX, perpY}
-  // Rotation globale du plan
-  const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0); // degrés
-  // Calques visibilité
+  const autoCloseRef = useRef(true);
+  const movingSelRef = useRef(null);
+  const movingCoteRef = useRef(null);
+  const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0);
   const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true });
-  // Panneau propriétés symbole sélectionné
-  const [symProps, setSymProps] = useState(null); // {id, x, y, angle, size, type, text}
+  const [symProps, setSymProps] = useState(null);
 
-  // Refs pour render stable
   const vpRef         = useRef(vp);
   const segmentsRef   = useRef(segments);
   const symbolsRef    = useRef(symbols);
@@ -462,7 +516,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   coteFontRef.current   = coteFontSize;
   autoCloseRef.current  = autoClose;
 
-  // ── Helpers coords ──────────────────────────────────────────────────────────
   const toWorld = (cx, cy) => {
     const vp = vpRef.current;
     const rot = planRotRef.current * Math.PI / 180;
@@ -470,17 +523,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const W = canvasRef.current ? canvasRef.current.width  : 800;
     const H = canvasRef.current ? canvasRef.current.height : 600;
     const cx0 = W/2, cy0 = H/2;
-    // Rotation inverse
     const dx = cx - cx0, dy = cy - cy0;
     const rx = cx0 + dx*cosR - dy*sinR;
     const ry = cy0 + dx*sinR + dy*cosR;
     return { wx: rx / vp.scale + vp.x, wy: ry / vp.scale + vp.y };
   };
 
-  // Snap au point le plus proche
   const snapToPoint = useCallback((wx, wy) => {
     if (!snapRef.current) return { wx, wy, snapped: false };
-    // autoClose : seuil plus grand pour fermer automatiquement les petits écarts
     const baseSnap = autoCloseRef.current ? 20 : 8;
     const snapDist = baseSnap / vpRef.current.scale;
     let best = null, bestD = snapDist;
@@ -493,7 +543,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     return best ? { ...best, snapped:true } : { wx, wy, snapped:false };
   }, []);
 
-  // Ortho : contraint à 0/45/90°
   const applyOrtho = (startX, startY, wx, wy) => {
     if (!orthoRef.current || startX==null) return {wx,wy};
     const dx = wx-startX, dy = wy-startY;
@@ -506,7 +555,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     };
   };
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   const render = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -518,9 +566,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       const isPrint = printModeRef.current;
       ctx.fillStyle = isPrint ? '#ffffff' : '#12151f';
       ctx.fillRect(0,0,W,H);
-      // Couleurs adaptées impression
       const C = {
-        seg:    isPrint ? (col) => { // Assombrit les couleurs claires pour l'impression
+        seg:    isPrint ? (col) => {
           if (!col || col==='#7090c0' || col==='#c8d0e0') return '#1a1f2e';
           const r=parseInt(col.slice(1,3),16),g=parseInt(col.slice(3,5),16),b=parseInt(col.slice(5,7),16);
           const lum=(r*299+g*587+b*114)/1000;
@@ -541,13 +588,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       const vp = vpRef.current;
       const rot = planRotRef.current * Math.PI / 180;
       const cosR = Math.cos(rot), sinR = Math.sin(rot);
-      // Rotation autour du centre du canvas
       const cx0 = W/2, cy0 = H/2;
       const toC = (wx, wy) => {
-        // world → écran non-roté
         const sx = (wx - vp.x) * vp.scale;
         const sy = (wy - vp.y) * vp.scale;
-        // rotation canvas autour du centre
         const dx = sx - cx0, dy = sy - cy0;
         return {
           cx: cx0 + dx*cosR - dy*sinR,
@@ -556,7 +600,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       };
       const lyrs = layersRef.current;
 
-      // Grille (masquée en impression)
       const gridSize = Math.max(0.1, 1/vp.scale);
       const gStep = gridSize * vp.scale;
       if (!isPrint && gStep > 15 && isFinite(gStep)) {
@@ -568,7 +611,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         for (let y=oy;y<H;y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
       }
 
-      // Surfaces (polygones remplis)
       if (lyrs.surfaces) surfacesRef.current.forEach(surf => {
         if (surf.deleted || surf.points.length < 3) return;
         const pts = surf.points;
@@ -582,19 +624,16 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.lineTo(cx,cy);
         }
         ctx.closePath();
-        // Remplissage semi-transparent
         const col = surf.color||'#3b82f6';
         const r=parseInt(col.slice(1,3),16)||59,g=parseInt(col.slice(3,5),16)||130,b=parseInt(col.slice(5,7),16)||246;
         ctx.fillStyle = sel ? 'rgba(245,166,35,0.2)' : `rgba(${r},${g},${b},${surf.alpha||0.15})`;
         ctx.fill();
-        // Contour
         ctx.strokeStyle = sel ? C.selC : (isPrint ? (C.surfFg||col) : col);
         ctx.lineWidth = sel ? 2.5 : 1.5;
         ctx.setLineDash([5,3]);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
-        // Label surface au centroïde
         const cx_c = pts.reduce((a,p)=>a+p.x,0)/pts.length;
         const cy_c = pts.reduce((a,p)=>a+p.y,0)/pts.length;
         const {cx:lx,cy:ly}=toC(cx_c,cy_c);
@@ -611,9 +650,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.fill();
         ctx.fillStyle= sel ? C.selC : (isPrint ? '#333' : col);
         ctx.fillText(label,lx,ly+2);
-      }); // fin surfaces
+      });
 
-      // Points (extrémités des segments) — calque séparé
       if (lyrs.points) {
         const ptMap = new Map();
         segmentsRef.current.filter(s=>!s.deleted).forEach(s=>{
@@ -631,7 +669,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         });
       }
 
-      // Segments
       if (lyrs.segments) segmentsRef.current.forEach(s => {
         if (s.deleted) return;
         const {cx:x1,cy:y1}=toC(s.x1,s.y1);
@@ -643,9 +680,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         if (sel && !isPrint) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=6; }
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
         ctx.shadowBlur=0;
-      }); // fin segments
+      });
 
-      // Cotes
       if (lyrs.cotes) cotesRef.current.forEach(c => {
         if (c.deleted) return;
         const {cx:x1,cy:y1}=toC(c.x1,c.y1);
@@ -661,9 +697,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const ox=Math.cos(perp)*offset, oy=Math.sin(perp)*offset;
         ctx.strokeStyle = sel ? C.selC : C.cote;
         ctx.lineWidth = 1.5;
-        // Ligne principale
         ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy); ctx.stroke();
-        // Flèches
         const aw=10;
         [0,1].forEach(end => {
           const [bx,by] = end===0 ? [x1+ox,y1+oy] : [x2+ox,y2+oy];
@@ -673,11 +707,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.lineTo(bx+Math.cos(angle)*aw*dir, by+Math.sin(angle)*aw*dir);
           ctx.stroke();
         });
-        // Traits de rappel
         [[x1,y1],[x2,y2]].forEach(([px,py]) => {
           ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+ox*1.2,py+oy*1.2); ctx.stroke();
         });
-        // Texte
         ctx.save();
         ctx.translate(mx+ox, my+oy-8);
         ctx.rotate(Math.abs(angle) > Math.PI/2 ? angle+Math.PI : angle);
@@ -692,9 +724,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.fillStyle = sel ? C.selC : C.cote;
         ctx.fillText(label, 0, 0);
         ctx.restore();
-      }); // fin cotes
+      });
 
-      // Symboles
       if (lyrs.symbols) symbolsRef.current.forEach(sym => {
         if (sym.deleted) return;
         const {cx,cy}=toC(sym.x,sym.y);
@@ -726,32 +757,26 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.fillStyle=C.symT; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
           ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
         }
-        // Poignées si sélectionné
         if (selectedRef.current.has(sym.id)) {
           ctx.restore();
-          // Recalcul position pour les poignées
           const {cx:scx,cy:scy}=toC(sym.x,sym.y);
           const ssz=Math.max(12,vp.scale*0.6);
-          // Cadre de sélection
           ctx.save();
           ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
           ctx.strokeRect(scx-ssz-4,scy-ssz-4,ssz*2+8,ssz*2+8);
           ctx.setLineDash([]);
-          // Poignée rotation (haut centre)
           ctx.fillStyle='#f5a623';
           ctx.beginPath(); ctx.arc(scx,scy-ssz-14,5,0,Math.PI*2); ctx.fill();
           ctx.strokeStyle='#f5a623'; ctx.lineWidth=1;
           ctx.beginPath(); ctx.moveTo(scx,scy-ssz-4); ctx.lineTo(scx,scy-ssz-10); ctx.stroke();
-          // Poignée taille (coin bas-droit)
           ctx.fillStyle='#5b8af5';
           ctx.fillRect(scx+ssz,scy+ssz,8,8);
           ctx.restore();
         } else {
           ctx.restore();
         }
-      }); // fin symboles
+      });
 
-      // Ligne en cours + snap indicator
       const ls=lineStartRef.current, mp=mousePosRef.current;
       if (toolRef.current==='line' && ls && mp) {
         let {wx,wy}=toWorld(mp.cx,mp.cy);
@@ -763,15 +788,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.strokeStyle=lineColorRef.current; ctx.lineWidth=2; ctx.setLineDash([6,4]);
         ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey); ctx.stroke();
         ctx.setLineDash([]);
-        // Curseur snap
         if (snapped.snapped) {
           ctx.strokeStyle='#50c878'; ctx.lineWidth=2;
           ctx.beginPath(); ctx.arc(ex,ey,7,0,Math.PI*2); ctx.stroke();
         }
-        // Point de départ
         ctx.fillStyle='#5b8af5';
         ctx.beginPath(); ctx.arc(sx,sy,4,0,Math.PI*2); ctx.fill();
-        // ── Dimension en temps réel ──
         const {wx:lwx,wy:lwy}=toWorld(ex,ey);
         const lineDist=Math.sqrt((lwx-ls.x)**2+(lwy-ls.y)**2);
         if(lineDist>0.001){
@@ -788,7 +810,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         }
       }
 
-      // Outil cote en cours
       const mpts=measurePtsRef.current;
       if (toolRef.current==='cote' && mpts.length===1 && mp) {
         const {cx:x1,cy:y1}=toC(mpts[0].x,mpts[0].y);
@@ -809,7 +830,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.restore();
       }
 
-      // Rectangle de sélection
       const rs=rectSelRef.current;
       if (rs) {
         const rx=Math.min(rs.x1,rs.x2), ry=Math.min(rs.y1,rs.y2);
@@ -821,10 +841,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.setLineDash([]);
       }
 
-      // Polygone surface en cours de tracé
       const ppts = polyPtsRef.current, mp2 = mousePosRef.current;
       if (toolRef.current==='surface' && ppts.length>0) {
-        // Dimension temps réel du dernier segment
         if (mp2 && ppts.length>=1) {
           const lastPt=ppts[ppts.length-1];
           const {wx:mpwx,wy:mpwy}=toWorld(mp2.cx,mp2.cy);
@@ -847,22 +865,18 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const{cx:px0,cy:py0}=toC(ppts[0].x,ppts[0].y);
         ctx.moveTo(px0,py0);
         for(let i=1;i<ppts.length;i++){const{cx,cy}=toC(ppts[i].x,ppts[i].y);ctx.lineTo(cx,cy);}
-        // Ligne vers le curseur
         if(mp2) ctx.lineTo(mp2.cx,mp2.cy);
         ctx.stroke();
         ctx.setLineDash([]);
-        // Points de contrôle
         ppts.forEach((p,i)=>{
           const{cx,cy}=toC(p.x,p.y);
           ctx.fillStyle=i===0?'#f5a623':surfColorRef.current;
           ctx.beginPath(); ctx.arc(cx,cy,i===0?6:4,0,Math.PI*2); ctx.fill();
-          // Cercle de fermeture sur 1er point
           if(i===0&&ppts.length>=3){
             ctx.strokeStyle='#f5a623'; ctx.lineWidth=2;
             ctx.beginPath(); ctx.arc(cx,cy,10,0,Math.PI*2); ctx.stroke();
           }
         });
-        // Surface provisoire si ≥3 points
         if(ppts.length>=2){
           const r=parseInt(surfColorRef.current.slice(1,3),16);
           const g=parseInt(surfColorRef.current.slice(3,5),16);
@@ -873,7 +887,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.closePath();
           ctx.fillStyle=`rgba(${r},${g},${b},0.08)`;
           ctx.fill();
-          // Surface provisoire
           const area=calcSurface(ppts);
           if(area>0.001&&mp2){
             const areaLabel=area>=1?`${area.toFixed(2)} m²`:`${(area*10000).toFixed(0)} cm²`;
@@ -884,21 +897,18 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.restore();
       }
 
-      // Indicateur déplacement sélection en cours
       if (movingSelRef.current && mousePosRef.current) {
         ctx.fillStyle='rgba(91,138,245,0.7)';
         ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
         ctx.fillText('⊹ Déplacement en cours — relâcher pour poser', W/2, 22);
       }
 
-      // Indicateur ortho
       if (orthoRef.current) {
         ctx.fillStyle='rgba(80,200,120,0.85)';
         ctx.font='bold 11px sans-serif';
         ctx.textAlign='left';
         ctx.fillText('ORTHO', 10, H-10);
       }
-      // Indicateur snap
       if (snapRef.current) {
         ctx.fillStyle='rgba(91,138,245,0.85)';
         ctx.font='bold 11px sans-serif';
@@ -911,7 +921,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   useEffect(() => { render(); });
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
       if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
@@ -934,7 +943,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       if ((e.ctrlKey||e.metaKey)&&e.key==='p') { e.preventDefault(); setPrintMode(v=>!v); }
       if (e.key==='R'&&e.shiftKey)  setPlanRotation(0);
       if (e.key==='s'||e.key==='S') setSnapEnabled(v=>!v);
-      // Ctrl+C — Copier la sélection
       if ((e.ctrlKey||e.metaKey)&&e.key==='c') {
         e.preventDefault();
         if (selectedRef.current.size>0) {
@@ -947,7 +955,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           };
         }
       }
-      // Ctrl+V — Coller avec décalage
       if ((e.ctrlKey||e.metaKey)&&e.key==='v') {
         e.preventDefault();
         const cb=clipboardRef.current;
@@ -963,11 +970,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           setCotes(s=>[...s,...newCotes]);
           setSurfaces(s=>[...s,...newSurfs]);
           setSelectedIds(new Set([...newSegs,...newSyms,...newCotes,...newSurfs].map(x=>x.id)));
-          // Décaler le clipboard pour coller plusieurs fois
           clipboardRef.current = { segments:newSegs, symbols:newSyms, cotes:newCotes, surfaces:newSurfs };
         }
       }
-      // Ctrl+D — Dupliquer (copie immédiate avec décalage)
       if ((e.ctrlKey||e.metaKey)&&e.key==='d') {
         e.preventDefault();
         if (selectedRef.current.size>0) {
@@ -999,7 +1004,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Resize canvas avec debounce
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const container = canvas.parentElement; if (!container) return;
@@ -1019,7 +1023,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     return () => { observer.disconnect(); if(rafId) cancelAnimationFrame(rafId); };
   }, []);
 
-  // Fit to content
   const fitView = useCallback(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const segs  = segmentsRef.current.filter(s=>!s.deleted);
@@ -1036,10 +1039,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   useEffect(() => { if (segments.length>0) fitView(); }, []);
 
-  // ── Mouse events ────────────────────────────────────────────────────────────
-  const dragRef    = useRef(null); // pan drag
-  const rectRef    = useRef(null); // rectangle selection start (canvas coords)
-  const midDragRef = useRef(null); // clic molette pan
+  const dragRef    = useRef(null);
+  const rectRef    = useRef(null);
+  const midDragRef = useRef(null);
 
   const getEventPos = (e) => {
     const canvas=canvasRef.current;
@@ -1052,7 +1054,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   const onMouseDown = (e) => {
     if (!canvasRef.current) return;
-    // Clic molette → pan dans tous les modes
     if (e.button===1) {
       e.preventDefault();
       const pos=getEventPos(e);
@@ -1068,13 +1069,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       dragRef.current={startCx:pos.cx,startCy:pos.cy,startVx:v.x,startVy:v.y};
 
     } else if (tool==='select') {
-      // Vérifier si on clique sur un élément déjà sélectionné → déplacer
       const hitThresh=10/vpRef.current.scale;
       let hitExisting=false;
       if (selectedRef.current.size>0) {
-        // Test rapide : clic dans la bbox de la sélection
         const ids=selectedRef.current;
-        // Cherche si un élément sélectionné est sous le curseur
         for (const s of segmentsRef.current.filter(x=>!x.deleted&&ids.has(x.id))) {
           const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
           if(!len2) continue;
@@ -1098,7 +1096,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           if(inside){hitExisting=true;break;}
         }
       }
-      // Vérifier si on clique sur le label d'une cote sélectionnée → déplacer son offset
       let coteDragHit = null;
       if (selectedRef.current.size === 1) {
         const selId = [...selectedRef.current][0];
@@ -1122,7 +1119,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         return;
       }
       if (hitExisting) {
-        // Démarrer le déplacement de la sélection
         movingSelRef.current = {
           startWx: wx, startWy: wy,
           origSegs:  segmentsRef.current.map(s=>({...s})),
@@ -1132,11 +1128,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         };
         return;
       }
-      // Si on clique sans glisser → désélection. Le rectangle se gère dans onMouseMove
       rectRef.current={ cx:pos.cx, cy:pos.cy, moved:false };
-      // Clic simple sur un élément → toggle sélection
       let hit=null;
-      // Cherche cote
       for (const c of cotesRef.current.filter(x=>!x.deleted)) {
         const dx=c.x2-c.x1,dy=c.y2-c.y1,len2=dx*dx+dy*dy;
         if (!len2) continue;
@@ -1144,7 +1137,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const px=c.x1+t*dx-wx,py=c.y1+t*dy-wy;
         if (Math.sqrt(px*px+py*py)<hitThresh) { hit=c.id; break; }
       }
-      // Cherche segment
       if (!hit) for (const s of segmentsRef.current.filter(x=>!x.deleted)) {
         const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
         if (!len2) continue;
@@ -1152,15 +1144,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const px=s.x1+t*dx-wx,py=s.y1+t*dy-wy;
         if (Math.sqrt(px*px+py*py)<hitThresh) { hit=s.id; break; }
       }
-      // Hit test symboles (prioritaire — on clique dessus en premier)
       if (!hit) for (const sym of symbolsRef.current.filter(x=>!x.deleted)) {
         const hitR = Math.max(0.8, (12 / vpRef.current.scale) * (sym.size||1));
         const d = Math.sqrt((wx-sym.x)**2+(wy-sym.y)**2);
         if (d < hitR) { hit=sym.id; break; }
       }
-      // Hit test surfaces
       if (!hit) for (const surf of surfacesRef.current.filter(x=>!x.deleted)) {
-        // Point dans polygone (ray casting)
         const pts=surf.points; let inside=false;
         for(let i=0,j=pts.length-1;i<pts.length;j=i++){
           if(((pts[i].y>wy)!=(pts[j].y>wy))&&(wx<(pts[j].x-pts[i].x)*(wy-pts[i].y)/(pts[j].y-pts[i].y)+pts[i].x))
@@ -1175,7 +1164,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           else { n.clear(); n.add(hit); }
           return n;
         });
-        // Si c'est un symbole → ouvrir le panneau propriétés
         const hitSym = symbolsRef.current.find(s=>s.id===hit&&!s.deleted);
         if (hitSym) {
           setSymProps({id:hitSym.id,x:hitSym.x,y:hitSym.y,
@@ -1190,7 +1178,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       }
 
     } else if (tool==='delete') {
-      // Suppression directe au clic — segments et cotes
       const hitThresh=10/vpRef.current.scale;
       let bestId=null,bestDist=Infinity;
       [...segmentsRef.current.filter(s=>!s.deleted),...cotesRef.current.filter(s=>!s.deleted)].forEach(s=>{
@@ -1201,14 +1188,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const d=Math.sqrt(px*px+py*py);
         if(d<hitThresh&&d<bestDist){bestDist=d;bestId=s.id;}
       });
-      // Hit test symboles
       if(!bestId){
         for(const sym of symbolsRef.current.filter(s=>!s.deleted)){
           const hitR=Math.max(0.8,(12/vpRef.current.scale)*(sym.size||1));
           if(Math.sqrt((wx-sym.x)**2+(wy-sym.y)**2)<hitR){bestId=sym.id;break;}
         }
       }
-      // Hit test surfaces (clic à l'intérieur)
       if(!bestId){
         for(const surf of surfacesRef.current.filter(s=>!s.deleted)){
           const pts=surf.points; let inside=false;
@@ -1242,7 +1227,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           color:lineColorRef.current,layer:'user',user:true,id:Date.now()+Math.random()};
         pushHistory(segments,symbols,cotes);
         setSegments(s=>[...s,newSeg]);
-        // Chaîner : le point d'arrivée devient le départ
         setLineStart({x:lx,y:ly});
       }
 
@@ -1275,14 +1259,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     } else if (tool==='surface') {
       const s=snapToPoint(wx,wy);
       const cur=polyPtsRef.current;
-      // Clic sur le 1er point (≥3 pts) → fermer le polygone
       if(cur.length>=3){
         const first=cur[0];
         const dx=first.x-s.wx, dy=first.y-s.wy;
         const distClose=Math.sqrt(dx*dx+dy*dy);
         const closeThresh=12/vpRef.current.scale;
         if(distClose<closeThresh){
-          // Fermer et créer la surface
           pushHistory(segments,symbols,cotes);
           setSurfaces(prev=>[...prev,{
             id:Date.now()+Math.random(),
@@ -1302,7 +1284,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const pos=getEventPos(e);
     setMousePos(pos);
 
-    // Pan molette — snapshot local pour éviter la race condition
     const midDrag=midDragRef.current;
     if (midDrag) {
       const scale=vpRef.current.scale;
@@ -1310,13 +1291,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       const cosR=Math.cos(-rot), sinR=Math.sin(-rot);
       const rawDx=(pos.cx-midDrag.startCx)/scale;
       const rawDy=(pos.cy-midDrag.startCy)/scale;
-      // Contre-rotation du delta pour qu'il suive le curseur quelle que soit la rotation
       const dx=rawDx*cosR-rawDy*sinR;
       const dy=rawDx*sinR+rawDy*cosR;
       setVp(v=>({...v,x:midDrag.startVx-dx,y:midDrag.startVy-dy}));
       return;
     }
-    // Pan normal
     const drag=dragRef.current;
     if (drag && toolRef.current==='pan') {
       const scale=vpRef.current.scale;
@@ -1324,31 +1303,26 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       const cosR=Math.cos(-rot), sinR=Math.sin(-rot);
       const rawDx=(pos.cx-drag.startCx)/scale;
       const rawDy=(pos.cy-drag.startCy)/scale;
-      // Contre-rotation du delta
       const dx=rawDx*cosR-rawDy*sinR;
       const dy=rawDx*sinR+rawDy*cosR;
       setVp(v=>({...v,x:drag.startVx-dx,y:drag.startVy-dy}));
       return;
     }
-    // Déplacement offset cote
     const mc = movingCoteRef.current;
     if (mc) {
       const {wx:cwx, wy:cwy} = toWorld(pos.cx, pos.cy);
-      // Projection du déplacement sur l'axe perpendiculaire
       const dx = cwx - mc.startWx, dy = cwy - mc.startWy;
       const proj = dx*mc.perpX + dy*mc.perpY;
       const newOffset = mc.origOffset + proj;
       setCotes(arr => arr.map(c => c.id===mc.id ? {...c, offset:newOffset} : c));
       return;
     }
-    // Déplacement de la sélection
     const mv = movingSelRef.current;
     if (mv) {
       const {wx:cwx, wy:cwy} = toWorld(pos.cx, pos.cy);
       const ddx = cwx - mv.startWx;
       const ddy = cwy - mv.startWy;
       const ids = selectedRef.current;
-      // Appliquer le delta sur les copies originales
       setSegments(mv.origSegs.map(s=>ids.has(s.id)&&!s.deleted
         ?{...s,x1:s.x1+ddx,y1:s.y1+ddy,x2:s.x2+ddx,y2:s.y2+ddy}:s));
       setSymbols(mv.origSyms.map(s=>ids.has(s.id)&&!s.deleted
@@ -1359,7 +1333,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ?{...s,points:s.points.map(p=>({x:p.x+ddx,y:p.y+ddy}))}:s));
       return;
     }
-    // Rectangle de sélection
     if (rectRef.current && toolRef.current==='select') {
       rectRef.current.moved=true;
       setRectSel({x1:rectRef.current.cx,y1:rectRef.current.cy,x2:pos.cx,y2:pos.cy});
@@ -1369,15 +1342,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const onMouseUp = (e) => {
     midDragRef.current=null;
     dragRef.current=null;
-    // Finaliser drag cote offset
     if (movingCoteRef.current) {
       movingCoteRef.current = null;
       return;
     }
-    // Finaliser déplacement sélection
     if (movingSelRef.current) {
-      // Les states ont déjà été mis à jour en live dans onMouseMove
-      // On push l'historique avec les positions originales (avant le move)
       const mv = movingSelRef.current;
       historyRef.current = [...historyRef.current.slice(-29), {
         segments: mv.origSegs, symbols: mv.origSyms,
@@ -1389,7 +1358,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       movingSelRef.current = null;
       return;
     }
-    // Finaliser rectangle de sélection
     const rs=rectSelRef.current;
     if (rectRef.current?.moved && rs) {
       const vp=vpRef.current;
@@ -1421,7 +1389,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const onMouseLeave = () => {
     dragRef.current=null; midDragRef.current=null;
     movingCoteRef.current=null;
-    // Annuler le déplacement en cours → remettre les positions originales
     if (movingSelRef.current) {
       const mv = movingSelRef.current;
       setSegments(mv.origSegs);
@@ -1435,16 +1402,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const onWheel = (e) => {
     e.preventDefault();
     const pos=getEventPos(e);
-    // Point monde sous le curseur (toWorld gère déjà la rotation inverse)
     const {wx,wy}=toWorld(pos.cx,pos.cy);
     const factor=e.deltaY<0?1.15:0.87;
     setVp(v=>{
       const ns=Math.max(0.01,Math.min(1000,v.scale*factor));
-      // Après zoom, on veut que le point monde (wx,wy) reste sous le curseur.
-      // toC(wx,wy) avec le nouveau viewport doit donner pos.cx, pos.cy.
-      // toC = rotation( (wx-nx)*ns, (wy-ny)*ns ) autour du centre canvas
-      // On résout pour nx, ny :
-      // Étape 1 : contre-rotation de pos pour obtenir le point non-roté équivalent
       const rot=planRotRef.current*Math.PI/180;
       const canvas=canvasRef.current;
       const cx0=canvas?canvas.width/2:400, cy0=canvas?canvas.height/2:300;
@@ -1452,12 +1413,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       const cosNR=Math.cos(-rot), sinNR=Math.sin(-rot);
       const unrotX=cx0+pdx*cosNR-pdy*sinNR;
       const unrotY=cy0+pdx*sinNR+pdy*cosNR;
-      // Étape 2 : résoudre (wx-nx)*ns = unrotX-cx0+cx0  =>  nx = wx-(unrotX)/ns
       return {scale:ns, x:wx-unrotX/ns, y:wy-unrotY/ns};
     });
   };
 
-  // ── Import DXF ──────────────────────────────────────────────────────────────
   const importDXF = (e) => {
     const file=e.target.files[0]; if(!file) return;
     const reader=new FileReader();
@@ -1473,8 +1432,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     e.target.value='';
   };
 
-  // ── Save ────────────────────────────────────────────────────────────────────
-  // Import depuis un autre plan Supabase
   const [showImportModal, setShowImportModal] = useState(false);
   const [importablePlans, setImportablePlans] = useState([]);
   const [importLoading, setImportLoading] = useState(false);
@@ -1489,7 +1446,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   const importFromPlan = (srcPlan) => {
     const d = srcPlan.data||{};
-    const offset = 0; // Import sans décalage (le plan se superpose)
     const reId = arr => (arr||[]).map(x=>({...x, id:Date.now()+Math.random(),
       ...(x.points?{points:x.points.map(p=>({...p}))}:{})}));
     const newSegs  = reId(d.segments);
@@ -1501,7 +1457,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setSymbols(s=>[...s,...newSyms]);
     setCotes(s=>[...s,...newCotes]);
     setSurfaces(s=>[...s,...newSurfs]);
-    // Sélectionner les éléments importés
     setSelectedIds(new Set([...newSegs,...newSyms,...newCotes,...newSurfs].map(x=>x.id)));
     setShowImportModal(false);
     setTimeout(fitView, 50);
@@ -1519,9 +1474,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   const exportPNG = (forPrint=false) => {
     const canvas=canvasRef.current; if(!canvas) return;
-    // En mode impression on fait un export propre sans les indicateurs UI
     if (forPrint) {
-      // Activer mode impression, re-render, exporter, puis désactiver
       printModeRef.current=true; render();
       setTimeout(()=>{
         const a=document.createElement('a');
@@ -1537,6 +1490,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       a.click();
     }
   };
+
   const exportPDF = (forPrint=false) => {
     const canvas=canvasRef.current; if(!canvas) return;
     const doExport = () => {
@@ -1595,7 +1549,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
         <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
 
-        {/* Outils */}
         {TOOLS.map(t=>(
           <button key={t.id} title={t.label} onClick={()=>{setTool(t.id);setLineStart(null);setMeasurePts([]);setMeasureDist(null);setRectSel(null);}} style={btnStyle(t.id)}>
             {t.icon}
@@ -1604,7 +1557,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
         <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
 
-        {/* Couleurs de ligne */}
         <div style={{display:'flex',gap:4,alignItems:'center'}}>
           {LINE_COLORS.map(c=>(
             <button key={c.value} title={c.label} onClick={()=>setLineColor(c.value)} style={{
@@ -1615,7 +1567,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ))}
         </div>
 
-        {/* Palette couleur surface — visible quand outil surface actif */}
         {tool==='surface'&&(
           <div style={{display:'flex',gap:4,alignItems:'center',padding:'3px 8px',
             background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
@@ -1635,7 +1586,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           </div>
         )}
 
-        {/* Recolorer la sélection */}
         {selCount>0&&(
           <button title="Recolorer la sélection" onClick={()=>{
             pushHistory(segments,symbols,cotes);
@@ -1648,7 +1598,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
         <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
 
-        {/* Rotation du plan */}
         <div style={{display:'flex',alignItems:'center',gap:4,padding:'3px 6px',
           background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
           <span style={{fontSize:11,color:'#9aa5c0'}}>↻</span>
@@ -1664,7 +1613,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             width:24,height:24,cursor:'pointer',color:'#9aa5c0',fontSize:11,fontFamily:'inherit'}}>⊙</button>
         </div>
 
-        {/* Calques */}
         <div style={{display:'flex',alignItems:'center',gap:4,padding:'3px 8px',
           background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
           <span style={{fontSize:10,color:'#9aa5c0',marginRight:2}}>CALQUES</span>
@@ -1686,7 +1634,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ))}
         </div>
 
-        {/* Toggles */}
         <button title={`Snap aux points ${snapEnabled?'ON':'OFF'} (S)`} onClick={()=>setSnapEnabled(v=>!v)} style={{
           ...btnStyle('snap'), background:snapEnabled?'rgba(91,138,245,0.3)':'rgba(255,255,255,0.06)',
           width:'auto',padding:'0 10px',fontSize:11,fontWeight:700,
@@ -1699,7 +1646,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           color:orthoMode?'#7ee8a2':'#9aa5c0',border:`1px solid ${orthoMode?'rgba(80,200,120,0.5)':'transparent'}`,
         }}>⊞ ORTHO</button>
 
-        {/* Import DXF */}
         <label style={{display:'flex',alignItems:'center',gap:5,padding:'6px 11px',
           background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
           borderRadius:8,color:'#a0b8ff',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
@@ -1707,7 +1653,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           <input type='file' accept='.dxf' style={{display:'none'}} onChange={importDXF}/>
         </label>
 
-        {/* Seuil */}
         <button onClick={()=>setShowThreshold(s=>!s)} style={{...btnStyle('thr'),width:'auto',padding:'0 8px',fontSize:11}}>
           ⚙ {threshold}m
         </button>
@@ -1724,7 +1669,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
         <div style={{flex:1}}/>
 
-        {/* Fit / Undo / Redo */}
         <button title="Ajuster la vue (tout afficher)" onClick={fitView} style={{...btnStyle('fit'),fontSize:14}}>⊙</button>
         <button title="Tout sélectionner (Ctrl+A)" onClick={()=>{
           const allIds=new Set([...segments.filter(s=>!s.deleted).map(s=>s.id),...symbols.filter(s=>!s.deleted).map(s=>s.id),...cotes.filter(s=>!s.deleted).map(s=>s.id),...surfaces.filter(s=>!s.deleted).map(s=>s.id)]);
@@ -1734,7 +1678,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         <button title="Rétablir Ctrl+Y" onClick={redo} disabled={futureLen===0}  style={{...btnStyle('r'),fontSize:16,opacity:futureLen===0?0.3:1}}>⟳</button>
         <button title="Aide raccourcis ?" onClick={()=>setShowHelp(h=>!h)} style={{...btnStyle('h'),fontSize:14,background:showHelp?'rgba(255,194,0,0.2)':'rgba(255,255,255,0.06)'}}>?</button>
 
-        {/* Mode impression */}
         <button onClick={()=>setPrintMode(v=>!v)} title="Basculer fond blanc pour impression (Ctrl+P)"
           style={{...btnStyle('print'),
             background:printMode?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.06)',
@@ -1743,7 +1686,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           🖨 {printMode?'Impression ON':'Impression'}
         </button>
 
-        {/* Taille police cotes */}
         <div style={{display:'flex',alignItems:'center',gap:4,padding:'3px 8px',
           background:'rgba(255,255,255,0.04)',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)'}}>
           <span style={{fontSize:10,color:'#9aa5c0'}}>↔ Police</span>
@@ -1756,14 +1698,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             width:20,height:20,cursor:'pointer',color:'#9aa5c0',fontSize:12,fontFamily:'inherit'}}>+</button>
         </div>
 
-        {/* Auto-fermeture lignes */}
         <button title={`Fermeture auto des écarts ${autoClose?'ON':'OFF'}`} onClick={()=>setAutoClose(v=>!v)} style={{
           ...btnStyle('ac'), background:autoClose?'rgba(80,200,120,0.3)':'rgba(255,255,255,0.06)',
           width:'auto',padding:'0 8px',fontSize:11,fontWeight:700,
           color:autoClose?'#7ee8a2':'#9aa5c0',border:`1px solid ${autoClose?'rgba(80,200,120,0.5)':'transparent'}`,
         }}>⊂ GAP</button>
 
-        {/* Bibliothèque DXF */}
         <button onClick={()=>setShowLibrary(true)} title="Bibliothèque de symboles DXF" style={{
           background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
           borderRadius:8,padding:'6px 11px',color:'#f5a623',fontFamily:'inherit',
@@ -1771,14 +1711,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           📚 Bibliothèque
         </button>
 
-        {/* Import plan existant */}
         <button onClick={openImportModal} title="Importer les éléments d'un autre plan" style={{
           background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
           borderRadius:8,padding:'6px 12px',color:'#a0b8ff',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
           ⎘ Importer plan
         </button>
 
-        {/* Export */}
         <button onClick={()=>exportPNG()} style={{background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.3)',
           borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PNG</button>
         <button onClick={()=>exportPNG(true)} style={{background:'rgba(80,200,120,0.2)',border:'1px solid rgba(80,200,120,0.4)',
@@ -1835,7 +1773,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             </span>
             <button onClick={()=>setSymProps(null)} style={{background:'transparent',border:'none',color:'#5b6a8a',cursor:'pointer',fontSize:16}}>✕</button>
           </div>
-          {/* Rotation */}
           <div style={{marginBottom:10}}>
             <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Rotation</div>
             <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -1861,7 +1798,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
               ))}
             </div>
           </div>
-          {/* Taille */}
           <div style={{marginBottom:10}}>
             <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Taille</div>
             <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -1875,7 +1811,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
               <span style={{fontSize:12,color:'#f5a623',fontWeight:700,minWidth:34}}>×{(symProps.size||1).toFixed(1)}</span>
             </div>
           </div>
-          {/* Position */}
           <div style={{marginBottom:10}}>
             <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Position</div>
             <div style={{display:'flex',gap:6}}>
@@ -1903,7 +1838,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
               </div>
             </div>
           </div>
-          {/* Texte si applicable */}
           {(symProps.type==='text'||symProps.type==='door'||symProps.type==='window')&&(
             <div style={{marginBottom:4}}>
               <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Étiquette</div>
@@ -1943,14 +1877,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
                   <div key={cat} style={{marginBottom:20}}>
                     <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',
                       color:'#5b6a8a',marginBottom:10,paddingBottom:6,borderBottom:'1px solid rgba(255,255,255,0.06)'}}>{cat}</div>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:8}}>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:8}}>
                       {items.map(sym=>(
                         <button key={sym.id} onClick={()=>{
-                          // Insérer au centre de la vue courante
                           const canvas=canvasRef.current;
                           const cx=canvas?canvas.width/2:400, cy=canvas?canvas.height/2:300;
                           const {wx,wy}=toWorld(cx,cy);
-                          // Calculer le centre du symbole
                           const allX=sym.segments.flatMap(s=>[s.x1,s.x2]);
                           const allY=sym.segments.flatMap(s=>[s.y1,s.y2]);
                           const minX=Math.min(...allX),maxX=Math.max(...allX);
@@ -2111,7 +2043,6 @@ function PagePlans({T, chantiers}) {
     setPlans(p=>p.map(x=>x.id===updated.id?updated:x));
   };
 
-  // Editor mode
   if (editingPlan) return (
     <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',width:'100%'}}>
       <PlanEditorErrorBoundary onClose={()=>{ setEditingPlan(null); loadPlans(); }}>
@@ -2122,7 +2053,6 @@ function PagePlans({T, chantiers}) {
     </div>
   );
 
-  // List mode
   return (
     <div className="page-padding" style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
       <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:16}}>
@@ -2136,7 +2066,6 @@ function PagePlans({T, chantiers}) {
         </button>
       </div>
 
-      {/* Modal nouveau plan */}
       {showNew&&(
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:500,
           display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
@@ -2189,7 +2118,6 @@ function PagePlans({T, chantiers}) {
         </div>
       )}
 
-      {/* Grille des plans */}
       {!loading&&plans.length>0&&(
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16}}>
           {plans.map(plan=>{
@@ -2202,7 +2130,6 @@ function PagePlans({T, chantiers}) {
                 onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.2)';}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform='none';e.currentTarget.style.boxShadow='none';}}>
 
-                {/* Thumbnail / preview */}
                 <div onClick={()=>setEditingPlan(plan)} style={{cursor:'pointer',height:160,
                   background:'#12151f',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
                   borderBottom:`1px solid ${T.border}`}}>
@@ -2234,10 +2161,8 @@ function PagePlans({T, chantiers}) {
                     Ouvrir
                   </button>
                   <button onClick={async()=>{
-                    // Crée un nouveau plan avec les données de celui-ci
                     const nom=prompt(`Nom du nouveau plan (copie de "${plan.name}") :`, `${plan.name} — copie`);
                     if(!nom?.trim()) return;
-                    // Copie des données avec nouveaux IDs
                     const srcData=plan.data||{};
                     const reId=arr=>(arr||[]).map(x=>({...x,id:Date.now()+Math.random(),
                       ...(x.points?{points:x.points.map(p=>({...p}))}:{})}));
