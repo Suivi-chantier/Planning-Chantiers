@@ -684,7 +684,7 @@ const DXF_LIBRARY = [
       {x1:-0.015,y1:0.05,x2:-0.015,y2:0.14},{x1:0.015,y1:0.05,x2:0.015,y2:0.14},{x1:-0.015,y1:0.14,x2:0.015,y2:0.14},
     ]},
 
-  { id:'plomb_compteur_eau', name:'Compteur d'eau', icon:'💧', category:'Plomberie',
+  { id:'plomb_compteur_eau', name:"Compteur d'eau", icon:'💧', category:'Plomberie',
     segments:[
       // Boîtier 20×12 cm
       {x1:-0.10,y1:-0.06,x2:0.10,y2:-0.06},{x1:0.10,y1:-0.06,x2:0.10,y2:0.06},{x1:0.10,y1:0.06,x2:-0.10,y2:0.06},{x1:-0.10,y1:0.06,x2:-0.10,y2:-0.06},
@@ -777,7 +777,7 @@ const DXF_LIBRARY = [
       {x1:-0.30,y1:0,x2:-0.40,y2:0},
     ]},
 
-  { id:'plomb_vase_expansion', name:'Vase d'expansion', icon:'⭕', category:'Plomberie',
+  { id:'plomb_vase_expansion', name:"Vase d'expansion", icon:'⭕', category:'Plomberie',
     segments:[
       // Cercle Ø 20 cm
       {x1:0.10,y1:-0.10,x2:0.10,y2:0.10},{x1:0.10,y1:0.10,x2:-0.10,y2:0.10},{x1:-0.10,y1:0.10,x2:-0.10,y2:-0.10},{x1:-0.10,y1:-0.10,x2:0.10,y2:-0.10},
