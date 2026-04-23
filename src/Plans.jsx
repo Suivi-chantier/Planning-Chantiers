@@ -386,8 +386,27 @@ const DXF_LIBRARY = [
       {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.2},{x1:1.2,y1:0.2,x2:0,y2:0.2},{x1:0,y1:0.2,x2:0,y2:0},
       ...Array.from({length:7},(_,i)=>[{x1:0.05+i*0.17,y1:0,x2:0.05+i*0.17,y2:0.2}]).flat(),
     ]},
+  { id:'radiateur_60', name:'Radiateur 60×20 cm', icon:'🔥', category:'Équipements généraux',
+    segments:[
+      {x1:0,y1:0,x2:0.6,y2:0},{x1:0.6,y1:0,x2:0.6,y2:0.2},{x1:0.6,y1:0.2,x2:0,y2:0.2},{x1:0,y1:0.2,x2:0,y2:0},
+      ...Array.from({length:4},(_,i)=>[{x1:0.05+i*0.17,y1:0,x2:0.05+i*0.17,y2:0.2}]).flat(),
+    ]},
 
-  // ── ÉLECTRICITÉ — symboles taille écran fixe (libSym:true) ──────────────────
+  // Radiateurs & sèche-serviettes comme libSym (taille fixe écran)
+  { id:'rad_elec_60',   name:'Radiateur électrique 60cm',   icon:'🔥', category:'Équipements généraux', libSym:true, symType:'rad_elec',   label:'RAD',  color:'#f5a623' },
+  { id:'rad_elec_120',  name:'Radiateur électrique 120cm',  icon:'🔥', category:'Équipements généraux', libSym:true, symType:'rad_elec_l', label:'RAD',  color:'#f5a623' },
+  { id:'rad_eau_60',    name:'Radiateur eau chaude 60cm',   icon:'🔥', category:'Équipements généraux', libSym:true, symType:'rad_eau',    label:'RAD',  color:'#e05c5c' },
+  { id:'rad_eau_120',   name:'Radiateur eau chaude 120cm',  icon:'🔥', category:'Équipements généraux', libSym:true, symType:'rad_eau_l',  label:'RAD',  color:'#e05c5c' },
+  { id:'ss_electrique', name:'Sèche-serviettes électrique', icon:'🛁', category:'Équipements généraux', libSym:true, symType:'ss_elec',    label:'SS',   color:'#5b8af5' },
+  { id:'ss_eau_chaude', name:'Sèche-serviettes eau chaude', icon:'🛁', category:'Équipements généraux', libSym:true, symType:'ss_eau',     label:'SS',   color:'#e05c5c' },
+  { id:'ss_mixte',      name:'Sèche-serviettes mixte',      icon:'🛁', category:'Équipements généraux', libSym:true, symType:'ss_mixte',   label:'SS',   color:'#b060ff' },
+
+  // ── LÉGENDE ──────────────────────────────────────────────────────────────────
+  // Éléments spéciaux : génèrent un bloc légende complet dans le plan
+  { id:'legende_elec',   name:'Légende Électricité',  icon:'📋', category:'Légende', libSym:true, symType:'legende_elec',   label:'LGD', color:'#FFC200', legendeType:'elec'   },
+  { id:'legende_plomb',  name:'Légende Plomberie',    icon:'📋', category:'Légende', libSym:true, symType:'legende_plomb',  label:'LGD', color:'#40d0e0', legendeType:'plomb'  },
+  { id:'legende_chauff', name:'Légende Chauffage',    icon:'📋', category:'Légende', libSym:true, symType:'legende_chauff', label:'LGD', color:'#f5a623', legendeType:'chauff' },
+  { id:'legende_globale',name:'Légende complète',     icon:'📋', category:'Légende', libSym:true, symType:'legende_globale',label:'LGD', color:'#50c878', legendeType:'global' },
   // Ces éléments sont insérés comme des symbols (pas des segments)
   // Le rendu est géré dans drawLibSym() — taille constante quel que soit le zoom
 
@@ -810,6 +829,66 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       ctx.beginPath(); ctx.moveTo(-r,0); ctx.lineTo(r,0); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(-r*0.7,-r*0.5); ctx.lineTo(r*0.7,-r*0.5); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0,r); ctx.lineTo(0,r*1.4); ctx.stroke();
+
+    // ─ Radiateurs & sèche-serviettes ─────────────────────────────────────────
+    } else if (symType === 'rad_elec' || symType === 'rad_elec_l') {
+      // Rectangle horizontal avec ailettes verticales + symbole éclair
+      const rw = symType==='rad_elec_l' ? r*1.8 : r*1.1;
+      ctx.strokeRect(-rw, -r*0.4, rw*2, r*0.8);
+      const nc = symType==='rad_elec_l' ? 5 : 3;
+      for(let i=1;i<nc;i++){ const x=-rw+i*(rw*2/nc); ctx.beginPath(); ctx.moveTo(x,-r*0.4); ctx.lineTo(x,r*0.4); ctx.stroke(); }
+      // Éclair centré
+      ctx.beginPath();
+      ctx.moveTo(r*0.1,-r*0.25); ctx.lineTo(-r*0.1,0); ctx.lineTo(r*0.05,0); ctx.lineTo(-r*0.1,r*0.25);
+      ctx.stroke();
+
+    } else if (symType === 'rad_eau' || symType === 'rad_eau_l') {
+      // Rectangle horizontal avec ailettes + 2 points de raccord (eau)
+      const rw = symType==='rad_eau_l' ? r*1.8 : r*1.1;
+      ctx.strokeRect(-rw, -r*0.4, rw*2, r*0.8);
+      const nc = symType==='rad_eau_l' ? 5 : 3;
+      for(let i=1;i<nc;i++){ const x=-rw+i*(rw*2/nc); ctx.beginPath(); ctx.moveTo(x,-r*0.4); ctx.lineTo(x,r*0.4); ctx.stroke(); }
+      // 2 raccords eau (cercles aux extrémités)
+      ctx.beginPath(); ctx.arc(-rw, 0, r*0.12, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(rw, 0, r*0.12, 0, Math.PI*2); ctx.fill();
+
+    } else if (symType === 'ss_elec' || symType === 'ss_eau' || symType === 'ss_mixte') {
+      // Cadre vertical (sèche-serviettes = portrait)
+      ctx.strokeRect(-r*0.55, -r, r*1.1, r*2);
+      // 3 barreaux horizontaux
+      for(let i=0;i<3;i++){
+        const y = -r*0.55 + i*r*0.55;
+        ctx.beginPath(); ctx.moveTo(-r*0.55, y); ctx.lineTo(r*0.55, y); ctx.stroke();
+      }
+      if (symType==='ss_elec') {
+        // Éclair à droite
+        ctx.beginPath(); ctx.moveTo(r*0.15,-r*0.2); ctx.lineTo(-r*0.05,r*0.05); ctx.lineTo(r*0.08,r*0.05); ctx.lineTo(-r*0.1,r*0.3); ctx.stroke();
+      } else if (symType==='ss_eau') {
+        // 2 raccords eau
+        ctx.beginPath(); ctx.arc(0, -r, r*0.13, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, r, r*0.13, 0, Math.PI*2); ctx.fill();
+      } else {
+        // Mixte : éclair + raccord
+        ctx.beginPath(); ctx.moveTo(r*0.15,-r*0.3); ctx.lineTo(-r*0.05,-r*0.05); ctx.lineTo(r*0.08,-r*0.05); ctx.lineTo(-r*0.1,r*0.2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, r, r*0.13, 0, Math.PI*2); ctx.fill();
+      }
+
+    // ─ Légendes ───────────────────────────────────────────────────────────────
+    } else if (symType.startsWith('legende_')) {
+      // Pictogramme : petite grille tableau
+      ctx.strokeRect(-r, -r*0.8, r*2, r*1.6);
+      ctx.beginPath(); ctx.moveTo(-r, -r*0.27); ctx.lineTo(r, -r*0.27); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-r,  r*0.27); ctx.lineTo(r,  r*0.27); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-r*0.2, -r*0.8); ctx.lineTo(-r*0.2, r*0.8); ctx.stroke();
+      // Petits carrés colorés à gauche (symboles)
+      const cols = symType==='legende_elec' ? ['#FFC200','#5b8af5','#f5d08a','#e05c5c'] :
+                   symType==='legende_plomb' ? ['#5b8af5','#40d0e0','#f5a623','#50c878'] :
+                   symType==='legende_chauff' ? ['#f5a623','#e05c5c','#5b8af5','#b060ff'] :
+                   ['#FFC200','#5b8af5','#f5a623','#50c878'];
+      cols.forEach((c,i) => {
+        ctx.fillStyle = c;
+        ctx.fillRect(-r*0.15, -r*0.7 + i*r*0.45, r*0.2, r*0.28);
+      });
     }
 
     // ─ Label court centré en bas ─
@@ -999,8 +1078,151 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
         // ── Symboles bibliothèque élec/plomb (taille fixe écran) ──
         if (sym.libSym) {
-          const fixedSz = 22 * (sym.size||1); // taille fixe en px écran
           const sel = selectedRef.current.has(sym.id);
+
+          // ── Rendu spécial : LÉGENDE ──────────────────────────────────────────
+          if (sym.symType && sym.symType.startsWith('legende_')) {
+            const ltype = sym.legendeType || sym.symType.replace('legende_','');
+            // Définir les lignes selon le type
+            const ROWS = {
+              elec: [
+                {symType:'elec_inter_simple', color:'#FFC200', label:'INT',  name:'Interrupteur simple'},
+                {symType:'elec_inter_double', color:'#FFC200', label:'INT×2',name:'Interrupteur double'},
+                {symType:'elec_va_vient',     color:'#FFC200', label:'VV',   name:'Va-et-vient'},
+                {symType:'elec_minuterie',    color:'#FFC200', label:'MIN',  name:'Minuterie'},
+                {symType:'elec_variateur',    color:'#FFC200', label:'VAR',  name:'Variateur'},
+                {symType:'elec_prise',        color:'#5b8af5', label:'16A',  name:'Prise 2P+T 16A'},
+                {symType:'elec_prise',        color:'#5b8af5', label:'20A',  name:'Prise 20A spécialisée'},
+                {symType:'elec_prise_double', color:'#5b8af5', label:'×2',   name:'Prise double 2P+T'},
+                {symType:'elec_prise_data',   color:'#40d0e0', label:'RJ45', name:'Prise RJ45'},
+                {symType:'elec_prise_data',   color:'#40d0e0', label:'TV',   name:'Prise TV / Antenne'},
+                {symType:'elec_luminaire',    color:'#f5d08a', label:'PL',   name:'Plafonnier'},
+                {symType:'elec_spot',         color:'#f5d08a', label:'SP',   name:'Spot encastré'},
+                {symType:'elec_applique',     color:'#f5d08a', label:'AP',   name:'Applique murale'},
+                {symType:'elec_hublot',       color:'#f5d08a', label:'IP',   name:'Hublot IP'},
+                {symType:'elec_tableau',      color:'#e05c5c', label:'TBL',  name:'Tableau / TGBT'},
+                {symType:'elec_disjoncteur',  color:'#e05c5c', label:'DJ',   name:'Disjoncteur'},
+                {symType:'elec_differentiel', color:'#e05c5c', label:'30mA', name:'Différentiel 30mA'},
+                {symType:'elec_detecteur',    color:'#e05c5c', label:'FUM',  name:'Détecteur fumée'},
+                {symType:'elec_sonnette',     color:'#f5a623', label:'SON',  name:'Sonnette'},
+              ],
+              plomb: [
+                {symType:'plomb_robinet',    color:'#5b8af5', label:'ROB',  name:'Robinet'},
+                {symType:'plomb_robinet_eq', color:'#5b8af5', label:'EQ',   name:'Robinet équerre'},
+                {symType:'plomb_clapet',     color:'#5b8af5', label:'CAR',  name:'Clapet anti-retour'},
+                {symType:'plomb_vanne',      color:'#5b8af5', label:'VAN',  name:'Vanne papillon'},
+                {symType:'plomb_siphon',     color:'#7090c0', label:'SIP',  name:'Siphon / Bonde'},
+                {symType:'plomb_compteur',   color:'#40d0e0', label:'CPT',  name:"Compteur d'eau"},
+                {symType:'plomb_chauffe_eau',color:'#f5a623', label:'CE',   name:'Chauffe-eau élec.'},
+                {symType:'plomb_chaudiere',  color:'#f5a623', label:'CHD',  name:'Chaudière'},
+                {symType:'plomb_colonne',    color:'#7090c0', label:'EU',   name:'Colonne EU/EV'},
+                {symType:'plomb_colonne',    color:'#40d0e0', label:'EP',   name:'Eaux pluviales'},
+                {symType:'plomb_regard',     color:'#7090c0', label:'RG',   name:'Regard'},
+                {symType:'plomb_pompe',      color:'#50c878', label:'PMP',  name:'Pompe / Circulateur'},
+                {symType:'plomb_nourrice',   color:'#50c878', label:'NOU',  name:'Nourrice'},
+                {symType:'plomb_vase',       color:'#50c878', label:'VE',   name:"Vase d'expansion"},
+              ],
+              chauff: [
+                {symType:'rad_elec',   color:'#f5a623', label:'RAD', name:'Radiateur élec. 60cm'},
+                {symType:'rad_elec_l', color:'#f5a623', label:'RAD', name:'Radiateur élec. 120cm'},
+                {symType:'rad_eau',    color:'#e05c5c', label:'RAD', name:'Radiateur eau ch. 60cm'},
+                {symType:'rad_eau_l',  color:'#e05c5c', label:'RAD', name:'Radiateur eau ch. 120cm'},
+                {symType:'ss_elec',    color:'#5b8af5', label:'SS',  name:'Sèche-serviettes élec.'},
+                {symType:'ss_eau',     color:'#e05c5c', label:'SS',  name:'Sèche-serviettes eau ch.'},
+                {symType:'ss_mixte',   color:'#b060ff', label:'SS',  name:'Sèche-serviettes mixte'},
+                {symType:'plomb_chauffe_eau',color:'#f5a623',label:'CE', name:'Chauffe-eau électrique'},
+                {symType:'plomb_chaudiere',  color:'#f5a623',label:'CHD',name:'Chaudière gaz/fioul'},
+              ],
+            };
+            const allRows = [...(ROWS.elec||[]),...(ROWS.plomb||[]),...(ROWS.chauff||[])];
+            const rows = ltype==='global' ? allRows : (ROWS[ltype]||[]);
+
+            const colSym = 34, colLabel = 44, colName = 160;
+            const rowH = 22, headerH = 26, padX = 10, padY = 8;
+            const totalW = colSym + colLabel + colName + padX*2;
+            const totalH = headerH + rows.length * rowH + padY*2;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            if ((sym.angle||0)) ctx.rotate((sym.angle||0)*Math.PI/180);
+
+            // Fond
+            const bgCol = isPrint ? 'rgba(248,248,245,0.97)' : 'rgba(20,25,40,0.95)';
+            ctx.fillStyle = bgCol;
+            if (ctx.roundRect) ctx.roundRect(0, 0, totalW, totalH, 6);
+            else ctx.rect(0, 0, totalW, totalH);
+            ctx.fill();
+            ctx.strokeStyle = sel ? '#f5a623' : (sym.color||'#50c878');
+            ctx.lineWidth = sel ? 2 : 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(0, 0, totalW, totalH, 6);
+            else ctx.rect(0, 0, totalW, totalH);
+            ctx.stroke();
+
+            // En-tête
+            ctx.fillStyle = sel ? 'rgba(245,166,35,0.2)' : `${sym.color||'#50c878'}22`;
+            ctx.fillRect(0, 0, totalW, headerH);
+            ctx.fillStyle = isPrint ? '#1a1f2e' : (sym.color||'#50c878');
+            ctx.font = `bold 11px sans-serif`;
+            ctx.textAlign = 'left';
+            const titles = {elec:'LÉGENDE ÉLECTRICITÉ', plomb:'LÉGENDE PLOMBERIE', chauff:'LÉGENDE CHAUFFAGE', global:'LÉGENDE GÉNÉRALE'};
+            ctx.fillText(titles[ltype]||'LÉGENDE', padX, headerH*0.68);
+
+            // Ligne séparatrice en-tête
+            ctx.strokeStyle = isPrint ? '#ccc' : 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 0.5;
+            ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(totalW, headerH); ctx.stroke();
+
+            // En-têtes colonnes
+            ctx.fillStyle = isPrint ? '#666' : '#5b6a8a';
+            ctx.font = '9px sans-serif';
+            ctx.fillText('SYM', padX, headerH + padY*0.8);
+            ctx.fillText('CODE', padX + colSym, headerH + padY*0.8);
+            ctx.fillText('DÉSIGNATION', padX + colSym + colLabel, headerH + padY*0.8);
+
+            // Ligne séparatrice sous colonnes
+            ctx.beginPath(); ctx.moveTo(0, headerH+padY+2); ctx.lineTo(totalW, headerH+padY+2); ctx.stroke();
+
+            // Lignes
+            rows.forEach((row, i) => {
+              const ry = headerH + padY + 4 + i * rowH;
+              // Zébrure
+              if (i%2===0) {
+                ctx.fillStyle = isPrint ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.03)';
+                ctx.fillRect(0, ry-2, totalW, rowH);
+              }
+              // Mini symbole (16px)
+              ctx.save();
+              ctx.translate(padX + colSym*0.45, ry + rowH*0.38);
+              drawLibSym(ctx, row.symType, '', row.color, 16, isPrint);
+              ctx.restore();
+              // Code
+              ctx.fillStyle = isPrint ? '#1a1f2e' : row.color;
+              ctx.font = `bold 9px sans-serif`;
+              ctx.textAlign = 'left';
+              ctx.fillText(row.label, padX + colSym, ry + rowH*0.62);
+              // Nom
+              ctx.fillStyle = isPrint ? '#1a1f2e' : '#c8d0e0';
+              ctx.font = '9px sans-serif';
+              ctx.fillText(row.name, padX + colSym + colLabel, ry + rowH*0.62);
+              // Séparateur ligne
+              ctx.strokeStyle = isPrint ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
+              ctx.lineWidth = 0.5;
+              ctx.beginPath(); ctx.moveTo(0, ry+rowH-2); ctx.lineTo(totalW, ry+rowH-2); ctx.stroke();
+            });
+
+            // Cadre sélection
+            if (sel) {
+              ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+              ctx.strokeRect(-4, -4, totalW+8, totalH+8);
+              ctx.setLineDash([]);
+            }
+            ctx.restore();
+            return;
+          }
+
+          // ── Rendu standard libSym ────────────────────────────────────────────
+          const fixedSz = 22 * (sym.size||1); // taille fixe en px écran
           ctx.save();
           ctx.translate(cx, cy);
           ctx.rotate((sym.angle||0)*Math.PI/180);
@@ -1370,7 +1592,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           if(Math.sqrt((s.x1+t*dx-wx)**2+(s.y1+t*dy-wy)**2)<hitThresh){hitExisting=true;break;}
         }
         if(!hitExisting) for (const s of symbolsRef.current.filter(x=>!x.deleted&&ids.has(x.id))) {
-          if(Math.sqrt((wx-s.x)**2+(wy-s.y)**2)<Math.max(0.8,(12/vpRef.current.scale)*(s.size||1))){hitExisting=true;break;}
+          const isLeg = s.symType && s.symType.startsWith('legende_');
+          const hr = isLeg ? Math.max(1.5,120/vpRef.current.scale) : Math.max(0.8,(12/vpRef.current.scale)*(s.size||1));
+          if(Math.sqrt((wx-s.x)**2+(wy-s.y)**2)<hr){hitExisting=true;break;}
         }
         if(!hitExisting) for (const s of cotesRef.current.filter(x=>!x.deleted&&ids.has(x.id))) {
           const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
@@ -1435,7 +1659,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         if (Math.sqrt(px*px+py*py)<hitThresh) { hit=s.id; break; }
       }
       if (!hit) for (const sym of symbolsRef.current.filter(x=>!x.deleted)) {
-        const hitR = Math.max(0.8, (12 / vpRef.current.scale) * (sym.size||1));
+        // Les légendes ont une grande boîte — on utilise une hitbox plus large
+        const isLegend = sym.symType && sym.symType.startsWith('legende_');
+        const hitR = isLegend
+          ? Math.max(1.5, 120/vpRef.current.scale)  // ~120px écran → monde
+          : Math.max(0.8, (12 / vpRef.current.scale) * (sym.size||1));
         const d = Math.sqrt((wx-sym.x)**2+(wy-sym.y)**2);
         if (d < hitR) { hit=sym.id; break; }
       }
@@ -2244,7 +2472,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
               Cliquer sur un symbole pour l'insérer au centre de la vue. Il sera sélectionné — tu peux le déplacer immédiatement.
             </div>
             <div style={{flex:1,overflowY:'auto'}}>
-              {['Sanitaires','Ouvertures','Structure','Mobilier','Équipements généraux','Électricité','Plomberie'].map(cat=>{
+              {['Sanitaires','Ouvertures','Structure','Mobilier','Équipements généraux','Électricité','Plomberie','Légende'].map(cat=>{
                 const items=DXF_LIBRARY.filter(x=>x.category===cat);
                 if(!items.length) return null;
                 return(
@@ -2263,6 +2491,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
                             const newSym = {
                               x:wx, y:wy, type:'libSym', libSym:true,
                               symType:sym.symType, label:sym.label, color:sym.color,
+                              legendeType:sym.legendeType||null,
                               angle:0, size:1, id:Date.now()+Math.random(),
                             };
                             pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
