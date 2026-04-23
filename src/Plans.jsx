@@ -866,6 +866,31 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0);
   const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true });
   const [symProps, setSymProps] = useState(null);
+  const [groupProps, setGroupProps] = useState(null); // {groupId, angle, cx, cy}
+
+  // Rotation d'un groupe de segments autour de leur centroïde
+  const rotateGroup = useCallback((groupId, angleDeg) => {
+    const rad = angleDeg * Math.PI / 180;
+    const cosA = Math.cos(rad), sinA = Math.sin(rad);
+    setSegments(prev => {
+      const grpSegs = prev.filter(s => s.groupId === groupId && !s.deleted);
+      if (!grpSegs.length) return prev;
+      // Centroïde du groupe
+      let cx = 0, cy = 0, n = 0;
+      grpSegs.forEach(s => { cx+=s.x1+s.x2; cy+=s.y1+s.y2; n+=2; });
+      cx /= n; cy /= n;
+      return prev.map(s => {
+        if (s.groupId !== groupId || s.deleted) return s;
+        const rot = (x, y) => ({
+          rx: cx + (x-cx)*cosA - (y-cy)*sinA,
+          ry: cy + (x-cx)*sinA + (y-cy)*cosA,
+        });
+        const {rx:x1,ry:y1} = rot(s.x1, s.y1);
+        const {rx:x2,ry:y2} = rot(s.x2, s.y2);
+        return {...s, x1, y1, x2, y2};
+      });
+    });
+  }, []);
 
   const vpRef         = useRef(vp);
   const segmentsRef   = useRef(segments);
@@ -1331,7 +1356,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           setSelectedIds(new Set());
         }
       }
-      if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); setPolyPoints([]); }
+      if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); setPolyPoints([]); setGroupProps(null); }
       if (e.key==='o'||e.key==='O') setOrthoMode(v=>!v);
       if (e.key==='r'||e.key==='R') setPlanRotation(v=>(v+15)%360);
       if ((e.ctrlKey||e.metaKey)&&e.key==='p') { e.preventDefault(); setPrintMode(v=>!v); }
@@ -1563,12 +1588,24 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           setSymProps({id:hitSym.id,x:hitSym.x,y:hitSym.y,
             angle:hitSym.angle||0, size:hitSym.size||1,
             type:hitSym.type, text:hitSym.text||''});
+          setGroupProps(null);
         } else {
           setSymProps(null);
+          // Détecter si le segment appartient à un groupe bibliothèque
+          const hitSeg = segmentsRef.current.find(s=>s.id===hit&&!s.deleted);
+          if (hitSeg?.groupId) {
+            // Sélectionner tout le groupe
+            const grpIds = new Set(segmentsRef.current.filter(s=>s.groupId===hitSeg.groupId&&!s.deleted).map(s=>s.id));
+            setSelectedIds(grpIds);
+            setGroupProps({groupId:hitSeg.groupId, angle:0, name:''});
+          } else {
+            setGroupProps(null);
+          }
         }
         rectRef.current=null;
       } else {
         setSymProps(null);
+        setGroupProps(null);
       }
 
     } else if (tool==='delete') {
@@ -2153,6 +2190,78 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         </div>
       )}
 
+      {/* ── Panneau rotation groupe bibliothèque ── */}
+      {groupProps&&(
+        <div style={{
+          position:'fixed',top:80,right:24,zIndex:1000,
+          background:'#1e2336',border:'1px solid rgba(255,255,255,0.12)',
+          borderRadius:12,padding:16,width:230,
+          boxShadow:'0 8px 32px rgba(0,0,0,0.5)',
+        }}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <span style={{fontSize:13,fontWeight:700,color:'#e8eaf0'}}>↻ Élément bibliothèque</span>
+            <button onClick={()=>setGroupProps(null)} style={{background:'transparent',border:'none',color:'#5b6a8a',cursor:'pointer',fontSize:16}}>✕</button>
+          </div>
+          {groupProps.name&&<div style={{fontSize:11,color:'#5b6a8a',marginBottom:10}}>{groupProps.name}</div>}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Rotation</div>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <input type='range' min={0} max={359} step={5} value={groupProps.angle}
+                onChange={e=>{
+                  const newAngle = parseInt(e.target.value);
+                  const delta = newAngle - groupProps.angle;
+                  rotateGroup(groupProps.groupId, delta);
+                  setGroupProps(p=>({...p, angle:newAngle}));
+                }}
+                style={{flex:1,accentColor:'#5b8af5'}}/>
+              <span style={{fontSize:12,color:'#f5a623',fontWeight:700,minWidth:34}}>{groupProps.angle}°</span>
+            </div>
+            <div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>
+              {[0,45,90,135,180,270,315].map(a=>(
+                <button key={a} onClick={()=>{
+                  const delta = a - groupProps.angle;
+                  rotateGroup(groupProps.groupId, delta);
+                  setGroupProps(p=>({...p, angle:a}));
+                }} style={{
+                  background:groupProps.angle===a?'#5b8af5':'rgba(255,255,255,0.06)',
+                  border:'none',borderRadius:4,padding:'3px 6px',
+                  color:groupProps.angle===a?'#fff':'#9aa5c0',fontSize:10,cursor:'pointer',fontFamily:'inherit',
+                }}>{a}°</button>
+              ))}
+            </div>
+          </div>
+          <div style={{display:'flex',gap:6,marginTop:8}}>
+            <button onClick={()=>{
+              // Pivoter -90°
+              rotateGroup(groupProps.groupId, -90);
+              setGroupProps(p=>({...p, angle:((p.angle-90)+360)%360}));
+            }} style={{flex:1,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.12)',
+              borderRadius:7,padding:'7px 0',color:'#9aa5c0',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>
+              ↺ −90°
+            </button>
+            <button onClick={()=>{
+              rotateGroup(groupProps.groupId, 90);
+              setGroupProps(p=>({...p, angle:(p.angle+90)%360}));
+            }} style={{flex:1,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.12)',
+              borderRadius:7,padding:'7px 0',color:'#9aa5c0',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>
+              ↻ +90°
+            </button>
+          </div>
+          <div style={{marginTop:6}}>
+            <button onClick={()=>{
+              rotateGroup(groupProps.groupId, 180);
+              setGroupProps(p=>({...p, angle:(p.angle+180)%360}));
+            }} style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.12)',
+              borderRadius:7,padding:'7px 0',color:'#9aa5c0',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>
+              ↕ Retourner 180°
+            </button>
+          </div>
+          <div style={{marginTop:8,fontSize:10,color:'#5b6a8a',lineHeight:1.5}}>
+            Tu peux aussi sélectionner l'élément et utiliser les outils déplacer/recolorer normalement.
+          </div>
+        </div>
+      )}
+
       {/* ── Panneau propriétés symbole ── */}
       {symProps&&(
         <div style={{
@@ -2282,13 +2391,16 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
                           const minX=Math.min(...allX),maxX=Math.max(...allX);
                           const minY=Math.min(...allY),maxY=Math.max(...allY);
                           const offX=wx-(minX+maxX)/2, offY=wy-(minY+maxY)/2;
+                          const groupId = 'grp_'+Date.now();
                           const newSegs=sym.segments.map(s=>({
                             x1:s.x1+offX,y1:s.y1+offY,x2:s.x2+offX,y2:s.y2+offY,
-                            color:'#e8eaf0',layer:'library',user:true,id:Date.now()+Math.random()
+                            color:'#e8eaf0',layer:'library',user:true,
+                            id:Date.now()+Math.random(), groupId,
                           }));
                           pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
                           setSegments(s=>[...s,...newSegs]);
                           setSelectedIds(new Set(newSegs.map(s=>s.id)));
+                          setGroupProps({groupId, angle:0, name:sym.name});
                           setShowLibrary(false);
                         }} style={{
                           background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)',
