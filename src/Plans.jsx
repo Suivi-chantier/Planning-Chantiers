@@ -380,19 +380,413 @@ const DXF_LIBRARY = [
       {x1:0.05,y1:0.05,x2:1.55,y2:0.05},{x1:1.55,y1:0.05,x2:1.55,y2:0.85},{x1:1.55,y1:0.85,x2:0.05,y2:0.85},{x1:0.05,y1:0.85,x2:0.05,y2:0.05},
     ]},
 
-  // ── ÉQUIPEMENTS ─────────────────────────────────────────────────────────────
-  { id:'radiateur', name:'Radiateur 120×20 cm', icon:'🔥', category:'Équipements',
+  // ── ÉQUIPEMENTS GÉNÉRAUX ─────────────────────────────────────────────────────
+  { id:'radiateur', name:'Radiateur 120×20 cm', icon:'🔥', category:'Équipements généraux',
     segments:[
       {x1:0,y1:0,x2:1.2,y2:0},{x1:1.2,y1:0,x2:1.2,y2:0.2},{x1:1.2,y1:0.2,x2:0,y2:0.2},{x1:0,y1:0.2,x2:0,y2:0},
       ...Array.from({length:7},(_,i)=>[{x1:0.05+i*0.17,y1:0,x2:0.05+i*0.17,y2:0.2}]).flat(),
     ]},
 
-  { id:'tableau_elec', name:'Tableau électrique 50×70 cm', icon:'⚡', category:'Équipements',
+  // ── ÉLECTRICITÉ — COMMANDES ──────────────────────────────────────────────────
+  // Tous les symboles élec sont centrés sur (0,0), rayon ~0.15 m (15 cm)
+  // Convention NF C 15-100 simplifiée pour plans d'architecte
+
+  { id:'elec_interrupteur_simple', name:'Interrupteur simple', icon:'💡', category:'Électricité',
+    segments:[
+      // Cercle (octogone approché) Ø 20 cm
+      {x1:0.10,y1:0,x2:-0.10,y2:0},{x1:-0.10,y1:0,x2:-0.14,y2:0.07},{x1:-0.14,y1:0.07,x2:-0.14,y2:-0.07},{x1:-0.14,y1:-0.07,x2:-0.10,y2:0},
+      // Carré central 10×10 cm
+      {x1:-0.05,y1:-0.05,x2:0.05,y2:-0.05},{x1:0.05,y1:-0.05,x2:0.05,y2:0.05},{x1:0.05,y1:0.05,x2:-0.05,y2:0.05},{x1:-0.05,y1:0.05,x2:-0.05,y2:-0.05},
+      // Trait sortie murale (vers le haut)
+      {x1:0,y1:-0.05,x2:0,y2:-0.20},
+      // Ligne de commande (arc simplifié — 2 segments)
+      {x1:-0.10,y1:0,x2:0,y2:0.12},{x1:0,y1:0.12,x2:0.10,y2:0},
+    ]},
+
+  { id:'elec_interrupteur_double', name:'Interrupteur double', icon:'💡', category:'Électricité',
+    segments:[
+      // Boîtier 30×12 cm
+      {x1:-0.15,y1:-0.06,x2:0.15,y2:-0.06},{x1:0.15,y1:-0.06,x2:0.15,y2:0.06},{x1:0.15,y1:0.06,x2:-0.15,y2:0.06},{x1:-0.15,y1:0.06,x2:-0.15,y2:-0.06},
+      // Séparation centrale
+      {x1:0,y1:-0.06,x2:0,y2:0.06},
+      // 2 traits sortie
+      {x1:-0.07,y1:-0.06,x2:-0.07,y2:-0.18},
+      {x1:0.07,y1:-0.06,x2:0.07,y2:-0.18},
+      // 2 lignes de commande
+      {x1:-0.14,y1:0,x2:-0.07,y2:0.10},{x1:-0.07,y1:0.10,x2:0,y2:0},
+      {x1:0,y1:0,x2:0.07,y2:0.10},{x1:0.07,y1:0.10,x2:0.14,y2:0},
+    ]},
+
+  { id:'elec_va_et_vient', name:'Va-et-vient', icon:'💡', category:'Électricité',
+    segments:[
+      // Boîtier carré 12×12 cm
+      {x1:-0.06,y1:-0.06,x2:0.06,y2:-0.06},{x1:0.06,y1:-0.06,x2:0.06,y2:0.06},{x1:0.06,y1:0.06,x2:-0.06,y2:0.06},{x1:-0.06,y1:0.06,x2:-0.06,y2:-0.06},
+      // Trait sortie
+      {x1:0,y1:-0.06,x2:0,y2:-0.18},
+      // Ligne de commande avec double flèche (va-et-vient)
+      {x1:-0.10,y1:0,x2:0,y2:0.12},{x1:0,y1:0.12,x2:0.10,y2:0},
+      // Second trait (deuxième voie)
+      {x1:-0.10,y1:0.04,x2:0.10,y2:0.04},
+    ]},
+
+  { id:'elec_minuterie', name:'Minuterie / Détecteur', icon:'⏱', category:'Électricité',
+    segments:[
+      // Cercle Ø 16 cm (octogone)
+      {x1:0.08,y1:-0.08,x2:0.08,y2:0.08},{x1:0.08,y1:0.08,x2:-0.08,y2:0.08},{x1:-0.08,y1:0.08,x2:-0.08,y2:-0.08},{x1:-0.08,y1:-0.08,x2:0.08,y2:-0.08},
+      // M intérieur (minuterie)
+      {x1:-0.04,y1:0.04,x2:-0.04,y2:-0.04},{x1:-0.04,y1:-0.04,x2:0,y2:0.01},{x1:0,y1:0.01,x2:0.04,y2:-0.04},{x1:0.04,y1:-0.04,x2:0.04,y2:0.04},
+      // Trait sortie
+      {x1:0,y1:-0.08,x2:0,y2:-0.20},
+    ]},
+
+  { id:'elec_variateur', name:'Variateur de lumière', icon:'🔆', category:'Électricité',
+    segments:[
+      // Boîtier carré
+      {x1:-0.06,y1:-0.06,x2:0.06,y2:-0.06},{x1:0.06,y1:-0.06,x2:0.06,y2:0.06},{x1:0.06,y1:0.06,x2:-0.06,y2:0.06},{x1:-0.06,y1:0.06,x2:-0.06,y2:-0.06},
+      // Flèche oblique (symbole variateur)
+      {x1:-0.04,y1:0.04,x2:0.04,y2:-0.04},
+      {x1:0.04,y1:-0.04,x2:0.02,y2:-0.04},{x1:0.04,y1:-0.04,x2:0.04,y2:-0.02},
+      // Trait sortie
+      {x1:0,y1:-0.06,x2:0,y2:-0.18},
+    ]},
+
+  // ── ÉLECTRICITÉ — PRISES ─────────────────────────────────────────────────────
+
+  { id:'elec_prise_2p_t', name:'Prise 2P+T (16A)', icon:'🔌', category:'Électricité',
+    segments:[
+      // Cercle Ø 16 cm
+      {x1:0.08,y1:-0.08,x2:0.08,y2:0.08},{x1:0.08,y1:0.08,x2:-0.08,y2:0.08},{x1:-0.08,y1:0.08,x2:-0.08,y2:-0.08},{x1:-0.08,y1:-0.08,x2:0.08,y2:-0.08},
+      // 2 trous phase/neutre
+      {x1:-0.03,y1:-0.02,x2:-0.03,y2:0.02},
+      {x1:0.03,y1:-0.02,x2:0.03,y2:0.02},
+      // Terre (bas)
+      {x1:0,y1:0.03,x2:0,y2:0.06},
+      // Trait sortie murale
+      {x1:0,y1:-0.08,x2:0,y2:-0.18},
+    ]},
+
+  { id:'elec_prise_double', name:'Prise double 2P+T', icon:'🔌', category:'Électricité',
+    segments:[
+      // 2 cercles côte à côte
+      {x1:-0.14,y1:-0.07,x2:-0.14,y2:0.07},{x1:-0.14,y1:0.07,x2:-0.02,y2:0.07},{x1:-0.02,y1:0.07,x2:-0.02,y2:-0.07},{x1:-0.02,y1:-0.07,x2:-0.14,y2:-0.07},
+      {x1:0.02,y1:-0.07,x2:0.02,y2:0.07},{x1:0.02,y1:0.07,x2:0.14,y2:0.07},{x1:0.14,y1:0.07,x2:0.14,y2:-0.07},{x1:0.14,y1:-0.07,x2:0.02,y2:-0.07},
+      // Trous gauche
+      {x1:-0.11,y1:-0.02,x2:-0.11,y2:0.02},{x1:-0.07,y1:-0.02,x2:-0.07,y2:0.02},{x1:-0.09,y1:0.02,x2:-0.09,y2:0.05},
+      // Trous droite
+      {x1:0.05,y1:-0.02,x2:0.05,y2:0.02},{x1:0.09,y1:-0.02,x2:0.09,y2:0.02},{x1:0.07,y1:0.02,x2:0.07,y2:0.05},
+      // Trait sortie
+      {x1:0,y1:-0.07,x2:0,y2:-0.18},
+    ]},
+
+  { id:'elec_prise_20a', name:'Prise 20A (four / lave-linge)', icon:'🔌', category:'Électricité',
+    segments:[
+      // Cercle large Ø 20 cm
+      {x1:0.10,y1:-0.10,x2:0.10,y2:0.10},{x1:0.10,y1:0.10,x2:-0.10,y2:0.10},{x1:-0.10,y1:0.10,x2:-0.10,y2:-0.10},{x1:-0.10,y1:-0.10,x2:0.10,y2:-0.10},
+      // Trous + terre
+      {x1:-0.04,y1:-0.03,x2:-0.04,y2:0.03},{x1:0.04,y1:-0.03,x2:0.04,y2:0.03},{x1:0,y1:0.04,x2:0,y2:0.08},
+      // Double trait (20A)
+      {x1:-0.09,y1:-0.09,x2:0.09,y2:0.09},
+      // Trait sortie
+      {x1:0,y1:-0.10,x2:0,y2:-0.22},
+    ]},
+
+  { id:'elec_prise_rj45', name:'Prise RJ45 / Ethernet', icon:'🌐', category:'Électricité',
+    segments:[
+      // Boîtier rectangulaire 14×10 cm
+      {x1:-0.07,y1:-0.05,x2:0.07,y2:-0.05},{x1:0.07,y1:-0.05,x2:0.07,y2:0.05},{x1:0.07,y1:0.05,x2:-0.07,y2:0.05},{x1:-0.07,y1:0.05,x2:-0.07,y2:-0.05},
+      // RJ45 simplifié (petit rectangle + traits)
+      {x1:-0.04,y1:-0.02,x2:0.04,y2:-0.02},{x1:0.04,y1:-0.02,x2:0.04,y2:0.02},{x1:0.04,y1:0.02,x2:-0.04,y2:0.02},{x1:-0.04,y1:0.02,x2:-0.04,y2:-0.02},
+      {x1:-0.02,y1:-0.02,x2:-0.02,y2:0},{x1:0,y1:-0.02,x2:0,y2:0},{x1:0.02,y1:-0.02,x2:0.02,y2:0},
+      // Trait sortie
+      {x1:0,y1:-0.05,x2:0,y2:-0.18},
+    ]},
+
+  { id:'elec_prise_tv', name:'Prise TV / Antenne', icon:'📺', category:'Électricité',
+    segments:[
+      // Boîtier carré 12×12 cm
+      {x1:-0.06,y1:-0.06,x2:0.06,y2:-0.06},{x1:0.06,y1:-0.06,x2:0.06,y2:0.06},{x1:0.06,y1:0.06,x2:-0.06,y2:0.06},{x1:-0.06,y1:0.06,x2:-0.06,y2:-0.06},
+      // Symbole antenne (triangle + mât)
+      {x1:0,y1:-0.04,x2:-0.04,y2:0.03},{x1:-0.04,y1:0.03,x2:0.04,y2:0.03},{x1:0.04,y1:0.03,x2:0,y2:-0.04},
+      {x1:0,y1:0.03,x2:0,y2:0.05},
+      // Trait sortie
+      {x1:0,y1:-0.06,x2:0,y2:-0.18},
+    ]},
+
+  // ── ÉLECTRICITÉ — ÉCLAIRAGE ──────────────────────────────────────────────────
+
+  { id:'elec_point_lumineux', name:'Point lumineux (plafonnier)', icon:'💡', category:'Électricité',
+    segments:[
+      // Cercle Ø 16 cm + croix (NF C 15-100)
+      {x1:0.08,y1:0,x2:-0.08,y2:0},
+      {x1:0,y1:0.08,x2:0,y2:-0.08},
+      {x1:0.08,y1:-0.08,x2:0.08,y2:0.08},{x1:0.08,y1:0.08,x2:-0.08,y2:0.08},{x1:-0.08,y1:0.08,x2:-0.08,y2:-0.08},{x1:-0.08,y1:-0.08,x2:0.08,y2:-0.08},
+    ]},
+
+  { id:'elec_applique_murale', name:'Applique murale', icon:'💡', category:'Électricité',
+    segments:[
+      // Demi-cercle côté mur (simplifié = arc 3 segments)
+      {x1:-0.08,y1:0,x2:-0.04,y2:-0.07},{x1:-0.04,y1:-0.07,x2:0.04,y2:-0.07},{x1:0.04,y1:-0.07,x2:0.08,y2:0},
+      // Ligne murale
+      {x1:-0.08,y1:0,x2:0.08,y2:0},
+      // Croix centrale (lumineux)
+      {x1:0,y1:-0.02,x2:0,y2:-0.06},{x1:-0.03,y1:-0.04,x2:0.03,y2:-0.04},
+    ]},
+
+  { id:'elec_spot_encastre', name:'Spot encastré', icon:'💡', category:'Électricité',
+    segments:[
+      // Cercle extérieur Ø 12 cm
+      {x1:0.06,y1:-0.06,x2:0.06,y2:0.06},{x1:0.06,y1:0.06,x2:-0.06,y2:0.06},{x1:-0.06,y1:0.06,x2:-0.06,y2:-0.06},{x1:-0.06,y1:-0.06,x2:0.06,y2:-0.06},
+      // Cercle intérieur Ø 6 cm
+      {x1:0.03,y1:-0.03,x2:0.03,y2:0.03},{x1:0.03,y1:0.03,x2:-0.03,y2:0.03},{x1:-0.03,y1:0.03,x2:-0.03,y2:-0.03},{x1:-0.03,y1:-0.03,x2:0.03,y2:-0.03},
+    ]},
+
+  { id:'elec_hublot', name:'Hublot extérieur / SDB', icon:'💡', category:'Électricité',
+    segments:[
+      // Cercle Ø 16 cm
+      {x1:0.08,y1:-0.08,x2:0.08,y2:0.08},{x1:0.08,y1:0.08,x2:-0.08,y2:0.08},{x1:-0.08,y1:0.08,x2:-0.08,y2:-0.08},{x1:-0.08,y1:-0.08,x2:0.08,y2:-0.08},
+      // Cercle intérieur
+      {x1:0.04,y1:-0.04,x2:0.04,y2:0.04},{x1:0.04,y1:0.04,x2:-0.04,y2:0.04},{x1:-0.04,y1:0.04,x2:-0.04,y2:-0.04},{x1:-0.04,y1:-0.04,x2:0.04,y2:-0.04},
+      // IP (indice de protection) — trait diagonaux
+      {x1:-0.07,y1:-0.07,x2:0.07,y2:0.07},
+    ]},
+
+  // ── ÉLECTRICITÉ — TABLEAU & PROTECTION ──────────────────────────────────────
+
+  { id:'tableau_elec', name:'Tableau électrique / TGBT', icon:'⚡', category:'Électricité',
     segments:[
       {x1:0,y1:0,x2:0.5,y2:0},{x1:0.5,y1:0,x2:0.5,y2:0.7},{x1:0.5,y1:0.7,x2:0,y2:0.7},{x1:0,y1:0.7,x2:0,y2:0},
       {x1:0.05,y1:0.05,x2:0.45,y2:0.05},{x1:0.05,y1:0.05,x2:0.05,y2:0.65},{x1:0.05,y1:0.65,x2:0.45,y2:0.65},{x1:0.45,y1:0.65,x2:0.45,y2:0.05},
-      {x1:0.1,y1:0.15,x2:0.4,y2:0.15},{x1:0.1,y1:0.25,x2:0.4,y2:0.25},{x1:0.1,y1:0.35,x2:0.4,y2:0.35},
-      {x1:0.1,y1:0.45,x2:0.4,y2:0.45},{x1:0.1,y1:0.55,x2:0.4,y2:0.55},
+      {x1:0.10,y1:0.15,x2:0.40,y2:0.15},{x1:0.10,y1:0.25,x2:0.40,y2:0.25},{x1:0.10,y1:0.35,x2:0.40,y2:0.35},
+      {x1:0.10,y1:0.45,x2:0.40,y2:0.45},{x1:0.10,y1:0.55,x2:0.40,y2:0.55},
+    ]},
+
+  { id:'elec_disjoncteur', name:'Disjoncteur', icon:'⚡', category:'Électricité',
+    segments:[
+      // Rectangle 8×16 cm
+      {x1:-0.04,y1:-0.08,x2:0.04,y2:-0.08},{x1:0.04,y1:-0.08,x2:0.04,y2:0.08},{x1:0.04,y1:0.08,x2:-0.04,y2:0.08},{x1:-0.04,y1:0.08,x2:-0.04,y2:-0.08},
+      // Entrée / sortie
+      {x1:0,y1:-0.08,x2:0,y2:-0.16},{x1:0,y1:0.08,x2:0,y2:0.16},
+      // Symbole coupure (trait oblique)
+      {x1:-0.03,y1:-0.04,x2:0.03,y2:0.04},
+    ]},
+
+  { id:'elec_differentiel', name:'Interrupteur différentiel 30mA', icon:'⚡', category:'Électricité',
+    segments:[
+      // Rectangle 10×18 cm
+      {x1:-0.05,y1:-0.09,x2:0.05,y2:-0.09},{x1:0.05,y1:-0.09,x2:0.05,y2:0.09},{x1:0.05,y1:0.09,x2:-0.05,y2:0.09},{x1:-0.05,y1:0.09,x2:-0.05,y2:-0.09},
+      // Entrée / sortie
+      {x1:0,y1:-0.09,x2:0,y2:-0.18},{x1:0,y1:0.09,x2:0,y2:0.18},
+      // Trait coupure
+      {x1:-0.04,y1:-0.05,x2:0.04,y2:0.05},
+      // Double trait différentiel
+      {x1:-0.04,y1:-0.02,x2:0.04,y2:-0.02},
+    ]},
+
+  { id:'elec_parafoudre', name:'Parafoudre / Parasurtenseur', icon:'⚡', category:'Électricité',
+    segments:[
+      // Boîtier 8×14 cm
+      {x1:-0.04,y1:-0.07,x2:0.04,y2:-0.07},{x1:0.04,y1:-0.07,x2:0.04,y2:0.07},{x1:0.04,y1:0.07,x2:-0.04,y2:0.07},{x1:-0.04,y1:0.07,x2:-0.04,y2:-0.07},
+      // Flèche éclair vers la terre
+      {x1:0.02,y1:-0.05,x2:-0.02,y2:0},{x1:-0.02,y1:0,x2:0.02,y2:0},{x1:0.02,y1:0,x2:-0.02,y2:0.05},
+      // Terre
+      {x1:0,y1:0.07,x2:0,y2:0.14},{x1:-0.04,y1:0.14,x2:0.04,y2:0.14},{x1:-0.025,y1:0.17,x2:0.025,y2:0.17},{x1:-0.01,y1:0.20,x2:0.01,y2:0.20},
+      {x1:0,y1:-0.07,x2:0,y2:-0.14},
+    ]},
+
+  // ── ÉLECTRICITÉ — DÉTECTION & SÉCURITÉ ──────────────────────────────────────
+
+  { id:'elec_detecteur_fumee', name:'Détecteur de fumée', icon:'🔴', category:'Électricité',
+    segments:[
+      // Cercle Ø 14 cm
+      {x1:0.07,y1:-0.07,x2:0.07,y2:0.07},{x1:0.07,y1:0.07,x2:-0.07,y2:0.07},{x1:-0.07,y1:0.07,x2:-0.07,y2:-0.07},{x1:-0.07,y1:-0.07,x2:0.07,y2:-0.07},
+      // F intérieur (Fumée)
+      {x1:-0.03,y1:-0.04,x2:-0.03,y2:0.04},{x1:-0.03,y1:-0.04,x2:0.03,y2:-0.04},{x1:-0.03,y1:0,x2:0.02,y2:0},
+    ]},
+
+  { id:'elec_sonnette', name:'Sonnette / Carillon', icon:'🔔', category:'Électricité',
+    segments:[
+      // Boîtier carré 12×12 cm
+      {x1:-0.06,y1:-0.06,x2:0.06,y2:-0.06},{x1:0.06,y1:-0.06,x2:0.06,y2:0.06},{x1:0.06,y1:0.06,x2:-0.06,y2:0.06},{x1:-0.06,y1:0.06,x2:-0.06,y2:-0.06},
+      // Cloche simplifiée
+      {x1:-0.03,y1:-0.03,x2:-0.03,y2:0.01},{x1:-0.03,y1:0.01,x2:0,y2:0.04},{x1:0,y1:0.04,x2:0.03,y2:0.01},{x1:0.03,y1:0.01,x2:0.03,y2:-0.03},
+      {x1:-0.04,y1:0.01,x2:0.04,y2:0.01},
+      {x1:0,y1:0.04,x2:0,y2:0.05},
+      // Trait sortie
+      {x1:0,y1:-0.06,x2:0,y2:-0.16},
+    ]},
+
+  { id:'elec_alarme_incendie', name:'Déclencheur alarme incendie', icon:'🚨', category:'Électricité',
+    segments:[
+      // Boîtier rectangulaire 14×10 cm
+      {x1:-0.07,y1:-0.05,x2:0.07,y2:-0.05},{x1:0.07,y1:-0.05,x2:0.07,y2:0.05},{x1:0.07,y1:0.05,x2:-0.07,y2:0.05},{x1:-0.07,y1:0.05,x2:-0.07,y2:-0.05},
+      // Flèche brisée (déclencheur)
+      {x1:-0.04,y1:-0.03,x2:0,y2:0.02},{x1:0,y1:0.02,x2:0.04,y2:-0.03},
+      // Trait sortie
+      {x1:0,y1:-0.05,x2:0,y2:-0.16},
+    ]},
+
+  // ── PLOMBERIE — APPAREILS ────────────────────────────────────────────────────
+
+  { id:'plomb_robinet_simple', name:'Robinet simple (DN15)', icon:'🚰', category:'Plomberie',
+    segments:[
+      // Corps de robinet (rectangle 8×4 cm)
+      {x1:-0.04,y1:-0.02,x2:0.04,y2:-0.02},{x1:0.04,y1:-0.02,x2:0.04,y2:0.02},{x1:0.04,y1:0.02,x2:-0.04,y2:0.02},{x1:-0.04,y1:0.02,x2:-0.04,y2:-0.02},
+      // Papillon (symbole robinet NF)
+      {x1:-0.04,y1:0,x2:-0.08,y2:-0.04},{x1:-0.04,y1:0,x2:-0.08,y2:0.04},
+      {x1:0.04,y1:0,x2:0.08,y2:-0.04},{x1:0.04,y1:0,x2:0.08,y2:0.04},
+      // Tige de commande (vers le haut)
+      {x1:0,y1:-0.02,x2:0,y2:-0.08},{x1:-0.03,y1:-0.08,x2:0.03,y2:-0.08},
+    ]},
+
+  { id:'plomb_robinet_equerre', name:'Robinet équerre / Té', icon:'🚰', category:'Plomberie',
+    segments:[
+      // Corps horizontal
+      {x1:-0.06,y1:-0.015,x2:0,y2:-0.015},{x1:-0.06,y1:0.015,x2:0,y2:0.015},{x1:-0.06,y1:-0.015,x2:-0.06,y2:0.015},
+      // Corps vertical
+      {x1:-0.015,y1:0,x2:-0.015,y2:0.06},{x1:0.015,y1:0,x2:0.015,y2:0.06},{x1:-0.015,y1:0.06,x2:0.015,y2:0.06},
+      // Jonction
+      {x1:0,y1:-0.015,x2:0,y2:0.015},{x1:0,y1:0,x2:-0.015,y2:0},
+      // Papillon robinet
+      {x1:-0.06,y1:0,x2:-0.09,y2:-0.025},{x1:-0.06,y1:0,x2:-0.09,y2:0.025},
+    ]},
+
+  { id:'plomb_clapet_anti_retour', name:'Clapet anti-retour', icon:'🚰', category:'Plomberie',
+    segments:[
+      // Corps 12×4 cm
+      {x1:-0.06,y1:-0.02,x2:0.06,y2:-0.02},{x1:0.06,y1:-0.02,x2:0.06,y2:0.02},{x1:0.06,y1:0.02,x2:-0.06,y2:0.02},{x1:-0.06,y1:0.02,x2:-0.06,y2:-0.02},
+      // Flèche sens unique
+      {x1:-0.04,y1:0,x2:0.02,y2:0},
+      {x1:0.02,y1:0,x2:-0.01,y2:-0.02},{x1:0.02,y1:0,x2:-0.01,y2:0.02},
+      // Barrière
+      {x1:0.02,y1:-0.02,x2:0.02,y2:0.02},
+    ]},
+
+  { id:'plomb_vanne_papillon', name:'Vanne papillon', icon:'🔧', category:'Plomberie',
+    segments:[
+      // Tuyauterie
+      {x1:-0.10,y1:0,x2:-0.04,y2:0},{x1:0.04,y1:0,x2:0.10,y2:0},
+      // Corps vanne (2 triangles face à face)
+      {x1:-0.04,y1:-0.04,x2:-0.04,y2:0.04},{x1:-0.04,y1:-0.04,x2:0.04,y2:0},{x1:-0.04,y1:0.04,x2:0.04,y2:0},
+      {x1:0.04,y1:-0.04,x2:0.04,y2:0.04},{x1:0.04,y1:-0.04,x2:-0.04,y2:0},{x1:0.04,y1:0.04,x2:-0.04,y2:0},
+      // Tige de commande
+      {x1:0,y1:-0.04,x2:0,y2:-0.10},{x1:-0.03,y1:-0.10,x2:0.03,y2:-0.10},
+    ]},
+
+  { id:'plomb_siphon', name:'Siphon (bonde de sol)', icon:'🕳', category:'Plomberie',
+    segments:[
+      // Cercle Ø 10 cm
+      {x1:0.05,y1:-0.05,x2:0.05,y2:0.05},{x1:0.05,y1:0.05,x2:-0.05,y2:0.05},{x1:-0.05,y1:0.05,x2:-0.05,y2:-0.05},{x1:-0.05,y1:-0.05,x2:0.05,y2:-0.05},
+      // Cercle intérieur (grille)
+      {x1:0.025,y1:-0.025,x2:0.025,y2:0.025},{x1:0.025,y1:0.025,x2:-0.025,y2:0.025},{x1:-0.025,y1:0.025,x2:-0.025,y2:-0.025},{x1:-0.025,y1:-0.025,x2:0.025,y2:-0.025},
+      // Croix de grille
+      {x1:-0.025,y1:0,x2:0.025,y2:0},{x1:0,y1:-0.025,x2:0,y2:0.025},
+      // Évacuation (sortie basse)
+      {x1:-0.015,y1:0.05,x2:-0.015,y2:0.14},{x1:0.015,y1:0.05,x2:0.015,y2:0.14},{x1:-0.015,y1:0.14,x2:0.015,y2:0.14},
+    ]},
+
+  { id:'plomb_compteur_eau', name:'Compteur d'eau', icon:'💧', category:'Plomberie',
+    segments:[
+      // Boîtier 20×12 cm
+      {x1:-0.10,y1:-0.06,x2:0.10,y2:-0.06},{x1:0.10,y1:-0.06,x2:0.10,y2:0.06},{x1:0.10,y1:0.06,x2:-0.10,y2:0.06},{x1:-0.10,y1:0.06,x2:-0.10,y2:-0.06},
+      // M (Meter) intérieur
+      {x1:-0.05,y1:0.03,x2:-0.05,y2:-0.03},{x1:-0.05,y1:-0.03,x2:0,y2:0.01},{x1:0,y1:0.01,x2:0.05,y2:-0.03},{x1:0.05,y1:-0.03,x2:0.05,y2:0.03},
+      // Entrée / sortie tuyau
+      {x1:-0.10,y1:0,x2:-0.16,y2:0},{x1:0.10,y1:0,x2:0.16,y2:0},
+    ]},
+
+  { id:'plomb_chauffe_eau', name:'Chauffe-eau électrique', icon:'🔥', category:'Plomberie',
+    segments:[
+      // Cuve cylindrique (rectangle arrondi simplifié) 50×80 cm
+      {x1:-0.25,y1:-0.40,x2:0.25,y2:-0.40},{x1:0.25,y1:-0.40,x2:0.25,y2:0.40},{x1:0.25,y1:0.40,x2:-0.25,y2:0.40},{x1:-0.25,y1:0.40,x2:-0.25,y2:-0.40},
+      // Calotte haut
+      {x1:-0.25,y1:-0.32,x2:0.25,y2:-0.32},
+      // Calotte bas
+      {x1:-0.25,y1:0.32,x2:0.25,y2:0.32},
+      // Départ ECS (haut gauche)
+      {x1:-0.15,y1:-0.40,x2:-0.15,y2:-0.52},{x1:-0.20,y1:-0.52,x2:-0.10,y2:-0.52},
+      // Arrivée EF (haut droite)
+      {x1:0.15,y1:-0.40,x2:0.15,y2:-0.52},{x1:0.10,y1:-0.52,x2:0.20,y2:-0.52},
+      // Résistance électrique (bas)
+      {x1:-0.10,y1:0.20,x2:0.10,y2:0.20},{x1:-0.10,y1:0.28,x2:0.10,y2:0.28},
+      {x1:-0.10,y1:0.20,x2:-0.10,y2:0.28},{x1:0.10,y1:0.20,x2:0.10,y2:0.28},
+    ]},
+
+  { id:'plomb_chaudiere', name:'Chaudière gaz / fioul', icon:'🔥', category:'Plomberie',
+    segments:[
+      // Boîtier 60×60 cm
+      {x1:-0.30,y1:-0.30,x2:0.30,y2:-0.30},{x1:0.30,y1:-0.30,x2:0.30,y2:0.30},{x1:0.30,y1:0.30,x2:-0.30,y2:0.30},{x1:-0.30,y1:0.30,x2:-0.30,y2:-0.30},
+      // Brûleur (bas)
+      {x1:-0.15,y1:0.18,x2:0.15,y2:0.18},{x1:-0.15,y1:0.24,x2:0.15,y2:0.24},{x1:-0.15,y1:0.18,x2:-0.15,y2:0.24},{x1:0.15,y1:0.18,x2:0.15,y2:0.24},
+      // Échangeur (lignes horizontales)
+      {x1:-0.20,y1:-0.10,x2:0.20,y2:-0.10},{x1:-0.20,y1:-0.02,x2:0.20,y2:-0.02},{x1:-0.20,y1:0.06,x2:0.20,y2:0.06},
+      // Départ chauffage (gauche)
+      {x1:-0.30,y1:-0.15,x2:-0.40,y2:-0.15},
+      // Retour chauffage (droite)
+      {x1:0.30,y1:-0.15,x2:0.40,y2:-0.15},
+      // Alimentation gaz (bas)
+      {x1:0,y1:0.30,x2:0,y2:0.40},
+    ]},
+
+  // ── PLOMBERIE — RÉSEAUX & SYMBOLES ──────────────────────────────────────────
+
+  { id:'plomb_colonne_chute', name:'Colonne de chute (EU/EV)', icon:'⬇', category:'Plomberie',
+    segments:[
+      // Cercle Ø 16 cm (section de tuyau)
+      {x1:0.08,y1:-0.08,x2:0.08,y2:0.08},{x1:0.08,y1:0.08,x2:-0.08,y2:0.08},{x1:-0.08,y1:0.08,x2:-0.08,y2:-0.08},{x1:-0.08,y1:-0.08,x2:0.08,y2:-0.08},
+      // Croix intérieure
+      {x1:-0.08,y1:0,x2:0.08,y2:0},{x1:0,y1:-0.08,x2:0,y2:0.08},
+    ]},
+
+  { id:'plomb_tuyau_ep', name:'Tuyau EP (eaux pluviales)', icon:'🌧', category:'Plomberie',
+    segments:[
+      // Cercle Ø 12 cm
+      {x1:0.06,y1:-0.06,x2:0.06,y2:0.06},{x1:0.06,y1:0.06,x2:-0.06,y2:0.06},{x1:-0.06,y1:0.06,x2:-0.06,y2:-0.06},{x1:-0.06,y1:-0.06,x2:0.06,y2:-0.06},
+      // EP intérieur (2 traits)
+      {x1:-0.03,y1:-0.03,x2:-0.03,y2:0.03},{x1:-0.03,y1:-0.03,x2:0.03,y2:-0.03},
+    ]},
+
+  { id:'plomb_regard', name:'Regard / Boîte de branchement', icon:'🔲', category:'Plomberie',
+    segments:[
+      // Carré 30×30 cm
+      {x1:-0.15,y1:-0.15,x2:0.15,y2:-0.15},{x1:0.15,y1:-0.15,x2:0.15,y2:0.15},{x1:0.15,y1:0.15,x2:-0.15,y2:0.15},{x1:-0.15,y1:0.15,x2:-0.15,y2:-0.15},
+      // Diagonales (couvercle)
+      {x1:-0.15,y1:-0.15,x2:0.15,y2:0.15},{x1:0.15,y1:-0.15,x2:-0.15,y2:0.15},
+    ]},
+
+  { id:'plomb_pompe_circulateur', name:'Pompe / Circulateur', icon:'🔄', category:'Plomberie',
+    segments:[
+      // Tuyauteries
+      {x1:-0.12,y1:0,x2:-0.06,y2:0},{x1:0.06,y1:0,x2:0.12,y2:0},
+      // Corps pompe (cercle)
+      {x1:0.06,y1:-0.06,x2:0.06,y2:0.06},{x1:0.06,y1:0.06,x2:-0.06,y2:0.06},{x1:-0.06,y1:0.06,x2:-0.06,y2:-0.06},{x1:-0.06,y1:-0.06,x2:0.06,y2:-0.06},
+      // Flèche rotatif intérieur
+      {x1:-0.03,y1:0.03,x2:0.03,y2:-0.03},
+      {x1:0.03,y1:-0.03,x2:0.01,y2:-0.03},{x1:0.03,y1:-0.03,x2:0.03,y2:-0.01},
+      // Moteur (trait haut)
+      {x1:0,y1:-0.06,x2:0,y2:-0.12},
+    ]},
+
+  { id:'plomb_nourrice', name:'Nourrice / Collecteur', icon:'🔧', category:'Plomberie',
+    segments:[
+      // Corps principal 60×8 cm
+      {x1:-0.30,y1:-0.04,x2:0.30,y2:-0.04},{x1:0.30,y1:-0.04,x2:0.30,y2:0.04},{x1:0.30,y1:0.04,x2:-0.30,y2:0.04},{x1:-0.30,y1:0.04,x2:-0.30,y2:-0.04},
+      // 4 départs (bas)
+      {x1:-0.20,y1:0.04,x2:-0.20,y2:0.14},{x1:-0.07,y1:0.04,x2:-0.07,y2:0.14},
+      {x1:0.07,y1:0.04,x2:0.07,y2:0.14},{x1:0.20,y1:0.04,x2:0.20,y2:0.14},
+      // Arrivée (gauche)
+      {x1:-0.30,y1:0,x2:-0.40,y2:0},
+    ]},
+
+  { id:'plomb_vase_expansion', name:'Vase d'expansion', icon:'⭕', category:'Plomberie',
+    segments:[
+      // Cercle Ø 20 cm
+      {x1:0.10,y1:-0.10,x2:0.10,y2:0.10},{x1:0.10,y1:0.10,x2:-0.10,y2:0.10},{x1:-0.10,y1:0.10,x2:-0.10,y2:-0.10},{x1:-0.10,y1:-0.10,x2:0.10,y2:-0.10},
+      // Ligne horizontale médiane (membrane)
+      {x1:-0.10,y1:0,x2:0.10,y2:0},
+      // Hachures zone gaz (haut)
+      {x1:-0.07,y1:-0.07,x2:0.07,y2:-0.07},{x1:-0.09,y1:-0.04,x2:0.09,y2:-0.04},
+      // Raccord bas
+      {x1:0,y1:0.10,x2:0,y2:0.18},
     ]},
 ];
 
@@ -1870,7 +2264,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
               Cliquer sur un symbole pour l'insérer au centre de la vue. Il sera sélectionné — tu peux le déplacer immédiatement.
             </div>
             <div style={{flex:1,overflowY:'auto'}}>
-              {['Sanitaires','Ouvertures','Structure','Mobilier','Équipements'].map(cat=>{
+              {['Sanitaires','Ouvertures','Structure','Mobilier','Équipements généraux','Électricité','Plomberie'].map(cat=>{
                 const items=DXF_LIBRARY.filter(x=>x.category===cat);
                 if(!items.length) return null;
                 return(
