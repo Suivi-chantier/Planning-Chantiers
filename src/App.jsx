@@ -12,6 +12,7 @@ import PagePhasage      from "./Phasage";
 import PageBibliotheque from "./Bibliotheque";
 import PageAdmin        from "./Admin";
 import PageRapportMobile from "./RapportMobile";
+import PageVisiteChantier from "./VisiteChantier";
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== 'undefined') {
@@ -215,14 +216,15 @@ function MainApp(){
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
-          {page==="dashboard"&&<PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
-          {page==="planning"&&<PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
-          {page==="commandes"&&<PageCommandes chantiers={chantiers} T={T}/>}
-          {page==="equipe"&&<PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
-          {page==="plans"&&<PagePlans T={T} chantiers={chantiers}/>}
-          {page==="phasage"&&<PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T}/>}
-          {page==="bibliotheque"&&<PageBibliotheque T={T}/>}
-          {page==="admin"&&<PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
+          {page==="dashboard"    && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
+          {page==="planning"     && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
+          {page==="commandes"    && <PageCommandes chantiers={chantiers} T={T}/>}
+          {page==="equipe"       && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
+          {page==="plans"        && <PagePlans T={T} chantiers={chantiers}/>}
+          {page==="phasage"      && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T}/>}
+          {page==="bibliotheque" && <PageBibliotheque T={T}/>}
+          {page==="visite"       && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
+          {page==="admin"        && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
         </div>
       </div>
       <BottomNav page={page} setPage={setPage} T={T}/>
