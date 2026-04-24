@@ -284,25 +284,12 @@ function distribuerTaches(ouvrages) {
   const plan = {};
   PHASES.forEach(p => { plan[p.id] = []; });
   ouvrages.forEach(ouvrage => {
-    let taches = ouvrage.taches || [];
-    // Fallback : ouvrage sans sous-tâches → une tâche unique représente l'ouvrage entier
-    if (taches.length === 0) {
-      taches = [{
-        nom: ouvrage.libelle,
-        ratio: 100,
-        phaseId: null,
-        heures: parseFloat(ouvrage.heures_devis) || 0,
-        heures_estimees: parseFloat(ouvrage.heures_estimees) || null,
-        prix_ht: parseFloat(ouvrage.prix_ht) || null,
-      }];
-    }
-    taches.forEach(t => {
+    (ouvrage.taches || []).forEach(t => {
       const phaseId = (t.phaseId && plan[t.phaseId]) ? t.phaseId : matchPhase(t.nom);
-      const prixHtTache = t.prix_ht != null
-        ? t.prix_ht
-        : (ouvrage.prix_ht && t.ratio)
-          ? parseFloat(((ouvrage.prix_ht * t.ratio) / 100).toFixed(2))
-          : (ouvrage.prix_ht && !t.ratio ? ouvrage.prix_ht : null);
+      // Prix HT de la tâche = prix_ht de l'ouvrage × ratio de la sous-tâche
+      const prixHtTache = (ouvrage.prix_ht && t.ratio)
+        ? parseFloat(((ouvrage.prix_ht * t.ratio) / 100).toFixed(2))
+        : (ouvrage.prix_ht && !t.ratio ? ouvrage.prix_ht : null);
       plan[phaseId].push({
         id: Math.random().toString(36).slice(2),
         nom: t.nom,
@@ -640,7 +627,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     const premierOuvrier = (t.ouvriers || [])[0] || "";
     return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[premierOuvrier] || 45));
   }, 0);
-  const totalMat = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+  const totalMat = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0); // alimenté automatiquement par les commandes liées
   const coutTotal = totalMO + totalMat;
   const pVendu = parseFloat(prixVendu) || 0;
   const marge = pVendu - coutTotal;
@@ -649,7 +636,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const autoColor = autoSaveStatus === "saved" ? "#50c878" : autoSaveStatus === "saving" ? T.accent : "#f5a623";
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
 
-  const gridCols = "20px 1.5fr 120px 55px 55px 70px 70px 110px 70px 90px 26px";
+  const gridCols = "20px 1.5fr 120px 55px 55px 70px 110px 70px 90px 26px";
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
@@ -716,7 +703,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             </div>
           </div>
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Coûts cumulés (MO + Mat)</div>
+            <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Coûts cumulés <span style={{fontSize:9,color:"#5b9cf6"}}>(MO + Commandes)</span></div>
             <div style={{ fontSize: 20, fontWeight: 800, color: coutTotal > pVendu && pVendu > 0 ? "#e05c5c" : T.text }}>{coutTotal.toFixed(0)} €</div>
           </div>
           <div style={{ background: marge < 0 ? "rgba(224,92,92,0.1)" : "rgba(80,200,120,0.1)", border: `1px solid ${marge < 0 ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)"}`, borderRadius: 10, padding: "12px 16px" }}>
@@ -757,7 +744,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
               const premierOuvrier = (t.ouvriers || [])[0] || "";
               return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[premierOuvrier] || 45));
             }, 0);
-            const phCoutMat = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+            const phCoutMat = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0); // alimenté par les commandes
             const phCout = phCoutMO + phCoutMat;
             const phMarge = phPrixHt - phCout;
 
@@ -821,7 +808,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                     {/* En-tête colonnes */}
                     {taches.length > 0 && (
                       <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
-                        {["", "Tâche", "Ouvrier(s)", "Vendu", "Estimé", "Réel", "Mat. €", "Date", "Avanc.", "Planning", ""].map((h, i) => (
+                        {["", "Tâche", "Ouvrier(s)", "Vendu", "Estimé", "Réel", "Date", "Avanc.", "Planning", ""].map((h, i) => (
                           <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, textAlign: i > 2 ? "center" : "left" }}>{h}</div>
                         ))}
                       </div>
@@ -874,11 +861,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                               style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
                           ))}
 
-                          {/* Coût matériel */}
-                          <input type="number" min="0" step="1" value={tache.cout_materiel || ""} placeholder="0"
-                            onPointerDown={stopDrag}
-                            onChange={e => updateTache(phase.id, tache.id, { cout_materiel: parseFloat(e.target.value) || 0 })}
-                            style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 12, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          {/* Coût mat (lecture seule, alimenté par commandes) */}
 
                           {/* Date */}
                           <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })}
@@ -927,7 +910,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                     {ajoutPhase === phase.id ? (
                       <div style={{ margin: "10px 16px 0", padding: "14px", background: T.card, borderRadius: 10, border: `1px solid ${phase.couleur}55` }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: phase.couleur, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>{phase.emoji} Nouvelle tâche</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
                           {[["Nom *", "nom", "text", T.text, "ex: Pose plaques"], ["H. vendues", "heures_vendues", "number", T.accent, "0h"], ["H. estimées", "heures_estimees", "number", BLEU, "—"], ["Date prévue", "date_prevue", "date", T.text, ""]].map(([label, field, type, color, ph]) => (
                             <div key={field}>
                               <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3 }}>{label}</div>
@@ -1025,16 +1008,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
       const cadence = parseFloat(bibl?.cadence) || null;
       const heuresEstimees = cadence && quantite ? parseFloat((cadence * quantite).toFixed(2)) : null;
       const prix_ht = parseFloat(ligne.prix_ht) || null;
-      let taches = bibl ? genererTaches(bibl.id, ligne.heures, heuresEstimees, prix_ht) : [];
-      if (taches.length === 0) {
-        taches = [{ nom: bibl ? bibl.libelle : ligne.libelle, ratio: 100, phaseId: null,
-          heures: parseFloat(ligne.heures) || 0, heures_estimees: heuresEstimees,
-          prix_ht, avancement: 0, heures_reelles: [], ressources: [] }];
-      }
-      return { id: Math.random().toString(36).slice(2), bibliotheque_id: bibl?.id || null,
-        libelle: bibl ? bibl.libelle : ligne.libelle, libelle_devis: ligne.libelle,
-        unite: bibl?.unite || "U", heures_devis: ligne.heures, heures_estimees: heuresEstimees,
-        quantite, prix_ht, taches };
+      return { id: Math.random().toString(36).slice(2), bibliotheque_id: bibl?.id || null, libelle: bibl ? bibl.libelle : ligne.libelle, libelle_devis: ligne.libelle, unite: bibl?.unite || "U", heures_devis: ligne.heures, heures_estimees: heuresEstimees, quantite, prix_ht, taches: bibl ? genererTaches(bibl.id, ligne.heures, heuresEstimees, prix_ht) : [] };
     });
     setOuvrages(prev => [...prev, ...nouveaux]);
     setShowImport(false);
@@ -1046,32 +1020,13 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
     if (!bibl) return;
     const hD = parseFloat(heuresInput), q = parseFloat(quantiteInput) || null;
     const hE = bibl.cadence && q ? parseFloat((bibl.cadence * q).toFixed(2)) : null;
-    let taches = genererTaches(selectedOuvrage, hD, hE);
-    if (taches.length === 0) {
-      taches = [{ nom: bibl.libelle, ratio: 100, phaseId: null, heures: hD,
-        heures_estimees: hE, prix_ht: null, avancement: 0, heures_reelles: [], ressources: [] }];
-    }
-    const newO = { id: Math.random().toString(36).slice(2), bibliotheque_id: selectedOuvrage,
-      libelle: bibl.libelle, unite: bibl.unite, heures_devis: hD, quantite: q,
-      heures_estimees: hE, prix_ht: null, taches };
+    const newO = { id: Math.random().toString(36).slice(2), bibliotheque_id: selectedOuvrage, libelle: bibl.libelle, unite: bibl.unite, heures_devis: hD, quantite: q, heures_estimees: hE, taches: genererTaches(selectedOuvrage, hD, hE) };
     setOuvrages(prev => [...prev, newO]);
     setShowAjout(false); setSelectedOuvrage(""); setHeuresInput(""); setQuantiteInput(""); setSearch("");
   }
 
   function supprimerOuvrage(id) { setOuvrages(prev => prev.filter(o => o.id !== id)); }
   function updateHeures(id, val) { setOuvrages(prev => prev.map(o => { if (o.id !== id) return o; const h = parseFloat(val) || 0; const bibl = bibliotheque.find(b => b.id === o.bibliotheque_id); return { ...o, heures_devis: h, taches: bibl ? genererTaches(o.bibliotheque_id, h, o.heures_estimees) : o.taches }; })); }
-  function updatePrixHt(id, val) {
-    const p = parseFloat(val) || 0;
-    setOuvrages(prev => prev.map(o => {
-      if (o.id !== id) return o;
-      const taches = (o.taches || []).map(t => ({
-        ...t,
-        prix_ht: t.ratio ? parseFloat(((p * t.ratio) / 100).toFixed(2))
-                         : (o.taches.length > 0 ? parseFloat((p / o.taches.length).toFixed(2)) : p),
-      }));
-      return { ...o, prix_ht: p, taches };
-    }));
-  }
 
   if (view === "plan") {
     return <PlanTravaux
@@ -1174,33 +1129,14 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
                         {ouvrage.libelle_devis && ouvrage.libelle_devis !== ouvrage.libelle && <span style={{ fontSize: 10, color: T.textMuted, fontStyle: "italic", background: T.card, padding: "2px 8px", borderRadius: 4 }}>devis : "{ouvrage.libelle_devis}"</span>}
                       </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      {/* Heures devis */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                         <span style={{ fontSize: 11, color: T.textMuted }}>Devis :</span>
                         <input type="number" min="0.5" step="0.5" value={ouvrage.heures_devis} onChange={e => updateHeures(ouvrage.id, e.target.value)} style={{ width: 58, padding: "4px 6px", borderRadius: 6, textAlign: "center", border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }} />
                         <span style={{ fontSize: 11, color: T.textMuted }}>h</span>
                       </div>
-                      {hEst && <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ fontSize: 11, color: T.textMuted }}>Estimé</span><span style={{ fontSize: 13, fontWeight: 800, color: BLEU }}>{hEst}h</span></div>}
-                      {/* Séparateur */}
-                      <div style={{ width: 1, height: 20, background: T.border }} />
-                      {/* Prix vendu HT */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ fontSize: 11, color: T.textMuted }}>Prix vendu :</span>
-                        <input
-                          type="number" min="0" step="1"
-                          value={ouvrage.prix_ht || ""}
-                          placeholder="0"
-                          onChange={e => updatePrixHt(ouvrage.id, e.target.value)}
-                          style={{ width: 82, padding: "4px 6px", borderRadius: 6, textAlign: "center",
-                            border: `1px solid ${ouvrage.prix_ht > 0 ? "rgba(80,200,120,0.5)" : T.border}`,
-                            background: T.inputBg,
-                            color: ouvrage.prix_ht > 0 ? "#50c878" : T.textMuted,
-                            fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }}
-                        />
-                        <span style={{ fontSize: 11, color: T.textMuted }}>€ HT</span>
-                      </div>
-                      <button onClick={() => supprimerOuvrage(ouvrage.id)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
+                      {hEst && <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: 10 }}><span style={{ fontSize: 11, color: T.textMuted }}>Estimé</span><span style={{ fontSize: 13, fontWeight: 800, color: BLEU }}>{hEst}h</span></div>}
+                      <button onClick={() => supprimerOuvrage(ouvrage.id)} style={{ marginLeft: 10, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
                     </div>
                   </div>
                 </div>
@@ -1208,42 +1144,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
             })}
           </div>
         )}
-
-        {/* ── Récap total ── */}
-        {ouvrages.length > 0 && (() => {
-          const totalHT = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
-          const totalH  = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
-          const nbAvecPrix = ouvrages.filter(o => o.prix_ht > 0).length;
-          return (
-            <div style={{ marginTop: 8, padding: "14px 20px", background: T.surface,
-              border: `1px solid ${T.border}`, borderRadius: 12,
-              display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: T.textMuted }}>Total heures devis :</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{totalH.toFixed(1)} h</span>
-              </div>
-              <div style={{ width: 1, height: 22, background: T.border }} />
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: T.textMuted }}>Total prix vendu :</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: totalHT > 0 ? "#50c878" : T.textMuted }}>
-                  {totalHT > 0 ? `${totalHT.toLocaleString("fr-FR")} € HT` : "—"}
-                </span>
-              </div>
-              {nbAvecPrix < ouvrages.length && (
-                <span style={{ fontSize: 11, color: "#f59e0b", background: "rgba(245,158,11,0.1)",
-                  border: "1px solid rgba(245,158,11,0.3)", borderRadius: 6, padding: "3px 9px" }}>
-                  ⚠ {ouvrages.length - nbAvecPrix} ouvrage{ouvrages.length - nbAvecPrix > 1 ? "s" : ""} sans prix
-                </span>
-              )}
-              {nbAvecPrix === ouvrages.length && ouvrages.length > 0 && (
-                <span style={{ fontSize: 11, color: "#50c878", background: "rgba(80,200,120,0.1)",
-                  border: "1px solid rgba(80,200,120,0.3)", borderRadius: 6, padding: "3px 9px" }}>
-                  ✓ Tous les prix renseignés
-                </span>
-              )}
-            </div>
-          );
-        })()}
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
