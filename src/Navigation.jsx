@@ -15,10 +15,10 @@ function useIsMobile() {
 // ─── NAVIGATION BAS (MOBILE) ──────────────────────────────────────────────────
 function BottomNav({ page, setPage, T }) {
   const nav = [
-    { id:"dashboard", icon:"⊞", label:"Accueil" },
+    { id:"dashboard", icon:"⊞", label:"Accueil"  },
     { id:"planning",  icon:"📅", label:"Planning" },
-    { id:"commandes", icon:"📦", label:"Commandes" },
-    { id:"phasage",   icon:"📋", label:"Phasage" },
+    { id:"commandes", icon:"📦", label:"Commandes"},
+    { id:"visite",    icon:"🔍", label:"Visites"  },
     { id:"admin",     icon:"⚙️", label:"Réglages" },
   ];
   return (
@@ -51,13 +51,14 @@ function BottomNav({ page, setPage, T }) {
 function Sidebar({page,setPage,T}){
   const[collapsed,setCollapsed]=useState(()=>localStorage.getItem("sidebar_collapsed")==="1");
   const nav=[
-    {id:"dashboard",   icon:"⊞", label:"Tableau de bord"},
+    {id:"dashboard",   icon:"⊞",  label:"Tableau de bord"},
     {id:"planning",    icon:"📅", label:"Planning"},
     {id:"commandes",   icon:"📦", label:"Commandes"},
     {id:"equipe",      icon:"👷", label:"Équipe"},
     {id:"plans",       icon:"📐", label:"Plans"},
     {id:"phasage",     icon:"📋", label:"Phasage"},
     {id:"bibliotheque",icon:"📚", label:"Bibliothèque"},
+    {id:"visite",      icon:"🔍", label:"Visites chantier"},
     {id:"admin",       icon:"⚙️", label:"Réglages"},
   ];
   const toggle=()=>{
@@ -97,7 +98,7 @@ function Sidebar({page,setPage,T}){
       </div>
 
       {/* Nav items */}
-      <nav style={{flex:1,padding:collapsed?"8px 6px":"0 8px"}}>
+      <nav style={{flex:1,padding:collapsed?"8px 6px":"0 8px",overflowY:"auto"}}>
         {nav.map(n=>{
           const active=page===n.id;
           return(
