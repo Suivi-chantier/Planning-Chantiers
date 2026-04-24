@@ -12,6 +12,11 @@ function PageCommandes({chantiers,T}){
   const [editRow,setEditRow]=useState(null); // id en cours d'édition inline
   const [newRow,setNewRow]=useState(null);   // brouillon nouvelle ligne
   const [editDraft,setEditDraft]=useState(null); // draft de la ligne en cours d'édition
+  const [modaleCommande,setModaleCommande]=useState(null); // {row} quand passage à "commande"
+  const [phasages,setPhasages]=useState([]);  // liste des phasages pour lier la commande
+  const [modalePrix,setModalePrix]=useState("");
+  const [modalePhaseId,setModalePhaseId]=useState("");
+  const [modaleTacheId,setModaleTacheId]=useState("");
 
   // Calcul retard : ligne non traitée (pas commande/retire) depuis > 2 jours
   const isEnRetard = (row) => {
@@ -31,7 +36,10 @@ function PageCommandes({chantiers,T}){
     setRows(data||[]);
     setLoading(false);
   };
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{
+    load();
+    supabase.from("phasages").select("id,chantier_nom,plan_travaux").then(({data})=>setPhasages(data||[]));
+  },[]);
 
   // Realtime
   useEffect(()=>{
@@ -92,11 +100,57 @@ function PageCommandes({chantiers,T}){
   };
   const cycleStatut=async(row)=>{
     const order=["besoin_ouvrier","a_commander","commande","retire"];
-    // Si le statut actuel n'est pas dans l'ordre (cas rare), on commence à a_commander
     const curIdx = order.indexOf(row.statut);
     const next = order[(curIdx>=0 ? curIdx+1 : 1) % order.length];
+    // Passage à "commande" → ouvrir la modale prix + lien tâche
+    if(next==="commande"){
+      setModalePrix(row.prix_ht||"");
+      setModalePhaseId("");
+      setModaleTacheId("");
+      setModaleCommande({row, next});
+      return;
+    }
     await supabase.from("commandes_detail").update({statut:next}).eq("id",row.id);
     setRows(prev=>prev.map(r=>r.id===row.id?{...r,statut:next}:r));
+  };
+
+  // Confirmer le passage à "commande" avec prix + lien tâche
+  const confirmerCommande=async()=>{
+    if(!modaleCommande)return;
+    const {row}=modaleCommande;
+    const prix=parseFloat(modalePrix)||null;
+    const updates={statut:"commande",prix_ht:prix};
+    if(modalePhaseId&&modaleTacheId){
+      updates.phasage_id=modalePhaseId;
+      updates.tache_id=modaleTacheId;
+    }
+    await supabase.from("commandes_detail").update(updates).eq("id",row.id);
+    setRows(prev=>prev.map(r=>r.id===row.id?{...r,...updates}:r));
+    // Mettre à jour le coût matériel de la tâche dans le plan de travail
+    if(prix&&modalePhaseId&&modaleTacheId){
+      const phasage=phasages.find(p=>p.id===modalePhaseId);
+      if(phasage?.plan_travaux){
+        const plan=phasage.plan_travaux;
+        let updated=false;
+        const newPlan={};
+        Object.keys(plan).forEach(phId=>{
+          if(!Array.isArray(plan[phId])){newPlan[phId]=plan[phId];return;}
+          newPlan[phId]=plan[phId].map(t=>{
+            if(t.id!==modaleTacheId)return t;
+            updated=true;
+            // Somme des commandes liées à cette tâche
+            const autresCmds=rows.filter(r=>r.id!==row.id&&r.tache_id===modaleTacheId&&r.prix_ht);
+            const totalMat=autresCmds.reduce((s,r)=>s+(parseFloat(r.prix_ht)||0),0)+prix;
+            return{...t,cout_materiel:parseFloat(totalMat.toFixed(2))};
+          });
+        });
+        if(updated){
+          await supabase.from("phasages").update({plan_travaux:newPlan}).eq("id",modalePhaseId);
+          setPhasages(prev=>prev.map(p=>p.id===modalePhaseId?{...p,plan_travaux:newPlan}:p));
+        }
+      }
+    }
+    setModaleCommande(null);
   };
 
   const filtered=rows.filter(r=>
@@ -112,8 +166,101 @@ function PageCommandes({chantiers,T}){
 
   const counts=Object.fromEntries(Object.keys(STATUTS).map(k=>[k,rows.filter(r=>r.statut===k).length]));
 
+  // Tâches du phasage sélectionné dans la modale
+  const phasageModale=phasages.find(p=>p.id===modalePhaseId);
+  const tachesModale=phasageModale?.plan_travaux
+    ? Object.entries(phasageModale.plan_travaux)
+        .filter(([k,v])=>k!=="meta"&&Array.isArray(v))
+        .flatMap(([phId,arr])=>arr.map(t=>({...t,phId})))
+    : [];
+
   return(
     <div className="page-padding" style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
+
+      {/* ── Modale passage à "Commandé" ── */}
+      {modaleCommande&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:900,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
+          onClick={()=>setModaleCommande(null)}>
+          <div style={{background:T.surface,borderRadius:16,width:"100%",maxWidth:480,
+            border:`1px solid ${T.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.6)",overflow:"hidden"}}
+            onClick={e=>e.stopPropagation()}>
+            {/* Header */}
+            <div style={{padding:"18px 24px",borderBottom:`1px solid ${T.border}`,
+              background:"rgba(80,200,120,0.08)",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:36,height:36,borderRadius:10,background:"rgba(80,200,120,0.2)",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🛒</div>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:T.text}}>Commande passée</div>
+                <div style={{fontSize:12,color:T.textMuted,marginTop:2}}>{modaleCommande.row.article}</div>
+              </div>
+            </div>
+            {/* Body */}
+            <div style={{padding:"20px 24px",display:"flex",flexDirection:"column",gap:16}}>
+              {/* Prix HT */}
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",
+                  letterSpacing:1,display:"block",marginBottom:6}}>Prix de la commande (HT)</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input type="number" min="0" step="0.01" value={modalePrix} autoFocus
+                    onChange={e=>setModalePrix(e.target.value)}
+                    placeholder="ex: 450.00"
+                    style={{flex:1,padding:"10px 14px",borderRadius:8,
+                      border:`1px solid ${modalePrix?"rgba(80,200,120,0.5)":T.border}`,
+                      background:T.inputBg,color:"#50c878",fontFamily:"inherit",
+                      fontSize:16,fontWeight:800,outline:"none"}}/>
+                  <span style={{fontSize:15,fontWeight:700,color:T.textMuted}}>€ HT</span>
+                </div>
+              </div>
+              {/* Lien plan de travail */}
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",
+                  letterSpacing:1,display:"block",marginBottom:6}}>Lier à un plan de travail</label>
+                <select value={modalePhaseId} onChange={e=>{setModalePhaseId(e.target.value);setModaleTacheId("");}}
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${T.border}`,
+                    background:T.inputBg,color:modalePhaseId?T.text:T.textMuted,
+                    fontFamily:"inherit",fontSize:13,outline:"none",marginBottom:8}}>
+                  <option value="">— Choisir un chantier / phasage —</option>
+                  {phasages.map(p=><option key={p.id} value={p.id}>{p.chantier_nom}</option>)}
+                </select>
+                {modalePhaseId&&(
+                  <select value={modaleTacheId} onChange={e=>setModaleTacheId(e.target.value)}
+                    style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${T.border}`,
+                      background:T.inputBg,color:modaleTacheId?T.text:T.textMuted,
+                      fontFamily:"inherit",fontSize:13,outline:"none"}}>
+                    <option value="">— Choisir une tâche —</option>
+                    {tachesModale.map(t=>(
+                      <option key={t.id} value={t.id}>
+                        {t.nom}{t.ouvrage_libelle?` (${t.ouvrage_libelle})`:""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {!modalePhaseId&&(
+                  <div style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
+                    Optionnel — le coût matériel sera automatiquement ajouté à la tâche liée.
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Footer */}
+            <div style={{padding:"14px 24px",borderTop:`1px solid ${T.border}`,
+              display:"flex",gap:10,justifyContent:"flex-end",background:T.surface}}>
+              <button onClick={()=>setModaleCommande(null)}
+                style={{padding:"9px 18px",borderRadius:8,border:`1px solid ${T.border}`,
+                  background:"transparent",color:T.textSub,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>
+                Annuler
+              </button>
+              <button onClick={confirmerCommande}
+                style={{padding:"9px 24px",borderRadius:8,border:"none",
+                  background:"#50c878",color:"#111",fontFamily:"inherit",
+                  fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                ✓ Confirmer la commande
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{marginBottom:24,display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
         <div>
           <div style={{fontSize:28,fontWeight:800,letterSpacing:1,marginBottom:4}}>Commandes</div>
@@ -325,7 +472,11 @@ function PageCommandes({chantiers,T}){
                     </div>
                   </td>
                   <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>{row.fournisseur||<span style={{color:T.emptyColor,fontSize:12}}>À renseigner</span>}</td>
-                  <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>{row.quantite||"—"}</td>
+                  <td style={{padding:"11px 10px",fontSize:13,color:T.textSub}}>
+                    <div>{row.quantite||"—"}</div>
+                    {row.prix_ht>0&&<div style={{fontSize:11,fontWeight:700,color:"#50c878",marginTop:2}}>{parseFloat(row.prix_ht).toLocaleString("fr-FR",{minimumFractionDigits:2})} € HT</div>}
+                    {row.tache_id&&<div style={{fontSize:10,color:"#5b9cf6",marginTop:1}}>🔗 Lié au plan</div>}
+                  </td>
                   <td style={{padding:"11px 10px"}}>
                     <div style={{display:"flex",flexDirection:"column",gap:4}}>
                       <button onClick={()=>cycleStatut(row)} style={{
