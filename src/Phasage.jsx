@@ -1031,6 +1031,18 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
 
   function supprimerOuvrage(id) { setOuvrages(prev => prev.filter(o => o.id !== id)); }
   function updateHeures(id, val) { setOuvrages(prev => prev.map(o => { if (o.id !== id) return o; const h = parseFloat(val) || 0; const bibl = bibliotheque.find(b => b.id === o.bibliotheque_id); return { ...o, heures_devis: h, taches: bibl ? genererTaches(o.bibliotheque_id, h, o.heures_estimees) : o.taches }; })); }
+  function updatePrixHt(id, val) {
+    const p = parseFloat(val) || 0;
+    setOuvrages(prev => prev.map(o => {
+      if (o.id !== id) return o;
+      // Recalcule le prix_ht des sous-tâches au prorata des ratios
+      const taches = (o.taches || []).map(t => ({
+        ...t,
+        prix_ht: t.ratio ? parseFloat(((p * t.ratio) / 100).toFixed(2)) : (o.taches.length > 0 ? parseFloat((p / o.taches.length).toFixed(2)) : p),
+      }));
+      return { ...o, prix_ht: p, taches };
+    }));
+  }
 
   if (view === "plan") {
     return <PlanTravaux
@@ -1133,14 +1145,29 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
                         {ouvrage.libelle_devis && ouvrage.libelle_devis !== ouvrage.libelle && <span style={{ fontSize: 10, color: T.textMuted, fontStyle: "italic", background: T.card, padding: "2px 8px", borderRadius: 4 }}>devis : "{ouvrage.libelle_devis}"</span>}
                       </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      {/* Heures devis */}
                       <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                         <span style={{ fontSize: 11, color: T.textMuted }}>Devis :</span>
                         <input type="number" min="0.5" step="0.5" value={ouvrage.heures_devis} onChange={e => updateHeures(ouvrage.id, e.target.value)} style={{ width: 58, padding: "4px 6px", borderRadius: 6, textAlign: "center", border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }} />
                         <span style={{ fontSize: 11, color: T.textMuted }}>h</span>
                       </div>
-                      {hEst && <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: 10 }}><span style={{ fontSize: 11, color: T.textMuted }}>Estimé</span><span style={{ fontSize: 13, fontWeight: 800, color: BLEU }}>{hEst}h</span></div>}
-                      <button onClick={() => supprimerOuvrage(ouvrage.id)} style={{ marginLeft: 10, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
+                      {hEst && <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ fontSize: 11, color: T.textMuted }}>Estimé</span><span style={{ fontSize: 13, fontWeight: 800, color: BLEU }}>{hEst}h</span></div>}
+                      {/* Séparateur */}
+                      <div style={{ width: 1, height: 22, background: T.border }} />
+                      {/* Prix vendu HT */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ fontSize: 11, color: T.textMuted }}>Prix vendu :</span>
+                        <input
+                          type="number" min="0" step="1"
+                          value={ouvrage.prix_ht || ""}
+                          placeholder="0"
+                          onChange={e => updatePrixHt(ouvrage.id, e.target.value)}
+                          style={{ width: 82, padding: "4px 6px", borderRadius: 6, textAlign: "center", border: `1px solid ${ouvrage.prix_ht ? "#50c87888" : T.border}`, background: T.inputBg, color: ouvrage.prix_ht ? "#50c878" : T.textMuted, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }}
+                        />
+                        <span style={{ fontSize: 11, color: T.textMuted }}>€ HT</span>
+                      </div>
+                      <button onClick={() => supprimerOuvrage(ouvrage.id)} style={{ marginLeft: 4, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
                     </div>
                   </div>
                 </div>
@@ -1148,6 +1175,36 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
             })}
           </div>
         )}
+
+        {/* ── Récap total ── */}
+        {ouvrages.length > 0 && (() => {
+          const totalHT = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+          const totalH  = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
+          const nbAvecPrix = ouvrages.filter(o => o.prix_ht > 0).length;
+          return (
+            <div style={{ marginTop: 8, padding: "14px 20px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, display: "flex", alignItems: "center", gap: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: T.textMuted }}>Total heures devis :</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{totalH.toFixed(1)} h</span>
+              </div>
+              <div style={{ width: 1, height: 24, background: T.border }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: T.textMuted }}>Total prix vendu :</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: totalHT > 0 ? "#50c878" : T.textMuted }}>
+                  {totalHT > 0 ? `${totalHT.toLocaleString("fr-FR")} € HT` : "—"}
+                </span>
+              </div>
+              {nbAvecPrix < ouvrages.length && (
+                <span style={{ fontSize: 11, color: "#f59e0b", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 6, padding: "3px 9px" }}>
+                  ⚠ {ouvrages.length - nbAvecPrix} ouvrage{ouvrages.length - nbAvecPrix > 1 ? "s" : ""} sans prix
+                </span>
+              )}
+              {nbAvecPrix === ouvrages.length && ouvrages.length > 0 && (
+                <span style={{ fontSize: 11, color: "#50c878", background: "rgba(80,200,120,0.1)", border: "1px solid rgba(80,200,120,0.3)", borderRadius: 6, padding: "3px 9px" }}>✓ Tous les prix renseignés</span>
+              )}
+            </div>
+          );
+        })()}
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
