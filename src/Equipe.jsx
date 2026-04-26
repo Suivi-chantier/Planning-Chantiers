@@ -457,43 +457,43 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
 }
 
 function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
-  const [rapports, setRapports]     = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [rapports, setRapports]       = useState([]);
+  const [loading, setLoading]         = useState(true);
   const [filterOuvrier, setFilterOuvrier] = useState("all");
-  const [filterSemaine, setFilterSemaine] = useState(weekId);
-  const [selectedRapport, setSelectedRapport] = useState(null);
-  const [showBilan, setShowBilan]   = useState(false);
+  const [filterChantier, setFilterChantier] = useState("all");
+  const [filterSemaine, setFilterSemaine]   = useState(weekId);
+  const [groupBy, setGroupBy]         = useState("ouvrier"); // "ouvrier" | "chantier"
+  const [showBilan, setShowBilan]     = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState({});
 
   const appUrl = window.location.origin + "/rapport";
   const [copied, setCopied] = useState(false);
 
   const load = async () => {
     setLoading(true);
-    let q = supabase.from("rapports").select("*").order("submitted_at",{ascending:false});
+    let q = supabase.from("rapports").select("*").order("date_rapport",{ascending:false}).order("submitted_at",{ascending:false});
     if (filterOuvrier !== "all") q = q.eq("ouvrier", filterOuvrier);
+    if (filterChantier !== "all") q = q.eq("chantier_id", filterChantier);
     if (filterSemaine) q = q.eq("semaine", filterSemaine);
     const { data } = await q;
     setRapports(data||[]);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [filterOuvrier, filterSemaine]);
+  useEffect(() => { load(); }, [filterOuvrier, filterChantier, filterSemaine]);
 
-  // Realtime
   useEffect(() => {
     const ch = supabase.channel("rapports-live")
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"rapports"},()=>load())
       .subscribe();
     return () => supabase.removeChannel(ch);
-  }, [filterOuvrier, filterSemaine]);
+  }, [filterOuvrier, filterChantier, filterSemaine]);
 
   const copyLink = () => {
     navigator.clipboard.writeText(appUrl);
     setCopied(true);
     setTimeout(()=>setCopied(false), 2000);
   };
-
-  const STATUT_ICONS = { faite:"✅", en_cours:"🔄", non_faite:"❌" };
 
   const semaines = [];
   const now = getCurrentWeek();
@@ -503,152 +503,321 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
     semaines.push(getWeekId(y,w));
   }
 
+  // ── Groupement des rapports ──────────────────────────────────────────────
+  const grouped = (() => {
+    const map = {};
+    rapports.forEach(r => {
+      const key   = groupBy === "ouvrier" ? (r.ouvrier||"?") : (r.chantier_id||"__divers__");
+      const label = groupBy === "ouvrier" ? (r.ouvrier||"?") : (r.chantier_nom || chantiers.find(c=>c.id===r.chantier_id)?.nom || "Divers");
+      if (!map[key]) map[key] = { key, label, rapports: [] };
+      map[key].rapports.push(r);
+    });
+    return Object.values(map).sort((a,b) => a.label.localeCompare(b.label));
+  })();
+
+  const toggleGroup = (key) => setExpandedGroups(p => ({...p, [key]: !p[key]}));
+
+  // Stats globales
+  const allTaches = rapports.flatMap(r => r.taches||[]);
+  const stats = {
+    total:   rapports.length,
+    faites:  allTaches.filter(t=>t.statut==="faite").length,
+    enCours: allTaches.filter(t=>t.statut==="en_cours").length,
+    nonFaites: allTaches.filter(t=>t.statut==="non_faite").length,
+    heures:  allTaches.reduce((s,t)=>s+(parseFloat(t.heures_reelles)||0),0),
+  };
+
   return (
-    <div className="page-padding" style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
-      {/* Modal Bilan */}
+    <div className="page-padding" style={{flex:1,overflowY:"auto",padding:"24px 28px",background:T.bg}}>
       {showBilan&&(
-        <BilanSemaine
-          rapports={rapports}
-          chantiers={chantiers}
-          cells={cells}
-          weekId={filterSemaine||weekId}
-          onClose={()=>setShowBilan(false)}
-          T={T}
-        />
+        <BilanSemaine rapports={rapports} chantiers={chantiers} cells={cells}
+          weekId={filterSemaine||weekId} onClose={()=>setShowBilan(false)} T={T}/>
       )}
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28,flexWrap:"wrap",gap:12}}>
+
+      {/* ── Header ── */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",
+        marginBottom:20,flexWrap:"wrap",gap:12}}>
         <div>
-          <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4}}>Équipe</div>
-          <div style={{fontSize:15,color:T.textSub}}>Comptes rendus et lien mobile pour les ouvriers</div>
+          <div style={{fontSize:26,fontWeight:800,letterSpacing:1,marginBottom:2}}>Équipe</div>
+          <div style={{fontSize:13,color:T.textSub}}>Comptes rendus journaliers de l'équipe</div>
         </div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          {/* Bouton Bilan */}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <button onClick={()=>setShowBilan(true)} style={{
-            background:"linear-gradient(135deg, #FFC200, #e6ae00)",
-            color:"#111",border:"none",borderRadius:10,padding:"10px 20px",
-            fontFamily:"inherit",fontSize:14,fontWeight:800,cursor:"pointer",
-            boxShadow:"0 4px 16px rgba(255,194,0,0.3)",letterSpacing:.5,
-            display:"flex",alignItems:"center",gap:8,
-          }}>
+            background:"linear-gradient(135deg,#FFC200,#e6ae00)",color:"#111",border:"none",
+            borderRadius:10,padding:"9px 18px",fontFamily:"inherit",fontSize:13,fontWeight:800,
+            cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             📊 Bilan semaine
           </button>
-          {/* Lien mobile */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textMuted,marginBottom:4}}>Lien pour l'équipe</div>
-              <code style={{fontSize:13,color:T.accent}}>{appUrl}</code>
-            </div>
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,
+            padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
+            <code style={{fontSize:12,color:T.accent}}>{appUrl}</code>
             <button onClick={copyLink} style={{background:T.accent,color:"#fff",border:"none",
-              borderRadius:8,padding:"8px 16px",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-              {copied ? "✓ Copié !" : "📋 Copier le lien"}
+              borderRadius:6,padding:"6px 12px",fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              {copied?"✓ Copié !":"📋 Copier"}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Filtres */}
-      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
-        <select value={filterOuvrier} onChange={e=>setFilterOuvrier(e.target.value)}
-          style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,outline:"none"}}>
-          <option value="all" style={{background:"#1e2336"}}>Tous les ouvriers</option>
-          {ouvriers.map(o=><option key={o} value={o} style={{background:"#1e2336"}}>{o}</option>)}
-        </select>
+      {/* ── Filtres + tri ── */}
+      <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,
+        padding:"14px 16px",marginBottom:16,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+
+        {/* Tri / groupement */}
+        <div style={{display:"flex",background:T.card,borderRadius:8,padding:3,gap:2,flexShrink:0}}>
+          {[["ouvrier","👷 Par ouvrier"],["chantier","🏗️ Par chantier"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setGroupBy(v)} style={{
+              padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",
+              fontFamily:"inherit",fontSize:12,fontWeight:700,
+              background: groupBy===v ? T.accent : "transparent",
+              color: groupBy===v ? "#111" : T.textMuted,
+              transition:"all .15s",
+            }}>{l}</button>
+          ))}
+        </div>
+
+        <div style={{width:1,height:28,background:T.border,flexShrink:0}}/>
+
+        {/* Semaine */}
         <select value={filterSemaine} onChange={e=>setFilterSemaine(e.target.value)}
-          style={{background:"#1e2336",border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",color:"#e8eaf0",fontFamily:"inherit",fontSize:13,outline:"none"}}>
-          <option value="" style={{background:"#1e2336"}}>Toutes les semaines</option>
-          {semaines.map(s=><option key={s} value={s} style={{background:"#1e2336"}}>{s}</option>)}
+          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,
+            padding:"7px 10px",color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="">Toutes les semaines</option>
+          {semaines.map(s=><option key={s} value={s}>{s}</option>)}
         </select>
+
+        {/* Ouvrier */}
+        <select value={filterOuvrier} onChange={e=>setFilterOuvrier(e.target.value)}
+          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,
+            padding:"7px 10px",color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="all">Tous les ouvriers</option>
+          {ouvriers.map(o=><option key={o} value={o}>{o}</option>)}
+        </select>
+
+        {/* Chantier */}
+        <select value={filterChantier} onChange={e=>setFilterChantier(e.target.value)}
+          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,
+            padding:"7px 10px",color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
+          <option value="all">Tous les chantiers</option>
+          {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+        </select>
+
+        {(filterOuvrier!=="all"||filterChantier!=="all")&&(
+          <button onClick={()=>{setFilterOuvrier("all");setFilterChantier("all");}}
+            style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:7,
+              padding:"6px 10px",color:T.textMuted,fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>
+            ✕ Réinitialiser
+          </button>
+        )}
       </div>
 
-      {/* Stats rapides */}
+      {/* ── Stats ── */}
       {rapports.length>0&&(
-        <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16}}>
           {[
-            {label:"Comptes rendus",val:rapports.length,color:T.accent},
-            {label:"Tâches faites",val:rapports.reduce((a,r)=>a+(r.taches||[]).filter(t=>t.statut==="faite").length,0),color:"#50c878"},
-            {label:"En cours",val:rapports.reduce((a,r)=>a+(r.taches||[]).filter(t=>t.statut==="en_cours").length,0),color:"#f5a623"},
-            {label:"Non faites",val:rapports.reduce((a,r)=>a+(r.taches||[]).filter(t=>t.statut==="non_faite").length,0),color:"#e05c5c"},
+            {label:"Comptes rendus", val:stats.total,    color:T.accent,        icon:"📋"},
+            {label:"Heures réelles", val:stats.heures>0?stats.heures.toFixed(1)+"h":"—", color:"#5b9cf6", icon:"⏱"},
+            {label:"Tâches faites",  val:stats.faites,   color:"#50c878",       icon:"✅"},
+            {label:"En cours",       val:stats.enCours,  color:"#f5a623",       icon:"🔄"},
+            {label:"Non faites",     val:stats.nonFaites,color:"#e05c5c",       icon:"❌"},
           ].map(s=>(
-            <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 18px",minWidth:120}}>
-              <div style={{fontSize:24,fontWeight:800,color:s.color}}>{s.val}</div>
-              <div style={{fontSize:12,color:T.textMuted}}>{s.label}</div>
+            <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,
+              borderRadius:10,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:36,height:36,borderRadius:8,background:s.color+"18",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+                {s.icon}
+              </div>
+              <div>
+                <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
+                <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{s.label}</div>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Liste des rapports */}
-      {loading&&<div style={{color:T.textMuted,fontSize:15,padding:32}}>Chargement…</div>}
+      {/* ── Contenu ── */}
+      {loading&&<div style={{color:T.textMuted,padding:40,textAlign:"center"}}>Chargement…</div>}
+
       {!loading&&rapports.length===0&&(
-        <div style={{background:T.card,border:`1px dashed ${T.border}`,borderRadius:14,padding:"48px 32px",textAlign:"center"}}>
+        <div style={{background:T.surface,border:`1px dashed ${T.border}`,borderRadius:14,
+          padding:"48px 32px",textAlign:"center"}}>
           <div style={{fontSize:40,marginBottom:12}}>📋</div>
-          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:8}}>Aucun compte rendu</div>
-          <div style={{fontSize:14,color:T.textSub}}>Partage le lien ci-dessus à ton équipe pour qu'ils saisissent leur compte rendu.</div>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Aucun compte rendu</div>
+          <div style={{fontSize:13,color:T.textSub}}>Partage le lien ci-dessus à ton équipe.</div>
         </div>
       )}
 
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {rapports.map(r => {
-          const ch = chantiers.find(c=>c.id===r.chantier_id);
-          const taches = r.taches||[];
-          const f=taches.filter(t=>t.statut==="faite").length;
-          const ec=taches.filter(t=>t.statut==="en_cours").length;
-          const nf=taches.filter(t=>t.statut==="non_faite").length;
-          const isOpen = selectedRapport === r.id;
+      {/* ── Groupes ── */}
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {grouped.map(grp => {
+          const isOpen = expandedGroups[grp.key] !== false; // ouvert par défaut
+          const ch = groupBy==="chantier" ? chantiers.find(c=>c.id===grp.key) : null;
+          const grpTaches = grp.rapports.flatMap(r=>r.taches||[]);
+          const grpFaites   = grpTaches.filter(t=>t.statut==="faite").length;
+          const grpEnCours  = grpTaches.filter(t=>t.statut==="en_cours").length;
+          const grpNonFaites= grpTaches.filter(t=>t.statut==="non_faite").length;
+          const grpHeures   = grpTaches.reduce((s,t)=>s+(parseFloat(t.heures_reelles)||0),0);
+          const accentColor = ch?.couleur || T.accent;
+
           return (
-            <div key={r.id} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",
-              borderLeft:`4px solid ${ch?.couleur||T.accent}`}}>
-              <div onClick={()=>setSelectedRapport(isOpen?null:r.id)}
-                style={{padding:"14px 18px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",flexWrap:"wrap"}}>
+            <div key={grp.key} style={{background:T.surface,border:`1px solid ${T.border}`,
+              borderRadius:14,overflow:"hidden"}}>
+
+              {/* En-tête groupe */}
+              <div onClick={()=>toggleGroup(grp.key)} style={{
+                padding:"14px 18px",cursor:"pointer",
+                background: ch ? ch.couleur+"14" : T.card,
+                borderBottom: isOpen ? `1px solid ${T.sectionDivider}` : "none",
+                display:"flex",alignItems:"center",gap:12,
+                borderLeft:`4px solid ${accentColor}`,
+              }}>
+                {/* Icône / avatar */}
+                <div style={{width:38,height:38,borderRadius:10,flexShrink:0,
+                  background:accentColor+"22",border:`1.5px solid ${accentColor}44`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:18,fontWeight:800,color:accentColor}}>
+                  {groupBy==="ouvrier" ? grp.label[0].toUpperCase() : "🏗️"}
+                </div>
+
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                    <span style={{fontWeight:800,fontSize:16,color:T.text}}>{r.ouvrier}</span>
-                    {ch&&<span style={{background:ch.couleur+"44",color:"#1a1f2e",borderRadius:4,padding:"1px 8px",fontSize:11,fontWeight:700}}>{ch.nom||r.chantier_nom}</span>}
-                    <span style={{fontSize:12,color:T.textMuted}}>{r.date_rapport}</span>
-                  </div>
-                  <div style={{display:"flex",gap:8}}>
-                    {f>0&&<span style={{fontSize:13,color:"#50c878"}}>✅ {f}</span>}
-                    {ec>0&&<span style={{fontSize:13,color:"#f5a623"}}>🔄 {ec}</span>}
-                    {nf>0&&<span style={{fontSize:13,color:"#e05c5c"}}>❌ {nf}</span>}
-                    {taches.length===0&&<span style={{fontSize:13,color:T.textMuted}}>Aucune tâche</span>}
+                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>{grp.label}</div>
+                  <div style={{fontSize:12,color:T.textMuted,marginTop:1}}>
+                    {grp.rapports.length} compte{grp.rapports.length>1?"s":""} rendu{grp.rapports.length>1?"s":""}
+                    {grpHeures>0&&<> · <span style={{color:"#5b9cf6",fontWeight:700}}>{grpHeures.toFixed(1)}h</span></>}
                   </div>
                 </div>
-                <span style={{color:T.textMuted,fontSize:14}}>{isOpen?"▲":"▼"}</span>
+
+                {/* Mini stats */}
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  {grpFaites>0&&<span style={{fontSize:12,fontWeight:700,color:"#50c878",
+                    background:"rgba(80,200,120,0.12)",borderRadius:6,padding:"3px 8px"}}>✅ {grpFaites}</span>}
+                  {grpEnCours>0&&<span style={{fontSize:12,fontWeight:700,color:"#f5a623",
+                    background:"rgba(245,166,35,0.12)",borderRadius:6,padding:"3px 8px"}}>🔄 {grpEnCours}</span>}
+                  {grpNonFaites>0&&<span style={{fontSize:12,fontWeight:700,color:"#e05c5c",
+                    background:"rgba(224,92,92,0.12)",borderRadius:6,padding:"3px 8px"}}>❌ {grpNonFaites}</span>}
+                  <span style={{color:T.textMuted,fontSize:14,marginLeft:4}}>{isOpen?"▲":"▼"}</span>
+                </div>
               </div>
+
+              {/* Rapports du groupe */}
               {isOpen&&(
-                <div style={{padding:"0 18px 16px",borderTop:`1px solid ${T.sectionDivider}`}}>
-                  {taches.map((t,i)=>(
-                    <div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",
-                      borderBottom:i<taches.length-1?`1px solid ${T.sectionDivider}`:"none"}}>
-                      <span style={{fontSize:18,flexShrink:0,marginTop:1}}>{STATUT_ICONS[t.statut]||"⬜"}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:14,color:T.text,fontWeight:600}}>{t.planifie}</div>
-                        {t.remarque&&<div style={{fontSize:13,color:T.textSub,marginTop:3,fontStyle:"italic"}}>"{t.remarque}"</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                  {grp.rapports.map((r,ri) => {
+                    const rCh = chantiers.find(c=>c.id===r.chantier_id);
+                    const taches = r.taches||[];
+                    const faites    = taches.filter(t=>t.statut==="faite");
+                    const enCours   = taches.filter(t=>t.statut==="en_cours");
+                    const nonFaites = taches.filter(t=>t.statut==="non_faite");
+                    const heuresTotal = taches.reduce((s,t)=>s+(parseFloat(t.heures_reelles)||0),0);
+
+                    return (
+                      <div key={r.id} style={{
+                        borderTop: ri>0 ? `1px solid ${T.sectionDivider}` : "none",
+                        padding:"16px 20px",
+                      }}>
+                        {/* Ligne meta */}
+                        <div style={{display:"flex",alignItems:"center",gap:10,
+                          marginBottom:12,flexWrap:"wrap"}}>
+                          {/* Date */}
+                          <div style={{fontSize:13,fontWeight:700,color:T.textMuted,
+                            background:T.card,borderRadius:6,padding:"3px 9px",border:`1px solid ${T.border}`}}>
+                            📅 {r.date_rapport}
+                          </div>
+                          {/* Ouvrier (si vue chantier) */}
+                          {groupBy==="chantier"&&(
+                            <div style={{fontSize:13,fontWeight:700,color:T.accent,
+                              background:T.accent+"15",borderRadius:6,padding:"3px 9px"}}>
+                              👷 {r.ouvrier}
+                            </div>
+                          )}
+                          {/* Chantier (si vue ouvrier) */}
+                          {groupBy==="ouvrier"&&rCh&&(
+                            <div style={{fontSize:12,fontWeight:700,color:"#1a1f2e",
+                              background:rCh.couleur,borderRadius:6,padding:"3px 9px"}}>
+                              {rCh.nom}
+                            </div>
+                          )}
+                          {/* Heures totales */}
+                          {heuresTotal>0&&(
+                            <div style={{fontSize:13,fontWeight:800,color:"#5b9cf6",
+                              background:"rgba(91,156,246,0.12)",borderRadius:6,padding:"3px 9px",
+                              border:"1px solid rgba(91,156,246,0.25)"}}>
+                              ⏱ {heuresTotal.toFixed(1)}h
+                            </div>
+                          )}
+                          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+                            {faites.length>0&&<span style={{fontSize:12,color:"#50c878",fontWeight:700}}>✅{faites.length}</span>}
+                            {enCours.length>0&&<span style={{fontSize:12,color:"#f5a623",fontWeight:700}}>🔄{enCours.length}</span>}
+                            {nonFaites.length>0&&<span style={{fontSize:12,color:"#e05c5c",fontWeight:700}}>❌{nonFaites.length}</span>}
+                            <button onClick={async()=>{
+                              if(!confirm(`Supprimer le CR de ${r.ouvrier} du ${r.date_rapport} ?`))return;
+                              await supabase.from("rapports").delete().eq("id",r.id);
+                              setRapports(p=>p.filter(x=>x.id!==r.id));
+                            }} style={{background:"transparent",border:"none",color:"#e05c5c",
+                              cursor:"pointer",fontSize:14,padding:"0 4px",opacity:.6}}>🗑</button>
+                          </div>
+                        </div>
+
+                        {/* Tâches */}
+                        {taches.length>0&&(
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {[["faite","✅","#50c878","rgba(80,200,120,0.08)","rgba(80,200,120,0.2)",faites],
+                              ["en_cours","🔄","#f5a623","rgba(245,166,35,0.08)","rgba(245,166,35,0.2)",enCours],
+                              ["non_faite","❌","#e05c5c","rgba(224,92,92,0.08)","rgba(224,92,92,0.2)",nonFaites],
+                            ].filter(([,,,,, arr])=>arr.length>0).map(([statut,icon,color,bg,border,arr])=>(
+                              <div key={statut} style={{background:bg,border:`1px solid ${border}`,
+                                borderRadius:10,padding:"10px 14px"}}>
+                                <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,
+                                  textTransform:"uppercase",color,marginBottom:8}}>
+                                  {icon} {statut==="faite"?"Réalisé":statut==="en_cours"?"En cours":"Non réalisé"}
+                                </div>
+                                {arr.map((t,ti)=>(
+                                  <div key={ti} style={{display:"flex",alignItems:"flex-start",
+                                    gap:10,padding:"6px 0",
+                                    borderTop:ti>0?`1px solid ${border}`:""  }}>
+                                    <div style={{flex:1,minWidth:0}}>
+                                      <div style={{fontSize:14,fontWeight:600,color:"#1a1f2e",lineHeight:1.4}}>
+                                        {t.planifie||t.text||""}
+                                      </div>
+                                      {t.remarque&&(
+                                        <div style={{fontSize:13,color:"#555",marginTop:3,
+                                          fontStyle:"italic",paddingLeft:8,
+                                          borderLeft:`2px solid ${color}66`}}>
+                                          {t.remarque}
+                                        </div>
+                                      )}
+                                    </div>
+                                    {t.heures_reelles>0&&(
+                                      <div style={{fontSize:12,fontWeight:800,color,flexShrink:0,
+                                        background:"rgba(255,255,255,0.6)",borderRadius:5,
+                                        padding:"2px 7px",border:`1px solid ${border}`}}>
+                                        {t.heures_reelles}h
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Remarque générale */}
+                        {r.remarque?.trim()&&(
+                          <div style={{marginTop:10,padding:"10px 14px",
+                            background:"rgba(91,138,245,0.08)",borderRadius:10,
+                            border:"1px solid rgba(91,138,245,0.2)",
+                            borderLeft:`3px solid #5b8af5`}}>
+                            <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,
+                              textTransform:"uppercase",color:"#5b8af5",marginBottom:5}}>
+                              💬 Remarque générale
+                            </div>
+                            <div style={{fontSize:14,color:T.text,lineHeight:1.5}}>{r.remarque}</div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
-                  {r.remarque&&(
-                    <div style={{marginTop:10,padding:"10px 12px",background:T.card,borderRadius:8,borderLeft:`3px solid ${T.accent}`}}>
-                      <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1,color:T.textMuted,marginBottom:4}}>Remarque générale</div>
-                      <div style={{fontSize:14,color:T.text}}>{r.remarque}</div>
-                    </div>
-                  )}
-                  <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                    <div style={{fontSize:11,color:T.textMuted}}>
-                      Soumis le {new Date(r.submitted_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}
-                    </div>
-                    <button onClick={async()=>{
-                      if(!confirm(`Supprimer le compte rendu de ${r.ouvrier} du ${r.date_rapport} ?`)) return;
-                      await supabase.from("rapports").delete().eq("id",r.id);
-                      setRapports(p=>p.filter(x=>x.id!==r.id));
-                      setSelectedRapport(null);
-                    }} style={{background:"transparent",border:"1px solid rgba(224,92,92,0.3)",
-                      borderRadius:6,padding:"4px 12px",color:"#e05c5c",fontFamily:"inherit",
-                      fontSize:12,cursor:"pointer"}}>
-                      🗑 Supprimer
-                    </button>
-                  </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
