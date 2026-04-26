@@ -11,6 +11,7 @@ async function sendRapportEmail(rapport, chantierNom) {
     const icon = t.statut==="faite"?"✅":t.statut==="en_cours"?"🔄":"❌";
     return `<tr>
       <td style="padding:8px;border-bottom:1px solid #eee">${icon} <strong>${t.planifie}</strong></td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;color:#5b8af5;font-weight:700">${t.heures_reelles||0}h</td>
       <td style="padding:8px;border-bottom:1px solid #eee;color:#666">${t.remarque||"—"}</td>
     </tr>`;
   }).join("");
@@ -23,6 +24,7 @@ async function sendRapportEmail(rapport, chantierNom) {
       <table style="width:100%;border-collapse:collapse">
         <thead><tr>
           <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd">Tâche</th>
+          <th style="text-align:center;padding:8px;border-bottom:2px solid #ddd">Durée</th>
           <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd">Remarque</th>
         </tr></thead>
         <tbody>${tachesHtml}</tbody>
@@ -146,6 +148,9 @@ function PageRapportMobile() {
   const setTachePlanifie = (idx, val) => {
     setTaches(t => t.map((x,i) => i===idx ? {...x, planifie:val} : x));
   };
+  const setTacheHeures = (idx, val) => {
+    setTaches(t => t.map((x,i) => i===idx ? {...x, heures_reelles:val} : x));
+  };
   const addTacheLibre = () => {
     setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",libre:true}]);
   };
@@ -153,6 +158,11 @@ function PageRapportMobile() {
   const soumettre = async () => {
     const tachesRemplies = taches.filter(t => t.planifie.trim());
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
+    const sansDuree = tachesRemplies.filter(t => !t.heures_reelles || parseFloat(t.heures_reelles) <= 0);
+    if (sansDuree.length > 0) {
+      alert(`⏱ Durée manquante sur ${sansDuree.length} tâche${sansDuree.length>1?"s":""} :\n${sansDuree.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nCe champ est obligatoire.`);
+      return;
+    }
 
     setSubmitting(true);
 
@@ -161,7 +171,7 @@ function PageRapportMobile() {
     tachesRemplies.forEach(t => {
       const k = t.chantier_id || "divers";
       if (!parChantier[k]) parChantier[k] = { chantier_id:t.chantier_id, chantier_nom:t.chantier_nom||"Divers", taches:[] };
-      parChantier[k].taches.push({ planifie:t.planifie, statut:t.statut||"non_faite", remarque:t.remarque });
+      parChantier[k].taches.push({ planifie:t.planifie, statut:t.statut||"non_faite", remarque:t.remarque, heures_reelles:parseFloat(t.heures_reelles)||0 });
     });
 
     for (const k of Object.keys(parChantier)) {
@@ -347,6 +357,43 @@ function PageRapportMobile() {
                 color: t.statut===val ? col : "#aaa",
               }}>{ic}<br/><span style={{fontSize:11}}>{lb}</span></button>
             ))}
+          </div>
+
+          {/* Durée — OBLIGATOIRE */}
+          <div style={{
+            background: !t.heures_reelles || parseFloat(t.heures_reelles)<=0
+              ? "rgba(224,92,92,0.06)" : "rgba(80,200,120,0.06)",
+            border: `1.5px solid ${!t.heures_reelles || parseFloat(t.heures_reelles)<=0
+              ? "rgba(224,92,92,0.25)" : "rgba(80,200,120,0.3)"}`,
+            borderRadius:10, padding:"12px 14px", marginBottom:10,
+          }}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
+              color: !t.heures_reelles||parseFloat(t.heures_reelles)<=0 ? "#e05c5c" : "#50c878",
+              marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
+              <span>⏱ Durée réelle</span>
+              <span style={{fontSize:10,background:"#e05c5c",color:"#fff",borderRadius:4,
+                padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              {[0.5,1,1.5,2,3,4].map(h=>(
+                <button key={h} onClick={()=>setTacheHeures(idx,String(h))} style={{
+                  padding:"8px 10px",borderRadius:8,border:"1.5px solid",cursor:"pointer",
+                  fontFamily:"inherit",fontSize:13,fontWeight:700,transition:"all .1s",
+                  borderColor: parseFloat(t.heures_reelles)===h ? "#50c878" : "#e0e4ef",
+                  background: parseFloat(t.heures_reelles)===h ? "rgba(80,200,120,0.15)" : "#fff",
+                  color: parseFloat(t.heures_reelles)===h ? "#50c878" : "#aaa",
+                }}>{h}h</button>
+              ))}
+              <input
+                type="number" min="0.5" max="24" step="0.5"
+                value={t.heures_reelles||""}
+                onChange={e=>setTacheHeures(idx,e.target.value)}
+                placeholder="Autre"
+                style={{width:64,padding:"7px 8px",border:"1.5px solid #e0e4ef",
+                  borderRadius:8,fontSize:13,fontWeight:700,fontFamily:"inherit",
+                  outline:"none",textAlign:"center",color:"#1a1f2e"}}
+              />
+            </div>
           </div>
 
           {/* Remarque */}
