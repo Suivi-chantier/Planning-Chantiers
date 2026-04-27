@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./supabase";
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const PHASES = [
@@ -47,7 +48,7 @@ async function saveVisite(supabase, visite) {
 }
 
 // ─── COMPOSANT PRINCIPAL ──────────────────────────────────────────────────────
-export default function PageVisiteChantier({ chantiers = [], supabase, T }) {
+export default function PageVisiteChantier({ chantiers = [], T }) {
   const [view,     setView]     = useState("liste");   // liste | new | detail
   const [visites,  setVisites]  = useState([]);
   const [phasages, setPhasages] = useState([]);
