@@ -36,7 +36,7 @@ async function loadVisites(supabase) {
 async function loadPhasages(supabase) {
   const { data } = await supabase
     .from("phasages")
-    .select("id, chantier_id, chantier_nom, plan");
+    .select("id, chantier_id, chantier_nom, plan_travaux");
   return data || [];
 }
 
@@ -218,7 +218,7 @@ function FormVisite({ chantiers, phasages, T, saving, onSave, onCancel }) {
 
   // Phasage associé au chantier sélectionné
   const phasage = phasages.find(p => p.chantier_id === chantierId);
-  const plan    = phasage?.plan || {};
+  const plan    = phasage?.plan_travaux || {};
 
   // Toutes les tâches du plan, toutes phases confondues
   const toutesLesTaches = PHASES.flatMap(ph =>
@@ -495,7 +495,7 @@ function DetailVisite({ visite, chantiers, phasages, T, saving, onSave, onBack }
   const [draft, setDraft] = useState(visite);
   const ch = chantiers.find(c => c.id === visite.chantier_id);
   const phasage = phasages.find(p => p.chantier_id === visite.chantier_id);
-  const plan = phasage?.plan || {};
+  const plan = phasage?.plan_travaux || {};
   const toutesLesTaches = PHASES.flatMap(ph =>
     (plan[ph.id] || []).map(t => ({ ...t, phaseLabel: ph.label, phaseColor: ph.color }))
   );
