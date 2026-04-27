@@ -3,11 +3,17 @@ import { supabase } from "./supabase";
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const PHASES = [
-  { id: "preparation",   label: "Préparation",     color: "#6366f1" },
-  { id: "grosOeuvre",    label: "Gros Œuvre",       color: "#f59e0b" },
-  { id: "secondOeuvre",  label: "Second Œuvre",     color: "#3b82f6" },
-  { id: "finitions",     label: "Finitions",        color: "#22c55e" },
-  { id: "reception",     label: "Réception",        color: "#a855f7" },
+  { id: "demolition",     label: "Démolition",                        color: "#e05c5c" },
+  { id: "plomberie_ro",   label: "Réseaux plomberie (gros œuvre)",    color: "#3b82f6" },
+  { id: "menuiserie",     label: "Menuiserie ext. & int.",            color: "#8b5cf6" },
+  { id: "feraillage",     label: "Feraillage cloisons & doublages",   color: "#f59e0b" },
+  { id: "elec_vmc",       label: "Réseaux élec & VMC",                color: "#eab308" },
+  { id: "placo",          label: "Lainage / Placo / Bandes & enduits",color: "#6366f1" },
+  { id: "peinture_sols",  label: "Peintures & sols",                  color: "#ec4899" },
+  { id: "finition_elec",  label: "Finitions électricité",             color: "#f97316" },
+  { id: "finition_plomb", label: "Finitions plomberie",               color: "#06b6d4" },
+  { id: "cuisine",        label: "Cuisine",                           color: "#10b981" },
+  { id: "finitions_gen",  label: "Finitions générales",               color: "#a78bfa" },
 ];
 
 const STATUT_VISITE = [
@@ -40,6 +46,11 @@ async function loadPhasages(supabase) {
   return data || [];
 }
 
+async function deleteVisite(supabase, id) {
+  const { error } = await supabase.from("visites_chantier").delete().eq("id", id);
+  return !error;
+}
+
 async function saveVisite(supabase, visite) {
   const { error } = await supabase
     .from("visites_chantier")
@@ -60,6 +71,13 @@ export default function PageVisiteChantier({ chantiers = [], T }) {
     loadVisites(supabase).then(setVisites);
     loadPhasages(supabase).then(setPhasages);
   }, [supabase]);
+
+  const handleDelete = async (id) => {
+    if (!confirm("Supprimer cette visite ?")) return;
+    const ok = await deleteVisite(supabase, id);
+    if (ok) setVisites(prev => prev.filter(v => v.id !== id));
+    setView("liste");
+  };
 
   const handleSave = async (visite) => {
     setSaving(true);
@@ -83,6 +101,7 @@ export default function PageVisiteChantier({ chantiers = [], T }) {
       T={T}
       onNew={() => setView("new")}
       onSelect={v => { setSelected(v); setView("detail"); }}
+      onDelete={handleDelete}
     />
   );
 
@@ -108,6 +127,7 @@ export default function PageVisiteChantier({ chantiers = [], T }) {
       saving={saving}
       onSave={v => { setSelected(v); handleSave(v); }}
       onBack={() => setView("liste")}
+      onDelete={() => handleDelete(selected.id)}
     />
   );
 
@@ -115,7 +135,7 @@ export default function PageVisiteChantier({ chantiers = [], T }) {
 }
 
 // ─── LISTE DES VISITES ────────────────────────────────────────────────────────
-function ListeVisites({ visites, chantiers, T, onNew, onSelect }) {
+function ListeVisites({ visites, chantiers, T, onNew, onSelect, onDelete }) {
   const getChantier = (id) => chantiers.find(c => c.id === id);
 
   return (
@@ -491,7 +511,7 @@ function PhaseRecap({ phase, taches, T }) {
 }
 
 // ─── DÉTAIL VISITE ────────────────────────────────────────────────────────────
-function DetailVisite({ visite, chantiers, phasages, T, saving, onSave, onBack }) {
+function DetailVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, onDelete }) {
   const [draft, setDraft] = useState(visite);
   const ch = chantiers.find(c => c.id === visite.chantier_id);
   const phasage = phasages.find(p => p.chantier_id === visite.chantier_id);
@@ -518,6 +538,11 @@ function DetailVisite({ visite, chantiers, phasages, T, saving, onSave, onBack }
             Visite du {formatDate(draft.date)}
           </div>
         </div>
+        <button onClick={onDelete} style={{
+          padding: "8px 16px", borderRadius: 10, border: "1px solid rgba(224,92,92,0.4)",
+          background: "transparent", color: "#e05c5c", fontFamily: "inherit",
+          fontSize: 13, cursor: "pointer",
+        }}>🗑 Supprimer</button>
         <button onClick={() => onSave(draft)} disabled={saving} style={{
           padding: "8px 20px", borderRadius: 10, border: "none",
           background: T.accent, color: "#fff", fontFamily: "inherit",
