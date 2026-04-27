@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabase";
-import { COULEURS_PALETTE, STATUTS, THEMES, emptyCommande } from "./constants";
+import { COULEURS_PALETTE, THEMES, emptyCommande } from "./constants";
+
+// Statuts pour les commandes (hors besoin_ouvrier)
+const STATUTS_CMD = {
+  a_commander: { label: "À commander", color: "#f5a623", bg: "rgba(245,166,35,0.12)", border: "rgba(245,166,35,0.3)" },
+  commande:    { label: "Commandé",    color: "#50c878", bg: "rgba(80,200,120,0.12)", border: "rgba(80,200,120,0.3)" },
+  retire:      { label: "Retiré",      color: "#9aa5c0", bg: "rgba(154,165,192,0.10)", border: "rgba(154,165,192,0.2)" },
+};
 
 // ─── PANNEAU DEMANDES OUVRIERS ────────────────────────────────────────────────
 function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
@@ -486,11 +493,7 @@ function PageCommandes({ chantiers, T }) {
     STATUTS_COMMANDES.map(k => [k, commandes.filter(r => r.statut === k).length])
   );
 
-  const STATUTS = {
-    a_commander: { label: "À commander", color: "#f5a623", bg: "rgba(245,166,35,0.12)", border: "rgba(245,166,35,0.3)" },
-    commande: { label: "Commandé", color: "#50c878", bg: "rgba(80,200,120,0.12)", border: "rgba(80,200,120,0.3)" },
-    retire: { label: "Retiré", color: "#9aa5c0", bg: "rgba(154,165,192,0.10)", border: "rgba(154,165,192,0.2)" },
-  };
+  const STATUTS = STATUTS_CMD;
 
   const phasageModale = phasages.find(p => p.id === modalePhaseId);
   const tachesModale = phasageModale?.plan_travaux
