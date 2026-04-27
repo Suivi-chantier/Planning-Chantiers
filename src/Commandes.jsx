@@ -91,11 +91,15 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
 
         {/* Liste des demandes */}
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Debug — affiche les statuts reçus */}
+          <div style={{ padding: "8px 12px", background: "rgba(91,156,246,0.12)", border: "1px solid rgba(91,156,246,0.3)", borderRadius: 8, fontSize: 11, color: "#5b9cf6", marginBottom: 4 }}>
+            🔍 {demandes.length} demande(s) reçue(s) — statuts : {demandes.map(d=>d.statut).join(", ")||"—"}
+          </div>
           {demandes.length === 0 ? (
             <div style={{
               flex: 1, display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center", gap: 12,
-              color: T.textMuted, fontSize: 14, paddingTop: 60,
+              color: T.textMuted || "#9aa5c0", fontSize: 14, paddingTop: 60,
             }}>
               <div style={{ fontSize: 40 }}>✅</div>
               <div style={{ fontWeight: 600 }}>Aucune demande en attente</div>
@@ -339,9 +343,11 @@ function PageCommandes({ chantiers, T }) {
   const [panneauOuvert, setPanneauOuvert] = useState(false);
 
   // Demandes ouvriers = statut "besoin_ouvrier"
-  const demandes = rows.filter(r => r.statut === "besoin_ouvrier");
-  // Commandes = tout le reste (hors besoin_ouvrier)
-  const commandes = rows.filter(r => r.statut !== "besoin_ouvrier");
+  // Demandes ouvriers — tolère les variantes orthographiques du statut
+  const isDemande = (r) => r.statut === "besoin_ouvrier" || r.statut === "besoin ouvrier" || r.statut === "besoin_ouvriers";
+  const demandes = rows.filter(isDemande);
+  // Commandes = tout le reste
+  const commandes = rows.filter(r => !isDemande(r));
 
   const isEnRetard = (row) => {
     if (row.statut === "commande" || row.statut === "retire") return false;
