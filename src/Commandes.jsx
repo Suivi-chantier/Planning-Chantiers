@@ -10,6 +10,18 @@ const STATUTS_CMD = {
 };
 
 // ─── PANNEAU DEMANDES OUVRIERS ────────────────────────────────────────────────
+// Couleurs internes fixes (dark) — indépendantes du thème passé en prop
+const P = {
+  bg:       "#151929",
+  surface:  "#1a1f35",
+  card:     "#1e2540",
+  border:   "rgba(255,255,255,0.08)",
+  text:     "#e8eaf0",
+  textSub:  "#9aa5c0",
+  textMuted:"#6b7694",
+  inputBg:  "#12162a",
+};
+
 function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
   const [drafts, setDrafts] = useState({});
 
@@ -17,12 +29,12 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
     const init = {};
     demandes.forEach(d => {
       init[d.id] = {
-        article: d.article || "",
-        fournisseur: d.fournisseur || "",
-        quantite: d.quantite || "",
-        notes: d.notes || "",
-        priorite: d.priorite || "normal",
-        chantier_id: d.chantier_id || "",
+        article:      d.article      || "",
+        fournisseur:  d.fournisseur  || "",
+        quantite:     d.quantite     || "",
+        notes:        d.notes        || "",
+        priorite:     d.priorite     || "normal",
+        chantier_id:  d.chantier_id  || "",
       };
     });
     setDrafts(init);
@@ -31,48 +43,58 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
   const set = (id, field, val) =>
     setDrafts(p => ({ ...p, [id]: { ...p[id], [field]: val } }));
 
+  const inp = (highlight) => ({
+    background: P.inputBg,
+    border: `1px solid ${highlight ? "rgba(224,92,92,0.5)" : P.border}`,
+    borderRadius: 7,
+    padding: "7px 10px",
+    color: P.text,
+    fontFamily: "inherit",
+    fontSize: 13,
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+  });
+
   return (
     <>
       {/* Overlay */}
-      <div
-        onClick={onClose}
-        style={{
-          position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.55)",
-          backdropFilter: "blur(6px)",
-          zIndex: 800,
-          animation: "fadeIn .2s ease",
-        }}
-      />
+      <div onClick={onClose} style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.6)",
+        backdropFilter: "blur(6px)",
+        zIndex: 800,
+      }} />
 
       {/* Drawer */}
       <div style={{
         position: "fixed", top: 0, right: 0, bottom: 0,
         width: "min(520px, 100vw)",
-        background: T.surface,
-        borderLeft: `1px solid ${T.border}`,
+        background: P.surface,
+        borderLeft: `1px solid ${P.border}`,
         zIndex: 801,
         display: "flex", flexDirection: "column",
-        boxShadow: "-24px 0 80px rgba(0,0,0,0.5)",
+        boxShadow: "-24px 0 80px rgba(0,0,0,0.6)",
         animation: "slideIn .25s cubic-bezier(.22,1,.36,1)",
       }}>
+
         {/* Header */}
         <div style={{
           padding: "20px 24px",
-          borderBottom: `1px solid ${T.border}`,
-          background: "rgba(176,96,255,0.08)",
+          borderBottom: `1px solid ${P.border}`,
+          background: "rgba(176,96,255,0.10)",
           flexShrink: 0,
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
                 width: 40, height: 40, borderRadius: 12,
-                background: "rgba(176,96,255,0.2)",
+                background: "rgba(176,96,255,0.25)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 20,
               }}>📋</div>
               <div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: P.text }}>
                   Demandes ouvriers
                 </div>
                 <div style={{ fontSize: 12, color: "#b060ff", fontWeight: 600, marginTop: 2 }}>
@@ -81,69 +103,72 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
               </div>
             </div>
             <button onClick={onClose} style={{
-              background: "transparent", border: `1px solid ${T.border}`,
-              borderRadius: 8, width: 34, height: 34, cursor: "pointer",
-              color: T.textSub, fontSize: 18, display: "flex",
-              alignItems: "center", justifyContent: "center",
+              background: "transparent",
+              border: `1px solid ${P.border}`,
+              borderRadius: 8, width: 34, height: 34,
+              cursor: "pointer", color: P.textSub,
+              fontSize: 20, lineHeight: 1,
+              display: "flex", alignItems: "center", justifyContent: "center",
             }}>×</button>
           </div>
         </div>
 
-        {/* Liste des demandes */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
-          {/* Debug — affiche les statuts reçus */}
-          <div style={{ padding: "8px 12px", background: "rgba(91,156,246,0.12)", border: "1px solid rgba(91,156,246,0.3)", borderRadius: 8, fontSize: 11, color: "#5b9cf6", marginBottom: 4 }}>
-            🔍 {demandes.length} demande(s) reçue(s) — statuts : {demandes.map(d=>d.statut).join(", ")||"—"}
-          </div>
+        {/* Scrollable list */}
+        <div style={{
+          flex: 1, overflowY: "auto",
+          padding: "16px 20px",
+          display: "flex", flexDirection: "column", gap: 14,
+        }}>
           {demandes.length === 0 ? (
             <div style={{
               flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 12,
-              color: T.textMuted || "#9aa5c0", fontSize: 14, paddingTop: 60,
+              alignItems: "center", justifyContent: "center",
+              gap: 12, color: P.textMuted, fontSize: 14, paddingTop: 60,
             }}>
               <div style={{ fontSize: 40 }}>✅</div>
               <div style={{ fontWeight: 600 }}>Aucune demande en attente</div>
             </div>
           ) : demandes.map(d => {
-            const ch = chantiers.find(c => c.id === d.chantier_id);
-            const draft = drafts[d.id] || {};
-            const isUrgent = d.priorite === "urgent";
-            const dateD = d.created_at
+            const ch      = chantiers.find(c => c.id === d.chantier_id);
+            const draft   = drafts[d.id] || {};
+            const urgent  = d.priorite === "urgent";
+            const dateD   = d.created_at
               ? new Date(d.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" })
               : "—";
-            const heureD = d.created_at
+            const heureD  = d.created_at
               ? new Date(d.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
               : "";
 
             return (
               <div key={d.id} style={{
-                background: T.card,
-                border: `1px solid ${isUrgent ? "rgba(224,92,92,0.4)" : "rgba(176,96,255,0.25)"}`,
+                background: P.card,
+                border: `1px solid ${urgent ? "rgba(224,92,92,0.45)" : "rgba(176,96,255,0.3)"}`,
                 borderRadius: 14,
                 overflow: "hidden",
               }}>
-                {/* En-tête de la demande */}
+
+                {/* En-tête carte */}
                 <div style={{
-                  padding: "12px 16px",
-                  background: isUrgent ? "rgba(224,92,92,0.10)" : "rgba(176,96,255,0.08)",
-                  borderBottom: `1px solid ${T.border}`,
-                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                  padding: "10px 14px",
+                  background: urgent ? "rgba(224,92,92,0.10)" : "rgba(176,96,255,0.09)",
+                  borderBottom: `1px solid ${P.border}`,
+                  display: "flex", alignItems: "center",
+                  justifyContent: "space-between", gap: 8, flexWrap: "wrap",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     {ch && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: ch.couleur, display: "block" }} />
-                        <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ch.nom}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: P.text }}>{ch.nom}</span>
                       </span>
                     )}
                     {d.ouvrier_demandeur && (
                       <span style={{
                         fontSize: 11, fontWeight: 700, color: "#a0b8ff",
-                        background: "rgba(160,184,255,0.12)", borderRadius: 5,
-                        padding: "2px 7px",
+                        background: "rgba(160,184,255,0.14)", borderRadius: 5, padding: "2px 7px",
                       }}>👤 {d.ouvrier_demandeur}</span>
                     )}
-                    {isUrgent && (
+                    {urgent && (
                       <span style={{
                         fontSize: 11, fontWeight: 800, color: "#e05c5c",
                         background: "rgba(224,92,92,0.15)", borderRadius: 5,
@@ -151,123 +176,106 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
                       }}>🔴 URGENT</span>
                     )}
                   </div>
-                  <span style={{ fontSize: 11, color: T.textMuted, whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 11, color: P.textMuted, whiteSpace: "nowrap" }}>
                     {dateD} {heureD}
                   </span>
                 </div>
 
-                {/* Ce que l'ouvrier a écrit */}
-                <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: "rgba(255,255,255,0.02)" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
-                    Demande brute
-                  </div>
+                {/* Demande brute */}
+                <div style={{
+                  padding: "10px 14px",
+                  borderBottom: `1px solid ${P.border}`,
+                  background: "rgba(255,255,255,0.02)",
+                }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: P.textMuted,
+                    textTransform: "uppercase", letterSpacing: 1, marginBottom: 5,
+                  }}>Demande brute</div>
                   <div style={{ fontSize: 13, color: "#c8b0ff", fontStyle: "italic" }}>
                     « {d.article || "—"} »
-                    {d.quantite ? <span style={{ color: T.textSub }}> · {d.quantite}</span> : null}
+                    {d.quantite && <span style={{ color: P.textSub }}> · {d.quantite}</span>}
                   </div>
                   {d.notes && (
-                    <div style={{ fontSize: 12, color: T.textMuted, marginTop: 4 }}>{d.notes}</div>
+                    <div style={{ fontSize: 12, color: P.textMuted, marginTop: 4 }}>{d.notes}</div>
                   )}
                 </div>
 
-                {/* Formulaire de conversion */}
-                <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>
-                    ↳ Convertir en commande
-                  </div>
+                {/* Formulaire conversion */}
+                <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: P.textMuted,
+                    textTransform: "uppercase", letterSpacing: 1, marginBottom: 2,
+                  }}>↳ Convertir en commande</div>
+
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <input
                       value={draft.article || ""}
                       onChange={e => set(d.id, "article", e.target.value)}
                       placeholder="Article exact *"
-                      style={inputStyle(T, !draft.article)}
+                      style={inp(!draft.article)}
                     />
                     <input
                       value={draft.fournisseur || ""}
                       onChange={e => set(d.id, "fournisseur", e.target.value)}
                       placeholder="Fournisseur"
-                      style={inputStyle(T)}
+                      style={inp(false)}
                     />
                     <input
                       value={draft.quantite || ""}
                       onChange={e => set(d.id, "quantite", e.target.value)}
                       placeholder="Quantité"
-                      style={inputStyle(T)}
+                      style={inp(false)}
                     />
                     <select
                       value={draft.priorite || "normal"}
                       onChange={e => set(d.id, "priorite", e.target.value)}
                       style={{
-                        ...inputStyle(T),
+                        ...inp(false),
                         color: draft.priorite === "urgent" ? "#e05c5c" : "#c0a060",
                         fontWeight: 700,
                       }}
                     >
-                      <option value="normal">🟡 Normal</option>
-                      <option value="urgent">🔴 Urgent</option>
+                      <option value="normal" style={{ background: "#1e2540" }}>🟡 Normal</option>
+                      <option value="urgent" style={{ background: "#1e2540" }}>🔴 Urgent</option>
                     </select>
                   </div>
+
                   <input
                     value={draft.notes || ""}
                     onChange={e => set(d.id, "notes", e.target.value)}
                     placeholder="Notes additionnelles"
-                    style={inputStyle(T)}
+                    style={inp(false)}
                   />
-                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                    <button
-                      onClick={() => onConvertir(d, draft)}
-                      disabled={!draft.article?.trim()}
-                      style={{
-                        flex: 1, padding: "9px 0",
-                        background: draft.article?.trim() ? "#b060ff" : "rgba(176,96,255,0.2)",
-                        border: "none", borderRadius: 8,
-                        color: draft.article?.trim() ? "#fff" : T.textMuted,
-                        fontFamily: "inherit", fontSize: 13, fontWeight: 800,
-                        cursor: draft.article?.trim() ? "pointer" : "not-allowed",
-                        transition: "all .15s",
-                      }}
-                    >
-                      ✓ Valider comme commande
-                    </button>
-                  </div>
+
+                  <button
+                    onClick={() => onConvertir(d, draft)}
+                    disabled={!draft.article?.trim()}
+                    style={{
+                      marginTop: 2,
+                      padding: "9px 0",
+                      background: draft.article?.trim() ? "#b060ff" : "rgba(176,96,255,0.15)",
+                      border: `1px solid ${draft.article?.trim() ? "#b060ff" : "rgba(176,96,255,0.2)"}`,
+                      borderRadius: 8,
+                      color: draft.article?.trim() ? "#fff" : P.textMuted,
+                      fontFamily: "inherit", fontSize: 13, fontWeight: 800,
+                      cursor: draft.article?.trim() ? "pointer" : "not-allowed",
+                      transition: "all .15s",
+                      width: "100%",
+                    }}
+                  >
+                    ✓ Valider comme commande
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes slideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
-        @keyframes pulseRing {
-          0% { transform: scale(1); opacity: 1 }
-          70% { transform: scale(2.2); opacity: 0 }
-          100% { transform: scale(1); opacity: 0 }
-        }
-        @keyframes badgePulse {
-          0%, 100% { transform: scale(1) }
-          50% { transform: scale(1.15) }
-        }
-      `}</style>
     </>
   );
 }
 
-function inputStyle(T, highlight = false) {
-  return {
-    background: T.inputBg,
-    border: `1px solid ${highlight ? "rgba(224,92,92,0.4)" : T.border}`,
-    borderRadius: 7,
-    padding: "7px 10px",
-    color: T.text,
-    fontFamily: "inherit",
-    fontSize: 13,
-    outline: "none",
-    width: "100%",
-    boxSizing: "border-box",
-  };
-}
+
 
 // ─── BOUTON DEMANDES FLOTTANT ─────────────────────────────────────────────────
 function BoutonDemandes({ count, onClick, T }) {
