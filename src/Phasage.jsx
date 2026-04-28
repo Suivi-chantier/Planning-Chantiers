@@ -491,14 +491,75 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                             </div>
                           </div>
 
-                          {/* Info match bibliothèque */}
+                          {/* Info match bibliothèque + liaison manuelle */}
                           {ouvrage.match
-                            ? <div style={{ fontSize: 11, color: "#50c878", marginBottom: 4 }}>
-                                → {ouvrage.match.libelle}
-                                {cadence ? ` · cadence ${cadence}h/${unite}` : " · pas de cadence"}
-                                {ouvrage.match.sous_taches?.length > 0 && ` · ${ouvrage.match.sous_taches.length} sous-tâches`}
+                            ? <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11, color: "#50c878" }}>
+                                  → {ouvrage.match.libelle}
+                                  {cadence ? ` · cadence ${cadence}h/${unite}` : " · pas de cadence"}
+                                  {ouvrage.match.sous_taches?.length > 0 && ` · ${ouvrage.match.sous_taches.length} sous-tâches`}
+                                </span>
+                                <button
+                                  onClick={() => updateOuvrage(ouvrage.id, { match: null })}
+                                  style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", cursor: "pointer", fontFamily: "inherit" }}
+                                >✕ délier</button>
                               </div>
-                            : <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>Aucune correspondance — importé comme tâche libre</div>
+                            : <div style={{ marginBottom: 6 }}>
+                                {ouvrage._showLier
+                                  ? <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, whiteSpace: "nowrap" }}>Lier à :</span>
+                                      <select
+                                        autoFocus
+                                        defaultValue=""
+                                        onChange={e => {
+                                          const bibl = bibliotheque.find(b => b.id === e.target.value);
+                                          if (bibl) {
+                                            // Met à jour le match ET le nom personnalisé
+                                            // (seulement si l'utilisateur n'avait pas modifié le nom lui-même)
+                                            const nomInchange = ouvrage.libelle_personnalise === ouvrage.libelle_devis_original;
+                                            updateOuvrage(ouvrage.id, {
+                                              match: bibl,
+                                              _showLier: false,
+                                              libelle_personnalise: nomInchange ? bibl.libelle : ouvrage.libelle_personnalise,
+                                            });
+                                          } else {
+                                            updateOuvrage(ouvrage.id, { _showLier: false });
+                                          }
+                                        }}
+                                        style={{
+                                          flex: 1, padding: "5px 8px", borderRadius: 7,
+                                          border: `1.5px solid ${T.accent}88`,
+                                          background: T.inputBg, color: T.text,
+                                          fontFamily: "inherit", fontSize: 12, outline: "none", cursor: "pointer",
+                                        }}
+                                      >
+                                        <option value="">— Choisir un ouvrage bibliothèque —</option>
+                                        {bibliotheque.map(b => (
+                                          <option key={b.id} value={b.id}>
+                                            {b.libelle} ({b.unite}){b.cadence ? ` · ${b.cadence}h/${b.unite}` : ""}
+                                            {(b.sous_taches || []).length > 0 ? ` · ${b.sous_taches.length} tâches` : ""}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => updateOuvrage(ouvrage.id, { _showLier: false })}
+                                        style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 11, cursor: "pointer" }}
+                                      >Annuler</button>
+                                    </div>
+                                  : <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                      <span style={{ fontSize: 11, color: T.textMuted, fontStyle: "italic" }}>Aucune correspondance</span>
+                                      <button
+                                        onClick={() => updateOuvrage(ouvrage.id, { _showLier: true })}
+                                        style={{
+                                          fontSize: 11, padding: "2px 10px", borderRadius: 5,
+                                          border: `1px solid ${T.accent}66`,
+                                          background: `${T.accent}12`, color: T.accent,
+                                          fontFamily: "inherit", fontWeight: 700, cursor: "pointer",
+                                        }}
+                                      >🔗 Lier à la bibliothèque</button>
+                                    </div>
+                                }
+                              </div>
                           }
 
                           {/* Libellé original du devis */}
