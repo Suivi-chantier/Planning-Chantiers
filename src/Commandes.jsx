@@ -162,7 +162,7 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
 }
 
 // ─── PANNEAU DEMANDES ─────────────────────────────────────────────────────────
-function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, materiaux }) {
+function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSupprimer, materiaux }) {
   const [drafts, setDrafts] = useState({});
 
   useEffect(() => {
@@ -337,9 +337,26 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, materia
                       }}>🔴 URGENT</span>
                     )}
                   </div>
-                  <span style={{ fontSize: 11, color: P.textMuted, whiteSpace: "nowrap" }}>
-                    {dateD} {heureD}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: P.textMuted, whiteSpace: "nowrap" }}>
+                      {dateD} {heureD}
+                    </span>
+                    <button
+                      onClick={() => onSupprimer(d.id)}
+                      title="Supprimer cette demande"
+                      style={{
+                        background: "rgba(224,92,92,0.12)",
+                        border: "1px solid rgba(224,92,92,0.25)",
+                        borderRadius: 6, width: 26, height: 26,
+                        cursor: "pointer", color: "#e05c5c",
+                        fontSize: 13, display: "flex",
+                        alignItems: "center", justifyContent: "center",
+                        flexShrink: 0, transition: "all .15s",
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = "rgba(224,92,92,0.28)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "rgba(224,92,92,0.12)"}
+                    >🗑</button>
+                  </div>
                 </div>
 
                 {/* Demande brute */}
@@ -580,6 +597,14 @@ function PageCommandes({ chantiers, T }) {
     }
   };
 
+  const supprimerDemande = async (id) => {
+    if (!confirm("Supprimer cette demande ? Elle sera définitivement supprimée.")) return;
+    await supabase.from("commandes_detail").delete().eq("id", id);
+    setRows(prev => prev.filter(r => r.id !== id));
+    // Ferme le panneau si plus aucune demande
+    if (demandes.filter(d => d.id !== id).length === 0) setPanneauOuvert(false);
+  };
+
   const convertirDemande = async (demande, draft) => {
     const updates = {
       article:      draft.article?.trim() || demande.article,
@@ -756,6 +781,7 @@ function PageCommandes({ chantiers, T }) {
           T={T}
           onClose={() => setPanneauOuvert(false)}
           onConvertir={convertirDemande}
+          onSupprimer={supprimerDemande}
           materiaux={materiaux}
         />
       )}
