@@ -618,8 +618,7 @@ function PageCommandes({ chantiers, T }) {
         if (error.message?.includes("materiau_id") || error.code === "42703") {
           const { materiau_id, ...fieldsWithout } = allFields;
           await supabase.from("commandes_detail").update(fieldsWithout).eq("id", row.id);
-          alert("⚠️ materiau_id non sauvegardé — exécute dans Supabase SQL Editor :
-ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS materiau_id uuid REFERENCES materiaux_bibliotheque(id) ON DELETE SET NULL;");
+          console.warn("materiau_id non sauvegardé — migration SQL manquante");
         } else {
           alert("Erreur sauvegarde: " + error.message);
           load(); return;
@@ -631,8 +630,7 @@ ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS materiau_id uuid REFERENCE
         if (error.message?.includes("materiau_id") || error.code === "42703") {
           const { materiau_id, ...fieldsWithout } = allFields;
           await supabase.from("commandes_detail").insert(fieldsWithout).select().single();
-          alert("⚠️ materiau_id non sauvegardé — exécute dans Supabase SQL Editor :
-ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS materiau_id uuid REFERENCES materiaux_bibliotheque(id) ON DELETE SET NULL;");
+          console.warn("materiau_id non sauvegardé — migration SQL manquante");
         } else {
           alert("Erreur création: " + error.message);
           load(); return;
