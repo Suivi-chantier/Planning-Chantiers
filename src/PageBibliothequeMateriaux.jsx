@@ -139,11 +139,6 @@ function ModaleImportSheets({ onClose, onImport, T }) {
     setProgress(0);
 
     try {
-      if (importMode === "replace") {
-        // Supprime tout (contourne la contrainte en filtrant sur un uuid impossible)
-        await supabase.from("materiaux_bibliotheque").delete().gte("created_at", "2000-01-01");
-      }
-
       const payload = preview.map(r => ({
         nom:              r.nom,
         reference:        r.reference || null,
@@ -157,12 +152,38 @@ function ModaleImportSheets({ onClose, onImport, T }) {
         notes:            r.notes || null,
       }));
 
+      // UPSERT par nom — préserve les UUIDs existants donc les liens commandes ne cassent pas
+      // onConflict: "nom" nécessite une contrainte UNIQUE sur nom (voir SQL ci-dessous)
       const BATCH = 50;
       for (let i = 0; i < payload.length; i += BATCH) {
         const batch = payload.slice(i, i + BATCH);
-        const { error } = await supabase.from("materiaux_bibliotheque").insert(batch);
+        const { error } = await supabase
+          .from("materiaux_bibliotheque")
+          .upsert(batch, { onConflict: "nom", ignoreDuplicates: false });
         if (error) throw new Error(error.message);
         setProgress(Math.round(((i + batch.length) / payload.length) * 100));
+      }
+
+      // En mode remplacement : supprime les articles qui ne sont plus dans le sheet
+      // (ceux dont le nom n existe pas dans le nouveau payload)
+      if (importMode === "replace") {
+        const nomsImportes = payload.map(r => r.nom);
+        // Récupère tous les articles existants
+        const { data: existants } = await supabase
+          .from("materiaux_bibliotheque")
+          .select("id, nom");
+        if (existants) {
+          const aSupprimer = existants
+            .filter(e => !nomsImportes.includes(e.nom))
+            .map(e => e.id);
+          if (aSupprimer.length > 0) {
+            // Supprime par batch pour éviter les timeouts
+            for (let i = 0; i < aSupprimer.length; i += 50) {
+              const batch = aSupprimer.slice(i, i + 50);
+              await supabase.from("materiaux_bibliotheque").delete().in("id", batch);
+            }
+          }
+        }
       }
 
       setStep("done");
@@ -345,8 +366,8 @@ function ModaleImportSheets({ onClose, onImport, T }) {
                     color: "#eef0f6", fontFamily: "inherit", fontSize: 13, outline: "none",
                   }}
                 >
-                  <option value="append">➕ Ajouter aux existants</option>
-                  <option value="replace">🔄 Remplacer toute la bibliothèque</option>
+                  <option value="append">➕ Ajouter / mettre à jour (sans supprimer)</option>
+                  <option value="replace">🔄 Synchroniser (met à jour + supprime les absents)</option>
                 </select>
               </div>
             </div>
@@ -376,7 +397,7 @@ function ModaleImportSheets({ onClose, onImport, T }) {
                     {preview.length} article{preview.length > 1 ? "s" : ""} prêts à importer
                   </div>
                   <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>
-                    Mode : {importMode === "replace" ? "Remplacement total" : "Ajout aux existants"}
+                    Mode : {importMode === "replace" ? "Synchronisation complète (liens préservés)" : "Ajout / mise à jour"}
                   </div>
                 </div>
               </div>
