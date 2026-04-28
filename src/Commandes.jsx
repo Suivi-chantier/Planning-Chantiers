@@ -10,7 +10,6 @@ const STATUTS_CMD = {
 };
 
 // ─── PANNEAU DEMANDES OUVRIERS ────────────────────────────────────────────────
-// Couleurs internes fixes (dark) — indépendantes du thème passé en prop
 const P = {
   bg:       "#151929",
   surface:  "#1a1f35",
@@ -22,19 +21,122 @@ const P = {
   inputBg:  "#12162a",
 };
 
-function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
+// ─── COMPOSANT SÉLECTEUR BIBLIOTHÈQUE ─────────────────────────────────────────
+function BiblioSelector({ value, onChange, T, materiaux }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selected = value ? materiaux.find(m => m.id === value) : null;
+
+  const filtered = materiaux.filter(m => {
+    const q = search.toLowerCase();
+    return !q || m.nom?.toLowerCase().includes(q) || m.reference?.toLowerCase().includes(q) || m.fournisseur?.toLowerCase().includes(q);
+  });
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          background: selected ? "rgba(255,194,0,0.1)" : "rgba(255,255,255,0.04)",
+          border: `1px solid ${selected ? "rgba(255,194,0,0.4)" : "rgba(255,255,255,0.08)"}`,
+          borderRadius: 7, padding: "5px 10px",
+          color: selected ? "#FFC200" : T.textMuted,
+          fontFamily: "inherit", fontSize: 12, fontWeight: 700,
+          cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+          whiteSpace: "nowrap",
+        }}
+      >
+        📦 {selected ? selected.nom.substring(0, 22) + (selected.nom.length > 22 ? "…" : "") : "Lier à la biblio."}
+        {selected && (
+          <span
+            onClick={e => { e.stopPropagation(); onChange(null); }}
+            style={{ marginLeft: 4, opacity: .6, cursor: "pointer", fontSize: 14 }}
+          >×</span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0,
+          width: 320, maxHeight: 320, overflowY: "auto",
+          background: "#1a1f35",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 10, zIndex: 500,
+          boxShadow: "0 16px 40px rgba(0,0,0,0.6)",
+        }}>
+          <div style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+            <input
+              autoFocus
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Rechercher…"
+              style={{
+                background: "rgba(255,255,255,0.07)", border: "none",
+                borderRadius: 6, padding: "6px 10px",
+                color: "#e8eaf0", fontFamily: "inherit", fontSize: 13,
+                outline: "none", width: "100%", boxSizing: "border-box",
+              }}
+            />
+          </div>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: P.textMuted }}>
+              Aucun article trouvé
+            </div>
+          ) : filtered.map(m => (
+            <div
+              key={m.id}
+              onClick={() => { onChange(m.id); setOpen(false); setSearch(""); }}
+              style={{
+                padding: "9px 12px",
+                borderBottom: "1px solid rgba(255,255,255,0.05)",
+                cursor: "pointer",
+                background: value === m.id ? "rgba(255,194,0,0.1)" : "transparent",
+                transition: "background .1s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+              onMouseLeave={e => e.currentTarget.style.background = value === m.id ? "rgba(255,194,0,0.1)" : "transparent"}
+            >
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eaf0" }}>{m.nom}</div>
+              <div style={{ fontSize: 11, color: P.textMuted, marginTop: 2, display: "flex", gap: 8 }}>
+                {m.reference && <span style={{ fontFamily: "monospace" }}>{m.reference}</span>}
+                {m.fournisseur && <span>· {m.fournisseur}</span>}
+                {m.prix_unitaire != null && (
+                  <span style={{ color: "#50c878", fontWeight: 700 }}>
+                    {parseFloat(m.prix_unitaire).toFixed(2)} € / {m.unite || "U"}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PANNEAU DEMANDES ─────────────────────────────────────────────────────────
+function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, materiaux }) {
   const [drafts, setDrafts] = useState({});
 
   useEffect(() => {
     const init = {};
     demandes.forEach(d => {
       init[d.id] = {
-        article:      d.article      || "",
-        fournisseur:  d.fournisseur  || "",
-        quantite:     d.quantite     || "",
-        notes:        d.notes        || "",
-        priorite:     d.priorite     || "normal",
-        chantier_id:  d.chantier_id  || "",
+        article:       d.article      || "",
+        fournisseur:   d.fournisseur  || "",
+        quantite:      d.quantite     || "",
+        notes:         d.notes        || "",
+        priorite:      d.priorite     || "normal",
+        chantier_id:   d.chantier_id  || "",
+        materiau_id:   d.materiau_id  || null,
       };
     });
     setDrafts(init);
@@ -42,6 +144,26 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
 
   const set = (id, field, val) =>
     setDrafts(p => ({ ...p, [id]: { ...p[id], [field]: val } }));
+
+  // Quand on sélectionne un article de la bibliothèque, pré-remplir
+  const handleSelectMateriau = (demId, mId) => {
+    if (!mId) {
+      set(demId, "materiau_id", null);
+      return;
+    }
+    const mat = materiaux.find(m => m.id === mId);
+    if (mat) {
+      setDrafts(p => ({
+        ...p,
+        [demId]: {
+          ...p[demId],
+          materiau_id: mId,
+          article: mat.nom,
+          fournisseur: mat.fournisseur || p[demId].fournisseur,
+        },
+      }));
+    }
+  };
 
   const inp = (highlight) => ({
     background: P.inputBg,
@@ -58,7 +180,6 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
 
   return (
     <>
-      {/* Overlay */}
       <div onClick={onClose} style={{
         position: "fixed", inset: 0,
         background: "rgba(0,0,0,0.6)",
@@ -66,7 +187,6 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
         zIndex: 800,
       }} />
 
-      {/* Drawer */}
       <div style={{
         position: "fixed", top: 0, right: 0, bottom: 0,
         width: "min(520px, 100vw)",
@@ -79,7 +199,6 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
         boxShadow: "-24px 0 80px rgba(0,0,0,0.6)",
         animation: "slideIn .25s cubic-bezier(.22,1,.36,1)",
       }}>
-
         {/* Header */}
         <div style={{
           padding: "20px 24px",
@@ -133,13 +252,13 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
               <div style={{ fontWeight: 600 }}>Aucune demande en attente</div>
             </div>
           ) : demandes.map(d => {
-            const ch      = chantiers.find(c => c.id === d.chantier_id);
-            const draft   = drafts[d.id] || {};
-            const urgent  = d.priorite === "urgent";
-            const dateD   = d.created_at
+            const ch    = chantiers.find(c => c.id === d.chantier_id);
+            const draft = drafts[d.id] || {};
+            const urgent = d.priorite === "urgent";
+            const dateD  = d.created_at
               ? new Date(d.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" })
               : "—";
-            const heureD  = d.created_at
+            const heureD = d.created_at
               ? new Date(d.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
               : "";
 
@@ -150,7 +269,6 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
                 borderRadius: 14,
                 flexShrink: 0,
               }}>
-
                 {/* En-tête carte */}
                 <div style={{
                   padding: "10px 14px",
@@ -202,6 +320,24 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
                   {d.notes && (
                     <div style={{ fontSize: 12, color: P.textMuted, marginTop: 4 }}>{d.notes}</div>
                   )}
+                </div>
+
+                {/* Sélecteur bibliothèque */}
+                <div style={{
+                  padding: "8px 14px",
+                  borderBottom: `1px solid ${P.border}`,
+                  background: "rgba(255,194,0,0.03)",
+                }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: P.textMuted,
+                    textTransform: "uppercase", letterSpacing: 1, marginBottom: 6,
+                  }}>📦 Lier à un article de la bibliothèque</div>
+                  <BiblioSelector
+                    value={draft.materiau_id || null}
+                    onChange={mId => handleSelectMateriau(d.id, mId)}
+                    T={{ textMuted: P.textMuted, text: P.text }}
+                    materiaux={materiaux}
+                  />
                 </div>
 
                 {/* Formulaire conversion */}
@@ -279,14 +415,11 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
   );
 }
 
-
-
 // ─── BOUTON DEMANDES FLOTTANT ─────────────────────────────────────────────────
 function BoutonDemandes({ count, onClick, T }) {
   const hasNew = count > 0;
   return (
     <div style={{ position: "relative", display: "inline-flex" }}>
-      {/* Anneau pulsant */}
       {hasNew && (
         <span style={{
           position: "absolute", inset: 0,
@@ -315,7 +448,7 @@ function BoutonDemandes({ count, onClick, T }) {
           position: "relative",
         }}
       >
-        <span style={{ fontSize: 16 }}>{hasNew ? "📋" : "📋"}</span>
+        <span style={{ fontSize: 16 }}>📋</span>
         Demandes ouvriers
         {hasNew && (
           <span style={{
@@ -340,6 +473,7 @@ function BoutonDemandes({ count, onClick, T }) {
 // ─── PAGE COMMANDES ───────────────────────────────────────────────────────────
 function PageCommandes({ chantiers, T }) {
   const [rows, setRows] = useState([]);
+  const [materiaux, setMateriaux] = useState([]); // bibliothèque matériaux
   const [loading, setLoading] = useState(true);
   const [filterChantier, setFilterChantier] = useState("all");
   const [filterStatut, setFilterStatut] = useState("all");
@@ -354,11 +488,8 @@ function PageCommandes({ chantiers, T }) {
   const [modaleTacheId, setModaleTacheId] = useState("");
   const [panneauOuvert, setPanneauOuvert] = useState(false);
 
-  // Demandes ouvriers = statut "besoin_ouvrier"
-  // Demandes ouvriers — tolère les variantes orthographiques du statut
   const isDemande = (r) => r.statut === "besoin_ouvrier" || r.statut === "besoin ouvrier" || r.statut === "besoin_ouvriers";
   const demandes = rows.filter(isDemande);
-  // Commandes = tout le reste
   const commandes = rows.filter(r => !isDemande(r));
 
   const isEnRetard = (row) => {
@@ -375,8 +506,14 @@ function PageCommandes({ chantiers, T }) {
     setLoading(false);
   };
 
+  const loadMateriaux = async () => {
+    const { data } = await supabase.from("materiaux_bibliotheque").select("*").order("nom");
+    setMateriaux(data || []);
+  };
+
   useEffect(() => {
     load();
+    loadMateriaux();
     supabase.from("phasages").select("id,chantier_nom,plan_travaux").then(({ data }) => setPhasages(data || []));
   }, []);
 
@@ -387,19 +524,35 @@ function PageCommandes({ chantiers, T }) {
     return () => supabase.removeChannel(ch);
   }, []);
 
-  // Convertir une demande ouvrier en commande réelle
+  // Quand on sélectionne un article de biblio dans la nouvelle ligne / l'édition
+  const handleSelectMateriau = (mId) => {
+    if (!mId) {
+      setEditDraft(p => ({ ...p, materiau_id: null }));
+      return;
+    }
+    const mat = materiaux.find(m => m.id === mId);
+    if (mat) {
+      setEditDraft(p => ({
+        ...p,
+        materiau_id: mId,
+        article: mat.nom,
+        fournisseur: mat.fournisseur || p.fournisseur || "",
+      }));
+    }
+  };
+
   const convertirDemande = async (demande, draft) => {
     const updates = {
-      article: draft.article?.trim() || demande.article,
-      fournisseur: draft.fournisseur?.trim() || "",
-      quantite: draft.quantite?.trim() || demande.quantite,
-      notes: draft.notes?.trim() || demande.notes,
-      priorite: draft.priorite || "normal",
-      statut: "a_commander",
+      article:      draft.article?.trim() || demande.article,
+      fournisseur:  draft.fournisseur?.trim() || "",
+      quantite:     draft.quantite?.trim() || demande.quantite,
+      notes:        draft.notes?.trim() || demande.notes,
+      priorite:     draft.priorite || "normal",
+      statut:       "a_commander",
+      materiau_id:  draft.materiau_id || null,
     };
     await supabase.from("commandes_detail").update(updates).eq("id", demande.id);
     setRows(prev => prev.map(r => r.id === demande.id ? { ...r, ...updates } : r));
-    // Fermer le panneau si plus de demandes
     if (demandes.length <= 1) setPanneauOuvert(false);
   };
 
@@ -408,33 +561,35 @@ function PageCommandes({ chantiers, T }) {
     if (row.id) {
       setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...row } : r));
       const baseFields = {
-        chantier_id: row.chantier_id ?? "",
-        article: row.article ?? "",
-        fournisseur: row.fournisseur ?? "",
-        quantite: row.quantite ?? "",
-        statut: row.statut ?? "a_commander",
-        notes: row.notes ?? "",
+        chantier_id:  row.chantier_id ?? "",
+        article:      row.article ?? "",
+        fournisseur:  row.fournisseur ?? "",
+        quantite:     row.quantite ?? "",
+        statut:       row.statut ?? "a_commander",
+        notes:        row.notes ?? "",
+        materiau_id:  row.materiau_id ?? null,
       };
       const { error: e1 } = await supabase.from("commandes_detail").update(baseFields).eq("id", row.id);
       if (e1) { console.error(e1); alert("Erreur sauvegarde: " + e1.message); load(); return; }
       await supabase.from("commandes_detail").update({
-        priorite: row.priorite ?? "normal",
+        priorite:          row.priorite ?? "normal",
         ouvrier_demandeur: row.ouvrier_demandeur ?? "",
       }).eq("id", row.id);
     } else {
       const fields = {
-        chantier_id: row.chantier_id ?? "",
-        article: row.article ?? "",
-        fournisseur: row.fournisseur ?? "",
-        quantite: row.quantite ?? "",
-        statut: row.statut ?? "a_commander",
-        notes: row.notes ?? "",
+        chantier_id:  row.chantier_id ?? "",
+        article:      row.article ?? "",
+        fournisseur:  row.fournisseur ?? "",
+        quantite:     row.quantite ?? "",
+        statut:       row.statut ?? "a_commander",
+        notes:        row.notes ?? "",
+        materiau_id:  row.materiau_id ?? null,
       };
       const { data: created, error } = await supabase.from("commandes_detail").insert(fields).select().single();
       if (error) { alert("Erreur création: " + error.message); }
       else if (created) {
         await supabase.from("commandes_detail").update({
-          priorite: row.priorite ?? "normal",
+          priorite:          row.priorite ?? "normal",
           ouvrier_demandeur: row.ouvrier_demandeur ?? "",
         }).eq("id", created.id);
       }
@@ -498,7 +653,6 @@ function PageCommandes({ chantiers, T }) {
     setModaleCommande(null);
   };
 
-  // Filtres sur les commandes uniquement (pas les demandes brutes)
   const STATUTS_COMMANDES = ["a_commander", "commande", "retire"];
   const filtered = commandes.filter(r =>
     (filterChantier === "all" || r.chantier_id === filterChantier) &&
@@ -512,7 +666,6 @@ function PageCommandes({ chantiers, T }) {
   );
 
   const STATUTS = STATUTS_CMD;
-
   const phasageModale = phasages.find(p => p.id === modalePhaseId);
   const tachesModale = phasageModale?.plan_travaux
     ? Object.entries(phasageModale.plan_travaux)
@@ -520,10 +673,39 @@ function PageCommandes({ chantiers, T }) {
       .flatMap(([phId, arr]) => arr.map(t => ({ ...t, phId })))
     : [];
 
+  // Champ de saisie avec sélecteur biblio intégré
+  const renderBiblioRowEditor = (draft, setDraft) => (
+    <div style={{ marginBottom: 4 }}>
+      <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+        📦 Lier à la bibliothèque
+      </div>
+      <BiblioSelector
+        value={draft.materiau_id || null}
+        onChange={(mId) => {
+          if (!mId) {
+            setDraft(p => ({ ...p, materiau_id: null }));
+            return;
+          }
+          const mat = materiaux.find(m => m.id === mId);
+          if (mat) {
+            setDraft(p => ({
+              ...p,
+              materiau_id: mId,
+              article: mat.nom,
+              fournisseur: mat.fournisseur || p.fournisseur || "",
+            }));
+          }
+        }}
+        T={T}
+        materiaux={materiaux}
+      />
+    </div>
+  );
+
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
 
-      {/* ── Panneau demandes ── */}
+      {/* Panneau demandes */}
       {panneauOuvert && (
         <PanneauDemandes
           demandes={demandes}
@@ -531,10 +713,11 @@ function PageCommandes({ chantiers, T }) {
           T={T}
           onClose={() => setPanneauOuvert(false)}
           onConvertir={convertirDemande}
+          materiaux={materiaux}
         />
       )}
 
-      {/* ── Modale passage à "Commandé" ── */}
+      {/* Modale passage à "Commandé" */}
       {modaleCommande && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 900,
@@ -631,7 +814,7 @@ function PageCommandes({ chantiers, T }) {
         </div>
       )}
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{
         marginBottom: 24, display: "flex", alignItems: "flex-start",
         justifyContent: "space-between", flexWrap: "wrap", gap: 16,
@@ -641,12 +824,7 @@ function PageCommandes({ chantiers, T }) {
           <div style={{ fontSize: 14, color: T.textSub }}>Suivi des besoins par chantier et par fournisseur</div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {/* Bouton demandes ouvriers */}
-          <BoutonDemandes
-            count={demandes.length}
-            onClick={() => setPanneauOuvert(true)}
-            T={T}
-          />
+          <BoutonDemandes count={demandes.length} onClick={() => setPanneauOuvert(true)} T={T} />
           <button
             onClick={() => { const e = emptyCommande(); setNewRow(e); setEditDraft(e); }}
             style={{
@@ -659,7 +837,7 @@ function PageCommandes({ chantiers, T }) {
         </div>
       </div>
 
-      {/* ── Compteurs statut (commandes uniquement) ── */}
+      {/* Compteurs statut */}
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         {STATUTS_COMMANDES.map(k => {
           const v = STATUTS[k];
@@ -676,7 +854,7 @@ function PageCommandes({ chantiers, T }) {
         })}
       </div>
 
-      {/* ── Filtres ── */}
+      {/* Filtres */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
         {[
           {
@@ -713,7 +891,7 @@ function PageCommandes({ chantiers, T }) {
         )}
       </div>
 
-      {/* ── Tableau commandes ── */}
+      {/* Tableau commandes */}
       <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -738,8 +916,9 @@ function PageCommandes({ chantiers, T }) {
                   </select>
                 </td>
                 <td style={{ padding: "8px 10px" }}>
+                  {renderBiblioRowEditor(editDraft, setEditDraft)}
                   <input value={editDraft.article || ""} onChange={e => setEditDraft(p => ({ ...p, article: e.target.value }))}
-                    placeholder="Article" autoFocus
+                    placeholder="Article" autoFocus={!editDraft.materiau_id}
                     style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: T.text, fontFamily: "inherit", fontSize: 13, width: "100%", outline: "none" }} />
                 </td>
                 <td style={{ padding: "8px 10px" }}>
@@ -791,6 +970,9 @@ function PageCommandes({ chantiers, T }) {
               const rowBg = retard ? "rgba(224,92,92,0.10)" : urgent ? "rgba(224,92,92,0.05)" : "transparent";
               const rowBorderLeft = retard ? "3px solid #e05c5c" : urgent ? "3px solid rgba(224,92,92,0.5)" : "3px solid transparent";
 
+              // Materiau lié
+              const matLie = row.materiau_id ? materiaux.find(m => m.id === row.materiau_id) : null;
+
               if (editRow === row.id && editDraft) return (
                 <tr key={row.id} style={{ background: T.fieldBg }}>
                   <td style={{ padding: "8px 10px" }}>
@@ -801,6 +983,7 @@ function PageCommandes({ chantiers, T }) {
                     </select>
                   </td>
                   <td style={{ padding: "8px 10px" }}>
+                    {renderBiblioRowEditor(editDraft, setEditDraft)}
                     <input value={editDraft.article || ""} onChange={e => setEditDraft(p => ({ ...p, article: e.target.value }))}
                       placeholder="Article" autoFocus
                       style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: T.text, fontFamily: "inherit", fontSize: 13, width: "100%", outline: "none" }} />
@@ -865,10 +1048,39 @@ function PageCommandes({ chantiers, T }) {
                       {retard && <span title="En retard !" style={{ marginRight: 5 }}>⚠️</span>}
                       {row.article || "—"}
                     </div>
+                    {/* Badge article bibliothèque lié */}
+                    {matLie && (
+                      <div style={{
+                        marginTop: 3, display: "inline-flex", alignItems: "center", gap: 5,
+                        background: "rgba(255,194,0,0.10)", border: "1px solid rgba(255,194,0,0.25)",
+                        borderRadius: 5, padding: "2px 7px",
+                        fontSize: 11, color: "#FFC200", fontWeight: 700,
+                      }}>
+                        📦 {matLie.reference || matLie.nom.substring(0, 20)}
+                        {matLie.lien_fournisseur && (
+                          <a
+                            href={matLie.lien_fournisseur}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            style={{ color: "#5b9cf6", marginLeft: 4, textDecoration: "none", fontSize: 12 }}
+                            title="Voir sur le site fournisseur"
+                          >🔗</a>
+                        )}
+                      </div>
+                    )}
                   </td>
-                  <td style={{ padding: "11px 10px", fontSize: 13, color: T.textSub }}>{row.fournisseur || <span style={{ color: T.emptyColor, fontSize: 12 }}>À renseigner</span>}</td>
+                  <td style={{ padding: "11px 10px", fontSize: 13, color: T.textSub }}>
+                    {row.fournisseur || <span style={{ color: T.emptyColor, fontSize: 12 }}>À renseigner</span>}
+                  </td>
                   <td style={{ padding: "11px 10px", fontSize: 13, color: T.textSub }}>
                     <div>{row.quantite || "—"}</div>
+                    {/* Prix depuis la biblio si disponible */}
+                    {matLie?.prix_unitaire != null && row.quantite && (
+                      <div style={{ fontSize: 11, color: "#50c878", marginTop: 2, fontWeight: 700 }}>
+                        ≈ {(parseFloat(matLie.prix_unitaire) * parseFloat(row.quantite) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € HT
+                      </div>
+                    )}
                     {row.prix_ht > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: "#50c878", marginTop: 2 }}>{parseFloat(row.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € HT</div>}
                     {row.tache_id && <div style={{ fontSize: 10, color: "#5b9cf6", marginTop: 1 }}>🔗 Lié au plan</div>}
                   </td>
@@ -914,7 +1126,7 @@ function PageCommandes({ chantiers, T }) {
         </table>
       </div>
 
-      {/* ── Résumé par fournisseur ── */}
+      {/* Résumé par fournisseur */}
       {commandes.filter(r => r.statut !== "retire" && r.fournisseur).length > 0 && (
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.textMuted, marginBottom: 12 }}>
@@ -938,6 +1150,19 @@ function PageCommandes({ chantiers, T }) {
           </div>
         </div>
       )}
+
+      {/* SQL migration */}
+      <div style={{
+        marginTop: 24, background: "rgba(91,156,246,0.06)",
+        border: "1px solid rgba(91,156,246,0.2)",
+        borderRadius: 10, padding: "12px 16px",
+        fontSize: 12, color: T.textMuted,
+      }}>
+        <strong style={{ color: "#5b9cf6" }}>⚙️ Migration SQL nécessaire</strong> — Ajoute la colonne <code style={{ background: "rgba(255,255,255,0.07)", borderRadius: 4, padding: "1px 5px" }}>materiau_id</code> si elle n'existe pas :<br />
+        <code style={{ display: "block", marginTop: 6, padding: "6px 10px", background: "rgba(0,0,0,0.3)", borderRadius: 6 }}>
+          ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS materiau_id uuid REFERENCES materiaux_bibliotheque(id) ON DELETE SET NULL;
+        </code>
+      </div>
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
