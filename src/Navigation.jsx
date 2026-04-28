@@ -51,15 +51,16 @@ function BottomNav({ page, setPage, T }) {
 function Sidebar({page,setPage,T}){
   const[collapsed,setCollapsed]=useState(()=>localStorage.getItem("sidebar_collapsed")==="1");
   const nav=[
-    {id:"dashboard",   icon:"⊞",  label:"Tableau de bord"},
-    {id:"planning",    icon:"📅", label:"Planning"},
-    {id:"commandes",   icon:"📦", label:"Commandes"},
-    {id:"equipe",      icon:"👷", label:"Équipe"},
-    {id:"plans",       icon:"📐", label:"Plans"},
-    {id:"phasage",     icon:"📋", label:"Phasage"},
-    {id:"bibliotheque",icon:"📚", label:"Bibliothèque"},
-    {id:"visite",      icon:"🔍", label:"Visites chantier"},
-    {id:"admin",       icon:"⚙️", label:"Réglages"},
+    {id:"dashboard",          icon:"⊞",  label:"Tableau de bord"},
+    {id:"planning",           icon:"📅", label:"Planning"},
+    {id:"commandes",          icon:"📦", label:"Commandes"},
+    {id:"equipe",             icon:"👷", label:"Équipe"},
+    {id:"plans",              icon:"📐", label:"Plans"},
+    {id:"phasage",            icon:"📋", label:"Phasage"},
+    {id:"bibliotheque",       icon:"📚", label:"Biblio. ouvrages"},
+    {id:"biblio-materiaux",   icon:"🧱", label:"Biblio. matériaux"},
+    {id:"visite",             icon:"🔍", label:"Visites chantier"},
+    {id:"admin",              icon:"⚙️", label:"Réglages"},
   ];
   const toggle=()=>{
     const next=!collapsed;
