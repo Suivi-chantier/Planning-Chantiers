@@ -70,10 +70,12 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
       <div style={{
         position: "fixed", top: 0, right: 0, bottom: 0,
         width: "min(520px, 100vw)",
+        height: "100vh",
         background: P.surface,
         borderLeft: `1px solid ${P.border}`,
         zIndex: 801,
         display: "flex", flexDirection: "column",
+        overflow: "hidden",
         boxShadow: "-24px 0 80px rgba(0,0,0,0.6)",
         animation: "slideIn .25s cubic-bezier(.22,1,.36,1)",
       }}>
@@ -115,7 +117,9 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
 
         {/* Scrollable list */}
         <div style={{
-          flex: 1, overflowY: "auto",
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
           padding: "16px 20px",
           display: "flex", flexDirection: "column", gap: 14,
         }}>
@@ -144,7 +148,7 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir }) {
                 background: P.card,
                 border: `1px solid ${urgent ? "rgba(224,92,92,0.45)" : "rgba(176,96,255,0.3)"}`,
                 borderRadius: 14,
-                overflow: "hidden",
+                flexShrink: 0,
               }}>
 
                 {/* En-tête carte */}
