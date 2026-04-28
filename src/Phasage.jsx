@@ -26,6 +26,12 @@ function matcherOuvrage(libelle, bibliotheque) {
   return bestScore >= 0.35 ? { match: best, score: bestScore } : { match: null, score: 0 };
 }
 
+function toNum(val) {
+  if (val === null || val === undefined || val === "") return NaN;
+  if (typeof val === "number") return val;
+  return parseFloat(String(val).replace(/\s/g, "").replace(",", ".").replace(/[^0-9.-]/g, ""));
+}
+
 function parseExcel(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -34,36 +40,90 @@ function parseExcel(file) {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+        // Cherche la 1ère ligne avec au moins 2 cellules non-vides → en-tête
+        let hIdx = 0;
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+          if (rows[i].filter(c => String(c).trim().length > 0).length >= 2) { hIdx = i; break; }
+        }
+        const hRow = rows[hIdx];
         let colL = -1, colH = -1, colQ = -1, colP = -1;
-        const hRow = rows.find(r => r.some(c => typeof c === "string" && c.length > 0));
-        const hIdx = rows.indexOf(hRow);
-        if (hRow) {
-          hRow.forEach((cell, i) => {
-            const c = normalise(String(cell));
-            if (colL === -1 && (c.includes("libelle") || c.includes("designation") || c.includes("description") || c.includes("ouvrage") || c.includes("poste"))) colL = i;
-            if (colH === -1 && (c.includes("heure") || c.includes("h mo") || c.includes("mo") || c.includes("main") || c.includes("temps") || c.includes("duree"))) colH = i;
-            if (colQ === -1 && (c.includes("quantite") || c === "qte" || c === "q" || c.includes("nombre") || c.includes("surface") || c.includes("volume") || c.includes("m2") || c.includes("ml"))) colQ = i;
-            if (colP === -1 && (c.includes("total h") || c.includes("montant ht") || c.includes("montant h") || c.includes("prix ht"))) colP = i;
-          });
-          if (colP === -1) hRow.forEach((cell, i) => { const c = normalise(String(cell)); if (colP === -1 && c === "total") colP = i; });
-          if (colL === -1) colL = 0;
-          if (colH === -1) {
-            for (let i = 1; i < Math.min(hRow.length, 10); i++) {
-              const vals = rows.slice(hIdx + 1).map(r => r[i]).filter(v => v !== "");
-              if (vals.filter(v => !isNaN(parseFloat(String(v).replace(",", ".")))).length > vals.length * 0.5) { colH = i; break; }
-            }
+
+        hRow.forEach((cell, i) => {
+          const c = normalise(String(cell));
+          // Libellé
+          if (colL === -1 && (
+            c.includes("libelle") || c.includes("libellé") ||
+            c.includes("designation") || c.includes("désignation") ||
+            c.includes("description") || c.includes("ouvrage") ||
+            c.includes("poste") || c.includes("travaux") ||
+            c.includes("prestation") || c.includes("article") ||
+            c.includes("nature") || c.includes("intitule") ||
+            c === "n°" || c === "no"
+          )) colL = i;
+          // Heures
+          if (colH === -1 && (
+            c.includes("heure") || c.includes("h mo") ||
+            c === "mo" || c === "h" || c === "mh" ||
+            c.includes("main") || c.includes("temps") ||
+            c.includes("duree") || c.includes("durée") ||
+            c.includes("tps") || c.includes("mano")
+          )) colH = i;
+          // Quantité
+          if (colQ === -1 && (
+            c.includes("quantite") || c.includes("quantité") ||
+            c === "qte" || c === "q" || c === "qt" ||
+            c.includes("nombre") || c.includes("surface") ||
+            c.includes("volume") || c.includes("m2") || c.includes("ml") ||
+            c.includes("m²") || c.includes("m3") || c === "u"
+          )) colQ = i;
+          // Prix HT
+          if (colP === -1 && (
+            c.includes("total h") || c.includes("montant ht") ||
+            c.includes("montant h") || c.includes("prix ht") ||
+            c.includes("prix h") || c.includes("ht") ||
+            c.includes("total ttc") || c.includes("montant")
+          )) colP = i;
+        });
+
+        // Fallback prix : colonne "total" seule
+        if (colP === -1) hRow.forEach((cell, i) => {
+          if (colP === -1 && normalise(String(cell)) === "total") colP = i;
+        });
+
+        // Fallback libellé : 1ère colonne
+        if (colL === -1) colL = 0;
+
+        // Fallback heures : première colonne numérique (>50% de valeurs numériques)
+        // Seulement si pas trouvé par header
+        if (colH === -1) {
+          for (let i = 1; i < Math.min(hRow.length, 15); i++) {
+            if (i === colL || i === colQ || i === colP) continue;
+            const vals = rows.slice(hIdx + 1).map(r => r[i]).filter(v => String(v).trim() !== "");
+            if (vals.length === 0) continue;
+            const numCount = vals.filter(v => !isNaN(toNum(v))).length;
+            if (numCount / vals.length > 0.5) { colH = i; break; }
           }
         }
+
         const lignes = [];
         for (let i = hIdx + 1; i < rows.length; i++) {
           const row = rows[i];
           const lib = String(row[colL] || "").trim();
-          const h = parseFloat(String(row[colH] || "").replace(",", ".").replace(/[^0-9.]/g, ""));
+          if (lib.length < 2) continue; // ignore lignes vides ou trop courtes
+
+          // Heures : optionnelles — si pas de colonne ou valeur vide → 0
+          const h = colH !== -1 ? (toNum(row[colH]) || 0) : 0;
+
           let q = null;
-          if (colQ !== -1) { const qRaw = parseFloat(String(row[colQ] || "").replace(",", ".").replace(/[^0-9.]/g, "")); if (!isNaN(qRaw)) q = qRaw; }
+          if (colQ !== -1) { const qv = toNum(row[colQ]); if (!isNaN(qv) && qv > 0) q = qv; }
+
           let p = null;
-          if (colP !== -1) { const pRaw = parseFloat(String(row[colP] || "").replace(",", ".").replace(/[^0-9.]/g, "")); if (!isNaN(pRaw) && pRaw > 0) p = pRaw; }
-          if (lib.length > 2 && !isNaN(h) && h > 0) lignes.push({ libelle: lib, heures: h, quantite: q, prix_ht: p });
+          if (colP !== -1) { const pv = toNum(row[colP]); if (!isNaN(pv) && pv > 0) p = pv; }
+
+          // On accepte la ligne dès qu'elle a un libellé valide,
+          // même si les heures sont à 0 (l'utilisateur les saisira dans la modale)
+          lignes.push({ libelle: lib, heures: h, quantite: q, prix_ht: p });
         }
         resolve(lignes);
       } catch (err) { reject(err); }
@@ -343,11 +403,11 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
               {erreur && <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(224,92,92,0.1)", border: "1px solid rgba(224,92,92,0.3)", borderRadius: 8, color: "#e05c5c", fontSize: 13 }}>⚠️ {erreur}</div>}
               <div style={{ marginTop: 18, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${T.border}` }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Colonnes détectées automatiquement</div>
-                <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.8 }}>
-                  • <strong style={{ color: T.text }}>Libellé / désignation</strong> — nom de l'ouvrage<br />
-                  • <strong style={{ color: T.text }}>Heures</strong> — heures de main d'œuvre vendues<br />
-                  • <strong style={{ color: T.text }}>Quantité</strong> (optionnel) — pour calcul cadence<br />
-                  • <strong style={{ color: T.text }}>Total HT</strong> (optionnel) — montant de la ligne
+                <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.9 }}>
+                  • <strong style={{ color: T.text }}>Libellé / désignation</strong> — nom de l'ouvrage <span style={{ color: T.accent, fontWeight: 700 }}>obligatoire</span><br />
+                  • <strong style={{ color: T.text }}>Heures MO</strong> — <span style={{ color: "#50c878", fontWeight: 600 }}>optionnel</span> — si absent, tu les saisis dans l'étape suivante<br />
+                  • <strong style={{ color: T.text }}>Quantité</strong> — <span style={{ color: "#50c878", fontWeight: 600 }}>optionnel</span> — pour calcul cadence automatique<br />
+                  • <strong style={{ color: T.text }}>Total HT</strong> — <span style={{ color: "#50c878", fontWeight: 600 }}>optionnel</span> — montant de la ligne
                 </div>
               </div>
             </>
@@ -452,7 +512,32 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                             <span style={{ fontSize: 11, color: T.textMuted }}>H. vendues</span>
-                            <span style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{hT.toFixed(1)}h</span>
+                            <input
+                              type="number" min="0" step="0.5"
+                              value={hT || ""}
+                              placeholder="0"
+                              onChange={e => {
+                                const val = parseFloat(e.target.value) || 0;
+                                // Distribue les heures proportionnellement sur les lignes actives
+                                const lignesActives = ouvrage.lignes.filter(l => l.selectionne !== false);
+                                if (lignesActives.length === 1) {
+                                  updateLigne(ouvrage.id, ouvrage.lignes.indexOf(lignesActives[0]), { heures: val });
+                                } else {
+                                  // Met tout sur la première ligne active
+                                  const firstIdx = ouvrage.lignes.findIndex(l => l.selectionne !== false);
+                                  if (firstIdx !== -1) updateLigne(ouvrage.id, firstIdx, { heures: val });
+                                }
+                              }}
+                              style={{
+                                width: 64, padding: "4px 6px", borderRadius: 6, textAlign: "center",
+                                border: `1.5px solid ${hT === 0 ? "#f5a623" : T.accent}`,
+                                background: hT === 0 ? "rgba(245,166,35,0.1)" : "transparent",
+                                color: hT === 0 ? "#f5a623" : T.accent,
+                                fontFamily: "inherit", fontSize: 14, fontWeight: 800, outline: "none",
+                              }}
+                            />
+                            <span style={{ fontSize: 11, color: T.textMuted }}>h</span>
+                            {hT === 0 && <span style={{ fontSize: 10, color: "#f5a623", fontWeight: 700 }}>← saisir</span>}
                           </div>
                           {hEstimees && <span style={{ fontSize: 11, fontWeight: 700, color: BLEU }}>≈ {hEstimees}h estimées</span>}
                           {pT > 0 && <span style={{ fontSize: 11, color: T.textMuted }}>{pT.toFixed(0)} €</span>}
@@ -525,6 +610,12 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
             <div style={{ fontSize: 13, color: T.textMuted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{nbSel}</span> ouvrage{nbSel > 1 ? "s" : ""} sélectionné{nbSel > 1 ? "s" : ""}
               {nbMatch > 0 && <> · <span style={{ color: "#50c878", fontWeight: 700 }}>{nbMatch}</span> avec sous-tâches auto</>}
+              {(() => {
+                const nbSansH = ouvragesDetectes.filter(o => o.selectionne && o.lignes.filter(l => l.selectionne !== false).reduce((s, l) => s + (parseFloat(l.heures) || 0), 0) === 0).length;
+                return nbSansH > 0
+                  ? <> · <span style={{ color: "#f5a623", fontWeight: 700 }}>⚠ {nbSansH} sans heures</span></>
+                  : null;
+              })()}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => { setEtape("upload"); setOuvragesDetectes([]); setLignesBrutes([]); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Retour</button>
