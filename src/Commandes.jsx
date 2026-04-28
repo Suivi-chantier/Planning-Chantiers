@@ -197,7 +197,6 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSuppr
         [demId]: {
           ...p[demId],
           materiau_id: mId,
-          article: mat.nom,
           fournisseur: mat.fournisseur || p[demId].fournisseur,
         },
       }));
@@ -601,7 +600,6 @@ function PageCommandes({ chantiers, T }) {
       setEditDraft(p => ({
         ...p,
         materiau_id: mId,
-        article: mat.nom,
         fournisseur: mat.fournisseur || p.fournisseur || "",
       }));
     }
@@ -769,7 +767,6 @@ function PageCommandes({ chantiers, T }) {
             setDraft(p => ({
               ...p,
               materiau_id: mId,
-              article: mat.nom,
               fournisseur: mat.fournisseur || p.fournisseur || "",
             }));
           }
