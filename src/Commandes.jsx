@@ -547,13 +547,6 @@ function PageCommandes({ chantiers, T }) {
   const demandes = rows.filter(isDemande);
   const commandes = rows.filter(r => !isDemande(r));
 
-  const isEnRetard = (row) => {
-    if (row.statut === "commande" || row.statut === "retire") return false;
-    if (!row.created_at) return false;
-    const diffJ = (new Date() - new Date(row.created_at)) / (1000 * 60 * 60 * 24);
-    return diffJ > (row.priorite === "urgent" ? 2 : 5);
-  };
-
   const load = async () => {
     setLoading(true);
     const { data } = await supabase.from("commandes_detail").select("*").order("created_at", { ascending: true });
@@ -956,15 +949,7 @@ function PageCommandes({ chantiers, T }) {
             ))}
           </select>
         ))}
-        {commandes.filter(r => isEnRetard(r)).length > 0 && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 6, padding: "7px 12px",
-            background: "rgba(224,92,92,0.12)", border: "1px solid rgba(224,92,92,0.3)",
-            borderRadius: 8, fontSize: 12, fontWeight: 700, color: "#e05c5c",
-          }}>
-            ⚠️ {commandes.filter(r => isEnRetard(r)).length} en retard
-          </div>
-        )}
+
       </div>
 
       {/* Tableau commandes */}
@@ -1041,10 +1026,9 @@ function PageCommandes({ chantiers, T }) {
             ) : filtered.map(row => {
               const ch = chantiers.find(c => c.id === row.chantier_id);
               const st = STATUTS[row.statut] || STATUTS.a_commander;
-              const retard = isEnRetard(row);
               const urgent = row.priorite === "urgent";
-              const rowBg = retard ? "rgba(224,92,92,0.10)" : urgent ? "rgba(224,92,92,0.05)" : "transparent";
-              const rowBorderLeft = retard ? "3px solid #e05c5c" : urgent ? "3px solid rgba(224,92,92,0.5)" : "3px solid transparent";
+              const rowBg = urgent ? "rgba(224,92,92,0.05)" : "transparent";
+              const rowBorderLeft = urgent ? "3px solid rgba(224,92,92,0.5)" : "3px solid transparent";
 
               // Materiau lié
               const matLie = row.materiau_id ? materiaux.find(m => m.id === row.materiau_id) : null;
@@ -1111,7 +1095,7 @@ function PageCommandes({ chantiers, T }) {
                   borderBottom: `1px solid ${T.sectionDivider}`, transition: "background .1s",
                   background: rowBg, borderLeft: rowBorderLeft,
                 }}
-                  onMouseEnter={e => e.currentTarget.style.background = retard ? "rgba(224,92,92,0.16)" : urgent ? "rgba(224,92,92,0.1)" : T.card}
+                  onMouseEnter={e => e.currentTarget.style.background = urgent ? "rgba(224,92,92,0.1)" : T.card}
                   onMouseLeave={e => e.currentTarget.style.background = rowBg}>
                   <td style={{ padding: "11px 10px" }}>
                     {ch ? <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
@@ -1120,8 +1104,7 @@ function PageCommandes({ chantiers, T }) {
                     </span> : <span style={{ fontSize: 12, color: T.textMuted }}>—</span>}
                   </td>
                   <td style={{ padding: "11px 10px", fontWeight: 600 }}>
-                    <div style={{ fontSize: 13, color: retard ? "#f08080" : T.text }}>
-                      {retard && <span title="En retard !" style={{ marginRight: 5 }}>⚠️</span>}
+                    <div style={{ fontSize: 13, color: T.text }}>
                       {row.article || "—"}
                     </div>
                     {/* Badge article bibliothèque lié */}
@@ -1187,9 +1170,8 @@ function PageCommandes({ chantiers, T }) {
                     </div>
                   </td>
                   <td style={{ padding: "11px 10px", whiteSpace: "nowrap" }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: retard ? "#e05c5c" : urgent ? "#f5a070" : T.textMuted }}>{dateCreation}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: urgent ? "#f5a070" : T.textMuted }}>{dateCreation}</div>
                     <div style={{ fontSize: 11, color: T.textMuted }}>{heureCreation}</div>
-                    {retard && <div style={{ fontSize: 10, color: "#e05c5c", fontWeight: 700, marginTop: 2 }}>EN RETARD</div>}
                   </td>
                   <td style={{ padding: "11px 10px", whiteSpace: "nowrap" }}>
                     <button onClick={() => { setEditRow(row.id); setEditDraft({ ...row }); }} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 15, opacity: .6, marginRight: 4, color: T.text }} title="Modifier">✏️</button>
