@@ -22,16 +22,46 @@ const P = {
 };
 
 // ─── COMPOSANT SÉLECTEUR BIBLIOTHÈQUE ─────────────────────────────────────────
+// Utilise position:fixed pour éviter d'être coupé par overflow:hidden du tableau
 function BiblioSelector({ value, onChange, T, materiaux }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const ref = useRef(null);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 320 });
+  const btnRef = useRef(null);
+  const dropRef = useRef(null);
 
+  // Calcule la position du dropdown en fixed au moment de l'ouverture
+  const handleOpen = () => {
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const dropW = 320;
+      // Si le dropdown déborde à droite de l'écran, le coller à droite
+      const left = rect.left + dropW > window.innerWidth
+        ? window.innerWidth - dropW - 8
+        : rect.left;
+      setDropPos({
+        top: rect.bottom + 4,
+        left,
+        width: dropW,
+      });
+    }
+    setOpen(o => !o);
+  };
+
+  // Ferme si on clique en dehors (bouton ou dropdown)
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    if (!open) return;
+    const handler = (e) => {
+      if (
+        btnRef.current && !btnRef.current.contains(e.target) &&
+        dropRef.current && !dropRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [open]);
 
   const selected = value ? materiaux.find(m => m.id === value) : null;
 
@@ -41,9 +71,10 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
   });
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div style={{ position: "relative", display: "inline-block" }}>
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={btnRef}
+        onClick={handleOpen}
         style={{
           background: selected ? "rgba(255,194,0,0.1)" : "rgba(255,255,255,0.04)",
           border: `1px solid ${selected ? "rgba(255,194,0,0.4)" : "rgba(255,255,255,0.08)"}`,
@@ -64,14 +95,22 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
       </button>
 
       {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 4px)", left: 0,
-          width: 320, maxHeight: 320, overflowY: "auto",
-          background: "#1a1f35",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 10, zIndex: 500,
-          boxShadow: "0 16px 40px rgba(0,0,0,0.6)",
-        }}>
+        <div
+          ref={dropRef}
+          style={{
+            position: "fixed",
+            top: dropPos.top,
+            left: dropPos.left,
+            width: dropPos.width,
+            maxHeight: 320,
+            overflowY: "auto",
+            background: "#1a1f35",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 10,
+            zIndex: 9999,
+            boxShadow: "0 16px 40px rgba(0,0,0,0.7)",
+          }}
+        >
           <div style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
             <input
               autoFocus
@@ -105,7 +144,7 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
               onMouseLeave={e => e.currentTarget.style.background = value === m.id ? "rgba(255,194,0,0.1)" : "transparent"}
             >
               <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eaf0" }}>{m.nom}</div>
-              <div style={{ fontSize: 11, color: P.textMuted, marginTop: 2, display: "flex", gap: 8 }}>
+              <div style={{ fontSize: 11, color: P.textMuted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {m.reference && <span style={{ fontFamily: "monospace" }}>{m.reference}</span>}
                 {m.fournisseur && <span>· {m.fournisseur}</span>}
                 {m.prix_unitaire != null && (
