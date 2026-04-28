@@ -3,16 +3,17 @@ import { supabase } from "./supabase";
 import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_HORIZ } from "./constants";
 
 import { Sidebar, BottomNav } from "./Navigation";
-import PageDashboard    from "./Dashboard";
-import PagePlanning     from "./Planning";
-import PageCommandes    from "./Commandes";
-import PageEquipe       from "./Equipe";
-import PagePlans        from "./Plans";
-import PagePhasage      from "./Phasage";
-import PageBibliotheque from "./Bibliotheque";
-import PageAdmin        from "./Admin";
-import PageRapportMobile from "./RapportMobile";
-import PageVisiteChantier from "./VisiteChantier";
+import PageDashboard          from "./Dashboard";
+import PagePlanning           from "./Planning";
+import PageCommandes          from "./Commandes";
+import PageEquipe             from "./Equipe";
+import PagePlans              from "./Plans";
+import PagePhasage            from "./Phasage";
+import PageBibliotheque       from "./Bibliotheque";
+import PageBibliothequeMateriaux from "./PageBibliothequeMateriaux";
+import PageAdmin              from "./Admin";
+import PageRapportMobile      from "./RapportMobile";
+import PageVisiteChantier     from "./VisiteChantier";
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== 'undefined') {
@@ -34,9 +35,7 @@ if (typeof window !== 'undefined') {
   };
 }
 
-
-
-// ─── ERROR BOUNDARY (affiche l'erreur au lieu de page blanche) ───────────────
+// ─── ERROR BOUNDARY ───────────────────────────────────────────────────────────
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
@@ -130,7 +129,6 @@ function MainApp(){
     }
   };
 
-  // CSS global injecté dynamiquement selon le thème
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -216,15 +214,16 @@ function MainApp(){
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
-          {page==="dashboard"    && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
-          {page==="planning"     && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
-          {page==="commandes"    && <PageCommandes chantiers={chantiers} T={T}/>}
-          {page==="equipe"       && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
-          {page==="plans"        && <PagePlans T={T} chantiers={chantiers}/>}
-          {page==="phasage"      && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T}/>}
-          {page==="bibliotheque" && <PageBibliotheque T={T}/>}
-          {page==="visite"       && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
-          {page==="admin"        && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
+          {page==="dashboard"        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
+          {page==="planning"         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
+          {page==="commandes"        && <PageCommandes chantiers={chantiers} T={T}/>}
+          {page==="equipe"           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
+          {page==="plans"            && <PagePlans T={T} chantiers={chantiers}/>}
+          {page==="phasage"          && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T}/>}
+          {page==="bibliotheque"     && <PageBibliotheque T={T}/>}
+          {page==="biblio-materiaux" && <PageBibliothequeMateriaux T={T}/>}
+          {page==="visite"           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
+          {page==="admin"            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
         </div>
       </div>
       <BottomNav page={page} setPage={setPage} T={T}/>
