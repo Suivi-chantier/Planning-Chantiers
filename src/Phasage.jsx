@@ -41,7 +41,6 @@ function parseExcel(file) {
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 
-        // Cherche la 1ère ligne avec au moins 2 cellules non-vides → en-tête
         let hIdx = 0;
         for (let i = 0; i < Math.min(rows.length, 20); i++) {
           if (rows[i].filter(c => String(c).trim().length > 0).length >= 2) { hIdx = i; break; }
@@ -51,7 +50,6 @@ function parseExcel(file) {
 
         hRow.forEach((cell, i) => {
           const c = normalise(String(cell));
-          // Libellé
           if (colL === -1 && (
             c.includes("libelle") || c.includes("libellé") ||
             c.includes("designation") || c.includes("désignation") ||
@@ -61,7 +59,6 @@ function parseExcel(file) {
             c.includes("nature") || c.includes("intitule") ||
             c === "n°" || c === "no"
           )) colL = i;
-          // Heures
           if (colH === -1 && (
             c.includes("heure") || c.includes("h mo") ||
             c === "mo" || c === "h" || c === "mh" ||
@@ -69,7 +66,6 @@ function parseExcel(file) {
             c.includes("duree") || c.includes("durée") ||
             c.includes("tps") || c.includes("mano")
           )) colH = i;
-          // Quantité
           if (colQ === -1 && (
             c.includes("quantite") || c.includes("quantité") ||
             c === "qte" || c === "q" || c === "qt" ||
@@ -77,7 +73,6 @@ function parseExcel(file) {
             c.includes("volume") || c.includes("m2") || c.includes("ml") ||
             c.includes("m²") || c.includes("m3") || c === "u"
           )) colQ = i;
-          // Prix HT
           if (colP === -1 && (
             c.includes("total h") || c.includes("montant ht") ||
             c.includes("montant h") || c.includes("prix ht") ||
@@ -86,16 +81,12 @@ function parseExcel(file) {
           )) colP = i;
         });
 
-        // Fallback prix : colonne "total" seule
         if (colP === -1) hRow.forEach((cell, i) => {
           if (colP === -1 && normalise(String(cell)) === "total") colP = i;
         });
 
-        // Fallback libellé : 1ère colonne
         if (colL === -1) colL = 0;
 
-        // Fallback heures : première colonne numérique (>50% de valeurs numériques)
-        // Seulement si pas trouvé par header
         if (colH === -1) {
           for (let i = 1; i < Math.min(hRow.length, 15); i++) {
             if (i === colL || i === colQ || i === colP) continue;
@@ -110,9 +101,8 @@ function parseExcel(file) {
         for (let i = hIdx + 1; i < rows.length; i++) {
           const row = rows[i];
           const lib = String(row[colL] || "").trim();
-          if (lib.length < 2) continue; // ignore lignes vides ou trop courtes
+          if (lib.length < 2) continue;
 
-          // Heures : optionnelles — si pas de colonne ou valeur vide → 0
           const h = colH !== -1 ? (toNum(row[colH]) || 0) : 0;
 
           let q = null;
@@ -121,8 +111,6 @@ function parseExcel(file) {
           let p = null;
           if (colP !== -1) { const pv = toNum(row[colP]); if (!isNaN(pv) && pv > 0) p = pv; }
 
-          // On accepte la ligne dès qu'elle a un libellé valide,
-          // même si les heures sont à 0 (l'utilisateur les saisira dans la modale)
           lignes.push({ libelle: lib, heures: h, quantite: q, prix_ht: p });
         }
         resolve(lignes);
@@ -214,14 +202,12 @@ function distribuerTaches(ouvrages) {
   return plan;
 }
 
-// ─── MODALE IMPORT EXCEL (refonte complète) ───────────────────────────────────
+// ─── MODALE IMPORT EXCEL ──────────────────────────────────────────────────────
 function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
-  const [etape, setEtape] = useState("upload"); // upload | detection | personnalisation
+  const [etape, setEtape] = useState("upload");
   const [parsing, setParsing] = useState(false);
   const [erreur, setErreur] = useState(null);
-  // lignes brutes du fichier
   const [lignesBrutes, setLignesBrutes] = useState([]);
-  // ouvrages regroupés/appariés avec possibilité d'édition
   const [ouvragesDetectes, setOuvragesDetectes] = useState([]);
   const fileRef = useRef();
   const BLEU = "#5b9cf6";
@@ -234,8 +220,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
       if (parsed.length === 0) { setErreur("Aucune ligne valide détectée."); setParsing(false); return; }
       setLignesBrutes(parsed);
 
-      // Regroupement : lignes similaires → même ouvrage bibliothèque
-      // On tente de regrouper les lignes qui matchent le même ouvrage biblio
       const groupes = {};
       parsed.forEach((ligne, idx) => {
         const { match, score } = matcherOuvrage(ligne.libelle, bibliotheque);
@@ -246,12 +230,10 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
             match,
             score,
             libelle_devis_original: ligne.libelle,
-            // Nom personnalisé affiché dans le plan (éditable)
             libelle_personnalise: match ? match.libelle : ligne.libelle,
             lignes: [],
             selectionne: true,
-            // Mode regroupement : si plusieurs lignes → on peut les séparer
-            mode: "groupe", // "groupe" | "separe"
+            mode: "groupe",
           };
         }
         groupes[cle].lignes.push({ ...ligne, idx, selectionne: true });
@@ -263,7 +245,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
     setParsing(false);
   }
 
-  // Total heures d'un groupe
   function totalHeures(g) {
     return g.lignes.filter(l => l.selectionne !== false).reduce((s, l) => s + (parseFloat(l.heures) || 0), 0);
   }
@@ -271,11 +252,9 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
     return g.lignes.filter(l => l.selectionne !== false).reduce((s, l) => s + (parseFloat(l.prix_ht) || 0), 0);
   }
 
-  // Modifier un ouvrage détecté
   function updateOuvrage(id, updates) {
     setOuvragesDetectes(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
   }
-  // Modifier une ligne dans un groupe
   function updateLigne(ouvrageId, ligneIdx, updates) {
     setOuvragesDetectes(prev => prev.map(o => {
       if (o.id !== ouvrageId) return o;
@@ -283,7 +262,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
       return { ...o, lignes };
     }));
   }
-  // Séparer les lignes (1 ouvrage par ligne)
   function separerLignes(ouvrageId) {
     setOuvragesDetectes(prev => {
       const idx = prev.findIndex(o => o.id === ouvrageId);
@@ -304,7 +282,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
       return next;
     });
   }
-  // Fusionner plusieurs ouvrages
   function fusionnerSelection() {
     const sel = ouvragesDetectes.filter(o => o.selectionne);
     if (sel.length < 2) return;
@@ -323,7 +300,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
     });
   }
 
-  // Construire la liste finale pour onImporter
   function construireImport() {
     const resultat = [];
     for (const g of ouvragesDetectes) {
@@ -335,7 +311,7 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
       const qTotal = lignesActives.reduce((s, l) => s + (parseFloat(l.quantite) || 0), 0) || null;
       resultat.push({
         libelle_devis: g.libelle_devis_original,
-        libelle: g.libelle_personnalise, // nom affiché dans le plan
+        libelle: g.libelle_personnalise,
         match: g.match,
         heures: hTotal,
         quantite: qTotal,
@@ -352,7 +328,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={onFermer}>
       <div style={{ background: T.modal || T.surface, borderRadius: 16, width: "100%", maxWidth: 780, maxHeight: "90vh", border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
 
-        {/* Header */}
         <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.sectionDivider}`, background: T.surface, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>
@@ -367,7 +342,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
           <button onClick={onFermer} style={{ background: "transparent", border: "none", color: T.textMuted, fontSize: 20, cursor: "pointer" }}>✕</button>
         </div>
 
-        {/* Barre de progression */}
         <div style={{ display: "flex", background: T.card, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
           {["upload", "detection"].map((s, i) => {
             const labels = ["1 · Upload fichier", "2 · Personnalisation"];
@@ -383,7 +357,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
 
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
 
-          {/* ÉTAPE 1 : UPLOAD */}
           {etape === "upload" && (
             <>
               <div
@@ -413,10 +386,8 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
             </>
           )}
 
-          {/* ÉTAPE 2 : DÉTECTION ET PERSONNALISATION */}
           {etape === "detection" && (
             <>
-              {/* Légende + actions globales */}
               <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 12, color: T.textMuted, display: "flex", alignItems: "center", gap: 5 }}>
@@ -437,7 +408,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                 </div>
               </div>
 
-              {/* Aide contextuelle */}
               <div style={{ padding: "10px 14px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 14, fontSize: 12, color: T.textMuted, lineHeight: 1.7 }}>
                 💡 <strong style={{ color: T.text }}>Personnalise chaque ouvrage</strong> : renomme-le pour le contexte du chantier, ajuste les heures, sépare les lignes groupées ou fusionne des lignes similaires.
               </div>
@@ -464,7 +434,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                         transition: "all .15s",
                       }}
                     >
-                      {/* Ligne principale */}
                       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px" }}>
                         <input
                           type="checkbox" checked={ouvrage.selectionne}
@@ -474,7 +443,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: ouvrage.match ? "#50c878" : T.border, flexShrink: 0, marginTop: 4 }} />
 
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          {/* NOM PERSONNALISÉ ÉDITABLE */}
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Nom dans le plan de travail</div>
@@ -491,7 +459,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                             </div>
                           </div>
 
-                          {/* Info match bibliothèque + liaison manuelle */}
                           {ouvrage.match
                             ? <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                                 <span style={{ fontSize: 11, color: "#50c878" }}>
@@ -514,8 +481,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                                         onChange={e => {
                                           const bibl = bibliotheque.find(b => b.id === e.target.value);
                                           if (bibl) {
-                                            // Met à jour le match ET le nom personnalisé
-                                            // (seulement si l'utilisateur n'avait pas modifié le nom lui-même)
                                             const nomInchange = ouvrage.libelle_personnalise === ouvrage.libelle_devis_original;
                                             updateOuvrage(ouvrage.id, {
                                               match: bibl,
@@ -562,14 +527,12 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                               </div>
                           }
 
-                          {/* Libellé original du devis */}
                           <div style={{ fontSize: 10, color: T.textMuted, fontStyle: "italic" }}>
                             Devis : "{ouvrage.libelle_devis_original}"
                             {multiLigne && <span style={{ marginLeft: 8, color: BLEU, fontWeight: 700, fontStyle: "normal" }}>{ouvrage.lignes.length} lignes regroupées</span>}
                           </div>
                         </div>
 
-                        {/* Heures + prix */}
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                             <span style={{ fontSize: 11, color: T.textMuted }}>H. vendues</span>
@@ -579,12 +542,10 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                               placeholder="0"
                               onChange={e => {
                                 const val = parseFloat(e.target.value) || 0;
-                                // Distribue les heures proportionnellement sur les lignes actives
                                 const lignesActives = ouvrage.lignes.filter(l => l.selectionne !== false);
                                 if (lignesActives.length === 1) {
                                   updateLigne(ouvrage.id, ouvrage.lignes.indexOf(lignesActives[0]), { heures: val });
                                 } else {
-                                  // Met tout sur la première ligne active
                                   const firstIdx = ouvrage.lignes.findIndex(l => l.selectionne !== false);
                                   if (firstIdx !== -1) updateLigne(ouvrage.id, firstIdx, { heures: val });
                                 }
@@ -605,7 +566,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                         </div>
                       </div>
 
-                      {/* Sous-tâches de la bibliothèque (aperçu) */}
                       {ouvrage.match && (ouvrage.match.sous_taches || []).length > 0 && ouvrage.selectionne && (
                         <div style={{ margin: "0 14px 10px 38px", padding: "8px 12px", background: "rgba(91,156,246,0.08)", border: "1px solid rgba(91,156,246,0.2)", borderRadius: 8 }}>
                           <div style={{ fontSize: 10, fontWeight: 700, color: BLEU, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>📋 Sous-tâches générées depuis la bibliothèque</div>
@@ -629,7 +589,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                         </div>
                       )}
 
-                      {/* Détail des lignes (si multi) */}
                       {multiLigne && ouvrage.selectionne && (
                         <div style={{ margin: "0 14px 10px 38px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -665,7 +624,6 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
           )}
         </div>
 
-        {/* Footer */}
         {etape === "detection" && (
           <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.sectionDivider}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: T.surface, flexShrink: 0 }}>
             <div style={{ fontSize: 13, color: T.textMuted }}>
@@ -865,7 +823,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
 
-      {/* Modale planification */}
       {planifierTask && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={() => setPlanifierTask(null)}>
           <div style={{ background: T.modal || T.surface, borderRadius: 16, width: "100%", maxWidth: 400, border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
@@ -898,7 +855,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       )}
 
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
           <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Préparation du devis</button>
           <div style={{ flex: 1 }}>
@@ -911,7 +867,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           </div>
         </div>
 
-        {/* KPIs */}
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
           <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 10, padding: "12px 16px" }}>
             <div style={{ fontSize: 11, color: T.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Prix de vente final</div>
@@ -934,7 +889,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           </div>
         </div>
 
-        {/* Barre avancement */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
           <div style={{ flex: 1, height: 8, background: T.border, borderRadius: 4 }}>
             <div style={{ height: "100%", borderRadius: 4, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} />
@@ -942,7 +896,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           <span style={{ fontSize: 13, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 40 }}>{avgAv}% avancement global</span>
         </div>
 
-        {/* Phases */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {PHASES.map((phase) => {
             const taches = plan[phase.id] || [];
@@ -965,7 +918,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 onDrop={onDragEnd}
                 style={{ background: T.surface, border: `1px solid ${isExp ? phase.couleur + "99" : T.border}`, borderRadius: 12, overflow: "hidden", transition: "border .2s" }}>
 
-                {/* En-tête phase */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", cursor: "pointer", borderBottom: isExp ? `1px solid ${T.sectionDivider}` : "none" }} onClick={() => togglePhase(phase.id)}>
                   <div style={{ width: 4, height: 32, borderRadius: 2, background: phase.couleur, flexShrink: 0 }} />
                   <span style={{ fontSize: 15 }}>{phase.emoji}</span>
@@ -1051,7 +1003,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                       <div style={{ margin: "8px 16px", padding: "14px", borderRadius: 8, border: `2px dashed ${phase.couleur}55`, textAlign: "center", color: T.textMuted, fontSize: 12 }}>Déposer ici</div>
                     )}
 
-                    {/* Formulaire ajout tâche */}
                     {ajoutPhase === phase.id ? (
                       <div style={{ margin: "10px 16px 0", padding: "14px", background: T.card, borderRadius: 10, border: `1px solid ${phase.couleur}55` }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: phase.couleur, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>{phase.emoji} Nouvelle tâche</div>
@@ -1135,7 +1086,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
     }));
   }
 
-  // NOUVELLE LOGIQUE D'IMPORT : utilise libelle_personnalise comme libelle de l'ouvrage
   function handleImportExcel(lignesSelectionnees) {
     const nouveaux = lignesSelectionnees.map(ligne => {
       const bibl = ligne.match;
@@ -1146,9 +1096,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
       return {
         id: Math.random().toString(36).slice(2),
         bibliotheque_id: bibl?.id || null,
-        // libelle = nom personnalisé saisi dans la modale
         libelle: ligne.libelle,
-        // libelle_devis = nom original du fichier Excel
         libelle_devis: ligne.libelle_devis,
         unite: bibl?.unite || "U",
         heures_devis: ligne.heures,
@@ -1156,7 +1104,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
         quantite,
         prix_ht,
         taches: bibl ? genererTaches(bibl.id, ligne.heures, heuresEstimees, prix_ht) : [
-          // Si pas de match, on crée une tâche libre avec le nom personnalisé
           {
             nom: ligne.libelle,
             ratio: 100,
@@ -1195,7 +1142,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
       return { ...o, heures_devis: h, taches: bibl ? genererTaches(o.bibliotheque_id, h, o.heures_estimees) : o.taches };
     }));
   }
-  // Permet de renommer un ouvrage directement depuis la liste de préparation
   function updateLibelle(id, val) {
     setOuvrages(prev => prev.map(o => o.id !== id ? o : { ...o, libelle: val }));
   }
@@ -1304,10 +1250,8 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
           </div>
         )}
 
-        {/* Liste des ouvrages importés */}
         {ouvrages.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {/* En-tête colonnes */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 80px 70px 40px", gap: 8, padding: "6px 18px" }}>
               {["Nom dans le plan", "Bibliothèque", "H. vendues", "H. estimées", "Prix HT", ""].map((h, i) => (
                 <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>{h}</div>
@@ -1319,7 +1263,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
               return (
                 <div key={ouvrage.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 80px 70px 40px", gap: 8, padding: "12px 18px", alignItems: "center" }}>
-                    {/* Nom personnalisé éditable */}
                     <div>
                       <input
                         value={ouvrage.libelle}
@@ -1330,27 +1273,21 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
                         <div style={{ fontSize: 10, color: T.textMuted, fontStyle: "italic", marginTop: 2 }}>Devis : "{ouvrage.libelle_devis}"</div>
                       )}
                     </div>
-                    {/* Bibliothèque liée */}
                     <div style={{ fontSize: 11, color: bibl ? "#50c878" : T.textMuted }}>
                       {bibl ? `✓ ${bibl.libelle}` : "Libre"}
                     </div>
-                    {/* H vendues */}
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <input type="number" min="0.5" step="0.5" value={ouvrage.heures_devis} onChange={e => updateHeures(ouvrage.id, e.target.value)} style={{ width: "100%", padding: "4px 6px", borderRadius: 6, textAlign: "center", border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent, fontFamily: "inherit", fontSize: 13, fontWeight: 700, outline: "none" }} />
                       <span style={{ fontSize: 11, color: T.textMuted }}>h</span>
                     </div>
-                    {/* H estimées */}
                     <div style={{ textAlign: "center" }}>
                       {hEst ? <span style={{ fontSize: 13, fontWeight: 800, color: BLEU }}>{hEst}h</span> : <span style={{ fontSize: 12, color: T.textMuted }}>—</span>}
                     </div>
-                    {/* Prix HT */}
                     <div style={{ textAlign: "right" }}>
                       {ouvrage.prix_ht ? <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ouvrage.prix_ht.toFixed(0)} €</span> : <span style={{ fontSize: 12, color: T.textMuted }}>—</span>}
                     </div>
-                    {/* Supprimer */}
                     <button onClick={() => supprimerOuvrage(ouvrage.id)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer", textAlign: "center" }}>🗑</button>
                   </div>
-                  {/* Sous-tâches aperçu */}
                   {(ouvrage.taches || []).length > 0 && (
                     <div style={{ padding: "6px 18px 10px", borderTop: `1px solid ${T.sectionDivider}` }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
@@ -1369,7 +1306,6 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
               );
             })}
 
-            {/* Totaux */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 80px 70px 40px", gap: 8, padding: "10px 18px", background: T.card, borderRadius: 10, border: `1px solid ${T.border}` }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>TOTAL</div>
               <div />
@@ -1392,6 +1328,259 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   );
 }
 
+// ─── RAPPORT MODAL ────────────────────────────────────────────────────────────
+function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
+  const dateStr = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+  const donneesChantiers = phasages.map(p => {
+    const ch = chantiers.find(c => c.id === p.chantier_id);
+    const tPlan = p.plan_travaux
+      ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat()
+      : [];
+    const totalHVendu = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+    const avgAv = totalHVendu > 0
+      ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
+      : tPlan.length > 0 ? Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length) : 0;
+    const coutMO = tPlan.reduce((s, t) => {
+      const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
+      return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45));
+    }, 0);
+    const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+    const coutTotal = coutMO + coutMat;
+    const prixVendu = parseFloat(p.plan_travaux?.meta?.prix_vendu) || 0;
+    const marge = prixVendu - coutTotal;
+    const margePct = prixVendu > 0 ? (marge / prixVendu) * 100 : null;
+    const terminees = tPlan.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
+    const totalHReel = tPlan.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+
+    return {
+      nom: p.chantier_nom,
+      couleur: ch?.couleur || "#5b9cf6",
+      nbTaches: tPlan.length,
+      terminees,
+      avancement: avgAv,
+      totalHVendu,
+      totalHReel,
+      coutTotal,
+      prixVendu,
+      marge,
+      margePct,
+    };
+  });
+
+  const totalVendu = donneesChantiers.reduce((s, c) => s + c.prixVendu, 0);
+  const totalCout = donneesChantiers.reduce((s, c) => s + c.coutTotal, 0);
+  const totalMarge = totalVendu - totalCout;
+  const avgAvancement = donneesChantiers.length > 0
+    ? Math.round(donneesChantiers.reduce((s, c) => s + c.avancement, 0) / donneesChantiers.length)
+    : 0;
+
+  function imprimer() {
+    const win = window.open("", "_blank", "width=900,height=700");
+    win.document.write(`
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <title>Rapport Chantiers — PROFERO</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8f8f6; color: #1a1a1a; padding: 40px; }
+          .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 36px; padding-bottom: 20px; border-bottom: 2px solid #1a1a1a; }
+          .logo { font-size: 28px; font-weight: 900; letter-spacing: -1px; color: #1a1a1a; }
+          .logo span { color: #f5a623; }
+          .date { font-size: 13px; color: #666; }
+          .titre-rapport { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 4px; }
+          .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
+          .kpi { background: white; border-radius: 10px; padding: 16px 20px; border: 1px solid #e8e8e4; }
+          .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 6px; }
+          .kpi-val { font-size: 24px; font-weight: 800; color: #1a1a1a; }
+          .kpi-val.green { color: #1a7a4a; }
+          .kpi-val.red { color: #c0392b; }
+          .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #888; margin-bottom: 12px; }
+          .chantier-card { background: white; border-radius: 10px; padding: 18px 20px; margin-bottom: 10px; border: 1px solid #e8e8e4; display: grid; grid-template-columns: 4px 1fr auto; gap: 16px; align-items: center; }
+          .couleur-bar { width: 4px; height: 100%; border-radius: 2px; min-height: 40px; }
+          .ch-nom { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+          .ch-meta { font-size: 12px; color: #888; display: flex; gap: 16px; flex-wrap: wrap; }
+          .ch-meta span { font-weight: 500; }
+          .progress-wrap { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+          .progress-bg { flex: 1; height: 5px; background: #e8e8e4; border-radius: 3px; overflow: hidden; }
+          .progress-fill { height: 100%; border-radius: 3px; }
+          .progress-pct { font-size: 12px; font-weight: 800; min-width: 36px; text-align: right; }
+          .ch-financier { text-align: right; min-width: 140px; }
+          .ch-vendu { font-size: 12px; color: #888; margin-bottom: 4px; }
+          .ch-marge { font-size: 16px; font-weight: 800; }
+          .ch-marge.green { color: #1a7a4a; }
+          .ch-marge.red { color: #c0392b; }
+          .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e8e8e4; display: flex; justify-content: space-between; font-size: 11px; color: #aaa; }
+          @media print { body { background: white; padding: 20px; } @page { margin: 1cm; } }
+        </style>
+      </head>
+      <body>
+        <div class="page-header">
+          <div>
+            <div class="titre-rapport">Rapport d'avancement</div>
+            <div class="logo">PRO<span>FERO</span></div>
+          </div>
+          <div class="date">${dateStr}</div>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi">
+            <div class="kpi-label">Chantiers actifs</div>
+            <div class="kpi-val">${phasages.length}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Avancement moyen</div>
+            <div class="kpi-val">${avgAvancement}%</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">CA total vendu</div>
+            <div class="kpi-val">${totalVendu > 0 ? totalVendu.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " €" : "—"}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Marge nette globale</div>
+            <div class="kpi-val ${totalMarge >= 0 ? "green" : "red"}">${totalVendu > 0 ? (totalMarge >= 0 ? "+" : "") + totalMarge.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " €" : "—"}</div>
+          </div>
+        </div>
+
+        <div class="section-title">Détail par chantier</div>
+        ${donneesChantiers.map(ch => `
+          <div class="chantier-card">
+            <div class="couleur-bar" style="background: ${ch.couleur};"></div>
+            <div>
+              <div class="ch-nom">${ch.nom}</div>
+              <div class="ch-meta">
+                <span>${ch.nbTaches} tâche${ch.nbTaches > 1 ? "s" : ""}</span>
+                <span>${ch.terminees} terminée${ch.terminees > 1 ? "s" : ""}</span>
+                ${ch.totalHVendu > 0 ? `<span>${ch.totalHVendu.toFixed(1)}h vendues</span>` : ""}
+                ${ch.totalHReel > 0 ? `<span>${ch.totalHReel.toFixed(1)}h réelles</span>` : ""}
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-bg">
+                  <div class="progress-fill" style="width: ${ch.avancement}%; background: ${ch.avancement === 100 ? "#1a7a4a" : ch.couleur};"></div>
+                </div>
+                <div class="progress-pct" style="color: ${ch.avancement === 100 ? "#1a7a4a" : ch.couleur};">${ch.avancement}%</div>
+              </div>
+            </div>
+            <div class="ch-financier">
+              ${ch.prixVendu > 0 ? `<div class="ch-vendu">Vendu : ${ch.prixVendu.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €</div>` : ""}
+              ${ch.marge !== 0 && ch.prixVendu > 0
+                ? `<div class="ch-marge ${ch.marge >= 0 ? "green" : "red"}">${ch.marge >= 0 ? "+" : ""}${ch.marge.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €</div>`
+                : ch.coutTotal > 0 ? `<div class="ch-marge" style="color:#888;">${ch.coutTotal.toFixed(0)} € coûts</div>` : ""}
+              ${ch.margePct !== null ? `<div style="font-size:11px;color:#aaa;margin-top:2px;">${ch.margePct.toFixed(1)}% marge</div>` : ""}
+            </div>
+          </div>
+        `).join("")}
+
+        <div class="footer">
+          <span>PROFERO — planning-chantiers.vercel.app</span>
+          <span>Généré le ${dateStr}</span>
+        </div>
+
+        <script>window.onload = () => window.print();<\/script>
+      </body>
+      </html>
+    `);
+    win.document.close();
+  }
+
+  const TM = {
+    surface: "#1a1a1a",
+    card: "#242424",
+    border: "rgba(255,255,255,0.1)",
+    text: "#f0f0ee",
+    textMuted: "#888",
+    accent: "#f5a623",
+    inputBg: "#2a2a2a",
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 900, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(6px)" }} onClick={onFermer}>
+      <div style={{ background: TM.surface, borderRadius: 16, width: "100%", maxWidth: 720, maxHeight: "88vh", border: `1px solid ${TM.border}`, boxShadow: "0 32px 80px rgba(0,0,0,0.7)", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ padding: "20px 28px 18px", borderBottom: `1px solid ${TM.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, color: TM.accent, marginBottom: 4 }}>Rapport d'avancement</div>
+            <div style={{ fontSize: 19, fontWeight: 900, color: TM.text, letterSpacing: -0.5 }}>PRO<span style={{ color: TM.accent }}>FERO</span></div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 12, color: TM.textMuted }}>{dateStr}</div>
+            <button
+              onClick={imprimer}
+              style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: TM.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Imprimer / PDF
+            </button>
+            <button onClick={onFermer} style={{ background: "transparent", border: "none", color: TM.textMuted, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "4px 6px" }}>✕</button>
+          </div>
+        </div>
+
+        {/* KPIs */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, padding: "18px 28px", borderBottom: `1px solid ${TM.border}`, flexShrink: 0 }}>
+          {[
+            { label: "Chantiers", val: phasages.length },
+            { label: "Avancement moy.", val: `${avgAvancement}%`, color: avgAvancement === 100 ? "#50c878" : TM.accent },
+            { label: "CA total vendu", val: totalVendu > 0 ? `${totalVendu.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €` : "—" },
+            { label: "Marge nette", val: totalVendu > 0 ? `${totalMarge >= 0 ? "+" : ""}${totalMarge.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €` : "—", color: totalMarge >= 0 ? "#50c878" : "#e05c5c" },
+          ].map(k => (
+            <div key={k.label} style={{ background: TM.card, borderRadius: 10, padding: "12px 14px", border: `1px solid ${TM.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: TM.textMuted, marginBottom: 5 }}>{k.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: k.color || TM.text }}>{k.val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Liste chantiers */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 24px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {donneesChantiers.map((ch, i) => (
+              <div key={i} style={{ background: TM.card, borderRadius: 10, border: `1px solid ${TM.border}`, overflow: "hidden" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "4px 1fr auto", gap: 14, padding: "14px 16px", alignItems: "center" }}>
+                  <div style={{ width: 4, height: "100%", minHeight: 44, borderRadius: 2, background: ch.couleur }} />
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: TM.text, marginBottom: 4 }}>{ch.nom}</div>
+                    <div style={{ fontSize: 11, color: TM.textMuted, display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+                      <span><strong style={{ color: TM.text }}>{ch.nbTaches}</strong> tâches</span>
+                      <span><strong style={{ color: "#50c878" }}>{ch.terminees}</strong> terminées</span>
+                      {ch.totalHVendu > 0 && <span><strong style={{ color: TM.accent }}>{ch.totalHVendu.toFixed(1)}h</strong> vendues</span>}
+                      {ch.totalHReel > 0 && <span><strong style={{ color: ch.totalHReel > ch.totalHVendu && ch.totalHVendu > 0 ? "#e05c5c" : TM.text }}>{ch.totalHReel.toFixed(1)}h</strong> réelles</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1, height: 5, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 3, background: ch.avancement === 100 ? "#50c878" : ch.couleur, width: `${ch.avancement}%`, transition: "width .4s" }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: ch.avancement === 100 ? "#50c878" : ch.couleur, minWidth: 36 }}>{ch.avancement}%</span>
+                    </div>
+                  </div>
+                  {(ch.prixVendu > 0 || ch.coutTotal > 0) && (
+                    <div style={{ textAlign: "right", minWidth: 120 }}>
+                      {ch.prixVendu > 0 && <div style={{ fontSize: 11, color: TM.textMuted, marginBottom: 3 }}>Vendu : {ch.prixVendu.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €</div>}
+                      {ch.prixVendu > 0 && (
+                        <div style={{ fontSize: 16, fontWeight: 800, color: ch.marge >= 0 ? "#50c878" : "#e05c5c" }}>
+                          {ch.marge >= 0 ? "+" : ""}{ch.marge.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €
+                        </div>
+                      )}
+                      {ch.margePct !== null && <div style={{ fontSize: 10, color: TM.textMuted, marginTop: 2 }}>{ch.margePct.toFixed(1)}% marge</div>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "12px 28px", borderTop: `1px solid ${TM.border}`, flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: TM.textMuted }}>Le bouton <strong style={{ color: TM.text }}>Imprimer / PDF</strong> ouvre une fenêtre d'impression — choisis "Enregistrer en PDF" dans ton navigateur.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── PAGE PHASAGE (ENTRÉE PRINCIPALE) ─────────────────────────────────────────
 function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   const [phasages, setPhasages] = useState([]);
@@ -1400,6 +1589,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [newChantier, setNewChantier] = useState("");
+  const [showRapport, setShowRapport] = useState(false); // ← NOUVEAU
 
   useEffect(() => { loadAll(); }, []);
   async function loadAll() {
@@ -1437,13 +1627,33 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+
+      {/* ← MODALE RAPPORT */}
+      {showRapport && (
+        <RapportModal
+          phasages={phasages}
+          chantiers={chantiers}
+          tauxHoraires={tauxHoraires}
+          onFermer={() => setShowRapport(false)}
+        />
+      )}
+
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, color: T.text }}>📋 Phasages chantiers</div>
             <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>Avancement, coûts MO et ressources par tâche</div>
           </div>
-          <button onClick={() => setShowNew(true)} style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Nouveau phasage</button>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {/* ← BOUTON RAPPORT */}
+            <button
+              onClick={() => setShowRapport(true)}
+              style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid rgba(245,166,35,0.4)", background: "rgba(245,166,35,0.1)", color: "#f5a623", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+            >
+              📊 Rapport
+            </button>
+            <button onClick={() => setShowNew(true)} style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Nouveau phasage</button>
+          </div>
         </div>
 
         {showNew && (
