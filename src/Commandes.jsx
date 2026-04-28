@@ -597,40 +597,46 @@ function PageCommandes({ chantiers, T }) {
 
   const saveRow = async (row) => {
     setEditRow(null); setNewRow(null); setEditDraft(null);
+
+    const allFields = {
+      chantier_id:       row.chantier_id       ?? "",
+      article:           row.article           ?? "",
+      fournisseur:       row.fournisseur       ?? "",
+      quantite:          row.quantite          ?? "",
+      statut:            row.statut            ?? "a_commander",
+      notes:             row.notes             ?? "",
+      priorite:          row.priorite          ?? "normal",
+      ouvrier_demandeur: row.ouvrier_demandeur ?? "",
+      materiau_id:       row.materiau_id       ?? null,
+    };
+
     if (row.id) {
-      setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...row } : r));
-      const baseFields = {
-        chantier_id:  row.chantier_id ?? "",
-        article:      row.article ?? "",
-        fournisseur:  row.fournisseur ?? "",
-        quantite:     row.quantite ?? "",
-        statut:       row.statut ?? "a_commander",
-        notes:        row.notes ?? "",
-        materiau_id:  row.materiau_id ?? null,
-      };
-      const { error: e1 } = await supabase.from("commandes_detail").update(baseFields).eq("id", row.id);
-      if (e1) { console.error(e1); alert("Erreur sauvegarde: " + e1.message); load(); return; }
-      await supabase.from("commandes_detail").update({
-        priorite:          row.priorite ?? "normal",
-        ouvrier_demandeur: row.ouvrier_demandeur ?? "",
-      }).eq("id", row.id);
+      setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...allFields } : r));
+      const { error } = await supabase.from("commandes_detail").update(allFields).eq("id", row.id);
+      if (error) {
+        console.error("saveRow update:", error);
+        if (error.message?.includes("materiau_id") || error.code === "42703") {
+          const { materiau_id, ...fieldsWithout } = allFields;
+          await supabase.from("commandes_detail").update(fieldsWithout).eq("id", row.id);
+          alert("⚠️ materiau_id non sauvegardé — exécute dans Supabase SQL Editor :
+ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS materiau_id uuid REFERENCES materiaux_bibliotheque(id) ON DELETE SET NULL;");
+        } else {
+          alert("Erreur sauvegarde: " + error.message);
+          load(); return;
+        }
+      }
     } else {
-      const fields = {
-        chantier_id:  row.chantier_id ?? "",
-        article:      row.article ?? "",
-        fournisseur:  row.fournisseur ?? "",
-        quantite:     row.quantite ?? "",
-        statut:       row.statut ?? "a_commander",
-        notes:        row.notes ?? "",
-        materiau_id:  row.materiau_id ?? null,
-      };
-      const { data: created, error } = await supabase.from("commandes_detail").insert(fields).select().single();
-      if (error) { alert("Erreur création: " + error.message); }
-      else if (created) {
-        await supabase.from("commandes_detail").update({
-          priorite:          row.priorite ?? "normal",
-          ouvrier_demandeur: row.ouvrier_demandeur ?? "",
-        }).eq("id", created.id);
+      const { error } = await supabase.from("commandes_detail").insert(allFields).select().single();
+      if (error) {
+        if (error.message?.includes("materiau_id") || error.code === "42703") {
+          const { materiau_id, ...fieldsWithout } = allFields;
+          await supabase.from("commandes_detail").insert(fieldsWithout).select().single();
+          alert("⚠️ materiau_id non sauvegardé — exécute dans Supabase SQL Editor :
+ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS materiau_id uuid REFERENCES materiaux_bibliotheque(id) ON DELETE SET NULL;");
+        } else {
+          alert("Erreur création: " + error.message);
+          load(); return;
+        }
       }
     }
     load();
