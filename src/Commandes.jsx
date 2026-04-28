@@ -558,7 +558,17 @@ function PageCommandes({ chantiers, T }) {
   const load = async () => {
     setLoading(true);
     const { data } = await supabase.from("commandes_detail").select("*").order("created_at", { ascending: true });
-    setRows(data || []);
+    if (data) {
+      // Préserve materiau_id depuis l état local si la colonne n existe pas encore en base
+      setRows(prev => data.map(row => {
+        if (row.materiau_id != null) return row;
+        const existing = prev.find(p => p.id === row.id);
+        if (existing?.materiau_id) return { ...row, materiau_id: existing.materiau_id };
+        return row;
+      }));
+    } else {
+      setRows([]);
+    }
     setLoading(false);
   };
 
