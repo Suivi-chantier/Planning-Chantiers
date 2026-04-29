@@ -61,6 +61,7 @@ function Sidebar({page,setPage,T}){
     {id:"biblio-materiaux",   icon:"🧱", label:"Biblio. matériaux"},
     {id:"visite",             icon:"🔍", label:"Visites chantier"},
     {id:"info-client",            icon:"📋", label:"Infos Client"},
+    {id:"compte-rendu",           icon:"📄", label:"Compte rendu"},
     {id:"admin",              icon:"⚙️", label:"Réglages"},
   ];
   const toggle=()=>{
