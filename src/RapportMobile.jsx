@@ -59,6 +59,7 @@ function PageRapportMobile() {
   const [remarque, setRemarque]     = useState("");
   const [paniers, setPaniers]       = useState({});      // { chantier_id: { articleId: {article, qty} } }
   const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
+  const [besoinLibre, setBesoinLibre] = useState({}); // { chantier_id: "texte libre" }
   const [submitting, setSubmitting] = useState(false);
   const [planData, setPlanData]     = useState(null);
 
@@ -171,6 +172,18 @@ function PageRapportMobile() {
       alert(`💬 Remarque manquante sur ${sansRemarque.length} tâche${sansRemarque.length>1?"s":""}\n${sansRemarque.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nUne explication est obligatoire pour les tâches en cours ou non réalisées.`);
       return;
     }
+    // Avancement obligatoire
+    const sansAvancement = tachesRemplies.filter(t => t.avancement === undefined || t.avancement === null || t.avancement === "");
+    if (sansAvancement.length > 0) {
+      alert(`📊 Avancement manquant sur ${sansAvancement.length} tâche${sansAvancement.length>1?"s":""}\n${sansAvancement.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nMerci d'indiquer le pourcentage d'avancement (0% si non réalisé).`);
+      return;
+    }
+    // Limite 10h par jour
+    const totalHeures = tachesRemplies.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+    if (totalHeures > 10) {
+      alert(`⏱ Total des heures : ${totalHeures}h\n\nLe total ne peut pas dépasser 10h par jour. Merci de vérifier les durées saisies.`);
+      return;
+    }
 
     setSubmitting(true);
 
@@ -207,6 +220,21 @@ function PageRapportMobile() {
           statut: "besoin_ouvrier",
           notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
         });
+      }
+      // Besoins libres (hors bibliothèque)
+      const libreTexte = besoinLibre[grp.chantier_id];
+      if (libreTexte?.trim()) {
+        const lignes = libreTexte.split("\n").filter(l=>l.trim());
+        for (const ligne of lignes) {
+          await supabase.from("commandes_detail").insert({
+            chantier_id: grp.chantier_id,
+            article: ligne.trim(),
+            fournisseur: "",
+            quantite: "",
+            statut: "besoin_ouvrier",
+            notes: `Demande libre de ${ouvrier.trim()} — ${dateKey}`,
+          });
+        }
       }
     } // ← fermeture du for
 
@@ -403,13 +431,17 @@ function PageRapportMobile() {
             {/* Avancement % */}
             <div style={{
               flex:"1 1 200px",
-              background:parseInt(t.avancement)>0?"rgba(139,92,246,0.06)":"rgba(0,0,0,0.02)",
-              border:`1.5px solid ${parseInt(t.avancement)>0?"rgba(139,92,246,0.3)":"#e0e4ef"}`,
+              background:(t.avancement===""||t.avancement===undefined||t.avancement===null)?"rgba(224,92,92,0.06)":parseInt(t.avancement)===100?"rgba(80,200,120,0.06)":"rgba(139,92,246,0.06)",
+              border:`1.5px solid ${(t.avancement===""||t.avancement===undefined||t.avancement===null)?"rgba(224,92,92,0.3)":parseInt(t.avancement)===100?"rgba(80,200,120,0.35)":"rgba(139,92,246,0.3)"}`,
               borderRadius:10,padding:"11px 12px",
             }}>
               <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
-                color:parseInt(t.avancement)>0?"#8b5cf6":"#8a9ab0",marginBottom:8}}>
+                color:(t.avancement===""||t.avancement===undefined||t.avancement===null)?"#e05c5c":parseInt(t.avancement)===100?"#50c878":"#8b5cf6",
+                marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
                 📊 Avancement
+                {(t.avancement===""||t.avancement===undefined||t.avancement===null) && (
+                  <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>
+                )}
               </div>
               <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
                 {[0,25,50,75,100].map(p=>(
@@ -509,6 +541,21 @@ function PageRapportMobile() {
             }}>
               {nbArticles > 0 ? "✏️ Modifier ma sélection" : "🛒 Choisir dans la bibliothèque"}
             </button>
+
+            {/* Champ libre pour besoins hors bibliothèque */}
+            <div style={{marginTop:10}}>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9040c0",marginBottom:6}}>
+                ✏️ Autres besoins (hors bibliothèque)
+              </div>
+              <textarea
+                value={besoinLibre[cId]||""}
+                onChange={e=>setBesoinLibre(b=>({...b,[cId]:e.target.value}))}
+                placeholder={"Article non référencé, précisions…\nEx: 10m gaine Ø80, colle PU..."}
+                style={{...S.input,resize:"none",minHeight:64,fontSize:14,color:"#6020a0",
+                  border:"1.5px dashed rgba(176,96,255,0.35)",background:"rgba(176,96,255,0.03)"}}
+              />
+            </div>
+
             <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
               ⚡ Sera transmis automatiquement dans l'onglet Commandes
             </div>
