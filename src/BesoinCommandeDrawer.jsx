@@ -59,7 +59,7 @@ export default function BesoinCommandeDrawer({
   // Charger la bibliothèque
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("bibliotheque_materiaux").select("*").order("nom");
+      const { data } = await supabase.from("materiaux_bibliotheque").select("*").order("nom");
       setBibliotheque(data || []);
       setLoading(false);
     })();
