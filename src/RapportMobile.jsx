@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-// NOUVEL IMPORT AVEC getCurrentWeek, getWeekId ET getTodayJour AJOUTÉS ICI 👇
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_HORIZ, LOGO_SQ, getCurrentWeek, getWeekId, getTodayJour } from "./constants";
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
 
@@ -52,22 +51,22 @@ async function sendRapportEmail(rapport, chantierNom) {
 
 // ─── PAGE RAPPORT MOBILE ──────────────────────────────────────────────────────
 function PageRapportMobile() {
-  const [step, setStep]         = useState("login"); // login | rapport | done
-  const [ouvrier, setOuvrier]   = useState(() => localStorage.getItem("mon_prenom") || "");
-  const [chantiers, setChantiers] = useState([]);
-  const [ouvriers, setOuvriers]   = useState(DEFAULT_OUVRIERS);
-  const [taches, setTaches]       = useState([]);
-  const [remarque, setRemarque]   = useState("");
-  const [paniers, setPaniers] = useState({});       // { chantier_id: { articleId: {article, qty} } }
-const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
+  const [step, setStep]             = useState("login"); // login | rapport | done
+  const [ouvrier, setOuvrier]       = useState(() => localStorage.getItem("mon_prenom") || "");
+  const [chantiers, setChantiers]   = useState([]);
+  const [ouvriers, setOuvriers]     = useState(DEFAULT_OUVRIERS);
+  const [taches, setTaches]         = useState([]);
+  const [remarque, setRemarque]     = useState("");
+  const [paniers, setPaniers]       = useState({});      // { chantier_id: { articleId: {article, qty} } }
+  const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
   const [submitting, setSubmitting] = useState(false);
-  const [planData, setPlanData]   = useState(null); // {chantier, cell}
+  const [planData, setPlanData]     = useState(null);
 
-  const today = new Date();
-  const dateStr = today.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
-  const dateKey = today.toLocaleDateString("fr-FR");
+  const today    = new Date();
+  const dateStr  = today.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+  const dateKey  = today.toLocaleDateString("fr-FR");
   const {year, week} = getCurrentWeek();
-  const weekId = getWeekId(year, week);
+  const weekId   = getWeekId(year, week);
   const todayJour = getTodayJour();
 
   // Load config + planning
@@ -90,7 +89,6 @@ const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer
     const { data: cells } = await supabase
       .from("planning_cells").select("*").eq("week_id", weekId);
 
-    // Charger config chantiers
     const { data: cfg } = await supabase.from("planning_config").select("*");
     let chantiersData = DEFAULT_CHANTIERS;
     if (cfg?.length) { const c=cfg.find(r=>r.key==="chantiers"); if(c) chantiersData=c.value; }
@@ -101,7 +99,6 @@ const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer
       if (!(cell.ouvriers||[]).includes(nom)) return;
       const ch = chantiersData.find(c => c.id === cell.chantier_id);
 
-      // Tâches structurées (Option A)
       if (cell.taches && cell.taches.length > 0) {
         cell.taches.forEach(t => {
           if (!t.text?.trim()) return;
@@ -119,7 +116,6 @@ const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer
           }
         });
       } else if (cell.planifie?.trim()) {
-        // Rétrocompatibilité texte libre → visible par tous
         cell.planifie.split("\n").filter(l=>l.trim()).forEach(ligne => {
           tachesInit.push({
             chantier_id: cell.chantier_id,
@@ -143,24 +139,12 @@ const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer
     loadTaches(ouvrier.trim());
   };
 
-  const setStatut = (idx, statut) => {
-    setTaches(t => t.map((x,i) => i===idx ? {...x, statut} : x));
-  };
-  const setTacheRemarque = (idx, val) => {
-    setTaches(t => t.map((x,i) => i===idx ? {...x, remarque:val} : x));
-  };
-  const setTachePlanifie = (idx, val) => {
-    setTaches(t => t.map((x,i) => i===idx ? {...x, planifie:val} : x));
-  };
-  const setTacheHeures = (idx, val) => {
-    setTaches(t => t.map((x,i) => i===idx ? {...x, heures_reelles:val} : x));
-  };
-  const setTacheAvancement = (idx, val) => {
-    setTaches(t => t.map((x,i) => i===idx ? {...x, avancement:val} : x));
-  };
-  const addTacheLibre = () => {
-    setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",libre:true}]);
-  };
+  const setStatut         = (idx, statut) => setTaches(t => t.map((x,i) => i===idx ? {...x, statut} : x));
+  const setTacheRemarque  = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, remarque:val} : x));
+  const setTachePlanifie  = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, planifie:val} : x));
+  const setTacheHeures    = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, heures_reelles:val} : x));
+  const setTacheAvancement= (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, avancement:val} : x));
+  const addTacheLibre     = ()            => setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",libre:true}]);
 
   const soumettre = async () => {
     const tachesRemplies = taches.filter(t => t.planifie.trim());
@@ -195,18 +179,19 @@ const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer
       await supabase.from("rapports").insert(rapport);
       try { await sendRapportEmail(rapport, grp.chantier_nom); } catch(e) { console.error("Email:",e); }
 
-      // Créer les besoins en commande → onglet Commandes
-     const besoinArticles = Object.values(paniers[grp.chantier_id]||{}).filter(v=>v.qty>0);
-for (const {article, qty} of besoinArticles) {
-  await supabase.from("commandes_detail").insert({
-    chantier_id: grp.chantier_id,
-    article: article.nom,
-    fournisseur: article.fournisseur || "",
-    quantite: String(qty),
-    statut: "besoin_ouvrier",
-    notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
-  });
-}
+      // Besoins commande depuis la bibliothèque
+      const besoinArticles = Object.values(paniers[grp.chantier_id]||{}).filter(v=>v.qty>0);
+      for (const {article, qty} of besoinArticles) {
+        await supabase.from("commandes_detail").insert({
+          chantier_id: grp.chantier_id,
+          article: article.nom,
+          fournisseur: article.fournisseur || "",
+          quantite: String(qty),
+          statut: "besoin_ouvrier",
+          notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
+        });
+      }
+    } // ← fermeture du for
 
     setSubmitting(false);
     setStep("done");
@@ -216,12 +201,12 @@ for (const {article, qty} of besoinArticles) {
   const total    = taches.length;
 
   const S = {
-    wrap: { minHeight:"100vh", background:"#f4f6fa", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" },
-    header: { background:"#080a0d", padding:"16px 20px 14px", position:"sticky", top:0, zIndex:10, borderBottom:"2px solid #FFC200" },
-    card: { background:"#fff", borderRadius:14, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)" },
+    wrap:  { minHeight:"100vh", background:"#f4f6fa", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" },
+    header:{ background:"#080a0d", padding:"16px 20px 14px", position:"sticky", top:0, zIndex:10, borderBottom:"2px solid #FFC200" },
+    card:  { background:"#fff", borderRadius:14, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)" },
     label: { fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"#8a9ab0", marginBottom:8, display:"block" },
     input: { width:"100%", border:"1.5px solid #e0e4ef", borderRadius:10, padding:"14px 14px", fontSize:16, fontFamily:"inherit", outline:"none", boxSizing:"border-box" },
-    btn: (color,bg) => ({ width:"100%", padding:"16px", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"inherit", background:bg, color:color, marginTop:8 }),
+    btn:   (color,bg) => ({ width:"100%", padding:"16px", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"inherit", background:bg, color:color, marginTop:8 }),
   };
 
   // ── STEP: LOGIN ──
@@ -352,33 +337,30 @@ for (const {article, qty} of besoinArticles) {
               ["en_cours","🔄","En cours","#f5a623","rgba(245,166,35,0.12)"],
               ["non_faite","❌","Non faite","#e05c5c","rgba(224,92,92,0.12)"]].map(([val,ic,lb,col,bg])=>(
               <button key={val} onClick={()=>setStatut(idx,val)} style={{
-                padding:"10px 4px",borderRadius:10,border:`2px solid`,cursor:"pointer",
+                padding:"10px 4px",borderRadius:10,border:"2px solid",cursor:"pointer",
                 fontFamily:"inherit",fontSize:13,fontWeight:700,transition:"all .12s",
                 borderColor: t.statut===val ? col : "#e0e4ef",
-                background: t.statut===val ? bg : "#fff",
-                color: t.statut===val ? col : "#aaa",
+                background:  t.statut===val ? bg  : "#fff",
+                color:       t.statut===val ? col : "#aaa",
               }}>{ic}<br/><span style={{fontSize:11}}>{lb}</span></button>
             ))}
           </div>
 
-          {/* ── Durée + Avancement ── */}
+          {/* Durée + Avancement */}
           <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
 
             {/* Durée — OBLIGATOIRE */}
             <div style={{
               flex:"1 1 200px",
-              background:!t.heures_reelles||parseFloat(t.heures_reelles)<=0
-                ?"rgba(224,92,92,0.06)":"rgba(80,200,120,0.06)",
-              border:`1.5px solid ${!t.heures_reelles||parseFloat(t.heures_reelles)<=0
-                ?"rgba(224,92,92,0.3)":"rgba(80,200,120,0.35)"}`,
+              background:!t.heures_reelles||parseFloat(t.heures_reelles)<=0?"rgba(224,92,92,0.06)":"rgba(80,200,120,0.06)",
+              border:`1.5px solid ${!t.heures_reelles||parseFloat(t.heures_reelles)<=0?"rgba(224,92,92,0.3)":"rgba(80,200,120,0.35)"}`,
               borderRadius:10,padding:"11px 12px",
             }}>
               <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
                 color:!t.heures_reelles||parseFloat(t.heures_reelles)<=0?"#e05c5c":"#50c878",
                 marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
                 ⏱ Durée réelle
-                <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,
-                  padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>
+                <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                 {[0.5,1,1.5,2,3,4].map(h=>(
@@ -441,14 +423,14 @@ for (const {article, qty} of besoinArticles) {
             </div>
           </div>
 
-          {/* Remarque */}
+          {/* Remarque tâche */}
           <textarea value={t.remarque} onChange={e=>setTacheRemarque(idx,e.target.value)}
             placeholder="Remarque, précision… (optionnel)"
             style={{...S.input,resize:"none",minHeight:52,fontSize:14,color:"#4a5568"}}/>
         </div>
       ))}
 
-      {/* Ajouter tâche */}
+      {/* Ajouter tâche libre */}
       <div style={{padding:"0 16px 8px"}}>
         <button onClick={addTacheLibre} style={{
           width:"100%",padding:"12px",border:"1.5px dashed #c0c8d8",borderRadius:12,
@@ -457,72 +439,73 @@ for (const {article, qty} of besoinArticles) {
         }}>+ Ajouter une tâche</button>
       </div>
 
-    {/* Besoins en commande par chantier */}
-{[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
-  const ct = taches.find(t=>t.chantier_id===cId);
-  const nbArticles = Object.values(paniers[cId]||{}).filter(v=>v.qty>0).length;
-  return (
-    <div key={cId} style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-        <span style={{...S.label, marginBottom:0, color:"#9040c0"}}>
-          📦 Besoins commande
-          {ct?.chantier_nom && (
-            <span style={{marginLeft:6,background:ct.chantier_couleur+"44",color:"#1a1f2e",
-              borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>
-              {ct.chantier_nom}
-            </span>
-          )}
-        </span>
-        {nbArticles > 0 && (
-          <span style={{background:"rgba(176,96,255,0.2)",color:"#9040c0",borderRadius:20,
-            padding:"2px 10px",fontSize:12,fontWeight:700}}>
-            {nbArticles} article{nbArticles>1?"s":""}
-          </span>
-        )}
-      </div>
-
-      {nbArticles > 0 && (
-        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
-          {Object.values(paniers[cId]||{}).filter(v=>v.qty>0).map(({article,qty})=>(
-            <div key={article.id} style={{background:"rgba(176,96,255,0.12)",borderRadius:8,
-              padding:"4px 10px",fontSize:12,fontWeight:700,color:"#6020a0"}}>
-              {qty}× {article.nom}
+      {/* Besoins en commande par chantier */}
+      {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
+        const ct = taches.find(t=>t.chantier_id===cId);
+        const nbArticles = Object.values(paniers[cId]||{}).filter(v=>v.qty>0).length;
+        return (
+          <div key={cId} style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <span style={{...S.label, marginBottom:0, color:"#9040c0"}}>
+                📦 Besoins commande
+                {ct?.chantier_nom && (
+                  <span style={{marginLeft:6,background:ct.chantier_couleur+"44",color:"#1a1f2e",
+                    borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>
+                    {ct.chantier_nom}
+                  </span>
+                )}
+              </span>
+              {nbArticles > 0 && (
+                <span style={{background:"rgba(176,96,255,0.2)",color:"#9040c0",borderRadius:20,
+                  padding:"2px 10px",fontSize:12,fontWeight:700}}>
+                  {nbArticles} article{nbArticles>1?"s":""}
+                </span>
+              )}
             </div>
-          ))}
-        </div>
-      )}
 
-      <button onClick={()=>setBesoinDrawer(cId)} style={{
-        width:"100%",padding:"12px",border:"1.5px dashed rgba(176,96,255,0.4)",
-        borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer",
-        fontFamily:"inherit",background:"transparent",color:"#9040c0",
-      }}>
-        {nbArticles > 0 ? "✏️ Modifier ma sélection" : "🛒 Choisir dans la bibliothèque"}
-      </button>
-      <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
-        ⚡ Sera transmis automatiquement dans l'onglet Commandes
-      </div>
-    </div>
-  );
-})}
+            {nbArticles > 0 && (
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                {Object.values(paniers[cId]||{}).filter(v=>v.qty>0).map(({article,qty})=>(
+                  <div key={article.id} style={{background:"rgba(176,96,255,0.12)",borderRadius:8,
+                    padding:"4px 10px",fontSize:12,fontWeight:700,color:"#6020a0"}}>
+                    {qty}× {article.nom}
+                  </div>
+                ))}
+              </div>
+            )}
 
-{/* Drawer bibliothèque */}
-{besoinDrawer && (() => {
-  const ct = taches.find(t=>t.chantier_id===besoinDrawer);
-  return (
-    <BesoinCommandeDrawer
-      chantierNom={ct?.chantier_nom}
-      chantierCouleur={ct?.chantier_couleur}
-      panier={paniers[besoinDrawer]||{}}
-      onPanierChange={updater => setPaniers(prev => ({
-        ...prev,
-        [besoinDrawer]: typeof updater==="function" ? updater(prev[besoinDrawer]||{}) : updater,
-      }))}
-      onClose={()=>setBesoinDrawer(null)}
-    />
-  );
-})()}
+            <button onClick={()=>setBesoinDrawer(cId)} style={{
+              width:"100%",padding:"12px",border:"1.5px dashed rgba(176,96,255,0.4)",
+              borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer",
+              fontFamily:"inherit",background:"transparent",color:"#9040c0",
+            }}>
+              {nbArticles > 0 ? "✏️ Modifier ma sélection" : "🛒 Choisir dans la bibliothèque"}
+            </button>
+            <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
+              ⚡ Sera transmis automatiquement dans l'onglet Commandes
+            </div>
+          </div>
+        );
+      })}
 
+      {/* Drawer bibliothèque */}
+      {besoinDrawer && (() => {
+        const ct = taches.find(t=>t.chantier_id===besoinDrawer);
+        return (
+          <BesoinCommandeDrawer
+            chantierNom={ct?.chantier_nom}
+            chantierCouleur={ct?.chantier_couleur}
+            panier={paniers[besoinDrawer]||{}}
+            onPanierChange={updater => setPaniers(prev => ({
+              ...prev,
+              [besoinDrawer]: typeof updater==="function" ? updater(prev[besoinDrawer]||{}) : updater,
+            }))}
+            onClose={()=>setBesoinDrawer(null)}
+          />
+        );
+      })()}
+
+      {/* Remarque générale */}
       <div style={{...S.card}}>
         <span style={S.label}>Remarque générale de la journée</span>
         <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
@@ -530,6 +513,7 @@ for (const {article, qty} of besoinArticles) {
           style={{...S.input,resize:"none",minHeight:80,fontSize:14}}/>
       </div>
 
+      {/* Bouton soumettre */}
       <div style={{padding:"8px 16px 32px"}}>
         <button onClick={soumettre} disabled={submitting} style={{
           width:"100%",padding:"18px",border:"none",borderRadius:14,fontSize:17,
