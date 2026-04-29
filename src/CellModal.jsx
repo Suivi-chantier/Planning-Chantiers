@@ -1,14 +1,51 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie } from "./constants";
 
-function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,onClose,T}){
+function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,onClose,T,weekId,year,week}){
   if(!chantier)return null;
+
+  const [rapports, setRapports] = useState([]);
+  const [loadingRapports, setLoadingRapports] = useState(true);
+
+  // Calculer la date réelle du jour sélectionné
+  const getDateDuJour = () => {
+    const JOURS_ORDER = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"];
+    const dayIndex = JOURS_ORDER.indexOf(jour);
+    if (dayIndex < 0 || !year || !week) return null;
+    const jan4 = new Date(year, 0, 4);
+    const mon = new Date(jan4);
+    mon.setDate(jan4.getDate() - ((jan4.getDay() || 7) - 1) + (week - 1) * 7);
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + dayIndex);
+    return d.toLocaleDateString("fr-FR"); // format dd/mm/yyyy
+  };
+
+  useEffect(() => {
+    const load = async () => {
+      setLoadingRapports(true);
+      const dateKey = getDateDuJour();
+      if (!dateKey || !chantier?.id) { setLoadingRapports(false); return; }
+      const { data } = await supabase
+        .from("rapports")
+        .select("*")
+        .eq("chantier_id", chantier.id)
+        .eq("date_rapport", dateKey);
+      setRapports(data || []);
+      setLoadingRapports(false);
+    };
+    load();
+  }, [chantier?.id, jour, weekId]);
+
   const toggleOuvrier=(o)=>{
     const list=[...(draft.ouvriers||[])];
     const i=list.indexOf(o);if(i>=0)list.splice(i,1);else list.push(o);
     setDraft(p=>({...p,ouvriers:list}));
   };
+
+  const statutIcon = (s) => s==="faite"?"✅":s==="en_cours"?"🔄":"❌";
+  const statutColor = (s) => s==="faite"?"#50c878":s==="en_cours"?"#f5a623":"#e05c5c";
+
   return(
     <div className="cell-modal-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:500,
       display:"flex",alignItems:"center",
@@ -47,7 +84,6 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
               {(draft.taches||[]).map((tache,idx)=>(
                 <div key={tache.id} style={{background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
                   borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
-                  {/* Texte de la tâche */}
                   <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                     <span style={{color:T.textMuted,fontSize:13,marginTop:2,flexShrink:0}}>{idx+1}.</span>
                     <textarea
@@ -63,7 +99,6 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                       style={{flex:1,background:"transparent",border:"none",color:T.planColor,
                         fontSize:14,lineHeight:1.5,resize:"none",fontFamily:"inherit",outline:"none"}}
                     />
-                    {/* Durée estimée */}
                     <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0,
                       background:T.fieldBg,border:`1px solid ${T.border}`,borderRadius:7,padding:"4px 8px"}}>
                       <span style={{fontSize:12,color:T.textMuted}}>⏱</span>
@@ -89,7 +124,6 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                       title="Supprimer cette tâche">✕</button>
                   </div>
 
-                  {/* Ouvriers assignés à cette tâche */}
                   <div style={{display:"flex",flexWrap:"wrap",gap:5,paddingLeft:18}}>
                     <span style={{fontSize:11,color:T.textMuted,alignSelf:"center",marginRight:2}}>Pour :</span>
                     {(draft.ouvriers||[]).map(o=>{
@@ -123,7 +157,6 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                 </div>
               ))}
 
-              {/* Bouton ajouter tâche */}
               <button onClick={()=>{
                 const newT={id:Math.random().toString(36).slice(2),text:"",ouvriers:[]};
                 const t=[...(draft.taches||[]),newT];
@@ -134,14 +167,112 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                 fontFamily:"inherit",fontSize:13,fontWeight:600,transition:"all .15s"
               }}>+ Ajouter une tâche</button>
             </div>
+
+            {/* ── COMPTES RENDUS OUVRIERS ── */}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:2}}>
+                ✅ Réel effectué — Comptes rendus ouvriers
+              </div>
+
+              {loadingRapports ? (
+                <div style={{color:T.textMuted,fontSize:13,padding:"10px 0"}}>Chargement…</div>
+              ) : rapports.length === 0 ? (
+                <div style={{
+                  background:T.fieldBg, border:`1.5px solid ${T.fieldBorder}`,
+                  borderRadius:10, padding:"14px 16px",
+                  color:T.textMuted, fontSize:13, fontStyle:"italic"
+                }}>
+                  Aucun compte rendu soumis pour ce jour.
+                </div>
+              ) : (
+                rapports.map(rapport => (
+                  <div key={rapport.id} style={{
+                    background:T.fieldBg, border:`1.5px solid ${T.fieldBorder}`,
+                    borderRadius:12, overflow:"hidden",
+                  }}>
+                    {/* En-tête ouvrier */}
+                    <div style={{
+                      background: chantier.couleur + "33",
+                      padding:"10px 14px",
+                      display:"flex", alignItems:"center", justifyContent:"space-between",
+                      borderBottom:`1px solid ${T.fieldBorder}`,
+                    }}>
+                      <div style={{fontWeight:800, fontSize:14, color:T.text}}>
+                        👷 {rapport.ouvrier}
+                      </div>
+                      {rapport.remarque && (
+                        <div style={{fontSize:12, color:T.textMuted, fontStyle:"italic", maxWidth:"60%", textAlign:"right"}}>
+                          💬 {rapport.remarque}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tâches du rapport */}
+                    <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                      {(rapport.taches||[]).map((t,i)=>(
+                        <div key={i} style={{
+                          padding:"10px 14px",
+                          borderBottom: i < rapport.taches.length-1 ? `1px solid ${T.fieldBorder}` : "none",
+                          display:"flex", flexDirection:"column", gap:4,
+                        }}>
+                          {/* Ligne principale */}
+                          <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+                            <span style={{fontSize:15}}>{statutIcon(t.statut)}</span>
+                            <span style={{flex:1, fontSize:13, fontWeight:600, color:T.text, lineHeight:1.4}}>
+                              {t.planifie}
+                            </span>
+                            {/* Durée */}
+                            {t.heures_reelles > 0 && (
+                              <span style={{
+                                background:"rgba(91,138,245,0.12)", color:"#5b8af5",
+                                borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700, flexShrink:0,
+                              }}>⏱ {t.heures_reelles}h</span>
+                            )}
+                            {/* Avancement */}
+                            {(t.avancement !== undefined && t.avancement !== null && t.avancement !== "") && (
+                              <span style={{
+                                background: parseInt(t.avancement)===100 ? "rgba(80,200,120,0.15)" : "rgba(139,92,246,0.12)",
+                                color: parseInt(t.avancement)===100 ? "#50c878" : "#8b5cf6",
+                                borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700, flexShrink:0,
+                              }}>📊 {t.avancement}%</span>
+                            )}
+                          </div>
+                          {/* Barre avancement */}
+                          {(t.avancement !== undefined && t.avancement !== null && t.avancement !== "") && (
+                            <div style={{height:3, background:T.fieldBorder, borderRadius:2, marginTop:2, overflow:"hidden"}}>
+                              <div style={{
+                                height:"100%", borderRadius:2,
+                                background: parseInt(t.avancement)===100 ? "#50c878" : "#8b5cf6",
+                                width:`${t.avancement}%`, transition:"width .3s",
+                              }}/>
+                            </div>
+                          )}
+                          {/* Remarque tâche */}
+                          {t.remarque && (
+                            <div style={{fontSize:12, color:T.textMuted, fontStyle:"italic", paddingLeft:23}}>
+                              ↳ {t.remarque}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* ── RÉEL EFFECTUÉ (textarea manuel) ── */}
             <div style={{display:"flex",flexDirection:"column"}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>✅ Réel effectué</div>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
+                ✏️ Note réel complémentaire
+              </div>
               <textarea value={draft.reel||""} onChange={e=>setDraft(p=>({...p,reel:e.target.value}))}
-                placeholder="Ce qui a réellement été réalisé…"
-                style={{minHeight:100,width:"100%",background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
+                placeholder="Complément ou correction manuelle…"
+                style={{minHeight:80,width:"100%",background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
                   borderRadius:12,padding:"14px 16px",color:T.reelColor,fontSize:14,lineHeight:1.7,
                   resize:"none",fontFamily:"inherit",outline:"none"}}/>
             </div>
+
             <div>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>👷 Ouvriers assignés</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
@@ -162,6 +293,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
               </div>
             </div>
           </div>
+
           <div style={{padding:"24px 28px 24px 20px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
             <div style={{flex:1,display:"flex",flexDirection:"column"}}>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>📦 Commandes à prévoir</div>
@@ -182,6 +314,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
             </div>
           </div>
         </div>
+
         <div style={{padding:"16px 28px",borderTop:`1px solid ${T.border}`,display:"flex",
           justifyContent:"space-between",alignItems:"center",flexShrink:0,background:T.modal}}>
           <div style={{fontSize:12,color:T.textMuted}}>
@@ -201,5 +334,5 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
     </div>
   );
 }
- 
+
 export default CellModal;
