@@ -29,6 +29,7 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
     setCmdDraft(commandes[cId]||"");
     setNoteDraft(notesData[cId]||"");
   };
+
   const closeModal=async()=>{
     if(!modal||!cellDraft){setModal(null);return;}
     const{cId,jour}=modal;
@@ -48,37 +49,26 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
     setSaving(false);setModal(null);setCellDraft(null);
   };
 
-
   // ── Google Calendar – lien direct par cellule ───────────────────────────
   const makeGCalUrl=(chantier, jour, dayIndex, cell)=>{
-    // Calcul date ISO de la case (Lundi = 0, Vendredi = 4)
     const jan4=new Date(year,0,4);
     const mon=new Date(jan4);
     mon.setDate(jan4.getDate()-(((jan4.getDay()||7)-1))+(week-1)*7);
     const d=new Date(mon); d.setDate(mon.getDate()+dayIndex);
-    // Formatage LOCAL (pas toISOString qui décale en UTC)
     const pad=n=>String(n).padStart(2,'0');
     const dateStr=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
-
-    // Horaires : lun-mer 7h30→17h30 / jeu-ven 7h30→16h30
     const endHour=dayIndex<=2?'173000':'163000';
     const startDt=`${dateStr}T073000`;
     const endDt=`${dateStr}T${endHour}`;
-
     const taches=(cell.taches||[]).filter(t=>t.text?.trim());
     const lignes=taches.length
       ?taches.map(t=>`• ${t.text}${t.duree?` (${t.duree}h)`:''}${t.ouvriers?.length?` → ${t.ouvriers.join(', ')}`:' → tous'}`)
       :(cell.planifie||'').split('\n').filter(l=>l.trim()).map(l=>`• ${l}`);
-
-    // Titre : "LAMARTINE / JP STEV"
     const ouv=(cell.ouvriers||[]).map(n=>n.toUpperCase()).join(' ');
     const title=ouv?`${chantier.nom} / ${ouv}`:chantier.nom;
-
-    // Description + lien compte rendu
     const descLines=[...lignes];
     if(cell.reel) descLines.push('','Réalisé :',cell.reel);
     descLines.push('','📱 Compte rendu : https://planning-chantiers.vercel.app/rapport');
-
     const params=new URLSearchParams({
       action:'TEMPLATE',
       text:title,
@@ -123,10 +113,23 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
-      {modal&&cellDraft&&<CellModal chantier={modalChantier} jour={modal.jour} draft={cellDraft}
-        setDraft={setCellDraft} commande={{value:cmdDraft,set:setCmdDraft}}
-        note={{value:noteDraft,set:setNoteDraft}} ouvriers={ouvriers}
-        saving={saving} onClose={closeModal} T={T}/>}
+
+      {/* ── CELLMODAL avec weekId, year, week passés en props ── */}
+      {modal&&cellDraft&&<CellModal
+        chantier={modalChantier}
+        jour={modal.jour}
+        draft={cellDraft}
+        setDraft={setCellDraft}
+        commande={{value:cmdDraft,set:setCmdDraft}}
+        note={{value:noteDraft,set:setNoteDraft}}
+        ouvriers={ouvriers}
+        saving={saving}
+        onClose={closeModal}
+        T={T}
+        weekId={weekId}
+        year={year}
+        week={week}
+      />}
 
       {/* Sous-header planning */}
       <div className="planning-header" style={{padding:"16px 28px",
@@ -137,19 +140,15 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
           SEMAINE {week} — {year}
         </div>
         <div style={{display:"flex",gap:6}}>
-          <button className="navbtn" onClick={prevWeek} >‹</button>
-          {<button className="navbtn navbtn-today" onClick={goNow} style={{fontSize:11,padding:"6px 10px"}}>CETTE SEMAINE</button>}
-          <button className="navbtn" onClick={nextWeek} >›</button>
+          <button className="navbtn" onClick={prevWeek}>‹</button>
+          <button className="navbtn navbtn-today" onClick={goNow} style={{fontSize:11,padding:"6px 10px"}}>CETTE SEMAINE</button>
+          <button className="navbtn" onClick={nextWeek}>›</button>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-          <button className={`tab ${view==="planifie"?"on":"off"}`} onClick={()=>setView("planifie")}
-            >Planifié</button>
-          <button className={`tab ${view==="reel"?"on":"off"}`} onClick={()=>setView("reel")}
-            >Réel</button>
-          <button className={`tab ${view==="compare"?"on":"off"}`} onClick={()=>setView("compare")}
-            >Bilan</button>
+          <button className={`tab ${view==="planifie"?"on":"off"}`} onClick={()=>setView("planifie")}>Planifié</button>
+          <button className={`tab ${view==="reel"?"on":"off"}`} onClick={()=>setView("reel")}>Réel</button>
+          <button className={`tab ${view==="compare"?"on":"off"}`} onClick={()=>setView("compare")}>Bilan</button>
           <button className="btn-g btn-print" onClick={handlePrint} style={{fontSize:17,padding:"6px 12px"}}>🖨</button>
-
         </div>
       </div>
 
