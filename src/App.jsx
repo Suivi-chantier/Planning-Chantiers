@@ -15,6 +15,7 @@ import PageAdmin              from "./Admin";
 import PageRapportMobile      from "./RapportMobile";
 import PageVisiteChantier     from "./VisiteChantier";
 import PageInfoClient            from "./PageInfoClient";
+import PageCompteRendu           from "./PageCompteRendu";
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== 'undefined') {
@@ -225,6 +226,7 @@ function MainApp(){
           {page==="biblio-materiaux" && <PageBibliothequeMateriaux T={T}/>}
           {page==="visite"           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
           {page==="info-client"          && <PageInfoClient T={T}/>}
+          {page==="compte-rendu"         && <PageCompteRendu T={T}/>}
           {page==="admin"            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
         </div>
       </div>
