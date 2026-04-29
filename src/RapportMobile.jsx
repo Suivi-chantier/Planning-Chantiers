@@ -149,9 +149,26 @@ function PageRapportMobile() {
   const soumettre = async () => {
     const tachesRemplies = taches.filter(t => t.planifie.trim());
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
-    const sansDuree = tachesRemplies.filter(t => !t.heures_reelles || parseFloat(t.heures_reelles) <= 0);
+    // Durée obligatoire sauf si tâche non_faite
+    const sansDuree = tachesRemplies.filter(t =>
+      t.statut !== "non_faite" && (!t.heures_reelles || parseFloat(t.heures_reelles) <= 0)
+    );
     if (sansDuree.length > 0) {
       alert(`⏱ Durée manquante sur ${sansDuree.length} tâche${sansDuree.length>1?"s":""}\n${sansDuree.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nCe champ est obligatoire.`);
+      return;
+    }
+    // Statut obligatoire
+    const sansStatut = tachesRemplies.filter(t => !t.statut);
+    if (sansStatut.length > 0) {
+      alert(`📊 Statut manquant sur ${sansStatut.length} tâche${sansStatut.length>1?"s":""}\n${sansStatut.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nMerci d'indiquer si la tâche est faite, en cours ou non faite.`);
+      return;
+    }
+    // Remarque obligatoire si en_cours ou non_faite
+    const sansRemarque = tachesRemplies.filter(t =>
+      (t.statut === "en_cours" || t.statut === "non_faite") && !t.remarque?.trim()
+    );
+    if (sansRemarque.length > 0) {
+      alert(`💬 Remarque manquante sur ${sansRemarque.length} tâche${sansRemarque.length>1?"s":""}\n${sansRemarque.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nUne explication est obligatoire pour les tâches en cours ou non réalisées.`);
       return;
     }
 
@@ -352,12 +369,12 @@ function PageRapportMobile() {
             {/* Durée — OBLIGATOIRE */}
             <div style={{
               flex:"1 1 200px",
-              background:!t.heures_reelles||parseFloat(t.heures_reelles)<=0?"rgba(224,92,92,0.06)":"rgba(80,200,120,0.06)",
-              border:`1.5px solid ${!t.heures_reelles||parseFloat(t.heures_reelles)<=0?"rgba(224,92,92,0.3)":"rgba(80,200,120,0.35)"}`,
+              background:(t.statut==="non_faite"||t.heures_reelles&&parseFloat(t.heures_reelles)>=0)&&(t.statut==="non_faite"||parseFloat(t.heures_reelles)>0)?"rgba(80,200,120,0.06)":"rgba(224,92,92,0.06)",
+              border:`1.5px solid ${t.statut==="non_faite"||(t.heures_reelles&&parseFloat(t.heures_reelles)>0)?"rgba(80,200,120,0.35)":"rgba(224,92,92,0.3)"}`,
               borderRadius:10,padding:"11px 12px",
             }}>
               <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
-                color:!t.heures_reelles||parseFloat(t.heures_reelles)<=0?"#e05c5c":"#50c878",
+                color:t.statut==="non_faite"||(t.heures_reelles&&parseFloat(t.heures_reelles)>0)?"#50c878":"#e05c5c",
                 marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
                 ⏱ Durée réelle
                 <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>
@@ -424,9 +441,20 @@ function PageRapportMobile() {
           </div>
 
           {/* Remarque tâche */}
-          <textarea value={t.remarque} onChange={e=>setTacheRemarque(idx,e.target.value)}
-            placeholder="Remarque, précision… (optionnel)"
-            style={{...S.input,resize:"none",minHeight:52,fontSize:14,color:"#4a5568"}}/>
+          <div style={{marginBottom: t.statut==="en_cours"||t.statut==="non_faite" ? 0 : 0}}>
+            {(t.statut==="en_cours"||t.statut==="non_faite") && (
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
+                color:t.remarque?.trim()?"#50c878":"#e05c5c",marginBottom:6,display:"flex",alignItems:"center",gap:5}}>
+                💬 Explication
+                {!t.remarque?.trim() && <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>}
+              </div>
+            )}
+            <textarea value={t.remarque} onChange={e=>setTacheRemarque(idx,e.target.value)}
+              placeholder={t.statut==="en_cours"?"Qu'est-ce qui bloque ? Estimation de fin…":t.statut==="non_faite"?"Pourquoi non réalisé ?":"Remarque, précision… (optionnel)"}
+              style={{...S.input,resize:"none",minHeight:52,fontSize:14,color:"#4a5568",
+                border:(t.statut==="en_cours"||t.statut==="non_faite")&&!t.remarque?.trim()
+                  ?"1.5px solid rgba(224,92,92,0.4)":"1.5px solid #e0e4ef"}}/>
+          </div>
         </div>
       ))}
 
