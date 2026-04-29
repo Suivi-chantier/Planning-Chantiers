@@ -140,17 +140,17 @@ function getDateFromWeekAndDay(weekId, jourName) {
 
 // ─── PHASES ───────────────────────────────────────────────────────────────────
 const PHASES = [
-  { id: "demolition",     label: "Démolition",                        emoji: "🔨", couleur: "#e05c5c" },
-  { id: "plomberie_ro",   label: "Réseaux plomberie (gros œuvre)",     emoji: "🔵", couleur: "#3b82f6" },
-  { id: "menuiserie",     label: "Menuiserie ext. & int.",             emoji: "🚪", couleur: "#8b5cf6" },
-  { id: "feraillage",     label: "Feraillage cloisons & doublages",    emoji: "🧱", couleur: "#f59e0b" },
-  { id: "elec_vmc",       label: "Réseaux élec & VMC",                 emoji: "⚡", couleur: "#eab308" },
+  { id: "demolition",     label: "Démolition",                       emoji: "🔨", couleur: "#e05c5c" },
+  { id: "plomberie_ro",   label: "Réseaux plomberie (gros œuvre)",    emoji: "🔵", couleur: "#3b82f6" },
+  { id: "menuiserie",     label: "Menuiserie ext. & int.",            emoji: "🚪", couleur: "#8b5cf6" },
+  { id: "feraillage",     label: "Feraillage cloisons & doublages",   emoji: "🧱", couleur: "#f59e0b" },
+  { id: "elec_vmc",       label: "Réseaux élec & VMC",                emoji: "⚡", couleur: "#eab308" },
   { id: "placo",          label: "Lainage / Placo / Bandes & enduits", emoji: "🪣", couleur: "#6366f1" },
-  { id: "peinture_sols",  label: "Peintures & sols",                   emoji: "🎨", couleur: "#ec4899" },
-  { id: "finition_elec",  label: "Finitions électricité",              emoji: "💡", couleur: "#f97316" },
-  { id: "finition_plomb", label: "Finitions plomberie",                emoji: "🚿", couleur: "#06b6d4" },
-  { id: "cuisine",        label: "Cuisine",                            emoji: "🍳", couleur: "#10b981" },
-  { id: "finitions_gen",  label: "Finitions générales",                emoji: "✨", couleur: "#a78bfa" },
+  { id: "peinture_sols",  label: "Peintures & sols",                  emoji: "🎨", couleur: "#ec4899" },
+  { id: "finition_elec",  label: "Finitions électricité",             emoji: "💡", couleur: "#f97316" },
+  { id: "finition_plomb", label: "Finitions plomberie",               emoji: "🚿", couleur: "#06b6d4" },
+  { id: "cuisine",        label: "Cuisine",                           emoji: "🍳", couleur: "#10b981" },
+  { id: "finitions_gen",  label: "Finitions générales",               emoji: "✨", couleur: "#a78bfa" },
 ];
 
 const PHASE_KEYWORDS = {
@@ -825,6 +825,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const margePct = pVendu > 0 ? (marge / pVendu) * 100 : 0;
   const autoColor = autoSaveStatus === "saved" ? "#50c878" : autoSaveStatus === "saving" ? T.accent : "#f5a623";
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
+  
+  // Adjusted grid columns to fit the new text input for avancement
   const gridCols = "20px 1.5fr 120px 55px 55px 70px 110px 70px 90px 26px";
 
   return (
@@ -979,12 +981,14 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
                       return (
                         <div key={tache.id}
+                          draggable
+                          onDragStart={() => onDragStart(phase.id, ti)}
                           onDragEnter={() => onDragEnter(phase.id, ti)}
                           onDragEnd={onDragEnd}
                           onDragOver={e => e.preventDefault()}
-                          style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s" }}>
+                          style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s", cursor: "grab" }}>
 
-                          <div draggable onDragStart={() => onDragStart(phase.id, ti)} style={{ color: T.textMuted, fontSize: 13, cursor: "grab", userSelect: "none", textAlign: "center" }}>⠿</div>
+                          <div style={{ color: T.textMuted, fontSize: 13, cursor: "grab", userSelect: "none", textAlign: "center" }}>⠿</div>
 
                           <div style={{ minWidth: 0 }}>
                             <input value={tache.nom} onChange={e => updateTache(phase.id, tache.id, { nom: e.target.value })} onPointerDown={stopDrag} style={{ width: "100%", padding: "4px 6px", borderRadius: 6, border: "1px solid transparent", background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none" }} onFocus={e => e.target.style.borderColor = T.border} onBlur={e => e.target.style.borderColor = "transparent"} />
@@ -999,8 +1003,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
                           <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })} onPointerDown={stopDrag} style={{ padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 11, outline: "none", width: "100%", colorScheme: "dark" }} />
 
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                            <input type="number" min="0" max="100" step="5" value={av} onPointerDown={stopDrag} onChange={e => { let val = parseInt(e.target.value); if (isNaN(val)) val = 0; if (val > 100) val = 100; if (val < 0) val = 0; updateTache(phase.id, tache.id, { avancement: val }); }} style={{ width: 45, padding: "4px", borderRadius: 6, border: `1px solid ${av === 100 ? "#50c878" : T.border}`, background: T.inputBg, color: av === 100 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                            <input type="number" min="0" max="100" step="1" value={av} onPointerDown={stopDrag} onChange={e => { let val = parseInt(e.target.value); if (isNaN(val)) val = 0; if (val > 100) val = 100; if (val < 0) val = 0; updateTache(phase.id, tache.id, { avancement: val }); }} style={{ width: 42, padding: "4px 2px", borderRadius: 6, border: `1.5px solid ${av === 100 ? "#50c878" : T.border}`, background: T.inputBg, color: av === 100 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 800, textAlign: "center", outline: "none" }} />
                             <span style={{ fontSize: 11, color: T.textMuted }}>%</span>
                           </div>
 
