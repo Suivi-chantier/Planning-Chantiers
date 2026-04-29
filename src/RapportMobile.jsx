@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from
 import { supabase } from "./supabase";
 // NOUVEL IMPORT AVEC getCurrentWeek, getWeekId ET getTodayJour AJOUTÉS ICI 👇
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_HORIZ, LOGO_SQ, getCurrentWeek, getWeekId, getTodayJour } from "./constants";
+import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
 
 // ─── HELPER EMAIL ─────────────────────────────────────────────────────────────
 async function sendRapportEmail(rapport, chantierNom) {
@@ -57,7 +58,8 @@ function PageRapportMobile() {
   const [ouvriers, setOuvriers]   = useState(DEFAULT_OUVRIERS);
   const [taches, setTaches]       = useState([]);
   const [remarque, setRemarque]   = useState("");
-  const [besoins, setBesoins]     = useState({}); // { chantier_id: "texte des besoins" }
+  const [paniers, setPaniers] = useState({});       // { chantier_id: { articleId: {article, qty} } }
+const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
   const [submitting, setSubmitting] = useState(false);
   const [planData, setPlanData]   = useState(null); // {chantier, cell}
 
@@ -194,22 +196,17 @@ function PageRapportMobile() {
       try { await sendRapportEmail(rapport, grp.chantier_nom); } catch(e) { console.error("Email:",e); }
 
       // Créer les besoins en commande → onglet Commandes
-      const besoinTexte = besoins[grp.chantier_id];
-      if (besoinTexte?.trim()) {
-        // Une ligne par besoin (séparé par retour à la ligne)
-        const lignes = besoinTexte.split("\n").filter(l=>l.trim());
-        for (const ligne of lignes) {
-          await supabase.from("commandes_detail").insert({
-            chantier_id: grp.chantier_id,
-            article: ligne.trim(),
-            fournisseur: "",
-            quantite: "",
-            statut: "besoin_ouvrier",
-            notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
-          });
-        }
-      }
-    }
+     const besoinArticles = Object.values(paniers[grp.chantier_id]||{}).filter(v=>v.qty>0);
+for (const {article, qty} of besoinArticles) {
+  await supabase.from("commandes_detail").insert({
+    chantier_id: grp.chantier_id,
+    article: article.nom,
+    fournisseur: article.fournisseur || "",
+    quantite: String(qty),
+    statut: "besoin_ouvrier",
+    notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
+  });
+}
 
     setSubmitting(false);
     setStep("done");
@@ -460,27 +457,71 @@ function PageRapportMobile() {
         }}>+ Ajouter une tâche</button>
       </div>
 
-      {/* Besoins en commande par chantier */}
-      {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
-        const ct = taches.find(t=>t.chantier_id===cId);
-        return (
-          <div key={cId} style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
-            <span style={{...S.label, color:"#9040c0"}}>
-              📦 Besoins commande
-              {ct?.chantier_nom && <span style={{marginLeft:6,background:ct.chantier_couleur+"44",color:"#1a1f2e",
-                borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{ct.chantier_nom}</span>}
+    {/* Besoins en commande par chantier */}
+{[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
+  const ct = taches.find(t=>t.chantier_id===cId);
+  const nbArticles = Object.values(paniers[cId]||{}).filter(v=>v.qty>0).length;
+  return (
+    <div key={cId} style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <span style={{...S.label, marginBottom:0, color:"#9040c0"}}>
+          📦 Besoins commande
+          {ct?.chantier_nom && (
+            <span style={{marginLeft:6,background:ct.chantier_couleur+"44",color:"#1a1f2e",
+              borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>
+              {ct.chantier_nom}
             </span>
-            <textarea
-              value={besoins[cId]||""}
-              onChange={e=>setBesoins(b=>({...b,[cId]:e.target.value}))}
-              placeholder={"Matériaux manquants, outils à prévoir…\nEx: 10m de gaine Ø80, visserie placo..."}
-              style={{...S.input,resize:"none",minHeight:80,fontSize:14,color:"#6020a0"}}/>
-            <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
-              ⚡ Sera transmis automatiquement dans l'onglet Commandes
+          )}
+        </span>
+        {nbArticles > 0 && (
+          <span style={{background:"rgba(176,96,255,0.2)",color:"#9040c0",borderRadius:20,
+            padding:"2px 10px",fontSize:12,fontWeight:700}}>
+            {nbArticles} article{nbArticles>1?"s":""}
+          </span>
+        )}
+      </div>
+
+      {nbArticles > 0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {Object.values(paniers[cId]||{}).filter(v=>v.qty>0).map(({article,qty})=>(
+            <div key={article.id} style={{background:"rgba(176,96,255,0.12)",borderRadius:8,
+              padding:"4px 10px",fontSize:12,fontWeight:700,color:"#6020a0"}}>
+              {qty}× {article.nom}
             </div>
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      )}
+
+      <button onClick={()=>setBesoinDrawer(cId)} style={{
+        width:"100%",padding:"12px",border:"1.5px dashed rgba(176,96,255,0.4)",
+        borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer",
+        fontFamily:"inherit",background:"transparent",color:"#9040c0",
+      }}>
+        {nbArticles > 0 ? "✏️ Modifier ma sélection" : "🛒 Choisir dans la bibliothèque"}
+      </button>
+      <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
+        ⚡ Sera transmis automatiquement dans l'onglet Commandes
+      </div>
+    </div>
+  );
+})}
+
+{/* Drawer bibliothèque */}
+{besoinDrawer && (() => {
+  const ct = taches.find(t=>t.chantier_id===besoinDrawer);
+  return (
+    <BesoinCommandeDrawer
+      chantierNom={ct?.chantier_nom}
+      chantierCouleur={ct?.chantier_couleur}
+      panier={paniers[besoinDrawer]||{}}
+      onPanierChange={updater => setPaniers(prev => ({
+        ...prev,
+        [besoinDrawer]: typeof updater==="function" ? updater(prev[besoinDrawer]||{}) : updater,
+      }))}
+      onClose={()=>setBesoinDrawer(null)}
+    />
+  );
+})()}
 
       <div style={{...S.card}}>
         <span style={S.label}>Remarque générale de la journée</span>
