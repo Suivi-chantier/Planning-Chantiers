@@ -215,6 +215,7 @@ function PageRapportMobile() {
         await supabase.from("commandes_detail").insert({
           chantier_id: grp.chantier_id,
           article: article.nom,
+          materiau_id: article.id,
           fournisseur: article.fournisseur || "",
           quantite: String(qty),
           statut: "besoin_ouvrier",
