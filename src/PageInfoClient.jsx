@@ -214,9 +214,9 @@ export default function PageInfoClient({ T }) {
 
   // ─── CANVAS ──────────────────────────────────────────────────────────────────
   function dessinerGrille(ctx, canvas) {
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "#1a1d24";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "#f0f0f0";
+    ctx.strokeStyle = "rgba(255,195,0,0.08)";
     ctx.lineWidth = 1;
     for (let i = 0; i <= canvas.width; i += 20) {
       ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
@@ -225,7 +225,7 @@ export default function PageInfoClient({ T }) {
       ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width,i); ctx.stroke();
     }
     ctx.strokeStyle = "#FFC300"; ctx.lineWidth = 2;
-    ctx.strokeRect(0,0,canvas.width,canvas.height);
+    ctx.strokeRect(1,1,canvas.width-2,canvas.height-2);
   }
 
   function getPos(e, canvas) {
@@ -252,9 +252,9 @@ export default function PageInfoClient({ T }) {
     const ctx = canvas.getContext("2d");
     const pos = getPos(e, canvas);
     if (eraseMode.current) {
-      ctx.clearRect(pos.x - 10, pos.y - 10, 20, 20);
+      ctx.fillStyle = "#1a1d24"; ctx.fillRect(pos.x - 10, pos.y - 10, 20, 20);
     } else {
-      ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.strokeStyle = "#FFC300"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
       ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
     }
     lastPos.current = pos;
@@ -343,38 +343,46 @@ export default function PageInfoClient({ T }) {
   }
 
   // ─── STYLES ──────────────────────────────────────────────────────────────────
+  const bg      = T.bg      || "#0d0f12";
+  const surface = T.surface || "#13161b";
+  const card    = T.card    || "#1a1d24";
+  const border  = T.border  || "#2a2d35";
+  const text    = T.text    || "#f0f0f0";
+  const textSub = T.textSub || "#888";
+  const accent  = "#FFC300";
+
   const S = {
-    page: { display:"flex", flexDirection:"column", height:"100%", background: T.bg, overflow:"hidden" },
-    header: { background:"#000", color:"#FFC300", padding:"10px 20px", display:"flex", alignItems:"center", gap:12, borderBottom:"3px solid #FFC300", flexShrink:0 },
+    page: { display:"flex", flexDirection:"column", height:"100%", background: bg, overflow:"hidden" },
+    header: { background: surface, color: accent, padding:"10px 20px", display:"flex", alignItems:"center", gap:12, borderBottom:`2px solid #FFC200`, flexShrink:0 },
     body: { display:"flex", flex:1, overflow:"hidden" },
-    sidebar: { width:220, flexShrink:0, background:"#111", borderRight:"2px solid #FFC300", display:"flex", flexDirection:"column", overflow:"hidden" },
-    sidebarHead: { padding:"10px 14px", background:"#000", color:"#FFC300", fontWeight:700, fontSize:13, letterSpacing:1, borderBottom:"1px solid #FFC300", textTransform:"uppercase" },
+    sidebar: { width:220, flexShrink:0, background: surface, borderRight:`1px solid ${border}`, display:"flex", flexDirection:"column", overflow:"hidden" },
+    sidebarHead: { padding:"10px 14px", background: bg, color: accent, fontWeight:700, fontSize:12, letterSpacing:1, borderBottom:`1px solid ${border}`, textTransform:"uppercase" },
     sidebarList: { flex:1, overflowY:"auto", padding:8 },
-    projetItem: (active) => ({ background: active ? "#FFC300" : "#1a1a1a", color: active ? "#000" : "#ccc", border: active ? "none" : "1px solid #333", borderRadius:6, padding:"10px 12px", marginBottom:6, cursor:"pointer", borderLeft: active ? "none" : "3px solid #FFC300" }),
-    sidebarActions: { padding:8, borderTop:"1px solid #333", display:"flex", gap:6 },
-    main: { flex:1, display:"grid", gridTemplateColumns:"1fr 1fr", overflow:"hidden" },
-    section: { padding:16, overflowY:"auto", borderRight:"1px solid #2a2a2a" },
-    sectionLast: { padding:16, overflowY:"auto" },
-    sectionTitle: { color:"#FFC300", fontSize:16, fontWeight:700, marginBottom:12, paddingBottom:8, borderBottom:"2px solid #FFC300", display:"flex", alignItems:"center", gap:8 },
-    sectionH2: { color:"#FFC300", fontSize:13, fontWeight:600, marginTop:16, marginBottom:8, paddingBottom:6, borderBottom:"1px solid #333" },
-    tabs: { display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" },
-    tab: (active) => ({ padding:"7px 14px", border:"none", borderRadius:6, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700, background: active ? "#FFC300" : "#222", color: active ? "#000" : "#888", letterSpacing:.5, textTransform:"uppercase" }),
-    label: { display:"block", fontSize:12, fontWeight:600, color:"#aaa", marginTop:10, marginBottom:4 },
-    input: { width:"100%", padding:"9px 11px", background:"#1a1a1a", border:"1px solid #333", borderRadius:6, color:"#fff", fontSize:13, fontFamily:"inherit", marginBottom:4 },
-    textarea: { width:"100%", padding:"9px 11px", background:"#1a1a1a", border:"1px solid #333", borderRadius:6, color:"#fff", fontSize:13, fontFamily:"inherit", resize:"vertical", minHeight:60 },
-    btnPrimary: { background:"#FFC300", color:"#000", border:"none", borderRadius:6, padding:"8px 16px", fontFamily:"inherit", fontSize:12, fontWeight:700, cursor:"pointer" },
-    btnSecondary: { background:"transparent", color:"#aaa", border:"1px solid #444", borderRadius:6, padding:"8px 16px", fontFamily:"inherit", fontSize:12, cursor:"pointer" },
+    projetItem: (active) => ({ background: active ? accent : card, color: active ? "#000" : text, border: `1px solid ${active ? accent : border}`, borderRadius:8, padding:"10px 12px", marginBottom:6, cursor:"pointer", borderLeft:`3px solid ${accent}`, transition:"all .12s" }),
+    sidebarActions: { padding:8, borderTop:`1px solid ${border}`, display:"flex", gap:6 },
+    section: { padding:"16px 20px", overflowY:"auto", background: bg, borderRight:`1px solid ${border}` },
+    sectionLast: { padding:"16px 20px", overflowY:"auto", background: bg },
+    sectionTitle: { color: accent, fontSize:15, fontWeight:700, marginBottom:12, paddingBottom:8, borderBottom:`2px solid ${accent}`, display:"flex", alignItems:"center", gap:8 },
+    sectionH2: { color: accent, fontSize:12, fontWeight:700, marginTop:18, marginBottom:8, paddingBottom:5, borderBottom:`1px solid ${border}`, textTransform:"uppercase", letterSpacing:.5 },
+    tabs: { display:"flex", gap:6, marginBottom:16, flexWrap:"wrap", paddingBottom:12, borderBottom:`1px solid ${border}` },
+    tab: (active) => ({ padding:"7px 16px", border: active ? "none" : `1px solid ${border}`, borderRadius:6, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700, background: active ? accent : card, color: active ? "#000" : textSub, letterSpacing:.5, textTransform:"uppercase", transition:"all .12s" }),
+    label: { display:"block", fontSize:11, fontWeight:700, color: textSub, marginTop:12, marginBottom:5, textTransform:"uppercase", letterSpacing:.5 },
+    input: { width:"100%", padding:"9px 11px", background: card, border:`1px solid ${border}`, borderRadius:6, color: text, fontSize:13, fontFamily:"inherit", marginBottom:4 },
+    textarea: { width:"100%", padding:"9px 11px", background: card, border:`1px solid ${border}`, borderRadius:6, color: text, fontSize:13, fontFamily:"inherit", resize:"vertical", minHeight:64 },
+    btnPrimary: { background: accent, color:"#000", border:"none", borderRadius:6, padding:"8px 16px", fontFamily:"inherit", fontSize:12, fontWeight:700, cursor:"pointer" },
+    btnSecondary: { background:"transparent", color: textSub, border:`1px solid ${border}`, borderRadius:6, padding:"8px 16px", fontFamily:"inherit", fontSize:12, cursor:"pointer" },
     btnDanger: { background:"transparent", color:"#e05c5c", border:"1px solid rgba(224,92,92,0.3)", borderRadius:6, padding:"5px 10px", fontFamily:"inherit", fontSize:11, cursor:"pointer" },
-    checkItem: (checked) => ({ display:"flex", alignItems:"flex-start", gap:10, padding:"9px 10px", background: checked ? "rgba(255,195,0,0.08)" : "#1a1a1a", borderRadius:6, marginBottom:6, cursor:"pointer", borderLeft:`3px solid ${checked ? "#FFC300" : "transparent"}` }),
-    ouvrageItem: (checked) => ({ display:"flex", alignItems:"flex-start", gap:10, padding:"9px 10px", background: checked ? "rgba(255,195,0,0.08)" : "#1a1a1a", borderRadius:6, marginBottom:6, borderLeft:`3px solid ${checked ? "#FFC300" : "transparent"}` }),
-    statBox: { background:"#1a1a1a", border:"1px solid #333", borderRadius:8, padding:"12px 16px", textAlign:"center", flex:1 },
-    filterTag: (active) => ({ padding:"4px 12px", borderRadius:20, border:`1px solid ${active ? "#FFC300" : "#444"}`, background: active ? "#FFC300" : "transparent", color: active ? "#000" : "#888", fontSize:11, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.5 }),
-    canvasContainer: { border:"2px solid #FFC300", borderRadius:8, overflow:"hidden", marginTop:10 },
-    coteItem: { background:"#1a1a1a", border:"1px solid #333", borderRadius:6, padding:10, marginBottom:8 },
-    planTab: (active) => ({ padding:"5px 12px", border:`1px solid ${active ? "#FFC300" : "#444"}`, background: active ? "#FFC300" : "transparent", color: active ? "#000" : "#888", borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:700, marginRight:6, marginBottom:6 }),
-    modal: { position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" },
-    modalBox: { background:"#111", border:"2px solid #FFC300", borderRadius:12, padding:24, maxWidth:500, width:"90%", maxHeight:"80vh", overflowY:"auto" },
-    saving: { fontSize:11, color:"#FFC300", opacity:.7 },
+    checkItem: (checked) => ({ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background: checked ? `rgba(255,195,0,0.08)` : card, borderRadius:8, marginBottom:6, cursor:"pointer", border:`1px solid ${checked ? accent : border}`, transition:"all .12s" }),
+    ouvrageItem: (checked) => ({ display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", background: checked ? `rgba(255,195,0,0.08)` : card, borderRadius:8, marginBottom:6, border:`1px solid ${checked ? accent : border}`, transition:"all .12s" }),
+    statBox: { background: card, border:`1px solid ${border}`, borderRadius:8, padding:"12px 16px", textAlign:"center", flex:1 },
+    filterTag: (active) => ({ padding:"4px 12px", borderRadius:20, border:`1px solid ${active ? accent : border}`, background: active ? accent : "transparent", color: active ? "#000" : textSub, fontSize:11, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.5, transition:"all .12s" }),
+    canvasContainer: { border:`2px solid ${accent}`, borderRadius:8, overflow:"hidden", marginTop:10, background: card },
+    coteItem: { background: card, border:`1px solid ${border}`, borderRadius:8, padding:12, marginBottom:8 },
+    planTab: (active) => ({ padding:"5px 12px", border:`1px solid ${active ? accent : border}`, background: active ? accent : card, color: active ? "#000" : textSub, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:700, marginRight:6, marginBottom:6, transition:"all .12s" }),
+    modal: { position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" },
+    modalBox: { background: surface, border:`2px solid ${accent}`, borderRadius:12, padding:24, maxWidth:500, width:"90%", maxHeight:"80vh", overflowY:"auto" },
+    saving: { fontSize:11, color: accent, opacity:.7 },
+    infoCard: { background: card, border:`1px solid ${border}`, borderRadius:10, padding:"14px 16px", marginBottom:14 },
   };
 
   const projetCourant = projets.find(p => p.id === projetId);
@@ -391,8 +399,8 @@ export default function PageInfoClient({ T }) {
       <div style={S.header}>
         <div style={{ width:38, height:38, background:"#FFC300", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, color:"#000", flexShrink:0 }}>P</div>
         <div>
-          <div style={{ fontSize:16, fontWeight:800, letterSpacing:1 }}>Information Client</div>
-          <div style={{ fontSize:11, opacity:.7 }}>Information client</div>
+          <div style={{ fontSize:15, fontWeight:800, letterSpacing:1, color: accent }}>Information Client</div>
+          <div style={{ fontSize:11, color: textSub }}>Prise d'infos chantier</div>
         </div>
         {saving && <div style={{ marginLeft:"auto", ...S.saving }}>💾 Sauvegarde…</div>}
       </div>
