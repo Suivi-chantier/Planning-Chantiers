@@ -256,11 +256,7 @@ export default function BesoinCommandeDrawer({
                       Réf. {article.reference}
                     </div>
                   )}
-                  {article.prix_unitaire > 0 && (
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#5b8af5" }}>
-                      {article.prix_unitaire}€ <span style={{ fontWeight: 400, color: "#9aa5c0" }}>/ {article.unite || "u"}</span>
-                    </div>
-                  )}
+{/* Prix masqué intentionnellement */}
 
                   <div style={{ marginTop: "auto", paddingTop: 6 }}>
                     {qty === 0 ? (
