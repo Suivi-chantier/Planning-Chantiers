@@ -807,9 +807,16 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const nbTaches = allTaches.length;
   const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
   const totalHVenduGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-  const avgAv = totalHVenduGlobal > 0
-    ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVenduGlobal)
-    : nbTaches > 0 ? Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches) : 0;
+  const totalHEstimeeGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+
+  // ── Avancement global : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
+  const avgAv = nbTaches === 0 ? 0
+    : totalHVenduGlobal > 0
+      ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVenduGlobal)
+      : totalHEstimeeGlobal > 0
+        ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimeeGlobal)
+        : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches);
+
   const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45)); }, 0);
   const totalMat = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = totalMO + totalMat;
@@ -901,10 +908,17 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             const taches = plan[phase.id] || [];
             const isExp = expandedPhases[phase.id];
             const phHVendu = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-            const phAv = phHVendu > 0
-              ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / phHVendu)
-              : taches.length > 0 ? Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length) : 0;
-            const phVendu = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+            const phHEstimee = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+
+            // ── Avancement par phase : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
+            const phAv = taches.length === 0 ? 0
+              : phHVendu > 0
+                ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / phHVendu)
+                : phHEstimee > 0
+                  ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / phHEstimee)
+                  : Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
+
+            const phVendu = phHVendu;
             const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
             const phPrixHt = taches.reduce((s, t) => s + (parseFloat(t.prix_ht) || 0), 0);
             const phCoutMO = taches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45)); }, 0);
@@ -1338,9 +1352,16 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
       ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat()
       : [];
     const totalHVendu = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-    const avgAv = totalHVendu > 0
-      ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
-      : tPlan.length > 0 ? Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length) : 0;
+    const totalHEstimee = tPlan.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+
+    // ── Avancement : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
+    const avgAv = tPlan.length === 0 ? 0
+      : totalHVendu > 0
+        ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
+        : totalHEstimee > 0
+          ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimee)
+          : Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length);
+
     const coutMO = tPlan.reduce((s, t) => {
       const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
       return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45));
@@ -1499,7 +1520,6 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 900, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(6px)" }} onClick={onFermer}>
       <div style={{ background: TM.surface, borderRadius: 16, width: "100%", maxWidth: 720, maxHeight: "88vh", border: `1px solid ${TM.border}`, boxShadow: "0 32px 80px rgba(0,0,0,0.7)", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
 
-        {/* Header */}
         <div style={{ padding: "20px 28px 18px", borderBottom: `1px solid ${TM.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, color: TM.accent, marginBottom: 4 }}>Rapport d'avancement</div>
@@ -1518,7 +1538,6 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
           </div>
         </div>
 
-        {/* KPIs */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, padding: "18px 28px", borderBottom: `1px solid ${TM.border}`, flexShrink: 0 }}>
           {[
             { label: "Chantiers", val: phasages.length },
@@ -1533,7 +1552,6 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
           ))}
         </div>
 
-        {/* Liste chantiers */}
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 24px" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {donneesChantiers.map((ch, i) => (
@@ -1572,7 +1590,6 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
           </div>
         </div>
 
-        {/* Footer */}
         <div style={{ padding: "12px 28px", borderTop: `1px solid ${TM.border}`, flexShrink: 0 }}>
           <div style={{ fontSize: 11, color: TM.textMuted }}>Le bouton <strong style={{ color: TM.text }}>Imprimer / PDF</strong> ouvre une fenêtre d'impression — choisis "Enregistrer en PDF" dans ton navigateur.</div>
         </div>
@@ -1589,7 +1606,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [newChantier, setNewChantier] = useState("");
-  const [showRapport, setShowRapport] = useState(false); // ← NOUVEAU
+  const [showRapport, setShowRapport] = useState(false);
 
   useEffect(() => { loadAll(); }, []);
   async function loadAll() {
@@ -1628,7 +1645,6 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
 
-      {/* ← MODALE RAPPORT */}
       {showRapport && (
         <RapportModal
           phasages={phasages}
@@ -1645,7 +1661,6 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
             <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>Avancement, coûts MO et ressources par tâche</div>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {/* ← BOUTON RAPPORT */}
             <button
               onClick={() => setShowRapport(true)}
               style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid rgba(245,166,35,0.4)", background: "rgba(245,166,35,0.1)", color: "#f5a623", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
@@ -1679,7 +1694,17 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
                 {phasages.map(p => {
                   const ch = chantiers.find(c => c.id === p.chantier_id);
                   const tPlan = p.plan_travaux ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat() : [];
-                  const avgAv = tPlan.length > 0 ? Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length) : 0;
+                  const totalHVendu = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+                  const totalHEstimee = tPlan.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+
+                  // ── Avancement carte : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
+                  const avgAv = tPlan.length === 0 ? 0
+                    : totalHVendu > 0
+                      ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
+                      : totalHEstimee > 0
+                        ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimee)
+                        : Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length);
+
                   const coutMO = tPlan.reduce((s, t) => { const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45)); }, 0);
                   const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
                   const coutTotal = coutMO + coutMat;
