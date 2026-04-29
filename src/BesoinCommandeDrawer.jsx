@@ -24,6 +24,12 @@ function injectStyles() {
     .bcd-article-card { transition: transform .1s, box-shadow .15s; }
     .bcd-qty-btn:active { transform: scale(0.9); }
     .bcd-qty-btn { transition: transform .1s; }
+    @media (min-width: 768px) {
+      .bcd-drawer { max-width: 680px !important; left: 50% !important; right: auto !important; height: 85vh !important; bottom: 50% !important; transform: translate(-50%, 50%) !important; border-radius: 20px !important; }
+      .bcd-grid { grid-template-columns: repeat(3, 1fr) !important; }
+      .bcd-article-card img { max-height: 110px !important; object-fit: contain !important; }
+      .bcd-img-placeholder { max-height: 110px !important; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -97,7 +103,7 @@ export default function BesoinCommandeDrawer({
         onClick={onClose}
       />
 
-      <div style={{
+      <div className="bcd-drawer" style={{
         position: "fixed", left: 0, right: 0, bottom: 0,
         height: "92vh",
         background: "#f0f2f7",
@@ -175,7 +181,7 @@ export default function BesoinCommandeDrawer({
           gap: 10,
           alignContent: "start",
           background: "#f0f2f7",
-        }}>
+        }} className="bcd-grid">
           {loading && (
             <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "#8a9ab0" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
@@ -238,7 +244,7 @@ export default function BesoinCommandeDrawer({
                     background: "linear-gradient(135deg,#f0f2f7,#e4e8f0)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 32, borderRadius: "12px 12px 0 0",
-                  }}>📦</div>
+                  }} className="bcd-img-placeholder">📦</div>
                 )}
 
                 <div style={{ padding: "8px 10px 10px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
