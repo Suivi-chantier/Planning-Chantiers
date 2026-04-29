@@ -15,10 +15,10 @@ function useIsMobile() {
 // ─── NAVIGATION BAS (MOBILE) ──────────────────────────────────────────────────
 function BottomNav({ page, setPage, T }) {
   const nav = [
-    { id:"dashboard", icon:"⊞", label:"Accueil"  },
+    { id:"dashboard", icon:"⊞",  label:"Accueil"  },
     { id:"planning",  icon:"📅", label:"Planning" },
     { id:"commandes", icon:"📦", label:"Commandes"},
-    { id:"visite",    icon:"🔍", label:"Visites"  },
+    { id:"info-client",   icon:"📋", label:"Infos Client"  },
     { id:"admin",     icon:"⚙️", label:"Réglages" },
   ];
   return (
@@ -60,6 +60,7 @@ function Sidebar({page,setPage,T}){
     {id:"bibliotheque",       icon:"📚", label:"Biblio. ouvrages"},
     {id:"biblio-materiaux",   icon:"🧱", label:"Biblio. matériaux"},
     {id:"visite",             icon:"🔍", label:"Visites chantier"},
+    {id:"info-client",            icon:"📋", label:"Infos Client"},
     {id:"admin",              icon:"⚙️", label:"Réglages"},
   ];
   const toggle=()=>{
@@ -102,25 +103,36 @@ function Sidebar({page,setPage,T}){
       <nav style={{flex:1,padding:collapsed?"8px 6px":"0 8px",overflowY:"auto"}}>
         {nav.map(n=>{
           const active=page===n.id;
+          // Séparateur visuel avant Infos Client
+          const separateur = n.id === "info-client";
           return(
-            <button key={n.id} onClick={()=>setPage(n.id)}
-              title={collapsed?n.label:""} style={{
-              width:"100%",display:"flex",alignItems:"center",
-              justifyContent:collapsed?"center":"flex-start",
-              gap:10,padding:collapsed?"12px 0":"11px 14px",
-              borderRadius:10,border:"none",cursor:"pointer",fontFamily:"inherit",
-              fontSize:15,fontWeight:active?700:500,letterSpacing:.3,
-              background:active?T.sidebarActive:"transparent",
-              color:active?"#FFC200":"rgba(255,255,255,0.45)",
-              marginBottom:4,transition:"all .15s",textAlign:"left",
-              whiteSpace:"nowrap",
-            }}>
-              <span style={{fontSize:20,width:24,textAlign:"center",flexShrink:0}}>{n.icon}</span>
-              {!collapsed&&<>
-                <span>{n.label}</span>
-                {active&&<span style={{marginLeft:"auto",width:4,height:18,borderRadius:2,background:T.accent,display:"block"}}/>}
-              </>}
-            </button>
+            <React.Fragment key={n.id}>
+              {separateur && (
+                <div style={{
+                  height:1,
+                  background:"rgba(255,194,0,0.2)",
+                  margin: collapsed ? "6px 4px" : "6px 8px",
+                }}/>
+              )}
+              <button onClick={()=>setPage(n.id)}
+                title={collapsed?n.label:""} style={{
+                width:"100%",display:"flex",alignItems:"center",
+                justifyContent:collapsed?"center":"flex-start",
+                gap:10,padding:collapsed?"12px 0":"11px 14px",
+                borderRadius:10,border:"none",cursor:"pointer",fontFamily:"inherit",
+                fontSize:15,fontWeight:active?700:500,letterSpacing:.3,
+                background:active?T.sidebarActive:"transparent",
+                color:active?"#FFC200":"rgba(255,255,255,0.45)",
+                marginBottom:4,transition:"all .15s",textAlign:"left",
+                whiteSpace:"nowrap",
+              }}>
+                <span style={{fontSize:20,width:24,textAlign:"center",flexShrink:0}}>{n.icon}</span>
+                {!collapsed&&<>
+                  <span>{n.label}</span>
+                  {active&&<span style={{marginLeft:"auto",width:4,height:18,borderRadius:2,background:T.accent,display:"block"}}/>}
+                </>}
+              </button>
+            </React.Fragment>
           );
         })}
       </nav>
