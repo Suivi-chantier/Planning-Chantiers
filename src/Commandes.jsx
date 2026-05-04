@@ -235,51 +235,16 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
         reader.readAsDataURL(file);
       });
 
-      const isPdf = file.type === "application/pdf";
-      const mediaType = isPdf ? "application/pdf" : file.type;
+      const mediaType = file.type === "application/pdf" ? "application/pdf" : file.type;
 
-      const contentBlock = isPdf
-        ? { type: "document", source: { type: "base64", media_type: mediaType, data: base64 } }
-        : { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } };
-
-      const prompt = `Tu es un assistant spécialisé dans l'analyse de bons de commande et confirmations de commande du BTP.
-
-Analyse ce document et extrais TOUTES les lignes de produits/matériaux commandés.
-
-Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, sans backticks, sans markdown.
-
-Format attendu :
-{
-  "fournisseur": "nom du fournisseur si détecté, sinon chaîne vide",
-  "lignes": [
-    {
-      "designation": "nom exact du produit",
-      "reference": "référence produit si présente, sinon chaîne vide",
-      "quantite": "quantité sous forme de texte ex: 10 ou 5 m² ou 3 U",
-      "prix_unitaire": nombre décimal ou null,
-      "prix_total": nombre décimal ou null
-    }
-  ]
-}
-
-Règles importantes :
-- Inclus TOUTES les lignes produits, même sans prix
-- Ne pas inclure les lignes de total, sous-total, TVA, frais de port
-- Si une information n'est pas lisible, mets null ou chaîne vide
-- prix_unitaire et prix_total sont des nombres (ex: 45.90), pas des chaînes`;
-
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-commande", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: [contentBlock, { type: "text", text: prompt }] }],
-        }),
+        body: JSON.stringify({ imageBase64: base64, mediaType }),
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || "Erreur API");
+      if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
 
       const textContent = data.content?.find(c => c.type === "text")?.text || "";
       let parsed;
