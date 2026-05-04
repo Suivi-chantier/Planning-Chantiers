@@ -244,9 +244,12 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
       });
 
       const data = await response.json();
+      console.log("Réponse complète Edge Function:", JSON.stringify(data).substring(0, 500));
       if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
 
-      const textContent = data.content?.find(c => c.type === "text")?.text || "";
+      // La Edge Function peut renvoyer la réponse Anthropic directement ou encapsulée
+      const anthropicData = data.content ? data : (data.data || data);
+      const textContent = anthropicData.content?.find(c => c.type === "text")?.text || "";
       let parsed;
       try {
         let clean = textContent.replace(/```json|```/g, "").trim();
