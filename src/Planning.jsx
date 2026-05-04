@@ -15,6 +15,16 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
   const nextWeek=()=>{if(week===52){setYear(y=>y+1);setWeek(1);}else setWeek(w=>w+1);};
   const goNow=()=>{const{year:y,week:w}=getCurrentWeek();setYear(y);setWeek(w);};
 
+  // ── Calcule la date réelle d'un jour de la semaine affichée ───────────────
+  const getDateDuJour=(dayIndex)=>{
+    const jan4=new Date(year,0,4);
+    const mon=new Date(jan4);
+    mon.setDate(jan4.getDate()-(((jan4.getDay()||7)-1))+(week-1)*7);
+    const d=new Date(mon);
+    d.setDate(mon.getDate()+dayIndex);
+    return d;
+  };
+
   const getCell=(cId,jour)=>{
     if(modal?.cId===cId&&modal?.jour===jour&&cellDraft)return cellDraft;
     return cells[`${cId}_${jour}`]||emptyCell();
@@ -111,6 +121,9 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
 
   const modalChantier=modal?chantiers.find(c=>c.id===modal.cId):null;
 
+  // ── Mois courts en français ───────────────────────────────────────────────
+  const MOIS_COURTS=["jan","fév","mar","avr","mai","jun","jul","aoû","sep","oct","nov","déc"];
+
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
 
@@ -157,10 +170,17 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
         <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
           <div style={{display:"grid",gridTemplateColumns:`160px repeat(${JOURS.length},minmax(140px,1fr))`,gap:5,marginBottom:6,minWidth:860}}>
             <div/>
-            {JOURS.map(j=>(
-              <div key={j} style={{textAlign:"center",fontWeight:800,fontSize:12,letterSpacing:2,
-                textTransform:"uppercase",color:T.textMuted,padding:"6px 0"}}>{j}</div>
-            ))}
+            {JOURS.map((j,di)=>{
+              const d=getDateDuJour(di);
+              const dateLabel=`${d.getDate()} ${MOIS_COURTS[d.getMonth()]}`;
+              return(
+                <div key={j} style={{textAlign:"center",padding:"6px 0"}}>
+                  <div style={{fontWeight:800,fontSize:12,letterSpacing:2,
+                    textTransform:"uppercase",color:T.textMuted}}>{j}</div>
+                  <div style={{fontSize:11,color:T.textMuted,opacity:.7,marginTop:2}}>{dateLabel}</div>
+                </div>
+              );
+            })}
           </div>
           {chantiers.map(c=>(
             <div key={c.id} style={{display:"grid",gridTemplateColumns:`160px repeat(${JOURS.length},minmax(140px,1fr))`,gap:5,marginBottom:5,minWidth:860}}>
