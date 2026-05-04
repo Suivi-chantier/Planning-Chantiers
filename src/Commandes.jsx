@@ -249,10 +249,15 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
       const textContent = data.content?.find(c => c.type === "text")?.text || "";
       let parsed;
       try {
-        const clean = textContent.replace(/```json|```/g, "").trim();
+        let clean = textContent.replace(/```json|```/g, "").trim();
+        if (clean[0] !== "{") {
+          const match = clean.match(/\{[\s\S]*\}/);
+          if (match) clean = match[0];
+        }
         parsed = JSON.parse(clean);
       } catch {
-        throw new Error("L'IA n'a pas pu extraire les données du document. Essaie avec une image plus nette.");
+        console.error("Réponse brute IA:", textContent);
+        throw new Error("Format de réponse inattendu. Réessaie ou utilise une image plus nette.");
       }
 
       if (!parsed.lignes || parsed.lignes.length === 0) {
