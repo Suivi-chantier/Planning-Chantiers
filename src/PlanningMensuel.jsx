@@ -18,9 +18,9 @@ function getTypeById(id) {
 
 // ─── MODAL AJOUT / ÉDITION ────────────────────────────────────────────────────
 function EventModal({ day, month, year, existing, onSave, onClose, onDelete, T }) {
-  const [type, setType]       = useState(existing?.type || "objectif");
-  const [texte, setTexte]     = useState(existing?.texte || "");
-  const [saving, setSaving]   = useState(false);
+  const [type, setType]     = useState(existing?.type || "objectif");
+  const [texte, setTexte]   = useState(existing?.texte || "");
+  const [saving, setSaving] = useState(false);
 
   const dateLabel = new Date(year, month, day).toLocaleDateString("fr-FR", {
     weekday: "long", day: "numeric", month: "long", year: "numeric"
@@ -145,8 +145,8 @@ function PagePlanningMensuel({ T }) {
   const today = new Date();
   const [month, setMonth]     = useState(today.getMonth());
   const [year, setYear]       = useState(today.getFullYear());
-  const [events, setEvents]   = useState([]);  // [{id, date, type, texte}]
-  const [modal, setModal]     = useState(null); // {day, existing?}
+  const [events, setEvents]   = useState([]);
+  const [modal, setModal]     = useState(null);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("all");
 
@@ -160,7 +160,6 @@ function PagePlanningMensuel({ T }) {
         .gte("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
         .lte("date", `${year}-${String(month + 1).padStart(2, "0")}-31`);
       if (error) {
-        // Table may not exist yet — silent fail, show empty
         console.warn("planning_mensuel:", error.message);
         setEvents([]);
       } else {
@@ -217,9 +216,8 @@ function PagePlanningMensuel({ T }) {
   const goToday = () => { setMonth(today.getMonth()); setYear(today.getFullYear()); };
 
   // ── Construction du calendrier ────────────────────────────────────────────
-  const firstDay = new Date(year, month, 1).getDay(); // 0=dim
+  const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  // Convertir dimanche=0 → lundi=0
   const startOffset = (firstDay + 6) % 7;
 
   const getEventsForDay = (day) => {
@@ -230,15 +228,16 @@ function PagePlanningMensuel({ T }) {
   const isToday = (day) =>
     day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
 
-  // Compter les events du mois par type
   const countByType = (typeId) => events.filter(e => e.type === typeId).length;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "auto" }}>
+
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div style={{
         padding: "16px 28px", borderBottom: `1px solid ${T.headerBorder || T.border}`,
         background: T.surface, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+        flexShrink: 0,
       }}>
         <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}>
           📆 PLANNING MENSUEL
@@ -290,7 +289,7 @@ function PagePlanningMensuel({ T }) {
       {/* ── Corps ──────────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, padding: "20px 28px", overflow: "auto" }}>
 
-        {/* Message si table n'existe pas encore */}
+        {/* Message première utilisation */}
         {!loading && events.length === 0 && (
           <div style={{
             background: "rgba(91,138,245,0.06)", border: "1px dashed rgba(91,138,245,0.3)",
@@ -321,15 +320,17 @@ function PagePlanningMensuel({ T }) {
           ))}
         </div>
 
-        {/* Grille calendrier */}
+        {/* ── Grille calendrier — hauteur fixe par ligne ─────────────────── */}
         <div style={{
-          display: "grid", gridTemplateColumns: "repeat(7, 1fr)",
-          gap: 4, minHeight: 500,
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gridAutoRows: "120px",   /* ← hauteur fixe : toutes les cases font 120px */
+          gap: 4,
         }}>
           {/* Cellules vides avant le 1er */}
           {Array.from({ length: startOffset }).map((_, i) => (
             <div key={`empty-${i}`} style={{
-              minHeight: 100, borderRadius: 8,
+              borderRadius: 8,
               background: "rgba(255,255,255,0.02)",
               border: `1px solid transparent`,
             }} />
@@ -349,15 +350,19 @@ function PagePlanningMensuel({ T }) {
                 key={day}
                 onClick={() => setModal({ day, existing: null })}
                 style={{
-                  minHeight: 100, borderRadius: 10, padding: "8px 8px 6px",
+                  /* Hauteur contrôlée par gridAutoRows, pas de minHeight ici */
+                  borderRadius: 10,
+                  padding: "6px 7px 4px",
                   background: todayMark
                     ? "rgba(255,194,0,0.08)"
                     : weekend
                       ? "rgba(255,255,255,0.02)"
                       : T.card,
                   border: `1px solid ${todayMark ? "rgba(255,194,0,0.4)" : T.border}`,
-                  cursor: "pointer", transition: "all .15s", position: "relative",
-                  display: "flex", flexDirection: "column", gap: 4,
+                  cursor: "pointer", transition: "all .15s",
+                  /* Flex colonne, overflow caché = la case ne grandit jamais */
+                  display: "flex", flexDirection: "column", gap: 3,
+                  overflow: "hidden",
                 }}
                 onMouseEnter={e => {
                   if (!todayMark) e.currentTarget.style.borderColor = T.borderHover || T.accent;
@@ -370,36 +375,40 @@ function PagePlanningMensuel({ T }) {
               >
                 {/* Numéro du jour */}
                 <div style={{
-                  fontSize: 13, fontWeight: todayMark ? 900 : 700,
+                  fontSize: 12, fontWeight: todayMark ? 900 : 700, flexShrink: 0,
                   color: todayMark ? "#FFC200" : weekend ? T.textMuted : T.text,
-                  display: "flex", alignItems: "center", gap: 5,
+                  display: "flex", alignItems: "center", gap: 4,
                 }}>
-                  {todayMark && (
+                  {todayMark ? (
                     <span style={{
-                      width: 22, height: 22, borderRadius: "50%",
+                      width: 20, height: 20, borderRadius: "50%",
                       background: "#FFC200", color: "#111",
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, fontWeight: 900,
+                      fontSize: 10, fontWeight: 900,
                     }}>{day}</span>
-                  )}
-                  {!todayMark && day}
+                  ) : day}
                 </div>
 
-                {/* Événements */}
+                {/* Événements — tronqués sur une seule ligne */}
                 {dayEvents.slice(0, 3).map(ev => {
                   const t = getTypeById(ev.type);
                   return (
                     <div
                       key={ev.id}
                       onClick={e => { e.stopPropagation(); setModal({ day, existing: ev }); }}
-                      title={ev.texte}
+                      title={ev.texte}   /* ← texte complet au survol */
                       style={{
-                        fontSize: 11, fontWeight: 600,
+                        fontSize: 10, fontWeight: 600, flexShrink: 0,
                         background: t.bg, color: t.color,
-                        borderRadius: 5, padding: "3px 7px",
-                        lineHeight: 1.3, border: `1px solid ${t.color}30`,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        borderRadius: 4, padding: "2px 6px",
+                        border: `1px solid ${t.color}30`,
+                        /* Une seule ligne, texte tronqué avec "…" */
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                         cursor: "pointer",
+                        lineHeight: "16px",
+                        maxWidth: "100%",
                       }}
                     >
                       {t.icon} {ev.texte}
@@ -407,28 +416,21 @@ function PagePlanningMensuel({ T }) {
                   );
                 })}
 
-                {/* +N si plus de 3 */}
+                {/* Badge "+N" si plus de 3 événements */}
                 {dayEvents.length > 3 && (
                   <div style={{
-                    fontSize: 10, fontWeight: 700, color: T.textMuted,
-                    padding: "2px 6px",
+                    fontSize: 9, fontWeight: 800, color: T.textMuted,
+                    padding: "1px 5px", flexShrink: 0,
                   }}>
                     +{dayEvents.length - 3} de plus
                   </div>
                 )}
-
-                {/* Icône "+" au survol */}
-                <div style={{
-                  position: "absolute", bottom: 5, right: 7,
-                  fontSize: 16, color: T.textMuted, opacity: 0, transition: "opacity .15s",
-                  pointerEvents: "none",
-                }} className="day-add-hint">+</div>
               </div>
             );
           })}
         </div>
 
-        {/* ── Vue liste des événements du mois ──────────────────────────────── */}
+        {/* ── Récapitulatif liste ───────────────────────────────────────────── */}
         {events.length > 0 && (
           <div style={{ marginTop: 28 }}>
             <div style={{
@@ -492,10 +494,6 @@ function PagePlanningMensuel({ T }) {
           T={T}
         />
       )}
-
-      <style>{`
-        div:hover > .day-add-hint { opacity: 0.3 !important; }
-      `}</style>
     </div>
   );
 }
