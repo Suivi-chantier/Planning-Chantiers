@@ -18,7 +18,7 @@ function BottomNav({ page, setPage, T }) {
     { id:"dashboard",        icon:"⊞",  label:"Accueil"   },
     { id:"planning",         icon:"📅", label:"Planning"  },
     { id:"planning-mensuel", icon:"📆", label:"Mensuel"   },
-    { id:"commandes",        icon:"📦", label:"Commandes" },
+    { id:"notes-todo",       icon:"📋", label:"Notes"     },
     { id:"admin",            icon:"⚙️", label:"Réglages"  },
   ];
   return (
@@ -54,6 +54,7 @@ function Sidebar({page,setPage,T}){
     {id:"dashboard",          icon:"⊞",  label:"Tableau de bord"},
     {id:"planning",           icon:"📅", label:"Planning semaine"},
     {id:"planning-mensuel",   icon:"📆", label:"Planning mensuel"},
+    {id:"notes-todo",         icon:"📋", label:"Notes & To-do"},
     {id:"commandes",          icon:"📦", label:"Commandes"},
     {id:"equipe",             icon:"👷", label:"Équipe"},
     {id:"plans",              icon:"📐", label:"Plans"},
