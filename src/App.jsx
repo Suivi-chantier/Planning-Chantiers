@@ -6,6 +6,7 @@ import { Sidebar, BottomNav } from "./Navigation";
 import PageDashboard          from "./Dashboard";
 import PagePlanning           from "./Planning";
 import PagePlanningMensuel    from "./PlanningMensuel";
+import PageNotesEtTodo        from "./NotesEtTodo";
 import PageCommandes          from "./Commandes";
 import PageEquipe             from "./Equipe";
 import PagePlans              from "./Plans";
@@ -220,6 +221,7 @@ function MainApp(){
           {page==="dashboard"        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
           {page==="planning"         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
           {page==="planning-mensuel" && <PagePlanningMensuel T={T}/>}
+          {page==="notes-todo"       && <PageNotesEtTodo T={T}/>}
           {page==="commandes"        && <PageCommandes chantiers={chantiers} T={T}/>}
           {page==="equipe"           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
           {page==="plans"            && <PagePlans T={T} chantiers={chantiers}/>}
