@@ -5,6 +5,7 @@ import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek,
 import { Sidebar, BottomNav } from "./Navigation";
 import PageDashboard          from "./Dashboard";
 import PagePlanning           from "./Planning";
+import PagePlanningMensuel    from "./PlanningMensuel";
 import PageCommandes          from "./Commandes";
 import PageEquipe             from "./Equipe";
 import PagePlans              from "./Plans";
@@ -218,6 +219,7 @@ function MainApp(){
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
           {page==="dashboard"        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
           {page==="planning"         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
+          {page==="planning-mensuel" && <PagePlanningMensuel T={T}/>}
           {page==="commandes"        && <PageCommandes chantiers={chantiers} T={T}/>}
           {page==="equipe"           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
           {page==="plans"            && <PagePlans T={T} chantiers={chantiers}/>}
@@ -225,8 +227,8 @@ function MainApp(){
           {page==="bibliotheque"     && <PageBibliotheque T={T}/>}
           {page==="biblio-materiaux" && <PageBibliothequeMateriaux T={T}/>}
           {page==="visite"           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
-          {page==="info-client"          && <PageInfoClient T={T}/>}
-          {page==="compte-rendu"         && <PageCompteRendu T={T}/>}
+          {page==="info-client"      && <PageInfoClient T={T}/>}
+          {page==="compte-rendu"     && <PageCompteRendu T={T}/>}
           {page==="admin"            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
         </div>
       </div>
