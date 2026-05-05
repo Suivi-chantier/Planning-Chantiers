@@ -15,11 +15,11 @@ function useIsMobile() {
 // ─── NAVIGATION BAS (MOBILE) ──────────────────────────────────────────────────
 function BottomNav({ page, setPage, T }) {
   const nav = [
-    { id:"dashboard", icon:"⊞",  label:"Accueil"  },
-    { id:"planning",  icon:"📅", label:"Planning" },
-    { id:"commandes", icon:"📦", label:"Commandes"},
-    { id:"info-client",   icon:"📋", label:"Infos Client"  },
-    { id:"admin",     icon:"⚙️", label:"Réglages" },
+    { id:"dashboard",        icon:"⊞",  label:"Accueil"   },
+    { id:"planning",         icon:"📅", label:"Planning"  },
+    { id:"planning-mensuel", icon:"📆", label:"Mensuel"   },
+    { id:"commandes",        icon:"📦", label:"Commandes" },
+    { id:"admin",            icon:"⚙️", label:"Réglages"  },
   ];
   return (
     <div className="bottom-nav-mobile">
@@ -52,7 +52,8 @@ function Sidebar({page,setPage,T}){
   const[collapsed,setCollapsed]=useState(()=>localStorage.getItem("sidebar_collapsed")==="1");
   const nav=[
     {id:"dashboard",          icon:"⊞",  label:"Tableau de bord"},
-    {id:"planning",           icon:"📅", label:"Planning"},
+    {id:"planning",           icon:"📅", label:"Planning semaine"},
+    {id:"planning-mensuel",   icon:"📆", label:"Planning mensuel"},
     {id:"commandes",          icon:"📦", label:"Commandes"},
     {id:"equipe",             icon:"👷", label:"Équipe"},
     {id:"plans",              icon:"📐", label:"Plans"},
@@ -60,8 +61,8 @@ function Sidebar({page,setPage,T}){
     {id:"bibliotheque",       icon:"📚", label:"Biblio. ouvrages"},
     {id:"biblio-materiaux",   icon:"🧱", label:"Biblio. matériaux"},
     {id:"visite",             icon:"🔍", label:"Visites chantier"},
-    {id:"info-client",            icon:"📋", label:"Infos Client"},
-    {id:"compte-rendu",           icon:"📄", label:"Compte rendu"},
+    {id:"info-client",        icon:"📋", label:"Infos Client"},
+    {id:"compte-rendu",       icon:"📄", label:"Compte rendu"},
     {id:"admin",              icon:"⚙️", label:"Réglages"},
   ];
   const toggle=()=>{
