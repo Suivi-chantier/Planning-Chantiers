@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabase";
-import { getSimulateurHTML } from "./investSimulateurHTML.js";
 
 // ─── LISTE DES PROJETS ────────────────────────────────────────────────────────
 function ListeProjets({ profil, onOuvrir, onNouveauProjet }) {
@@ -178,12 +177,21 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet }) {
 
 function Simulateur({ projet, profil, onRetour }) {
   const iframeRef  = useRef(null);
-  const [saving, setSaving]  = useState(false);
-  const [saved, setSaved]    = useState(false);
-  const [nom, setNom]        = useState(projet?.nom || "Nouveau projet");
-  const autoSaveRef          = useRef(null);
-  const isNew                = !projet?.id;
-  const projetIdRef          = useRef(projet?.id || null);
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
+  const [nom, setNom]           = useState(projet?.nom || "Nouveau projet");
+  const [htmlContent, setHtmlContent] = useState("");
+  const autoSaveRef             = useRef(null);
+  const isNew                   = !projet?.id;
+  const projetIdRef             = useRef(projet?.id || null);
+
+  // Charger le HTML du simulateur
+  useEffect(() => {
+    fetch("/investSimulateur.html")
+      .then(r => r.text())
+      .then(html => setHtmlContent(html))
+      .catch(e => console.error("Impossible de charger le simulateur:", e));
+  }, []);
 
   // ── Sauvegarder dans Supabase ──────────────────────────────────────────────
   const sauvegarder = useCallback(async (etat, nomProjet) => {
@@ -244,8 +252,7 @@ function Simulateur({ projet, profil, onRetour }) {
     }
   };
 
-  // ── HTML du simulateur enrichi de postMessage ──────────────────────────────
-  const htmlContent = getSimulateurHTML();
+  // ── HTML du simulateur chargé depuis /public/investSimulateur.html ──────────
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", fontFamily:"'Sora',sans-serif" }}>
@@ -287,7 +294,7 @@ function Simulateur({ projet, profil, onRetour }) {
       {/* Iframe du simulateur */}
       <iframe
         ref={iframeRef}
-        srcDoc={htmlContent}
+        srcDoc={simulateurHTML}
         onLoad={onIframeLoad}
         style={{ flex:1, border:"none", width:"100%" }}
         title="Simulateur Profero Invest"
