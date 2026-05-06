@@ -294,7 +294,7 @@ function Simulateur({ projet, profil, onRetour }) {
       {/* Iframe du simulateur */}
       <iframe
         ref={iframeRef}
-        srcDoc={simulateurHTML}
+        srcDoc={htmlContent}
         onLoad={onIframeLoad}
         style={{ flex:1, border:"none", width:"100%" }}
         title="Simulateur Profero Invest"
