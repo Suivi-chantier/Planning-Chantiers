@@ -16,8 +16,34 @@ import PageBibliothequeMateriaux from "./PageBibliothequeMateriaux";
 import PageAdmin              from "./Admin";
 import PageRapportMobile      from "./RapportMobile";
 import PageVisiteChantier     from "./VisiteChantier";
-import PageInfoClient            from "./PageInfoClient";
-import PageCompteRendu           from "./PageCompteRendu";
+import PageInfoClient         from "./PageInfoClient";
+import PageCompteRendu        from "./PageCompteRendu";
+
+// ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
+// Définit quelles pages sont accessibles pour chaque rôle
+const ROLE_PAGES = {
+  admin: [
+    "dashboard","planning","planning-mensuel","notes-todo","commandes",
+    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
+    "visite","info-client","compte-rendu","admin"
+  ],
+  conducteur: [
+    "dashboard","planning","planning-mensuel","notes-todo","commandes",
+    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
+    "visite","info-client","compte-rendu"
+  ],
+  commercial: [
+    "dashboard","planning","plans","visite","info-client","compte-rendu"
+  ],
+  comptable: [
+    "dashboard","commandes","biblio-materiaux","phasage"
+  ],
+};
+
+function canAccess(role, page) {
+  const pages = ROLE_PAGES[role] || [];
+  return pages.includes(page);
+}
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== 'undefined') {
@@ -56,8 +82,154 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// ─── PAGE DE CONNEXION ────────────────────────────────────────────────────────
+function PageLogin({ onLogin }) {
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [erreur, setErreur]     = useState("");
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      setErreur("Veuillez remplir tous les champs.");
+      return;
+    }
+    setLoading(true);
+    setErreur("");
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setErreur("Email ou mot de passe incorrect.");
+        setLoading(false);
+        return;
+      }
+      // Récupérer le profil utilisateur dans notre table
+      const { data: profil, error: profilErr } = await supabase
+        .from("utilisateurs")
+        .select("*")
+        .eq("email", data.user.email)
+        .single();
+
+      if (profilErr || !profil) {
+        setErreur("Compte non trouvé. Contactez l'administrateur.");
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+      if (!profil.actif) {
+        setErreur("Votre compte a été désactivé. Contactez l'administrateur.");
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+      onLogin(data.user, profil);
+    } catch (e) {
+      setErreur("Une erreur est survenue. Réessayez.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      minHeight:"100vh", background:"#080a0d",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",
+      padding:"20px",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        .login-input {
+          width: 100%; background: #1a1d24; border: 1.5px solid #2a2d3a;
+          border-radius: 10px; padding: 14px 16px; font-size: 16px;
+          font-family: inherit; color: #fff; outline: none; transition: border-color .15s;
+        }
+        .login-input:focus { border-color: #FFC200; }
+        .login-btn {
+          width: 100%; padding: 15px; border: none; border-radius: 10px;
+          background: #FFC200; color: #111; font-family: inherit;
+          font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: .5px;
+          transition: opacity .15s;
+        }
+        .login-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .login-btn:hover:not(:disabled) { opacity: .9; }
+      `}</style>
+
+      <div style={{ width:"100%", maxWidth:420 }}>
+        {/* Logo */}
+        <div style={{ textAlign:"center", marginBottom:40 }}>
+          <img src={LOGO_HORIZ} alt="Profero" style={{ height:44, objectFit:"contain" }}/>
+          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
+            Planning · Chantiers
+          </div>
+        </div>
+
+        {/* Carte connexion */}
+        <div style={{
+          background:"#111318", border:"1px solid #2a2d3a",
+          borderRadius:16, padding:"32px 28px",
+          boxShadow:"0 20px 60px rgba(0,0,0,0.5)",
+        }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>
+            Connexion
+          </div>
+          <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:28 }}>
+            Accès réservé aux collaborateurs Profero
+          </div>
+
+          <div style={{ marginBottom:16 }}>
+            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>
+              Email
+            </label>
+            <input
+              className="login-input"
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="votre@email.com"
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+            />
+          </div>
+
+          <div style={{ marginBottom:24 }}>
+            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>
+              Mot de passe
+            </label>
+            <input
+              className="login-input"
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+            />
+          </div>
+
+          {erreur && (
+            <div style={{
+              background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)",
+              borderRadius:8, padding:"10px 14px", fontSize:14, color:"#e05c5c",
+              marginBottom:20,
+            }}>
+              {erreur}
+            </div>
+          )}
+
+          <button className="login-btn" onClick={handleLogin} disabled={loading}>
+            {loading ? "Connexion…" : "Se connecter →"}
+          </button>
+        </div>
+
+        <div style={{ textAlign:"center", marginTop:20, fontSize:12, color:"rgba(255,255,255,0.2)" }}>
+          Problème de connexion ? Contactez l'administrateur.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
-function MainApp(){
+function MainApp({ user, profil, onLogout }) {
   const{year:iY,week:iW}=getCurrentWeek();
   const[year,setYear]=useState(iY);
   const[week,setWeek]=useState(iW);
@@ -78,6 +250,14 @@ function MainApp(){
 
   const T=THEMES[theme];
   const weekId=getWeekId(year,week);
+  const role = profil?.role || "commercial";
+
+  // Rediriger vers une page accessible si la page courante n'est pas autorisée
+  useEffect(() => {
+    if (!canAccess(role, page)) {
+      setPage("dashboard");
+    }
+  }, [role, page]);
 
   const loadData=useCallback(async()=>{
     setSyncing(true);
@@ -131,6 +311,14 @@ function MainApp(){
       console.error("saveConfig:",error.message);
       setTimeout(()=>supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"}),1000);
     }
+  };
+
+  // Labels lisibles pour les rôles
+  const ROLE_LABELS = {
+    admin:      "Administrateur",
+    conducteur: "Conducteur de travaux",
+    commercial: "Commercial",
+    comptable:  "Comptable",
   };
 
   const css=`
@@ -196,7 +384,9 @@ function MainApp(){
   return(
     <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{css}</style>
-      <div className="app-sidebar"><Sidebar page={page} setPage={setPage} T={T}/></div>
+      <div className="app-sidebar">
+        <Sidebar page={page} setPage={setPage} T={T} role={role} />
+      </div>
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
         <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,
           padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
@@ -212,37 +402,124 @@ function MainApp(){
                 :<><span style={{width:8,height:8,borderRadius:"50%",background:"#e05c5c",display:"inline-block"}}/> Hors ligne</>
             }
           </div>
-          <div style={{marginLeft:"auto"}}>
+
+          {/* Infos utilisateur connecté */}
+          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:1}}>
+              <span style={{fontSize:13,fontWeight:700,color:T.text}}>{profil?.nom || user?.email}</span>
+              <span style={{fontSize:10,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,194,0,0.6)"}}>
+                {ROLE_LABELS[role] || role}
+              </span>
+            </div>
             <button className="btn-g" onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}}
               style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
+            <button
+              onClick={onLogout}
+              title="Se déconnecter"
+              style={{
+                background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",
+                borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,
+                cursor:"pointer",fontFamily:"inherit",fontWeight:600,
+              }}
+            >
+              Déconnexion
+            </button>
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
-          {page==="dashboard"        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
-          {page==="planning"         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
-          {page==="planning-mensuel" && <PagePlanningMensuel T={T}/>}
-          {page==="notes-todo"       && <PageNotesEtTodo T={T}/>}
-          {page==="commandes"        && <PageCommandes chantiers={chantiers} T={T}/>}
-          {page==="equipe"           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
-          {page==="plans"            && <PagePlans T={T} chantiers={chantiers}/>}
-          {page==="phasage"          && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T}/>}
-          {page==="bibliotheque"     && <PageBibliotheque T={T}/>}
-          {page==="biblio-materiaux" && <PageBibliothequeMateriaux T={T}/>}
-          {page==="visite"           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
-          {page==="info-client"      && <PageInfoClient T={T}/>}
-          {page==="compte-rendu"     && <PageCompteRendu T={T}/>}
-          {page==="admin"            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
+          {page==="dashboard"        && canAccess(role,"dashboard")        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
+          {page==="planning"         && canAccess(role,"planning")         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
+          {page==="planning-mensuel" && canAccess(role,"planning-mensuel") && <PagePlanningMensuel T={T}/>}
+          {page==="notes-todo"       && canAccess(role,"notes-todo")       && <PageNotesEtTodo T={T}/>}
+          {page==="commandes"        && canAccess(role,"commandes")        && <PageCommandes chantiers={chantiers} T={T}/>}
+          {page==="equipe"           && canAccess(role,"equipe")           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
+          {page==="plans"            && canAccess(role,"plans")            && <PagePlans T={T} chantiers={chantiers}/>}
+          {page==="phasage"          && canAccess(role,"phasage")          && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T}/>}
+          {page==="bibliotheque"     && canAccess(role,"bibliotheque")     && <PageBibliotheque T={T}/>}
+          {page==="biblio-materiaux" && canAccess(role,"biblio-materiaux") && <PageBibliothequeMateriaux T={T}/>}
+          {page==="visite"           && canAccess(role,"visite")           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
+          {page==="info-client"      && canAccess(role,"info-client")      && <PageInfoClient T={T}/>}
+          {page==="compte-rendu"     && canAccess(role,"compte-rendu")     && <PageCompteRendu T={T}/>}
+          {page==="admin"            && canAccess(role,"admin")            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
         </div>
       </div>
-      <BottomNav page={page} setPage={setPage} T={T}/>
+      <BottomNav page={page} setPage={setPage} T={T} role={role} />
     </div>
   );
 }
 
 // ─── ROUTEUR RACINE ───────────────────────────────────────────────────────────
-export default function App(){
+export default function App() {
+  const [authState, setAuthState] = useState("loading"); // loading | login | app
+  const [user, setUser]           = useState(null);
+  const [profil, setProfil]       = useState(null);
+
+  // Vérifier si une session existe déjà au chargement
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        // Session active — récupérer le profil
+        const { data: p } = await supabase
+          .from("utilisateurs")
+          .select("*")
+          .eq("email", session.user.email)
+          .single();
+        if (p && p.actif) {
+          setUser(session.user);
+          setProfil(p);
+          setAuthState("app");
+        } else {
+          await supabase.auth.signOut();
+          setAuthState("login");
+        }
+      } else {
+        setAuthState("login");
+      }
+    };
+    checkSession();
+  }, []);
+
+  const handleLogin = (u, p) => {
+    setUser(u);
+    setProfil(p);
+    setAuthState("app");
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfil(null);
+    setAuthState("login");
+  };
+
+  // La page /rapport reste accessible sans connexion (système actuel inchangé)
   if (window.location.pathname.startsWith("/rapport")) {
     return <PageRapportMobile />;
   }
-  return <ErrorBoundary><MainApp /></ErrorBoundary>;
+
+  if (authState === "loading") {
+    return (
+      <div style={{
+        minHeight:"100vh", background:"#080a0d",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",
+      }}>
+        <div style={{ textAlign:"center" }}>
+          <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain", marginBottom:20 }}/>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.3)", letterSpacing:2 }}>CHARGEMENT…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState === "login") {
+    return <PageLogin onLogin={handleLogin} />;
+  }
+
+  return (
+    <ErrorBoundary>
+      <MainApp user={user} profil={profil} onLogout={handleLogout} />
+    </ErrorBoundary>
+  );
 }
