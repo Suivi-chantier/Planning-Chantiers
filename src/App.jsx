@@ -20,7 +20,6 @@ import PageInfoClient         from "./PageInfoClient";
 import PageCompteRendu        from "./PageCompteRendu";
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
-// Définit quelles pages sont accessibles pour chaque rôle
 const ROLE_PAGES = {
   admin: [
     "dashboard","planning","planning-mensuel","notes-todo","commandes",
@@ -41,19 +40,17 @@ const ROLE_PAGES = {
 };
 
 function canAccess(role, page) {
-  const pages = ROLE_PAGES[role] || [];
-  return pages.includes(page);
+  return (ROLE_PAGES[role] || []).includes(page);
 }
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   window.onerror = function(msg, src, line, col, err) {
     document.body.innerHTML = `<div style="background:#1a0000;color:#ff8888;padding:30px;font-family:monospace;min-height:100vh">
       <h2 style="color:#ff4444">🔴 Erreur JS</h2>
-      <p><b>Message:</b> ${msg}</p>
-      <p><b>Fichier:</b> ${src}</p>
+      <p><b>Message:</b> ${msg}</p><p><b>Fichier:</b> ${src}</p>
       <p><b>Ligne:</b> ${line}:${col}</p>
-      <pre style="margin-top:16px;font-size:12px;opacity:.8">${err?.stack||''}</pre>
+      <pre style="margin-top:16px;font-size:12px;opacity:.8">${err?.stack||""}</pre>
     </div>`;
     return false;
   };
@@ -70,17 +67,52 @@ class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
   render() {
-    if (this.state.error) {
-      return (
-        <div style={{background:"#1a0000",color:"#ff8888",padding:30,fontFamily:"monospace",minHeight:"100vh"}}>
-          <h2 style={{color:"#ff4444",marginBottom:16}}>🔴 Erreur — {this.state.error?.message}</h2>
-          <pre style={{whiteSpace:"pre-wrap",fontSize:12,lineHeight:1.6,opacity:.8}}>{this.state.error?.stack}</pre>
-        </div>
-      );
-    }
+    if (this.state.error) return (
+      <div style={{background:"#1a0000",color:"#ff8888",padding:30,fontFamily:"monospace",minHeight:"100vh"}}>
+        <h2 style={{color:"#ff4444",marginBottom:16}}>🔴 Erreur — {this.state.error?.message}</h2>
+        <pre style={{whiteSpace:"pre-wrap",fontSize:12,lineHeight:1.6,opacity:.8}}>{this.state.error?.stack}</pre>
+      </div>
+    );
     return this.props.children;
   }
 }
+
+// ─── CSS COMMUN (login + portail) ────────────────────────────────────────────
+const CSS_BASE = `
+  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Barlow Condensed','Arial Narrow',sans-serif; }
+  .login-input {
+    width: 100%; background: #1a1d24; border: 1.5px solid #2a2d3a;
+    border-radius: 10px; padding: 14px 16px; font-size: 16px;
+    font-family: inherit; color: #fff; outline: none; transition: border-color .15s;
+  }
+  .login-input:focus { border-color: #FFC200; }
+  .login-btn {
+    width: 100%; padding: 15px; border: none; border-radius: 10px;
+    background: #FFC200; color: #111; font-family: inherit;
+    font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: .5px;
+    transition: opacity .15s;
+  }
+  .login-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .login-btn:hover:not(:disabled) { opacity: .9; }
+  .portal-card {
+    background: #111318; border: 1px solid #2a2d3a; border-radius: 20px;
+    padding: 36px 32px; cursor: pointer; transition: all .2s; position: relative; overflow: hidden;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .portal-card:hover:not(.disabled) {
+    border-color: rgba(255,194,0,0.5);
+    transform: translateY(-4px);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,194,0,0.2);
+  }
+  .portal-card.disabled { cursor: not-allowed; opacity: .55; }
+  .portal-card-invest:hover:not(.disabled) {
+    border-color: rgba(100,180,255,0.4) !important;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(100,180,255,0.15) !important;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+`;
 
 // ─── PAGE DE CONNEXION ────────────────────────────────────────────────────────
 function PageLogin({ onLogin }) {
@@ -90,136 +122,56 @@ function PageLogin({ onLogin }) {
   const [erreur, setErreur]     = useState("");
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      setErreur("Veuillez remplir tous les champs.");
-      return;
-    }
-    setLoading(true);
-    setErreur("");
+    if (!email.trim() || !password.trim()) { setErreur("Veuillez remplir tous les champs."); return; }
+    setLoading(true); setErreur("");
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        setErreur("Email ou mot de passe incorrect.");
-        setLoading(false);
-        return;
-      }
-      // Récupérer le profil utilisateur dans notre table
+      if (error) { setErreur("Email ou mot de passe incorrect."); setLoading(false); return; }
       const { data: profil, error: profilErr } = await supabase
-        .from("utilisateurs")
-        .select("*")
-        .eq("email", data.user.email)
-        .single();
-
+        .from("utilisateurs").select("*").eq("email", data.user.email).single();
       if (profilErr || !profil) {
         setErreur("Compte non trouvé. Contactez l'administrateur.");
-        await supabase.auth.signOut();
-        setLoading(false);
-        return;
+        await supabase.auth.signOut(); setLoading(false); return;
       }
       if (!profil.actif) {
         setErreur("Votre compte a été désactivé. Contactez l'administrateur.");
-        await supabase.auth.signOut();
-        setLoading(false);
-        return;
+        await supabase.auth.signOut(); setLoading(false); return;
       }
       onLogin(data.user, profil);
-    } catch (e) {
-      setErreur("Une erreur est survenue. Réessayez.");
-    }
+    } catch { setErreur("Une erreur est survenue. Réessayez."); }
     setLoading(false);
   };
 
   return (
-    <div style={{
-      minHeight:"100vh", background:"#080a0d",
-      display:"flex", alignItems:"center", justifyContent:"center",
-      fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",
-      padding:"20px",
-    }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        .login-input {
-          width: 100%; background: #1a1d24; border: 1.5px solid #2a2d3a;
-          border-radius: 10px; padding: 14px 16px; font-size: 16px;
-          font-family: inherit; color: #fff; outline: none; transition: border-color .15s;
-        }
-        .login-input:focus { border-color: #FFC200; }
-        .login-btn {
-          width: 100%; padding: 15px; border: none; border-radius: 10px;
-          background: #FFC200; color: #111; font-family: inherit;
-          font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: .5px;
-          transition: opacity .15s;
-        }
-        .login-btn:disabled { opacity: .5; cursor: not-allowed; }
-        .login-btn:hover:not(:disabled) { opacity: .9; }
-      `}</style>
-
+    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
+      <style>{CSS_BASE}</style>
       <div style={{ width:"100%", maxWidth:420 }}>
-        {/* Logo */}
         <div style={{ textAlign:"center", marginBottom:40 }}>
           <img src={LOGO_HORIZ} alt="Profero" style={{ height:44, objectFit:"contain" }}/>
           <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
-            Planning · Chantiers
+            Espace collaborateurs
           </div>
         </div>
-
-        {/* Carte connexion */}
-        <div style={{
-          background:"#111318", border:"1px solid #2a2d3a",
-          borderRadius:16, padding:"32px 28px",
-          boxShadow:"0 20px 60px rgba(0,0,0,0.5)",
-        }}>
-          <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>
-            Connexion
-          </div>
-          <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:28 }}>
-            Accès réservé aux collaborateurs Profero
-          </div>
-
+        <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>Connexion</div>
+          <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:28 }}>Accès réservé aux collaborateurs Profero</div>
           <div style={{ marginBottom:16 }}>
-            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>
-              Email
-            </label>
-            <input
-              className="login-input"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="votre@email.com"
-              onKeyDown={e => e.key === "Enter" && handleLogin()}
-            />
+            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>Email</label>
+            <input className="login-input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="votre@email.com" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
           </div>
-
           <div style={{ marginBottom:24 }}>
-            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>
-              Mot de passe
-            </label>
-            <input
-              className="login-input"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              onKeyDown={e => e.key === "Enter" && handleLogin()}
-            />
+            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>Mot de passe</label>
+            <input className="login-input" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
           </div>
-
           {erreur && (
-            <div style={{
-              background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)",
-              borderRadius:8, padding:"10px 14px", fontSize:14, color:"#e05c5c",
-              marginBottom:20,
-            }}>
+            <div style={{ background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)", borderRadius:8, padding:"10px 14px", fontSize:14, color:"#e05c5c", marginBottom:20 }}>
               {erreur}
             </div>
           )}
-
           <button className="login-btn" onClick={handleLogin} disabled={loading}>
             {loading ? "Connexion…" : "Se connecter →"}
           </button>
         </div>
-
         <div style={{ textAlign:"center", marginTop:20, fontSize:12, color:"rgba(255,255,255,0.2)" }}>
           Problème de connexion ? Contactez l'administrateur.
         </div>
@@ -228,8 +180,101 @@ function PageLogin({ onLogin }) {
   );
 }
 
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
-function MainApp({ user, profil, onLogout }) {
+// ─── PORTAIL GROUPE ───────────────────────────────────────────────────────────
+function PagePortail({ user, profil, onSelectBranche, onLogout }) {
+  const branches    = profil?.branches || ["renovation"];
+  const hasReno     = branches.includes("renovation");
+  const hasInvest   = branches.includes("invest");
+
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
+      <style>{CSS_BASE}</style>
+
+      {/* Header */}
+      <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
+        <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain" }}/>
+        <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{profil?.nom || user?.email}</div>
+            <div style={{ fontSize:10, letterSpacing:1.5, textTransform:"uppercase", color:"rgba(255,194,0,0.6)" }}>
+              {ROLE_LABELS[profil?.role] || profil?.role}
+            </div>
+          </div>
+          <button onClick={onLogout} style={{ background:"rgba(224,92,92,0.1)", border:"1px solid rgba(224,92,92,0.25)", borderRadius:8, padding:"8px 14px", color:"#e05c5c", fontSize:13, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+            Déconnexion
+          </button>
+        </div>
+      </div>
+
+      {/* Contenu */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 20px" }}>
+        <div style={{ textAlign:"center", marginBottom:56 }}>
+          <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:12 }}>Groupe Profero</div>
+          <div style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:.5 }}>Choisissez votre espace</div>
+          <div style={{ fontSize:15, color:"rgba(255,255,255,0.3)", marginTop:8 }}>
+            Bonjour {profil?.nom?.split(" ")[0] || "vous"} — sélectionnez la branche à laquelle accéder
+          </div>
+        </div>
+
+        {/* Cartes */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:24, width:"100%", maxWidth:720 }}>
+
+          {/* Rénovation */}
+          <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")}>
+            <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#FFC200,#ff9500)", borderRadius:"20px 20px 0 0" }}/>
+            <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.1)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏗️</div>
+              <div>
+                <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,194,0,0.6)", marginBottom:3 }}>Profero</div>
+                <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Rénovation</div>
+              </div>
+            </div>
+            <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
+              Planning chantiers, commandes, équipes, phasage, comptes rendus et suivi de travaux.
+            </div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {["Planning","Commandes","Équipe","Phasage","Comptes rendus"].map(tag=>(
+                <span key={tag} style={{ fontSize:11, padding:"3px 10px", borderRadius:20, background:"rgba(255,194,0,0.08)", border:"1px solid rgba(255,194,0,0.15)", color:"rgba(255,194,0,0.7)", letterSpacing:.5 }}>{tag}</span>
+              ))}
+            </div>
+            {hasReno
+              ? <div style={{ display:"flex", alignItems:"center", gap:8, color:"#FFC200", fontWeight:700, fontSize:14 }}>Accéder <span style={{fontSize:18}}>→</span></div>
+              : <div style={{ fontSize:12, color:"rgba(255,255,255,0.25)" }}>Accès non autorisé</div>
+            }
+          </div>
+
+          {/* Invest */}
+          <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
+            <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
+            <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏢</div>
+              <div>
+                <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(77,184,255,0.7)", marginBottom:3 }}>Profero</div>
+                <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Invest</div>
+              </div>
+            </div>
+            <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
+              Gestion des investissements immobiliers, suivi de portefeuille et reporting financier.
+            </div>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"8px 14px", alignSelf:"flex-start" }}>
+              <span style={{ width:7, height:7, borderRadius:"50%", background:"#4db8ff", display:"inline-block", animation:"pulse 2s infinite" }}/>
+              <span style={{ fontSize:12, color:"rgba(77,184,255,0.8)", fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>En cours de développement</span>
+            </div>
+            {!hasInvest && <div style={{ fontSize:12, color:"rgba(255,255,255,0.25)" }}>Accès non autorisé</div>}
+          </div>
+
+        </div>
+
+        <div style={{ marginTop:48, fontSize:12, color:"rgba(255,255,255,0.15)", letterSpacing:1 }}>GROUPE PROFERO · ESPACE INTERNE</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP (Rénovation) ────────────────────────────────────────────────────
+function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const{year:iY,week:iW}=getCurrentWeek();
   const[year,setYear]=useState(iY);
   const[week,setWeek]=useState(iW);
@@ -250,14 +295,10 @@ function MainApp({ user, profil, onLogout }) {
 
   const T=THEMES[theme];
   const weekId=getWeekId(year,week);
-  const role = profil?.role || "commercial";
+  const role=profil?.role||"commercial";
+  const peutChangerBranche=(profil?.branches||["renovation"]).length>1;
 
-  // Rediriger vers une page accessible si la page courante n'est pas autorisée
-  useEffect(() => {
-    if (!canAccess(role, page)) {
-      setPage("dashboard");
-    }
-  }, [role, page]);
+  useEffect(()=>{ if(!canAccess(role,page)) setPage("dashboard"); },[role,page]);
 
   const loadData=useCallback(async()=>{
     setSyncing(true);
@@ -313,13 +354,7 @@ function MainApp({ user, profil, onLogout }) {
     }
   };
 
-  // Labels lisibles pour les rôles
-  const ROLE_LABELS = {
-    admin:      "Administrateur",
-    conducteur: "Conducteur de travaux",
-    commercial: "Commercial",
-    comptable:  "Comptable",
-  };
+  const ROLE_LABELS={admin:"Administrateur",conducteur:"Conducteur de travaux",commercial:"Commercial",comptable:"Comptable"};
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
@@ -384,15 +419,12 @@ function MainApp({ user, profil, onLogout }) {
   return(
     <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{css}</style>
-      <div className="app-sidebar">
-        <Sidebar page={page} setPage={setPage} T={T} role={role} />
-      </div>
+      <div className="app-sidebar"><Sidebar page={page} setPage={setPage} T={T} role={role}/></div>
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
-        <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,
-          padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+        <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
           <img src={LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
           <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
-            Profero · Planning
+            Profero · Rénovation
           </div>
           <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.card,borderRadius:8,fontSize:12,color:T.textSub}}>
             {syncing
@@ -402,26 +434,21 @@ function MainApp({ user, profil, onLogout }) {
                 :<><span style={{width:8,height:8,borderRadius:"50%",background:"#e05c5c",display:"inline-block"}}/> Hors ligne</>
             }
           </div>
-
-          {/* Infos utilisateur connecté */}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
             <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:1}}>
-              <span style={{fontSize:13,fontWeight:700,color:T.text}}>{profil?.nom || user?.email}</span>
-              <span style={{fontSize:10,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,194,0,0.6)"}}>
-                {ROLE_LABELS[role] || role}
-              </span>
+              <span style={{fontSize:13,fontWeight:700,color:T.text}}>{profil?.nom||user?.email}</span>
+              <span style={{fontSize:10,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,194,0,0.6)"}}>{ROLE_LABELS[role]||role}</span>
             </div>
-            <button className="btn-g" onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}}
-              style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
-            <button
-              onClick={onLogout}
-              title="Se déconnecter"
-              style={{
-                background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",
-                borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,
-                cursor:"pointer",fontFamily:"inherit",fontWeight:600,
-              }}
-            >
+            {/* Bouton portail — uniquement si multi-branches */}
+            {peutChangerBranche&&(
+              <button onClick={onRetourPortail} title="Retour au portail" style={{
+                background:"rgba(255,194,0,0.08)",border:"1px solid rgba(255,194,0,0.2)",
+                borderRadius:6,padding:"6px 12px",color:"rgba(255,194,0,0.8)",fontSize:12,
+                cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:.5,
+              }}>⊞ Portail</button>
+            )}
+            <button className="btn-g" onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
+            <button onClick={onLogout} title="Se déconnecter" style={{background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
               Déconnexion
             </button>
           </div>
@@ -443,35 +470,30 @@ function MainApp({ user, profil, onLogout }) {
           {page==="admin"            && canAccess(role,"admin")            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T}/>}
         </div>
       </div>
-      <BottomNav page={page} setPage={setPage} T={T} role={role} />
+      <BottomNav page={page} setPage={setPage} T={T} role={role}/>
     </div>
   );
 }
 
 // ─── ROUTEUR RACINE ───────────────────────────────────────────────────────────
 export default function App() {
-  const [authState, setAuthState] = useState("loading"); // loading | login | app
+  // authState : "loading" | "login" | "portail" | "renovation" | "invest"
+  const [authState, setAuthState] = useState("loading");
   const [user, setUser]           = useState(null);
   const [profil, setProfil]       = useState(null);
 
-  // Vérifier si une session existe déjà au chargement
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        // Session active — récupérer le profil
         const { data: p } = await supabase
-          .from("utilisateurs")
-          .select("*")
-          .eq("email", session.user.email)
-          .single();
+          .from("utilisateurs").select("*").eq("email", session.user.email).single();
         if (p && p.actif) {
-          setUser(session.user);
-          setProfil(p);
-          setAuthState("app");
+          setUser(session.user); setProfil(p);
+          const branches = p.branches || ["renovation"];
+          setAuthState(branches.length === 1 ? branches[0] : "portail");
         } else {
-          await supabase.auth.signOut();
-          setAuthState("login");
+          await supabase.auth.signOut(); setAuthState("login");
         }
       } else {
         setAuthState("login");
@@ -481,45 +503,63 @@ export default function App() {
   }, []);
 
   const handleLogin = (u, p) => {
-    setUser(u);
-    setProfil(p);
-    setAuthState("app");
+    setUser(u); setProfil(p);
+    const branches = p.branches || ["renovation"];
+    setAuthState(branches.length === 1 ? branches[0] : "portail");
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    setProfil(null);
-    setAuthState("login");
+    setUser(null); setProfil(null); setAuthState("login");
   };
 
-  // La page /rapport reste accessible sans connexion (système actuel inchangé)
-  if (window.location.pathname.startsWith("/rapport")) {
-    return <PageRapportMobile />;
-  }
+  const handleSelectBranche = (b) => setAuthState(b);
+  const handleRetourPortail  = () => setAuthState("portail");
 
-  if (authState === "loading") {
-    return (
-      <div style={{
-        minHeight:"100vh", background:"#080a0d",
-        display:"flex", alignItems:"center", justifyContent:"center",
-        fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",
-      }}>
-        <div style={{ textAlign:"center" }}>
-          <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain", marginBottom:20 }}/>
-          <div style={{ fontSize:13, color:"rgba(255,255,255,0.3)", letterSpacing:2 }}>CHARGEMENT…</div>
-        </div>
+  // /rapport reste sans connexion
+  if (window.location.pathname.startsWith("/rapport")) return <PageRapportMobile />;
+
+  if (authState === "loading") return (
+    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;800&display=swap');`}</style>
+      <div style={{ textAlign:"center" }}>
+        <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain", marginBottom:20 }}/>
+        <div style={{ fontSize:13, color:"rgba(255,255,255,0.3)", letterSpacing:2 }}>CHARGEMENT…</div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (authState === "login") {
-    return <PageLogin onLogin={handleLogin} />;
-  }
+  if (authState === "login")   return <PageLogin onLogin={handleLogin}/>;
+  if (authState === "portail") return <PagePortail user={user} profil={profil} onSelectBranche={handleSelectBranche} onLogout={handleLogout}/>;
 
-  return (
+  if (authState === "renovation") return (
     <ErrorBoundary>
-      <MainApp user={user} profil={profil} onLogout={handleLogout} />
+      <MainApp user={user} profil={profil} onLogout={handleLogout} onRetourPortail={handleRetourPortail}/>
     </ErrorBoundary>
   );
+
+  // Placeholder Invest — en attendant l'application réelle
+  if (authState === "invest") return (
+    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:20 }}>
+      <style>{CSS_BASE}</style>
+      <div style={{ textAlign:"center", maxWidth:480 }}>
+        <div style={{ fontSize:48, marginBottom:20 }}>🏢</div>
+        <div style={{ fontSize:11, letterSpacing:3, textTransform:"uppercase", color:"rgba(77,184,255,0.6)", marginBottom:8 }}>Profero Invest</div>
+        <div style={{ fontSize:28, fontWeight:800, color:"#fff", marginBottom:16 }}>Application en développement</div>
+        <div style={{ fontSize:15, color:"rgba(255,255,255,0.4)", lineHeight:1.7, marginBottom:36 }}>
+          L'espace Profero Invest sera disponible prochainement. Revenez sur le portail pour accéder à Profero Rénovation.
+        </div>
+        <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
+          <button onClick={handleRetourPortail} style={{ background:"rgba(77,184,255,0.1)", border:"1px solid rgba(77,184,255,0.3)", borderRadius:10, padding:"12px 24px", color:"#4db8ff", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+            ← Retour au portail
+          </button>
+          <button onClick={handleLogout} style={{ background:"rgba(224,92,92,0.1)", border:"1px solid rgba(224,92,92,0.25)", borderRadius:10, padding:"12px 24px", color:"#e05c5c", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+            Déconnexion
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return null;
 }
