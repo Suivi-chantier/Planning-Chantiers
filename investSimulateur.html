@@ -151,18 +151,9 @@ input:checked+.toggle-slider:before{transform:translateX(18px);}
 </div>
 
 <!-- PROJECT BAR -->
-<div class="project-bar no-print">
-  <span class="project-label">Projet :</span>
-  <input class="project-name-input" id="projectName" type="text" placeholder="Nom du projet…"
-    oninput="onProjectNameChange(this.value)">
-  <span class="project-date" id="projectDate"></span>
-  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-    <button class="btn btn-gold" onclick="saveToSupabase()">💾 Enregistrer</button>
-    <button class="btn btn-blue" onclick="exportXLSX()">📊 Export Excel</button>
-    <button class="btn btn-outline" onclick="genererFiche()">📄 Fiche PDF</button>
-    <button class="btn btn-outline" onclick="openModal()" style="color:var(--red);border-color:var(--red)">🔄 Réinitialiser</button>
-  </div>
-</div>
+<!-- projectName caché — géré par React via postMessage -->
+<input type="hidden" id="projectName" value="Nouveau projet">
+<span style="display:none" id="projectDate"></span>
 
 <!-- TABS -->
 <nav class="tabs-nav no-print">
@@ -451,7 +442,7 @@ function onProjectNameChange(val){
   scheduleAutoSave();
 }
 
-// ══ RECEVOIR l'état depuis React (chargement projet) ══
+// ══ RECEVOIR l'état depuis React (chargement projet + actions boutons) ══
 window.addEventListener('message', function(e){
   if(!e.data || e.data.source !== 'profero-host') return;
   if(e.data.type === 'loadState'){
@@ -461,6 +452,12 @@ window.addEventListener('message', function(e){
       if(pn) pn.value = e.data.projectName;
     }
     updateProjectDate();
+  }
+  if(e.data.type === 'action'){
+    if(e.data.action === 'save') saveToSupabase();
+    if(e.data.action === 'exportXLSX') exportXLSX();
+    if(e.data.action === 'genererFiche') genererFiche();
+    if(e.data.action === 'reset') openModal();
   }
 });
 
