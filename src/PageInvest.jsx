@@ -272,11 +272,11 @@ function Simulateur({ projet, profil, onRetour }) {
         <div style={{ fontSize:11, letterSpacing:1.5, textTransform:"uppercase", color:"rgba(201,168,76,0.7)" }}>Profero Invest</div>
         <div style={{ fontSize:14, fontWeight:700, color:"white" }}>{nom || "Nouveau projet"}</div>
 
-        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
           {saving && (
             <div style={{ fontSize:12, color:"rgba(255,255,255,0.4)", display:"flex", alignItems:"center", gap:5 }}>
               <span style={{ width:6, height:6, borderRadius:"50%", background:"#f5a623", display:"inline-block" }}/>
-              Sauvegarde…
+              Sync…
             </div>
           )}
           {saved && !saving && (
@@ -285,9 +285,22 @@ function Simulateur({ projet, profil, onRetour }) {
               Sauvegardé
             </div>
           )}
-          <div style={{ fontSize:12, color:"rgba(255,255,255,0.4)" }}>
-            Sauvegarde auto toutes les 30s
-          </div>
+          <button onClick={() => iframeRef.current?.contentWindow?.postMessage({source:"profero-host",type:"action",action:"reset"},"*")}
+            style={{ background:"rgba(192,57,43,0.1)", border:"1px solid rgba(192,57,43,0.3)", borderRadius:6, padding:"5px 11px", color:"#e05c5c", fontSize:12, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+            🔄 Reset
+          </button>
+          <button onClick={() => iframeRef.current?.contentWindow?.postMessage({source:"profero-host",type:"action",action:"exportXLSX"},"*")}
+            style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:6, padding:"5px 11px", color:"rgba(255,255,255,0.7)", fontSize:12, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+            📊 Excel
+          </button>
+          <button onClick={() => iframeRef.current?.contentWindow?.postMessage({source:"profero-host",type:"action",action:"genererFiche"},"*")}
+            style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:6, padding:"5px 11px", color:"rgba(255,255,255,0.7)", fontSize:12, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+            📄 Fiche PDF
+          </button>
+          <button onClick={() => iframeRef.current?.contentWindow?.postMessage({source:"profero-host",type:"action",action:"save"},"*")}
+            style={{ background:"#c9a84c", border:"none", borderRadius:6, padding:"6px 16px", color:"#1a2d4a", fontSize:13, cursor:"pointer", fontFamily:"inherit", fontWeight:800 }}>
+            💾 Enregistrer
+          </button>
         </div>
       </div>
 
