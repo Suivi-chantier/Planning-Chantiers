@@ -15,6 +15,7 @@ import PageBibliotheque       from "./Bibliotheque";
 import PageBibliothequeMateriaux from "./PageBibliothequeMateriaux";
 import PageAdmin              from "./Admin";
 import PageRapportMobile      from "./RapportMobile";
+import PageInvest             from "./PageInvest";
 import PageVisiteChantier     from "./VisiteChantier";
 import PageInfoClient         from "./PageInfoClient";
 import PageCompteRendu        from "./PageCompteRendu";
@@ -538,27 +539,8 @@ export default function App() {
     </ErrorBoundary>
   );
 
-  // Placeholder Invest — en attendant l'application réelle
   if (authState === "invest") return (
-    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:20 }}>
-      <style>{CSS_BASE}</style>
-      <div style={{ textAlign:"center", maxWidth:480 }}>
-        <div style={{ fontSize:48, marginBottom:20 }}>🏢</div>
-        <div style={{ fontSize:11, letterSpacing:3, textTransform:"uppercase", color:"rgba(77,184,255,0.6)", marginBottom:8 }}>Profero Invest</div>
-        <div style={{ fontSize:28, fontWeight:800, color:"#fff", marginBottom:16 }}>Application en développement</div>
-        <div style={{ fontSize:15, color:"rgba(255,255,255,0.4)", lineHeight:1.7, marginBottom:36 }}>
-          L'espace Profero Invest sera disponible prochainement. Revenez sur le portail pour accéder à Profero Rénovation.
-        </div>
-        <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
-          <button onClick={handleRetourPortail} style={{ background:"rgba(77,184,255,0.1)", border:"1px solid rgba(77,184,255,0.3)", borderRadius:10, padding:"12px 24px", color:"#4db8ff", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
-            ← Retour au portail
-          </button>
-          <button onClick={handleLogout} style={{ background:"rgba(224,92,92,0.1)", border:"1px solid rgba(224,92,92,0.25)", borderRadius:10, padding:"12px 24px", color:"#e05c5c", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
-            Déconnexion
-          </button>
-        </div>
-      </div>
-    </div>
+    <PageInvest profil={profil} onRetourPortail={handleRetourPortail} onLogout={handleLogout} />
   );
 
   return null;
