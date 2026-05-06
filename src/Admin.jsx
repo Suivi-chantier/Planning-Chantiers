@@ -1,9 +1,349 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS } from "./constants";
 
+// ─── ONGLET UTILISATEURS ──────────────────────────────────────────────────────
+function OngletUtilisateurs({ T }) {
+  const [utilisateurs, setUtilisateurs] = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [erreur, setErreur]             = useState("");
+  const [succes, setSucces]             = useState("");
+
+  // Formulaire invitation
+  const [showForm, setShowForm]         = useState(false);
+  const [invEmail, setInvEmail]         = useState("");
+  const [invNom, setInvNom]             = useState("");
+  const [invRole, setInvRole]           = useState("conducteur");
+  const [invBranches, setInvBranches]   = useState(["renovation"]);
+  const [invLoading, setInvLoading]     = useState(false);
+
+  // Édition d'un utilisateur
+  const [editId, setEditId]             = useState(null);
+  const [editData, setEditData]         = useState({});
+
+  const ROLES = [
+    { value:"admin",      label:"Administrateur" },
+    { value:"conducteur", label:"Conducteur de travaux" },
+    { value:"commercial", label:"Commercial" },
+    { value:"comptable",  label:"Comptable" },
+  ];
+
+  const BRANCHES = [
+    { value:"renovation", label:"Rénovation" },
+    { value:"invest",     label:"Invest" },
+  ];
+
+  const chargerUtilisateurs = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("utilisateurs").select("*").order("nom");
+    if (!error) setUtilisateurs(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { chargerUtilisateurs(); }, []);
+
+  const flashSucces = (msg) => {
+    setSucces(msg); setErreur("");
+    setTimeout(() => setSucces(""), 3500);
+  };
+  const flashErreur = (msg) => {
+    setErreur(msg); setSucces("");
+    setTimeout(() => setErreur(""), 4000);
+  };
+
+  // Toggle branche dans un tableau
+  const toggleBranche = (branches, val) =>
+    branches.includes(val) ? branches.filter(b => b !== val) : [...branches, val];
+
+  // ── Inviter un nouvel utilisateur ──────────────────────────────────────────
+  const inviter = async () => {
+    if (!invEmail.trim() || !invNom.trim()) { flashErreur("Email et nom sont obligatoires."); return; }
+    if (invBranches.length === 0) { flashErreur("Sélectionnez au moins une branche."); return; }
+    setInvLoading(true);
+    try {
+      // Vérifier si l'email existe déjà
+      const { data: exist } = await supabase
+        .from("utilisateurs").select("id").eq("email", invEmail.trim().toLowerCase()).single();
+      if (exist) { flashErreur("Cet email est déjà enregistré."); setInvLoading(false); return; }
+
+      // Créer le compte dans Supabase Auth via l'API admin
+      // Note : on utilise signUp — l'utilisateur recevra un email de confirmation
+      const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
+        email: invEmail.trim().toLowerCase(),
+        email_confirm: true,
+        password: Math.random().toString(36).slice(-10) + "A1!", // mot de passe temporaire
+      });
+
+      // Si l'API admin n'est pas disponible (plan gratuit), on crée juste la ligne utilisateurs
+      // et on envoie un reset password
+      let userId = authData?.user?.id || null;
+
+      if (authErr) {
+        // Fallback : on utilise inviteUserByEmail disponible sur tous les plans
+        const { data: invData, error: invErr } = await supabase.auth.admin.inviteUserByEmail(
+          invEmail.trim().toLowerCase()
+        );
+        if (invErr) {
+          // Dernier fallback : créer uniquement dans la table, sans compte Auth
+          // L'admin devra créer le compte Auth manuellement
+          console.warn("Invitation Auth impossible:", invErr.message);
+        } else {
+          userId = invData?.user?.id || null;
+        }
+      }
+
+      // Créer la ligne dans notre table utilisateurs
+      const { error: dbErr } = await supabase.from("utilisateurs").insert({
+        email:    invEmail.trim().toLowerCase(),
+        nom:      invNom.trim(),
+        role:     invRole,
+        branches: invBranches,
+        actif:    true,
+      });
+
+      if (dbErr) { flashErreur("Erreur création profil : " + dbErr.message); setInvLoading(false); return; }
+
+      flashSucces(`✓ ${invNom} ajouté(e) avec succès.`);
+      setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["renovation"]);
+      setShowForm(false);
+      chargerUtilisateurs();
+    } catch (e) {
+      flashErreur("Erreur inattendue : " + e.message);
+    }
+    setInvLoading(false);
+  };
+
+  // ── Sauvegarder les modifications d'un utilisateur ─────────────────────────
+  const sauvegarder = async (id) => {
+    if (!editData.nom?.trim()) { flashErreur("Le nom est obligatoire."); return; }
+    if (!editData.branches || editData.branches.length === 0) { flashErreur("Au moins une branche obligatoire."); return; }
+    const { error } = await supabase.from("utilisateurs")
+      .update({ nom: editData.nom.trim(), role: editData.role, branches: editData.branches })
+      .eq("id", id);
+    if (error) { flashErreur("Erreur : " + error.message); return; }
+    flashSucces("✓ Modifications enregistrées.");
+    setEditId(null);
+    chargerUtilisateurs();
+  };
+
+  // ── Activer / désactiver ───────────────────────────────────────────────────
+  const toggleActif = async (u) => {
+    const { error } = await supabase.from("utilisateurs")
+      .update({ actif: !u.actif }).eq("id", u.id);
+    if (error) { flashErreur("Erreur : " + error.message); return; }
+    flashSucces(u.actif ? `✓ ${u.nom} désactivé(e).` : `✓ ${u.nom} réactivé(e).`);
+    chargerUtilisateurs();
+  };
+
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+  const BRANCHE_LABELS = { renovation:"Rénovation", invest:"Invest" };
+  const ROLE_COLORS = { admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" };
+
+  return (
+    <div className="ac">
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:4, flexWrap:"wrap", gap:10 }}>
+        <div>
+          <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Collaborateurs</div>
+          <div style={{ color:T.textSub, fontSize:13 }}>
+            Gérez les accès, rôles et branches de chaque collaborateur.
+          </div>
+        </div>
+        <button className="btn-p" onClick={() => { setShowForm(!showForm); setErreur(""); }}>
+          {showForm ? "✕ Annuler" : "+ Inviter"}
+        </button>
+      </div>
+
+      {/* Messages feedback */}
+      {succes && (
+        <div style={{ background:"rgba(80,200,120,0.12)", border:"1px solid rgba(80,200,120,0.3)", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#50c878", margin:"12px 0" }}>
+          {succes}
+        </div>
+      )}
+      {erreur && (
+        <div style={{ background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#e05c5c", margin:"12px 0" }}>
+          {erreur}
+        </div>
+      )}
+
+      {/* ── Formulaire invitation ── */}
+      {showForm && (
+        <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"20px 18px", margin:"16px 0" }}>
+          <div style={{ fontWeight:700, fontSize:14, marginBottom:16, color:T.text }}>Nouveau collaborateur</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Nom complet</label>
+              <input className="ti" value={invNom} onChange={e=>setInvNom(e.target.value)} placeholder="Prénom Nom" style={{ width:"100%" }}/>
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Email</label>
+              <input className="ti" type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="email@profero.fr" style={{ width:"100%" }}/>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Rôle</label>
+              <select className="ti" value={invRole} onChange={e=>setInvRole(e.target.value)} style={{ width:"100%" }}>
+                {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Branches</label>
+              <div style={{ display:"flex", gap:8 }}>
+                {BRANCHES.map(b => (
+                  <button key={b.value}
+                    onClick={() => setInvBranches(toggleBranche(invBranches, b.value))}
+                    style={{
+                      flex:1, padding:"8px 0", borderRadius:8, border:"1.5px solid",
+                      fontFamily:"inherit", fontSize:13, fontWeight:700, cursor:"pointer",
+                      background: invBranches.includes(b.value) ? "rgba(255,194,0,0.12)" : "transparent",
+                      borderColor: invBranches.includes(b.value) ? "#FFC200" : T.border,
+                      color: invBranches.includes(b.value) ? "#FFC200" : T.textSub,
+                    }}>
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button className="btn-p" onClick={inviter} disabled={invLoading} style={{ flex:1 }}>
+              {invLoading ? "Création…" : "Créer le compte →"}
+            </button>
+          </div>
+          <div style={{ fontSize:12, color:T.textMuted, marginTop:10 }}>
+            ℹ️ Un email de confirmation sera envoyé par Supabase pour que le collaborateur définisse son mot de passe.
+          </div>
+        </div>
+      )}
+
+      {/* ── Liste des utilisateurs ── */}
+      {loading ? (
+        <div style={{ color:T.textSub, fontSize:13, padding:"20px 0", textAlign:"center" }}>Chargement…</div>
+      ) : utilisateurs.length === 0 ? (
+        <div style={{ color:T.textSub, fontSize:13, fontStyle:"italic", padding:"20px 0" }}>Aucun collaborateur enregistré.</div>
+      ) : (
+        <div style={{ marginTop:16 }}>
+          {utilisateurs.map(u => (
+            <div key={u.id} className="ar" style={{ flexDirection:"column", alignItems:"stretch", gap:0, padding:"14px 0" }}>
+              {editId === u.id ? (
+                /* ── Mode édition ── */
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <div>
+                      <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:5 }}>Nom</label>
+                      <input className="ti" value={editData.nom} onChange={e=>setEditData({...editData,nom:e.target.value})} style={{width:"100%"}}/>
+                    </div>
+                    <div>
+                      <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:5 }}>Rôle</label>
+                      <select className="ti" value={editData.role} onChange={e=>setEditData({...editData,role:e.target.value})} style={{width:"100%"}}>
+                        {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:5 }}>Branches</label>
+                    <div style={{ display:"flex", gap:8 }}>
+                      {BRANCHES.map(b => (
+                        <button key={b.value}
+                          onClick={() => setEditData({...editData, branches: toggleBranche(editData.branches||[], b.value)})}
+                          style={{
+                            padding:"7px 18px", borderRadius:8, border:"1.5px solid",
+                            fontFamily:"inherit", fontSize:13, fontWeight:700, cursor:"pointer",
+                            background: (editData.branches||[]).includes(b.value) ? "rgba(255,194,0,0.12)" : "transparent",
+                            borderColor: (editData.branches||[]).includes(b.value) ? "#FFC200" : T.border,
+                            color: (editData.branches||[]).includes(b.value) ? "#FFC200" : T.textSub,
+                          }}>
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button className="btn-p" style={{ fontSize:13, padding:"7px 16px" }} onClick={() => sauvegarder(u.id)}>✓ Enregistrer</button>
+                    <button className="btn-g" style={{ fontSize:13, padding:"7px 16px" }} onClick={() => setEditId(null)}>Annuler</button>
+                  </div>
+                </div>
+              ) : (
+                /* ── Mode lecture ── */
+                <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+                  {/* Avatar initiales */}
+                  <div style={{
+                    width:38, height:38, borderRadius:10, flexShrink:0,
+                    background:`${ROLE_COLORS[u.role]}22`, border:`1.5px solid ${ROLE_COLORS[u.role]}55`,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:14, fontWeight:800, color:ROLE_COLORS[u.role],
+                  }}>
+                    {u.nom?.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+                  </div>
+
+                  {/* Infos */}
+                  <div style={{ flex:1, minWidth:160 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                      <span style={{ fontWeight:700, fontSize:15, color: u.actif ? T.text : T.textMuted }}>
+                        {u.nom}
+                      </span>
+                      {!u.actif && (
+                        <span style={{ fontSize:10, padding:"2px 8px", borderRadius:4, background:"rgba(224,92,92,0.12)", color:"#e05c5c", fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>
+                          Désactivé
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize:12, color:T.textMuted, marginTop:2 }}>{u.email}</div>
+                    <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
+                      <span style={{
+                        fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:700, letterSpacing:.5,
+                        background:`${ROLE_COLORS[u.role]}18`, color:ROLE_COLORS[u.role],
+                        border:`1px solid ${ROLE_COLORS[u.role]}33`,
+                      }}>
+                        {ROLE_LABELS[u.role] || u.role}
+                      </span>
+                      {(u.branches||["renovation"]).map(b => (
+                        <span key={b} style={{
+                          fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:600,
+                          background:"rgba(255,255,255,0.05)", color:T.textSub,
+                          border:`1px solid ${T.border}`,
+                        }}>
+                          {BRANCHE_LABELS[b] || b}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                    <button className="btn-g" style={{ fontSize:12, padding:"5px 12px" }}
+                      onClick={() => { setEditId(u.id); setEditData({ nom:u.nom, role:u.role, branches:u.branches||["renovation"] }); }}>
+                      ✏️ Modifier
+                    </button>
+                    <button
+                      onClick={() => toggleActif(u)}
+                      style={{
+                        fontSize:12, padding:"5px 12px", border:"1px solid", borderRadius:6,
+                        cursor:"pointer", fontFamily:"inherit", fontWeight:600,
+                        background: u.actif ? "rgba(224,92,92,0.08)" : "rgba(80,200,120,0.08)",
+                        borderColor: u.actif ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)",
+                        color: u.actif ? "#e05c5c" : "#50c878",
+                      }}>
+                      {u.actif ? "Désactiver" : "Réactiver"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop:16, padding:"12px 14px", background:T.card, borderRadius:8, fontSize:12, color:T.textMuted, lineHeight:1.6 }}>
+        ℹ️ Pour réinitialiser le mot de passe d'un collaborateur, rendez-vous dans <strong style={{color:T.textSub}}>Supabase → Authentication → Users</strong> et utilisez "Send password reset".
+      </div>
+    </div>
+  );
+}
+
 // ─── PAGE ADMIN ───────────────────────────────────────────────────────────────
-function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,chantiers,setChantiers,saveConfig,theme,setTheme,T}){
+function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil}){
   const [adminTab,setAdminTab]=useState("ouvriers");
   const [newOuvrier,setNewOuvrier]=useState("");
   const [editOuvrier,setEditOuvrier]=useState(null);
@@ -28,15 +368,30 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updateChantier=(i,ch)=>{const u=chantiers.map((c,idx)=>idx===i?{...c,...ch}:c);setChantiers(u);saveConfig("chantiers",u);};
   const moveChantier=(i,d)=>{const a=[...chantiers],j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];setChantiers(a);saveConfig("chantiers",a);};
 
+  // Seul l'admin voit l'onglet utilisateurs
+  const isAdmin = profil?.role === "admin";
+
+  const tabs = [
+    ["ouvriers",  "👷 Ouvriers"],
+    ["taux",      "💰 Taux horaires"],
+    ["chantiers", "🏗️ Chantiers"],
+    ["apparence", "🎨 Apparence"],
+    ...(isAdmin ? [["utilisateurs", "👥 Utilisateurs"]] : []),
+  ];
+
   return(
-    <div style={{flex:1,overflowY:"auto",padding: "16px"}}>
+    <div style={{flex:1,overflowY:"auto",padding:"16px"}}>
       <div style={{fontSize:24,fontWeight:800,letterSpacing:1,marginBottom:4}}>Réglages</div>
       <div style={{color:T.textSub,fontSize:14,marginBottom:24}}>Modifications appliquées immédiatement pour toute l'équipe.</div>
-      <div style={{display:"flex",gap:4,marginBottom:22,borderBottom:`1px solid ${T.border}`,paddingBottom:8}}>
-        {[["ouvriers","👷 Ouvriers"],["taux","💰 Taux horaires"],["chantiers","🏗️ Chantiers"],["apparence","🎨 Apparence"]].map(([k,l])=>(
+      <div style={{display:"flex",gap:4,marginBottom:22,borderBottom:`1px solid ${T.border}`,paddingBottom:8,flexWrap:"wrap"}}>
+        {tabs.map(([k,l])=>(
           <button key={k} className={`atab ${adminTab===k?"on":"off"}`} onClick={()=>setAdminTab(k)}>{l}</button>
         ))}
       </div>
+
+      {adminTab==="utilisateurs" && isAdmin && (
+        <OngletUtilisateurs T={T} />
+      )}
 
       {adminTab==="taux"&&(
         <div className="ac">
