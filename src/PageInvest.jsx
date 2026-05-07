@@ -1068,6 +1068,7 @@ function KPICard({ label, value, color, icon }) {
       <div className="inv-kpi-val" style={{ color: color||"#FFC200", fontSize:26 }}>{value}</div>
     </div>
   );
+}
 
 function TableauBord({ profil, T=THEMES_INV.dark }) {
   const [stats, setStats] = useState(null);
