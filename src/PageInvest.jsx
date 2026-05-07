@@ -1276,39 +1276,32 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
     onSave();
   };
 
-  const F = ({ label, children }) => (
-    <div style={{ marginBottom:14 }}>
-      <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>{label}</label>
-      {children}
-    </div>
-  );
-
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:580, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le contact" : "Nouveau contact"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-          <F label="Nom *"><input className="inv-inp" value={form.nom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,nom:e.target.value})}/></F>
-          <F label="Prénom"><input className="inv-inp" value={form.prenom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prenom:e.target.value})}/></F>
-          <F label="Email"><input className="inv-inp" type="email" value={form.email} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,email:e.target.value})}/></F>
-          <F label="Téléphone"><input className="inv-inp" value={form.telephone} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,telephone:e.target.value})}/></F>
-          <F label="Conseiller référent"><input className="inv-inp" value={form.conseiller} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,conseiller:e.target.value})}/></F>
-          <F label="Source">
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Nom *</label><input className="inv-inp" value={form.nom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,nom:e.target.value})}/></div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Prénom</label><input className="inv-inp" value={form.prenom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prenom:e.target.value})}/></div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Email</label><input className="inv-inp" type="email" value={form.email} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,email:e.target.value})}/></div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Téléphone</label><input className="inv-inp" value={form.telephone} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,telephone:e.target.value})}/></div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Conseiller référent</label><input className="inv-inp" value={form.conseiller} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,conseiller:e.target.value})}/></div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Source</label>
             <select className="inv-sel" value={form.source} style={{ width:"100%" }} onChange={e=>setForm({...form,source:e.target.value})}>
               {SOURCES_CLIENT.map(s=><option key={s}>{s}</option>)}
             </select>
-          </F>
-          <F label="Statut">
+          </div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
             <select className="inv-sel" value={form.statut} style={{ width:"100%" }} onChange={e=>setForm({...form,statut:e.target.value})}>
               {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
             </select>
-          </F>
-          <F label="Budget (€)"><input className="inv-inp" type="number" value={form.budget} style={{ width:"100%" }} onChange={e=>setForm({...form,budget:e.target.value})}/></F>
-          <F label="Étape en cours"><input className="inv-inp" value={form.etape} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,etape:e.target.value})}/></F>
-          <F label="Date prochaine action"><input className="inv-inp" type="date" value={form.date_prochaine_action} style={{ width:"100%" }} onChange={e=>setForm({...form,date_prochaine_action:e.target.value})}/></F>
+          </div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Budget (€)</label><input className="inv-inp" type="number" value={form.budget} style={{ width:"100%" }} onChange={e=>setForm({...form,budget:e.target.value})}/></div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Étape en cours</label><input className="inv-inp" value={form.etape} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,etape:e.target.value})}/></div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Date prochaine action</label><input className="inv-inp" type="date" value={form.date_prochaine_action} style={{ width:"100%" }} onChange={e=>setForm({...form,date_prochaine_action:e.target.value})}/></div>
         </div>
-        <F label="Prochaine action"><input className="inv-inp" value={form.prochaine_action} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prochaine_action:e.target.value})}/></F>
-        <F label="Notes rapides"><textarea className="inv-textarea" rows={3} value={form.notes_rapides} onChange={e=>setForm({...form,notes_rapides:e.target.value})}/></F>
+        <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Prochaine action</label><input className="inv-inp" value={form.prochaine_action} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prochaine_action:e.target.value})}/></div>
+        <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Notes rapides</label><textarea className="inv-textarea" rows={3} value={form.notes_rapides} onChange={e=>setForm({...form,notes_rapides:e.target.value})}/></div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
           <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
           <button className="inv-btn inv-btn-gold" onClick={sauvegarder} disabled={saving}>{saving?"Enregistrement…":"Enregistrer"}</button>
@@ -1801,12 +1794,7 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
     onSave();
   };
 
-  const F = ({ label, children, col }) => (
-    <div style={{ marginBottom:12, gridColumn: col }}>
-      <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>{label}</label>
-      {children}
-    </div>
-  );
+
   const I = (props) => <input className="inv-inp" {...props} style={{ width:"100%", textAlign:"left", ...props.style }}/>;
   const N = (props) => <input className="inv-inp" type="number" {...props} style={{ width:"100%", ...props.style }}/>;
 
@@ -1815,29 +1803,29 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-          <F label="Adresse" col="1 / 3"><I value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></F>
-          <F label="Ville"><I value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></F>
-          <F label="Code postal"><I value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></F>
-          <F label="Interlocuteur"><I value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></F>
-          <F label="Téléphone"><I value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></F>
-          <F label="Agence"><I value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></F>
-          <F label="Statut">
+          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse</label><I value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label><I value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label><I value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label><I value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label><I value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Agence</label><I value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Statut</label>
             <select className="inv-sel" value={form.statut} style={{ width:"100%" }} onChange={e=>setForm({...form,statut:e.target.value})}>
               {STATUTS_BIEN.map(s=><option key={s}>{s}</option>)}
             </select>
-          </F>
-          <F label="Prix de vente (€)"><N value={form.prix_vente} onChange={e=>setForm({...form,prix_vente:e.target.value})}/></F>
-          <F label="Prix travaux (€)"><N value={form.prix_travaux} onChange={e=>setForm({...form,prix_travaux:e.target.value})}/></F>
-          <F label="Coût total (€)"><N value={form.cout_total} onChange={e=>setForm({...form,cout_total:e.target.value})}/></F>
-          <F label="Rendement brut (%)"><N value={form.rendement_brut} step="0.1" onChange={e=>setForm({...form,rendement_brut:e.target.value})}/></F>
-          <F label="Cash-flow estimé (€/mois)"><N value={form.cashflow_estime} onChange={e=>setForm({...form,cashflow_estime:e.target.value})}/></F>
-          <F label="Montant offre (€)"><N value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/></F>
-          <F label="Date visite"><I type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/></F>
-          <F label="Date relance"><I type="date" value={form.date_relance} onChange={e=>setForm({...form,date_relance:e.target.value})}/></F>
-          <F label="Lien annonce" col="1 / 3"><I value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></F>
-          <F label="Lien Drive"><I value={form.lien_drive} onChange={e=>setForm({...form,lien_drive:e.target.value})} placeholder="https://…"/></F>
-          <F label="Lien dossier rentabilité"><I value={form.lien_rentabilite} onChange={e=>setForm({...form,lien_rentabilite:e.target.value})} placeholder="https://…"/></F>
-          <F label="Commentaire" col="1 / 3"><textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})}/></F>
+          </div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix de vente (€)</label><N value={form.prix_vente} onChange={e=>setForm({...form,prix_vente:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix travaux (€)</label><N value={form.prix_travaux} onChange={e=>setForm({...form,prix_travaux:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Coût total (€)</label><N value={form.cout_total} onChange={e=>setForm({...form,cout_total:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Rendement brut (%)</label><N value={form.rendement_brut} step="0.1" onChange={e=>setForm({...form,rendement_brut:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Cash-flow estimé (€/mois)</label><N value={form.cashflow_estime} onChange={e=>setForm({...form,cashflow_estime:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Montant offre (€)</label><N value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date visite</label><I type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date relance</label><I type="date" value={form.date_relance} onChange={e=>setForm({...form,date_relance:e.target.value})}/></div>
+          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien annonce</label><I value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien Drive</label><I value={form.lien_drive} onChange={e=>setForm({...form,lien_drive:e.target.value})} placeholder="https://…"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien dossier rentabilité</label><I value={form.lien_rentabilite} onChange={e=>setForm({...form,lien_rentabilite:e.target.value})} placeholder="https://…"/></div>
+          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Commentaire</label><textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})}/></div>
         </div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
           <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
