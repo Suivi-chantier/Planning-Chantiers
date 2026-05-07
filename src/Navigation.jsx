@@ -15,20 +15,20 @@ function useIsMobile() {
 // ─── PAGES PAR RÔLE (doit correspondre à ROLE_PAGES dans App.jsx) ─────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu","admin"
   ],
   conducteur: [
-    "dashboard","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu"
   ],
   commercial: [
-    "dashboard","planning","plans","visite","info-client","compte-rendu"
+    "dashboard","chantiers","planning","plans","visite","info-client","compte-rendu"
   ],
   comptable: [
-    "dashboard","commandes","biblio-materiaux","phasage"
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage"
   ],
 };
 
@@ -36,6 +36,7 @@ const ROLE_PAGES = {
 function BottomNav({ page, setPage, T, role = "admin" }) {
   const allNav = [
     { id:"dashboard",        icon:"⊞",  label:"Accueil"   },
+    { id:"chantiers",        icon:"🏗️", label:"Chantiers" },
     { id:"planning",         icon:"📅", label:"Planning"  },
     { id:"planning-mensuel", icon:"📆", label:"Mensuel"   },
     { id:"notes-todo",       icon:"📋", label:"Notes"     },
@@ -77,6 +78,7 @@ function Sidebar({ page, setPage, T, role = "admin" }) {
 
   const allNav = [
     { id:"dashboard",          icon:"⊞",  label:"Tableau de bord"    },
+    { id:"chantiers",          icon:"🏗️", label:"Chantiers"          },
     { id:"planning",           icon:"📅", label:"Planning semaine"   },
     { id:"planning-mensuel",   icon:"📆", label:"Planning mensuel"   },
     { id:"notes-todo",         icon:"📋", label:"Notes & To-do"      },
