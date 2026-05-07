@@ -90,18 +90,18 @@ const initBudgetState = (lots, surface) => {
 // ─── THÈMES INVEST ────────────────────────────────────────────────────────────
 const THEMES_INV = {
   dark: {
-    bg:"#080a0d", surface:"#111318", card:"#111318", cardHover:"#16191f",
+    bg:"#080a0d", surface:"#111318", card:"#111318", cardHover:"rgba(255,255,255,0.04)",
     border:"#1e2130", text:"#e8eaf0", textSub:"rgba(255,255,255,0.5)",
     textMuted:"rgba(255,255,255,0.25)", accent:"#4db8ff", sidebar:"#0c0e14",
     input:"#1a1d24", inputBorder:"#2a2d3a", scrollThumb:"#2a2d3a",
     rowBorder:"#1e2130", sectionHd:"#1a1d24", tabNav:"#111318",
   },
   light: {
-    bg:"#f0f4f8", surface:"#ffffff", card:"#ffffff", cardHover:"#f8fafc",
-    border:"#dde3ec", text:"#1a2d4a", textSub:"rgba(26,45,74,0.6)",
-    textMuted:"rgba(26,45,74,0.35)", accent:"#1f7ac0", sidebar:"#1a2d4a",
-    input:"#f8fafc", inputBorder:"#4db8ff", scrollThumb:"#b0c4d8",
-    rowBorder:"#e8eef5", sectionHd:"#f0f4f8", tabNav:"#ffffff",
+    bg:"#f0f4f8", surface:"#ffffff", card:"#ffffff", cardHover:"#f5f7fa",
+    border:"#dde3ec", text:"#1a2d4a", textSub:"rgba(26,45,74,0.65)",
+    textMuted:"rgba(26,45,74,0.4)", accent:"#1f7ac0", sidebar:"#1a2d4a",
+    input:"#ffffff", inputBorder:"#1f7ac0", scrollThumb:"#b0c4d8",
+    rowBorder:"#e8eef5", sectionHd:"#f5f7fa", tabNav:"#ffffff",
   },
 };
 
@@ -211,7 +211,7 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
 `;
 const CSS = getCSS(THEMES_INV.dark);
 // ─── LISTE DES PROJETS ────────────────────────────────────────────────────────
-function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
+function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.dark }) {
   const [projets, setProjets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [suppId, setSuppId]   = useState(null);
@@ -245,21 +245,21 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
     return (
       <div key={p.id} className="inv-card" style={{padding:"18px 20px",cursor:"pointer",transition:"all .18s"}}
         onClick={()=>onOuvrir(p)}
-        onMouseEnter={e=>e.currentTarget.style.borderColor="#FFC200"}
-        onMouseLeave={e=>e.currentTarget.style.borderColor="#1e2130"}>
+        onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
+        onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:15,fontWeight:700,color:"#e8eaf0",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               📄 {p.nom}
             </div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Par {p.created_by} · {fmtDate(p.updated_at)}</div>
+            <div style={{fontSize:11,color:T.textMuted}}>Par {p.created_by} · {fmtDate(p.updated_at)}</div>
           </div>
           <button className="inv-rm" onClick={e=>{e.stopPropagation();setSuppId(p.id);}}>×</button>
         </div>
         {k&&(
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:10}}>
             {[{label:"Coût total",val:k.total>0?fmt(k.total):"—",color:"#4db8ff"},{label:"Loyers/mois",val:k.loyer>0?fmt(k.loyer):"—",color:"#50c878"},{label:"Lots",val:k.nbLots,color:"#FFC200"}].map(item=>(
-              <div key={item.label} style={{background:"rgba(255,255,255,0.04)",borderRadius:7,padding:"7px 9px",borderLeft:`3px solid ${item.color}`}}>
+              <div key={item.label} style={{background:T.cardHover,borderRadius:7,padding:"7px 9px",borderLeft:`3px solid ${item.color}`}}>
                 <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{item.label}</div>
                 <div style={{fontSize:13,fontWeight:800,color:item.color}}>{item.val}</div>
               </div>
@@ -267,8 +267,8 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
           </div>
         )}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:10,background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{fmtDate(p.created_at)}</span>
-          <span style={{fontSize:12,color:"#FFC200",fontWeight:700}}>Ouvrir →</span>
+          <span style={{fontSize:10,background:T.cardHover,color:T.textSub,padding:"2px 8px",borderRadius:20,fontWeight:600}}>{fmtDate(p.created_at)}</span>
+          <span style={{fontSize:12,color:T.accent,fontWeight:700}}>Ouvrir →</span>
         </div>
       </div>
     );
@@ -301,7 +301,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
       ) : projets.length===0 ? (
         <div style={{textAlign:"center",padding:"60px 20px"}}>
           <div style={{fontSize:40,marginBottom:12}}>🏢</div>
-          <div style={{fontSize:16,fontWeight:700,color:"#e8eaf0",marginBottom:16}}>Aucun projet pour l'instant</div>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:16}}>Aucun projet pour l'instant</div>
           <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Créer un projet</button>
         </div>
       ) : (
@@ -317,7 +317,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
     <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,overflowY:"auto"}}>
       <style>{CSS}</style>
       {/* Header */}
-      <div style={{background:"#080a0d",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,borderBottom:"1px solid #1e2130"}}>
+      <div style={{background:"#080a0d",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${T.border}`}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,194,0,0.5)",fontFamily:"'Barlow Condensed',sans-serif"}}>Profero</span>
           <span style={{fontSize:22,fontWeight:800,color:"white"}}>Invest</span>
@@ -342,8 +342,8 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
         ) : projets.length===0 ? (
           <div style={{textAlign:"center",padding:"80px 20px"}}>
             <div style={{fontSize:48,marginBottom:14}}>🏢</div>
-            <div style={{fontSize:18,fontWeight:700,color:"#e8eaf0",marginBottom:8}}>Aucun projet pour l'instant</div>
-            <div style={{fontSize:14,color:"rgba(255,255,255,0.35)",marginBottom:22}}>Créez votre premier projet d'investissement</div>
+            <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:8}}>Aucun projet pour l'instant</div>
+            <div style={{fontSize:14,color:T.textSub,marginBottom:22}}>Créez votre premier projet d'investissement</div>
             <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Créer un projet</button>
           </div>
         ) : (
@@ -1002,8 +1002,8 @@ function Simulateur({ projet, profil, onRetour }) {
                   <tbody>
                     {COMP_FISCA.map((r,i)=>(
                       <tr key={i} style={{background:i%2===0?"#f8f9fb":"white"}}>
-                        <td style={{padding:8,fontWeight:600,color:"#2c3040",borderBottom:"1px solid #1e2130"}}>{r[0]}</td>
-                        {[1,2,3].map(j=><td key={j} style={{padding:8,textAlign:"center",borderBottom:"1px solid #1e2130"}}>{r[j]}</td>)}
+                        <td style={{padding:8,fontWeight:600,color:"#2c3040",borderBottom:`1px solid ${T.border}`}}>{r[0]}</td>
+                        {[1,2,3].map(j=><td key={j} style={{padding:8,textAlign:"center",borderBottom:`1px solid ${T.border}`}}>{r[j]}</td>)}
                       </tr>
                     ))}
                   </tbody>
@@ -1110,7 +1110,7 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
       </div>
 
       {loading ? (
-        <div style={{ textAlign:"center", padding:"60px 0", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:"60px 0", color:T.textMuted }}>Chargement…</div>
       ) : stats && (
         <>
           <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>👥 Clients & Prospects</div>
@@ -1178,7 +1178,7 @@ function CRM({ profil, T=THEMES_INV.dark }) {
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
 
-  if (ficheId) return <FicheClient id={ficheId} profil={profil} onRetour={() => { setFicheId(null); charger(); }} />;
+  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} />;
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
@@ -1210,16 +1210,16 @@ function CRM({ profil, T=THEMES_INV.dark }) {
 
       {/* Liste */}
       {loading ? (
-        <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted }}>Chargement…</div>
       ) : (
         <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
           <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
             <div>Contact</div><div>Statut</div><div>Budget</div><div>Conseiller</div><div>Étape</div><div>Prochaine action</div><div/>
           </div>
           {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)", fontSize:14 }}>Aucun contact trouvé</div>
+            <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted, fontSize:14 }}>Aucun contact trouvé</div>
           ) : filtered.map(c => (
-            <div key={c.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #1e2130", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
+            <div key={c.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", cursor:"pointer", transition:"background .12s" }}
               onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(c.id)}>
@@ -1244,12 +1244,12 @@ function CRM({ profil, T=THEMES_INV.dark }) {
       )}
 
       {/* Modal nouveau contact */}
-      {showForm && <FormulaireClient profil={profil} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
+      {showForm && <FormulaireClient profil={profil} T={T} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
     </div>
   );
 }
 
-function FormulaireClient({ client, profil, onSave, onClose }) {
+function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }) {
   const isEdit = !!client;
   const [form, setForm] = useState({
     nom: client?.nom||"", prenom: client?.prenom||"",
@@ -1278,15 +1278,15 @@ function FormulaireClient({ client, profil, onSave, onClose }) {
 
   const F = ({ label, children }) => (
     <div style={{ marginBottom:14 }}>
-      <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>{label}</label>
+      <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>{label}</label>
       {children}
     </div>
   );
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-      <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:580, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.7)" }}>
-        <div style={{ fontSize:17, fontWeight:800, color:"#e8eaf0", marginBottom:20 }}>{isEdit ? "Modifier le contact" : "Nouveau contact"}</div>
+      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:580, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
+        <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le contact" : "Nouveau contact"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
           <F label="Nom *"><input className="inv-inp" value={form.nom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,nom:e.target.value})}/></F>
           <F label="Prénom"><input className="inv-inp" value={form.prenom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prenom:e.target.value})}/></F>
@@ -1318,7 +1318,7 @@ function FormulaireClient({ client, profil, onSave, onClose }) {
   );
 }
 
-function FicheClient({ id, profil, onRetour }) {
+function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
   const [props, setProps]     = useState([]);
@@ -1350,7 +1350,7 @@ function FicheClient({ id, profil, onRetour }) {
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR").format(v)+" €" : "—";
   const NOTE_ICONS = { appel:"📞", "rendez-vous":"🤝", relance:"🔔", commentaire:"💬", document:"📄", autre:"📝" };
 
-  if (!client) return <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>;
+  if (!client) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1100, margin:"0 auto" }}>
@@ -1379,7 +1379,7 @@ function FicheClient({ id, profil, onRetour }) {
             <div className="inv-card-hd mid">📅 Prochaine Action</div>
             <div className="inv-card-bd">
               <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
-              <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#c0392b" : "#1a2d4a" }}>{fmtDate(client.date_prochaine_action)}</span></div>
+              <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : T.text }}>{fmtDate(client.date_prochaine_action)}</span></div>
               {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
             </div>
           </div>
@@ -1390,9 +1390,9 @@ function FicheClient({ id, profil, onRetour }) {
               {props.length === 0 ? (
                 <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic" }}>Aucun bien proposé</div>
               ) : props.map(p => (
-                <div key={p.id} style={{ padding:"8px 0", borderBottom:"1px solid #1e2130" }}>
-                  <div style={{ fontWeight:600, fontSize:13, color:"#1a2d4a" }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
-                  <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>
+                <div key={p.id} style={{ padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+                  <div style={{ fontWeight:600, fontSize:13, color:T.text }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
+                  <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
                     {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · {p.statut}
                     {p.commentaire && ` · ${p.commentaire}`}
                   </div>
@@ -1426,15 +1426,15 @@ function FicheClient({ id, profil, onRetour }) {
               {notes.length === 0 ? (
                 <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucune note</div>
               ) : notes.map(n => (
-                <div key={n.id} style={{ padding:"10px 0", borderBottom:"1px solid #1e2130" }}>
+                <div key={n.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
                     <span style={{ fontSize:16 }}>{NOTE_ICONS[n.type]||"📝"}</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:"#4db8ff", textTransform:"uppercase" }}>{n.type}</span>
-                    <span style={{ fontSize:11, color:"#9aa0b0", marginLeft:"auto" }}>
+                    <span style={{ fontSize:11, fontWeight:700, color:T.accent, textTransform:"uppercase" }}>{n.type}</span>
+                    <span style={{ fontSize:11, color:T.textMuted, marginLeft:"auto" }}>
                       {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
                     </span>
                   </div>
-                  <div style={{ fontSize:13, color:"rgba(255,255,255,0.75)", lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
+                  <div style={{ fontSize:13, color:T.text, lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
                 </div>
               ))}
             </div>
@@ -1442,7 +1442,7 @@ function FicheClient({ id, profil, onRetour }) {
         </div>
       </div>
 
-      {showEdit && <FormulaireClient client={client} profil={profil} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
+      {showEdit && <FormulaireClient client={client} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
     </div>
   );
 }
@@ -1494,7 +1494,7 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
 
   const aRelancer = biens.filter(b => b.date_relance && b.date_relance <= today).length;
 
-  if (ficheId) return <FicheBien id={ficheId} profil={profil} onRetour={() => { setFicheId(null); charger(); }} />;
+  if (ficheId) return <FicheBien id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} />;
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
@@ -1503,7 +1503,7 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
           <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>Stock de Biens</div>
           <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>
             {filtered.length} bien{filtered.length!==1?"s":""}
-            {aRelancer > 0 && <span style={{ marginLeft:10, color:"#c0392b", fontWeight:700 }}>· 🔔 {aRelancer} à relancer</span>}
+            {aRelancer > 0 && <span style={{ marginLeft:10, color:"#e05c5c", fontWeight:700 }}>· 🔔 {aRelancer} à relancer</span>}
           </div>
         </div>
         <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau bien</button>
@@ -1536,16 +1536,16 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
 
       {/* Liste */}
       {loading ? (
-        <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted }}>Chargement…</div>
       ) : (
         <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
           <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
             <div>Bien</div><div>Statut</div><div>Coût total</div><div>Rendement</div><div>Cash-flow</div><div>Relance</div><div/>
           </div>
           {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)", fontSize:14 }}>Aucun bien trouvé</div>
+            <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted, fontSize:14 }}>Aucun bien trouvé</div>
           ) : filtered.map(b => (
-            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #1e2130", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
+            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", cursor:"pointer", transition:"background .12s" }}
               onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(b.id)}>
@@ -1572,12 +1572,12 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
         </div>
       )}
 
-      {showForm && <FormulaireBien profil={profil} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
+      {showForm && <FormulaireBien profil={profil} T={T} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
     </div>
   );
 }
 
-function FormulaireBien({ bien, profil, onSave, onClose }) {
+function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
   const isEdit = !!bien;
   const [form, setForm] = useState({
     adresse: bien?.adresse||"", ville: bien?.ville||"", code_postal: bien?.code_postal||"",
@@ -1623,8 +1623,8 @@ function FormulaireBien({ bien, profil, onSave, onClose }) {
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-      <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.7)" }}>
-        <div style={{ fontSize:17, fontWeight:800, color:"#e8eaf0", marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
+      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
+        <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
           <F label="Adresse" col="1 / 3"><I value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></F>
           <F label="Ville"><I value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></F>
@@ -1659,7 +1659,7 @@ function FormulaireBien({ bien, profil, onSave, onClose }) {
   );
 }
 
-function FicheBien({ id, profil, onRetour }) {
+function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [bien, setBien]       = useState(null);
   const [props, setProps]     = useState([]);
   const [clients, setClients] = useState([]);
@@ -1691,7 +1691,7 @@ function FicheBien({ id, profil, onRetour }) {
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"}) : "—";
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
 
-  if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>;
+  if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
 
@@ -1712,7 +1712,7 @@ function FicheBien({ id, profil, onRetour }) {
           <div className="inv-card">
             <div className="inv-card-hd blue">🏠 Informations</div>
             <div className="inv-card-bd">
-              {[["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:"#4db8ff"}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
+              {[["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:T.accent}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
               ))}
             </div>
@@ -1725,8 +1725,8 @@ function FicheBien({ id, profil, onRetour }) {
               ))}
               {(bien.lien_drive || bien.lien_rentabilite) && (
                 <div style={{ marginTop:12, display:"flex", gap:8, flexWrap:"wrap" }}>
-                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:"#4db8ff",borderColor:"rgba(77,184,255,0.3)"}}>📁 Dossier Drive</a>}
-                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:"#4db8ff",borderColor:"rgba(77,184,255,0.3)"}}>📊 Rentabilité</a>}
+                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:`${T.accent}55`}}>📁 Dossier Drive</a>}
+                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:`${T.accent}55`}}>📊 Rentabilité</a>}
                 </div>
               )}
             </div>
@@ -1734,7 +1734,7 @@ function FicheBien({ id, profil, onRetour }) {
           {bien.commentaire && (
             <div className="inv-card">
               <div className="inv-card-hd mid">💬 Commentaire</div>
-              <div className="inv-card-bd" style={{ fontSize:13, color:"#5a6070", lineHeight:1.7 }}>{bien.commentaire}</div>
+              <div className="inv-card-bd" style={{ fontSize:13, color:T.textSub, lineHeight:1.7 }}>{bien.commentaire}</div>
             </div>
           )}
         </div>
@@ -1749,44 +1749,44 @@ function FicheBien({ id, profil, onRetour }) {
             {props.length === 0 ? (
               <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun client associé</div>
             ) : props.map(p => (
-              <div key={p.id} style={{ padding:"10px 0", borderBottom:"1px solid #1e2130" }}>
-                <div style={{ fontWeight:700, fontSize:13, color:"#1a2d4a" }}>{p.client?.prenom} {p.client?.nom}</div>
-                <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>
-                  {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:"#1f4ea1" }}>{p.statut}</span>
+              <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
+                <div style={{ fontWeight:700, fontSize:13, color:T.text }}>{p.client?.prenom} {p.client?.nom}</div>
+                <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
+                  {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
                   {p.commentaire && ` · ${p.commentaire}`}
                 </div>
-                {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:"#1f4ea1" }}>📄 Dossier présenté ↗</a>}
+                {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent }}>📄 Dossier présenté ↗</a>}
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {showEdit && <FormulaireBien bien={bien} profil={profil} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
+      {showEdit && <FormulaireBien bien={bien} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
 
       {showProp && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-          <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:14, padding:"24px 26px", width:"90%", maxWidth:440 }}>
-            <div style={{ fontSize:16, fontWeight:800, color:"#e8eaf0", marginBottom:16 }}>Proposer ce bien à un client</div>
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"24px 26px", width:"90%", maxWidth:440 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:16 }}>Proposer ce bien à un client</div>
             <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Client</label>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Client</label>
               <select className="inv-sel" value={newProp.client_id} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,client_id:e.target.value})}>
                 <option value="">Sélectionner un client…</option>
                 {clients.map(c=><option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>)}
               </select>
             </div>
             <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
               <select className="inv-sel" value={newProp.statut} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,statut:e.target.value})}>
                 {STATUTS_PROP.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
             <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Commentaire</label>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Commentaire</label>
               <textarea className="inv-textarea" rows={2} value={newProp.commentaire} onChange={e=>setNewProp({...newProp,commentaire:e.target.value})}/>
             </div>
             <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Lien dossier présenté</label>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Lien dossier présenté</label>
               <input className="inv-inp" value={newProp.lien_dossier} style={{ width:"100%", textAlign:"left" }} onChange={e=>setNewProp({...newProp,lien_dossier:e.target.value})} placeholder="https://…"/>
             </div>
             <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
@@ -2142,7 +2142,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil }) {
   ];
   return (
     <div style={{ width:220, flexShrink:0, background:"#0c0e14", borderRight:"1px solid #1e2130", display:"flex", flexDirection:"column", height:"100%", overflowY:"auto" }}>
-      <div style={{ padding:"18px 16px 14px", borderBottom:"1px solid #1e2130" }}>
+      <div style={{ padding:"18px 16px 14px", borderBottom:`1px solid ${T.border}` }}>
         <div style={{ fontSize:10, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:4, fontFamily:"'Barlow Condensed',sans-serif" }}>Profero</div>
         <div style={{ fontSize:22, fontWeight:800, color:"#e8eaf0", fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:.5 }}>Invest</div>
       </div>
@@ -2204,7 +2204,7 @@ export default function PageInvest({ profil }) {
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
             <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
             <div style={{ fontSize:14, color:T.textSub, marginBottom:24 }}>Créez et analysez vos projets d'investissement</div>
-            <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} inline={true} />
+            <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} inline={true} T={T} />
           </div>
         )}
       </div>
