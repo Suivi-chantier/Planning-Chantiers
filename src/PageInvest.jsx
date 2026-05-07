@@ -2369,47 +2369,135 @@ function OngletUtilisateursInvest({ T }) {
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
 function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout }) {
   const isAdmin = profil?.role === "admin";
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
+
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem("invest_sidebar_collapsed", next ? "1" : "0");
+  };
+
   const NAV = [
-    { id:"dashboard",  icon:"⊞",  label:"Tableau de bord" },
-    { id:"crm",        icon:"👥", label:"CRM Clients" },
-    { id:"biens",      icon:"🏠", label:"Stock de biens" },
-    { id:"simulateur", icon:"📐", label:"Simulateur" },
-    ...(isAdmin ? [{ id:"admin", icon:"⚙️", label:"Réglages" }] : []),
+    { id:"dashboard",  label:"Tableau de bord", icon:(
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+      </svg>)},
+    { id:"crm",        label:"CRM Clients", icon:(
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>)},
+    { id:"biens",      label:"Stock de biens", icon:(
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>)},
+    { id:"simulateur", label:"Simulateur", icon:(
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>)},
+    ...(isAdmin ? [{ id:"admin", label:"Réglages", icon:(
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>)}] : []),
   ];
+
+  const W = collapsed ? 64 : 220;
+  const accent = "#4db8ff";
+
+  const iconBtn = (onClick, svgPath, color, bg, border, title) => (
+    <button onClick={onClick} title={collapsed ? title : ""} style={{
+      width:"100%", background:bg, border, borderRadius:8,
+      padding: collapsed ? "10px 0" : "8px 12px",
+      color, fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700,
+      cursor:"pointer", display:"flex", alignItems:"center",
+      justifyContent: collapsed ? "center" : "flex-start",
+      gap:8, letterSpacing:.5, transition:"all .15s",
+    }}>
+      <span style={{ flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", width:18 }}>{svgPath}</span>
+      {!collapsed && <span>{title}</span>}
+    </button>
+  );
+
   return (
-    <div style={{ width:220, flexShrink:0, background:"#0c0e14", borderRight:"1px solid #1e2130", display:"flex", flexDirection:"column", height:"100%", overflowY:"auto" }}>
-      <div style={{ padding:"18px 16px 14px", borderBottom:"1px solid #1e2130" }}>
-        <div style={{ fontSize:10, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:4, fontFamily:"'Barlow Condensed',sans-serif" }}>Profero</div>
-        <div style={{ fontSize:22, fontWeight:800, color:"#e8eaf0", fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:.5 }}>Invest</div>
-      </div>
-      <nav style={{ padding:"8px 8px", flex:1 }}>
-        {NAV.map(n => (
-          <button key={n.id} onClick={() => setPage(n.id)}
-            style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"11px 14px", borderRadius:10, border:"none", cursor:"pointer", fontFamily:"'Barlow Condensed',sans-serif", fontSize:15, fontWeight:700, letterSpacing:.3, background: page===n.id ? "rgba(77,184,255,0.12)" : "transparent", color: page===n.id ? "#4db8ff" : "rgba(255,255,255,0.4)", marginBottom:4, textAlign:"left", transition:"all .12s" }}>
-            <span style={{ fontSize:20, width:24, textAlign:"center", flexShrink:0 }}>{n.icon}</span>
-            <span>{n.label}</span>
-            {page===n.id && <span style={{ marginLeft:"auto", width:4, height:18, borderRadius:2, background:"#4db8ff", display:"block", flexShrink:0 }}/>}
-          </button>
-        ))}
-      </nav>
-      <div style={{ padding:"12px 14px", borderTop:"1px solid #1e2130", display:"flex", flexDirection:"column", gap:8 }}>
-        <button onClick={() => { const n = theme==="dark"?"light":"dark"; setTheme(n); localStorage.setItem("invest_theme",n); }}
-          style={{ width:"100%", background:"rgba(77,184,255,0.1)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"8px 12px", color:"#4db8ff", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8, letterSpacing:.5 }}>
-          {theme==="dark" ? "☀️ Mode clair" : "🌙 Mode sombre"}
-        </button>
-        {onRetourPortail && (
-          <button onClick={onRetourPortail}
-            style={{ width:"100%", background:"rgba(255,194,0,0.08)", border:"1px solid rgba(255,194,0,0.2)", borderRadius:8, padding:"8px 12px", color:"rgba(255,194,0,0.8)", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8, letterSpacing:.5 }}>
-            ⊞ Portail
-          </button>
+    <div style={{
+      width:W, flexShrink:0, background:"#0c0e14", borderRight:"1px solid #1e2130",
+      display:"flex", flexDirection:"column", height:"100%",
+      transition:"width .2s ease", overflow:"hidden",
+    }}>
+      {/* Header + toggle */}
+      <div style={{
+        padding: collapsed ? "14px 0" : "16px 14px 12px",
+        borderBottom:"1px solid #1e2130", display:"flex", alignItems:"center",
+        justifyContent: collapsed ? "center" : "space-between", gap:8, flexShrink:0,
+      }}>
+        {!collapsed && (
+          <div>
+            <div style={{ fontSize:10, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", fontFamily:"'Barlow Condensed',sans-serif" }}>Profero</div>
+            <div style={{ fontSize:22, fontWeight:800, color:"#e8eaf0", fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:.5 }}>Invest</div>
+          </div>
         )}
-        <button onClick={onLogout}
-          style={{ width:"100%", background:"rgba(224,92,92,0.08)", border:"1px solid rgba(224,92,92,0.2)", borderRadius:8, padding:"8px 12px", color:"#e05c5c", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8, letterSpacing:.5 }}>
-          ⏻ Déconnexion
+        <button onClick={toggle} title={collapsed ? "Agrandir" : "Réduire"} style={{
+          background:"rgba(255,255,255,0.06)", border:"none", borderRadius:6,
+          width:28, height:28, cursor:"pointer", color:"rgba(255,255,255,0.5)",
+          fontSize:12, display:"flex", alignItems:"center", justifyContent:"center",
+          flexShrink:0, transition:"background .15s",
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = "rgba(77,184,255,0.2)"}
+        onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}>
+          {collapsed ? "▶" : "◀"}
         </button>
-        <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", lineHeight:1.5, fontFamily:"'Barlow Condensed',sans-serif" }}>
-          {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
-        </div>
+      </div>
+
+      {/* Nav */}
+      <nav style={{ flex:1, padding: collapsed ? "8px 6px" : "8px 8px", overflowY:"auto" }}>
+        {NAV.map(n => {
+          const active = page === n.id;
+          return (
+            <button key={n.id} onClick={() => setPage(n.id)}
+              title={collapsed ? n.label : ""}
+              style={{
+                width:"100%", display:"flex", alignItems:"center",
+                justifyContent: collapsed ? "center" : "flex-start",
+                gap:10, padding: collapsed ? "12px 0" : "11px 14px",
+                borderRadius:10, border:"none", cursor:"pointer",
+                fontFamily:"'Barlow Condensed',sans-serif", fontSize:15,
+                fontWeight: active ? 700 : 500, letterSpacing:.3,
+                background: active ? "rgba(77,184,255,0.12)" : "transparent",
+                color: active ? accent : "rgba(255,255,255,0.4)",
+                marginBottom:4, transition:"all .12s", textAlign:"left", whiteSpace:"nowrap",
+              }}>
+              <span style={{ flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", width:24 }}>{n.icon}</span>
+              {!collapsed && <span>{n.label}</span>}
+              {!collapsed && active && <span style={{ marginLeft:"auto", width:4, height:18, borderRadius:2, background:accent, display:"block", flexShrink:0 }}/>}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Boutons bas */}
+      <div style={{ padding: collapsed ? "8px 6px" : "12px 10px", borderTop:"1px solid #1e2130", display:"flex", flexDirection:"column", gap:6 }}>
+        {iconBtn(
+          () => { const n = theme==="dark"?"light":"dark"; setTheme(n); localStorage.setItem("invest_theme",n); },
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{theme==="dark" ? <circle cx="12" cy="12" r="5"/> : <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>}{theme==="dark" && [<line key="1" x1="12" y1="1" x2="12" y2="3"/>,<line key="2" x1="12" y1="21" x2="12" y2="23"/>,<line key="3" x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>,<line key="4" x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>,<line key="5" x1="1" y1="12" x2="3" y2="12"/>,<line key="6" x1="21" y1="12" x2="23" y2="12"/>]}</svg>,
+          "#4db8ff", "rgba(77,184,255,0.1)", "1px solid rgba(77,184,255,0.2)",
+          theme==="dark" ? "Mode clair" : "Mode sombre"
+        )}
+        {onRetourPortail && iconBtn(
+          onRetourPortail,
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>,
+          "rgba(255,194,0,0.8)", "rgba(255,194,0,0.08)", "1px solid rgba(255,194,0,0.2)",
+          "Portail"
+        )}
+        {iconBtn(
+          onLogout,
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+          "#e05c5c", "rgba(224,92,92,0.08)", "1px solid rgba(224,92,92,0.2)",
+          "Déconnexion"
+        )}
+        {!collapsed && (
+          <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", lineHeight:1.5, fontFamily:"'Barlow Condensed',sans-serif", marginTop:4 }}>
+            {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
+          </div>
+        )}
       </div>
     </div>
   );
