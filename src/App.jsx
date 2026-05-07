@@ -98,19 +98,19 @@ const CSS_BASE = `
   .login-btn:disabled { opacity: .5; cursor: not-allowed; }
   .login-btn:hover:not(:disabled) { opacity: .9; }
   .portal-card {
-    background: #111318; border: 1px solid #2a2d3a; border-radius: 20px;
+    background: #252830; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
     padding: 36px 32px; cursor: pointer; transition: all .2s; position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 16px;
   }
   .portal-card:hover:not(.disabled) {
     border-color: rgba(255,194,0,0.5);
     transform: translateY(-4px);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,194,0,0.2);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,194,0,0.2);
   }
   .portal-card.disabled { cursor: not-allowed; opacity: .55; }
   .portal-card-invest:hover:not(.disabled) {
     border-color: rgba(100,180,255,0.4) !important;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(100,180,255,0.15) !important;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.3), 0 0 0 1px rgba(100,180,255,0.15) !important;
   }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 `;
@@ -216,12 +216,12 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
   }, []);
 
   return (
-    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:"#1c1f26", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{CSS_BASE}</style>
 
       {/* Header */}
-      <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
-        <img src={logoNavbar || LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain" }}/>
+      <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid rgba(255,255,255,0.07)", background:"rgba(0,0,0,0.25)" }}>
+        <img src={logoNavbar || LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain", maxWidth:180 }}/>
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{profil?.nom || user?.email}</div>
@@ -238,11 +238,13 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
       {/* Contenu */}
       <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 20px" }}>
         <div style={{ textAlign:"center", marginBottom:56 }}>
-          <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:12 }}>Groupe Profero</div>
+          <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:16 }}>Groupe Profero</div>
           {/* ── LOGO PRINCIPAL PORTAIL ── */}
           {logoPortail
-            ? <img src={logoPortail} alt="Logo portail" style={{ height:90, maxWidth:420, objectFit:"contain", display:"block", margin:"0 auto 16px" }}/>
-            : <div style={{ height:90, maxWidth:420, margin:"0 auto 16px", display:"flex", alignItems:"center", justifyContent:"center", border:"2px dashed rgba(255,255,255,0.08)", borderRadius:12, color:"rgba(255,255,255,0.15)", fontSize:13, letterSpacing:1 }}>Logo portail</div>
+            ? <div style={{ display:"flex", alignItems:"center", justifyContent:"center", marginBottom:20 }}>
+                <img src={logoPortail} alt="Logo portail" style={{ maxHeight:80, maxWidth:360, objectFit:"contain", display:"block" }}/>
+              </div>
+            : null
           }
           <div style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:.5 }}>Choisissez votre espace</div>
           <div style={{ fontSize:15, color:"rgba(255,255,255,0.3)", marginTop:8 }}>
@@ -254,12 +256,12 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:24, width:"100%", maxWidth:720 }}>
 
           {/* Rénovation */}
-          <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")}>
+          <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")} style={{ background:"#252830" }}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#FFC200,#ff9500)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.1)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0, overflow:"hidden" }}>
+              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.08)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0, overflow:"hidden" }}>
                 {logoReno
-                  ? <img src={logoReno} alt="Reno" style={{ width:52, height:52, objectFit:"cover", borderRadius:14 }}/>
+                  ? <img src={logoReno} alt="Reno" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4 }}/>
                   : "🏗️"
                 }
               </div>
@@ -283,12 +285,12 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
           </div>
 
           {/* Invest */}
-          <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
+          <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")} style={{ background:"#252830" }}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
               <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0, overflow:"hidden" }}>
                 {logoInvest
-                  ? <img src={logoInvest} alt="Invest" style={{ width:52, height:52, objectFit:"cover", borderRadius:14 }}/>
+                  ? <img src={logoInvest} alt="Invest" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4 }}/>
                   : "🏢"
                 }
               </div>
