@@ -404,6 +404,58 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [newColor,setNewColor]=useState(COULEURS_PALETTE[0]);
   const [editChIdx,setEditChIdx]=useState(null);
 
+  // ─── LOGOS (stockés dans Supabase planning_config) ───────────────────────
+  const [logoNavbar,  setLogoNavbar]  = useState(null);
+  const [logoPortail, setLogoPortail] = useState(null);
+  const [logoReno,    setLogoReno]    = useState(null);
+  const [logoInvest,  setLogoInvest]  = useState(null);
+  const [logosLoading, setLogosLoading] = useState(true);
+  const [logosSaving,  setLogosSaving]  = useState({});
+
+  // Charger les logos depuis Supabase au montage
+  useEffect(() => {
+    const loadLogos = async () => {
+      setLogosLoading(true);
+      try {
+        const { data } = await supabase
+          .from("planning_config")
+          .select("key,value")
+          .in("key", ["logo_navbar","logo_portail","logo_reno","logo_invest"]);
+        if (data) {
+          data.forEach(r => {
+            if (r.key === "logo_navbar")  setLogoNavbar(r.value  || null);
+            if (r.key === "logo_portail") setLogoPortail(r.value || null);
+            if (r.key === "logo_reno")    setLogoReno(r.value    || null);
+            if (r.key === "logo_invest")  setLogoInvest(r.value  || null);
+          });
+        }
+      } catch(e) { console.error("Chargement logos:", e); }
+      setLogosLoading(false);
+    };
+    loadLogos();
+  }, []);
+
+  const handleLogoUpload = (key, setFn, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const data = ev.target.result;
+      setLogosSaving(s => ({...s, [key]: true}));
+      setFn(data);
+      await saveConfig(key, data);
+      setLogosSaving(s => ({...s, [key]: false}));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleLogoDelete = async (key, setFn) => {
+    setLogosSaving(s => ({...s, [key]: true}));
+    setFn(null);
+    await saveConfig(key, null);
+    setLogosSaving(s => ({...s, [key]: false}));
+  };
+
   const addOuvrier=()=>{if(!newOuvrier.trim())return;const u=[...ouvriers,newOuvrier.trim()];setOuvriers(u);saveConfig("ouvriers",u);setNewOuvrier("");};
   const removeOuvrier=i=>{const u=ouvriers.filter((_,idx)=>idx!==i);setOuvriers(u);saveConfig("ouvriers",u);};
   const renameOuvrier=(i,v,email)=>{
@@ -427,6 +479,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["ouvriers",  "👷 Ouvriers"],
     ["taux",      "💰 Taux horaires"],
     ["chantiers", "🏗️ Chantiers"],
+    ["logos",     "🖼️ Logos"],
     ["apparence", "🎨 Apparence"],
     ...(isAdmin ? [["utilisateurs", "👥 Utilisateurs"]] : []),
   ];
@@ -568,6 +621,74 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             <input className="ti" value={newNom} onChange={e=>setNewNom(e.target.value)}
               placeholder="Nom du chantier…" style={{flex:1,minWidth:140}} onKeyDown={e=>e.key==="Enter"&&addChantier()}/>
             <button className="btn-p" onClick={addChantier}>+ Ajouter</button>
+          </div>
+        </div>
+      )}
+
+      {adminTab==="logos"&&(
+        <div className="ac">
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Logos de l'application</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:22}}>
+            Importez vos logos PNG pour personnaliser le portail. Les logos sont partagés avec toute l'équipe.
+          </div>
+
+          {logosLoading
+            ? <div style={{color:T.textMuted,fontSize:13,padding:"20px 0"}}>⏳ Chargement des logos…</div>
+            : [
+              { key:"logo_navbar",  state:logoNavbar,  setFn:setLogoNavbar,  label:"Logo navbar (en-tête, coin gauche)",   desc:"Affiché en haut à gauche dans la barre de navigation.",      w:160, h:40  },
+              { key:"logo_portail", state:logoPortail, setFn:setLogoPortail, label:"Logo principal (centre du portail)",   desc:"Grande zone rectangulaire au centre de la page d'accueil.", w:320, h:80  },
+              { key:"logo_reno",    state:logoReno,    setFn:setLogoReno,    label:"Icône carte Rénovation",               desc:"Icône carrée dans la carte Rénovation.",                    w:52,  h:52  },
+              { key:"logo_invest",  state:logoInvest,  setFn:setLogoInvest,  label:"Icône carte Invest",                   desc:"Icône carrée dans la carte Invest.",                        w:52,  h:52  },
+            ].map(({key,state,setFn,label,desc,w,h})=>(
+              <div key={key} style={{display:"flex",alignItems:"flex-start",gap:18,padding:"18px 0",borderBottom:`1px solid ${T.border}`}}>
+
+                {/* Aperçu */}
+                <div style={{
+                  width:w>80?120:60, height:h>60?60:52, flexShrink:0,
+                  borderRadius:10, border:`1.5px dashed ${state?"rgba(255,194,0,0.4)":T.border}`,
+                  background:T.card, display:"flex", alignItems:"center", justifyContent:"center",
+                  overflow:"hidden",
+                }}>
+                  {state
+                    ? <img src={state} alt={label} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+                    : <span style={{fontSize:22,opacity:.3}}>🖼️</span>
+                  }
+                </div>
+
+                {/* Infos + actions */}
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:3}}>{label}</div>
+                  <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>{desc}</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    <label style={{
+                      display:"inline-flex",alignItems:"center",gap:6,
+                      background: logosSaving[key] ? T.border : T.accent,
+                      color:"#111",border:"none",borderRadius:6,
+                      padding:"7px 14px",fontSize:12,fontWeight:700,
+                      cursor: logosSaving[key] ? "not-allowed" : "pointer",
+                      opacity: logosSaving[key] ? .6 : 1,
+                    }}>
+                      <input
+                        type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        style={{display:"none"}}
+                        disabled={!!logosSaving[key]}
+                        onChange={e=>handleLogoUpload(key,setFn,e)}
+                      />
+                      {logosSaving[key] ? "⏳ Sauvegarde…" : state ? "↺ Remplacer" : "+ Importer"} PNG
+                    </label>
+                    {state && !logosSaving[key] && (
+                      <button className="btn-d" onClick={()=>handleLogoDelete(key,setFn)}>
+                        Supprimer
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          }
+
+          <div style={{marginTop:16,padding:"12px 14px",background:T.card,borderRadius:8,fontSize:12,color:T.textMuted,lineHeight:1.6}}>
+            ℹ️ Les logos sont sauvegardés dans Supabase et partagés avec toute l'équipe. Formats acceptés : PNG, JPG, WEBP, SVG.
           </div>
         </div>
       )}
