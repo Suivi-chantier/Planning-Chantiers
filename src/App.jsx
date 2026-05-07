@@ -260,7 +260,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#FFC200,#ff9500)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
               {logoReno
-                ? <img src={logoReno} alt="Rénovation" style={{ maxHeight:52, maxWidth:"100%", objectFit:"contain" }}/>
+                ? <img src={logoReno} alt="Rénovation" style={{ height:60, maxWidth:"100%", objectFit:"contain" }}/>
                 : <>
                     <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.08)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏗️</div>
                     <div>
@@ -270,7 +270,6 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
                   </>
               }
             </div>
-            {logoReno && <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Rénovation</div>}
             <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
               Planning chantiers, commandes, équipes, phasage, comptes rendus et suivi de travaux.
             </div>
@@ -290,7 +289,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
               {logoInvest
-                ? <img src={logoInvest} alt="Invest" style={{ maxHeight:52, maxWidth:"100%", objectFit:"contain" }}/>
+                ? <img src={logoInvest} alt="Invest" style={{ height:60, maxWidth:"100%", objectFit:"contain" }}/>
                 : <>
                     <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏢</div>
                     <div>
