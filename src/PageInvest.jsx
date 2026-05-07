@@ -621,7 +621,7 @@ function Simulateur({ projet, profil, onRetour }) {
       </div>
 
       {/* Contenu scrollable */}
-      <div style={{flex:1,overflowY:"auto",background:"#f8f9fb"}}>
+      <div style={{flex:1,overflowY:"auto",background:"#080a0d"}}>
 
         {/* ══ TAB SIMULATEUR ══ */}
         {tab==="simulateur"&&(
@@ -1001,9 +1001,9 @@ function Simulateur({ projet, profil, onRetour }) {
                   </tr></thead>
                   <tbody>
                     {COMP_FISCA.map((r,i)=>(
-                      <tr key={i} style={{background:i%2===0?"#f8f9fb":"white"}}>
-                        <td style={{padding:8,fontWeight:600,color:"#2c3040",borderBottom:`1px solid ${T.border}`}}>{r[0]}</td>
-                        {[1,2,3].map(j=><td key={j} style={{padding:8,textAlign:"center",borderBottom:`1px solid ${T.border}`}}>{r[j]}</td>)}
+                      <tr key={i} style={{background:i%2===0?"rgba(255,255,255,0.03)":"transparent"}}>
+                        <td style={{padding:8,fontWeight:600,color:"#e8eaf0",borderBottom:"1px solid #2a2d3a"}}>{r[0]}</td>
+                        {[1,2,3].map(j=><td key={j} style={{padding:8,textAlign:"center",borderBottom:"1px solid #2a2d3a"}}>{r[j]}</td>)}
                       </tr>
                     ))}
                   </tbody>
@@ -1042,7 +1042,7 @@ function Simulateur({ projet, profil, onRetour }) {
       {/* Modal Reset */}
       {showReset&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
-          <div style={{background:"white",borderRadius:14,padding:"26px 30px",maxWidth:380,width:"90%",textAlign:"center"}}>
+          <div style={{background:"#111318",border:"1px solid #2a2d3a",borderRadius:14,padding:"26px 30px",maxWidth:380,width:"90%",textAlign:"center"}}>
             <div style={{fontSize:34,marginBottom:10}}>⚠️</div>
             <div style={{fontSize:15,fontWeight:800,color:"#1a2d4a",marginBottom:7}}>Réinitialiser le simulateur ?</div>
             <div style={{fontSize:13,color:"#5a6070",marginBottom:22,lineHeight:1.6}}>Toutes les données saisies seront effacées. Cette action est irréversible.</div>
