@@ -120,6 +120,9 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
   const [uploading, setUploading]       = useState(false);
   const [compteRendus, setCompteRendus] = useState([]);
   const [loadingCR, setLoadingCR]       = useState(false);
+  const [showLierModal, setShowLierModal] = useState(false);
+  const [tousCRs, setTousCRs]           = useState([]);
+  const [loadingTous, setLoadingTous]   = useState(false);
   const fileInputRef                    = useRef(null);
 
   const bg      = T?.bg      || "#0d0f12";
