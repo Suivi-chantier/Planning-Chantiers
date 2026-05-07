@@ -2,6 +2,40 @@ import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from
 import { supabase } from "./supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getTodayJour } from "./constants";
 
+// ─── COMPOSANTS DASHBOARD (top-level pour éviter re-render) ─────────────────
+function DashWidget({title, icon, children, action, T}) {
+  return (
+    <div style={{background:T.widgetBg,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
+      <div style={{padding:"14px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",
+        borderBottom:`1px solid ${T.sectionDivider}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:18}}>{icon}</span>
+          <span style={{fontSize:13,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted}}>{title}</span>
+        </div>
+        {action}
+      </div>
+      <div style={{padding:"14px 18px"}}>{children}</div>
+    </div>
+  );
+}
+
+function DashExternalBtn({href, icon, label, color="#5b8af5", T}) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{
+      display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+      borderRadius:10,border:`1px solid ${T.border}`,background:T.card,
+      color:T.text,textDecoration:"none",fontSize:14,fontWeight:600,
+      transition:"all .15s",marginBottom:8,
+    }}
+    onMouseEnter={e=>{e.currentTarget.style.background=T.cardHover;e.currentTarget.style.borderColor=color+"66";}}
+    onMouseLeave={e=>{e.currentTarget.style.background=T.card;e.currentTarget.style.borderColor=T.border;}}>
+      <span style={{fontSize:20}}>{icon}</span>
+      <span>{label}</span>
+      <span style={{marginLeft:"auto",fontSize:12,color:T.textMuted}}>↗</span>
+    </a>
+  );
+}
+
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
 function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
   const todayJour=getTodayJour();
@@ -44,35 +78,6 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
     localStorage.setItem("drive_links",JSON.stringify(updated));
   };
 
-  const Widget=({title,icon,children,action})=>(
-    <div style={{background:T.widgetBg,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
-      <div style={{padding:"14px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",
-        borderBottom:`1px solid ${T.sectionDivider}`}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:18}}>{icon}</span>
-          <span style={{fontSize:13,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted}}>{title}</span>
-        </div>
-        {action}
-      </div>
-      <div style={{padding:"14px 18px"}}>{children}</div>
-    </div>
-  );
-
-  const ExternalBtn=({href,icon,label,color="#5b8af5"})=>(
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{
-      display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
-      borderRadius:10,border:`1px solid ${T.border}`,background:T.card,
-      color:T.text,textDecoration:"none",fontSize:14,fontWeight:600,
-      transition:"all .15s",marginBottom:8,
-    }}
-    onMouseEnter={e=>{e.currentTarget.style.background=T.cardHover;e.currentTarget.style.borderColor=color+"66";}}
-    onMouseLeave={e=>{e.currentTarget.style.background=T.card;e.currentTarget.style.borderColor=T.border;}}>
-      <span style={{fontSize:20}}>{icon}</span>
-      <span>{label}</span>
-      <span style={{marginLeft:"auto",fontSize:12,color:T.textMuted}}>↗</span>
-    </a>
-  );
-
   return(
     <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
 
@@ -87,7 +92,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
       {/* Rangée 1 : Chantiers (2/3) + Commandes urgentes (1/3) */}
       <div className="dashboard-row-1" style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:20,marginBottom:20}}>
 
-        <Widget title="Chantiers aujourd'hui" icon="🏗️">
+        <DashWidget T={T} title="Chantiers aujourd'hui" icon="🏗️">
           {!todayJour?(
             <div style={{color:T.textMuted,fontSize:16,padding:"8px 0"}}>C'est le week-end ! 🎉</div>
           ):chantiersAujourdHui.length===0?(
@@ -114,9 +119,9 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
               ))}
             </div>
           )}
-        </Widget>
+        </DashWidget>
 
-        <Widget title="Commandes urgentes" icon="🚨">
+        <DashWidget T={T} title="Commandes urgentes" icon="🚨">
           {cmdDetails.length===0?(
             <div style={{color:T.textMuted,fontSize:15}}>Aucune commande en attente ✓</div>
           ):(
@@ -135,29 +140,29 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
               {cmdDetails.length>7&&<div style={{fontSize:13,color:T.textMuted}}>+{cmdDetails.length-7} autres…</div>}
             </div>
           )}
-        </Widget>
+        </DashWidget>
       </div>
 
       {/* Rangée 2 : Accès rapides (1/3) + Agenda large (2/3) */}
       <div className="dashboard-row-2" style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:20,marginBottom:24}}>
 
-        <Widget title="Accès rapides" icon="🔗"
+        <DashWidget T={T} title="Accès rapides" icon="🔗"
           action={<button onClick={()=>setEditLinks(!editLinks)} style={{background:"transparent",
             border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",
             color:T.textMuted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
             {editLinks?"✓ Terminer":"Modifier"}
           </button>}>
-          <ExternalBtn href="https://mail.google.com"    icon="📧" label="Gmail"         color="#ea4335"/>
-          <ExternalBtn href="https://calendar.google.com" icon="📅" label="Google Agenda" color="#4285f4"/>
-          <ExternalBtn href="https://keep.google.com"    icon="🗒️" label="Google Keep"   color="#fbbc04"/>
-          <ExternalBtn href="https://drive.google.com"   icon="💾" label="Google Drive"  color="#34a853"/>
-          <ExternalBtn href="https://web.whatsapp.com"   icon="💬" label="WhatsApp Web"  color="#25d366"/>
+          <DashExternalBtn T={T} href="https://mail.google.com"    icon="📧" label="Gmail"         color="#ea4335"/>
+          <DashExternalBtn T={T} href="https://calendar.google.com" icon="📅" label="Google Agenda" color="#4285f4"/>
+          <DashExternalBtn T={T} href="https://keep.google.com"    icon="🗒️" label="Google Keep"   color="#fbbc04"/>
+          <DashExternalBtn T={T} href="https://drive.google.com"   icon="💾" label="Google Drive"  color="#34a853"/>
+          <DashExternalBtn T={T} href="https://web.whatsapp.com"   icon="💬" label="WhatsApp Web"  color="#25d366"/>
           {driveLinks.length>0&&<>
             <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",
               color:T.textMuted,margin:"14px 0 8px"}}>Dossiers Drive</div>
             {driveLinks.map((l,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{flex:1}}><ExternalBtn href={l.url} icon="📁" label={l.name} color="#34a853"/></div>
+                <div style={{flex:1}}><DashExternalBtn T={T} href={l.url} icon="📁" label={l.name} color="#34a853"/></div>
                 {editLinks&&<button onClick={()=>removeDriveLink(i)} style={{background:"transparent",
                   border:"none",color:"#e05c5c",cursor:"pointer",fontSize:18,flexShrink:0,padding:"0 4px"}}>✕</button>}
               </div>
@@ -179,10 +184,10 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
               </button>
             </div>
           )}
-        </Widget>
+        </DashWidget>
 
         {/* AGENDA — large, hauteur généreuse */}
-        <Widget title="Mon Agenda" icon="📅"
+        <DashWidget T={T} title="Mon Agenda" icon="📅"
           action={<button onClick={()=>{const url=prompt("Colle l'URL d'intégration Google Calendar :",calEmbed);if(url!==null)saveCalEmbed(url.trim());}}
             style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,
               padding:"4px 10px",color:T.textMuted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
@@ -205,7 +210,7 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
               </button>
             </div>
           )}
-        </Widget>
+        </DashWidget>
       </div>
     </div>
   );
