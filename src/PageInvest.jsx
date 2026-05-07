@@ -1926,7 +1926,6 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
               <div className="inv-card-bd" style={{ fontSize:13, color:T.textSub, lineHeight:1.7 }}>{bien.commentaire}</div>
             </div>
           )}
-        </div>
 
           {/* Documents */}
           <DocumentsSection folder={`biens/${id}`} T={T} />
