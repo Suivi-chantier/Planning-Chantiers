@@ -6,7 +6,7 @@ const STATUTS_OBS  = ["ok","info","warn","urgent"];
 const STATUT_LABEL = { ok:"Conforme", info:"Info", warn:"Attention", urgent:"Urgent" };
 const STATUT_COLOR = { ok:"#2e7d32", info:"#1565c0", warn:"#e65100", urgent:"#c62828" };
 
-export default function PageCompteRendu({ T }) {
+export default function PageCompteRendu({ T, chantiers = [] }) {
   // ── État liste CRs ──
   const [crs, setCrs]           = useState([]);
   const [crId, setCrId]         = useState(null);
@@ -14,7 +14,7 @@ export default function PageCompteRendu({ T }) {
   const [saving, setSaving]     = useState(false);
 
   // ── Données CR courant ──
-  const INFOS_VIDE = { client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"" };
+  const INFOS_VIDE = { chantier_id:"", client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"" };
   const [infos, setInfos]       = useState(INFOS_VIDE);
   const [obs, setObs]           = useState([]);
   const [photos, setPhotos]     = useState([]);
@@ -67,7 +67,7 @@ export default function PageCompteRendu({ T }) {
       supabase.from("cr_photos").select("*").eq("cr_id",id),
     ]);
     if (cr) {
-      setInfos({ client_prenom1:cr.client_prenom1||"", client_nom1:cr.client_nom1||"", client_prenom2:cr.client_prenom2||"", client_nom2:cr.client_nom2||"", adresse:cr.adresse||"", date_visite:cr.date_visite||"", heure_visite:cr.heure_visite||"", type_visite:cr.type_visite||"Visite de chantier", participants:cr.participants||"", resume:cr.resume||"", avancement:cr.avancement||0, prochaine_etape:cr.prochaine_etape||"", travaux:cr.travaux||"", remarques:cr.remarques||"" });
+      setInfos({ chantier_id:cr.chantier_id||"", client_prenom1:cr.client_prenom1||"", client_nom1:cr.client_nom1||"", client_prenom2:cr.client_prenom2||"", client_nom2:cr.client_nom2||"", adresse:cr.adresse||"", date_visite:cr.date_visite||"", heure_visite:cr.heure_visite||"", type_visite:cr.type_visite||"Visite de chantier", participants:cr.participants||"", resume:cr.resume||"", avancement:cr.avancement||0, prochaine_etape:cr.prochaine_etape||"", travaux:cr.travaux||"", remarques:cr.remarques||"" });
       setDeuxiemeClient(!!(cr.client_prenom2 || cr.client_nom2));
     }
     setObs(o && o.length > 0 ? o : [{ id:"new_1", statut:"warn", texte:"", ordre:0 }]);
@@ -362,10 +362,15 @@ export default function PageCompteRendu({ T }) {
             const nomClient = c.client_nom1 ? `${c.client_prenom1||""} ${c.client_nom1}`.trim() : "Sans client";
             return (
               <div key={c.id} onClick={()=>chargerCR(c.id)} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
-                <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>{nomClient}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>
+                  {c.chantier_id ? (chantiers.find(ch=>ch.id===c.chantier_id)?.nom || nomClient) : nomClient}
+                </div>
                 <div style={{ fontSize:11, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
                   {c.type_visite || "Visite"} {c.date_visite ? `· ${new Date(c.date_visite).toLocaleDateString("fr-FR")}` : ""}
                 </div>
+                {c.chantier_id && nomClient && nomClient !== "Sans client" && (
+                  <div style={{ fontSize:10, marginTop:1, color:act?"rgba(0,0,0,0.4)":textSub, opacity:.7 }}>{nomClient}</div>
+                )}
               </div>
             );
           })}
@@ -438,7 +443,14 @@ export default function PageCompteRendu({ T }) {
                     <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom1} onChange={e=>updInfo("client_prenom1",e.target.value)} placeholder="Jean" /></div>
                     <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom1} onChange={e=>updInfo("client_nom1",e.target.value)} placeholder="Dupont" /></div>
                   </div>
-                  <div><label style={lbl}>Adresse du chantier</label><input style={inp} value={infos.adresse} onChange={e=>updInfo("adresse",e.target.value)} placeholder="14 Bd du Roi René, 49000 Angers" /></div>
+                  <div style={{ marginBottom:10 }}>
+                  <label style={lbl}>Chantier</label>
+                  <select style={{...inp, fontWeight: infos.chantier_id ? 700 : 400}} value={infos.chantier_id} onChange={e=>updInfo("chantier_id",e.target.value)}>
+                    <option value="">— Sélectionner un chantier —</option>
+                    {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                  </select>
+                </div>
+                <div><label style={lbl}>Adresse du chantier</label><input style={inp} value={infos.adresse} onChange={e=>updInfo("adresse",e.target.value)} placeholder="14 Bd du Roi René, 49000 Angers" /></div>
 
                   {!deuxiemeClient ? (
                     <button onClick={()=>setDeuxiemeClient(true)} style={{ background:"none", border:"none", color:accent, fontFamily:"inherit", fontSize:12, fontWeight:600, cursor:"pointer", marginTop:12, padding:0 }}>+ Ajouter un second client</button>
