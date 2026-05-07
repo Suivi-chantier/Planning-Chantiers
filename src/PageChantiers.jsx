@@ -195,6 +195,32 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
     loadCR();
   }, [selected, loading, chantiers, phasages]);
 
+  // ── Ouvrir modale liaison CRs ────────────────────────────────────────────────
+  const ouvrirLierModal = async () => {
+    setShowLierModal(true);
+    setLoadingTous(true);
+    const { data } = await supabase
+      .from("cr_comptes_rendus")
+      .select("id, chantier_id, adresse, date_visite, resume, type_visite, client_prenom1, client_nom1, avancement")
+      .order("date_visite", { ascending: false });
+    // Exclure les CRs déjà liés à ce chantier
+    setTousCRs((data || []).filter(cr => cr.chantier_id !== selected));
+    setLoadingTous(false);
+  };
+
+  const lierCR = async (crId) => {
+    await supabase.from("cr_comptes_rendus").update({ chantier_id: selected }).eq("id", crId);
+    setTousCRs(prev => prev.filter(cr => cr.id !== crId));
+    // Recharger les CRs du chantier
+    const { data } = await supabase
+      .from("cr_comptes_rendus")
+      .select("id, chantier_id, adresse, date_visite, resume, avancement, prochaine_etape, type_visite, client_nom1, client_prenom1")
+      .eq("chantier_id", selected)
+      .order("date_visite", { ascending: false })
+      .limit(5);
+    if (data) setCompteRendus(data);
+  };
+
   // ── Upload photo bâtiment ─────────────────────────────────────────────────────
   const handlePhotoUpload = async (e, chantierId) => {
     const file = e.target.files?.[0];
@@ -504,7 +530,68 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
           </div>
 
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: textSub, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 12 }}>Derniers comptes rendus</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: textSub, letterSpacing: 1.2, textTransform: "uppercase" }}>Derniers comptes rendus</div>
+              <button onClick={ouvrirLierModal} style={{
+                fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 6,
+                border: `1px solid ${border}`, background: "transparent", color: textSub,
+                cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5,
+              }}>🔗 Lier un CR existant</button>
+            </div>
+
+            {/* Modale liaison CRs existants */}
+            {showLierModal && (
+              <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:800, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setShowLierModal(false)}>
+                <div style={{ background:surface, border:`1px solid ${border}`, borderRadius:16, width:"100%", maxWidth:560, maxHeight:"80vh", display:"flex", flexDirection:"column", boxShadow:"0 24px 60px rgba(0,0,0,0.6)" }} onClick={e=>e.stopPropagation()}>
+                  <div style={{ padding:"20px 24px 14px", borderBottom:`1px solid ${border}`, flexShrink:0 }}>
+                    <div style={{ fontSize:16, fontWeight:800, color:text }}>🔗 Lier des comptes rendus à <span style={{color:accent}}>{selectedChantier?.nom}</span></div>
+                    <div style={{ fontSize:12, color:textSub, marginTop:4 }}>Cliquez sur un CR pour le rattacher à ce chantier</div>
+                  </div>
+                  <div style={{ flex:1, overflowY:"auto", padding:"12px 16px" }}>
+                    {loadingTous ? (
+                      <div style={{ textAlign:"center", padding:40, color:textSub }}>Chargement…</div>
+                    ) : tousCRs.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:40, color:textSub, opacity:.6 }}>
+                        Tous les comptes rendus sont déjà liés à un chantier.
+                      </div>
+                    ) : (
+                      tousCRs.map(cr => {
+                        const nomClient = cr.client_nom1 ? `${cr.client_prenom1||""} ${cr.client_nom1}`.trim() : "Sans client";
+                        const dejaLie = cr.chantier_id && cr.chantier_id !== selected;
+                        return (
+                          <div key={cr.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:10, marginBottom:8, background:card, border:`1px solid ${border}` }}>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
+                                <span style={{ fontSize:13, fontWeight:700, color:text }}>{nomClient}</span>
+                                {dejaLie && (
+                                  <span style={{ fontSize:10, color:"#f97316", background:"rgba(249,115,22,0.12)", border:"1px solid rgba(249,115,22,0.3)", borderRadius:4, padding:"1px 6px" }}>
+                                    Lié à un autre chantier
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize:11, color:textSub }}>
+                                {cr.type_visite || "Visite"}{cr.date_visite ? ` · ${new Date(cr.date_visite).toLocaleDateString("fr-FR")}` : ""}
+                              </div>
+                              {cr.adresse && <div style={{ fontSize:10, color:textSub, opacity:.5, marginTop:2 }}>📍 {cr.adresse}</div>}
+                              {cr.resume && <div style={{ fontSize:11, color:textSub, marginTop:3, opacity:.7, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cr.resume}</div>}
+                            </div>
+                            <button onClick={()=>lierCR(cr.id)} style={{
+                              flexShrink:0, padding:"7px 14px", borderRadius:8, border:"none",
+                              background:accent, color:"#000", fontSize:12, fontWeight:700,
+                              cursor:"pointer", fontFamily:"inherit",
+                            }}>Lier ✓</button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div style={{ padding:"12px 20px", borderTop:`1px solid ${border}`, display:"flex", justifyContent:"flex-end", flexShrink:0 }}>
+                    <button onClick={()=>setShowLierModal(false)} style={{ padding:"8px 20px", borderRadius:8, border:`1px solid ${border}`, background:"transparent", color:textSub, cursor:"pointer", fontFamily:"inherit", fontSize:13 }}>Fermer</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, overflow: "hidden" }}>
               {loadingCR ? (
                 <div style={{ padding: 28, textAlign: "center", color: textSub, fontSize: 13 }}>Chargement…</div>
