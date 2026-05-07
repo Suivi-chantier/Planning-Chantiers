@@ -163,24 +163,31 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
       const chantier = chantiers.find(c => c.id === selected);
       const phasage  = trouverPhasage(phasages, chantier);
 
-      const { data, error } = await supabase
+      // Essayer d'abord par chantier_id exact (si le CR a bien été lié)
+      const { data: dataById } = await supabase
         .from("cr_comptes_rendus")
-        .select("id, adresse, date_visite, resume, avancement, prochaine_etape, type_visite, client_nom1, client_prenom1")
+        .select("id, chantier_id, adresse, date_visite, resume, avancement, prochaine_etape, type_visite, client_nom1, client_prenom1")
+        .eq("chantier_id", selected)
         .order("date_visite", { ascending: false })
-        .limit(150);
+        .limit(5);
 
-      if (!error && data) {
-        // Tous les noms possibles pour ce chantier
-        const nomsCibles = [
-          chantier?.nom,
-          phasage?.chantier_nom,
-          chantier?.id,
-        ].filter(Boolean);
+      if (dataById && dataById.length > 0) {
+        setCompteRendus(dataById);
+      } else {
+        // Fallback : recherche par correspondance de nom dans l'adresse
+        const { data, error } = await supabase
+          .from("cr_comptes_rendus")
+          .select("id, chantier_id, adresse, date_visite, resume, avancement, prochaine_etape, type_visite, client_nom1, client_prenom1")
+          .order("date_visite", { ascending: false })
+          .limit(150);
 
-        const filtered = data.filter(cr =>
-          nomsCibles.some(nom => chantierMatchCR(nom, cr.adresse))
-        );
-        setCompteRendus(filtered.slice(0, 5));
+        if (!error && data) {
+          const nomsCibles = [chantier?.nom, phasage?.chantier_nom, chantier?.id].filter(Boolean);
+          const filtered = data.filter(cr =>
+            nomsCibles.some(nom => chantierMatchCR(nom, cr.adresse))
+          );
+          setCompteRendus(filtered.slice(0, 5));
+        }
       }
       setLoadingCR(false);
     };
