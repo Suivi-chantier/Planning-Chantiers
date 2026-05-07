@@ -189,13 +189,39 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
 
   const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
 
+  // Logos personnalisés depuis Supabase
+  const [logoNavbar,  setLogoNavbar]  = useState(null);
+  const [logoPortail, setLogoPortail] = useState(null);
+  const [logoReno,    setLogoReno]    = useState(null);
+  const [logoInvest,  setLogoInvest]  = useState(null);
+
+  useEffect(() => {
+    const loadLogos = async () => {
+      try {
+        const { data } = await supabase
+          .from("planning_config")
+          .select("key,value")
+          .in("key", ["logo_navbar","logo_portail","logo_reno","logo_invest"]);
+        if (data) {
+          data.forEach(r => {
+            if (r.key === "logo_navbar")  setLogoNavbar(r.value  || null);
+            if (r.key === "logo_portail") setLogoPortail(r.value || null);
+            if (r.key === "logo_reno")    setLogoReno(r.value    || null);
+            if (r.key === "logo_invest")  setLogoInvest(r.value  || null);
+          });
+        }
+      } catch(e) { console.error("Chargement logos portail:", e); }
+    };
+    loadLogos();
+  }, []);
+
   return (
     <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{CSS_BASE}</style>
 
       {/* Header */}
       <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
-        <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain" }}/>
+        <img src={logoNavbar || LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain" }}/>
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{profil?.nom || user?.email}</div>
@@ -213,6 +239,11 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
       <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 20px" }}>
         <div style={{ textAlign:"center", marginBottom:56 }}>
           <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:12 }}>Groupe Profero</div>
+          {/* ── LOGO PRINCIPAL PORTAIL ── */}
+          {logoPortail
+            ? <img src={logoPortail} alt="Logo portail" style={{ height:90, maxWidth:420, objectFit:"contain", display:"block", margin:"0 auto 16px" }}/>
+            : <div style={{ height:90, maxWidth:420, margin:"0 auto 16px", display:"flex", alignItems:"center", justifyContent:"center", border:"2px dashed rgba(255,255,255,0.08)", borderRadius:12, color:"rgba(255,255,255,0.15)", fontSize:13, letterSpacing:1 }}>Logo portail</div>
+          }
           <div style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:.5 }}>Choisissez votre espace</div>
           <div style={{ fontSize:15, color:"rgba(255,255,255,0.3)", marginTop:8 }}>
             Bonjour {profil?.nom?.split(" ")[0] || "vous"} — sélectionnez la branche à laquelle accéder
@@ -226,7 +257,12 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
           <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#FFC200,#ff9500)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.1)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏗️</div>
+              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.1)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0, overflow:"hidden" }}>
+                {logoReno
+                  ? <img src={logoReno} alt="Reno" style={{ width:52, height:52, objectFit:"cover", borderRadius:14 }}/>
+                  : "🏗️"
+                }
+              </div>
               <div>
                 <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,194,0,0.6)", marginBottom:3 }}>Profero</div>
                 <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Rénovation</div>
@@ -250,7 +286,12 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
           <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏢</div>
+              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0, overflow:"hidden" }}>
+                {logoInvest
+                  ? <img src={logoInvest} alt="Invest" style={{ width:52, height:52, objectFit:"cover", borderRadius:14 }}/>
+                  : "🏢"
+                }
+              </div>
               <div>
                 <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(77,184,255,0.7)", marginBottom:3 }}>Profero</div>
                 <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Invest</div>
@@ -293,6 +334,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const[syncing,setSyncing]=useState(false);
   const[connected,setConnected]=useState(false);
   const[lastSync,setLastSync]=useState(null);
+  const[logoNavbar,setLogoNavbar]=useState(null);
 
   const T=THEMES[theme];
   const weekId=getWeekId(year,week);
@@ -311,6 +353,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
+        if(r.key==="logo_navbar")setLogoNavbar(r.value||null);
       });
       const{data:cd}=await supabase.from("planning_cells").select("*").eq("week_id",weekId);
       if(cd){const m={};cd.forEach(r=>{m[`${r.chantier_id}_${r.jour}`]={planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],taches:r.taches||[]};});setCells(m);}
@@ -340,6 +383,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
+        if(r.key==="logo_navbar")setLogoNavbar(r.value||null);
         setLastSync(new Date());
       })
       .subscribe();
@@ -423,7 +467,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       <div className="app-sidebar"><Sidebar page={page} setPage={setPage} T={T} role={role}/></div>
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
         <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-          <img src={LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
+          <img src={logoNavbar || LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
           <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
             Profero · Rénovation
           </div>
