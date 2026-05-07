@@ -579,11 +579,7 @@ function Simulateur({ projet, profil, onRetour }) {
     win.document.close();
   };
 
-  // ── Champ numérique réutilisable ─────────────────────────────────────────────
-    <input type="number" className="inv-inp" value={value} min={min||0} step={step||1}
-      onChange={e=>{onChange(parseFloat(e.target.value)||0);scheduleAutoSave();}}
-      style={{width:120,...style}}/>
-  );
+  // ── Champ numérique : utilise NumInput (défini top-level) ──────────────────
 
   // ── Photo handlers ───────────────────────────────────────────────────────────
   const handlePhoto=(i,file)=>{
