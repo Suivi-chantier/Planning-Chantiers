@@ -1801,13 +1801,345 @@ function FicheBien({ id, profil, onRetour }) {
   );
 }
 
+// ─── ADMIN INVEST ─────────────────────────────────────────────────────────────
+function AdminInvest({ profil, T, theme, setTheme }) {
+  const [onglet, setOnglet] = useState("utilisateurs");
+  const isAdmin = profil?.role === "admin";
+
+  if (!isAdmin) return (
+    <div style={{ padding:"40px 28px", textAlign:"center" }}>
+      <div style={{ fontSize:36, marginBottom:14 }}>🔒</div>
+      <div style={{ fontSize:18, fontWeight:700, color:T.text, marginBottom:8 }}>Accès restreint</div>
+      <div style={{ fontSize:14, color:T.textSub }}>Seuls les administrateurs peuvent accéder à cette section.</div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding:"24px 28px", maxWidth:900, margin:"0 auto" }}>
+      <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5, marginBottom:4 }}>Réglages</div>
+      <div style={{ fontSize:14, color:T.textSub, marginBottom:24 }}>Administration de l'application Profero Invest.</div>
+
+      {/* Onglets */}
+      <div style={{ display:"flex", gap:4, marginBottom:24, borderBottom:`1px solid ${T.border}`, paddingBottom:8 }}>
+        {[["utilisateurs","👥 Utilisateurs"],["apparence","🎨 Apparence"]].map(([k,l])=>(
+          <button key={k}
+            onClick={() => setOnglet(k)}
+            style={{
+              padding:"8px 18px", border:"none", borderRadius:6, cursor:"pointer",
+              fontFamily:"'Barlow Condensed',sans-serif", fontSize:14, fontWeight:700,
+              letterSpacing:.5, textTransform:"uppercase",
+              background: onglet===k ? T.accent : "transparent",
+              color: onglet===k ? "white" : T.textSub,
+              transition:"all .15s",
+            }}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Onglet Utilisateurs — réutilise le même composant que Rénovation */}
+      {onglet === "utilisateurs" && <OngletUtilisateursInvest T={T} />}
+
+      {/* Onglet Apparence */}
+      {onglet === "apparence" && (
+        <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"20px 18px" }}>
+          <div style={{ fontWeight:700, fontSize:16, marginBottom:4, color:T.text }}>Thème d'affichage</div>
+          <div style={{ color:T.textSub, fontSize:13, marginBottom:18 }}>Sauvegardé sur cet appareil, indépendant de Rénovation.</div>
+          <div style={{ display:"flex", gap:14 }}>
+            {[["dark","🌙","Sombre"],["light","☀️","Clair"]].map(([k,ic,lb])=>(
+              <div key={k} onClick={() => { setTheme(k); localStorage.setItem("invest_theme",k); }}
+                style={{
+                  flex:1, background: k==="dark"?"#1a1d24":"#f0f4f8",
+                  border:`3px solid ${theme===k ? T.accent : T.border}`,
+                  borderRadius:12, padding:"22px 16px", cursor:"pointer", textAlign:"center", transition:"border .15s",
+                }}>
+                <div style={{ fontSize:30, marginBottom:8 }}>{ic}</div>
+                <div style={{ fontSize:14, fontWeight:700, color: k==="dark"?"#e8eaf0":"#1a2d4a" }}>{lb}</div>
+                {theme===k && <div style={{ fontSize:11, color:T.accent, marginTop:6 }}>✓ Actif</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Copie de OngletUtilisateurs adaptée au thème Invest
+function OngletUtilisateursInvest({ T }) {
+  const [utilisateurs, setUtilisateurs] = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [erreur, setErreur]             = useState("");
+  const [succes, setSucces]             = useState("");
+  const [showForm, setShowForm]         = useState(false);
+  const [invEmail, setInvEmail]         = useState("");
+  const [invNom, setInvNom]             = useState("");
+  const [invRole, setInvRole]           = useState("conducteur");
+  const [invBranches, setInvBranches]   = useState(["renovation"]);
+  const [invLoading, setInvLoading]     = useState(false);
+  const [editId, setEditId]             = useState(null);
+  const [editData, setEditData]         = useState({});
+  const [resetId, setResetId]           = useState(null);
+  const [resetEmail, setResetEmail]     = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const ROLES = [
+    { value:"admin",      label:"Administrateur" },
+    { value:"conducteur", label:"Conducteur de travaux" },
+    { value:"commercial", label:"Commercial" },
+    { value:"comptable",  label:"Comptable" },
+  ];
+  const BRANCHES = [
+    { value:"renovation", label:"Rénovation" },
+    { value:"invest",     label:"Invest" },
+  ];
+  const ROLE_LABELS   = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+  const BRANCHE_LABELS = { renovation:"Rénovation", invest:"Invest" };
+  const ROLE_COLORS   = { admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" };
+
+  const charger = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("utilisateurs").select("*").order("nom");
+    setUtilisateurs(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { charger(); }, []);
+
+  const flash = (type, msg) => {
+    if (type==="ok") { setSucces(msg); setErreur(""); setTimeout(()=>setSucces(""),4000); }
+    else             { setErreur(msg); setSucces(""); setTimeout(()=>setErreur(""),5000); }
+  };
+  const toggleBranche = (branches, val) =>
+    branches.includes(val) ? branches.filter(b=>b!==val) : [...branches, val];
+
+  const callAdminUsers = async (payload) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-users`,
+      {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "Authorization":`Bearer ${session?.access_token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_KEY,
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erreur serveur");
+    return data;
+  };
+
+  const inviter = async () => {
+    if (!invEmail.trim() || !invNom.trim()) { flash("err","Email et nom obligatoires."); return; }
+    if (!invBranches.length) { flash("err","Sélectionnez au moins une branche."); return; }
+    setInvLoading(true);
+    try {
+      const { data: exist } = await supabase.from("utilisateurs").select("id").eq("email",invEmail.trim().toLowerCase()).single();
+      if (exist) { flash("err","Cet email est déjà enregistré."); setInvLoading(false); return; }
+      await callAdminUsers({ action:"invite", email:invEmail.trim().toLowerCase() });
+      const { error: dbErr } = await supabase.from("utilisateurs").insert({
+        email:invEmail.trim().toLowerCase(), nom:invNom.trim(),
+        role:invRole, branches:invBranches, actif:true,
+      });
+      if (dbErr) { flash("err","Profil non créé : "+dbErr.message); setInvLoading(false); return; }
+      flash("ok",`✓ Invitation envoyée à ${invEmail}.`);
+      setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["renovation"]);
+      setShowForm(false); charger();
+    } catch(e) { flash("err","Erreur : "+e.message); }
+    setInvLoading(false);
+  };
+
+  const sauvegarder = async (id) => {
+    if (!editData.nom?.trim()) { flash("err","Nom obligatoire."); return; }
+    const { error } = await supabase.from("utilisateurs")
+      .update({ nom:editData.nom.trim(), role:editData.role, branches:editData.branches }).eq("id",id);
+    if (error) { flash("err","Erreur : "+error.message); return; }
+    flash("ok","✓ Modifications enregistrées."); setEditId(null); charger();
+  };
+
+  const toggleActif = async (u) => {
+    const { error } = await supabase.from("utilisateurs").update({ actif:!u.actif }).eq("id",u.id);
+    if (error) { flash("err","Erreur : "+error.message); return; }
+    flash("ok", u.actif ? `✓ ${u.nom} désactivé(e).` : `✓ ${u.nom} réactivé(e).`);
+    charger();
+  };
+
+  const resetPassword = async () => {
+    setResetLoading(true);
+    try {
+      await callAdminUsers({ action:"reset_password", email:resetEmail });
+      flash("ok",`✓ Email de réinitialisation envoyé à ${resetEmail}.`);
+      setResetId(null); setResetEmail("");
+    } catch(e) { flash("err","Erreur : "+e.message); }
+    setResetLoading(false);
+  };
+
+  // Styles adaptés au thème Invest
+  const cardStyle = { background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"20px 18px" };
+  const labelStyle = { fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 };
+  const inputStyle = { width:"100%", background:T.input, border:`1.5px solid ${T.border}`, borderRadius:6, padding:"8px 12px", color:T.text, fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, outline:"none" };
+  const rowStyle   = { padding:"14px 0", borderBottom:`1px solid ${T.border}` };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+        <div>
+          <div style={{ fontWeight:700, fontSize:16, color:T.text, marginBottom:3 }}>Collaborateurs</div>
+          <div style={{ color:T.textSub, fontSize:13 }}>Gérez les accès, rôles et branches.</div>
+        </div>
+        <button className="inv-btn inv-btn-gold" onClick={() => { setShowForm(!showForm); setErreur(""); }}>
+          {showForm ? "✕ Annuler" : "+ Inviter"}
+        </button>
+      </div>
+
+      {/* Messages */}
+      {succes && <div style={{ background:"rgba(80,200,120,0.12)", border:"1px solid rgba(80,200,120,0.3)", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#50c878", marginBottom:14, lineHeight:1.6 }}>{succes}</div>}
+      {erreur && <div style={{ background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#e05c5c", marginBottom:14 }}>{erreur}</div>}
+
+      {/* Formulaire invitation */}
+      {showForm && (
+        <div style={{ ...cardStyle, marginBottom:20 }}>
+          <div style={{ fontWeight:700, fontSize:14, color:T.text, marginBottom:16 }}>Nouveau collaborateur</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+            <div><label style={labelStyle}>Nom complet *</label><input style={inputStyle} value={invNom} onChange={e=>setInvNom(e.target.value)} placeholder="Prénom Nom"/></div>
+            <div><label style={labelStyle}>Email *</label><input style={{...inputStyle,textAlign:"left"}} type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="email@profero.fr"/></div>
+            <div>
+              <label style={labelStyle}>Rôle</label>
+              <select style={inputStyle} value={invRole} onChange={e=>setInvRole(e.target.value)}>
+                {ROLES.map(r=><option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Branches</label>
+              <div style={{ display:"flex", gap:8 }}>
+                {BRANCHES.map(b=>(
+                  <button key={b.value} onClick={()=>setInvBranches(toggleBranche(invBranches,b.value))}
+                    style={{ flex:1, padding:"8px 0", borderRadius:8, border:"1.5px solid", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer",
+                      background: invBranches.includes(b.value) ? "rgba(77,184,255,0.12)" : "transparent",
+                      borderColor: invBranches.includes(b.value) ? T.accent : T.border,
+                      color: invBranches.includes(b.value) ? T.accent : T.textSub,
+                    }}>{b.label}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div style={{ background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#4db8ff", marginBottom:14, lineHeight:1.6 }}>
+            📧 Un lien d'invitation sera envoyé à <strong>{invEmail||"l'adresse saisie"}</strong>.
+          </div>
+          <button className="inv-btn inv-btn-gold" style={{ width:"100%", padding:"11px", justifyContent:"center" }} onClick={inviter} disabled={invLoading}>
+            {invLoading ? "Envoi…" : "Envoyer l'invitation →"}
+          </button>
+        </div>
+      )}
+
+      {/* Liste */}
+      {loading ? (
+        <div style={{ textAlign:"center", padding:"40px 0", color:T.textSub }}>Chargement…</div>
+      ) : (
+        <div style={cardStyle}>
+          {utilisateurs.length === 0 ? (
+            <div style={{ color:T.textSub, fontSize:13, fontStyle:"italic" }}>Aucun collaborateur.</div>
+          ) : utilisateurs.map(u => (
+            <div key={u.id} style={rowStyle}>
+              {editId === u.id ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <div><label style={labelStyle}>Nom</label><input style={inputStyle} value={editData.nom} onChange={e=>setEditData({...editData,nom:e.target.value})}/></div>
+                    <div>
+                      <label style={labelStyle}>Rôle</label>
+                      <select style={inputStyle} value={editData.role} onChange={e=>setEditData({...editData,role:e.target.value})}>
+                        {ROLES.map(r=><option key={r.value} value={r.value}>{r.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Branches</label>
+                    <div style={{ display:"flex", gap:8 }}>
+                      {BRANCHES.map(b=>(
+                        <button key={b.value} onClick={()=>setEditData({...editData,branches:toggleBranche(editData.branches||[],b.value)})}
+                          style={{ padding:"7px 18px", borderRadius:8, border:"1.5px solid", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer",
+                            background:(editData.branches||[]).includes(b.value)?"rgba(77,184,255,0.12)":"transparent",
+                            borderColor:(editData.branches||[]).includes(b.value)?T.accent:T.border,
+                            color:(editData.branches||[]).includes(b.value)?T.accent:T.textSub,
+                          }}>{b.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={()=>sauvegarder(u.id)}>✓ Enregistrer</button>
+                    <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>setEditId(null)}>Annuler</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+                  {/* Avatar */}
+                  <div style={{ width:38, height:38, borderRadius:10, flexShrink:0, background:`${ROLE_COLORS[u.role]}22`, border:`1.5px solid ${ROLE_COLORS[u.role]}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:ROLE_COLORS[u.role] }}>
+                    {u.nom?.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+                  </div>
+                  {/* Infos */}
+                  <div style={{ flex:1, minWidth:160 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontWeight:700, fontSize:15, color: u.actif ? T.text : T.textMuted }}>{u.nom}</span>
+                      {!u.actif && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:4, background:"rgba(224,92,92,0.12)", color:"#e05c5c", fontWeight:700 }}>Désactivé</span>}
+                    </div>
+                    <div style={{ fontSize:12, color:T.textMuted, marginTop:2 }}>{u.email}</div>
+                    <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:700, background:`${ROLE_COLORS[u.role]}18`, color:ROLE_COLORS[u.role], border:`1px solid ${ROLE_COLORS[u.role]}33` }}>
+                        {ROLE_LABELS[u.role]||u.role}
+                      </span>
+                      {(u.branches||["renovation"]).map(b=>(
+                        <span key={b} style={{ fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:600, background:"rgba(77,184,255,0.08)", color:T.accent, border:`1px solid rgba(77,184,255,0.2)` }}>
+                          {BRANCHE_LABELS[b]||b}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Actions */}
+                  <div style={{ display:"flex", gap:6, flexShrink:0, flexWrap:"wrap" }}>
+                    <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>{ setEditId(u.id); setEditData({nom:u.nom,role:u.role,branches:u.branches||["renovation"]}); }}>✏️ Modifier</button>
+                    <button className="inv-btn inv-btn-sm" style={{ background:"rgba(77,184,255,0.08)", color:"#4db8ff", border:"1px solid rgba(77,184,255,0.3)" }} onClick={()=>{ setResetId(u.id); setResetEmail(u.email); }}>🔑 Réinit.</button>
+                    <button className="inv-btn inv-btn-sm" style={{ background: u.actif?"rgba(224,92,92,0.08)":"rgba(80,200,120,0.08)", color: u.actif?"#e05c5c":"#50c878", border:`1px solid ${u.actif?"rgba(224,92,92,0.3)":"rgba(80,200,120,0.3)"}` }} onClick={()=>toggleActif(u)}>
+                      {u.actif?"Désactiver":"Réactiver"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal reset MDP */}
+      {resetId && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500 }}>
+          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", maxWidth:380, width:"90%", textAlign:"center" }}>
+            <div style={{ fontSize:34, marginBottom:10 }}>🔑</div>
+            <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:8 }}>Réinitialiser le mot de passe ?</div>
+            <div style={{ fontSize:13, color:T.textSub, marginBottom:6, lineHeight:1.6 }}>Un email sera envoyé à</div>
+            <div style={{ fontSize:14, fontWeight:700, color:T.accent, marginBottom:22 }}>{resetEmail}</div>
+            <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+              <button className="inv-btn inv-btn-out" onClick={()=>{ setResetId(null); setResetEmail(""); }}>Annuler</button>
+              <button className="inv-btn inv-btn-gold" onClick={resetPassword} disabled={resetLoading}>{resetLoading?"Envoi…":"Envoyer →"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
-function SidebarInvest({ page, setPage, theme, setTheme }) {
+function SidebarInvest({ page, setPage, theme, setTheme, profil }) {
+  const isAdmin = profil?.role === "admin";
   const NAV = [
-    { id:"dashboard", icon:"⊞",  label:"Tableau de bord" },
-    { id:"crm",       icon:"👥", label:"CRM Clients" },
-    { id:"biens",     icon:"🏠", label:"Stock de biens" },
-    { id:"simulateur",icon:"📐", label:"Simulateur" },
+    { id:"dashboard",  icon:"⊞",  label:"Tableau de bord" },
+    { id:"crm",        icon:"👥", label:"CRM Clients" },
+    { id:"biens",      icon:"🏠", label:"Stock de biens" },
+    { id:"simulateur", icon:"📐", label:"Simulateur" },
+    ...(isAdmin ? [{ id:"admin", icon:"⚙️", label:"Réglages" }] : []),
   ];
   return (
     <div style={{ width:220, flexShrink:0, background:"#0c0e14", borderRight:"1px solid #1e2130", display:"flex", flexDirection:"column", height:"100%", overflowY:"auto" }}>
@@ -1818,10 +2150,10 @@ function SidebarInvest({ page, setPage, theme, setTheme }) {
       <nav style={{ padding:"8px 8px", flex:1 }}>
         {NAV.map(n => (
           <button key={n.id} onClick={() => setPage(n.id)}
-            style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"11px 14px", borderRadius:10, border:"none", cursor:"pointer", fontFamily:"'Barlow Condensed',sans-serif", fontSize:15, fontWeight:700, letterSpacing:.3, background: page===n.id ? "rgba(255,194,0,0.1)" : "transparent", color: page===n.id ? "#FFC200" : "rgba(255,255,255,0.4)", marginBottom:4, textAlign:"left", transition:"all .12s" }}>
+            style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"11px 14px", borderRadius:10, border:"none", cursor:"pointer", fontFamily:"'Barlow Condensed',sans-serif", fontSize:15, fontWeight:700, letterSpacing:.3, background: page===n.id ? "rgba(77,184,255,0.12)" : "transparent", color: page===n.id ? "#4db8ff" : "rgba(255,255,255,0.4)", marginBottom:4, textAlign:"left", transition:"all .12s" }}>
             <span style={{ fontSize:20, width:24, textAlign:"center", flexShrink:0 }}>{n.icon}</span>
             <span>{n.label}</span>
-            {page===n.id && <span style={{ marginLeft:"auto", width:4, height:18, borderRadius:2, background:"#FFC200", display:"block", flexShrink:0 }}/>}
+            {page===n.id && <span style={{ marginLeft:"auto", width:4, height:18, borderRadius:2, background:"#4db8ff", display:"block", flexShrink:0 }}/>}
           </button>
         ))}
       </nav>
@@ -1845,12 +2177,12 @@ export default function PageInvest({ profil }) {
   const CSS = getCSS(T);
   const [page, setPage]                 = useState("dashboard");
   const [projetOuvert, setProjetOuvert] = useState(null);
-  const [vueSim, setVueSim]             = useState("liste"); // "liste" | "simulateur"
+  const [vueSim, setVueSim]             = useState("liste");
 
   const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
   const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
 
-  // Simulateur plein écran (sans sidebar) — uniquement la fiche projet ouverte
+  // Simulateur plein écran — uniquement quand une fiche projet est ouverte
   if (page === "simulateur" && vueSim === "simulateur") {
     return (
       <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999 }}>
@@ -1863,11 +2195,12 @@ export default function PageInvest({ profil }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} />
+      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} profil={profil} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && <TableauBord profil={profil} T={T} />}
         {page === "crm"        && <CRM profil={profil} T={T} />}
         {page === "biens"      && <StockBiens profil={profil} T={T} />}
+        {page === "admin"      && <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />}
         {page === "simulateur" && (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
             <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
