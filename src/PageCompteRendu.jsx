@@ -357,23 +357,52 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:8 }}>
           {crs.length===0 && <div style={{color:textSub,fontSize:12,textAlign:"center",marginTop:24,lineHeight:1.8}}>Aucun compte rendu<br/><button style={{...btn,marginTop:8,fontSize:11}} onClick={nouveauCR}>Créer</button></div>}
-          {crs.map(c => {
-            const act = c.id===crId;
-            const nomClient = c.client_nom1 ? `${c.client_prenom1||""} ${c.client_nom1}`.trim() : "Sans client";
-            return (
-              <div key={c.id} onClick={()=>chargerCR(c.id)} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
-                <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>
-                  {c.chantier_id ? (chantiers.find(ch=>ch.id===c.chantier_id)?.nom || nomClient) : nomClient}
+          {(() => {
+            // Grouper les CRs par chantier
+            const groupes = {};
+            crs.forEach(c => {
+              const key = c.chantier_id || "__sans__";
+              if (!groupes[key]) groupes[key] = [];
+              groupes[key].push(c);
+            });
+            // Ordre : chantiers connus d'abord, puis "sans chantier"
+            const keys = Object.keys(groupes).sort((a,b) => {
+              if (a === "__sans__") return 1;
+              if (b === "__sans__") return -1;
+              return 0;
+            });
+            return keys.map(key => {
+              const grpCRs = groupes[key];
+              const chantier = key !== "__sans__" ? chantiers.find(ch => ch.id === key) : null;
+              const couleurBande = chantier?.couleur || "rgba(255,194,0,0.5)";
+              return (
+                <div key={key} style={{ marginBottom:10 }}>
+                  {/* En-tête groupe */}
+                  <div style={{ fontSize:10, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.8, padding:"4px 6px 4px 10px", marginBottom:4, borderLeft:`3px solid ${couleurBande}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <span>{chantier ? chantier.nom : "Sans chantier"}</span>
+                    <span style={{ fontSize:9, opacity:.6 }}>{grpCRs.length}</span>
+                  </div>
+                  {grpCRs.map(c => {
+                    const act = c.id===crId;
+                    const nomClient = c.client_nom1 ? `${c.client_prenom1||""} ${c.client_nom1}`.trim() : "—";
+                    return (
+                      <div key={c.id} onClick={()=>chargerCR(c.id)} style={{ padding:"9px 10px", borderRadius:7, marginBottom:4, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, transition:"all .12s" }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:act?"#000":text, lineHeight:1.3 }}>{nomClient}</div>
+                        <div style={{ fontSize:10, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
+                          {c.type_visite || "Visite"}{c.date_visite ? ` · ${new Date(c.date_visite).toLocaleDateString("fr-FR")}` : ""}
+                        </div>
+                        {c.avancement > 0 && (
+                          <div style={{ marginTop:4, height:3, background:act?"rgba(0,0,0,0.15)":"rgba(255,255,255,0.08)", borderRadius:2, overflow:"hidden" }}>
+                            <div style={{ height:"100%", width:`${c.avancement}%`, background:act?"#000":accent, borderRadius:2 }}/>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                <div style={{ fontSize:11, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
-                  {c.type_visite || "Visite"} {c.date_visite ? `· ${new Date(c.date_visite).toLocaleDateString("fr-FR")}` : ""}
-                </div>
-                {c.chantier_id && nomClient && nomClient !== "Sans client" && (
-                  <div style={{ fontSize:10, marginTop:1, color:act?"rgba(0,0,0,0.4)":textSub, opacity:.7 }}>{nomClient}</div>
-                )}
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </div>
 
@@ -443,13 +472,16 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
                     <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom1} onChange={e=>updInfo("client_prenom1",e.target.value)} placeholder="Jean" /></div>
                     <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom1} onChange={e=>updInfo("client_nom1",e.target.value)} placeholder="Dupont" /></div>
                   </div>
-                  <div style={{ marginBottom:10 }}>
-                  <label style={lbl}>Chantier</label>
-                  <select style={{...inp, fontWeight: infos.chantier_id ? 700 : 400}} value={infos.chantier_id} onChange={e=>updInfo("chantier_id",e.target.value)}>
-                    <option value="">— Sélectionner un chantier —</option>
-                    {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                  </select>
-                </div>
+                  <div style={{ marginBottom:12, padding:"12px 14px", background:`rgba(255,194,0,0.06)`, border:`1px solid rgba(255,194,0,0.2)`, borderRadius:9 }}>
+                    <label style={{...lbl, color:accent}}>🏗️ Chantier associé</label>
+                    <select style={{...inp, fontWeight: infos.chantier_id ? 700 : 400, color: infos.chantier_id ? text : textSub}} value={infos.chantier_id} onChange={e=>updInfo("chantier_id",e.target.value)}>
+                      <option value="">— Sélectionner un chantier —</option>
+                      {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                    </select>
+                    {infos.chantier_id && (
+                      <div style={{ fontSize:11, color:accent, marginTop:6, opacity:.7 }}>✓ Ce CR sera lié au chantier {chantiers.find(c=>c.id===infos.chantier_id)?.nom}</div>
+                    )}
+                  </div>
                 <div><label style={lbl}>Adresse du chantier</label><input style={inp} value={infos.adresse} onChange={e=>updInfo("adresse",e.target.value)} placeholder="14 Bd du Roi René, 49000 Angers" /></div>
 
                   {!deuxiemeClient ? (
