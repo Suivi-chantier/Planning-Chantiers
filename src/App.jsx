@@ -19,24 +19,25 @@ import PageInvest             from "./PageInvest";
 import PageVisiteChantier     from "./VisiteChantier";
 import PageInfoClient         from "./PageInfoClient";
 import PageCompteRendu        from "./PageCompteRendu";
+import PageChantiers          from "./PageChantiers";
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu","admin"
   ],
   conducteur: [
-    "dashboard","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu"
   ],
   commercial: [
-    "dashboard","planning","plans","visite","info-client","compte-rendu"
+    "dashboard","chantiers","planning","plans","visite","info-client","compte-rendu"
   ],
   comptable: [
-    "dashboard","commandes","biblio-materiaux","phasage"
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage"
   ],
 };
 
@@ -98,19 +99,19 @@ const CSS_BASE = `
   .login-btn:disabled { opacity: .5; cursor: not-allowed; }
   .login-btn:hover:not(:disabled) { opacity: .9; }
   .portal-card {
-    background: #252830; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
+    background: #111318; border: 1px solid #2a2d3a; border-radius: 20px;
     padding: 36px 32px; cursor: pointer; transition: all .2s; position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 16px;
   }
   .portal-card:hover:not(.disabled) {
     border-color: rgba(255,194,0,0.5);
     transform: translateY(-4px);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,194,0,0.2);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,194,0,0.2);
   }
   .portal-card.disabled { cursor: not-allowed; opacity: .55; }
   .portal-card-invest:hover:not(.disabled) {
     border-color: rgba(100,180,255,0.4) !important;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.3), 0 0 0 1px rgba(100,180,255,0.15) !important;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(100,180,255,0.15) !important;
   }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 `;
@@ -189,39 +190,13 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
 
   const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
 
-  // Logos personnalisés depuis Supabase
-  const [logoNavbar,  setLogoNavbar]  = useState(null);
-  const [logoPortail, setLogoPortail] = useState(null);
-  const [logoReno,    setLogoReno]    = useState(null);
-  const [logoInvest,  setLogoInvest]  = useState(null);
-
-  useEffect(() => {
-    const loadLogos = async () => {
-      try {
-        const { data } = await supabase
-          .from("planning_config")
-          .select("key,value")
-          .in("key", ["logo_navbar","logo_portail","logo_reno","logo_invest"]);
-        if (data) {
-          data.forEach(r => {
-            if (r.key === "logo_navbar")  setLogoNavbar(r.value  || null);
-            if (r.key === "logo_portail") setLogoPortail(r.value || null);
-            if (r.key === "logo_reno")    setLogoReno(r.value    || null);
-            if (r.key === "logo_invest")  setLogoInvest(r.value  || null);
-          });
-        }
-      } catch(e) { console.error("Chargement logos portail:", e); }
-    };
-    loadLogos();
-  }, []);
-
   return (
-    <div style={{ minHeight:"100vh", background:"#1c1f26", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{CSS_BASE}</style>
 
       {/* Header */}
-      <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid rgba(255,255,255,0.07)", background:"rgba(0,0,0,0.25)" }}>
-        <img src={logoNavbar || LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain", maxWidth:180 }}/>
+      <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
+        <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain" }}/>
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{profil?.nom || user?.email}</div>
@@ -238,14 +213,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
       {/* Contenu */}
       <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 20px" }}>
         <div style={{ textAlign:"center", marginBottom:56 }}>
-          <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:16 }}>Groupe Profero</div>
-          {/* ── LOGO PRINCIPAL PORTAIL ── */}
-          {logoPortail
-            ? <div style={{ display:"flex", alignItems:"center", justifyContent:"center", marginBottom:20 }}>
-                <img src={logoPortail} alt="Logo portail" style={{ maxHeight:80, maxWidth:360, objectFit:"contain", display:"block" }}/>
-              </div>
-            : null
-          }
+          <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:12 }}>Groupe Profero</div>
           <div style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:.5 }}>Choisissez votre espace</div>
           <div style={{ fontSize:15, color:"rgba(255,255,255,0.3)", marginTop:8 }}>
             Bonjour {profil?.nom?.split(" ")[0] || "vous"} — sélectionnez la branche à laquelle accéder
@@ -256,19 +224,14 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:24, width:"100%", maxWidth:720 }}>
 
           {/* Rénovation */}
-          <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")} style={{ background:"#252830" }}>
+          <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#FFC200,#ff9500)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-              {logoReno
-                ? <img src={logoReno} alt="Rénovation" style={{ height:60, maxWidth:"100%", objectFit:"contain" }}/>
-                : <>
-                    <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.08)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏗️</div>
-                    <div>
-                      <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,194,0,0.6)", marginBottom:3 }}>Profero</div>
-                      <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Rénovation</div>
-                    </div>
-                  </>
-              }
+              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.1)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏗️</div>
+              <div>
+                <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,194,0,0.6)", marginBottom:3 }}>Profero</div>
+                <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Rénovation</div>
+              </div>
             </div>
             <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
               Planning chantiers, commandes, équipes, phasage, comptes rendus et suivi de travaux.
@@ -285,21 +248,15 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
           </div>
 
           {/* Invest */}
-          <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")} style={{ background:"#252830" }}>
+          <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-              {logoInvest
-                ? <img src={logoInvest} alt="Invest" style={{ height:60, maxWidth:"100%", objectFit:"contain" }}/>
-                : <>
-                    <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏢</div>
-                    <div>
-                      <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(77,184,255,0.7)", marginBottom:3 }}>Profero</div>
-                      <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Invest</div>
-                    </div>
-                  </>
-              }
+              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏢</div>
+              <div>
+                <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(77,184,255,0.7)", marginBottom:3 }}>Profero</div>
+                <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Invest</div>
+              </div>
             </div>
-            {logoInvest && <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Invest</div>}
             <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
               Gestion des investissements immobiliers, suivi de portefeuille et reporting financier.
             </div>
@@ -337,7 +294,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const[syncing,setSyncing]=useState(false);
   const[connected,setConnected]=useState(false);
   const[lastSync,setLastSync]=useState(null);
-  const[logoNavbar,setLogoNavbar]=useState(null);
 
   const T=THEMES[theme];
   const weekId=getWeekId(year,week);
@@ -356,7 +312,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
-        if(r.key==="logo_navbar")setLogoNavbar(r.value||null);
       });
       const{data:cd}=await supabase.from("planning_cells").select("*").eq("week_id",weekId);
       if(cd){const m={};cd.forEach(r=>{m[`${r.chantier_id}_${r.jour}`]={planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],taches:r.taches||[]};});setCells(m);}
@@ -386,7 +341,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
-        if(r.key==="logo_navbar")setLogoNavbar(r.value||null);
         setLastSync(new Date());
       })
       .subscribe();
@@ -470,7 +424,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       <div className="app-sidebar"><Sidebar page={page} setPage={setPage} T={T} role={role}/></div>
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
         <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-          <img src={logoNavbar || LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
+          <img src={LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
           <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
             Profero · Rénovation
           </div>
@@ -502,6 +456,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
+          {page==="chantiers"         && canAccess(role,"chantiers")         && <PageChantiers chantiers={chantiers} tauxHoraires={tauxHoraires} T={T}/>}
           {page==="dashboard"        && canAccess(role,"dashboard")        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
           {page==="planning"         && canAccess(role,"planning")         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
           {page==="planning-mensuel" && canAccess(role,"planning-mensuel") && <PagePlanningMensuel T={T}/>}
