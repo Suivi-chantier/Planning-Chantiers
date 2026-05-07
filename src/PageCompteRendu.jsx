@@ -132,13 +132,20 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
   }
 
   // ── Nouveau CR ──
-  async function nouveauCR() {
-    const nom = window.prompt("Nom du compte rendu :", `CR ${crs.length+1}`);
-    if (!nom) return;
-    const { data } = await supabase.from("cr_comptes_rendus").insert({ ...INFOS_VIDE, date_visite: new Date().toISOString().split("T")[0] }).select().single();
+  const [showNouveauModal, setShowNouveauModal] = useState(false);
+  const [nouveauChantier, setNouveauChantier]   = useState("");
+
+  function nouveauCR() { setNouveauChantier(""); setShowNouveauModal(true); }
+
+  async function creerNouveauCR() {
+    const base = { ...INFOS_VIDE, chantier_id: nouveauChantier, date_visite: new Date().toISOString().split("T")[0] };
+    const { data } = await supabase.from("cr_comptes_rendus").insert(base).select().single();
     if (data) {
       await supabase.from("cr_observations").insert({ cr_id:data.id, statut:"warn", texte:"", ordre:0 });
       setCrs(p=>[data,...p]); chargerCR(data.id);
+      setShowNouveauModal(false);
+      // Aller directement sur la section client pour remplir
+      setSection("client");
     }
   }
 
@@ -338,6 +345,38 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
 
   return (
     <div style={{ display:"flex", height:"100%", background:bg, overflow:"hidden" }}>
+
+      {/* ── MODALE NOUVEAU CR ── */}
+      {showNouveauModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:800, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setShowNouveauModal(false)}>
+          <div style={{ background:surface, border:`1px solid ${border}`, borderRadius:16, width:"100%", maxWidth:420, padding:"28px 28px 24px", boxShadow:"0 24px 60px rgba(0,0,0,0.6)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontSize:17, fontWeight:800, color:text, marginBottom:6 }}>➕ Nouveau compte rendu</div>
+            <div style={{ fontSize:12, color:textSub, marginBottom:22 }}>Choisissez le chantier concerné</div>
+
+            <label style={lbl}>Chantier <span style={{color:accent}}>*</span></label>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+              {chantiers.map(c => (
+                <div key={c.id} onClick={()=>setNouveauChantier(c.id)} style={{
+                  padding:"12px 14px", borderRadius:10, cursor:"pointer", transition:"all .12s",
+                  border:`2px solid ${nouveauChantier===c.id ? accent : border}`,
+                  background: nouveauChantier===c.id ? "rgba(255,194,0,0.1)" : card,
+                  display:"flex", alignItems:"center", gap:8,
+                }}>
+                  <div style={{ width:10, height:10, borderRadius:"50%", background:c.couleur||accent, flexShrink:0 }}/>
+                  <span style={{ fontSize:13, fontWeight:700, color:nouveauChantier===c.id?accent:text }}>{c.nom}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={()=>setShowNouveauModal(false)} style={btnS}>Annuler</button>
+              <button onClick={creerNouveauCR} disabled={!nouveauChantier} style={{ ...btn, opacity: nouveauChantier?1:.45, cursor: nouveauChantier?"pointer":"default" }}>
+                Créer le CR →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── LISTE CRs ── */}
       <div style={{ width:220, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
