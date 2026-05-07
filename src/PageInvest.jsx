@@ -1266,14 +1266,29 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
   const sauvegarder = async () => {
     if (!form.nom.trim()) return;
     setSaving(true);
-    const payload = { ...form, budget: parseFloat(form.budget)||0, updated_at: new Date().toISOString() };
-    if (isEdit) {
-      await supabase.from("invest_clients").update(payload).eq("id", client.id);
-    } else {
-      await supabase.from("invest_clients").insert(payload);
-    }
+    // Seuls les champs existants dans la table sont envoyés
+    const payload = {
+      nom:                   form.nom.trim(),
+      prenom:                form.prenom.trim() || null,
+      email:                 form.email.trim() || null,
+      telephone:             form.telephone.trim() || null,
+      conseiller:            form.conseiller.trim() || null,
+      source:                form.source || "Autre",
+      statut:                form.statut || "Prospect",
+      budget:                parseFloat(form.budget) || 0,
+      etape:                 form.etape.trim() || null,
+      prochaine_action:      form.prochaine_action.trim() || null,
+      date_prochaine_action: form.date_prochaine_action || null,
+      notes_rapides:         form.notes_rapides.trim() || null,
+    };
+    // Nettoyer les null pour éviter les conflits de type
+    Object.keys(payload).forEach(k => { if (payload[k] === "") payload[k] = null; });
+    const { error } = isEdit
+      ? await supabase.from("invest_clients").update(payload).eq("id", client.id)
+      : await supabase.from("invest_clients").insert(payload);
+    if (error) { console.error("Erreur sauvegarde client:", error); alert("Erreur : " + error.message); }
     setSaving(false);
-    onSave();
+    if (!error) onSave();
   };
 
   return (
