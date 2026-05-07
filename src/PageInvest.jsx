@@ -1002,8 +1002,8 @@ function Simulateur({ projet, profil, onRetour }) {
                   <tbody>
                     {COMP_FISCA.map((r,i)=>(
                       <tr key={i} style={{background:i%2===0?"#f8f9fb":"white"}}>
-                        <td style={{padding:8,fontWeight:600,color:"#2c3040",borderBottom:"1px solid #eef0f5"}}>{r[0]}</td>
-                        {[1,2,3].map(j=><td key={j} style={{padding:8,textAlign:"center",borderBottom:"1px solid #eef0f5"}}>{r[j]}</td>)}
+                        <td style={{padding:8,fontWeight:600,color:"#2c3040",borderBottom:"1px solid #1e2130"}}>{r[0]}</td>
+                        {[1,2,3].map(j=><td key={j} style={{padding:8,textAlign:"center",borderBottom:"1px solid #1e2130"}}>{r[j]}</td>)}
                       </tr>
                     ))}
                   </tbody>
@@ -1174,7 +1174,7 @@ function CRM({ profil, T=THEMES_INV.dark }) {
     return true;
   });
 
-  const STATUT_COLORS = { Prospect:"#1f4ea1", Actif:"#1a7a4a", Inactif:"#c9a84c", Terminé:"#5a6070" };
+  const STATUT_COLORS = { Prospect:"#4db8ff", Actif:"#50c878", Inactif:"#FFC200", Terminé:"rgba(255,255,255,0.3)" };
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
 
@@ -1210,7 +1210,7 @@ function CRM({ profil, T=THEMES_INV.dark }) {
 
       {/* Liste */}
       {loading ? (
-        <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>
       ) : (
         <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
           <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
@@ -1219,7 +1219,7 @@ function CRM({ profil, T=THEMES_INV.dark }) {
           {filtered.length === 0 ? (
             <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)", fontSize:14 }}>Aucun contact trouvé</div>
           ) : filtered.map(c => (
-            <div key={c.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #eef0f5", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
+            <div key={c.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #1e2130", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
               onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(c.id)}>
@@ -1233,7 +1233,7 @@ function CRM({ profil, T=THEMES_INV.dark }) {
               <div style={{ fontSize:12, color:T.textSub }}>{c.etape||"—"}</div>
               <div style={{ fontSize:12, color: c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : "rgba(255,255,255,0.45)" }}>
                 {fmtDate(c.date_prochaine_action)}
-                {c.prochaine_action && <div style={{ fontSize:11, color:"#9aa0b0", marginTop:1 }}>{c.prochaine_action.slice(0,30)}</div>}
+                {c.prochaine_action && <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", marginTop:1 }}>{c.prochaine_action.slice(0,30)}</div>}
               </div>
               <div style={{ textAlign:"right" }}>
                 <span style={{ fontSize:12, color:T.accent, fontWeight:700 }}>Ouvrir →</span>
@@ -1278,15 +1278,15 @@ function FormulaireClient({ client, profil, onSave, onClose }) {
 
   const F = ({ label, children }) => (
     <div style={{ marginBottom:14 }}>
-      <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>{label}</label>
+      <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>{label}</label>
       {children}
     </div>
   );
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-      <div style={{ background:"white", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:580, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
-        <div style={{ fontSize:17, fontWeight:800, color:"#1a2d4a", marginBottom:20 }}>{isEdit ? "Modifier le contact" : "Nouveau contact"}</div>
+      <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:580, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.7)" }}>
+        <div style={{ fontSize:17, fontWeight:800, color:"#e8eaf0", marginBottom:20 }}>{isEdit ? "Modifier le contact" : "Nouveau contact"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
           <F label="Nom *"><input className="inv-inp" value={form.nom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,nom:e.target.value})}/></F>
           <F label="Prénom"><input className="inv-inp" value={form.prenom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prenom:e.target.value})}/></F>
@@ -1345,16 +1345,15 @@ function FicheClient({ id, profil, onRetour }) {
     charger();
   };
 
-  const STATUT_COLORS = { Prospect:"#1f4ea1", Actif:"#1a7a4a", Inactif:"#c9a84c", Terminé:"#5a6070" };
+  const STATUT_COLORS = { Prospect:"#4db8ff", Actif:"#50c878", Inactif:"#FFC200", Terminé:"rgba(255,255,255,0.3)" };
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" }) : "—";
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR").format(v)+" €" : "—";
   const NOTE_ICONS = { appel:"📞", "rendez-vous":"🤝", relance:"🔔", commentaire:"💬", document:"📄", autre:"📝" };
 
-  if (!client) return <div style={{ textAlign:"center", padding:"60px", color:"#9aa0b0" }}>Chargement…</div>;
+  if (!client) return <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>;
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1100, margin:"0 auto" }}>
-      {/* Header */}
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← CRM</button>
         <div style={{ flex:1 }}>
@@ -1391,7 +1390,7 @@ function FicheClient({ id, profil, onRetour }) {
               {props.length === 0 ? (
                 <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic" }}>Aucun bien proposé</div>
               ) : props.map(p => (
-                <div key={p.id} style={{ padding:"8px 0", borderBottom:"1px solid #eef0f5" }}>
+                <div key={p.id} style={{ padding:"8px 0", borderBottom:"1px solid #1e2130" }}>
                   <div style={{ fontWeight:600, fontSize:13, color:"#1a2d4a" }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
                   <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>
                     {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · {p.statut}
@@ -1427,15 +1426,15 @@ function FicheClient({ id, profil, onRetour }) {
               {notes.length === 0 ? (
                 <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucune note</div>
               ) : notes.map(n => (
-                <div key={n.id} style={{ padding:"10px 0", borderBottom:"1px solid #eef0f5" }}>
+                <div key={n.id} style={{ padding:"10px 0", borderBottom:"1px solid #1e2130" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
                     <span style={{ fontSize:16 }}>{NOTE_ICONS[n.type]||"📝"}</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:"#1f4ea1", textTransform:"uppercase" }}>{n.type}</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:"#4db8ff", textTransform:"uppercase" }}>{n.type}</span>
                     <span style={{ fontSize:11, color:"#9aa0b0", marginLeft:"auto" }}>
                       {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
                     </span>
                   </div>
-                  <div style={{ fontSize:13, color:"#2c3040", lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
+                  <div style={{ fontSize:13, color:"rgba(255,255,255,0.75)", lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
                 </div>
               ))}
             </div>
@@ -1537,7 +1536,7 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
 
       {/* Liste */}
       {loading ? (
-        <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>
       ) : (
         <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
           <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
@@ -1546,7 +1545,7 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
           {filtered.length === 0 ? (
             <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)", fontSize:14 }}>Aucun bien trouvé</div>
           ) : filtered.map(b => (
-            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #eef0f5", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
+            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #1e2130", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
               onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(b.id)}>
@@ -1624,8 +1623,8 @@ function FormulaireBien({ bien, profil, onSave, onClose }) {
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-      <div style={{ background:"white", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
-        <div style={{ fontSize:17, fontWeight:800, color:"#1a2d4a", marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
+      <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.7)" }}>
+        <div style={{ fontSize:17, fontWeight:800, color:"#e8eaf0", marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
           <F label="Adresse" col="1 / 3"><I value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></F>
           <F label="Ville"><I value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></F>
@@ -1692,7 +1691,7 @@ function FicheBien({ id, profil, onRetour }) {
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"}) : "—";
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
 
-  if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:"#9aa0b0" }}>Chargement…</div>;
+  if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>;
 
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
 
@@ -1713,7 +1712,7 @@ function FicheBien({ id, profil, onRetour }) {
           <div className="inv-card">
             <div className="inv-card-hd blue">🏠 Informations</div>
             <div className="inv-card-bd">
-              {[["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:"#1f4ea1"}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
+              {[["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:"#4db8ff"}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
               ))}
             </div>
@@ -1725,9 +1724,9 @@ function FicheBien({ id, profil, onRetour }) {
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc" style={{fontFamily:"'DM Mono',monospace",fontWeight:700}}>{v}</span></div>
               ))}
               {(bien.lien_drive || bien.lien_rentabilite) && (
-                <div style={{ marginTop:10, display:"flex", gap:8, flexWrap:"wrap" }}>
-                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm">📁 Dossier Drive</a>}
-                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm">📊 Rentabilité</a>}
+                <div style={{ marginTop:12, display:"flex", gap:8, flexWrap:"wrap" }}>
+                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:"#4db8ff",borderColor:"rgba(77,184,255,0.3)"}}>📁 Dossier Drive</a>}
+                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:"#4db8ff",borderColor:"rgba(77,184,255,0.3)"}}>📊 Rentabilité</a>}
                 </div>
               )}
             </div>
@@ -1750,7 +1749,7 @@ function FicheBien({ id, profil, onRetour }) {
             {props.length === 0 ? (
               <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun client associé</div>
             ) : props.map(p => (
-              <div key={p.id} style={{ padding:"10px 0", borderBottom:"1px solid #eef0f5" }}>
+              <div key={p.id} style={{ padding:"10px 0", borderBottom:"1px solid #1e2130" }}>
                 <div style={{ fontWeight:700, fontSize:13, color:"#1a2d4a" }}>{p.client?.prenom} {p.client?.nom}</div>
                 <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>
                   {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:"#1f4ea1" }}>{p.statut}</span>
@@ -1767,27 +1766,27 @@ function FicheBien({ id, profil, onRetour }) {
 
       {showProp && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-          <div style={{ background:"white", borderRadius:14, padding:"24px 26px", width:"90%", maxWidth:440 }}>
-            <div style={{ fontSize:16, fontWeight:800, color:"#1a2d4a", marginBottom:16 }}>Proposer ce bien à un client</div>
+          <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:14, padding:"24px 26px", width:"90%", maxWidth:440 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:"#e8eaf0", marginBottom:16 }}>Proposer ce bien à un client</div>
             <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Client</label>
+              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Client</label>
               <select className="inv-sel" value={newProp.client_id} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,client_id:e.target.value})}>
                 <option value="">Sélectionner un client…</option>
                 {clients.map(c=><option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>)}
               </select>
             </div>
             <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
+              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
               <select className="inv-sel" value={newProp.statut} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,statut:e.target.value})}>
                 {STATUTS_PROP.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
             <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Commentaire</label>
+              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Commentaire</label>
               <textarea className="inv-textarea" rows={2} value={newProp.commentaire} onChange={e=>setNewProp({...newProp,commentaire:e.target.value})}/>
             </div>
             <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Lien dossier présenté</label>
+              <label style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Lien dossier présenté</label>
               <input className="inv-inp" value={newProp.lien_dossier} style={{ width:"100%", textAlign:"left" }} onChange={e=>setNewProp({...newProp,lien_dossier:e.target.value})} placeholder="https://…"/>
             </div>
             <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
