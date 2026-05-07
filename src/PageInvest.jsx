@@ -1807,15 +1807,36 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
 
   const sauvegarder = async () => {
     setSaving(true);
-    const payload = { ...form, updated_at: new Date().toISOString() };
-    Object.keys(payload).forEach(k => { if (typeof payload[k] === "string" && payload[k] === "" && ["prix_vente","prix_travaux","cout_total","rendement_brut","cashflow_estime","montant_offre"].includes(k)) payload[k] = 0; });
-    if (isEdit) {
-      await supabase.from("invest_biens").update(payload).eq("id", bien.id);
-    } else {
-      await supabase.from("invest_biens").insert(payload);
-    }
+    const NUM = ["prix_vente","prix_travaux","cout_total","rendement_brut","cashflow_estime","montant_offre"];
+    const DATE = ["date_relance","date_visite"];
+    const payload = {
+      adresse:                 form.adresse?.trim() || null,
+      ville:                   form.ville?.trim() || null,
+      code_postal:             form.code_postal?.trim() || null,
+      commentaire:             form.commentaire?.trim() || null,
+      interlocuteur:           form.interlocuteur?.trim() || null,
+      telephone_interlocuteur: form.telephone_interlocuteur?.trim() || null,
+      agence:                  form.agence?.trim() || null,
+      lien_annonce:            form.lien_annonce?.trim() || null,
+      lien_drive:              form.lien_drive?.trim() || null,
+      lien_rentabilite:        form.lien_rentabilite?.trim() || null,
+      statut_relance:          form.statut_relance?.trim() || null,
+      statut:                  form.statut || "À analyser",
+      prix_vente:              parseFloat(form.prix_vente) || 0,
+      prix_travaux:            parseFloat(form.prix_travaux) || 0,
+      cout_total:              parseFloat(form.cout_total) || 0,
+      rendement_brut:          parseFloat(form.rendement_brut) || 0,
+      cashflow_estime:         parseFloat(form.cashflow_estime) || 0,
+      montant_offre:           parseFloat(form.montant_offre) || 0,
+      date_relance:            form.date_relance || null,
+      date_visite:             form.date_visite || null,
+    };
+    const { error } = isEdit
+      ? await supabase.from("invest_biens").update(payload).eq("id", bien.id)
+      : await supabase.from("invest_biens").insert(payload);
+    if (error) { console.error("Erreur bien:", error); alert("Erreur : " + error.message); }
     setSaving(false);
-    onSave();
+    if (!error) onSave();
   };
 
 
