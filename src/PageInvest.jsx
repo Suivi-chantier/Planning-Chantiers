@@ -1558,11 +1558,18 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← CRM</button>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>{client.prenom} {client.nom}</div>
-          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:2 }}>{client.email} {client.telephone ? `· ${client.telephone}` : ""}</div>
+          <div style={{ fontSize:22, fontWeight:800, color:T.text }}>{client.prenom} {client.nom}</div>
+          <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>{client.email} {client.telephone ? `· ${client.telephone}` : ""}</div>
         </div>
         <span style={{ background:`${STATUT_COLORS[client.statut]}18`, color:STATUT_COLORS[client.statut], border:`1px solid ${STATUT_COLORS[client.statut]}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{client.statut}</span>
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>✏️ Modifier</button>
+        <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
+          if (!window.confirm(`Supprimer ${client.prenom} ${client.nom} ? Cette action est irréversible.`)) return;
+          await supabase.from("invest_notes").delete().eq("client_id", id);
+          await supabase.from("invest_propositions").delete().eq("client_id", id);
+          await supabase.from("invest_clients").delete().eq("id", id);
+          onRetour();
+        }}>🗑️ Supprimer</button>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
@@ -1920,11 +1927,17 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← Stock de biens</button>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>{bien.adresse||"Bien sans adresse"}</div>
-          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:2 }}>{bien.ville||""}{bien.code_postal ? ` ${bien.code_postal}` : ""}{bien.agence ? ` · ${bien.agence}` : ""}</div>
+          <div style={{ fontSize:22, fontWeight:800, color:T.text }}>{bien.adresse||"Bien sans adresse"}</div>
+          <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>{bien.ville||""}{bien.code_postal ? ` ${bien.code_postal}` : ""}{bien.agence ? ` · ${bien.agence}` : ""}</div>
         </div>
         <span style={{ background:`${couleur}18`, color:couleur, border:`1px solid ${couleur}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{bien.statut}</span>
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>✏️ Modifier</button>
+        <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
+          if (!window.confirm(`Supprimer ce bien (${bien.adresse||"sans adresse"}) ? Cette action est irréversible.`)) return;
+          await supabase.from("invest_propositions").delete().eq("bien_id", id);
+          await supabase.from("invest_biens").delete().eq("id", id);
+          onRetour();
+        }}>🗑️ Supprimer</button>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
@@ -2354,7 +2367,7 @@ function OngletUtilisateursInvest({ T }) {
 }
 
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
-function SidebarInvest({ page, setPage, theme, setTheme, profil }) {
+function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout }) {
   const isAdmin = profil?.role === "admin";
   const NAV = [
     { id:"dashboard",  icon:"⊞",  label:"Tableau de bord" },
@@ -2384,6 +2397,16 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil }) {
           style={{ width:"100%", background:"rgba(77,184,255,0.1)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"8px 12px", color:"#4db8ff", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8, letterSpacing:.5 }}>
           {theme==="dark" ? "☀️ Mode clair" : "🌙 Mode sombre"}
         </button>
+        {onRetourPortail && (
+          <button onClick={onRetourPortail}
+            style={{ width:"100%", background:"rgba(255,194,0,0.08)", border:"1px solid rgba(255,194,0,0.2)", borderRadius:8, padding:"8px 12px", color:"rgba(255,194,0,0.8)", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8, letterSpacing:.5 }}>
+            ⊞ Portail
+          </button>
+        )}
+        <button onClick={onLogout}
+          style={{ width:"100%", background:"rgba(224,92,92,0.08)", border:"1px solid rgba(224,92,92,0.2)", borderRadius:8, padding:"8px 12px", color:"#e05c5c", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8, letterSpacing:.5 }}>
+          ⏻ Déconnexion
+        </button>
         <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", lineHeight:1.5, fontFamily:"'Barlow Condensed',sans-serif" }}>
           {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
         </div>
@@ -2393,7 +2416,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil }) {
 }
 
 // ─── PAGE INVEST (routeur interne) ────────────────────────────────────────────
-export default function PageInvest({ profil }) {
+export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("invest_theme") || "dark");
   const T = THEMES_INV[theme];
   const CSS = getCSS(T);
@@ -2417,7 +2440,7 @@ export default function PageInvest({ profil }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} profil={profil} />
+      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && <TableauBord profil={profil} T={T} />}
         {page === "crm"        && <CRM profil={profil} T={T} />}
