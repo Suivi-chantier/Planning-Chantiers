@@ -407,7 +407,7 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
             {STATUTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
           <button onClick={handleSave} disabled={saving} style={{
-            padding: "8px 20px", borderRadius: 10, border: "none",
+            padding: "8px 20px", borderRadius: 10,
             background: dirty ? T.accent : T.card,
             color: dirty ? "#111" : T.textMuted,
             fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer",
