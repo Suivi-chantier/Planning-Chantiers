@@ -87,103 +87,121 @@ const initBudgetState = (lots, surface) => {
   return { qty, price };
 };
 
-// ─── CSS INVEST — aligné sur Profero Rénovation ───────────────────────────────
-const CSS = `
+// ─── THÈMES INVEST ────────────────────────────────────────────────────────────
+const THEMES_INV = {
+  dark: {
+    bg:"#080a0d", surface:"#111318", card:"#111318", cardHover:"#16191f",
+    border:"#1e2130", text:"#e8eaf0", textSub:"rgba(255,255,255,0.5)",
+    textMuted:"rgba(255,255,255,0.25)", accent:"#4db8ff", sidebar:"#0c0e14",
+    input:"#1a1d24", inputBorder:"#2a2d3a", scrollThumb:"#2a2d3a",
+    rowBorder:"#1e2130", sectionHd:"#1a1d24", tabNav:"#111318",
+  },
+  light: {
+    bg:"#f0f4f8", surface:"#ffffff", card:"#ffffff", cardHover:"#f8fafc",
+    border:"#dde3ec", text:"#1a2d4a", textSub:"rgba(26,45,74,0.6)",
+    textMuted:"rgba(26,45,74,0.35)", accent:"#1f7ac0", sidebar:"#1a2d4a",
+    input:"#f8fafc", inputBorder:"#4db8ff", scrollThumb:"#b0c4d8",
+    rowBorder:"#e8eef5", sectionHd:"#f0f4f8", tabNav:"#ffffff",
+  },
+};
+
+// ─── CSS INVEST — aligné sur Profero Rénovation ────────────────────────────────
+const getCSS = (T) => `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
-.inv{font-family:'Barlow Condensed','Arial Narrow',sans-serif;background:#080a0d;color:#e8eaf0;font-size:14px;}
+.inv{font-family:'Barlow Condensed','Arial Narrow',sans-serif;background:${T.bg};color:${T.text};font-size:14px;}
 .inv *{box-sizing:border-box;margin:0;padding:0;}
 .inv ::-webkit-scrollbar{width:5px;height:5px;}
-.inv ::-webkit-scrollbar-thumb{background:#2a2d3a;border-radius:3px;}
-.inv-card{background:#111318;border-radius:10px;border:1px solid #1e2130;overflow:hidden;}
-.inv-card-hd{background:#1a1d24;color:#e8eaf0;padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #1e2130;}
-.inv-card-hd.gold{background:rgba(255,194,0,0.1);color:#FFC200;border-bottom-color:rgba(255,194,0,0.2);}
+.inv ::-webkit-scrollbar-thumb{background:${T.scrollThumb};border-radius:3px;}
+.inv-card{background:${T.card};border-radius:10px;border:1px solid ${T.border};overflow:hidden;}
+.inv-card-hd{background:${T.sectionHd};color:${T.text};padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid ${T.border};}
+.inv-card-hd.accent{background:rgba(77,184,255,0.1);color:${T.accent};border-bottom-color:rgba(77,184,255,0.2);}
 .inv-card-hd.danger{background:rgba(224,92,92,0.1);color:#e05c5c;border-bottom-color:rgba(224,92,92,0.2);}
 .inv-card-hd.green{background:rgba(80,200,120,0.08);color:#50c878;border-bottom-color:rgba(80,200,120,0.15);}
 .inv-card-bd{padding:14px 16px;}
-.inv-row{display:grid;grid-template-columns:1fr auto;align-items:center;padding:7px 0;border-bottom:1px solid #1e2130;gap:12px;}
+.inv-row{display:grid;grid-template-columns:1fr auto;align-items:center;padding:7px 0;border-bottom:1px solid ${T.rowBorder};gap:12px;}
 .inv-row:last-child{border-bottom:none;}
-.inv-row.total{border-top:2px solid #FFC200;margin-top:4px;padding-top:8px;border-bottom:none;}
-.inv-row.sub{background:rgba(255,255,255,0.02);margin:0 -16px;padding:7px 16px;}
-.inv-lbl{font-size:13px;color:rgba(255,255,255,0.45);}
-.inv-lbl.bold{font-weight:700;color:rgba(255,255,255,0.85);}
-.inv-val{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;white-space:nowrap;color:rgba(255,255,255,0.7);}
-.inv-val.calc{color:#FFC200;}
+.inv-row.total{border-top:2px solid ${T.accent};margin-top:4px;padding-top:8px;border-bottom:none;}
+.inv-row.sub{background:${T.cardHover};margin:0 -16px;padding:7px 16px;}
+.inv-lbl{font-size:13px;color:${T.textSub};}
+.inv-lbl.bold{font-weight:700;color:${T.text};}
+.inv-val{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;white-space:nowrap;color:${T.textSub};}
+.inv-val.calc{color:${T.accent};}
 .inv-val.green{color:#50c878;font-weight:700;}
 .inv-val.orange{color:#f5a623;font-weight:700;}
 .inv-val.red{color:#e05c5c;font-weight:700;}
-.inv-inp{font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:#FFC200;background:#1a1d24;border:1.5px solid #2a2d3a;border-radius:6px;padding:6px 10px;text-align:right;outline:none;transition:border-color .15s;}
-.inv-inp:focus{border-color:#FFC200;box-shadow:0 0 0 2px rgba(255,194,0,.1);}
-.inv-sel{font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#e8eaf0;background:#1a1d24;border:1.5px solid #2a2d3a;border-radius:6px;padding:6px 10px;outline:none;cursor:pointer;}
-.inv-sel:focus{border-color:#FFC200;}
-.inv-kpi{background:#111318;border-radius:10px;padding:16px 18px;border:1px solid #1e2130;display:flex;flex-direction:column;gap:6px;transition:border-color .15s;}
-.inv-kpi:hover{border-color:rgba(255,194,0,0.3);}
-.inv-kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,0.3);}
-.inv-kpi-val{font-family:'DM Mono',monospace;font-size:24px;font-weight:700;color:#e8eaf0;}
+.inv-inp{font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:${T.accent};background:${T.input};border:1.5px solid ${T.inputBorder};border-radius:6px;padding:6px 10px;text-align:right;outline:none;transition:border-color .15s;}
+.inv-inp:focus{border-color:${T.accent};box-shadow:0 0 0 2px rgba(77,184,255,.1);}
+.inv-sel{font-family:'Barlow Condensed',sans-serif;font-size:13px;color:${T.text};background:${T.input};border:1.5px solid ${T.border};border-radius:6px;padding:6px 10px;outline:none;cursor:pointer;}
+.inv-sel:focus{border-color:${T.accent};}
+.inv-kpi{background:${T.card};border-radius:10px;padding:16px 18px;border:1px solid ${T.border};display:flex;flex-direction:column;gap:6px;transition:border-color .15s;}
+.inv-kpi:hover{border-color:${T.accent};}
+.inv-kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${T.textMuted};}
+.inv-kpi-val{font-family:'DM Mono',monospace;font-size:24px;font-weight:700;color:${T.text};}
 .inv-kpi-val.green{color:#50c878;}
 .inv-kpi-val.orange{color:#f5a623;}
 .inv-kpi-val.red{color:#e05c5c;}
-.inv-kpi-val.gold{color:#FFC200;}
-.inv-tab-nav{background:#111318;display:flex;padding:0 20px;gap:2px;border-bottom:1px solid #1e2130;flex-shrink:0;}
-.inv-tab-btn{padding:10px 18px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,0.4);background:transparent;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:.5px;text-transform:uppercase;}
-.inv-tab-btn:hover{color:rgba(255,255,255,0.8);}
-.inv-tab-btn.active{color:#FFC200;border-bottom-color:#FFC200;}
-.inv-scen-hd{display:grid;grid-template-columns:1fr 110px 110px;padding:8px 16px;background:#1a1d24;font-size:10px;font-weight:700;color:rgba(255,255,255,0.4);letter-spacing:.08em;text-transform:uppercase;}
-.inv-scen-row{display:grid;grid-template-columns:1fr 110px 110px;align-items:center;padding:7px 16px;border-bottom:1px solid #1e2130;gap:8px;}
+.inv-kpi-val.accent{color:${T.accent};}
+.inv-tab-nav{background:${T.tabNav};display:flex;padding:0 20px;gap:2px;border-bottom:1px solid ${T.border};flex-shrink:0;}
+.inv-tab-btn{padding:10px 18px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:${T.textMuted};background:transparent;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:.5px;text-transform:uppercase;}
+.inv-tab-btn:hover{color:${T.textSub};}
+.inv-tab-btn.active{color:${T.accent};border-bottom-color:${T.accent};}
+.inv-scen-hd{display:grid;grid-template-columns:1fr 110px 110px;padding:8px 16px;background:${T.sectionHd};font-size:10px;font-weight:700;color:${T.textMuted};letter-spacing:.08em;text-transform:uppercase;}
+.inv-scen-row{display:grid;grid-template-columns:1fr 110px 110px;align-items:center;padding:7px 16px;border-bottom:1px solid ${T.rowBorder};gap:8px;}
 .inv-scen-row:last-child{border-bottom:none;}
 .inv-scen-row.hl{background:rgba(80,200,120,0.06);}
 .inv-scen-row.warn{background:rgba(245,166,35,0.06);}
-.inv-s{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;color:rgba(255,255,255,0.7);}
+.inv-s{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;color:${T.textSub};}
 .inv-s.green{color:#50c878;font-weight:700;}
 .inv-s.orange{color:#f5a623;font-weight:700;}
-.inv-lot-grid{display:grid;grid-template-columns:90px 75px 75px 95px 70px 65px 70px 1fr 55px;gap:5px;align-items:center;padding:5px 0;border-bottom:1px solid #1e2130;min-width:680px;}
-.inv-lot-grid.hd{font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);letter-spacing:.06em;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid #2a2d3a;}
+.inv-lot-grid{display:grid;grid-template-columns:90px 75px 75px 95px 70px 65px 70px 1fr 55px;gap:5px;align-items:center;padding:5px 0;border-bottom:1px solid ${T.rowBorder};min-width:680px;}
+.inv-lot-grid.hd{font-size:10px;font-weight:700;color:${T.textMuted};letter-spacing:.06em;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid ${T.border};}
 .inv-lot-grid input,.inv-lot-grid select{width:100%;}
-.inv-lot-val{font-family:'DM Mono',monospace;font-size:12px;text-align:right;color:rgba(255,255,255,0.45);}
-.inv-add-lot{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;padding:7px;background:rgba(255,255,255,0.03);border:1.5px dashed #2a2d3a;border-radius:6px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:rgba(255,194,0,0.6);width:100%;letter-spacing:.5px;}
-.inv-add-lot:hover{background:rgba(255,194,0,0.06);border-color:rgba(255,194,0,0.4);color:#FFC200;}
-.inv-brow{display:grid;grid-template-columns:1fr 60px 65px 75px 80px;padding:5px 0;border-bottom:1px solid #1e2130;align-items:center;gap:5px;}
-.inv-brow.hd{font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #2a2d3a;padding-bottom:8px;}
-.inv-brow .bl{font-size:12px;color:rgba(255,255,255,0.55);}
-.inv-brow .bn{font-family:'DM Mono',monospace;font-size:12px;text-align:right;color:rgba(255,255,255,0.7);}
+.inv-lot-val{font-family:'DM Mono',monospace;font-size:12px;text-align:right;color:${T.textSub};}
+.inv-add-lot{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;padding:7px;background:${T.cardHover};border:1.5px dashed ${T.border};border-radius:6px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:${T.accent};width:100%;letter-spacing:.5px;opacity:.7;}
+.inv-add-lot:hover{opacity:1;border-color:${T.accent};}
+.inv-brow{display:grid;grid-template-columns:1fr 60px 65px 75px 80px;padding:5px 0;border-bottom:1px solid ${T.rowBorder};align-items:center;gap:5px;}
+.inv-brow.hd{font-size:10px;font-weight:700;color:${T.textMuted};text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid ${T.border};padding-bottom:8px;}
+.inv-brow .bl{font-size:12px;color:${T.textSub};}
+.inv-brow .bn{font-family:'DM Mono',monospace;font-size:12px;text-align:right;color:${T.textSub};}
 .inv-brow input{width:100%;}
-.inv-bsec{background:#1a1d24;color:rgba(255,194,0,0.7);padding:5px 0;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:8px 0 3px;border-bottom:1px solid rgba(255,194,0,0.1);}
-.inv-regime{background:#111318;border-radius:10px;border:1px solid #1e2130;overflow:hidden;}
+.inv-bsec{background:${T.sectionHd};color:${T.accent};padding:5px 0;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:8px 0 3px;border-bottom:1px solid ${T.border};opacity:.8;}
+.inv-regime{background:${T.card};border-radius:10px;border:1px solid ${T.border};overflow:hidden;}
 .inv-regime-hd{padding:10px 14px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
-.inv-regime-hd.is{background:#1e3a5f;color:#4db8ff;}
-.inv-regime-hd.ir{background:#3a1e5f;color:#c084fc;}
-.inv-regime-hd.lmnp{background:#1e3a2a;color:#50c878;}
-.inv-regime-row{display:flex;justify-content:space-between;align-items:center;padding:6px 14px;border-bottom:1px solid #1e2130;gap:8px;}
+.inv-regime-hd.is{background:rgba(30,58,95,0.5);color:#4db8ff;}
+.inv-regime-hd.ir{background:rgba(58,30,95,0.5);color:#c084fc;}
+.inv-regime-hd.lmnp{background:rgba(30,95,42,0.5);color:#50c878;}
+.inv-regime-row{display:flex;justify-content:space-between;align-items:center;padding:6px 14px;border-bottom:1px solid ${T.rowBorder};gap:8px;}
 .inv-regime-row:last-child{border-bottom:none;}
-.inv-regime-row .rl{font-size:11px;color:rgba(255,255,255,0.45);flex:1;}
-.inv-regime-row .rv{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;text-align:right;color:rgba(255,255,255,0.8);}
+.inv-regime-row .rl{font-size:11px;color:${T.textSub};flex:1;}
+.inv-regime-row .rv{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;text-align:right;color:${T.text};}
 .inv-regime-row.hl{background:rgba(80,200,120,0.06);}
 .inv-regime-row.warn{background:rgba(245,166,35,0.06);}
 .inv-toggle-wrap{display:flex;align-items:center;gap:10px;padding:6px 0;}
 .inv-toggle{position:relative;width:38px;height:20px;}
 .inv-toggle input{opacity:0;width:0;height:0;}
-.inv-toggle-sl{position:absolute;inset:0;background:#2a2d3a;border-radius:20px;cursor:pointer;transition:.2s;}
-.inv-toggle-sl:before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:rgba(255,255,255,0.6);border-radius:50%;transition:.2s;}
-input:checked+.inv-toggle-sl{background:#FFC200;}
-input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:#111;}
-.inv-photo-zone{border:2px dashed #2a2d3a;border-radius:8px;background:#1a1d24;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:all .2s;min-height:100px;position:relative;overflow:hidden;}
-.inv-photo-zone:hover{border-color:#FFC200;background:rgba(255,194,0,0.05);}
+.inv-toggle-sl{position:absolute;inset:0;background:${T.border};border-radius:20px;cursor:pointer;transition:.2s;}
+.inv-toggle-sl:before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:${T.textSub};border-radius:50%;transition:.2s;}
+input:checked+.inv-toggle-sl{background:${T.accent};}
+input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;}
+.inv-photo-zone{border:2px dashed ${T.border};border-radius:8px;background:${T.input};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:all .2s;min-height:100px;position:relative;overflow:hidden;}
+.inv-photo-zone:hover{border-color:${T.accent};}
 .inv-photo-zone.has-photo{border-style:solid;}
 .inv-photo-zone img{width:100%;height:100%;object-fit:cover;display:block;}
 .inv-photo-actions{position:absolute;top:5px;right:5px;}
 .inv-btn{display:inline-flex;align-items:center;gap:5px;padding:8px 16px;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;cursor:pointer;border:none;white-space:nowrap;letter-spacing:.5px;transition:all .15s;}
-.inv-btn-gold{background:#FFC200;color:#111;}.inv-btn-gold:hover{opacity:.9;}
+.inv-btn-accent{background:${T.accent};color:white;}.inv-btn-accent:hover{opacity:.9;}
 .inv-btn-blue{background:rgba(77,184,255,0.15);color:#4db8ff;border:1px solid rgba(77,184,255,0.3);}.inv-btn-blue:hover{background:rgba(77,184,255,0.25);}
-.inv-btn-out{background:transparent;color:rgba(255,255,255,0.55);border:1px solid #2a2d3a;}.inv-btn-out:hover{background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.8);}
+.inv-btn-out{background:transparent;color:${T.textSub};border:1px solid ${T.border};}.inv-btn-out:hover{background:${T.cardHover};color:${T.text};}
 .inv-btn-danger{background:rgba(224,92,92,0.12);color:#e05c5c;border:1px solid rgba(224,92,92,0.25);}.inv-btn-danger:hover{background:rgba(224,92,92,0.2);}
+.inv-btn-gold{background:#4db8ff;color:white;}.inv-btn-gold:hover{opacity:.9;}
 .inv-btn-sm{font-size:11px;padding:5px 11px;}
-.inv-rm{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.25);font-size:16px;padding:0 3px;line-height:1;transition:color .15s;}
+.inv-rm{background:none;border:none;cursor:pointer;color:${T.textMuted};font-size:16px;padding:0 3px;line-height:1;transition:color .15s;}
 .inv-rm:hover{color:#e05c5c;}
-.inv-textarea{width:100%;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#e8eaf0;background:#1a1d24;border:1.5px solid #2a2d3a;border-radius:6px;padding:8px 10px;outline:none;resize:vertical;line-height:1.5;}
-.inv-textarea:focus{border-color:#FFC200;}
+.inv-textarea{width:100%;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:${T.text};background:${T.input};border:1.5px solid ${T.border};border-radius:6px;padding:8px 10px;outline:none;resize:vertical;line-height:1.5;}
+.inv-textarea:focus{border-color:${T.accent};}
 .inv-scen-toggle{display:flex;gap:4px;margin-top:5px;}
-.inv-scen-btn{flex:1;padding:4px;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;border:1px solid #2a2d3a;background:transparent;color:rgba(255,255,255,0.35);cursor:pointer;letter-spacing:.5px;}
-.inv-scen-btn.active{background:#FFC200;color:#111;border-color:#FFC200;}
-.inv-list-hd{padding:8px 16px;background:#1a1d24;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #1e2130;}
+.inv-scen-btn{flex:1;padding:4px;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;border:1px solid ${T.border};background:transparent;color:${T.textMuted};cursor:pointer;letter-spacing:.5px;}
+.inv-scen-btn.active{background:${T.accent};color:white;border-color:${T.accent};}
 .inv-badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px;}
 @media(max-width:768px){
   .inv-grid-2{grid-template-columns:1fr!important;}
@@ -191,7 +209,7 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:#111;}
   .inv-fisca-grid{grid-template-columns:1fr!important;}
 }
 `;
-
+const CSS = getCSS(THEMES_INV.dark);
 // ─── LISTE DES PROJETS ────────────────────────────────────────────────────────
 function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
   const [projets, setProjets] = useState([]);
@@ -1040,7 +1058,7 @@ function Simulateur({ projet, profil, onRetour }) {
 }
 
 // ─── TABLEAU DE BORD INVEST ───────────────────────────────────────────────────
-function TableauBord({ profil }) {
+function TableauBord({ profil, T=THEMES_INV.dark }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -1087,15 +1105,15 @@ function TableauBord({ profil }) {
   return (
     <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
       <div style={{ marginBottom:24 }}>
-        <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5 }}>Tableau de bord</div>
-        <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginTop:3 }}>Vue globale de l'activité Profero Invest</div>
+        <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>Tableau de bord</div>
+        <div style={{ fontSize:14, color:T.textSub, marginTop:3 }}>Vue globale de l'activité Profero Invest</div>
       </div>
 
       {loading ? (
         <div style={{ textAlign:"center", padding:"60px 0", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>
       ) : stats && (
         <>
-          <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,194,0,0.5)", textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>👥 Clients & Prospects</div>
+          <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>👥 Clients & Prospects</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12, marginBottom:28 }}>
             <KPI icon="🔵" label="Prospects"          value={stats.prospects}       color="#4db8ff" />
             <KPI icon="🟢" label="Clients actifs"     value={stats.actifs}          color="#50c878" />
@@ -1107,7 +1125,7 @@ function TableauBord({ profil }) {
             <KPI icon="📋" label="Moy. biens / client" value={stats.moyBiensParClient} color="#c084fc" />
           </div>
 
-          <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,194,0,0.5)", textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>🏠 Stock de Biens</div>
+          <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>🏠 Stock de Biens</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
             <KPI icon="🏘️" label="Biens en stock"       value={stats.biensTotaux}      color="#4db8ff" />
             <KPI icon="🔔" label="À relancer"            value={stats.biensARelancer}   color="#e05c5c" />
@@ -1128,7 +1146,7 @@ const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
 const STATUTS_PROP    = ["proposé","intéressé","refusé","en analyse","offre en cours"];
 
-function CRM({ profil }) {
+function CRM({ profil, T=THEMES_INV.dark }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
@@ -1166,8 +1184,8 @@ function CRM({ profil }) {
     <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
         <div>
-          <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5 }}>CRM Clients / Prospects</div>
-          <div style={{ fontSize:13, color:"rgba(255,255,255,0.35)", marginTop:3 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
+          <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>CRM Clients / Prospects</div>
+          <div style={{ fontSize:13, color:T.textSub, marginTop:3 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
         </div>
         <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau contact</button>
       </div>
@@ -1194,8 +1212,8 @@ function CRM({ profil }) {
       {loading ? (
         <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
       ) : (
-        <div style={{ background:"#111318", borderRadius:10, border:"1px solid #1e2130", overflow:"hidden" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#1a1d24", borderBottom:"1px solid #1e2130", fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.3)", textTransform:"uppercase", letterSpacing:.6 }}>
+        <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
             <div>Contact</div><div>Statut</div><div>Budget</div><div>Conseiller</div><div>Étape</div><div>Prochaine action</div><div/>
           </div>
           {filtered.length === 0 ? (
@@ -1206,19 +1224,19 @@ function CRM({ profil }) {
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(c.id)}>
               <div>
-                <div style={{ fontWeight:700, color:"#e8eaf0", fontSize:14 }}>{c.prenom} {c.nom}</div>
-                <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)" }}>{c.email || c.telephone || "—"}</div>
+                <div style={{ fontWeight:700, color:T.text, fontSize:14 }}>{c.prenom} {c.nom}</div>
+                <div style={{ fontSize:11, color:T.textMuted }}>{c.email || c.telephone || "—"}</div>
               </div>
               <div><span style={{ background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut], border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:700 }}>{c.statut}</span></div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:600, color:"#FFC200" }}>{fmtBudget(c.budget)}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,0.45)" }}>{c.conseiller||"—"}</div>
-              <div style={{ fontSize:12, color:"rgba(255,255,255,0.45)" }}>{c.etape||"—"}</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:600, color:T.accent }}>{fmtBudget(c.budget)}</div>
+              <div style={{ fontSize:13, color:T.textSub }}>{c.conseiller||"—"}</div>
+              <div style={{ fontSize:12, color:T.textSub }}>{c.etape||"—"}</div>
               <div style={{ fontSize:12, color: c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : "rgba(255,255,255,0.45)" }}>
                 {fmtDate(c.date_prochaine_action)}
                 {c.prochaine_action && <div style={{ fontSize:11, color:"#9aa0b0", marginTop:1 }}>{c.prochaine_action.slice(0,30)}</div>}
               </div>
               <div style={{ textAlign:"right" }}>
-                <span style={{ fontSize:12, color:"#FFC200", fontWeight:700 }}>Ouvrir →</span>
+                <span style={{ fontSize:12, color:T.accent, fontWeight:700 }}>Ouvrir →</span>
               </div>
             </div>
           ))}
@@ -1439,7 +1457,7 @@ const STATUT_BIEN_COLORS = {
   "Abandonné":"#5a6070","Proposé à un client":"#1f4ea1","En cours d'acquisition":"#1a7a4a",
 };
 
-function StockBiens({ profil }) {
+function StockBiens({ profil, T=THEMES_INV.dark }) {
   const [biens, setBiens]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [ficheId, setFicheId]   = useState(null);
@@ -1483,7 +1501,7 @@ function StockBiens({ profil }) {
     <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
         <div>
-          <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5 }}>Stock de Biens</div>
+          <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>Stock de Biens</div>
           <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>
             {filtered.length} bien{filtered.length!==1?"s":""}
             {aRelancer > 0 && <span style={{ marginLeft:10, color:"#c0392b", fontWeight:700 }}>· 🔔 {aRelancer} à relancer</span>}
@@ -1521,8 +1539,8 @@ function StockBiens({ profil }) {
       {loading ? (
         <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
       ) : (
-        <div style={{ background:"#111318", borderRadius:10, border:"1px solid #1e2130", overflow:"hidden" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#1a1d24", borderBottom:"1px solid #1e2130", fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.3)", textTransform:"uppercase", letterSpacing:.6 }}>
+        <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
             <div>Bien</div><div>Statut</div><div>Coût total</div><div>Rendement</div><div>Cash-flow</div><div>Relance</div><div/>
           </div>
           {filtered.length === 0 ? (
@@ -1533,13 +1551,13 @@ function StockBiens({ profil }) {
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(b.id)}>
               <div>
-                <div style={{ fontWeight:700, color:"#e8eaf0", fontSize:14 }}>{b.adresse||"Adresse non renseignée"}</div>
-                <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)" }}>{b.ville||""}{b.agence ? ` · ${b.agence}` : ""}</div>
+                <div style={{ fontWeight:700, color:T.text, fontSize:14 }}>{b.adresse||"Adresse non renseignée"}</div>
+                <div style={{ fontSize:11, color:T.textMuted }}>{b.ville||""}{b.agence ? ` · ${b.agence}` : ""}</div>
               </div>
               <div>
                 <span style={{ background:`${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}18`, color:STATUT_BIEN_COLORS[b.statut]||"#9aa0b0", border:`1px solid ${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}33`, borderRadius:20, padding:"2px 8px", fontSize:10, fontWeight:700, whiteSpace:"nowrap" }}>{b.statut}</span>
               </div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600, color:"rgba(255,255,255,0.7)" }}>{fmtEur(b.cout_total)}</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600, color:T.textSub }}>{fmtEur(b.cout_total)}</div>
               <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color: b.rendement_brut >= 8 ? "#1a7a4a" : b.rendement_brut >= 5 ? "#c9a84c" : "#9aa0b0" }}>
                 {b.rendement_brut > 0 ? b.rendement_brut.toFixed(1)+"%" : "—"}
               </div>
@@ -1784,7 +1802,7 @@ function FicheBien({ id, profil, onRetour }) {
 }
 
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
-function SidebarInvest({ page, setPage }) {
+function SidebarInvest({ page, setPage, theme, setTheme }) {
   const NAV = [
     { id:"dashboard", icon:"⊞",  label:"Tableau de bord" },
     { id:"crm",       icon:"👥", label:"CRM Clients" },
@@ -1807,8 +1825,12 @@ function SidebarInvest({ page, setPage }) {
           </button>
         ))}
       </nav>
-      <div style={{ padding:"12px 16px", borderTop:"1px solid #1e2130" }}>
-        <div style={{ fontSize:11, color:"rgba(255,255,255,0.2)", lineHeight:1.5, fontFamily:"'Barlow Condensed',sans-serif" }}>
+      <div style={{ padding:"12px 14px", borderTop:"1px solid #1e2130", display:"flex", flexDirection:"column", gap:8 }}>
+        <button onClick={() => { const n = theme==="dark"?"light":"dark"; setTheme(n); localStorage.setItem("invest_theme",n); }}
+          style={{ width:"100%", background:"rgba(77,184,255,0.1)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"8px 12px", color:"#4db8ff", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8, letterSpacing:.5 }}>
+          {theme==="dark" ? "☀️ Mode clair" : "🌙 Mode sombre"}
+        </button>
+        <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", lineHeight:1.5, fontFamily:"'Barlow Condensed',sans-serif" }}>
           {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
         </div>
       </div>
@@ -1818,6 +1840,9 @@ function SidebarInvest({ page, setPage }) {
 
 // ─── PAGE INVEST (routeur interne) ────────────────────────────────────────────
 export default function PageInvest({ profil }) {
+  const [theme, setTheme] = useState(() => localStorage.getItem("invest_theme") || "dark");
+  const T = THEMES_INV[theme];
+  const CSS = getCSS(T);
   const [page, setPage]                 = useState("dashboard");
   const [projetOuvert, setProjetOuvert] = useState(null);
   const [vueSim, setVueSim]             = useState("liste"); // "liste" | "simulateur"
@@ -1836,17 +1861,17 @@ export default function PageInvest({ profil }) {
   }
 
   return (
-    <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex" }}>
+    <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={setPage} />
-      <div style={{ flex:1, overflowY:"auto", background:"#080a0d" }}>
-        {page === "dashboard"  && <TableauBord profil={profil} />}
-        {page === "crm"        && <CRM profil={profil} />}
-        {page === "biens"      && <StockBiens profil={profil} />}
+      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} />
+      <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
+        {page === "dashboard"  && <TableauBord profil={profil} T={T} />}
+        {page === "crm"        && <CRM profil={profil} T={T} />}
+        {page === "biens"      && <StockBiens profil={profil} T={T} />}
         {page === "simulateur" && (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
-            <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
-            <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:24 }}>Créez et analysez vos projets d'investissement</div>
+            <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
+            <div style={{ fontSize:14, color:T.textSub, marginBottom:24 }}>Créez et analysez vos projets d'investissement</div>
             <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} inline={true} />
           </div>
         )}
