@@ -87,92 +87,113 @@ const initBudgetState = (lots, surface) => {
   return { qty, price };
 };
 
-// ─── CSS INVEST ───────────────────────────────────────────────────────────────
+// ─── CSS INVEST — aligné sur Profero Rénovation ───────────────────────────────
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+.inv{font-family:'Barlow Condensed','Arial Narrow',sans-serif;background:#080a0d;color:#e8eaf0;font-size:14px;}
 .inv *{box-sizing:border-box;margin:0;padding:0;}
-.inv{font-family:'Sora',sans-serif;background:#f8f9fb;color:#2c3040;font-size:13px;}
 .inv ::-webkit-scrollbar{width:5px;height:5px;}
-.inv ::-webkit-scrollbar-thumb{background:#d8dce6;border-radius:3px;}
-.inv-card{background:white;border-radius:10px;box-shadow:0 1px 4px rgba(15,30,53,.06);border:1px solid #eef0f5;overflow:hidden;}
-.inv-card-hd{background:#1a2d4a;color:white;padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;display:flex;align-items:center;gap:8px;}
-.inv-card-hd.mid{background:#1e3a5f;}.inv-card-hd.gold{background:#c9a84c;color:#1a2d4a;}.inv-card-hd.danger{background:#c0392b;}.inv-card-hd.blue{background:#1f4ea1;}
+.inv ::-webkit-scrollbar-thumb{background:#2a2d3a;border-radius:3px;}
+.inv-card{background:#111318;border-radius:10px;border:1px solid #1e2130;overflow:hidden;}
+.inv-card-hd{background:#1a1d24;color:#e8eaf0;padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #1e2130;}
+.inv-card-hd.gold{background:rgba(255,194,0,0.1);color:#FFC200;border-bottom-color:rgba(255,194,0,0.2);}
+.inv-card-hd.danger{background:rgba(224,92,92,0.1);color:#e05c5c;border-bottom-color:rgba(224,92,92,0.2);}
+.inv-card-hd.green{background:rgba(80,200,120,0.08);color:#50c878;border-bottom-color:rgba(80,200,120,0.15);}
 .inv-card-bd{padding:14px 16px;}
-.inv-row{display:grid;grid-template-columns:1fr auto;align-items:center;padding:6px 0;border-bottom:1px solid #eef0f5;gap:12px;}
-.inv-row:last-child{border-bottom:none;}.inv-row.total{border-top:2px solid #1a2d4a;margin-top:4px;padding-top:8px;border-bottom:none;}.inv-row.sub{background:#f8f9fb;margin:0 -16px;padding:6px 16px;}
-.inv-lbl{font-size:12px;color:#5a6070;}.inv-lbl.bold{font-weight:700;color:#2c3040;}
-.inv-val{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;white-space:nowrap;}
-.inv-val.calc{color:#1e3a5f;}.inv-val.green{color:#1a7a4a;font-weight:700;}.inv-val.orange{color:#d4610a;font-weight:700;}.inv-val.red{color:#c0392b;font-weight:700;}
-.inv-inp{font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:#0033aa;background:#fffef5;border:1.5px solid #c9a84c;border-radius:6px;padding:5px 10px;text-align:right;outline:none;}
-.inv-inp:focus{border-color:#2a7fd4;box-shadow:0 0 0 3px rgba(42,127,212,.12);}
-.inv-sel{font-family:'Sora',sans-serif;font-size:12px;color:#2c3040;background:white;border:1.5px solid #d8dce6;border-radius:6px;padding:5px 10px;outline:none;cursor:pointer;}
-.inv-sel:focus{border-color:#1f4ea1;}
-.inv-kpi{background:white;border-radius:10px;padding:14px 16px;border:1px solid #eef0f5;box-shadow:0 1px 4px rgba(15,30,53,.06);display:flex;flex-direction:column;gap:4px;}
-.inv-kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9aa0b0;}
-.inv-kpi-val{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:#1a2d4a;}
-.inv-kpi-val.green{color:#1a7a4a;}.inv-kpi-val.orange{color:#d4610a;}.inv-kpi-val.red{color:#c0392b;}
-.inv-tab-nav{background:#1a2d4a;display:flex;padding:0 24px;gap:2px;border-bottom:2px solid #1e3a5f;flex-shrink:0;}
-.inv-tab-btn{padding:11px 20px;font-family:'Sora',sans-serif;font-size:12px;font-weight:600;color:#9aa0b0;background:transparent;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;}
-.inv-tab-btn:hover{color:white;}.inv-tab-btn.active{color:#c9a84c;border-bottom-color:#c9a84c;}
-.inv-scen-hd{display:grid;grid-template-columns:1fr 110px 110px;padding:8px 16px;background:#1e3a5f;font-size:11px;font-weight:700;color:white;letter-spacing:.04em;}
-.inv-scen-row{display:grid;grid-template-columns:1fr 110px 110px;align-items:center;padding:6px 16px;border-bottom:1px solid #eef0f5;gap:8px;}
-.inv-scen-row:last-child{border-bottom:none;}.inv-scen-row.hl{background:#e6f5ee;}.inv-scen-row.warn{background:#fef3e9;}
-.inv-s{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;}
-.inv-s.green{color:#1a7a4a;font-weight:700;}.inv-s.orange{color:#d4610a;font-weight:700;}
-.inv-lot-grid{display:grid;grid-template-columns:90px 75px 75px 95px 70px 65px 70px 1fr 55px;gap:5px;align-items:center;padding:5px 0;border-bottom:1px solid #eef0f5;min-width:680px;}
-.inv-lot-grid.hd{font-size:10px;font-weight:700;color:#9aa0b0;letter-spacing:.05em;text-transform:uppercase;padding-bottom:7px;border-bottom:2px solid #d8dce6;}
+.inv-row{display:grid;grid-template-columns:1fr auto;align-items:center;padding:7px 0;border-bottom:1px solid #1e2130;gap:12px;}
+.inv-row:last-child{border-bottom:none;}
+.inv-row.total{border-top:2px solid #FFC200;margin-top:4px;padding-top:8px;border-bottom:none;}
+.inv-row.sub{background:rgba(255,255,255,0.02);margin:0 -16px;padding:7px 16px;}
+.inv-lbl{font-size:13px;color:rgba(255,255,255,0.45);}
+.inv-lbl.bold{font-weight:700;color:rgba(255,255,255,0.85);}
+.inv-val{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;white-space:nowrap;color:rgba(255,255,255,0.7);}
+.inv-val.calc{color:#FFC200;}
+.inv-val.green{color:#50c878;font-weight:700;}
+.inv-val.orange{color:#f5a623;font-weight:700;}
+.inv-val.red{color:#e05c5c;font-weight:700;}
+.inv-inp{font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:#FFC200;background:#1a1d24;border:1.5px solid #2a2d3a;border-radius:6px;padding:6px 10px;text-align:right;outline:none;transition:border-color .15s;}
+.inv-inp:focus{border-color:#FFC200;box-shadow:0 0 0 2px rgba(255,194,0,.1);}
+.inv-sel{font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#e8eaf0;background:#1a1d24;border:1.5px solid #2a2d3a;border-radius:6px;padding:6px 10px;outline:none;cursor:pointer;}
+.inv-sel:focus{border-color:#FFC200;}
+.inv-kpi{background:#111318;border-radius:10px;padding:16px 18px;border:1px solid #1e2130;display:flex;flex-direction:column;gap:6px;transition:border-color .15s;}
+.inv-kpi:hover{border-color:rgba(255,194,0,0.3);}
+.inv-kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,0.3);}
+.inv-kpi-val{font-family:'DM Mono',monospace;font-size:24px;font-weight:700;color:#e8eaf0;}
+.inv-kpi-val.green{color:#50c878;}
+.inv-kpi-val.orange{color:#f5a623;}
+.inv-kpi-val.red{color:#e05c5c;}
+.inv-kpi-val.gold{color:#FFC200;}
+.inv-tab-nav{background:#111318;display:flex;padding:0 20px;gap:2px;border-bottom:1px solid #1e2130;flex-shrink:0;}
+.inv-tab-btn{padding:10px 18px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,0.4);background:transparent;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:.5px;text-transform:uppercase;}
+.inv-tab-btn:hover{color:rgba(255,255,255,0.8);}
+.inv-tab-btn.active{color:#FFC200;border-bottom-color:#FFC200;}
+.inv-scen-hd{display:grid;grid-template-columns:1fr 110px 110px;padding:8px 16px;background:#1a1d24;font-size:10px;font-weight:700;color:rgba(255,255,255,0.4);letter-spacing:.08em;text-transform:uppercase;}
+.inv-scen-row{display:grid;grid-template-columns:1fr 110px 110px;align-items:center;padding:7px 16px;border-bottom:1px solid #1e2130;gap:8px;}
+.inv-scen-row:last-child{border-bottom:none;}
+.inv-scen-row.hl{background:rgba(80,200,120,0.06);}
+.inv-scen-row.warn{background:rgba(245,166,35,0.06);}
+.inv-s{font-family:'DM Mono',monospace;font-size:13px;text-align:right;font-weight:500;color:rgba(255,255,255,0.7);}
+.inv-s.green{color:#50c878;font-weight:700;}
+.inv-s.orange{color:#f5a623;font-weight:700;}
+.inv-lot-grid{display:grid;grid-template-columns:90px 75px 75px 95px 70px 65px 70px 1fr 55px;gap:5px;align-items:center;padding:5px 0;border-bottom:1px solid #1e2130;min-width:680px;}
+.inv-lot-grid.hd{font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);letter-spacing:.06em;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid #2a2d3a;}
 .inv-lot-grid input,.inv-lot-grid select{width:100%;}
-.inv-lot-val{font-family:'DM Mono',monospace;font-size:12px;text-align:right;color:#5a6070;}
-.inv-add-lot{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;padding:7px;background:#f8f9fb;border:1.5px dashed #d8dce6;border-radius:6px;cursor:pointer;font-family:'Sora',sans-serif;font-size:12px;font-weight:600;color:#1f4ea1;width:100%;}
-.inv-add-lot:hover{background:#eef0f5;border-color:#1f4ea1;}
-.inv-brow{display:grid;grid-template-columns:1fr 60px 65px 75px 80px;padding:4px 0;border-bottom:1px solid #eef0f5;align-items:center;gap:5px;}
-.inv-brow.hd{font-size:10px;font-weight:700;color:#9aa0b0;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #d8dce6;padding-bottom:7px;}
-.inv-brow .bl{font-size:12px;color:#5a6070;}
-.inv-brow .bn{font-family:'DM Mono',monospace;font-size:12px;text-align:right;}
+.inv-lot-val{font-family:'DM Mono',monospace;font-size:12px;text-align:right;color:rgba(255,255,255,0.45);}
+.inv-add-lot{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;padding:7px;background:rgba(255,255,255,0.03);border:1.5px dashed #2a2d3a;border-radius:6px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:rgba(255,194,0,0.6);width:100%;letter-spacing:.5px;}
+.inv-add-lot:hover{background:rgba(255,194,0,0.06);border-color:rgba(255,194,0,0.4);color:#FFC200;}
+.inv-brow{display:grid;grid-template-columns:1fr 60px 65px 75px 80px;padding:5px 0;border-bottom:1px solid #1e2130;align-items:center;gap:5px;}
+.inv-brow.hd{font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #2a2d3a;padding-bottom:8px;}
+.inv-brow .bl{font-size:12px;color:rgba(255,255,255,0.55);}
+.inv-brow .bn{font-family:'DM Mono',monospace;font-size:12px;text-align:right;color:rgba(255,255,255,0.7);}
 .inv-brow input{width:100%;}
-.inv-bsec{background:#1e3a5f;color:white;padding:6px 14px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:8px -16px 3px;display:flex;align-items:center;gap:5px;}
-.inv-regime{background:white;border-radius:10px;border:1px solid #eef0f5;overflow:hidden;box-shadow:0 1px 4px rgba(15,30,53,.06);}
-.inv-regime-hd{padding:11px 14px;font-size:12px;font-weight:700;color:white;}
-.inv-regime-hd.is{background:#1e3a5f;}.inv-regime-hd.ir{background:#6b3a8a;}.inv-regime-hd.lmnp{background:#1a7a4a;}
-.inv-regime-row{display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid #eef0f5;gap:8px;}
+.inv-bsec{background:#1a1d24;color:rgba(255,194,0,0.7);padding:5px 0;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:8px 0 3px;border-bottom:1px solid rgba(255,194,0,0.1);}
+.inv-regime{background:#111318;border-radius:10px;border:1px solid #1e2130;overflow:hidden;}
+.inv-regime-hd{padding:10px 14px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+.inv-regime-hd.is{background:#1e3a5f;color:#4db8ff;}
+.inv-regime-hd.ir{background:#3a1e5f;color:#c084fc;}
+.inv-regime-hd.lmnp{background:#1e3a2a;color:#50c878;}
+.inv-regime-row{display:flex;justify-content:space-between;align-items:center;padding:6px 14px;border-bottom:1px solid #1e2130;gap:8px;}
 .inv-regime-row:last-child{border-bottom:none;}
-.inv-regime-row .rl{font-size:11px;color:#5a6070;flex:1;}
-.inv-regime-row .rv{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;text-align:right;}
-.inv-regime-row.hl{background:#e6f5ee;}.inv-regime-row.warn{background:#fef3e9;}
+.inv-regime-row .rl{font-size:11px;color:rgba(255,255,255,0.45);flex:1;}
+.inv-regime-row .rv{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;text-align:right;color:rgba(255,255,255,0.8);}
+.inv-regime-row.hl{background:rgba(80,200,120,0.06);}
+.inv-regime-row.warn{background:rgba(245,166,35,0.06);}
 .inv-toggle-wrap{display:flex;align-items:center;gap:10px;padding:6px 0;}
 .inv-toggle{position:relative;width:38px;height:20px;}
 .inv-toggle input{opacity:0;width:0;height:0;}
-.inv-toggle-sl{position:absolute;inset:0;background:#d8dce6;border-radius:20px;cursor:pointer;transition:.2s;}
-.inv-toggle-sl:before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:white;border-radius:50%;transition:.2s;}
-input:checked+.inv-toggle-sl{background:#1f4ea1;}
-input:checked+.inv-toggle-sl:before{transform:translateX(18px);}
-.inv-photo-zone{border:2px dashed #d8dce6;border-radius:10px;background:#f8f9fb;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:all .2s;min-height:110px;position:relative;overflow:hidden;}
-.inv-photo-zone:hover{border-color:#1f4ea1;background:#eef0f5;}
-.inv-photo-zone.has-photo{border-style:solid;border-color:#d8dce6;padding:0;}
+.inv-toggle-sl{position:absolute;inset:0;background:#2a2d3a;border-radius:20px;cursor:pointer;transition:.2s;}
+.inv-toggle-sl:before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:rgba(255,255,255,0.6);border-radius:50%;transition:.2s;}
+input:checked+.inv-toggle-sl{background:#FFC200;}
+input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:#111;}
+.inv-photo-zone{border:2px dashed #2a2d3a;border-radius:8px;background:#1a1d24;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:all .2s;min-height:100px;position:relative;overflow:hidden;}
+.inv-photo-zone:hover{border-color:#FFC200;background:rgba(255,194,0,0.05);}
+.inv-photo-zone.has-photo{border-style:solid;}
 .inv-photo-zone img{width:100%;height:100%;object-fit:cover;display:block;}
 .inv-photo-actions{position:absolute;top:5px;right:5px;}
-.inv-btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:6px;font-family:'Sora',sans-serif;font-size:12px;font-weight:600;cursor:pointer;border:none;white-space:nowrap;}
-.inv-btn-blue{background:#1f4ea1;color:white;}.inv-btn-blue:hover{background:#1740c0;}
-.inv-btn-gold{background:#c9a84c;color:#1a2d4a;}.inv-btn-gold:hover{background:#d4b55a;}
-.inv-btn-out{background:transparent;color:#1a2d4a;border:1.5px solid #d8dce6;}.inv-btn-out:hover{background:#f8f9fb;}
-.inv-btn-sm{font-size:11px;padding:4px 9px;}
-.inv-rm{background:none;border:none;cursor:pointer;color:#9aa0b0;font-size:15px;padding:0 3px;line-height:1;transition:color .15s;}
-.inv-rm:hover{color:#c0392b;}
-.inv-textarea{width:100%;font-family:'Sora',sans-serif;font-size:12px;color:#2c3040;background:#f8f9fb;border:1.5px solid #d8dce6;border-radius:6px;padding:7px 10px;outline:none;resize:vertical;line-height:1.5;}
-.inv-textarea:focus{border-color:#1f4ea1;}
-.inv-scen-toggle{display:flex;gap:5px;margin-top:5px;}
-.inv-scen-btn{flex:1;padding:5px;border-radius:6px;font-family:'Sora',sans-serif;font-size:11px;font-weight:700;border:1.5px solid #d8dce6;background:#f8f9fb;color:#9aa0b0;cursor:pointer;}
-.inv-scen-btn.active{background:#1f4ea1;color:white;border-color:#1f4ea1;}
+.inv-btn{display:inline-flex;align-items:center;gap:5px;padding:8px 16px;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;cursor:pointer;border:none;white-space:nowrap;letter-spacing:.5px;transition:all .15s;}
+.inv-btn-gold{background:#FFC200;color:#111;}.inv-btn-gold:hover{opacity:.9;}
+.inv-btn-blue{background:rgba(77,184,255,0.15);color:#4db8ff;border:1px solid rgba(77,184,255,0.3);}.inv-btn-blue:hover{background:rgba(77,184,255,0.25);}
+.inv-btn-out{background:transparent;color:rgba(255,255,255,0.55);border:1px solid #2a2d3a;}.inv-btn-out:hover{background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.8);}
+.inv-btn-danger{background:rgba(224,92,92,0.12);color:#e05c5c;border:1px solid rgba(224,92,92,0.25);}.inv-btn-danger:hover{background:rgba(224,92,92,0.2);}
+.inv-btn-sm{font-size:11px;padding:5px 11px;}
+.inv-rm{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.25);font-size:16px;padding:0 3px;line-height:1;transition:color .15s;}
+.inv-rm:hover{color:#e05c5c;}
+.inv-textarea{width:100%;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#e8eaf0;background:#1a1d24;border:1.5px solid #2a2d3a;border-radius:6px;padding:8px 10px;outline:none;resize:vertical;line-height:1.5;}
+.inv-textarea:focus{border-color:#FFC200;}
+.inv-scen-toggle{display:flex;gap:4px;margin-top:5px;}
+.inv-scen-btn{flex:1;padding:4px;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;border:1px solid #2a2d3a;background:transparent;color:rgba(255,255,255,0.35);cursor:pointer;letter-spacing:.5px;}
+.inv-scen-btn.active{background:#FFC200;color:#111;border-color:#FFC200;}
+.inv-list-hd{padding:8px 16px;background:#1a1d24;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #1e2130;}
+.inv-badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px;}
 @media(max-width:768px){
   .inv-grid-2{grid-template-columns:1fr!important;}
   .inv-kpi-bar{grid-template-columns:1fr 1fr!important;}
-  .inv-lot-grid{min-width:600px;}
   .inv-fisca-grid{grid-template-columns:1fr!important;}
 }
 `;
 
 // ─── LISTE DES PROJETS ────────────────────────────────────────────────────────
-function ListeProjets({ profil, onOuvrir, onNouveauProjet }) {
+function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline }) {
   const [projets, setProjets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [suppId, setSuppId]   = useState(null);
@@ -201,93 +222,119 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet }) {
     return {total, loyer:lots.reduce((s,l)=>s+l.loyer,0), nbLots:lots.length};
   };
 
+  const renderCard = (p) => {
+    const k = kpi(p.donnees);
+    return (
+      <div key={p.id} className="inv-card" style={{padding:"18px 20px",cursor:"pointer",transition:"all .18s"}}
+        onClick={()=>onOuvrir(p)}
+        onMouseEnter={e=>e.currentTarget.style.borderColor="#FFC200"}
+        onMouseLeave={e=>e.currentTarget.style.borderColor="#1e2130"}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:"#e8eaf0",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              📄 {p.nom}
+            </div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Par {p.created_by} · {fmtDate(p.updated_at)}</div>
+          </div>
+          <button className="inv-rm" onClick={e=>{e.stopPropagation();setSuppId(p.id);}}>×</button>
+        </div>
+        {k&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:10}}>
+            {[{label:"Coût total",val:k.total>0?fmt(k.total):"—",color:"#4db8ff"},{label:"Loyers/mois",val:k.loyer>0?fmt(k.loyer):"—",color:"#50c878"},{label:"Lots",val:k.nbLots,color:"#FFC200"}].map(item=>(
+              <div key={item.label} style={{background:"rgba(255,255,255,0.04)",borderRadius:7,padding:"7px 9px",borderLeft:`3px solid ${item.color}`}}>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{item.label}</div>
+                <div style={{fontSize:13,fontWeight:800,color:item.color}}>{item.val}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:10,background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{fmtDate(p.created_at)}</span>
+          <span style={{fontSize:12,color:"#FFC200",fontWeight:700}}>Ouvrir →</span>
+        </div>
+      </div>
+    );
+  };
+
+  const modalSuppr = () => (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
+      <div style={{background:"#111318",border:"1px solid #2a2d3a",borderRadius:14,padding:"26px 30px",maxWidth:360,width:"90%",textAlign:"center"}}>
+        <div style={{fontSize:34,marginBottom:10}}>🗑️</div>
+        <div style={{fontSize:15,fontWeight:800,color:"#e8eaf0",marginBottom:7}}>Supprimer ce projet ?</div>
+        <div style={{fontSize:13,color:"rgba(255,255,255,0.4)",marginBottom:22,lineHeight:1.6}}>Cette action est irréversible.</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+          <button className="inv-btn inv-btn-out" onClick={()=>setSuppId(null)}>Annuler</button>
+          <button className="inv-btn inv-btn-danger" onClick={()=>supprimer(suppId)}>Supprimer</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (inline) return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div style={{fontSize:13,color:"rgba(255,255,255,0.35)"}}>
+          {projets.length} projet{projets.length!==1?"s":""} — partagés avec tous les associés
+        </div>
+        <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Nouveau projet</button>
+      </div>
+      {loading ? (
+        <div style={{textAlign:"center",padding:"40px 0",color:"rgba(255,255,255,0.3)"}}>Chargement…</div>
+      ) : projets.length===0 ? (
+        <div style={{textAlign:"center",padding:"60px 20px"}}>
+          <div style={{fontSize:40,marginBottom:12}}>🏢</div>
+          <div style={{fontSize:16,fontWeight:700,color:"#e8eaf0",marginBottom:16}}>Aucun projet pour l'instant</div>
+          <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Créer un projet</button>
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+          {projets.map(p=>renderCard(p))}
+        </div>
+      )}
+      {suppId&&modalSuppr()}
+    </div>
+  );
+
   return (
     <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,overflowY:"auto"}}>
       <style>{CSS}</style>
       {/* Header */}
-      <div style={{background:"#1a2d4a",padding:"16px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
+      <div style={{background:"#080a0d",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,borderBottom:"1px solid #1e2130"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"rgba(201,168,76,0.7)"}}>Profero</span>
+          <span style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,194,0,0.5)",fontFamily:"'Barlow Condensed',sans-serif"}}>Profero</span>
           <span style={{fontSize:22,fontWeight:800,color:"white"}}>Invest</span>
           <div style={{width:1,height:20,background:"rgba(255,255,255,0.15)"}}/>
           <span style={{fontSize:13,color:"rgba(255,255,255,0.4)"}}>Portefeuille de projets</span>
         </div>
         <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Nouveau projet</button>
       </div>
-
       {/* Contenu */}
       <div style={{maxWidth:1100,margin:"0 auto",padding:"28px 24px"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
           <div>
-            <div style={{fontSize:20,fontWeight:800,color:"#1a2d4a"}}>Tous les projets</div>
-            <div style={{fontSize:13,color:"#9aa0b0",marginTop:2}}>
+            <div style={{fontSize:20,fontWeight:800,color:"#e8eaf0",letterSpacing:.3}}>Tous les projets</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.35)",marginTop:2}}>
               {projets.length} projet{projets.length!==1?"s":""} — partagés avec tous les associés
             </div>
           </div>
           <button className="inv-btn inv-btn-out inv-btn-sm" onClick={charger}>↻ Actualiser</button>
         </div>
-
         {loading ? (
-          <div style={{textAlign:"center",padding:"60px 0",color:"#9aa0b0"}}>Chargement…</div>
+          <div style={{textAlign:"center",padding:"60px 0",color:"rgba(255,255,255,0.3)"}}>Chargement…</div>
         ) : projets.length===0 ? (
           <div style={{textAlign:"center",padding:"80px 20px"}}>
             <div style={{fontSize:48,marginBottom:14}}>🏢</div>
-            <div style={{fontSize:18,fontWeight:700,color:"#1a2d4a",marginBottom:8}}>Aucun projet pour l'instant</div>
-            <div style={{fontSize:14,color:"#9aa0b0",marginBottom:22}}>Créez votre premier projet d'investissement</div>
-            <button className="inv-btn inv-btn-blue" onClick={onNouveauProjet}>＋ Créer un projet</button>
+            <div style={{fontSize:18,fontWeight:700,color:"#e8eaf0",marginBottom:8}}>Aucun projet pour l'instant</div>
+            <div style={{fontSize:14,color:"rgba(255,255,255,0.35)",marginBottom:22}}>Créez votre premier projet d'investissement</div>
+            <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Créer un projet</button>
           </div>
         ) : (
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
-            {projets.map(p=>{
-              const k=kpi(p.donnees);
-              return (
-                <div key={p.id} className="inv-card" style={{padding:"18px 20px",cursor:"pointer",transition:"all .18s"}}
-                  onClick={()=>onOuvrir(p)}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor="#1f4ea1"}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor="#eef0f5"}>
-                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:15,fontWeight:700,color:"#1a2d4a",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        📄 {p.nom}
-                      </div>
-                      <div style={{fontSize:11,color:"#9aa0b0"}}>Par {p.created_by} · {fmtDate(p.updated_at)}</div>
-                    </div>
-                    <button className="inv-rm" onClick={e=>{e.stopPropagation();setSuppId(p.id);}}>×</button>
-                  </div>
-                  {k&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:10}}>
-                      {[{label:"Coût total",val:k.total>0?fmt(k.total):"—",color:"#1f4ea1"},{label:"Loyers/mois",val:k.loyer>0?fmt(k.loyer):"—",color:"#1a7a4a"},{label:"Lots",val:k.nbLots,color:"#c9a84c"}].map(item=>(
-                        <div key={item.label} style={{background:"#f8f9fb",borderRadius:7,padding:"7px 9px",borderLeft:`3px solid ${item.color}`}}>
-                          <div style={{fontSize:9,color:"#9aa0b0",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{item.label}</div>
-                          <div style={{fontSize:13,fontWeight:800,color:item.color}}>{item.val}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:10,background:"#eef0f5",color:"#5a6070",padding:"2px 7px",borderRadius:20,fontWeight:600}}>{fmtDate(p.created_at)}</span>
-                    <span style={{fontSize:12,color:"#1f4ea1",fontWeight:700}}>Ouvrir →</span>
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+            {projets.map(p=>renderCard(p))}
           </div>
         )}
       </div>
-
-      {suppId&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
-          <div style={{background:"white",borderRadius:14,padding:"26px 30px",maxWidth:360,width:"90%",textAlign:"center"}}>
-            <div style={{fontSize:34,marginBottom:10}}>🗑️</div>
-            <div style={{fontSize:15,fontWeight:800,color:"#1a2d4a",marginBottom:7}}>Supprimer ce projet ?</div>
-            <div style={{fontSize:13,color:"#5a6070",marginBottom:22,lineHeight:1.6}}>Cette action est irréversible.</div>
-            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-              <button className="inv-btn inv-btn-out" onClick={()=>setSuppId(null)}>Annuler</button>
-              <button className="inv-btn" style={{background:"#c0392b",color:"white"}} onClick={()=>supprimer(suppId)}>Supprimer</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {suppId&&modalSuppr()}
     </div>
   );
 }
@@ -1030,46 +1077,44 @@ function TableauBord({ profil }) {
 
   const fmt = v => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
 
-  const KPI = ({ label, value, sub, color, icon }) => (
-    <div style={{ background:"white", borderRadius:10, padding:"16px 18px", border:"1px solid #eef0f5", boxShadow:"0 1px 4px rgba(15,30,53,.06)", borderLeft:`4px solid ${color||"#1f4ea1"}` }}>
-      <div style={{ fontSize:22, marginBottom:4 }}>{icon}</div>
-      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:22, fontWeight:800, color: color||"#1a2d4a" }}>{value}</div>
-      <div style={{ fontSize:11, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:.6, marginTop:4 }}>{label}</div>
-      {sub && <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>{sub}</div>}
+  const KPI = ({ label, value, color }) => (
+    <div className="inv-kpi" style={{ borderLeft:`3px solid ${color||"#FFC200"}` }}>
+      <div className="inv-kpi-lbl">{label}</div>
+      <div className="inv-kpi-val" style={{ color: color||"#FFC200", fontSize:26 }}>{value}</div>
     </div>
   );
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
       <div style={{ marginBottom:24 }}>
-        <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>Tableau de bord</div>
-        <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>Vue globale de l'activité Profero Invest</div>
+        <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5 }}>Tableau de bord</div>
+        <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginTop:3 }}>Vue globale de l'activité Profero Invest</div>
       </div>
 
       {loading ? (
-        <div style={{ textAlign:"center", padding:"60px 0", color:"#9aa0b0" }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:"60px 0", color:"rgba(255,255,255,0.3)" }}>Chargement…</div>
       ) : stats && (
         <>
-          <div style={{ fontSize:12, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.5, marginBottom:12 }}>👥 Clients & Prospects</div>
+          <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,194,0,0.5)", textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>👥 Clients & Prospects</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12, marginBottom:28 }}>
-            <KPI icon="🔵" label="Prospects"          value={stats.prospects}       color="#1f4ea1" />
-            <KPI icon="🟢" label="Clients actifs"     value={stats.actifs}          color="#1a7a4a" />
-            <KPI icon="🟡" label="Clients inactifs"   value={stats.inactifs}        color="#c9a84c" />
-            <KPI icon="⚫" label="Terminés"           value={stats.termines}        color="#5a6070" />
-            <KPI icon="✅" label="Total signés"       value={stats.totalSignes}     color="#1a7a4a" />
-            <KPI icon="💰" label="Budget total signé" value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#c9a84c" />
-            <KPI icon="⚠️" label="Sans prochaine action" value={stats.sansProchaineAction} color="#c0392b" />
-            <KPI icon="📋" label="Moy. biens / client" value={stats.moyBiensParClient} color="#6b3a8a" />
+            <KPI icon="🔵" label="Prospects"          value={stats.prospects}       color="#4db8ff" />
+            <KPI icon="🟢" label="Clients actifs"     value={stats.actifs}          color="#50c878" />
+            <KPI icon="🟡" label="Clients inactifs"   value={stats.inactifs}        color="#FFC200" />
+            <KPI icon="⚫" label="Terminés"           value={stats.termines}        color="rgba(255,255,255,0.4)" />
+            <KPI icon="✅" label="Total signés"       value={stats.totalSignes}     color="#50c878" />
+            <KPI icon="💰" label="Budget total signé" value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" />
+            <KPI icon="⚠️" label="Sans prochaine action" value={stats.sansProchaineAction} color="#e05c5c" />
+            <KPI icon="📋" label="Moy. biens / client" value={stats.moyBiensParClient} color="#c084fc" />
           </div>
 
-          <div style={{ fontSize:12, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.5, marginBottom:12 }}>🏠 Stock de Biens</div>
+          <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,194,0,0.5)", textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>🏠 Stock de Biens</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
-            <KPI icon="🏘️" label="Biens en stock"       value={stats.biensTotaux}      color="#1f4ea1" />
-            <KPI icon="🔔" label="À relancer"            value={stats.biensARelancer}   color="#c0392b" />
-            <KPI icon="📅" label="Visites programmées"   value={stats.visitesProg}      color="#1a7a4a" />
-            <KPI icon="📨" label="Offres envoyées"       value={stats.offreEnvoyees}    color="#c9a84c" />
-            <KPI icon="🎉" label="Offres acceptées"      value={stats.offresAcceptees}  color="#1a7a4a" />
-            <KPI icon="🔗" label="Propositions totales"  value={stats.nbPropositions}   color="#6b3a8a" />
+            <KPI icon="🏘️" label="Biens en stock"       value={stats.biensTotaux}      color="#4db8ff" />
+            <KPI icon="🔔" label="À relancer"            value={stats.biensARelancer}   color="#e05c5c" />
+            <KPI icon="📅" label="Visites programmées"   value={stats.visitesProg}      color="#50c878" />
+            <KPI icon="📨" label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" />
+            <KPI icon="🎉" label="Offres acceptées"      value={stats.offresAcceptees}  color="#50c878" />
+            <KPI icon="🔗" label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" />
           </div>
         </>
       )}
@@ -1121,8 +1166,8 @@ function CRM({ profil }) {
     <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
         <div>
-          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>CRM Clients / Prospects</div>
-          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
+          <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5 }}>CRM Clients / Prospects</div>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.35)", marginTop:3 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
         </div>
         <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau contact</button>
       </div>
@@ -1149,31 +1194,31 @@ function CRM({ profil }) {
       {loading ? (
         <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
       ) : (
-        <div style={{ background:"white", borderRadius:10, border:"1px solid #eef0f5", overflow:"hidden", boxShadow:"0 1px 4px rgba(15,30,53,.06)" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#f8f9fb", borderBottom:"2px solid #eef0f5", fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:.6 }}>
+        <div style={{ background:"#111318", borderRadius:10, border:"1px solid #1e2130", overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#1a1d24", borderBottom:"1px solid #1e2130", fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.3)", textTransform:"uppercase", letterSpacing:.6 }}>
             <div>Contact</div><div>Statut</div><div>Budget</div><div>Conseiller</div><div>Étape</div><div>Prochaine action</div><div/>
           </div>
           {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0", fontSize:14 }}>Aucun contact trouvé</div>
+            <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)", fontSize:14 }}>Aucun contact trouvé</div>
           ) : filtered.map(c => (
             <div key={c.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #eef0f5", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
-              onMouseEnter={e=>e.currentTarget.style.background="#f8f9fb"}
-              onMouseLeave={e=>e.currentTarget.style.background="white"}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(c.id)}>
               <div>
-                <div style={{ fontWeight:700, color:"#1a2d4a", fontSize:14 }}>{c.prenom} {c.nom}</div>
-                <div style={{ fontSize:11, color:"#9aa0b0" }}>{c.email || c.telephone || "—"}</div>
+                <div style={{ fontWeight:700, color:"#e8eaf0", fontSize:14 }}>{c.prenom} {c.nom}</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)" }}>{c.email || c.telephone || "—"}</div>
               </div>
               <div><span style={{ background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut], border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:700 }}>{c.statut}</span></div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:600, color:"#1a2d4a" }}>{fmtBudget(c.budget)}</div>
-              <div style={{ fontSize:13, color:"#5a6070" }}>{c.conseiller||"—"}</div>
-              <div style={{ fontSize:12, color:"#5a6070" }}>{c.etape||"—"}</div>
-              <div style={{ fontSize:12, color: c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#c0392b" : "#5a6070" }}>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:600, color:"#FFC200" }}>{fmtBudget(c.budget)}</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,0.45)" }}>{c.conseiller||"—"}</div>
+              <div style={{ fontSize:12, color:"rgba(255,255,255,0.45)" }}>{c.etape||"—"}</div>
+              <div style={{ fontSize:12, color: c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : "rgba(255,255,255,0.45)" }}>
                 {fmtDate(c.date_prochaine_action)}
                 {c.prochaine_action && <div style={{ fontSize:11, color:"#9aa0b0", marginTop:1 }}>{c.prochaine_action.slice(0,30)}</div>}
               </div>
               <div style={{ textAlign:"right" }}>
-                <span style={{ fontSize:12, color:"#1f4ea1", fontWeight:700 }}>Ouvrir →</span>
+                <span style={{ fontSize:12, color:"#FFC200", fontWeight:700 }}>Ouvrir →</span>
               </div>
             </div>
           ))}
@@ -1438,7 +1483,7 @@ function StockBiens({ profil }) {
     <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
         <div>
-          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>Stock de Biens</div>
+          <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5 }}>Stock de Biens</div>
           <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>
             {filtered.length} bien{filtered.length!==1?"s":""}
             {aRelancer > 0 && <span style={{ marginLeft:10, color:"#c0392b", fontWeight:700 }}>· 🔔 {aRelancer} à relancer</span>}
@@ -1476,25 +1521,25 @@ function StockBiens({ profil }) {
       {loading ? (
         <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
       ) : (
-        <div style={{ background:"white", borderRadius:10, border:"1px solid #eef0f5", overflow:"hidden", boxShadow:"0 1px 4px rgba(15,30,53,.06)" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#f8f9fb", borderBottom:"2px solid #eef0f5", fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:.6 }}>
+        <div style={{ background:"#111318", borderRadius:10, border:"1px solid #1e2130", overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#1a1d24", borderBottom:"1px solid #1e2130", fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.3)", textTransform:"uppercase", letterSpacing:.6 }}>
             <div>Bien</div><div>Statut</div><div>Coût total</div><div>Rendement</div><div>Cash-flow</div><div>Relance</div><div/>
           </div>
           {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0", fontSize:14 }}>Aucun bien trouvé</div>
+            <div style={{ textAlign:"center", padding:"40px 0", color:"rgba(255,255,255,0.3)", fontSize:14 }}>Aucun bien trouvé</div>
           ) : filtered.map(b => (
             <div key={b.id} style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #eef0f5", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
-              onMouseEnter={e=>e.currentTarget.style.background="#f8f9fb"}
-              onMouseLeave={e=>e.currentTarget.style.background="white"}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}
               onClick={() => setFicheId(b.id)}>
               <div>
-                <div style={{ fontWeight:700, color:"#1a2d4a", fontSize:14 }}>{b.adresse||"Adresse non renseignée"}</div>
-                <div style={{ fontSize:11, color:"#9aa0b0" }}>{b.ville||""}{b.agence ? ` · ${b.agence}` : ""}</div>
+                <div style={{ fontWeight:700, color:"#e8eaf0", fontSize:14 }}>{b.adresse||"Adresse non renseignée"}</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)" }}>{b.ville||""}{b.agence ? ` · ${b.agence}` : ""}</div>
               </div>
               <div>
                 <span style={{ background:`${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}18`, color:STATUT_BIEN_COLORS[b.statut]||"#9aa0b0", border:`1px solid ${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}33`, borderRadius:20, padding:"2px 8px", fontSize:10, fontWeight:700, whiteSpace:"nowrap" }}>{b.statut}</span>
               </div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600 }}>{fmtEur(b.cout_total)}</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600, color:"rgba(255,255,255,0.7)" }}>{fmtEur(b.cout_total)}</div>
               <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color: b.rendement_brut >= 8 ? "#1a7a4a" : b.rendement_brut >= 5 ? "#c9a84c" : "#9aa0b0" }}>
                 {b.rendement_brut > 0 ? b.rendement_brut.toFixed(1)+"%" : "—"}
               </div>
@@ -1741,27 +1786,32 @@ function FicheBien({ id, profil, onRetour }) {
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
 function SidebarInvest({ page, setPage }) {
   const NAV = [
-    { id:"dashboard", icon:"📊", label:"Tableau de bord" },
+    { id:"dashboard", icon:"⊞",  label:"Tableau de bord" },
     { id:"crm",       icon:"👥", label:"CRM Clients" },
     { id:"biens",     icon:"🏠", label:"Stock de biens" },
     { id:"simulateur",icon:"📐", label:"Simulateur" },
   ];
   return (
-    <div style={{ width:200, flexShrink:0, background:"#1a2d4a", borderRight:"1px solid #1e3a5f", display:"flex", flexDirection:"column", height:"100%", overflowY:"auto" }}>
-      <div style={{ padding:"16px 14px 12px", borderBottom:"1px solid #1e3a5f" }}>
-        <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:"rgba(201,168,76,0.6)", marginBottom:2 }}>Profero</div>
-        <div style={{ fontSize:18, fontWeight:800, color:"white" }}>Invest</div>
+    <div style={{ width:220, flexShrink:0, background:"#0c0e14", borderRight:"1px solid #1e2130", display:"flex", flexDirection:"column", height:"100%", overflowY:"auto" }}>
+      <div style={{ padding:"18px 16px 14px", borderBottom:"1px solid #1e2130" }}>
+        <div style={{ fontSize:10, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:4, fontFamily:"'Barlow Condensed',sans-serif" }}>Profero</div>
+        <div style={{ fontSize:22, fontWeight:800, color:"#e8eaf0", fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:.5 }}>Invest</div>
       </div>
       <nav style={{ padding:"8px 8px", flex:1 }}>
         {NAV.map(n => (
           <button key={n.id} onClick={() => setPage(n.id)}
-            style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight: page===n.id ? 700 : 500, background: page===n.id ? "rgba(201,168,76,0.15)" : "transparent", color: page===n.id ? "#c9a84c" : "rgba(255,255,255,0.45)", marginBottom:3, textAlign:"left", transition:"all .12s" }}>
-            <span style={{ fontSize:18, width:22, textAlign:"center" }}>{n.icon}</span>
+            style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"11px 14px", borderRadius:10, border:"none", cursor:"pointer", fontFamily:"'Barlow Condensed',sans-serif", fontSize:15, fontWeight:700, letterSpacing:.3, background: page===n.id ? "rgba(255,194,0,0.1)" : "transparent", color: page===n.id ? "#FFC200" : "rgba(255,255,255,0.4)", marginBottom:4, textAlign:"left", transition:"all .12s" }}>
+            <span style={{ fontSize:20, width:24, textAlign:"center", flexShrink:0 }}>{n.icon}</span>
             <span>{n.label}</span>
-            {page===n.id && <span style={{ marginLeft:"auto", width:3, height:16, borderRadius:2, background:"#c9a84c", display:"block" }}/>}
+            {page===n.id && <span style={{ marginLeft:"auto", width:4, height:18, borderRadius:2, background:"#FFC200", display:"block", flexShrink:0 }}/>}
           </button>
         ))}
       </nav>
+      <div style={{ padding:"12px 16px", borderTop:"1px solid #1e2130" }}>
+        <div style={{ fontSize:11, color:"rgba(255,255,255,0.2)", lineHeight:1.5, fontFamily:"'Barlow Condensed',sans-serif" }}>
+          {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1774,36 +1824,32 @@ export default function PageInvest({ profil }) {
 
   const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
   const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
-  const retourListe   = ()  => { setProjetOuvert(null); setVueSim("liste"); };
 
-  // Le simulateur prend tout l'écran (pas de sidebar)
-  if (page === "simulateur") {
-    if (vueSim === "simulateur") {
-      return <Simulateur projet={projetOuvert} profil={profil} onRetour={() => setVueSim("liste")} />;
-    }
+  // Simulateur plein écran (sans sidebar) — uniquement la fiche projet ouverte
+  if (page === "simulateur" && vueSim === "simulateur") {
     return (
-      <div style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", flexDirection:"column" }}>
+      <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999 }}>
         <style>{CSS}</style>
-        <div style={{ background:"#1a2d4a", padding:"14px 20px", display:"flex", alignItems:"center", gap:12, flexShrink:0, borderBottom:"2px solid #c9a84c" }}>
-          <button className="inv-btn inv-btn-out inv-btn-sm" style={{ color:"rgba(255,255,255,.7)", borderColor:"rgba(255,255,255,.2)", background:"rgba(255,255,255,.06)" }}
-            onClick={() => setPage("dashboard")}>← Invest</button>
-          <span style={{ fontSize:14, fontWeight:700, color:"white" }}>Simulateur de projets</span>
-        </div>
-        <div style={{ flex:1, overflowY:"auto" }}>
-          <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} />
-        </div>
+        <Simulateur projet={projetOuvert} profil={profil} onRetour={() => setVueSim("liste")} />
       </div>
     );
   }
 
   return (
-    <div style={{ position:"fixed", inset:0, zIndex:9999, display:"flex" }}>
+    <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex" }}>
       <style>{CSS}</style>
       <SidebarInvest page={page} setPage={setPage} />
-      <div style={{ flex:1, overflowY:"auto", background:"#f8f9fb" }}>
-        {page === "dashboard" && <TableauBord profil={profil} />}
-        {page === "crm"       && <CRM profil={profil} />}
-        {page === "biens"     && <StockBiens profil={profil} />}
+      <div style={{ flex:1, overflowY:"auto", background:"#080a0d" }}>
+        {page === "dashboard"  && <TableauBord profil={profil} />}
+        {page === "crm"        && <CRM profil={profil} />}
+        {page === "biens"      && <StockBiens profil={profil} />}
+        {page === "simulateur" && (
+          <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
+            <div style={{ fontSize:26, fontWeight:800, color:"#e8eaf0", letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
+            <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:24 }}>Créez et analysez vos projets d'investissement</div>
+            <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} inline={true} />
+          </div>
+        )}
       </div>
     </div>
   );
