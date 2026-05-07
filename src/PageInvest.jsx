@@ -1141,429 +1141,6 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
 }
 
 // ─── CRM CLIENTS ──────────────────────────────────────────────────────────────
-
-// ─── IMPORT EXCEL / CSV ───────────────────────────────────────────────────────
-function ImportModal({ type, T=THEMES_INV.dark, onClose, onDone }) {
-  // type = "contacts" | "biens"
-  const [step, setStep]         = useState("upload");   // upload | preview | done
-  const [rows, setRows]         = useState([]);
-  const [errors, setErrors]     = useState([]);
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState(null);
-  const fileRef = useRef();
-
-  const COLONNES_CONTACTS = [
-    { key:"nom",                  label:"Nom",                   required:true  },
-    { key:"prenom",               label:"Prénom",                required:false },
-    { key:"email",                label:"Email",                 required:false },
-    { key:"telephone",            label:"Téléphone",             required:false },
-    { key:"conseiller",           label:"Conseiller",            required:false },
-    { key:"source",               label:"Source",                required:false },
-    { key:"statut",               label:"Statut",                required:false },
-    { key:"budget",               label:"Budget",                required:false },
-    { key:"etape",                label:"Étape",                 required:false },
-    { key:"prochaine_action",     label:"Prochaine action",      required:false },
-    { key:"date_prochaine_action",label:"Date prochaine action", required:false },
-    { key:"notes_rapides",        label:"Notes",                 required:false },
-  ];
-
-  const COLONNES_BIENS = [
-    { key:"adresse",              label:"Adresse",               required:true  },
-    { key:"ville",                label:"Ville",                 required:false },
-    { key:"code_postal",          label:"Code postal",           required:false },
-    { key:"statut",               label:"Statut",                required:false },
-    { key:"agence",               label:"Agence",                required:false },
-    { key:"interlocuteur",        label:"Interlocuteur",         required:false },
-    { key:"telephone_interlocuteur", label:"Téléphone",          required:false },
-    { key:"prix_vente",           label:"Prix vente (€)",        required:false },
-    { key:"prix_travaux",         label:"Prix travaux (€)",      required:false },
-    { key:"cout_total",           label:"Coût total (€)",        required:false },
-    { key:"rendement_brut",       label:"Rendement brut (%)",    required:false },
-    { key:"cashflow_estime",      label:"Cash-flow (€/mois)",    required:false },
-    { key:"date_relance",         label:"Date relance",          required:false },
-    { key:"date_visite",          label:"Date visite",           required:false },
-    { key:"lien_annonce",         label:"Lien annonce",          required:false },
-    { key:"commentaire",          label:"Commentaire",           required:false },
-  ];
-
-  const colonnes = type === "contacts" ? COLONNES_CONTACTS : COLONNES_BIENS;
-  const table    = type === "contacts" ? "invest_clients" : "invest_biens";
-
-  // ── Parsing CSV ──────────────────────────────────────────────────────────────
-  const parseCSV = (text) => {
-    const lines = text.trim().split(/\r?\n/);
-    if (lines.length < 2) return { headers: [], rows: [] };
-    const sep = lines[0].includes(";") ? ";" : ",";
-    const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g,""));
-    const rows = lines.slice(1).map(line => {
-      const vals = [];
-      let cur = "", inQ = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') { inQ = !inQ; }
-        else if (ch === sep && !inQ) { vals.push(cur.trim()); cur = ""; }
-        else { cur += ch; }
-      }
-      vals.push(cur.trim());
-      const obj = {};
-      headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
-      return obj;
-    }).filter(r => Object.values(r).some(v => v.trim() !== ""));
-    return { headers, rows };
-  };
-
-  // ── Mapping automatique colonnes → champs ────────────────────────────────────
-  const mapRow = (rawRow) => {
-    const mapped = {};
-    colonnes.forEach(col => {
-      // Cherche la colonne par clé exacte, ou label (insensible à la casse), ou variantes
-      const aliases = {
-        nom:              ["nom","last name","lastname","name"],
-        prenom:           ["prenom","prénom","first name","firstname"],
-        email:            ["email","mail","e-mail","courriel"],
-        telephone:        ["telephone","téléphone","tel","phone","mobile"],
-        conseiller:       ["conseiller","agent","commercial"],
-        source:           ["source","origine","provenance"],
-        statut:           ["statut","status","état"],
-        budget:           ["budget","budget €","montant"],
-        etape:            ["etape","étape","step","phase"],
-        prochaine_action: ["prochaine_action","prochaine action","action"],
-        date_prochaine_action: ["date_prochaine_action","date prochaine action","date action"],
-        notes_rapides:    ["notes_rapides","notes rapides","notes","commentaires","note"],
-        adresse:          ["adresse","address","adresse du bien","rue"],
-        ville:            ["ville","city","commune"],
-        code_postal:      ["code_postal","code postal","cp","zip","postal"],
-        agence:           ["agence","agency","négociateur"],
-        interlocuteur:    ["interlocuteur","contact","vendeur"],
-        telephone_interlocuteur: ["telephone_interlocuteur","tel interlocuteur","téléphone interlocuteur"],
-        prix_vente:       ["prix_vente","prix vente","prix","price","prix d'achat","prix achat"],
-        prix_travaux:     ["prix_travaux","prix travaux","travaux","budget travaux"],
-        cout_total:       ["cout_total","cout total","coût total","total"],
-        rendement_brut:   ["rendement_brut","rendement brut","rendement","rendement %","yield"],
-        cashflow_estime:  ["cashflow_estime","cashflow estime","cashflow","cash-flow","cash flow"],
-        date_relance:     ["date_relance","date relance","relance"],
-        date_visite:      ["date_visite","date visite","visite"],
-        lien_annonce:     ["lien_annonce","lien annonce","url","lien","annonce"],
-        commentaire:      ["commentaire","comment","description","remarque","note"],
-      };
-      const keys = aliases[col.key] || [col.key];
-      for (const rawKey of Object.keys(rawRow)) {
-        if (keys.includes(rawKey.toLowerCase().trim())) {
-          mapped[col.key] = rawRow[rawKey];
-          break;
-        }
-      }
-    });
-    return mapped;
-  };
-
-  // ── Nettoyage et validation des données ──────────────────────────────────────
-  const cleanRow = (mapped, index) => {
-    const errs = [];
-    const NUM_FIELDS = ["budget","prix_vente","prix_travaux","cout_total","rendement_brut","cashflow_estime","montant_offre"];
-    const DATE_FIELDS = ["date_prochaine_action","date_relance","date_visite","date_signature"];
-    const cleaned = {};
-
-    colonnes.forEach(col => {
-      let val = mapped[col.key] || "";
-      if (col.required && !String(val).trim()) {
-        errs.push(`Ligne ${index+2} : "${col.label}" est obligatoire`);
-      }
-      if (NUM_FIELDS.includes(col.key)) {
-        // Nettoyer les séparateurs : "1 200 €" → 1200
-        val = String(val).replace(/\s/g,"").replace(/€/g,"").replace(/,/g,".").trim();
-        val = parseFloat(val) || 0;
-      } else if (DATE_FIELDS.includes(col.key) && val) {
-        // Essayer plusieurs formats de date
-        val = String(val).trim();
-        // Format DD/MM/YYYY → YYYY-MM-DD
-        const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if (m) val = `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
-        // Format YYYY-MM-DD déjà bon
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) val = "";
-      } else {
-        val = String(val).trim();
-      }
-      if (val !== "" && val !== 0) cleaned[col.key] = val;
-    });
-
-    // Valeurs par défaut
-    if (type === "contacts" && !cleaned.statut)  cleaned.statut  = "Prospect";
-    if (type === "contacts" && !cleaned.source)  cleaned.source  = "Autre";
-    if (type === "biens"    && !cleaned.statut)  cleaned.statut  = "À analyser";
-    if (type === "biens" && (cleaned.prix_vente||0) + (cleaned.prix_travaux||0) > 0 && !cleaned.cout_total) {
-      cleaned.cout_total = (cleaned.prix_vente||0) + (cleaned.prix_travaux||0);
-    }
-
-    return { cleaned, errs };
-  };
-
-  // ── Lecture du fichier ───────────────────────────────────────────────────────
-  const handleFile = async (file) => {
-    if (!file) return;
-    const ext = file.name.split(".").pop().toLowerCase();
-    let rawRows = [], rawHeaders = [];
-
-    try {
-      if (ext === "csv" || ext === "txt") {
-        const text = await file.text();
-        const { headers, rows: r } = parseCSV(text);
-        rawHeaders = headers;
-        rawRows = r;
-      } else if (ext === "xlsx" || ext === "xls") {
-        // Utiliser SheetJS
-        const XLSX = window.XLSX || await import("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js").then(m => m.default || m).catch(() => null);
-        if (!XLSX) { alert("Impossible de charger la librairie Excel. Utilisez un fichier CSV."); return; }
-        const buf = await file.arrayBuffer();
-        const wb  = XLSX.read(buf, { type:"array", cellDates:true });
-        const ws  = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, dateNF:"YYYY-MM-DD" });
-        if (data.length < 2) return;
-        rawHeaders = data[0].map(h => String(h||"").trim());
-        rawRows = data.slice(1).map(row => {
-          const obj = {};
-          rawHeaders.forEach((h, i) => { obj[h] = row[i] !== undefined ? String(row[i]) : ""; });
-          return obj;
-        }).filter(r => Object.values(r).some(v => String(v).trim() !== ""));
-      } else {
-        alert("Format non supporté. Utilisez .csv, .xlsx ou .xls");
-        return;
-      }
-    } catch(e) {
-      alert("Erreur lors de la lecture du fichier : " + e.message);
-      return;
-    }
-
-    // Mapper et valider
-    const allErrors = [];
-    const cleaned = rawRows.map((r, i) => {
-      const mapped = mapRow(r);
-      const { cleaned, errs } = cleanRow(mapped, i);
-      allErrors.push(...errs);
-      return cleaned;
-    }).filter(r => Object.keys(r).length > 0);
-
-    setErrors(allErrors);
-    setRows(cleaned);
-    setStep("preview");
-  };
-
-  // ── Import Supabase ──────────────────────────────────────────────────────────
-  const doImport = async () => {
-    if (rows.length === 0) return;
-    setImporting(true);
-    const BATCH = 50;
-    let inserted = 0, failed = 0;
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const batch = rows.slice(i, i + BATCH).map(r => ({ ...r, updated_at: new Date().toISOString() }));
-      const { error } = await supabase.from(table).insert(batch);
-      if (error) { failed += batch.length; }
-      else { inserted += batch.length; }
-    }
-    setImportResult({ inserted, failed });
-    setImporting(false);
-    setStep("done");
-  };
-
-  const T2 = T;
-  const accent = T2.accent;
-  const border = T2.border;
-  const text   = T2.text;
-  const textSub = T2.textSub;
-  const card  = T2.card;
-  const surface = T2.surface;
-
-  const PREVIEW_COLS = type === "contacts"
-    ? ["nom","prenom","email","statut","budget"]
-    : ["adresse","ville","statut","prix_vente","rendement_brut"];
-
-  const COL_LABEL = {};
-  colonnes.forEach(c => { COL_LABEL[c.key] = c.label; });
-
-  const formatVal = (key, val) => {
-    if (val === undefined || val === null || val === "") return "—";
-    if (["budget","prix_vente","prix_travaux","cout_total","cashflow_estime","montant_offre"].includes(key))
-      return val > 0 ? new Intl.NumberFormat("fr-FR").format(val)+" €" : "—";
-    if (key === "rendement_brut") return val > 0 ? val+"%" : "—";
-    return String(val);
-  };
-
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400 }}>
-      <div style={{ background:surface, border:`1px solid ${border}`, borderRadius:16, width:"92%", maxWidth:820, maxHeight:"90vh", display:"flex", flexDirection:"column", boxShadow:"0 40px 100px rgba(0,0,0,.6)", overflow:"hidden" }}>
-
-        {/* Header */}
-        <div style={{ padding:"18px 24px", borderBottom:`1px solid ${border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-          <div>
-            <div style={{ fontSize:17, fontWeight:800, color:text }}>
-              📥 Import {type === "contacts" ? "Contacts" : "Biens"} — Excel / CSV
-            </div>
-            <div style={{ fontSize:12, color:textSub, marginTop:2 }}>
-              Importez vos données depuis un fichier Excel (.xlsx) ou CSV (.csv)
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", color:textSub, fontSize:22, lineHeight:1 }}>×</button>
-        </div>
-
-        {/* Corps */}
-        <div style={{ overflowY:"auto", flex:1, padding:"20px 24px" }}>
-
-          {/* ── ÉTAPE 1 : Upload ── */}
-          {step === "upload" && (
-            <div>
-              {/* Zone upload */}
-              <div
-                style={{ border:`2px dashed ${border}`, borderRadius:12, padding:"36px 24px", textAlign:"center", cursor:"pointer", transition:"all .2s", marginBottom:20 }}
-                onMouseEnter={e=>e.currentTarget.style.borderColor=accent}
-                onMouseLeave={e=>e.currentTarget.style.borderColor=border}
-                onClick={() => fileRef.current?.click()}
-                onDragOver={e=>{ e.preventDefault(); e.currentTarget.style.borderColor=accent; }}
-                onDragLeave={e=>{ e.currentTarget.style.borderColor=border; }}
-                onDrop={e=>{ e.preventDefault(); e.currentTarget.style.borderColor=border; const f=e.dataTransfer.files[0]; if(f)handleFile(f); }}
-              >
-                <div style={{ fontSize:44, marginBottom:12 }}>📂</div>
-                <div style={{ fontSize:15, fontWeight:700, color:text, marginBottom:6 }}>Glissez votre fichier ici</div>
-                <div style={{ fontSize:13, color:textSub, marginBottom:14 }}>ou cliquez pour sélectionner</div>
-                <div style={{ display:"inline-flex", gap:8 }}>
-                  {[".xlsx",".xls",".csv"].map(ext => (
-                    <span key={ext} style={{ fontSize:11, padding:"3px 10px", borderRadius:20, background:`rgba(77,184,255,0.1)`, color:accent, border:`1px solid rgba(77,184,255,0.25)`, fontWeight:700 }}>{ext}</span>
-                  ))}
-                </div>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt" style={{ display:"none" }} onChange={e=>{ const f=e.target.files?.[0]; if(f)handleFile(f); e.target.value=""; }} />
-              </div>
-
-              {/* Guide des colonnes */}
-              <div style={{ background:`rgba(77,184,255,0.06)`, border:`1px solid rgba(77,184,255,0.15)`, borderRadius:10, padding:"16px 18px" }}>
-                <div style={{ fontSize:12, fontWeight:700, color:accent, marginBottom:10, letterSpacing:.5, textTransform:"uppercase" }}>
-                  📋 Colonnes reconnues automatiquement
-                </div>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                  {colonnes.map(col => (
-                    <span key={col.key} style={{ fontSize:11, padding:"3px 10px", borderRadius:20, background: col.required ? `rgba(80,200,120,0.12)` : `rgba(255,255,255,0.05)`, color: col.required ? "#50c878" : textSub, border:`1px solid ${col.required ? "rgba(80,200,120,0.3)" : border}`, fontWeight: col.required ? 700 : 500 }}>
-                      {col.label}{col.required ? " *" : ""}
-                    </span>
-                  ))}
-                </div>
-                <div style={{ fontSize:11, color:textSub, marginTop:10, lineHeight:1.7 }}>
-                  * Champ obligatoire · Les noms de colonnes sont détectés automatiquement (insensible à la casse).
-                  Les colonnes inconnues sont ignorées. Les dates doivent être au format <strong style={{color:text}}>JJ/MM/AAAA</strong> ou <strong style={{color:text}}>AAAA-MM-JJ</strong>.
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── ÉTAPE 2 : Prévisualisation ── */}
-          {step === "preview" && (
-            <div>
-              {/* Résumé */}
-              <div style={{ display:"flex", gap:12, marginBottom:16, flexWrap:"wrap" }}>
-                <div style={{ flex:1, minWidth:150, background:`rgba(80,200,120,0.08)`, border:`1px solid rgba(80,200,120,0.2)`, borderRadius:10, padding:"12px 16px" }}>
-                  <div style={{ fontSize:24, fontWeight:800, color:"#50c878" }}>{rows.length}</div>
-                  <div style={{ fontSize:11, color:textSub, marginTop:2 }}>enregistrement{rows.length!==1?"s":""} prêt{rows.length!==1?"s":""}</div>
-                </div>
-                {errors.length > 0 && (
-                  <div style={{ flex:1, minWidth:150, background:`rgba(224,92,92,0.08)`, border:`1px solid rgba(224,92,92,0.2)`, borderRadius:10, padding:"12px 16px" }}>
-                    <div style={{ fontSize:24, fontWeight:800, color:"#e05c5c" }}>{errors.length}</div>
-                    <div style={{ fontSize:11, color:textSub, marginTop:2 }}>avertissement{errors.length!==1?"s":""}</div>
-                  </div>
-                )}
-              </div>
-
-              {/* Avertissements */}
-              {errors.length > 0 && (
-                <div style={{ background:`rgba(224,92,92,0.06)`, border:`1px solid rgba(224,92,92,0.15)`, borderRadius:8, padding:"12px 14px", marginBottom:14, maxHeight:120, overflowY:"auto" }}>
-                  {errors.map((e, i) => (
-                    <div key={i} style={{ fontSize:12, color:"#e05c5c", marginBottom:3 }}>⚠ {e}</div>
-                  ))}
-                </div>
-              )}
-
-              {/* Tableau prévisualisation */}
-              {rows.length > 0 ? (
-                <div style={{ border:`1px solid ${border}`, borderRadius:8, overflow:"hidden" }}>
-                  <div style={{ overflowX:"auto" }}>
-                    <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
-                      <thead>
-                        <tr style={{ background:T2.sectionHd }}>
-                          <th style={{ padding:"8px 12px", textAlign:"left", fontSize:10, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.6, borderBottom:`1px solid ${border}`, whiteSpace:"nowrap" }}>#</th>
-                          {PREVIEW_COLS.map(k => (
-                            <th key={k} style={{ padding:"8px 12px", textAlign:"left", fontSize:10, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.6, borderBottom:`1px solid ${border}`, whiteSpace:"nowrap" }}>{COL_LABEL[k]||k}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.slice(0, 8).map((row, i) => (
-                          <tr key={i} style={{ borderBottom:`1px solid ${border}`, background: i%2===0?"transparent":`rgba(255,255,255,0.01)` }}>
-                            <td style={{ padding:"7px 12px", color:textSub, fontSize:11 }}>{i+1}</td>
-                            {PREVIEW_COLS.map(k => (
-                              <td key={k} style={{ padding:"7px 12px", color:text, fontSize:12, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                                {formatVal(k, row[k])}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {rows.length > 8 && (
-                      <div style={{ padding:"8px 12px", fontSize:11, color:textSub, background:T2.sectionHd, borderTop:`1px solid ${border}` }}>
-                        … et {rows.length - 8} autre{rows.length-8!==1?"s":""} enregistrement{rows.length-8!==1?"s":""}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ textAlign:"center", padding:"30px", color:textSub, fontSize:13 }}>
-                  Aucun enregistrement valide trouvé dans le fichier.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── ÉTAPE 3 : Terminé ── */}
-          {step === "done" && importResult && (
-            <div style={{ textAlign:"center", padding:"30px 20px" }}>
-              <div style={{ fontSize:56, marginBottom:16 }}>{importResult.failed === 0 ? "✅" : "⚠️"}</div>
-              <div style={{ fontSize:20, fontWeight:800, color:text, marginBottom:10 }}>
-                Import terminé
-              </div>
-              {importResult.inserted > 0 && (
-                <div style={{ fontSize:15, color:"#50c878", marginBottom:6 }}>
-                  {importResult.inserted} enregistrement{importResult.inserted!==1?"s":""} importé{importResult.inserted!==1?"s":""}
-                </div>
-              )}
-              {importResult.failed > 0 && (
-                <div style={{ fontSize:13, color:"#e05c5c" }}>
-                  {importResult.failed} enregistrement{importResult.failed!==1?"s":""} échoué{importResult.failed!==1?"s":""}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding:"14px 24px", borderTop:`1px solid ${border}`, display:"flex", gap:10, justifyContent:"flex-end", flexShrink:0, background:surface }}>
-          {step === "upload" && (
-            <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
-          )}
-          {step === "preview" && (
-            <>
-              <button className="inv-btn inv-btn-out" onClick={() => { setStep("upload"); setRows([]); setErrors([]); }}>← Retour</button>
-              <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
-              <button className="inv-btn inv-btn-gold" onClick={doImport} disabled={importing || rows.length === 0}>
-                {importing ? "Import en cours…" : `Importer ${rows.length} enregistrement${rows.length!==1?"s":""}`}
-              </button>
-            </>
-          )}
-          {step === "done" && (
-            <button className="inv-btn inv-btn-gold" onClick={() => { onClose(); onDone(); }}>Fermer et rafraîchir</button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── CRM CLIENTS ──────────────────────────────────────────────────────────────
 const STATUTS_CLIENT  = ["Prospect","Actif","Inactif","Terminé"];
 const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
@@ -1574,7 +1151,6 @@ function CRM({ profil, T=THEMES_INV.dark }) {
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
   const [showForm, setShowForm]   = useState(false);
-  const [showImport, setShowImport] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [filtreConseiller, setFiltreConseiller] = useState("");
   const [filtreSource, setFiltreSource] = useState("");
@@ -1611,10 +1187,7 @@ function CRM({ profil, T=THEMES_INV.dark }) {
           <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>CRM Clients / Prospects</div>
           <div style={{ fontSize:13, color:T.textSub, marginTop:3 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
         </div>
-        <div style={{display:"flex",gap:8}}>
-          <button className="inv-btn inv-btn-out" onClick={() => setShowImport(true)}>📥 Importer</button>
-          <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau contact</button>
-        </div>
+        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau contact</button>
       </div>
 
       {/* Filtres */}
@@ -1672,7 +1245,6 @@ function CRM({ profil, T=THEMES_INV.dark }) {
 
       {/* Modal nouveau contact */}
       {showForm && <FormulaireClient profil={profil} T={T} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
-      {showImport && <ImportModal type="contacts" T={T} onClose={() => setShowImport(false)} onDone={charger} />}
     </div>
   );
 }
@@ -1741,6 +1313,193 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
           <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
           <button className="inv-btn inv-btn-gold" onClick={sauvegarder} disabled={saving}>{saving?"Enregistrement…":"Enregistrer"}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── DOCUMENTS (Supabase Storage) ────────────────────────────────────────────
+// Bucket requis : "invest-documents" (public: false, RLS: authenticated)
+// Chemin des fichiers : clients/{client_id}/{filename} ou biens/{bien_id}/{filename}
+
+const FILE_ICONS = {
+  pdf: "📄", doc: "📝", docx: "📝", xls: "📊", xlsx: "📊",
+  jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️", webp: "🖼️",
+  zip: "🗜️", rar: "🗜️", mp4: "🎥", mp3: "🎵", txt: "📃",
+};
+
+function getFileIcon(name) {
+  const ext = (name || "").split(".").pop().toLowerCase();
+  return FILE_ICONS[ext] || "📎";
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024) return bytes + " o";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " Ko";
+  return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
+}
+
+function DocumentsSection({ folder, T = THEMES_INV.dark }) {
+  // folder = "clients/uuid" ou "biens/uuid"
+  const [fichiers, setFichiers]     = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [uploading, setUploading]   = useState(false);
+  const [uploadPct, setUploadPct]   = useState(0);
+  const [erreur, setErreur]         = useState("");
+  const [dragOver, setDragOver]     = useState(false);
+  const fileRef                     = useRef();
+
+  const BUCKET = "invest-documents";
+
+  const charger = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.storage.from(BUCKET).list(folder, { sortBy: { column: "created_at", order: "desc" } });
+    if (error) { setErreur("Bucket introuvable. Voir instructions ci-dessous."); setLoading(false); return; }
+    setFichiers(data || []);
+    setLoading(false);
+    setErreur("");
+  };
+
+  useEffect(() => { charger(); }, [folder]);
+
+  const uploader = async (files) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setErreur("");
+    for (const file of Array.from(files)) {
+      if (file.size > 50 * 1024 * 1024) { setErreur(`${file.name} dépasse 50 Mo`); continue; }
+      // Nom unique pour éviter les collisions
+      const ext   = file.name.split(".").pop();
+      const base  = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_\-]/g, "_").slice(0, 40);
+      const uname = `${base}_${Date.now()}.${ext}`;
+      const path  = `${folder}/${uname}`;
+      const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
+      if (error) setErreur(`Erreur upload : ${error.message}`);
+    }
+    setUploading(false);
+    charger();
+  };
+
+  const telecharger = async (nom) => {
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(`${folder}/${nom}`, 300);
+    if (error || !data?.signedUrl) { alert("Impossible de générer le lien."); return; }
+    window.open(data.signedUrl, "_blank");
+  };
+
+  const supprimer = async (nom) => {
+    if (!window.confirm(`Supprimer "${nom}" ?`)) return;
+    await supabase.storage.from(BUCKET).remove([`${folder}/${nom}`]);
+    charger();
+  };
+
+  const border  = T.border;
+  const text    = T.text;
+  const textSub = T.textSub;
+  const accent  = T.accent;
+  const card    = T.card;
+
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+        <span>📎 Documents ({fichiers.length})</span>
+        <button
+          className="inv-btn inv-btn-sm"
+          style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }}
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+        >
+          {uploading ? "Upload…" : "＋ Ajouter"}
+        </button>
+        <input
+          ref={fileRef} type="file" multiple style={{ display:"none" }}
+          onChange={e => uploader(e.target.files)}
+        />
+      </div>
+      <div className="inv-card-bd">
+
+        {/* Zone drag & drop */}
+        <div
+          style={{
+            border: `2px dashed ${dragOver ? accent : border}`,
+            borderRadius: 8, padding: "14px 12px", textAlign: "center",
+            marginBottom: 12, cursor: "pointer", transition: "all .2s",
+            background: dragOver ? `rgba(77,184,255,0.05)` : "transparent",
+          }}
+          onClick={() => fileRef.current?.click()}
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); uploader(e.dataTransfer.files); }}
+        >
+          {uploading ? (
+            <div style={{ fontSize: 13, color: accent }}>⏳ Upload en cours…</div>
+          ) : (
+            <div style={{ fontSize: 12, color: textSub }}>
+              Glissez des fichiers ici ou <span style={{ color: accent, fontWeight: 700 }}>cliquez</span>
+              <div style={{ fontSize: 11, marginTop: 4, opacity: .6 }}>PDF, images, Word, Excel… · max 50 Mo</div>
+            </div>
+          )}
+        </div>
+
+        {/* Erreur */}
+        {erreur && (
+          <div style={{ fontSize: 12, color: "#e05c5c", marginBottom: 10, padding: "8px 10px", background: "rgba(224,92,92,0.08)", borderRadius: 6, border: "1px solid rgba(224,92,92,0.2)" }}>
+            ⚠ {erreur}
+            {erreur.includes("Bucket") && (
+              <div style={{ marginTop: 6, lineHeight: 1.6, color: textSub }}>
+                Créez le bucket dans Supabase :<br/>
+                Storage → New bucket → Nom : <strong style={{color:text}}>invest-documents</strong> → Public : <strong style={{color:"#e05c5c"}}>OFF</strong> → Save<br/>
+                Puis activez le RLS du bucket (voir documentation fournie).
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Liste fichiers */}
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "16px 0", color: textSub, fontSize: 13 }}>Chargement…</div>
+        ) : fichiers.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "16px 0", color: textSub, fontSize: 13, fontStyle: "italic" }}>Aucun document</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {fichiers.map(f => (
+              <div key={f.name} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "8px 10px", borderRadius: 7,
+                background: card, border: `1px solid ${border}`,
+                transition: "background .12s",
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = T.cardHover}
+                onMouseLeave={e => e.currentTarget.style.background = card}
+              >
+                <span style={{ fontSize: 20, flexShrink: 0 }}>{getFileIcon(f.name)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* Affiche le nom original sans le suffixe timestamp */}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {f.name.replace(/_\d{13}(\.\w+)$/, "$1")}
+                  </div>
+                  <div style={{ fontSize: 11, color: textSub, marginTop: 1 }}>
+                    {fmtSize(f.metadata?.size)}
+                    {f.created_at && ` · ${new Date(f.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric" })}`}
+                  </div>
+                </div>
+                <button
+                  onClick={() => telecharger(f.name)}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 17, color: accent, padding: "2px 4px" }}
+                  title="Télécharger / Ouvrir"
+                >⬇️</button>
+                <button
+                  onClick={() => supprimer(f.name)}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 17, color: "#e05c5c", padding: "2px 4px", opacity: .6 }}
+                  title="Supprimer"
+                  onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                  onMouseLeave={e => e.currentTarget.style.opacity = ".6"}
+                >🗑️</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1828,6 +1587,8 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
               ))}
             </div>
           </div>
+          {/* Documents */}
+          <DocumentsSection folder={`clients/${id}`} T={T} />
         </div>
 
         {/* Notes */}
@@ -1889,7 +1650,6 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
   const [loading, setLoading]   = useState(true);
   const [ficheId, setFicheId]   = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [showImport, setShowImport] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [filtreVille, setFiltreVille]   = useState("");
   const [search, setSearch]     = useState("");
@@ -1935,10 +1695,7 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
             {aRelancer > 0 && <span style={{ marginLeft:10, color:"#e05c5c", fontWeight:700 }}>· 🔔 {aRelancer} à relancer</span>}
           </div>
         </div>
-        <div style={{display:"flex",gap:8}}>
-          <button className="inv-btn inv-btn-out" onClick={() => setShowImport(true)}>📥 Importer</button>
-          <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau bien</button>
-        </div>
+        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau bien</button>
       </div>
 
       {/* Filtres */}
@@ -2005,7 +1762,6 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
       )}
 
       {showForm && <FormulaireBien profil={profil} T={T} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
-      {showImport && <ImportModal type="biens" T={T} onClose={() => setShowImport(false)} onDone={charger} />}
     </div>
   );
 }
@@ -2170,6 +1926,10 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
               <div className="inv-card-bd" style={{ fontSize:13, color:T.textSub, lineHeight:1.7 }}>{bien.commentaire}</div>
             </div>
           )}
+        </div>
+
+          {/* Documents */}
+          <DocumentsSection folder={`biens/${id}`} T={T} />
         </div>
 
         {/* Propositions clients */}
