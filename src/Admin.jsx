@@ -2,6 +2,26 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS } from "./constants";
 
+// ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
+const callAdminUsers = async (payload) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-users`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session?.access_token}`,
+        "apikey": import.meta.env.VITE_SUPABASE_KEY,
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Erreur serveur");
+  return data;
+};
+
 // ─── ONGLET UTILISATEURS ──────────────────────────────────────────────────────
 function OngletUtilisateurs({ T }) {
   const [utilisateurs, setUtilisateurs] = useState([]);
@@ -10,16 +30,21 @@ function OngletUtilisateurs({ T }) {
   const [succes, setSucces]             = useState("");
 
   // Formulaire invitation
-  const [showForm, setShowForm]         = useState(false);
-  const [invEmail, setInvEmail]         = useState("");
-  const [invNom, setInvNom]             = useState("");
-  const [invRole, setInvRole]           = useState("conducteur");
-  const [invBranches, setInvBranches]   = useState(["renovation"]);
-  const [invLoading, setInvLoading]     = useState(false);
+  const [showForm, setShowForm]       = useState(false);
+  const [invEmail, setInvEmail]       = useState("");
+  const [invNom, setInvNom]           = useState("");
+  const [invRole, setInvRole]         = useState("conducteur");
+  const [invBranches, setInvBranches] = useState(["renovation"]);
+  const [invLoading, setInvLoading]   = useState(false);
 
-  // Édition d'un utilisateur
-  const [editId, setEditId]             = useState(null);
-  const [editData, setEditData]         = useState({});
+  // Édition
+  const [editId, setEditId]   = useState(null);
+  const [editData, setEditData] = useState({});
+
+  // Confirmation reset
+  const [resetId, setResetId]   = useState(null);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
 
   const ROLES = [
     { value:"admin",      label:"Administrateur" },
@@ -27,73 +52,45 @@ function OngletUtilisateurs({ T }) {
     { value:"commercial", label:"Commercial" },
     { value:"comptable",  label:"Comptable" },
   ];
-
   const BRANCHES = [
     { value:"renovation", label:"Rénovation" },
     { value:"invest",     label:"Invest" },
   ];
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+  const BRANCHE_LABELS = { renovation:"Rénovation", invest:"Invest" };
+  const ROLE_COLORS = { admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" };
 
-  const chargerUtilisateurs = async () => {
+  const charger = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("utilisateurs").select("*").order("nom");
-    if (!error) setUtilisateurs(data || []);
+    const { data } = await supabase.from("utilisateurs").select("*").order("nom");
+    setUtilisateurs(data || []);
     setLoading(false);
   };
+  useEffect(() => { charger(); }, []);
 
-  useEffect(() => { chargerUtilisateurs(); }, []);
-
-  const flashSucces = (msg) => {
-    setSucces(msg); setErreur("");
-    setTimeout(() => setSucces(""), 3500);
-  };
-  const flashErreur = (msg) => {
-    setErreur(msg); setSucces("");
-    setTimeout(() => setErreur(""), 4000);
+  const flash = (type, msg) => {
+    if (type === "ok") { setSucces(msg); setErreur(""); setTimeout(() => setSucces(""), 4000); }
+    else               { setErreur(msg); setSucces(""); setTimeout(() => setErreur(""), 5000); }
   };
 
-  // Toggle branche dans un tableau
   const toggleBranche = (branches, val) =>
     branches.includes(val) ? branches.filter(b => b !== val) : [...branches, val];
 
-  // ── Inviter un nouvel utilisateur ──────────────────────────────────────────
+  // ── Inviter ────────────────────────────────────────────────────────────────
   const inviter = async () => {
-    if (!invEmail.trim() || !invNom.trim()) { flashErreur("Email et nom sont obligatoires."); return; }
-    if (invBranches.length === 0) { flashErreur("Sélectionnez au moins une branche."); return; }
+    if (!invEmail.trim() || !invNom.trim()) { flash("err", "Email et nom sont obligatoires."); return; }
+    if (invBranches.length === 0) { flash("err", "Sélectionnez au moins une branche."); return; }
     setInvLoading(true);
     try {
-      // Vérifier si l'email existe déjà
+      // 1. Vérifier doublon
       const { data: exist } = await supabase
         .from("utilisateurs").select("id").eq("email", invEmail.trim().toLowerCase()).single();
-      if (exist) { flashErreur("Cet email est déjà enregistré."); setInvLoading(false); return; }
+      if (exist) { flash("err", "Cet email est déjà enregistré."); setInvLoading(false); return; }
 
-      // Créer le compte dans Supabase Auth via l'API admin
-      // Note : on utilise signUp — l'utilisateur recevra un email de confirmation
-      const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
-        email: invEmail.trim().toLowerCase(),
-        email_confirm: true,
-        password: Math.random().toString(36).slice(-10) + "A1!", // mot de passe temporaire
-      });
+      // 2. Envoyer invitation Supabase Auth via Edge Function
+      await callAdminUsers({ action: "invite", email: invEmail.trim().toLowerCase() });
 
-      // Si l'API admin n'est pas disponible (plan gratuit), on crée juste la ligne utilisateurs
-      // et on envoie un reset password
-      let userId = authData?.user?.id || null;
-
-      if (authErr) {
-        // Fallback : on utilise inviteUserByEmail disponible sur tous les plans
-        const { data: invData, error: invErr } = await supabase.auth.admin.inviteUserByEmail(
-          invEmail.trim().toLowerCase()
-        );
-        if (invErr) {
-          // Dernier fallback : créer uniquement dans la table, sans compte Auth
-          // L'admin devra créer le compte Auth manuellement
-          console.warn("Invitation Auth impossible:", invErr.message);
-        } else {
-          userId = invData?.user?.id || null;
-        }
-      }
-
-      // Créer la ligne dans notre table utilisateurs
+      // 3. Créer la ligne profil
       const { error: dbErr } = await supabase.from("utilisateurs").insert({
         email:    invEmail.trim().toLowerCase(),
         nom:      invNom.trim(),
@@ -101,62 +98,71 @@ function OngletUtilisateurs({ T }) {
         branches: invBranches,
         actif:    true,
       });
+      if (dbErr) { flash("err", "Profil non créé : " + dbErr.message); setInvLoading(false); return; }
 
-      if (dbErr) { flashErreur("Erreur création profil : " + dbErr.message); setInvLoading(false); return; }
-
-      flashSucces(`✓ ${invNom} ajouté(e) avec succès.`);
+      flash("ok", `✓ Invitation envoyée à ${invEmail}. ${invNom} recevra un email pour créer son mot de passe.`);
       setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["renovation"]);
       setShowForm(false);
-      chargerUtilisateurs();
+      charger();
     } catch (e) {
-      flashErreur("Erreur inattendue : " + e.message);
+      flash("err", "Erreur : " + e.message);
     }
     setInvLoading(false);
   };
 
-  // ── Sauvegarder les modifications d'un utilisateur ─────────────────────────
+  // ── Modifier ───────────────────────────────────────────────────────────────
   const sauvegarder = async (id) => {
-    if (!editData.nom?.trim()) { flashErreur("Le nom est obligatoire."); return; }
-    if (!editData.branches || editData.branches.length === 0) { flashErreur("Au moins une branche obligatoire."); return; }
+    if (!editData.nom?.trim()) { flash("err", "Le nom est obligatoire."); return; }
+    if (!editData.branches || editData.branches.length === 0) { flash("err", "Au moins une branche obligatoire."); return; }
     const { error } = await supabase.from("utilisateurs")
       .update({ nom: editData.nom.trim(), role: editData.role, branches: editData.branches })
       .eq("id", id);
-    if (error) { flashErreur("Erreur : " + error.message); return; }
-    flashSucces("✓ Modifications enregistrées.");
+    if (error) { flash("err", "Erreur : " + error.message); return; }
+    flash("ok", "✓ Modifications enregistrées.");
     setEditId(null);
-    chargerUtilisateurs();
+    charger();
   };
 
   // ── Activer / désactiver ───────────────────────────────────────────────────
   const toggleActif = async (u) => {
     const { error } = await supabase.from("utilisateurs")
       .update({ actif: !u.actif }).eq("id", u.id);
-    if (error) { flashErreur("Erreur : " + error.message); return; }
-    flashSucces(u.actif ? `✓ ${u.nom} désactivé(e).` : `✓ ${u.nom} réactivé(e).`);
-    chargerUtilisateurs();
+    if (error) { flash("err", "Erreur : " + error.message); return; }
+    flash("ok", u.actif ? `✓ ${u.nom} désactivé(e).` : `✓ ${u.nom} réactivé(e).`);
+    charger();
   };
 
-  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
-  const BRANCHE_LABELS = { renovation:"Rénovation", invest:"Invest" };
-  const ROLE_COLORS = { admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" };
+  // ── Réinitialiser mot de passe ─────────────────────────────────────────────
+  const resetPassword = async () => {
+    setResetLoading(true);
+    try {
+      await callAdminUsers({ action: "reset_password", email: resetEmail });
+      flash("ok", `✓ Email de réinitialisation envoyé à ${resetEmail}.`);
+      setResetId(null); setResetEmail("");
+    } catch (e) {
+      flash("err", "Erreur : " + e.message);
+    }
+    setResetLoading(false);
+  };
 
   return (
     <div className="ac">
+      {/* Header */}
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:4, flexWrap:"wrap", gap:10 }}>
         <div>
           <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Collaborateurs</div>
           <div style={{ color:T.textSub, fontSize:13 }}>
-            Gérez les accès, rôles et branches de chaque collaborateur.
+            Invitez et gérez les accès, rôles et branches de chaque collaborateur.
           </div>
         </div>
         <button className="btn-p" onClick={() => { setShowForm(!showForm); setErreur(""); }}>
-          {showForm ? "✕ Annuler" : "+ Inviter"}
+          {showForm ? "✕ Annuler" : "+ Inviter un collaborateur"}
         </button>
       </div>
 
-      {/* Messages feedback */}
+      {/* Messages */}
       {succes && (
-        <div style={{ background:"rgba(80,200,120,0.12)", border:"1px solid rgba(80,200,120,0.3)", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#50c878", margin:"12px 0" }}>
+        <div style={{ background:"rgba(80,200,120,0.12)", border:"1px solid rgba(80,200,120,0.3)", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#50c878", margin:"12px 0", lineHeight:1.6 }}>
           {succes}
         </div>
       )}
@@ -169,18 +175,18 @@ function OngletUtilisateurs({ T }) {
       {/* ── Formulaire invitation ── */}
       {showForm && (
         <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"20px 18px", margin:"16px 0" }}>
-          <div style={{ fontWeight:700, fontSize:14, marginBottom:16, color:T.text }}>Nouveau collaborateur</div>
+          <div style={{ fontWeight:700, fontSize:14, marginBottom:16, color:T.text }}>
+            Nouveau collaborateur
+          </div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
             <div>
-              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Nom complet</label>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Nom complet *</label>
               <input className="ti" value={invNom} onChange={e=>setInvNom(e.target.value)} placeholder="Prénom Nom" style={{ width:"100%" }}/>
             </div>
             <div>
-              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Email</label>
-              <input className="ti" type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="email@profero.fr" style={{ width:"100%" }}/>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Email *</label>
+              <input className="ti" type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="prenom.nom@profero.fr" style={{ width:"100%" }}/>
             </div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
             <div>
               <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Rôle</label>
               <select className="ti" value={invRole} onChange={e=>setInvRole(e.target.value)} style={{ width:"100%" }}>
@@ -188,7 +194,7 @@ function OngletUtilisateurs({ T }) {
               </select>
             </div>
             <div>
-              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Branches</label>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Accès branches</label>
               <div style={{ display:"flex", gap:8 }}>
                 {BRANCHES.map(b => (
                   <button key={b.value}
@@ -206,18 +212,19 @@ function OngletUtilisateurs({ T }) {
               </div>
             </div>
           </div>
-          <div style={{ display:"flex", gap:10 }}>
-            <button className="btn-p" onClick={inviter} disabled={invLoading} style={{ flex:1 }}>
-              {invLoading ? "Création…" : "Créer le compte →"}
-            </button>
+
+          {/* Info invitation */}
+          <div style={{ background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#4db8ff", marginBottom:16, lineHeight:1.6 }}>
+            📧 Un email d'invitation sera envoyé à <strong>{invEmail || "l'adresse saisie"}</strong>. Le collaborateur cliquera sur le lien pour définir son mot de passe et accéder à l'application.
           </div>
-          <div style={{ fontSize:12, color:T.textMuted, marginTop:10 }}>
-            ℹ️ Un email de confirmation sera envoyé par Supabase pour que le collaborateur définisse son mot de passe.
-          </div>
+
+          <button className="btn-p" onClick={inviter} disabled={invLoading} style={{ width:"100%", padding:"11px" }}>
+            {invLoading ? "Envoi de l'invitation…" : "Envoyer l'invitation →"}
+          </button>
         </div>
       )}
 
-      {/* ── Liste des utilisateurs ── */}
+      {/* ── Liste ── */}
       {loading ? (
         <div style={{ color:T.textSub, fontSize:13, padding:"20px 0", textAlign:"center" }}>Chargement…</div>
       ) : utilisateurs.length === 0 ? (
@@ -227,7 +234,7 @@ function OngletUtilisateurs({ T }) {
           {utilisateurs.map(u => (
             <div key={u.id} className="ar" style={{ flexDirection:"column", alignItems:"stretch", gap:0, padding:"14px 0" }}>
               {editId === u.id ? (
-                /* ── Mode édition ── */
+                /* Mode édition */
                 <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                     <div>
@@ -265,9 +272,9 @@ function OngletUtilisateurs({ T }) {
                   </div>
                 </div>
               ) : (
-                /* ── Mode lecture ── */
+                /* Mode lecture */
                 <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
-                  {/* Avatar initiales */}
+                  {/* Avatar */}
                   <div style={{
                     width:38, height:38, borderRadius:10, flexShrink:0,
                     background:`${ROLE_COLORS[u.role]}22`, border:`1.5px solid ${ROLE_COLORS[u.role]}55`,
@@ -311,10 +318,19 @@ function OngletUtilisateurs({ T }) {
                   </div>
 
                   {/* Actions */}
-                  <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                  <div style={{ display:"flex", gap:6, flexShrink:0, flexWrap:"wrap" }}>
                     <button className="btn-g" style={{ fontSize:12, padding:"5px 12px" }}
                       onClick={() => { setEditId(u.id); setEditData({ nom:u.nom, role:u.role, branches:u.branches||["renovation"] }); }}>
                       ✏️ Modifier
+                    </button>
+                    <button
+                      onClick={() => { setResetId(u.id); setResetEmail(u.email); }}
+                      style={{
+                        fontSize:12, padding:"5px 12px", border:"1px solid rgba(77,184,255,0.3)",
+                        borderRadius:6, cursor:"pointer", fontFamily:"inherit", fontWeight:600,
+                        background:"rgba(77,184,255,0.08)", color:"#4db8ff",
+                      }}>
+                      🔑 Réinit. MDP
                     </button>
                     <button
                       onClick={() => toggleActif(u)}
@@ -335,8 +351,45 @@ function OngletUtilisateurs({ T }) {
         </div>
       )}
 
+      {/* ── Modal confirmation reset MDP ── */}
+      {resetId && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500 }}>
+          <div style={{
+            background:T.surface, border:`1px solid ${T.border}`, borderRadius:14,
+            padding:"28px 30px", maxWidth:400, width:"90%", textAlign:"center",
+            boxShadow:"0 20px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ fontSize:36, marginBottom:12 }}>🔑</div>
+            <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:8 }}>
+              Réinitialiser le mot de passe ?
+            </div>
+            <div style={{ fontSize:13, color:T.textSub, marginBottom:6, lineHeight:1.6 }}>
+              Un email de réinitialisation sera envoyé à
+            </div>
+            <div style={{ fontSize:14, fontWeight:700, color:"#4db8ff", marginBottom:22 }}>
+              {resetEmail}
+            </div>
+            <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+              <button className="btn-g" onClick={() => { setResetId(null); setResetEmail(""); }}>
+                Annuler
+              </button>
+              <button
+                onClick={resetPassword}
+                disabled={resetLoading}
+                style={{
+                  background:"#4db8ff", color:"white", border:"none", borderRadius:6,
+                  padding:"9px 20px", fontFamily:"inherit", fontSize:13, fontWeight:700,
+                  cursor:"pointer",
+                }}>
+                {resetLoading ? "Envoi…" : "Envoyer l'email →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop:16, padding:"12px 14px", background:T.card, borderRadius:8, fontSize:12, color:T.textMuted, lineHeight:1.6 }}>
-        ℹ️ Pour réinitialiser le mot de passe d'un collaborateur, rendez-vous dans <strong style={{color:T.textSub}}>Supabase → Authentication → Users</strong> et utilisez "Send password reset".
+        ℹ️ Les collaborateurs désactivés ne peuvent plus se connecter mais leurs données sont conservées. Pour supprimer définitivement un compte Auth, rendez-vous dans <strong style={{color:T.textSub}}>Supabase → Authentication → Users</strong>.
       </div>
     </div>
   );
@@ -368,7 +421,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updateChantier=(i,ch)=>{const u=chantiers.map((c,idx)=>idx===i?{...c,...ch}:c);setChantiers(u);saveConfig("chantiers",u);};
   const moveChantier=(i,d)=>{const a=[...chantiers],j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];setChantiers(a);saveConfig("chantiers",a);};
 
-  // Seul l'admin voit l'onglet utilisateurs
   const isAdmin = profil?.role === "admin";
 
   const tabs = [
