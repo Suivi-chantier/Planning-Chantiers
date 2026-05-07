@@ -2142,7 +2142,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil }) {
   ];
   return (
     <div style={{ width:220, flexShrink:0, background:"#0c0e14", borderRight:"1px solid #1e2130", display:"flex", flexDirection:"column", height:"100%", overflowY:"auto" }}>
-      <div style={{ padding:"18px 16px 14px", borderBottom:`1px solid ${T.border}` }}>
+      <div style={{ padding:"18px 16px 14px", borderBottom:"1px solid #1e2130" }}>
         <div style={{ fontSize:10, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:4, fontFamily:"'Barlow Condensed',sans-serif" }}>Profero</div>
         <div style={{ fontSize:22, fontWeight:800, color:"#e8eaf0", fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:.5 }}>Invest</div>
       </div>
