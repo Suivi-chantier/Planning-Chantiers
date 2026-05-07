@@ -210,6 +210,14 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
 }
 `;
 const CSS = getCSS(THEMES_INV.dark);
+function NumInput({value,onChange,style,min,step}) {
+  return (
+    <input type="number" className="inv-inp" value={value} min={min||0} step={step||1}
+      onChange={e=>{onChange(parseFloat(e.target.value)||0);}}
+      style={{width:120,...style}}/>
+  );
+}
+
 // ─── LISTE DES PROJETS ────────────────────────────────────────────────────────
 function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.dark }) {
   const [projets, setProjets] = useState([]);
@@ -572,7 +580,6 @@ function Simulateur({ projet, profil, onRetour }) {
   };
 
   // ── Champ numérique réutilisable ─────────────────────────────────────────────
-  const Num=({value,onChange,style,min,step})=>(
     <input type="number" className="inv-inp" value={value} min={min||0} step={step||1}
       onChange={e=>{onChange(parseFloat(e.target.value)||0);scheduleAutoSave();}}
       style={{width:120,...style}}/>
@@ -653,7 +660,7 @@ function Simulateur({ projet, profil, onRetour }) {
                       ["Prix affiché (€)", prixAffiche, setPrixAffiche],
                       ["Prix négocié (€)", prixNegocie, setPrixNegocie],
                     ].map(([label,val,set])=>(
-                      <div key={label} className="inv-row"><span className="inv-lbl">{label}</span><Num value={val} onChange={set}/></div>
+                      <div key={label} className="inv-row"><span className="inv-lbl">{label}</span><NumInput value={val} onChange={set}/></div>
                     ))}
                     <div className="inv-row"><span className="inv-lbl">Négociation obtenue</span><span className="inv-val calc">{fmtPct(prixAffiche>0?(prixAffiche-prixNegocie)/prixAffiche:0)}</span></div>
                     <div className="inv-row">
@@ -664,11 +671,11 @@ function Simulateur({ projet, profil, onRetour }) {
                       </select>
                     </div>
                     <div className="inv-row"><span className="inv-lbl">Frais de notaire</span><span className="inv-val calc">{fmt(fn)}</span></div>
-                    <div className="inv-row"><span className="inv-lbl">Surface totale (m²)</span><Num value={surface} onChange={setSurface}/></div>
+                    <div className="inv-row"><span className="inv-lbl">Surface totale (m²)</span><NumInput value={surface} onChange={setSurface}/></div>
                     <div className="inv-row"><span className="inv-lbl">Prix d'achat / m²</span><span className="inv-val calc">{surface>0?(prixAchat/surface).toFixed(0)+" €/m²":"—"}</span></div>
-                    <div className="inv-row"><span className="inv-lbl">Budget travaux TTC (€)</span><Num value={budgetTravaux} onChange={setBudgetTravaux}/></div>
-                    <div className="inv-row"><span className="inv-lbl">Honoraires (€)</span><Num value={honoraires} onChange={setHonoraires}/></div>
-                    <div className="inv-row"><span className="inv-lbl">Raccordement Enedis (€)</span><Num value={enedis} onChange={setEnedis}/></div>
+                    <div className="inv-row"><span className="inv-lbl">Budget travaux TTC (€)</span><NumInput value={budgetTravaux} onChange={setBudgetTravaux}/></div>
+                    <div className="inv-row"><span className="inv-lbl">Honoraires (€)</span><NumInput value={honoraires} onChange={setHonoraires}/></div>
+                    <div className="inv-row"><span className="inv-lbl">Raccordement Enedis (€)</span><NumInput value={enedis} onChange={setEnedis}/></div>
                     <div className="inv-row total"><span className="inv-lbl bold">COÛT TOTAL OPÉRATION</span><span className="inv-val green">{fmt(coutTotal)}</span></div>
                   </div>
                 </div>
@@ -678,7 +685,7 @@ function Simulateur({ projet, profil, onRetour }) {
                   <div className="inv-card-hd mid">📋 C — Charges d'Exploitation</div>
                   <div className="inv-card-bd">
                     {[["Taxe foncière (€/an)",taxeFonciere,setTaxeFonciere],["Assurance PNO (€/an)",assurance,setAssurance],["Comptabilité société (€/an)",compta,setCompta],["Provisions travaux (€/an)",provisions,setProvisions]].map(([l,v,s])=>(
-                      <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><Num value={v} onChange={s}/></div>
+                      <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><NumInput value={v} onChange={s}/></div>
                     ))}
                     <div className="inv-row sub"><span className="inv-lbl">Frais gestion locative (€/an)</span><span className="inv-val calc">{gestionActive?fmt(totGestAn):"0 €"}</span></div>
                     <div className="inv-row total"><span className="inv-lbl bold">TOTAL CHARGES (€/an)</span><span className="inv-val orange">{fmt(totCharges)}</span></div>
@@ -1058,6 +1065,14 @@ function Simulateur({ projet, profil, onRetour }) {
 }
 
 // ─── TABLEAU DE BORD INVEST ───────────────────────────────────────────────────
+function KPICard({ label, value, color, icon }) {
+  return (
+    <div className="inv-kpi" style={{ borderLeft:`3px solid ${color||"#FFC200"}` }}>
+      <div className="inv-kpi-lbl">{label}</div>
+      <div className="inv-kpi-val" style={{ color: color||"#FFC200", fontSize:26 }}>{value}</div>
+    </div>
+  );
+
 function TableauBord({ profil, T=THEMES_INV.dark }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1095,12 +1110,6 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
 
   const fmt = v => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
 
-  const KPI = ({ label, value, color }) => (
-    <div className="inv-kpi" style={{ borderLeft:`3px solid ${color||"#FFC200"}` }}>
-      <div className="inv-kpi-lbl">{label}</div>
-      <div className="inv-kpi-val" style={{ color: color||"#FFC200", fontSize:26 }}>{value}</div>
-    </div>
-  );
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
@@ -1115,24 +1124,24 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
         <>
           <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>👥 Clients & Prospects</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12, marginBottom:28 }}>
-            <KPI icon="🔵" label="Prospects"          value={stats.prospects}       color="#4db8ff" />
-            <KPI icon="🟢" label="Clients actifs"     value={stats.actifs}          color="#50c878" />
-            <KPI icon="🟡" label="Clients inactifs"   value={stats.inactifs}        color="#FFC200" />
-            <KPI icon="⚫" label="Terminés"           value={stats.termines}        color="rgba(255,255,255,0.4)" />
-            <KPI icon="✅" label="Total signés"       value={stats.totalSignes}     color="#50c878" />
-            <KPI icon="💰" label="Budget total signé" value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" />
-            <KPI icon="⚠️" label="Sans prochaine action" value={stats.sansProchaineAction} color="#e05c5c" />
-            <KPI icon="📋" label="Moy. biens / client" value={stats.moyBiensParClient} color="#c084fc" />
+            <KPICard icon="🔵" label="Prospects"          value={stats.prospects}       color="#4db8ff" />
+            <KPICard icon="🟢" label="Clients actifs"     value={stats.actifs}          color="#50c878" />
+            <KPICard icon="🟡" label="Clients inactifs"   value={stats.inactifs}        color="#FFC200" />
+            <KPICard icon="⚫" label="Terminés"           value={stats.termines}        color="rgba(255,255,255,0.4)" />
+            <KPICard icon="✅" label="Total signés"       value={stats.totalSignes}     color="#50c878" />
+            <KPICard icon="💰" label="Budget total signé" value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" />
+            <KPICard icon="⚠️" label="Sans prochaine action" value={stats.sansProchaineAction} color="#e05c5c" />
+            <KPICard icon="📋" label="Moy. biens / client" value={stats.moyBiensParClient} color="#c084fc" />
           </div>
 
           <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>🏠 Stock de Biens</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
-            <KPI icon="🏘️" label="Biens en stock"       value={stats.biensTotaux}      color="#4db8ff" />
-            <KPI icon="🔔" label="À relancer"            value={stats.biensARelancer}   color="#e05c5c" />
-            <KPI icon="📅" label="Visites programmées"   value={stats.visitesProg}      color="#50c878" />
-            <KPI icon="📨" label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" />
-            <KPI icon="🎉" label="Offres acceptées"      value={stats.offresAcceptees}  color="#50c878" />
-            <KPI icon="🔗" label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" />
+            <KPICard icon="🏘️" label="Biens en stock"       value={stats.biensTotaux}      color="#4db8ff" />
+            <KPICard icon="🔔" label="À relancer"            value={stats.biensARelancer}   color="#e05c5c" />
+            <KPICard icon="📅" label="Visites programmées"   value={stats.visitesProg}      color="#50c878" />
+            <KPICard icon="📨" label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" />
+            <KPICard icon="🎉" label="Offres acceptées"      value={stats.offresAcceptees}  color="#50c878" />
+            <KPICard icon="🔗" label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" />
           </div>
         </>
       )}
@@ -1774,6 +1783,9 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
   );
 }
 
+function InpText(props) { return <input className="inv-inp" {...props} style={{ width:"100%", textAlign:"left", ...props.style }}/>; }
+function InpNum(props) { return <input className="inv-inp" type="number" {...props} style={{ width:"100%", ...props.style }}/>; }
+
 function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
   const isEdit = !!bien;
   const [form, setForm] = useState({
@@ -1810,36 +1822,34 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
   };
 
 
-  const I = (props) => <input className="inv-inp" {...props} style={{ width:"100%", textAlign:"left", ...props.style }}/>;
-  const N = (props) => <input className="inv-inp" type="number" {...props} style={{ width:"100%", ...props.style }}/>;
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse</label><I value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label><I value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label><I value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label><I value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label><I value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Agence</label><I value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></div>
+          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse</label><InpText value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label><InpText value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label><InpText value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label><InpText value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label><InpText value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Agence</label><InpText value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Statut</label>
             <select className="inv-sel" value={form.statut} style={{ width:"100%" }} onChange={e=>setForm({...form,statut:e.target.value})}>
               {STATUTS_BIEN.map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix de vente (€)</label><N value={form.prix_vente} onChange={e=>setForm({...form,prix_vente:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix travaux (€)</label><N value={form.prix_travaux} onChange={e=>setForm({...form,prix_travaux:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Coût total (€)</label><N value={form.cout_total} onChange={e=>setForm({...form,cout_total:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Rendement brut (%)</label><N value={form.rendement_brut} step="0.1" onChange={e=>setForm({...form,rendement_brut:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Cash-flow estimé (€/mois)</label><N value={form.cashflow_estime} onChange={e=>setForm({...form,cashflow_estime:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Montant offre (€)</label><N value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date visite</label><I type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date relance</label><I type="date" value={form.date_relance} onChange={e=>setForm({...form,date_relance:e.target.value})}/></div>
-          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien annonce</label><I value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien Drive</label><I value={form.lien_drive} onChange={e=>setForm({...form,lien_drive:e.target.value})} placeholder="https://…"/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien dossier rentabilité</label><I value={form.lien_rentabilite} onChange={e=>setForm({...form,lien_rentabilite:e.target.value})} placeholder="https://…"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix de vente (€)</label><InpNum value={form.prix_vente} onChange={e=>setForm({...form,prix_vente:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix travaux (€)</label><InpNum value={form.prix_travaux} onChange={e=>setForm({...form,prix_travaux:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Coût total (€)</label><InpNum value={form.cout_total} onChange={e=>setForm({...form,cout_total:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Rendement brut (%)</label><InpNum value={form.rendement_brut} step="0.1" onChange={e=>setForm({...form,rendement_brut:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Cash-flow estimé (€/mois)</label><InpNum value={form.cashflow_estime} onChange={e=>setForm({...form,cashflow_estime:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Montant offre (€)</label><InpNum value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date visite</label><InpText type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date relance</label><InpText type="date" value={form.date_relance} onChange={e=>setForm({...form,date_relance:e.target.value})}/></div>
+          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien annonce</label><InpText value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien Drive</label><InpText value={form.lien_drive} onChange={e=>setForm({...form,lien_drive:e.target.value})} placeholder="https://…"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien dossier rentabilité</label><InpText value={form.lien_rentabilite} onChange={e=>setForm({...form,lien_rentabilite:e.target.value})} placeholder="https://…"/></div>
           <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Commentaire</label><textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})}/></div>
         </div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
