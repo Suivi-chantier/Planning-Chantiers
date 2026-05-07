@@ -992,17 +992,819 @@ function Simulateur({ projet, profil, onRetour }) {
   );
 }
 
+// ─── TABLEAU DE BORD INVEST ───────────────────────────────────────────────────
+function TableauBord({ profil }) {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const charger = async () => {
+      setLoading(true);
+      const [{ data: clients }, { data: biens }, { data: props }] = await Promise.all([
+        supabase.from("invest_clients").select("statut,budget,date_signature,prochaine_action"),
+        supabase.from("invest_biens").select("statut,date_relance,rendement_brut,cashflow_estime"),
+        supabase.from("invest_propositions").select("client_id,bien_id,created_at"),
+      ]);
+      const c = clients || [], b = biens || [], p = props || [];
+      const today = new Date().toISOString().slice(0, 10);
+      setStats({
+        prospects:       c.filter(x => x.statut === "Prospect").length,
+        actifs:          c.filter(x => x.statut === "Actif").length,
+        inactifs:        c.filter(x => x.statut === "Inactif").length,
+        termines:        c.filter(x => x.statut === "Terminé").length,
+        totalSignes:     c.filter(x => x.date_signature).length,
+        sommeBudgets:    c.filter(x => x.date_signature).reduce((s, x) => s + (x.budget || 0), 0),
+        biensTotaux:     b.length,
+        biensARelancer:  b.filter(x => x.date_relance && x.date_relance <= today).length,
+        visitesProg:     b.filter(x => x.statut === "Visite programmée").length,
+        offreEnvoyees:   b.filter(x => x.statut === "Offre envoyée").length,
+        offresAcceptees: b.filter(x => x.statut === "Offre acceptée").length,
+        sansProchaineAction: c.filter(x => !x.prochaine_action).length,
+        nbPropositions:  p.length,
+        moyBiensParClient: c.length > 0 ? (p.length / Math.max(c.filter(x => x.date_signature).length, 1)).toFixed(1) : "—",
+      });
+      setLoading(false);
+    };
+    charger();
+  }, []);
+
+  const fmt = v => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
+
+  const KPI = ({ label, value, sub, color, icon }) => (
+    <div style={{ background:"white", borderRadius:10, padding:"16px 18px", border:"1px solid #eef0f5", boxShadow:"0 1px 4px rgba(15,30,53,.06)", borderLeft:`4px solid ${color||"#1f4ea1"}` }}>
+      <div style={{ fontSize:22, marginBottom:4 }}>{icon}</div>
+      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:22, fontWeight:800, color: color||"#1a2d4a" }}>{value}</div>
+      <div style={{ fontSize:11, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:.6, marginTop:4 }}>{label}</div>
+      {sub && <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>Tableau de bord</div>
+        <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>Vue globale de l'activité Profero Invest</div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign:"center", padding:"60px 0", color:"#9aa0b0" }}>Chargement…</div>
+      ) : stats && (
+        <>
+          <div style={{ fontSize:12, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.5, marginBottom:12 }}>👥 Clients & Prospects</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12, marginBottom:28 }}>
+            <KPI icon="🔵" label="Prospects"          value={stats.prospects}       color="#1f4ea1" />
+            <KPI icon="🟢" label="Clients actifs"     value={stats.actifs}          color="#1a7a4a" />
+            <KPI icon="🟡" label="Clients inactifs"   value={stats.inactifs}        color="#c9a84c" />
+            <KPI icon="⚫" label="Terminés"           value={stats.termines}        color="#5a6070" />
+            <KPI icon="✅" label="Total signés"       value={stats.totalSignes}     color="#1a7a4a" />
+            <KPI icon="💰" label="Budget total signé" value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#c9a84c" />
+            <KPI icon="⚠️" label="Sans prochaine action" value={stats.sansProchaineAction} color="#c0392b" />
+            <KPI icon="📋" label="Moy. biens / client" value={stats.moyBiensParClient} color="#6b3a8a" />
+          </div>
+
+          <div style={{ fontSize:12, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.5, marginBottom:12 }}>🏠 Stock de Biens</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
+            <KPI icon="🏘️" label="Biens en stock"       value={stats.biensTotaux}      color="#1f4ea1" />
+            <KPI icon="🔔" label="À relancer"            value={stats.biensARelancer}   color="#c0392b" />
+            <KPI icon="📅" label="Visites programmées"   value={stats.visitesProg}      color="#1a7a4a" />
+            <KPI icon="📨" label="Offres envoyées"       value={stats.offreEnvoyees}    color="#c9a84c" />
+            <KPI icon="🎉" label="Offres acceptées"      value={stats.offresAcceptees}  color="#1a7a4a" />
+            <KPI icon="🔗" label="Propositions totales"  value={stats.nbPropositions}   color="#6b3a8a" />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── CRM CLIENTS ──────────────────────────────────────────────────────────────
+const STATUTS_CLIENT  = ["Prospect","Actif","Inactif","Terminé"];
+const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
+const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
+const STATUTS_PROP    = ["proposé","intéressé","refusé","en analyse","offre en cours"];
+
+function CRM({ profil }) {
+  const [clients, setClients]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [ficheId, setFicheId]     = useState(null);
+  const [showForm, setShowForm]   = useState(false);
+  const [filtreStatut, setFiltreStatut] = useState("");
+  const [filtreConseiller, setFiltreConseiller] = useState("");
+  const [filtreSource, setFiltreSource] = useState("");
+  const [search, setSearch]       = useState("");
+
+  const charger = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("invest_clients").select("*").order("created_at", { ascending: false });
+    setClients(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { charger(); }, []);
+
+  const conseillers = [...new Set(clients.map(c => c.conseiller).filter(Boolean))];
+
+  const filtered = clients.filter(c => {
+    if (filtreStatut && c.statut !== filtreStatut) return false;
+    if (filtreConseiller && c.conseiller !== filtreConseiller) return false;
+    if (filtreSource && c.source !== filtreSource) return false;
+    if (search && !`${c.nom} ${c.prenom} ${c.email}`.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const STATUT_COLORS = { Prospect:"#1f4ea1", Actif:"#1a7a4a", Inactif:"#c9a84c", Terminé:"#5a6070" };
+  const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
+  const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
+
+  if (ficheId) return <FicheClient id={ficheId} profil={profil} onRetour={() => { setFicheId(null); charger(); }} />;
+
+  return (
+    <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+        <div>
+          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>CRM Clients / Prospects</div>
+          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
+        </div>
+        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau contact</button>
+      </div>
+
+      {/* Filtres */}
+      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+        <input className="inv-inp" placeholder="🔍 Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
+          style={{ width:200, textAlign:"left", fontSize:13 }}/>
+        <select className="inv-sel" value={filtreStatut} onChange={e=>setFiltreStatut(e.target.value)}>
+          <option value="">Tous statuts</option>
+          {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
+        </select>
+        <select className="inv-sel" value={filtreConseiller} onChange={e=>setFiltreConseiller(e.target.value)}>
+          <option value="">Tous conseillers</option>
+          {conseillers.map(c=><option key={c}>{c}</option>)}
+        </select>
+        <select className="inv-sel" value={filtreSource} onChange={e=>setFiltreSource(e.target.value)}>
+          <option value="">Toutes sources</option>
+          {SOURCES_CLIENT.map(s=><option key={s}>{s}</option>)}
+        </select>
+      </div>
+
+      {/* Liste */}
+      {loading ? (
+        <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
+      ) : (
+        <div style={{ background:"white", borderRadius:10, border:"1px solid #eef0f5", overflow:"hidden", boxShadow:"0 1px 4px rgba(15,30,53,.06)" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#f8f9fb", borderBottom:"2px solid #eef0f5", fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:.6 }}>
+            <div>Contact</div><div>Statut</div><div>Budget</div><div>Conseiller</div><div>Étape</div><div>Prochaine action</div><div/>
+          </div>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0", fontSize:14 }}>Aucun contact trouvé</div>
+          ) : filtered.map(c => (
+            <div key={c.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #eef0f5", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
+              onMouseEnter={e=>e.currentTarget.style.background="#f8f9fb"}
+              onMouseLeave={e=>e.currentTarget.style.background="white"}
+              onClick={() => setFicheId(c.id)}>
+              <div>
+                <div style={{ fontWeight:700, color:"#1a2d4a", fontSize:14 }}>{c.prenom} {c.nom}</div>
+                <div style={{ fontSize:11, color:"#9aa0b0" }}>{c.email || c.telephone || "—"}</div>
+              </div>
+              <div><span style={{ background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut], border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:700 }}>{c.statut}</span></div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:600, color:"#1a2d4a" }}>{fmtBudget(c.budget)}</div>
+              <div style={{ fontSize:13, color:"#5a6070" }}>{c.conseiller||"—"}</div>
+              <div style={{ fontSize:12, color:"#5a6070" }}>{c.etape||"—"}</div>
+              <div style={{ fontSize:12, color: c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#c0392b" : "#5a6070" }}>
+                {fmtDate(c.date_prochaine_action)}
+                {c.prochaine_action && <div style={{ fontSize:11, color:"#9aa0b0", marginTop:1 }}>{c.prochaine_action.slice(0,30)}</div>}
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <span style={{ fontSize:12, color:"#1f4ea1", fontWeight:700 }}>Ouvrir →</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal nouveau contact */}
+      {showForm && <FormulaireClient profil={profil} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
+    </div>
+  );
+}
+
+function FormulaireClient({ client, profil, onSave, onClose }) {
+  const isEdit = !!client;
+  const [form, setForm] = useState({
+    nom: client?.nom||"", prenom: client?.prenom||"",
+    email: client?.email||"", telephone: client?.telephone||"",
+    conseiller: client?.conseiller || profil?.nom||"",
+    source: client?.source||"Autre", statut: client?.statut||"Prospect",
+    budget: client?.budget||0, etape: client?.etape||"",
+    prochaine_action: client?.prochaine_action||"",
+    date_prochaine_action: client?.date_prochaine_action||"",
+    notes_rapides: client?.notes_rapides||"",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const sauvegarder = async () => {
+    if (!form.nom.trim()) return;
+    setSaving(true);
+    const payload = { ...form, budget: parseFloat(form.budget)||0, updated_at: new Date().toISOString() };
+    if (isEdit) {
+      await supabase.from("invest_clients").update(payload).eq("id", client.id);
+    } else {
+      await supabase.from("invest_clients").insert(payload);
+    }
+    setSaving(false);
+    onSave();
+  };
+
+  const F = ({ label, children }) => (
+    <div style={{ marginBottom:14 }}>
+      <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>{label}</label>
+      {children}
+    </div>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
+      <div style={{ background:"white", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:580, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
+        <div style={{ fontSize:17, fontWeight:800, color:"#1a2d4a", marginBottom:20 }}>{isEdit ? "Modifier le contact" : "Nouveau contact"}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
+          <F label="Nom *"><input className="inv-inp" value={form.nom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,nom:e.target.value})}/></F>
+          <F label="Prénom"><input className="inv-inp" value={form.prenom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prenom:e.target.value})}/></F>
+          <F label="Email"><input className="inv-inp" type="email" value={form.email} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,email:e.target.value})}/></F>
+          <F label="Téléphone"><input className="inv-inp" value={form.telephone} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,telephone:e.target.value})}/></F>
+          <F label="Conseiller référent"><input className="inv-inp" value={form.conseiller} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,conseiller:e.target.value})}/></F>
+          <F label="Source">
+            <select className="inv-sel" value={form.source} style={{ width:"100%" }} onChange={e=>setForm({...form,source:e.target.value})}>
+              {SOURCES_CLIENT.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </F>
+          <F label="Statut">
+            <select className="inv-sel" value={form.statut} style={{ width:"100%" }} onChange={e=>setForm({...form,statut:e.target.value})}>
+              {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </F>
+          <F label="Budget (€)"><input className="inv-inp" type="number" value={form.budget} style={{ width:"100%" }} onChange={e=>setForm({...form,budget:e.target.value})}/></F>
+          <F label="Étape en cours"><input className="inv-inp" value={form.etape} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,etape:e.target.value})}/></F>
+          <F label="Date prochaine action"><input className="inv-inp" type="date" value={form.date_prochaine_action} style={{ width:"100%" }} onChange={e=>setForm({...form,date_prochaine_action:e.target.value})}/></F>
+        </div>
+        <F label="Prochaine action"><input className="inv-inp" value={form.prochaine_action} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prochaine_action:e.target.value})}/></F>
+        <F label="Notes rapides"><textarea className="inv-textarea" rows={3} value={form.notes_rapides} onChange={e=>setForm({...form,notes_rapides:e.target.value})}/></F>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
+          <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
+          <button className="inv-btn inv-btn-gold" onClick={sauvegarder} disabled={saving}>{saving?"Enregistrement…":"Enregistrer"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FicheClient({ id, profil, onRetour }) {
+  const [client, setClient]   = useState(null);
+  const [notes, setNotes]     = useState([]);
+  const [props, setProps]     = useState([]);
+  const [showEdit, setShowEdit] = useState(false);
+  const [newNote, setNewNote] = useState({ type:"commentaire", contenu:"" });
+  const [savingNote, setSavingNote] = useState(false);
+
+  const charger = async () => {
+    const [{ data: c }, { data: n }, { data: p }] = await Promise.all([
+      supabase.from("invest_clients").select("*").eq("id", id).single(),
+      supabase.from("invest_notes").select("*").eq("client_id", id).order("date", { ascending: false }),
+      supabase.from("invest_propositions").select("*, bien:invest_biens(adresse,ville,statut)").eq("client_id", id).order("created_at", { ascending: false }),
+    ]);
+    setClient(c); setNotes(n||[]); setProps(p||[]);
+  };
+  useEffect(() => { charger(); }, [id]);
+
+  const ajouterNote = async () => {
+    if (!newNote.contenu.trim()) return;
+    setSavingNote(true);
+    await supabase.from("invest_notes").insert({ client_id: id, auteur: profil?.nom||"", type: newNote.type, contenu: newNote.contenu });
+    setNewNote({ type:"commentaire", contenu:"" });
+    setSavingNote(false);
+    charger();
+  };
+
+  const STATUT_COLORS = { Prospect:"#1f4ea1", Actif:"#1a7a4a", Inactif:"#c9a84c", Terminé:"#5a6070" };
+  const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" }) : "—";
+  const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR").format(v)+" €" : "—";
+  const NOTE_ICONS = { appel:"📞", "rendez-vous":"🤝", relance:"🔔", commentaire:"💬", document:"📄", autre:"📝" };
+
+  if (!client) return <div style={{ textAlign:"center", padding:"60px", color:"#9aa0b0" }}>Chargement…</div>;
+
+  return (
+    <div style={{ padding:"24px 28px", maxWidth:1100, margin:"0 auto" }}>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← CRM</button>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>{client.prenom} {client.nom}</div>
+          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:2 }}>{client.email} {client.telephone ? `· ${client.telephone}` : ""}</div>
+        </div>
+        <span style={{ background:`${STATUT_COLORS[client.statut]}18`, color:STATUT_COLORS[client.statut], border:`1px solid ${STATUT_COLORS[client.statut]}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{client.statut}</span>
+        <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>✏️ Modifier</button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        {/* Infos */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div className="inv-card">
+            <div className="inv-card-hd blue">👤 Informations</div>
+            <div className="inv-card-bd">
+              {[["Conseiller", client.conseiller],["Source", client.source],["Budget", fmtBudget(client.budget)],["Étape", client.etape||"—"],["Date signature", fmtDate(client.date_signature)],["Avancement", client.avancement ? client.avancement+"%" : "—"]].map(([l,v])=>(
+                <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
+              ))}
+            </div>
+          </div>
+          <div className="inv-card">
+            <div className="inv-card-hd mid">📅 Prochaine Action</div>
+            <div className="inv-card-bd">
+              <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
+              <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#c0392b" : "#1a2d4a" }}>{fmtDate(client.date_prochaine_action)}</span></div>
+              {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
+            </div>
+          </div>
+          {/* Propositions */}
+          <div className="inv-card">
+            <div className="inv-card-hd">🏠 Biens proposés ({props.length})</div>
+            <div className="inv-card-bd">
+              {props.length === 0 ? (
+                <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic" }}>Aucun bien proposé</div>
+              ) : props.map(p => (
+                <div key={p.id} style={{ padding:"8px 0", borderBottom:"1px solid #eef0f5" }}>
+                  <div style={{ fontWeight:600, fontSize:13, color:"#1a2d4a" }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
+                  <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>
+                    {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · {p.statut}
+                    {p.commentaire && ` · ${p.commentaire}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div className="inv-card">
+          <div className="inv-card-hd">📝 Historique des notes ({notes.length})</div>
+          <div className="inv-card-bd">
+            {/* Ajouter une note */}
+            <div style={{ marginBottom:16, padding:"12px 14px", background:"#f8f9fb", borderRadius:8, border:"1px solid #eef0f5" }}>
+              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                <select className="inv-sel" value={newNote.type} onChange={e=>setNewNote({...newNote,type:e.target.value})} style={{ fontSize:12 }}>
+                  {TYPES_NOTE.map(t=><option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <textarea className="inv-textarea" rows={3} placeholder="Ajouter une note…" value={newNote.contenu}
+                onChange={e=>setNewNote({...newNote,contenu:e.target.value})}/>
+              <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={ajouterNote} disabled={savingNote}>
+                  {savingNote ? "…" : "＋ Ajouter"}
+                </button>
+              </div>
+            </div>
+            {/* Liste notes */}
+            <div style={{ maxHeight:500, overflowY:"auto" }}>
+              {notes.length === 0 ? (
+                <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucune note</div>
+              ) : notes.map(n => (
+                <div key={n.id} style={{ padding:"10px 0", borderBottom:"1px solid #eef0f5" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                    <span style={{ fontSize:16 }}>{NOTE_ICONS[n.type]||"📝"}</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:"#1f4ea1", textTransform:"uppercase" }}>{n.type}</span>
+                    <span style={{ fontSize:11, color:"#9aa0b0", marginLeft:"auto" }}>
+                      {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize:13, color:"#2c3040", lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showEdit && <FormulaireClient client={client} profil={profil} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
+    </div>
+  );
+}
+
+// ─── STOCK DE BIENS ───────────────────────────────────────────────────────────
+const STATUTS_BIEN = ["À analyser","Agent contacté","Visite programmée","Visité","À relancer","Offre à faire","Offre envoyée","Offre refusée","Offre acceptée","Abandonné","Proposé à un client","En cours d'acquisition"];
+const STATUT_BIEN_COLORS = {
+  "À analyser":"#9aa0b0","Agent contacté":"#1f4ea1","Visite programmée":"#6b3a8a",
+  "Visité":"#1a7a4a","À relancer":"#c0392b","Offre à faire":"#c9a84c",
+  "Offre envoyée":"#d4610a","Offre refusée":"#c0392b","Offre acceptée":"#1a7a4a",
+  "Abandonné":"#5a6070","Proposé à un client":"#1f4ea1","En cours d'acquisition":"#1a7a4a",
+};
+
+function StockBiens({ profil }) {
+  const [biens, setBiens]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [ficheId, setFicheId]   = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [filtreStatut, setFiltreStatut] = useState("");
+  const [filtreVille, setFiltreVille]   = useState("");
+  const [search, setSearch]     = useState("");
+  const [sortBy, setSortBy]     = useState("");
+
+  const charger = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("invest_biens").select("*").order("created_at", { ascending: false });
+    setBiens(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { charger(); }, []);
+
+  const today = new Date().toISOString().slice(0,10);
+  const villes = [...new Set(biens.map(b => b.ville).filter(Boolean))];
+
+  let filtered = biens.filter(b => {
+    if (filtreStatut && b.statut !== filtreStatut) return false;
+    if (filtreVille && b.ville !== filtreVille) return false;
+    if (search && !`${b.adresse||""} ${b.ville||""} ${b.agence||""}`.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  if (sortBy === "rendement") filtered = [...filtered].sort((a,b) => (b.rendement_brut||0)-(a.rendement_brut||0));
+  if (sortBy === "cashflow")  filtered = [...filtered].sort((a,b) => (b.cashflow_estime||0)-(a.cashflow_estime||0));
+  if (sortBy === "cout")      filtered = [...filtered].sort((a,b) => (b.cout_total||0)-(a.cout_total||0));
+  if (sortBy === "relance")   filtered = [...filtered].sort((a,b) => (a.date_relance||"9999") < (b.date_relance||"9999") ? -1 : 1);
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}) : "—";
+  const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
+
+  const aRelancer = biens.filter(b => b.date_relance && b.date_relance <= today).length;
+
+  if (ficheId) return <FicheBien id={ficheId} profil={profil} onRetour={() => { setFicheId(null); charger(); }} />;
+
+  return (
+    <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+        <div>
+          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>Stock de Biens</div>
+          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>
+            {filtered.length} bien{filtered.length!==1?"s":""}
+            {aRelancer > 0 && <span style={{ marginLeft:10, color:"#c0392b", fontWeight:700 }}>· 🔔 {aRelancer} à relancer</span>}
+          </div>
+        </div>
+        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau bien</button>
+      </div>
+
+      {/* Filtres */}
+      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+        <input className="inv-inp" placeholder="🔍 Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
+          style={{ width:200, textAlign:"left", fontSize:13 }}/>
+        <select className="inv-sel" value={filtreStatut} onChange={e=>setFiltreStatut(e.target.value)}>
+          <option value="">Tous statuts</option>
+          {STATUTS_BIEN.map(s=><option key={s}>{s}</option>)}
+        </select>
+        <select className="inv-sel" value={filtreVille} onChange={e=>setFiltreVille(e.target.value)}>
+          <option value="">Toutes villes</option>
+          {villes.map(v=><option key={v}>{v}</option>)}
+        </select>
+        <select className="inv-sel" value={sortBy} onChange={e=>setSortBy(e.target.value)}>
+          <option value="">Trier par…</option>
+          <option value="rendement">Rendement brut ↓</option>
+          <option value="cashflow">Cash-flow ↓</option>
+          <option value="cout">Coût total ↓</option>
+          <option value="relance">Date relance ↑</option>
+        </select>
+        <button className="inv-btn inv-btn-out inv-btn-sm" style={{ color:"#c0392b", borderColor:"rgba(192,57,43,.3)" }}
+          onClick={() => { setFiltreStatut("À relancer"); setSortBy("relance"); }}>
+          🔔 Voir à relancer
+        </button>
+      </div>
+
+      {/* Liste */}
+      {loading ? (
+        <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0" }}>Chargement…</div>
+      ) : (
+        <div style={{ background:"white", borderRadius:10, border:"1px solid #eef0f5", overflow:"hidden", boxShadow:"0 1px 4px rgba(15,30,53,.06)" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:"#f8f9fb", borderBottom:"2px solid #eef0f5", fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:.6 }}>
+            <div>Bien</div><div>Statut</div><div>Coût total</div><div>Rendement</div><div>Cash-flow</div><div>Relance</div><div/>
+          </div>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"#9aa0b0", fontSize:14 }}>Aucun bien trouvé</div>
+          ) : filtered.map(b => (
+            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:"1px solid #eef0f5", alignItems:"center", cursor:"pointer", transition:"background .12s" }}
+              onMouseEnter={e=>e.currentTarget.style.background="#f8f9fb"}
+              onMouseLeave={e=>e.currentTarget.style.background="white"}
+              onClick={() => setFicheId(b.id)}>
+              <div>
+                <div style={{ fontWeight:700, color:"#1a2d4a", fontSize:14 }}>{b.adresse||"Adresse non renseignée"}</div>
+                <div style={{ fontSize:11, color:"#9aa0b0" }}>{b.ville||""}{b.agence ? ` · ${b.agence}` : ""}</div>
+              </div>
+              <div>
+                <span style={{ background:`${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}18`, color:STATUT_BIEN_COLORS[b.statut]||"#9aa0b0", border:`1px solid ${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}33`, borderRadius:20, padding:"2px 8px", fontSize:10, fontWeight:700, whiteSpace:"nowrap" }}>{b.statut}</span>
+              </div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600 }}>{fmtEur(b.cout_total)}</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color: b.rendement_brut >= 8 ? "#1a7a4a" : b.rendement_brut >= 5 ? "#c9a84c" : "#9aa0b0" }}>
+                {b.rendement_brut > 0 ? b.rendement_brut.toFixed(1)+"%" : "—"}
+              </div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color: (b.cashflow_estime||0) > 0 ? "#1a7a4a" : (b.cashflow_estime||0) < 0 ? "#c0392b" : "#9aa0b0" }}>
+                {b.cashflow_estime ? fmtEur(b.cashflow_estime)+"/mois" : "—"}
+              </div>
+              <div style={{ fontSize:12, color: b.date_relance && b.date_relance <= today ? "#c0392b" : "#5a6070", fontWeight: b.date_relance && b.date_relance <= today ? 700 : 400 }}>
+                {fmtDate(b.date_relance)}
+              </div>
+              <div style={{ textAlign:"right" }}><span style={{ fontSize:12, color:"#1f4ea1", fontWeight:700 }}>Ouvrir →</span></div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm && <FormulaireBien profil={profil} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
+    </div>
+  );
+}
+
+function FormulaireBien({ bien, profil, onSave, onClose }) {
+  const isEdit = !!bien;
+  const [form, setForm] = useState({
+    adresse: bien?.adresse||"", ville: bien?.ville||"", code_postal: bien?.code_postal||"",
+    commentaire: bien?.commentaire||"", interlocuteur: bien?.interlocuteur||"",
+    telephone_interlocuteur: bien?.telephone_interlocuteur||"", agence: bien?.agence||"",
+    lien_annonce: bien?.lien_annonce||"", prix_vente: bien?.prix_vente||0,
+    prix_travaux: bien?.prix_travaux||0, cout_total: bien?.cout_total||0,
+    rendement_brut: bien?.rendement_brut||0, cashflow_estime: bien?.cashflow_estime||0,
+    lien_drive: bien?.lien_drive||"", lien_rentabilite: bien?.lien_rentabilite||"",
+    montant_offre: bien?.montant_offre||0, statut: bien?.statut||"À analyser",
+    date_relance: bien?.date_relance||"", statut_relance: bien?.statut_relance||"",
+    date_visite: bien?.date_visite||"",
+  });
+  const [saving, setSaving] = useState(false);
+
+  // Auto-calcul coût total
+  useEffect(() => {
+    const ct = (parseFloat(form.prix_vente)||0) + (parseFloat(form.prix_travaux)||0);
+    if (ct > 0) setForm(f => ({ ...f, cout_total: ct }));
+  }, [form.prix_vente, form.prix_travaux]);
+
+  const sauvegarder = async () => {
+    setSaving(true);
+    const payload = { ...form, updated_at: new Date().toISOString() };
+    Object.keys(payload).forEach(k => { if (typeof payload[k] === "string" && payload[k] === "" && ["prix_vente","prix_travaux","cout_total","rendement_brut","cashflow_estime","montant_offre"].includes(k)) payload[k] = 0; });
+    if (isEdit) {
+      await supabase.from("invest_biens").update(payload).eq("id", bien.id);
+    } else {
+      await supabase.from("invest_biens").insert(payload);
+    }
+    setSaving(false);
+    onSave();
+  };
+
+  const F = ({ label, children, col }) => (
+    <div style={{ marginBottom:12, gridColumn: col }}>
+      <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>{label}</label>
+      {children}
+    </div>
+  );
+  const I = (props) => <input className="inv-inp" {...props} style={{ width:"100%", textAlign:"left", ...props.style }}/>;
+  const N = (props) => <input className="inv-inp" type="number" {...props} style={{ width:"100%", ...props.style }}/>;
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
+      <div style={{ background:"white", borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
+        <div style={{ fontSize:17, fontWeight:800, color:"#1a2d4a", marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
+          <F label="Adresse" col="1 / 3"><I value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></F>
+          <F label="Ville"><I value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></F>
+          <F label="Code postal"><I value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></F>
+          <F label="Interlocuteur"><I value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></F>
+          <F label="Téléphone"><I value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></F>
+          <F label="Agence"><I value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></F>
+          <F label="Statut">
+            <select className="inv-sel" value={form.statut} style={{ width:"100%" }} onChange={e=>setForm({...form,statut:e.target.value})}>
+              {STATUTS_BIEN.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </F>
+          <F label="Prix de vente (€)"><N value={form.prix_vente} onChange={e=>setForm({...form,prix_vente:e.target.value})}/></F>
+          <F label="Prix travaux (€)"><N value={form.prix_travaux} onChange={e=>setForm({...form,prix_travaux:e.target.value})}/></F>
+          <F label="Coût total (€)"><N value={form.cout_total} onChange={e=>setForm({...form,cout_total:e.target.value})}/></F>
+          <F label="Rendement brut (%)"><N value={form.rendement_brut} step="0.1" onChange={e=>setForm({...form,rendement_brut:e.target.value})}/></F>
+          <F label="Cash-flow estimé (€/mois)"><N value={form.cashflow_estime} onChange={e=>setForm({...form,cashflow_estime:e.target.value})}/></F>
+          <F label="Montant offre (€)"><N value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/></F>
+          <F label="Date visite"><I type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/></F>
+          <F label="Date relance"><I type="date" value={form.date_relance} onChange={e=>setForm({...form,date_relance:e.target.value})}/></F>
+          <F label="Lien annonce" col="1 / 3"><I value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></F>
+          <F label="Lien Drive"><I value={form.lien_drive} onChange={e=>setForm({...form,lien_drive:e.target.value})} placeholder="https://…"/></F>
+          <F label="Lien dossier rentabilité"><I value={form.lien_rentabilite} onChange={e=>setForm({...form,lien_rentabilite:e.target.value})} placeholder="https://…"/></F>
+          <F label="Commentaire" col="1 / 3"><textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})}/></F>
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
+          <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
+          <button className="inv-btn inv-btn-gold" onClick={sauvegarder} disabled={saving}>{saving?"Enregistrement…":"Enregistrer"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FicheBien({ id, profil, onRetour }) {
+  const [bien, setBien]       = useState(null);
+  const [props, setProps]     = useState([]);
+  const [clients, setClients] = useState([]);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showProp, setShowProp] = useState(false);
+  const [newProp, setNewProp] = useState({ client_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+  const [savingProp, setSavingProp] = useState(false);
+
+  const charger = async () => {
+    const [{ data: b }, { data: p }, { data: c }] = await Promise.all([
+      supabase.from("invest_biens").select("*").eq("id", id).single(),
+      supabase.from("invest_propositions").select("*, client:invest_clients(nom,prenom)").eq("bien_id", id).order("created_at",{ascending:false}),
+      supabase.from("invest_clients").select("id,nom,prenom").order("nom"),
+    ]);
+    setBien(b); setProps(p||[]); setClients(c||[]);
+  };
+  useEffect(() => { charger(); }, [id]);
+
+  const ajouterProp = async () => {
+    if (!newProp.client_id) return;
+    setSavingProp(true);
+    await supabase.from("invest_propositions").insert({ bien_id: id, ...newProp, date_proposition: new Date().toISOString().slice(0,10) });
+    setNewProp({ client_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+    setSavingProp(false);
+    setShowProp(false);
+    charger();
+  };
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"}) : "—";
+  const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
+
+  if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:"#9aa0b0" }}>Chargement…</div>;
+
+  const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
+
+  return (
+    <div style={{ padding:"24px 28px", maxWidth:1100, margin:"0 auto" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← Stock de biens</button>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#1a2d4a" }}>{bien.adresse||"Bien sans adresse"}</div>
+          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:2 }}>{bien.ville||""}{bien.code_postal ? ` ${bien.code_postal}` : ""}{bien.agence ? ` · ${bien.agence}` : ""}</div>
+        </div>
+        <span style={{ background:`${couleur}18`, color:couleur, border:`1px solid ${couleur}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{bien.statut}</span>
+        <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>✏️ Modifier</button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div className="inv-card">
+            <div className="inv-card-hd blue">🏠 Informations</div>
+            <div className="inv-card-bd">
+              {[["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:"#1f4ea1"}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
+                <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
+              ))}
+            </div>
+          </div>
+          <div className="inv-card">
+            <div className="inv-card-hd gold">💰 Données Financières</div>
+            <div className="inv-card-bd">
+              {[["Prix de vente", fmtEur(bien.prix_vente)],["Prix travaux", fmtEur(bien.prix_travaux)],["Coût total", fmtEur(bien.cout_total)],["Montant offre", fmtEur(bien.montant_offre)],["Rendement brut", bien.rendement_brut > 0 ? bien.rendement_brut.toFixed(1)+"%" : "—"],["Cash-flow estimé", bien.cashflow_estime ? fmtEur(bien.cashflow_estime)+"/mois" : "—"]].map(([l,v])=>(
+                <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc" style={{fontFamily:"'DM Mono',monospace",fontWeight:700}}>{v}</span></div>
+              ))}
+              {(bien.lien_drive || bien.lien_rentabilite) && (
+                <div style={{ marginTop:10, display:"flex", gap:8, flexWrap:"wrap" }}>
+                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm">📁 Dossier Drive</a>}
+                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm">📊 Rentabilité</a>}
+                </div>
+              )}
+            </div>
+          </div>
+          {bien.commentaire && (
+            <div className="inv-card">
+              <div className="inv-card-hd mid">💬 Commentaire</div>
+              <div className="inv-card-bd" style={{ fontSize:13, color:"#5a6070", lineHeight:1.7 }}>{bien.commentaire}</div>
+            </div>
+          )}
+        </div>
+
+        {/* Propositions clients */}
+        <div className="inv-card">
+          <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+            <span>👥 Clients associés ({props.length})</span>
+            <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+          </div>
+          <div className="inv-card-bd">
+            {props.length === 0 ? (
+              <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun client associé</div>
+            ) : props.map(p => (
+              <div key={p.id} style={{ padding:"10px 0", borderBottom:"1px solid #eef0f5" }}>
+                <div style={{ fontWeight:700, fontSize:13, color:"#1a2d4a" }}>{p.client?.prenom} {p.client?.nom}</div>
+                <div style={{ fontSize:11, color:"#9aa0b0", marginTop:2 }}>
+                  {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:"#1f4ea1" }}>{p.statut}</span>
+                  {p.commentaire && ` · ${p.commentaire}`}
+                </div>
+                {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:"#1f4ea1" }}>📄 Dossier présenté ↗</a>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {showEdit && <FormulaireBien bien={bien} profil={profil} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
+
+      {showProp && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
+          <div style={{ background:"white", borderRadius:14, padding:"24px 26px", width:"90%", maxWidth:440 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:"#1a2d4a", marginBottom:16 }}>Proposer ce bien à un client</div>
+            <div style={{ marginBottom:12 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Client</label>
+              <select className="inv-sel" value={newProp.client_id} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,client_id:e.target.value})}>
+                <option value="">Sélectionner un client…</option>
+                {clients.map(c=><option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
+              <select className="inv-sel" value={newProp.statut} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,statut:e.target.value})}>
+                {STATUTS_PROP.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Commentaire</label>
+              <textarea className="inv-textarea" rows={2} value={newProp.commentaire} onChange={e=>setNewProp({...newProp,commentaire:e.target.value})}/>
+            </div>
+            <div style={{ marginBottom:16 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Lien dossier présenté</label>
+              <input className="inv-inp" value={newProp.lien_dossier} style={{ width:"100%", textAlign:"left" }} onChange={e=>setNewProp({...newProp,lien_dossier:e.target.value})} placeholder="https://…"/>
+            </div>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button className="inv-btn inv-btn-out" onClick={() => setShowProp(false)}>Annuler</button>
+              <button className="inv-btn inv-btn-blue" onClick={ajouterProp} disabled={savingProp||!newProp.client_id}>{savingProp?"…":"Proposer"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
+function SidebarInvest({ page, setPage }) {
+  const NAV = [
+    { id:"dashboard", icon:"📊", label:"Tableau de bord" },
+    { id:"crm",       icon:"👥", label:"CRM Clients" },
+    { id:"biens",     icon:"🏠", label:"Stock de biens" },
+    { id:"simulateur",icon:"📐", label:"Simulateur" },
+  ];
+  return (
+    <div style={{ width:200, flexShrink:0, background:"#1a2d4a", borderRight:"1px solid #1e3a5f", display:"flex", flexDirection:"column", height:"100%", overflowY:"auto" }}>
+      <div style={{ padding:"16px 14px 12px", borderBottom:"1px solid #1e3a5f" }}>
+        <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:"rgba(201,168,76,0.6)", marginBottom:2 }}>Profero</div>
+        <div style={{ fontSize:18, fontWeight:800, color:"white" }}>Invest</div>
+      </div>
+      <nav style={{ padding:"8px 8px", flex:1 }}>
+        {NAV.map(n => (
+          <button key={n.id} onClick={() => setPage(n.id)}
+            style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight: page===n.id ? 700 : 500, background: page===n.id ? "rgba(201,168,76,0.15)" : "transparent", color: page===n.id ? "#c9a84c" : "rgba(255,255,255,0.45)", marginBottom:3, textAlign:"left", transition:"all .12s" }}>
+            <span style={{ fontSize:18, width:22, textAlign:"center" }}>{n.icon}</span>
+            <span>{n.label}</span>
+            {page===n.id && <span style={{ marginLeft:"auto", width:3, height:16, borderRadius:2, background:"#c9a84c", display:"block" }}/>}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
 // ─── PAGE INVEST (routeur interne) ────────────────────────────────────────────
 export default function PageInvest({ profil }) {
-  const [vue, setVue]                   = useState("liste");
+  const [page, setPage]                 = useState("dashboard");
   const [projetOuvert, setProjetOuvert] = useState(null);
+  const [vueSim, setVueSim]             = useState("liste"); // "liste" | "simulateur"
 
-  const ouvrir  = (p) => { setProjetOuvert(p); setVue("simulateur"); };
-  const nouveau = ()  => { setProjetOuvert(null); setVue("simulateur"); };
-  const retour  = ()  => { setProjetOuvert(null); setVue("liste"); };
+  const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
+  const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
+  const retourListe   = ()  => { setProjetOuvert(null); setVueSim("liste"); };
 
-  if (vue === "simulateur") {
-    return <Simulateur projet={projetOuvert} profil={profil} onRetour={retour} />;
+  // Le simulateur prend tout l'écran (pas de sidebar)
+  if (page === "simulateur") {
+    if (vueSim === "simulateur") {
+      return <Simulateur projet={projetOuvert} profil={profil} onRetour={() => setVueSim("liste")} />;
+    }
+    return (
+      <div style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", flexDirection:"column" }}>
+        <style>{CSS}</style>
+        <div style={{ background:"#1a2d4a", padding:"14px 20px", display:"flex", alignItems:"center", gap:12, flexShrink:0, borderBottom:"2px solid #c9a84c" }}>
+          <button className="inv-btn inv-btn-out inv-btn-sm" style={{ color:"rgba(255,255,255,.7)", borderColor:"rgba(255,255,255,.2)", background:"rgba(255,255,255,.06)" }}
+            onClick={() => setPage("dashboard")}>← Invest</button>
+          <span style={{ fontSize:14, fontWeight:700, color:"white" }}>Simulateur de projets</span>
+        </div>
+        <div style={{ flex:1, overflowY:"auto" }}>
+          <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} />
+        </div>
+      </div>
+    );
   }
-  return <ListeProjets profil={profil} onOuvrir={ouvrir} onNouveauProjet={nouveau} />;
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:9999, display:"flex" }}>
+      <style>{CSS}</style>
+      <SidebarInvest page={page} setPage={setPage} />
+      <div style={{ flex:1, overflowY:"auto", background:"#f8f9fb" }}>
+        {page === "dashboard" && <TableauBord profil={profil} />}
+        {page === "crm"       && <CRM profil={profil} />}
+        {page === "biens"     && <StockBiens profil={profil} />}
+      </div>
+    </div>
+  );
 }
