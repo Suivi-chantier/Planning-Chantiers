@@ -107,7 +107,17 @@ export default function PageInfoClient({ T }) {
 
   async function saveInfos(v) {
     if (!projetId) return; setSaving(true);
-    await supabase.from("profero_projets").update({...v, updated_at:new Date().toISOString()}).eq("id",projetId);
+    const payload = {
+      client_nom:          v.client_nom          ?? "",
+      client_prenom:       v.client_prenom       ?? "",
+      adresse_bien:        v.adresse_bien        ?? "",
+      description_projet:  v.description_projet  ?? "",
+      date_visite:         v.date_visite         ?? "",
+      observations:        v.observations        ?? "",
+      logements:           v.logements           ?? [],
+    };
+    const { error } = await supabase.from("profero_projets").update(payload).eq("id", projetId);
+    if (error) console.error("saveInfos projet error:", error);
     setSaving(false); setProjets(prev=>prev.map(p=>p.id===projetId?{...p,...v}:p));
   }
   function updInfo(f,v) { const u={...infos,[f]:v}; setInfos(u); debounce(()=>saveInfos(u)); }
@@ -138,7 +148,10 @@ export default function PageInfoClient({ T }) {
 
   async function nouveauProjet() {
     const nom=window.prompt("Nom du projet :",`Projet ${projets.length+1}`); if(!nom) return;
-    const{data}=await supabase.from("profero_projets").insert({client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",date_visite:new Date().toISOString().split("T")[0],observations:"",logements:[]}).select().single();
+    const{data}=await supabase.from("profero_projets").insert({
+      client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"",
+      date_visite:new Date().toISOString().split("T")[0], observations:"", logements:[],
+    }).select().single();
     if(data){ await supabase.from("profero_plans").insert({projet_id:data.id,nom:"Plan 1",data:null}); setProjets(p=>[data,...p]); chargerProjet(data.id); }
   }
   async function suppProjet() {
