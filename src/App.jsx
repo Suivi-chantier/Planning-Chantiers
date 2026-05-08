@@ -534,36 +534,25 @@ export default function App() {
   const [profil, setProfil]       = useState(null);
 
   useEffect(() => {
+    // Écoute uniquement les nouvelles connexions via lien invitation
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && session?.user) {
-        // Supabase met le type dans le hash à l'arrivée : #access_token=...&type=invite
         const hash = window.location.hash;
         const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
         const urlType = params.get("type");
 
         if (urlType === "invite") {
-          // Nettoie l'URL et affiche l'écran de création de mot de passe
           window.history.replaceState(null, "", window.location.pathname);
           setUser(session.user);
           setAuthState("creer-mdp");
-          return;
         }
-
-        // Connexion normale — charge le profil
-        const { data: p } = await supabase
-          .from("utilisateurs").select("*").eq("email", session.user.email).single();
-        if (p && p.actif) {
-          setUser(session.user); setProfil(p);
-          const branches = p.branches || ["renovation"];
-          setAuthState(branches.length === 1 ? branches[0] : "portail");
-        } else {
-          await supabase.auth.signOut(); setAuthState("login");
-        }
+        // Les connexions normales sont gérées par checkSession / handleLogin
       }
     });
 
+    // Vérifie la session existante au chargement
     const checkSession = async () => {
-      // Si on arrive avec un hash d'invitation, onAuthStateChange va gérer
+      // Si on arrive avec un hash d'invitation, on attend onAuthStateChange
       const hash = window.location.hash;
       const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
       if (params.get("type") === "invite") return;
