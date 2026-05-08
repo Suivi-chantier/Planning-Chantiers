@@ -6,7 +6,7 @@ const STATUTS_OBS  = ["ok","info","warn","urgent"];
 const STATUT_LABEL = { ok:"Conforme", info:"Info", warn:"Attention", urgent:"Urgent" };
 const STATUT_COLOR = { ok:"#2e7d32", info:"#1565c0", warn:"#e65100", urgent:"#c62828" };
 
-export default function PageCompteRendu({ T, chantiers = [] }) {
+export default function PageCompteRendu({ T }) {
   // ── État liste CRs ──
   const [crs, setCrs]           = useState([]);
   const [crId, setCrId]         = useState(null);
@@ -14,7 +14,7 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
   const [saving, setSaving]     = useState(false);
 
   // ── Données CR courant ──
-  const INFOS_VIDE = { chantier_id:"", client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"" };
+  const INFOS_VIDE = { client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"" };
   const [infos, setInfos]       = useState(INFOS_VIDE);
   const [obs, setObs]           = useState([]);
   const [photos, setPhotos]     = useState([]);
@@ -67,7 +67,7 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
       supabase.from("cr_photos").select("*").eq("cr_id",id),
     ]);
     if (cr) {
-      setInfos({ chantier_id:cr.chantier_id||"", client_prenom1:cr.client_prenom1||"", client_nom1:cr.client_nom1||"", client_prenom2:cr.client_prenom2||"", client_nom2:cr.client_nom2||"", adresse:cr.adresse||"", date_visite:cr.date_visite||"", heure_visite:cr.heure_visite||"", type_visite:cr.type_visite||"Visite de chantier", participants:cr.participants||"", resume:cr.resume||"", avancement:cr.avancement||0, prochaine_etape:cr.prochaine_etape||"", travaux:cr.travaux||"", remarques:cr.remarques||"" });
+      setInfos({ client_prenom1:cr.client_prenom1||"", client_nom1:cr.client_nom1||"", client_prenom2:cr.client_prenom2||"", client_nom2:cr.client_nom2||"", adresse:cr.adresse||"", date_visite:cr.date_visite||"", heure_visite:cr.heure_visite||"", type_visite:cr.type_visite||"Visite de chantier", participants:cr.participants||"", resume:cr.resume||"", avancement:cr.avancement||0, prochaine_etape:cr.prochaine_etape||"", travaux:cr.travaux||"", remarques:cr.remarques||"" });
       setDeuxiemeClient(!!(cr.client_prenom2 || cr.client_nom2));
     }
     setObs(o && o.length > 0 ? o : [{ id:"new_1", statut:"warn", texte:"", ordre:0 }]);
@@ -79,7 +79,24 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
 
   async function saveInfos(v) {
     if (!crId) return; setSaving(true);
-    await supabase.from("cr_comptes_rendus").update({...v, updated_at:new Date().toISOString()}).eq("id",crId);
+    const payload = {
+      client_prenom1:   v.client_prenom1   ?? "",
+      client_nom1:      v.client_nom1      ?? "",
+      client_prenom2:   v.client_prenom2   ?? "",
+      client_nom2:      v.client_nom2      ?? "",
+      adresse:          v.adresse          ?? "",
+      date_visite:      v.date_visite      ?? "",
+      heure_visite:     v.heure_visite     ?? "",
+      type_visite:      v.type_visite      ?? "",
+      participants:     v.participants     ?? "",
+      resume:           v.resume           ?? "",
+      avancement:       v.avancement       ?? 0,
+      prochaine_etape:  v.prochaine_etape  ?? "",
+      travaux:          v.travaux          ?? "",
+      remarques:        v.remarques        ?? "",
+    };
+    const { error } = await supabase.from("cr_comptes_rendus").update(payload).eq("id", crId);
+    if (error) console.error("saveInfos CR error:", error);
     setSaving(false); setCrs(prev=>prev.map(c=>c.id===crId?{...c,...v}:c));
   }
   function updInfo(f,v) { const u={...infos,[f]:v}; setInfos(u); debounce(()=>saveInfos(u)); }
@@ -132,20 +149,19 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
   }
 
   // ── Nouveau CR ──
-  const [showNouveauModal, setShowNouveauModal] = useState(false);
-  const [nouveauChantier, setNouveauChantier]   = useState("");
-
-  function nouveauCR() { setNouveauChantier(""); setShowNouveauModal(true); }
-
-  async function creerNouveauCR() {
-    const base = { ...INFOS_VIDE, chantier_id: nouveauChantier, date_visite: new Date().toISOString().split("T")[0] };
-    const { data } = await supabase.from("cr_comptes_rendus").insert(base).select().single();
+  async function nouveauCR() {
+    const nom = window.prompt("Nom du compte rendu :", `CR ${crs.length+1}`);
+    if (!nom) return;
+    const { data } = await supabase.from("cr_comptes_rendus").insert({
+      client_prenom1: "", client_nom1: "", client_prenom2: "", client_nom2: "",
+      adresse: "", date_visite: new Date().toISOString().split("T")[0],
+      heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`,
+      type_visite: "Visite de chantier", participants: "", resume: "",
+      avancement: 0, prochaine_etape: "", travaux: "", remarques: "",
+    }).select().single();
     if (data) {
       await supabase.from("cr_observations").insert({ cr_id:data.id, statut:"warn", texte:"", ordre:0 });
       setCrs(p=>[data,...p]); chargerCR(data.id);
-      setShowNouveauModal(false);
-      // Aller directement sur la section client pour remplir
-      setSection("client");
     }
   }
 
@@ -346,38 +362,6 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
   return (
     <div style={{ display:"flex", height:"100%", background:bg, overflow:"hidden" }}>
 
-      {/* ── MODALE NOUVEAU CR ── */}
-      {showNouveauModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:800, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setShowNouveauModal(false)}>
-          <div style={{ background:surface, border:`1px solid ${border}`, borderRadius:16, width:"100%", maxWidth:420, padding:"28px 28px 24px", boxShadow:"0 24px 60px rgba(0,0,0,0.6)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontSize:17, fontWeight:800, color:text, marginBottom:6 }}>➕ Nouveau compte rendu</div>
-            <div style={{ fontSize:12, color:textSub, marginBottom:22 }}>Choisissez le chantier concerné</div>
-
-            <label style={lbl}>Chantier <span style={{color:accent}}>*</span></label>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
-              {chantiers.map(c => (
-                <div key={c.id} onClick={()=>setNouveauChantier(c.id)} style={{
-                  padding:"12px 14px", borderRadius:10, cursor:"pointer", transition:"all .12s",
-                  border:`2px solid ${nouveauChantier===c.id ? accent : border}`,
-                  background: nouveauChantier===c.id ? "rgba(255,194,0,0.1)" : card,
-                  display:"flex", alignItems:"center", gap:8,
-                }}>
-                  <div style={{ width:10, height:10, borderRadius:"50%", background:c.couleur||accent, flexShrink:0 }}/>
-                  <span style={{ fontSize:13, fontWeight:700, color:nouveauChantier===c.id?accent:text }}>{c.nom}</span>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-              <button onClick={()=>setShowNouveauModal(false)} style={btnS}>Annuler</button>
-              <button onClick={creerNouveauCR} disabled={!nouveauChantier} style={{ ...btn, opacity: nouveauChantier?1:.45, cursor: nouveauChantier?"pointer":"default" }}>
-                Créer le CR →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── LISTE CRs ── */}
       <div style={{ width:220, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${border}`, flexShrink:0 }}>
@@ -396,52 +380,18 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:8 }}>
           {crs.length===0 && <div style={{color:textSub,fontSize:12,textAlign:"center",marginTop:24,lineHeight:1.8}}>Aucun compte rendu<br/><button style={{...btn,marginTop:8,fontSize:11}} onClick={nouveauCR}>Créer</button></div>}
-          {(() => {
-            // Grouper les CRs par chantier
-            const groupes = {};
-            crs.forEach(c => {
-              const key = c.chantier_id || "__sans__";
-              if (!groupes[key]) groupes[key] = [];
-              groupes[key].push(c);
-            });
-            // Ordre : chantiers connus d'abord, puis "sans chantier"
-            const keys = Object.keys(groupes).sort((a,b) => {
-              if (a === "__sans__") return 1;
-              if (b === "__sans__") return -1;
-              return 0;
-            });
-            return keys.map(key => {
-              const grpCRs = groupes[key];
-              const chantier = key !== "__sans__" ? chantiers.find(ch => ch.id === key) : null;
-              const couleurBande = chantier?.couleur || "rgba(255,194,0,0.5)";
-              return (
-                <div key={key} style={{ marginBottom:10 }}>
-                  {/* En-tête groupe */}
-                  <div style={{ fontSize:10, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.8, padding:"4px 6px 4px 10px", marginBottom:4, borderLeft:`3px solid ${couleurBande}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                    <span>{chantier ? chantier.nom : "Sans chantier"}</span>
-                    <span style={{ fontSize:9, opacity:.6 }}>{grpCRs.length}</span>
-                  </div>
-                  {grpCRs.map(c => {
-                    const act = c.id===crId;
-                    const nomClient = c.client_nom1 ? `${c.client_prenom1||""} ${c.client_nom1}`.trim() : "—";
-                    return (
-                      <div key={c.id} onClick={()=>chargerCR(c.id)} style={{ padding:"9px 10px", borderRadius:7, marginBottom:4, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, transition:"all .12s" }}>
-                        <div style={{ fontSize:12, fontWeight:700, color:act?"#000":text, lineHeight:1.3 }}>{nomClient}</div>
-                        <div style={{ fontSize:10, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
-                          {c.type_visite || "Visite"}{c.date_visite ? ` · ${new Date(c.date_visite).toLocaleDateString("fr-FR")}` : ""}
-                        </div>
-                        {c.avancement > 0 && (
-                          <div style={{ marginTop:4, height:3, background:act?"rgba(0,0,0,0.15)":"rgba(255,255,255,0.08)", borderRadius:2, overflow:"hidden" }}>
-                            <div style={{ height:"100%", width:`${c.avancement}%`, background:act?"#000":accent, borderRadius:2 }}/>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+          {crs.map(c => {
+            const act = c.id===crId;
+            const nomClient = c.client_nom1 ? `${c.client_prenom1||""} ${c.client_nom1}`.trim() : "Sans client";
+            return (
+              <div key={c.id} onClick={()=>chargerCR(c.id)} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
+                <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>{nomClient}</div>
+                <div style={{ fontSize:11, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
+                  {c.type_visite || "Visite"} {c.date_visite ? `· ${new Date(c.date_visite).toLocaleDateString("fr-FR")}` : ""}
                 </div>
-              );
-            });
-          })()}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -511,17 +461,7 @@ export default function PageCompteRendu({ T, chantiers = [] }) {
                     <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom1} onChange={e=>updInfo("client_prenom1",e.target.value)} placeholder="Jean" /></div>
                     <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom1} onChange={e=>updInfo("client_nom1",e.target.value)} placeholder="Dupont" /></div>
                   </div>
-                  <div style={{ marginBottom:12, padding:"12px 14px", background:`rgba(255,194,0,0.06)`, border:`1px solid rgba(255,194,0,0.2)`, borderRadius:9 }}>
-                    <label style={{...lbl, color:accent}}>🏗️ Chantier associé</label>
-                    <select style={{...inp, fontWeight: infos.chantier_id ? 700 : 400, color: infos.chantier_id ? text : textSub}} value={infos.chantier_id} onChange={e=>updInfo("chantier_id",e.target.value)}>
-                      <option value="">— Sélectionner un chantier —</option>
-                      {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                    </select>
-                    {infos.chantier_id && (
-                      <div style={{ fontSize:11, color:accent, marginTop:6, opacity:.7 }}>✓ Ce CR sera lié au chantier {chantiers.find(c=>c.id===infos.chantier_id)?.nom}</div>
-                    )}
-                  </div>
-                <div><label style={lbl}>Adresse du chantier</label><input style={inp} value={infos.adresse} onChange={e=>updInfo("adresse",e.target.value)} placeholder="14 Bd du Roi René, 49000 Angers" /></div>
+                  <div><label style={lbl}>Adresse du chantier</label><input style={inp} value={infos.adresse} onChange={e=>updInfo("adresse",e.target.value)} placeholder="14 Bd du Roi René, 49000 Angers" /></div>
 
                   {!deuxiemeClient ? (
                     <button onClick={()=>setDeuxiemeClient(true)} style={{ background:"none", border:"none", color:accent, fontFamily:"inherit", fontSize:12, fontWeight:600, cursor:"pointer", marginTop:12, padding:0 }}>+ Ajouter un second client</button>
