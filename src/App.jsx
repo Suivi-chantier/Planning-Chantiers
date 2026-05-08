@@ -21,50 +21,27 @@ import PageInfoClient         from "./PageInfoClient";
 import PageCompteRendu        from "./PageCompteRendu";
 import PageChantiers          from "./PageChantiers";
 
-// ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 const ROLE_PAGES = {
-  admin: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu","admin"
-  ],
-  conducteur: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu"
-  ],
-  commercial: [
-    "dashboard","chantiers","planning","plans","visite","info-client","compte-rendu"
-  ],
-  comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage"
-  ],
+  admin: ["dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","equipe","plans","phasage","bibliotheque","biblio-materiaux","visite","info-client","compte-rendu","admin"],
+  conducteur: ["dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","equipe","plans","phasage","bibliotheque","biblio-materiaux","visite","info-client","compte-rendu"],
+  commercial: ["dashboard","chantiers","planning","plans","visite","info-client","compte-rendu"],
+  comptable: ["dashboard","chantiers","commandes","biblio-materiaux","phasage"],
 };
 
 function canAccess(role, page) {
   return (ROLE_PAGES[role] || []).includes(page);
 }
 
-// ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== "undefined") {
   window.onerror = function(msg, src, line, col, err) {
-    document.body.innerHTML = `<div style="background:#1a0000;color:#ff8888;padding:30px;font-family:monospace;min-height:100vh">
-      <h2 style="color:#ff4444">🔴 Erreur JS</h2>
-      <p><b>Message:</b> ${msg}</p><p><b>Fichier:</b> ${src}</p>
-      <p><b>Ligne:</b> ${line}:${col}</p>
-      <pre style="margin-top:16px;font-size:12px;opacity:.8">${err?.stack||""}</pre>
-    </div>`;
+    document.body.innerHTML = `<div style="background:#1a0000;color:#ff8888;padding:30px;font-family:monospace;min-height:100vh"><h2 style="color:#ff4444">🔴 Erreur JS</h2><p><b>Message:</b> ${msg}</p><p><b>Fichier:</b> ${src}</p><p><b>Ligne:</b> ${line}:${col}</p><pre style="margin-top:16px;font-size:12px;opacity:.8">${err?.stack||""}</pre></div>`;
     return false;
   };
   window.onunhandledrejection = function(ev) {
-    document.body.innerHTML = `<div style="background:#1a0000;color:#ff8888;padding:30px;font-family:monospace;min-height:100vh">
-      <h2 style="color:#ff4444">🔴 Promise rejetée</h2>
-      <pre>${ev.reason?.stack || ev.reason}</pre>
-    </div>`;
+    document.body.innerHTML = `<div style="background:#1a0000;color:#ff8888;padding:30px;font-family:monospace;min-height:100vh"><h2 style="color:#ff4444">🔴 Promise rejetée</h2><pre>${ev.reason?.stack || ev.reason}</pre></div>`;
   };
 }
 
-// ─── ERROR BOUNDARY ───────────────────────────────────────────────────────────
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
@@ -79,7 +56,6 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// ─── CSS COMMUN (login + portail) ────────────────────────────────────────────
 const CSS_BASE = `
   @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -104,8 +80,7 @@ const CSS_BASE = `
     display: flex; flex-direction: column; gap: 16px;
   }
   .portal-card:hover:not(.disabled) {
-    border-color: rgba(255,194,0,0.5);
-    transform: translateY(-4px);
+    border-color: rgba(255,194,0,0.5); transform: translateY(-4px);
     box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,194,0,0.2);
   }
   .portal-card.disabled { cursor: not-allowed; opacity: .55; }
@@ -116,7 +91,65 @@ const CSS_BASE = `
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 `;
 
-// ─── PAGE DE CONNEXION ────────────────────────────────────────────────────────
+// ─── NOUVEAU : PAGE CRÉATION MOT DE PASSE ─────────────────────────────────────
+function PageCreerMotDePasse({ onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm]   = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [erreur, setErreur]     = useState("");
+  const [succes, setSucces]     = useState(false);
+
+  const handleSubmit = async () => {
+    if (password.length < 8) { setErreur("Le mot de passe doit contenir au moins 8 caractères."); return; }
+    if (password !== confirm) { setErreur("Les mots de passe ne correspondent pas."); return; }
+    setLoading(true); setErreur("");
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) { setErreur("Erreur : " + error.message); setLoading(false); return; }
+    setSucces(true);
+    setTimeout(() => onDone(), 1500);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
+      <style>{CSS_BASE}</style>
+      <div style={{ width:"100%", maxWidth:420 }}>
+        <div style={{ textAlign:"center", marginBottom:40 }}>
+          <img src={LOGO_HORIZ} alt="Profero" style={{ height:44, objectFit:"contain" }}/>
+          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>Bienvenue chez Profero</div>
+        </div>
+        <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>Créer votre mot de passe</div>
+          <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:28, lineHeight:1.6 }}>
+            Bienvenue ! Définissez votre mot de passe pour accéder à votre espace collaborateur.
+          </div>
+          {succes ? (
+            <div style={{ background:"rgba(80,200,120,0.12)", border:"1px solid rgba(80,200,120,0.3)", borderRadius:8, padding:"14px", fontSize:15, color:"#50c878", textAlign:"center" }}>
+              ✓ Mot de passe créé ! Redirection…
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom:16 }}>
+                <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>Nouveau mot de passe</label>
+                <input className="login-input" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Minimum 8 caractères" onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
+              </div>
+              <div style={{ marginBottom:24 }}>
+                <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>Confirmer le mot de passe</label>
+                <input className="login-input" type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Répétez le mot de passe" onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
+              </div>
+              {erreur && (
+                <div style={{ background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)", borderRadius:8, padding:"10px 14px", fontSize:14, color:"#e05c5c", marginBottom:20 }}>{erreur}</div>
+              )}
+              <button className="login-btn" onClick={handleSubmit} disabled={loading}>
+                {loading ? "Enregistrement…" : "Définir mon mot de passe →"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PageLogin({ onLogin }) {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
@@ -150,9 +183,7 @@ function PageLogin({ onLogin }) {
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
           <img src={LOGO_HORIZ} alt="Profero" style={{ height:44, objectFit:"contain" }}/>
-          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
-            Espace collaborateurs
-          </div>
+          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>Espace collaborateurs</div>
         </div>
         <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
           <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>Connexion</div>
@@ -166,64 +197,44 @@ function PageLogin({ onLogin }) {
             <input className="login-input" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
           </div>
           {erreur && (
-            <div style={{ background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)", borderRadius:8, padding:"10px 14px", fontSize:14, color:"#e05c5c", marginBottom:20 }}>
-              {erreur}
-            </div>
+            <div style={{ background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)", borderRadius:8, padding:"10px 14px", fontSize:14, color:"#e05c5c", marginBottom:20 }}>{erreur}</div>
           )}
           <button className="login-btn" onClick={handleLogin} disabled={loading}>
             {loading ? "Connexion…" : "Se connecter →"}
           </button>
         </div>
-        <div style={{ textAlign:"center", marginTop:20, fontSize:12, color:"rgba(255,255,255,0.2)" }}>
-          Problème de connexion ? Contactez l'administrateur.
-        </div>
+        <div style={{ textAlign:"center", marginTop:20, fontSize:12, color:"rgba(255,255,255,0.2)" }}>Problème de connexion ? Contactez l'administrateur.</div>
       </div>
     </div>
   );
 }
 
-// ─── PORTAIL GROUPE ───────────────────────────────────────────────────────────
 function PagePortail({ user, profil, onSelectBranche, onLogout }) {
-  const branches    = profil?.branches || ["renovation"];
-  const hasReno     = branches.includes("renovation");
-  const hasInvest   = branches.includes("invest");
-
+  const branches  = profil?.branches || ["renovation"];
+  const hasReno   = branches.includes("renovation");
+  const hasInvest = branches.includes("invest");
   const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
 
   return (
     <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{CSS_BASE}</style>
-
-      {/* Header */}
       <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
         <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain" }}/>
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{profil?.nom || user?.email}</div>
-            <div style={{ fontSize:10, letterSpacing:1.5, textTransform:"uppercase", color:"rgba(255,194,0,0.6)" }}>
-              {ROLE_LABELS[profil?.role] || profil?.role}
-            </div>
+            <div style={{ fontSize:10, letterSpacing:1.5, textTransform:"uppercase", color:"rgba(255,194,0,0.6)" }}>{ROLE_LABELS[profil?.role] || profil?.role}</div>
           </div>
-          <button onClick={onLogout} style={{ background:"rgba(224,92,92,0.1)", border:"1px solid rgba(224,92,92,0.25)", borderRadius:8, padding:"8px 14px", color:"#e05c5c", fontSize:13, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
-            Déconnexion
-          </button>
+          <button onClick={onLogout} style={{ background:"rgba(224,92,92,0.1)", border:"1px solid rgba(224,92,92,0.25)", borderRadius:8, padding:"8px 14px", color:"#e05c5c", fontSize:13, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>Déconnexion</button>
         </div>
       </div>
-
-      {/* Contenu */}
       <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 20px" }}>
         <div style={{ textAlign:"center", marginBottom:56 }}>
           <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:12 }}>Groupe Profero</div>
           <div style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:.5 }}>Choisissez votre espace</div>
-          <div style={{ fontSize:15, color:"rgba(255,255,255,0.3)", marginTop:8 }}>
-            Bonjour {profil?.nom?.split(" ")[0] || "vous"} — sélectionnez la branche à laquelle accéder
-          </div>
+          <div style={{ fontSize:15, color:"rgba(255,255,255,0.3)", marginTop:8 }}>Bonjour {profil?.nom?.split(" ")[0] || "vous"} — sélectionnez la branche à laquelle accéder</div>
         </div>
-
-        {/* Cartes */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:24, width:"100%", maxWidth:720 }}>
-
-          {/* Rénovation */}
           <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#FFC200,#ff9500)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -233,21 +244,14 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
                 <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Rénovation</div>
               </div>
             </div>
-            <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
-              Planning chantiers, commandes, équipes, phasage, comptes rendus et suivi de travaux.
-            </div>
+            <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>Planning chantiers, commandes, équipes, phasage, comptes rendus et suivi de travaux.</div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
               {["Planning","Commandes","Équipe","Phasage","Comptes rendus"].map(tag=>(
                 <span key={tag} style={{ fontSize:11, padding:"3px 10px", borderRadius:20, background:"rgba(255,194,0,0.08)", border:"1px solid rgba(255,194,0,0.15)", color:"rgba(255,194,0,0.7)", letterSpacing:.5 }}>{tag}</span>
               ))}
             </div>
-            {hasReno
-              ? <div style={{ display:"flex", alignItems:"center", gap:8, color:"#FFC200", fontWeight:700, fontSize:14 }}>Accéder <span style={{fontSize:18}}>→</span></div>
-              : <div style={{ fontSize:12, color:"rgba(255,255,255,0.25)" }}>Accès non autorisé</div>
-            }
+            {hasReno ? <div style={{ display:"flex", alignItems:"center", gap:8, color:"#FFC200", fontWeight:700, fontSize:14 }}>Accéder <span style={{fontSize:18}}>→</span></div> : <div style={{ fontSize:12, color:"rgba(255,255,255,0.25)" }}>Accès non autorisé</div>}
           </div>
-
-          {/* Invest */}
           <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -257,25 +261,20 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
                 <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Invest</div>
               </div>
             </div>
-            <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
-              Gestion des investissements immobiliers, suivi de portefeuille et reporting financier.
-            </div>
+            <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>Gestion des investissements immobiliers, suivi de portefeuille et reporting financier.</div>
             <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"8px 14px", alignSelf:"flex-start" }}>
               <span style={{ width:7, height:7, borderRadius:"50%", background:"#4db8ff", display:"inline-block", animation:"pulse 2s infinite" }}/>
               <span style={{ fontSize:12, color:"rgba(77,184,255,0.8)", fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>En cours de développement</span>
             </div>
             {!hasInvest && <div style={{ fontSize:12, color:"rgba(255,255,255,0.25)" }}>Accès non autorisé</div>}
           </div>
-
         </div>
-
         <div style={{ marginTop:48, fontSize:12, color:"rgba(255,255,255,0.15)", letterSpacing:1 }}>GROUPE PROFERO · ESPACE INTERNE</div>
       </div>
     </div>
   );
 }
 
-// ─── MAIN APP (Rénovation) ────────────────────────────────────────────────────
 function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const{year:iY,week:iW}=getCurrentWeek();
   const[year,setYear]=useState(iY);
@@ -283,7 +282,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const[page,setPage]=useState("dashboard");
   const[theme,setTheme]=useState(()=>localStorage.getItem("theme")||"dark");
   const[view,setView]=useState("planifie");
-
   const[ouvriers,setOuvriers]=useState(DEFAULT_OUVRIERS);
   const[ouvrierEmails,setOuvrierEmails]=useState({});
   const[tauxHoraires,setTauxHoraires]=useState({});
@@ -425,34 +423,18 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
         <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
           <img src={LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
-          <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
-            Profero · Rénovation
-          </div>
+          <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>Profero · Rénovation</div>
           <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.card,borderRadius:8,fontSize:12,color:T.textSub}}>
-            {syncing
-              ?<><span style={{width:8,height:8,borderRadius:"50%",background:"#f5a623",display:"inline-block"}}/> Sync…</>
-              :connected
-                ?<><span className="dot-pulse"/>{" "}En ligne {lastSync?`· ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}`:""}</>
-                :<><span style={{width:8,height:8,borderRadius:"50%",background:"#e05c5c",display:"inline-block"}}/> Hors ligne</>
-            }
+            {syncing?<><span style={{width:8,height:8,borderRadius:"50%",background:"#f5a623",display:"inline-block"}}/> Sync…</>:connected?<><span className="dot-pulse"/>{" "}En ligne {lastSync?`· ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}`:""}</>:<><span style={{width:8,height:8,borderRadius:"50%",background:"#e05c5c",display:"inline-block"}}/> Hors ligne</>}
           </div>
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
             <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:1}}>
               <span style={{fontSize:13,fontWeight:700,color:T.text}}>{profil?.nom||user?.email}</span>
               <span style={{fontSize:10,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,194,0,0.6)"}}>{ROLE_LABELS[role]||role}</span>
             </div>
-            {/* Bouton portail — uniquement si multi-branches */}
-            {peutChangerBranche&&(
-              <button onClick={onRetourPortail} title="Retour au portail" style={{
-                background:"rgba(255,194,0,0.08)",border:"1px solid rgba(255,194,0,0.2)",
-                borderRadius:6,padding:"6px 12px",color:"rgba(255,194,0,0.8)",fontSize:12,
-                cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:.5,
-              }}>⊞ Portail</button>
-            )}
+            {peutChangerBranche&&(<button onClick={onRetourPortail} title="Retour au portail" style={{background:"rgba(255,194,0,0.08)",border:"1px solid rgba(255,194,0,0.2)",borderRadius:6,padding:"6px 12px",color:"rgba(255,194,0,0.8)",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:.5}}>⊞ Portail</button>)}
             <button className="btn-g" onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
-            <button onClick={onLogout} title="Se déconnecter" style={{background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
-              Déconnexion
-            </button>
+            <button onClick={onLogout} title="Se déconnecter" style={{background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Déconnexion</button>
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
@@ -480,13 +462,41 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
 
 // ─── ROUTEUR RACINE ───────────────────────────────────────────────────────────
 export default function App() {
-  // authState : "loading" | "login" | "portail" | "renovation" | "invest"
+  // authState : "loading" | "login" | "creer-mdp" | "portail" | "renovation" | "invest"
   const [authState, setAuthState] = useState("loading");
   const [user, setUser]           = useState(null);
   const [profil, setProfil]       = useState(null);
 
   useEffect(() => {
+    // Écoute les événements d'auth — notamment le token d'invitation
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        // Vérifie le type dans l'URL (Supabase met #type=invite dans le hash)
+        const hash = window.location.hash;
+        const params = new URLSearchParams(hash.replace("#", "?"));
+        const urlType = params.get("type");
+
+        if (urlType === "invite") {
+          // Nettoie l'URL
+          window.history.replaceState(null, "", window.location.pathname);
+          setUser(session.user);
+          setAuthState("creer-mdp");
+          return;
+        }
+      }
+    });
+
     const checkSession = async () => {
+      // Vérifie si on arrive via un lien d'invitation (token dans l'URL)
+      const hash = window.location.hash;
+      const params = new URLSearchParams(hash.replace("#", "?"));
+      const urlType = params.get("type");
+
+      if (urlType === "invite") {
+        // L'onAuthStateChange va gérer ça
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: p } = await supabase
@@ -502,7 +512,9 @@ export default function App() {
         setAuthState("login");
       }
     };
+
     checkSession();
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleLogin = (u, p) => {
@@ -516,10 +528,27 @@ export default function App() {
     setUser(null); setProfil(null); setAuthState("login");
   };
 
+  // Après avoir créé son mot de passe, on charge le profil et on redirige
+  const handleMotDePasseCree = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      const { data: p } = await supabase
+        .from("utilisateurs").select("*").eq("email", session.user.email).single();
+      if (p && p.actif) {
+        setUser(session.user); setProfil(p);
+        const branches = p.branches || ["renovation"];
+        setAuthState(branches.length === 1 ? branches[0] : "portail");
+      } else {
+        setAuthState("login");
+      }
+    } else {
+      setAuthState("login");
+    }
+  };
+
   const handleSelectBranche = (b) => setAuthState(b);
   const handleRetourPortail  = () => setAuthState("portail");
 
-  // /rapport reste sans connexion
   if (window.location.pathname.startsWith("/rapport")) return <PageRapportMobile />;
 
   if (authState === "loading") return (
@@ -532,8 +561,9 @@ export default function App() {
     </div>
   );
 
-  if (authState === "login")   return <PageLogin onLogin={handleLogin}/>;
-  if (authState === "portail") return <PagePortail user={user} profil={profil} onSelectBranche={handleSelectBranche} onLogout={handleLogout}/>;
+  if (authState === "creer-mdp") return <PageCreerMotDePasse onDone={handleMotDePasseCree} />;
+  if (authState === "login")     return <PageLogin onLogin={handleLogin}/>;
+  if (authState === "portail")   return <PagePortail user={user} profil={profil} onSelectBranche={handleSelectBranche} onLogout={handleLogout}/>;
 
   if (authState === "renovation") return (
     <ErrorBoundary>
