@@ -474,6 +474,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
   const [groupBy, setGroupBy]         = useState("ouvrier"); // "ouvrier" | "chantier"
   const [showBilan, setShowBilan]     = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
 
   const appUrl = window.location.origin + "/rapport";
   const [copied, setCopied] = useState(false);
@@ -552,6 +553,43 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
       {showBilan&&(
         <BilanSemaine rapports={rapports} chantiers={chantiers} cells={cells}
           weekId={filterSemaine||weekId} onClose={()=>setShowBilan(false)} T={T}/>
+      )}
+
+      {/* Lightbox photos */}
+      {lightbox && (
+        <div onClick={()=>setLightbox(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20,flexDirection:"column",gap:14
+        }}>
+          <img src={lightbox.urls[lightbox.idx]} alt="" style={{
+            maxWidth:"100%",maxHeight:"calc(100vh - 120px)",objectFit:"contain",borderRadius:8
+          }} onClick={e=>e.stopPropagation()}/>
+          <div style={{display:"flex",gap:12,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+            {lightbox.urls.length > 1 && (
+              <>
+                <button onClick={()=>setLightbox(l=>({...l, idx:(l.idx-1+l.urls.length)%l.urls.length}))}
+                  style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",
+                    color:"#fff",borderRadius:8,padding:"8px 14px",cursor:"pointer",
+                    fontFamily:"inherit",fontSize:18}}>‹</button>
+                <span style={{color:"#fff",fontSize:13,fontWeight:600}}>{lightbox.idx+1} / {lightbox.urls.length}</span>
+                <button onClick={()=>setLightbox(l=>({...l, idx:(l.idx+1)%l.urls.length}))}
+                  style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",
+                    color:"#fff",borderRadius:8,padding:"8px 14px",cursor:"pointer",
+                    fontFamily:"inherit",fontSize:18}}>›</button>
+              </>
+            )}
+            <a href={lightbox.urls[lightbox.idx]} target="_blank" rel="noopener noreferrer"
+              style={{background:T.accent,color:"#111",borderRadius:8,padding:"8px 14px",
+                fontFamily:"inherit",fontSize:13,fontWeight:700,textDecoration:"none"}}>
+              ↗ Ouvrir
+            </a>
+            <button onClick={()=>setLightbox(null)} style={{background:"rgba(255,255,255,0.1)",
+              border:"1px solid rgba(255,255,255,0.2)",color:"#fff",borderRadius:8,
+              padding:"8px 14px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>
+              Fermer
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── Header ── */}
@@ -794,7 +832,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
                                 </div>
                                 {arr.map((t,ti)=>(
                                   <div key={ti} style={{display:"flex",alignItems:"flex-start",
-                                    gap:10,padding:"6px 0",
+                                    gap:10,padding:"6px 0",flexWrap:"wrap",
                                     borderTop:ti>0?`1px solid ${border}`:""  }}>
                                     <div style={{flex:1,minWidth:0}}>
                                       <div style={{fontSize:14,fontWeight:600,color:"#1a1f2e",lineHeight:1.4}}>
@@ -815,6 +853,16 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
                                         {t.heures_reelles}h
                                       </div>
                                     )}
+                                    {(t.photos||[]).length>0 && (
+                                      <div style={{flexBasis:"100%",display:"flex",flexWrap:"wrap",gap:5,marginTop:4}}>
+                                        {t.photos.map((url,pi)=>(
+                                          <img key={pi} src={url} alt="" loading="lazy"
+                                            onClick={()=>setLightbox({urls:t.photos,idx:pi})}
+                                            style={{width:54,height:54,objectFit:"cover",borderRadius:6,
+                                              border:`1px solid ${border}`,cursor:"pointer",display:"block"}}/>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -833,6 +881,25 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
                               💬 Remarque générale
                             </div>
                             <div style={{fontSize:14,color:T.text,lineHeight:1.5}}>{r.remarque}</div>
+                          </div>
+                        )}
+
+                        {/* Photos générales du chantier */}
+                        {(r.photos_chantier||[]).length>0 && (
+                          <div style={{marginTop:10,padding:"10px 14px",
+                            background:T.card,borderRadius:10,border:`1px solid ${T.border}`}}>
+                            <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,
+                              textTransform:"uppercase",color:T.textMuted,marginBottom:8}}>
+                              📸 Photos du chantier · {r.photos_chantier.length}
+                            </div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                              {r.photos_chantier.map((url,pi)=>(
+                                <img key={pi} src={url} alt="" loading="lazy"
+                                  onClick={()=>setLightbox({urls:r.photos_chantier,idx:pi})}
+                                  style={{width:72,height:72,objectFit:"cover",borderRadius:8,
+                                    border:`1px solid ${T.border}`,cursor:"pointer",display:"block"}}/>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>

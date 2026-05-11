@@ -49,6 +49,75 @@ async function sendRapportEmail(rapport, chantierNom) {
 }
 
 
+// ─── HELPER UPLOAD PHOTO ──────────────────────────────────────────────────────
+async function uploadRapportPhoto(file, pathPrefix) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const safe = `${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const path = `${pathPrefix}/${safe}`;
+  const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+  if (error) { console.error("upload photo:", error); return null; }
+  const { data } = supabase.storage.from("photos").getPublicUrl(path);
+  return data?.publicUrl || null;
+}
+
+// ─── COMPOSANT PHOTOS PICKER ──────────────────────────────────────────────────
+function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Photos" }) {
+  const [uploading, setUploading] = useState(0);
+  const inputRef = React.useRef(null);
+
+  const onFiles = async (files) => {
+    const arr = Array.from(files || []);
+    if (arr.length === 0) return;
+    setUploading(arr.length);
+    const urls = [];
+    for (const f of arr) {
+      const url = await uploadRapportPhoto(f, pathPrefix);
+      if (url) urls.push(url);
+      setUploading(n => n - 1);
+    }
+    if (urls.length > 0) onChange([...(photos || []), ...urls]);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const remove = (i) => onChange((photos || []).filter((_, idx) => idx !== i));
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+        <span style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color}}>
+          📷 {label}{(photos?.length||0) > 0 ? ` · ${photos.length}` : ""}
+        </span>
+        {uploading > 0 && (
+          <span style={{fontSize:11,color:"#f5a623",fontWeight:600}}>Upload… {uploading}</span>
+        )}
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+        {(photos || []).map((url, i) => (
+          <div key={i} style={{position:"relative",width:72,height:72,borderRadius:8,overflow:"hidden",
+            border:`1.5px solid ${color}33`,background:"#f4f6fa"}}>
+            <img src={url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+              onClick={()=>window.open(url,"_blank")} />
+            <button onClick={()=>remove(i)} style={{position:"absolute",top:2,right:2,
+              background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",borderRadius:"50%",
+              width:20,height:20,cursor:"pointer",fontSize:11,padding:0,
+              display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>✕</button>
+          </div>
+        ))}
+        <label style={{
+          width:72,height:72,borderRadius:8,border:`1.5px dashed ${color}66`,cursor:"pointer",
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,
+          background:`${color}0A`,color,fontSize:11,fontWeight:600,fontFamily:"inherit",
+        }}>
+          <span style={{fontSize:20,lineHeight:1}}>＋</span>
+          <span>Ajouter</span>
+          <input ref={inputRef} type="file" accept="image/*" multiple capture="environment"
+            onChange={e=>onFiles(e.target.files)} style={{display:"none"}} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 // ─── PAGE RAPPORT MOBILE ──────────────────────────────────────────────────────
 function PageRapportMobile() {
   const [step, setStep]             = useState("login"); // login | rapport | done
@@ -60,6 +129,7 @@ function PageRapportMobile() {
   const [paniers, setPaniers]       = useState({});      // { chantier_id: { articleId: {article, qty} } }
   const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
   const [besoinLibre, setBesoinLibre] = useState({}); // { chantier_id: "texte libre" }
+  const [photosChantier, setPhotosChantier] = useState({}); // { chantier_id: [url, ...] }
   const [submitting, setSubmitting] = useState(false);
   const [planData, setPlanData]     = useState(null);
 
@@ -145,7 +215,8 @@ function PageRapportMobile() {
   const setTachePlanifie  = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, planifie:val} : x));
   const setTacheHeures    = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, heures_reelles:val} : x));
   const setTacheAvancement= (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, avancement:val} : x));
-  const addTacheLibre     = ()            => setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",libre:true}]);
+  const setTachePhotos    = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, photos:val} : x));
+  const addTacheLibre     = ()            => setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",photos:[],libre:true}]);
 
   const soumettre = async () => {
     const tachesRemplies = taches.filter(t => t.planifie.trim());
@@ -192,12 +263,20 @@ function PageRapportMobile() {
     tachesRemplies.forEach(t => {
       const k = t.chantier_id || "divers";
       if (!parChantier[k]) parChantier[k] = { chantier_id:t.chantier_id, chantier_nom:t.chantier_nom||"Divers", taches:[] };
-      parChantier[k].taches.push({ planifie:t.planifie, statut:t.statut||"non_faite", remarque:t.remarque, heures_reelles:parseFloat(t.heures_reelles)||0, avancement:parseInt(t.avancement)||0 });
+      parChantier[k].taches.push({
+        planifie:t.planifie,
+        statut:t.statut||"non_faite",
+        remarque:t.remarque,
+        heures_reelles:parseFloat(t.heures_reelles)||0,
+        avancement:parseInt(t.avancement)||0,
+        photos: t.photos || [],
+      });
     });
 
     for (const k of Object.keys(parChantier)) {
       const grp = parChantier[k];
-      const rapport = {
+      const photosCh = photosChantier[grp.chantier_id] || [];
+      const rapportFull = {
         ouvrier: ouvrier.trim(),
         chantier_id: grp.chantier_id,
         chantier_nom: grp.chantier_nom,
@@ -205,8 +284,16 @@ function PageRapportMobile() {
         semaine: weekId,
         taches: grp.taches,
         remarque,
+        photos_chantier: photosCh,
       };
-      await supabase.from("rapports").insert(rapport);
+      const { error: insErr } = await supabase.from("rapports").insert(rapportFull);
+      if (insErr && (insErr.code === "42703" || /photos_chantier/.test(insErr.message || ""))) {
+        // Colonne photos_chantier absente → fallback sans cette colonne
+        const { photos_chantier, ...rapportSansPhotosCh } = rapportFull;
+        await supabase.from("rapports").insert(rapportSansPhotosCh);
+        if (photosCh.length > 0) console.warn("Colonne photos_chantier manquante — photos générales du chantier non sauvegardées.");
+      }
+      const rapport = rapportFull;
       try { await sendRapportEmail(rapport, grp.chantier_nom); } catch(e) { console.error("Email:",e); }
 
       // Besoins commande depuis la bibliothèque
@@ -488,6 +575,17 @@ function PageRapportMobile() {
                 border:(t.statut==="en_cours"||t.statut==="non_faite")&&!t.remarque?.trim()
                   ?"1.5px solid rgba(224,92,92,0.4)":"1.5px solid #e0e4ef"}}/>
           </div>
+
+          {/* Photos de la tâche */}
+          <div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed #e0e4ef"}}>
+            <PhotosPicker
+              photos={t.photos || []}
+              onChange={(arr)=>setTachePhotos(idx, arr)}
+              pathPrefix={`rapports/${ouvrier}/${dateKey}/tache-${idx}`}
+              color={t.chantier_couleur || "#5b8af5"}
+              label="Photos de la tâche"
+            />
+          </div>
         </div>
       ))}
 
@@ -499,6 +597,34 @@ function PageRapportMobile() {
           background:"transparent",color:"#8a9ab0",marginBottom:4
         }}>+ Ajouter une tâche</button>
       </div>
+
+      {/* Photos générales du chantier */}
+      {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
+        const ct = taches.find(t=>t.chantier_id===cId);
+        return (
+          <div key={`ph-${cId}`} style={{...S.card, border:`1.5px solid ${(ct?.chantier_couleur||"#5b8af5")}55`, background:`${(ct?.chantier_couleur||"#5b8af5")}0A`}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+              <span style={{...S.label,marginBottom:0,color:"#1a1f2e"}}>📸 Photos du chantier</span>
+              {ct?.chantier_nom && (
+                <span style={{background:(ct.chantier_couleur||"#5b8af5")+"44",color:"#1a1f2e",
+                  borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>
+                  {ct.chantier_nom}
+                </span>
+              )}
+            </div>
+            <PhotosPicker
+              photos={photosChantier[cId] || []}
+              onChange={(arr)=>setPhotosChantier(p=>({...p,[cId]:arr}))}
+              pathPrefix={`rapports/${ouvrier}/${dateKey}/chantier-${cId}`}
+              color={ct?.chantier_couleur || "#5b8af5"}
+              label="Vue globale, avancement…"
+            />
+            <div style={{fontSize:11,color:"#8a9ab0",marginTop:8,fontStyle:"italic"}}>
+              Visibles dans la fiche chantier et dans le bilan d'équipe.
+            </div>
+          </div>
+        );
+      })}
 
       {/* Besoins en commande par chantier */}
       {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {

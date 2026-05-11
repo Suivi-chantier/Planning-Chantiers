@@ -122,6 +122,8 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
   const [loadingCR, setLoadingCR]       = useState(false);
   const [showLierModal, setShowLierModal] = useState(false);
   const [tousCRs, setTousCRs]           = useState([]);
+  const [rapportsEquipe, setRapportsEquipe] = useState([]);  // rapports ouvriers liés au chantier
+  const [lightboxGal, setLightboxGal]     = useState(null);   // { urls:[], idx, captions:[] }
   const [loadingTous, setLoadingTous]   = useState(false);
   const fileInputRef                    = useRef(null);
 
@@ -197,6 +199,47 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
 
     loadCR();
   }, [selected, loading, chantiers, phasages]);
+
+  // ── Chargement rapports équipe (table "rapports") pour la galerie photos ───
+  useEffect(() => {
+    if (!selected) { setRapportsEquipe([]); return; }
+    const load = async () => {
+      const { data } = await supabase
+        .from("rapports")
+        .select("id, ouvrier, chantier_id, chantier_nom, date_rapport, taches, photos_chantier")
+        .eq("chantier_id", selected)
+        .order("date_rapport", { ascending: false })
+        .limit(120);
+      // Si la colonne photos_chantier n'existe pas, on retombe sur les taches uniquement
+      if (data) setRapportsEquipe(data);
+      else {
+        const { data: d2 } = await supabase
+          .from("rapports")
+          .select("id, ouvrier, chantier_id, chantier_nom, date_rapport, taches")
+          .eq("chantier_id", selected)
+          .order("date_rapport", { ascending: false })
+          .limit(120);
+        setRapportsEquipe(d2 || []);
+      }
+    };
+    load();
+  }, [selected]);
+
+  // Agrège toutes les photos d'équipe pour le chantier sélectionné
+  const photosEquipe = (() => {
+    const all = [];
+    rapportsEquipe.forEach(r => {
+      (r.photos_chantier || []).forEach(url => {
+        all.push({ url, ouvrier: r.ouvrier, date: r.date_rapport, source: "Vue chantier" });
+      });
+      (r.taches || []).forEach(t => {
+        (t.photos || []).forEach(url => {
+          all.push({ url, ouvrier: r.ouvrier, date: r.date_rapport, source: t.planifie || "Tâche" });
+        });
+      });
+    });
+    return all;
+  })();
 
   // ── Ouvrir modale liaison CRs ────────────────────────────────────────────────
   const ouvrirLierModal = async () => {
@@ -662,23 +705,85 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
           </div>
         </div>
 
-        {/* ── Section 4 : Galerie ── */}
+        {/* ── Section 4 : Galerie photos équipe ── */}
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: textSub, letterSpacing: 1.2, textTransform: "uppercase" }}>Photos du chantier</div>
-            <span style={{ fontSize: 11, color: textSub, opacity: .4, fontStyle: "italic" }}>Bientôt : photos des équipes</span>
-          </div>
-          <div style={{ background: card, border: `2px dashed ${border}`, borderRadius: 14, padding: "36px 20px", textAlign: "center", color: textSub }}>
-            <div style={{ fontSize: 36, marginBottom: 12, opacity: .35 }}>📸</div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Galerie des photos de chantier</div>
-            <div style={{ fontSize: 12, opacity: .5 }}>
-              Prochainement : les équipes pourront joindre des photos à leurs comptes rendus.<br/>
-              Elles s'afficheront automatiquement ici.
+            <div style={{ fontSize: 12, fontWeight: 700, color: textSub, letterSpacing: 1.2, textTransform: "uppercase" }}>
+              Photos des équipes {photosEquipe.length > 0 && <span style={{color:accent}}>· {photosEquipe.length}</span>}
             </div>
           </div>
+          {photosEquipe.length === 0 ? (
+            <div style={{ background: card, border: `2px dashed ${border}`, borderRadius: 14, padding: "36px 20px", textAlign: "center", color: textSub }}>
+              <div style={{ fontSize: 36, marginBottom: 12, opacity: .35 }}>📸</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Aucune photo pour ce chantier</div>
+              <div style={{ fontSize: 12, opacity: .5 }}>
+                Les photos jointes par les ouvriers à leur compte rendu apparaîtront ici.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(140px,1fr))", gap: 10 }}>
+              {photosEquipe.map((ph, i) => (
+                <div key={i}
+                  onClick={() => setLightboxGal({ urls: photosEquipe.map(p => p.url), idx: i, items: photosEquipe })}
+                  style={{
+                    position:"relative", aspectRatio:"1/1", borderRadius:10, overflow:"hidden",
+                    border:`1px solid ${border}`, cursor:"pointer", background:"#0a0c10",
+                  }}>
+                  <img src={ph.url} alt="" loading="lazy"
+                    style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,
+                    background:"linear-gradient(transparent, rgba(0,0,0,0.75))",
+                    padding:"14px 8px 6px",color:"#fff"}}>
+                    <div style={{fontSize:11,fontWeight:700}}>👷 {ph.ouvrier}</div>
+                    <div style={{fontSize:10,opacity:.75}}>{new Date(ph.date).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
       </div>
+
+      {/* Lightbox galerie */}
+      {lightboxGal && (
+        <div onClick={()=>setLightboxGal(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20,flexDirection:"column",gap:14
+        }}>
+          <img src={lightboxGal.urls[lightboxGal.idx]} alt="" style={{
+            maxWidth:"100%",maxHeight:"calc(100vh - 140px)",objectFit:"contain",borderRadius:8
+          }} onClick={e=>e.stopPropagation()}/>
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",justifyContent:"center"}} onClick={e=>e.stopPropagation()}>
+            {lightboxGal.urls.length > 1 && (
+              <>
+                <button onClick={()=>setLightboxGal(l=>({...l, idx:(l.idx-1+l.urls.length)%l.urls.length}))}
+                  style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",
+                    color:"#fff",borderRadius:8,padding:"8px 14px",cursor:"pointer",
+                    fontFamily:"inherit",fontSize:18}}>‹</button>
+                <span style={{color:"#fff",fontSize:13,fontWeight:600}}>{lightboxGal.idx+1} / {lightboxGal.urls.length}</span>
+                <button onClick={()=>setLightboxGal(l=>({...l, idx:(l.idx+1)%l.urls.length}))}
+                  style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",
+                    color:"#fff",borderRadius:8,padding:"8px 14px",cursor:"pointer",
+                    fontFamily:"inherit",fontSize:18}}>›</button>
+              </>
+            )}
+            {lightboxGal.items && lightboxGal.items[lightboxGal.idx] && (
+              <span style={{color:"rgba(255,255,255,0.8)",fontSize:12}}>
+                👷 {lightboxGal.items[lightboxGal.idx].ouvrier} · {new Date(lightboxGal.items[lightboxGal.idx].date).toLocaleDateString("fr-FR")} · {lightboxGal.items[lightboxGal.idx].source}
+              </span>
+            )}
+            <a href={lightboxGal.urls[lightboxGal.idx]} target="_blank" rel="noopener noreferrer"
+              style={{background:accent,color:"#111",borderRadius:8,padding:"8px 14px",
+                fontFamily:"inherit",fontSize:13,fontWeight:700,textDecoration:"none"}}>↗ Ouvrir</a>
+            <button onClick={()=>setLightboxGal(null)} style={{background:"rgba(255,255,255,0.1)",
+              border:"1px solid rgba(255,255,255,0.2)",color:"#fff",borderRadius:8,
+              padding:"8px 14px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
