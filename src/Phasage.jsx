@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
 import { JOURS, getCurrentWeek, getWeekId } from "./constants";
+import GanttView from "./GanttView";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function normalise(str) {
@@ -723,6 +724,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   };
 
   const [plan, setPlan] = useState(initPlan);
+  const [showGantt, setShowGantt] = useState(false);
   const [prixVendu, setPrixVendu] = useState(() => {
     if (phasage.plan_travaux?.meta?.prix_vendu) return phasage.plan_travaux.meta.prix_vendu;
     const totalHT = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
@@ -870,11 +872,28 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>📋 Plan de travail — {phasage.chantier_nom}</div>
             <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>{nbTaches} tâche{nbTaches > 1 ? "s" : ""} · {terminees} terminée{terminees > 1 ? "s" : ""}</div>
           </div>
+          <button onClick={() => setShowGantt(true)} style={{
+            padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(91,138,245,0.4)",
+            background: "rgba(91,138,245,0.1)", color: "#5b8af5",
+            fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+          }} title="Afficher la vue Gantt">
+            📊 Vue Gantt
+          </button>
           <div style={{ fontSize: 12, fontWeight: 600, color: autoColor, display: "flex", alignItems: "center", gap: 5 }}>
             {autoSaveStatus === "saving" && <svg width="12" height="12" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70" /></svg>}
             {autoLabel}
           </div>
         </div>
+
+        {showGantt && (
+          <GanttView
+            planTravaux={plan}
+            chantierNom={phasage.chantier_nom}
+            T={T}
+            onClose={() => setShowGantt(false)}
+          />
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
           <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 10, padding: "12px 16px" }}>
@@ -1622,6 +1641,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   const [showNew, setShowNew] = useState(false);
   const [newChantier, setNewChantier] = useState("");
   const [showRapport, setShowRapport] = useState(false);
+  const [ganttPhasage, setGanttPhasage] = useState(null);
 
   useEffect(() => { loadAll(); }, []);
   async function loadAll() {
@@ -1747,6 +1767,11 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
                         {tPlan.length > 0 && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", borderRadius: 2, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} /></div><span style={{ fontSize: 11, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 32 }}>{avgAv}%</span></div>}
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={e => { e.stopPropagation(); setGanttPhasage(p); }}
+                          title="Vue Gantt"
+                          style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(91,138,245,0.35)", background: "rgba(91,138,245,0.08)", color: "#5b8af5", fontFamily: "inherit", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          📊
+                        </button>
                         <button onClick={e => { e.stopPropagation(); supprimerPhasage(p.id); }} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
                         <span style={{ fontSize: 18, color: T.textMuted, alignSelf: "center" }}>▶</span>
                       </div>
@@ -1757,6 +1782,15 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
             )
         }
       </div>
+
+      {ganttPhasage && (
+        <GanttView
+          planTravaux={ganttPhasage.plan_travaux || {}}
+          chantierNom={ganttPhasage.chantier_nom}
+          T={T}
+          onClose={() => setGanttPhasage(null)}
+        />
+      )}
     </div>
   );
 }
