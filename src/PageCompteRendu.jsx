@@ -25,6 +25,8 @@ export default function PageCompteRendu({ T }) {
   const [iaTexte, setIaTexte]   = useState("");
   const [iaLoading, setIaLoading] = useState(false);
   const [iaStatus, setIaStatus] = useState(null); // {ok, msg}
+  const [mobileShowList, setMobileShowList] = useState(false);
+  const [mobileShowNav, setMobileShowNav]   = useState(false);
   const photoInputRef           = useRef(null);
   const saveTimer               = useRef(null);
 
@@ -360,10 +362,39 @@ export default function PageCompteRendu({ T }) {
   ];
 
   return (
-    <div style={{ display:"flex", height:"100%", background:bg, overflow:"hidden" }}>
+    <div className="cr-page" style={{ display:"flex", height:"100%", background:bg, overflow:"hidden", position:"relative" }}>
+      <style>{`
+        .cr-mobile-bar{display:none}
+        @media(max-width:767px){
+          .cr-page .cr-list-panel{position:absolute;left:0;top:0;bottom:0;width:80%;max-width:300px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
+          .cr-page .cr-list-panel.open{transform:translateX(0)}
+          .cr-page .cr-nav-panel{position:absolute;left:0;top:0;bottom:0;width:75%;max-width:260px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
+          .cr-page .cr-nav-panel.open{transform:translateX(0)}
+          .cr-page .cr-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.5);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
+          .cr-page .cr-drawer-backdrop.open{opacity:1;pointer-events:auto}
+          .cr-page .cr-mobile-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:${surface};border-bottom:1px solid ${border};flex-shrink:0}
+          .cr-page .cr-mobile-bar-btn{flex:0 0 auto;background:${card};border:1px solid ${border};border-radius:8px;padding:6px 10px;color:${text};font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px}
+          .cr-page .cr-mobile-bar-title{flex:1;min-width:0;font-size:13px;font-weight:700;color:${text};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .cr-page .cr-main-content{padding:14px 12px!important}
+          .cr-page .cr-main-content > div > div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+        }
+      `}</style>
+
+      {/* === BARRE MOBILE (toggles) === */}
+      <div className="cr-mobile-bar">
+        <button className="cr-mobile-bar-btn" onClick={()=>setMobileShowList(true)}>☰ Liste</button>
+        {crId && <button className="cr-mobile-bar-btn" onClick={()=>setMobileShowNav(true)}>⋯ Sections</button>}
+        <div className="cr-mobile-bar-title">
+          {(() => { const c=crs.find(x=>x.id===crId); if(!c) return "Aucun CR"; return c.client_nom1?`${c.client_prenom1||""} ${c.client_nom1}`.trim():"Sans client"; })()}
+        </div>
+        {crId && <button className="cr-mobile-bar-btn" onClick={genPDF} title="PDF">↓</button>}
+      </div>
+
+      <div className={`cr-drawer-backdrop ${(mobileShowList||mobileShowNav)?"open":""}`}
+        onClick={()=>{setMobileShowList(false);setMobileShowNav(false);}}/>
 
       {/* ── LISTE CRs ── */}
-      <div style={{ width:220, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
+      <div className={`cr-list-panel ${mobileShowList?"open":""}`} style={{ width:220, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${border}`, flexShrink:0 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
             <div>
@@ -384,7 +415,7 @@ export default function PageCompteRendu({ T }) {
             const act = c.id===crId;
             const nomClient = c.client_nom1 ? `${c.client_prenom1||""} ${c.client_nom1}`.trim() : "Sans client";
             return (
-              <div key={c.id} onClick={()=>chargerCR(c.id)} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
+              <div key={c.id} onClick={()=>{chargerCR(c.id);setMobileShowList(false);}} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
                 <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>{nomClient}</div>
                 <div style={{ fontSize:11, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
                   {c.type_visite || "Visite"} {c.date_visite ? `· ${new Date(c.date_visite).toLocaleDateString("fr-FR")}` : ""}
@@ -406,10 +437,10 @@ export default function PageCompteRendu({ T }) {
         <div style={{ flex:1, display:"flex", overflow:"hidden", minWidth:0 }}>
 
           {/* ── NAV INTERNE ── */}
-          <div style={{ width:160, flexShrink:0, background:surface, borderRight:`1px solid ${border}`, padding:"12px 8px", overflowY:"auto" }}>
+          <div className={`cr-nav-panel ${mobileShowNav?"open":""}`} style={{ width:160, flexShrink:0, background:surface, borderRight:`1px solid ${border}`, padding:"12px 8px", overflowY:"auto" }}>
             <div style={{ fontSize:10, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.8, padding:"0 6px", marginBottom:8 }}>Sections</div>
             {NAV_ITEMS.map(n => (
-              <button key={n.id} style={sec(n.id)} onClick={()=>setSection(n.id)}>
+              <button key={n.id} style={sec(n.id)} onClick={()=>{setSection(n.id);setMobileShowNav(false);}}>
                 <span style={{fontSize:14}}>{n.icon}</span>
                 <span style={{fontSize:12}}>{n.label}</span>
               </button>
@@ -422,7 +453,7 @@ export default function PageCompteRendu({ T }) {
           </div>
 
           {/* ── FORMULAIRE ── */}
-          <div style={{ flex:1, overflowY:"auto", padding:"20px 24px", background:bg }}>
+          <div className="cr-main-content" style={{ flex:1, overflowY:"auto", padding:"20px 24px", background:bg }}>
 
             {/* ─ IA ─ */}
             {section==="ia" && (

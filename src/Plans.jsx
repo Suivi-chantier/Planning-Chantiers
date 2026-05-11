@@ -2676,8 +2676,16 @@ function PagePlans({T, chantiers}) {
   );
 
   return (
-    <div className="page-padding" style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:16}}>
+    <div className="page-padding plans-list" style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
+      <style>{`
+        @media(max-width:767px){
+          .plans-list .plans-header > div:first-child > div:first-child{font-size:22px!important}
+          .plans-list .plans-header > div:first-child > div:nth-child(2){font-size:13px!important}
+          .plans-list .plan-card-actions{padding:8px 12px!important;gap:6px!important}
+          .plans-list .plan-card-actions button{flex:1;font-size:11px!important;padding:7px 10px!important}
+        }
+      `}</style>
+      <div className="plans-header" style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:16}}>
         <div>
           <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4,color:T.text}}>Plans</div>
           <div style={{fontSize:15,color:T.textSub}}>Relevés DXF annotés par chantier</div>
@@ -2691,7 +2699,7 @@ function PagePlans({T, chantiers}) {
       {showNew&&(
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:500,
           display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-          <div style={{background:T.modal,borderRadius:14,padding:28,width:420,border:`1px solid ${T.border}`}}>
+          <div style={{background:T.modal,borderRadius:14,padding:28,width:"100%",maxWidth:420,border:`1px solid ${T.border}`}}>
             <div style={{fontSize:20,fontWeight:800,marginBottom:20,color:T.text}}>Nouveau plan</div>
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:T.textMuted,marginBottom:6}}>Nom</div>
@@ -2776,7 +2784,7 @@ function PagePlans({T, chantiers}) {
                   </div>
                 </div>
 
-                <div style={{padding:'10px 16px',borderTop:`1px solid ${T.sectionDivider}`,
+                <div className="plan-card-actions" style={{padding:'10px 16px',borderTop:`1px solid ${T.sectionDivider}`,
                   display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}}>
                   <button onClick={()=>setEditingPlan(plan)} style={{background:T.accent,color:'#fff',
                     border:'none',borderRadius:7,padding:'6px 16px',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>

@@ -35,6 +35,7 @@ export default function PageInfoClient({ T }) {
   const [catParam, setCatParam]       = useState("");
   const [drawActive, setDrawActive]   = useState(false);
   const [eraseActive, setEraseActive] = useState(false);
+  const [mobileShowProjets, setMobileShowProjets] = useState(false);
   const canvasRef  = useRef(null);
   const drawMode   = useRef(false);
   const eraseMode  = useRef(false);
@@ -200,10 +201,34 @@ export default function PageInfoClient({ T }) {
   if (loading) return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:bg,color:accent,fontSize:16,fontWeight:700}}>Chargement…</div>;
 
   return (
-    <div style={{ display:"flex", height:"100%", background:bg, overflow:"hidden" }}>
+    <div className="pic-page" style={{ display:"flex", height:"100%", background:bg, overflow:"hidden", position:"relative" }}>
+      <style>{`
+        .pic-mobile-bar{display:none}
+        @media(max-width:767px){
+          .pic-page .pic-list-panel{position:absolute;left:0;top:0;bottom:0;width:80%;max-width:300px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
+          .pic-page .pic-list-panel.open{transform:translateX(0)}
+          .pic-page .pic-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.5);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
+          .pic-page .pic-drawer-backdrop.open{opacity:1;pointer-events:auto}
+          .pic-page .pic-mobile-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:${surface};border-bottom:1px solid ${border};flex-shrink:0;width:100%}
+          .pic-page .pic-mobile-bar-btn{flex:0 0 auto;background:${card};border:1px solid ${border};border-radius:8px;padding:6px 12px;color:${text};font-family:inherit;font-size:12px;font-weight:600;cursor:pointer}
+          .pic-page .pic-main-2col{grid-template-columns:1fr!important;overflow-y:auto!important}
+          .pic-page .pic-main-2col > div{border-right:none!important;overflow-y:visible!important;padding:14px 12px!important}
+          .pic-page .pic-form-grid{grid-template-columns:1fr!important;gap:8px!important}
+        }
+      `}</style>
+
+      <div className="pic-mobile-bar">
+        <button className="pic-mobile-bar-btn" onClick={()=>setMobileShowProjets(true)}>☰ Projets</button>
+        <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:700,color:text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {projetId ? (infos.client_nom?`${infos.client_nom} ${infos.client_prenom||""}`:"Sans client") : "Aucun projet"}
+        </div>
+      </div>
+
+      <div className={`pic-drawer-backdrop ${mobileShowProjets?"open":""}`}
+        onClick={()=>setMobileShowProjets(false)}/>
 
       {/* ── LISTE PROJETS ── */}
-      <div style={{ width:230, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
+      <div className={`pic-list-panel ${mobileShowProjets?"open":""}`} style={{ width:230, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${border}`, flexShrink:0 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
             <div>
@@ -228,7 +253,7 @@ export default function PageInfoClient({ T }) {
           {projets.map(p => {
             const act=p.id===projetId;
             return (
-              <div key={p.id} onClick={()=>chargerProjet(p.id)} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
+              <div key={p.id} onClick={()=>{chargerProjet(p.id);setMobileShowProjets(false);}} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
                 <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>{p.client_nom?`${p.client_nom} ${p.client_prenom||""}`:"Sans client"}</div>
                 <div style={{ fontSize:11, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
                   {p.date_visite?`📅 ${new Date(p.date_visite).toLocaleDateString("fr-FR")}`:"Pas de date"}
@@ -247,7 +272,7 @@ export default function PageInfoClient({ T }) {
           <button style={btn} onClick={nouveauProjet}>➕ Nouveau projet</button>
         </div>
       ) : (
-        <div style={{ flex:1, display:"grid", gridTemplateColumns:"1fr 1fr", overflow:"hidden", minWidth:0 }}>
+        <div className="pic-main-2col" style={{ flex:1, display:"grid", gridTemplateColumns:"1fr 1fr", overflow:"hidden", minWidth:0 }}>
 
           {/* ─ GAUCHE ─ */}
           <div style={{ overflowY:"auto", padding:"18px 20px", borderRight:`1px solid ${border}`, background:bg }}>
@@ -259,7 +284,7 @@ export default function PageInfoClient({ T }) {
             {tabG==="infos" && (
               <>
                 <div style={{ fontSize:14, fontWeight:800, color:accent, marginBottom:14 }}>📝 Fiche Chantier</div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:10 }}>
+                <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:10 }}>
                   <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom} onChange={e=>updInfo("client_nom",e.target.value)} placeholder="Dupont" /></div>
                   <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom} onChange={e=>updInfo("client_prenom",e.target.value)} placeholder="Jean" /></div>
                 </div>

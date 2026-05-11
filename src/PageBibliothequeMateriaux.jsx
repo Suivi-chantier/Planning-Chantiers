@@ -768,7 +768,20 @@ function PageBibliothequeMateriaux({ T }) {
   };
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+    <div className="page-padding bm-page" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+      <style>{`
+        @media(max-width:767px){
+          .bm-page .bm-header{flex-direction:column;align-items:stretch!important}
+          .bm-page .bm-header > div:first-child > div:first-child{font-size:20px!important}
+          .bm-page .bm-actions button{flex:1;justify-content:center}
+          .bm-page .bm-kpis > div{flex:1;min-width:0;padding:8px 12px!important}
+          .bm-page .bm-kpis > div > div:first-child{font-size:18px!important}
+          .bm-page .bm-search-bar{flex-direction:column!important;gap:8px!important}
+          .bm-page .bm-search-bar input,.bm-page .bm-search-bar select{width:100%!important;min-width:0!important}
+          .bm-page .bm-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+          .bm-page .bm-table-wrap table{min-width:760px}
+        }
+      `}</style>
 
       {modaleSheets && <ModaleImportSheets onClose={() => setModaleSheets(false)} onImport={load} T={T} />}
       {modale && <ArticleModal article={modale === "new" ? null : modale} onClose={() => setModale(null)} onSave={saveArticle} T={T} />}
@@ -789,12 +802,12 @@ function PageBibliothequeMateriaux({ T }) {
       )}
 
       {/* Header */}
-      <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+      <div className="bm-header" style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
         <div>
           <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>Bibliothèque matériaux</div>
           <div style={{ fontSize: 14, color: T.textSub }}>Catalogue des articles, consommables et matériaux récurrents</div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="bm-actions" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <button onClick={() => setModaleSheets(true)} style={{
             display: "flex", alignItems: "center", gap: 8,
             background: "rgba(15,157,88,0.12)", border: "1px solid rgba(15,157,88,0.35)",
@@ -817,7 +830,7 @@ function PageBibliothequeMateriaux({ T }) {
       </div>
 
       {/* KPIs */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="bm-kpis" style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         {[
           { label: "Articles",   val: articles.length,                           color: "#FFC200", bg: "rgba(255,194,0,0.12)",   border: "rgba(255,194,0,0.3)"   },
           { label: "Avec prix",  val: articles.filter(a => a.prix_unitaire).length, color: "#50c878", bg: "rgba(80,200,120,0.12)",  border: "rgba(80,200,120,0.3)"  },
@@ -854,7 +867,7 @@ function PageBibliothequeMateriaux({ T }) {
       )}
 
       {/* Recherche + filtre */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="bm-search-bar" style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Rechercher un article, référence, fournisseur…"
           style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 14px", color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none", flex: "1 1 220px", minWidth: 200 }} />
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
@@ -865,7 +878,7 @@ function PageBibliothequeMateriaux({ T }) {
       </div>
 
       {/* Table */}
-      <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+      <div className="bm-table-wrap" style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: T.card, borderBottom: `2px solid ${T.border}` }}>

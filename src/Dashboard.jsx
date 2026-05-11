@@ -79,14 +79,25 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
   };
 
   return(
-    <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
+    <div className="page-padding dashboard-page" style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
+      <style>{`
+        @media (max-width:767px) {
+          .dashboard-page .dash-title{font-size:24px!important;letter-spacing:.5px!important}
+          .dashboard-page .dash-subtitle{font-size:13px!important}
+          .dashboard-page .dash-greeting-block{margin-bottom:14px!important}
+          .dashboard-page iframe{height:380px!important}
+          .dashboard-page .dash-chantier-item{padding:12px!important;gap:10px!important}
+          .dashboard-page .dash-chantier-name{font-size:15px!important}
+          .dashboard-page .dash-chantier-plan{font-size:13px!important}
+        }
+      `}</style>
 
       {/* Titre */}
-      <div style={{marginBottom:28}}>
-        <div style={{fontSize:15,color:T.textMuted,marginBottom:6}}>
+      <div className="dash-greeting-block" style={{marginBottom:28}}>
+        <div className="dash-subtitle" style={{fontSize:15,color:T.textMuted,marginBottom:6}}>
           {now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
         </div>
-        <div style={{fontSize:36,fontWeight:800,letterSpacing:1}}>{greeting} 👋</div>
+        <div className="dash-title" style={{fontSize:36,fontWeight:800,letterSpacing:1}}>{greeting} 👋</div>
       </div>
 
       {/* Rangée 1 : Chantiers (2/3) + Commandes urgentes (1/3) */}
@@ -102,12 +113,12 @@ function PageDashboard({chantiers,cells,commandes,notesData,weekId,T}){
           ):(
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               {chantiersAujourdHui.map(c=>(
-                <div key={c.id} style={{display:"flex",alignItems:"flex-start",gap:14,
+                <div key={c.id} className="dash-chantier-item" style={{display:"flex",alignItems:"flex-start",gap:14,
                   padding:"14px 16px",borderRadius:12,background:c.couleur+"22",border:`1px solid ${c.couleur}55`}}>
                   <div style={{width:14,height:14,borderRadius:4,background:c.couleur,marginTop:3,flexShrink:0}}/>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:800,fontSize:16,color:T.text,marginBottom:5}}>{c.nom}</div>
-                    {c.cell.planifie&&<div style={{fontSize:14,color:T.textSub,lineHeight:1.6,marginBottom:8}}>{c.cell.planifie}</div>}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="dash-chantier-name" style={{fontWeight:800,fontSize:16,color:T.text,marginBottom:5}}>{c.nom}</div>
+                    {c.cell.planifie&&<div className="dash-chantier-plan" style={{fontSize:14,color:T.textSub,lineHeight:1.6,marginBottom:8,whiteSpace:"pre-wrap"}}>{c.cell.planifie}</div>}
                     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                       {c.cell.ouvriers.map(o=>(
                         <span key={o} style={{background:c.couleur,color:"#1a1f2e",borderRadius:6,

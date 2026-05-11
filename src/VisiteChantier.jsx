@@ -131,8 +131,17 @@ function ListeVisites({ visites, chantiers, T, onNew, onSelect, onDelete }) {
   const ch = (id) => chantiers.find(c => c.id === id);
 
   return (
-    <div style={{ padding: "24px 28px", maxWidth: 860, margin: "0 auto", flex: 1, overflowY: "auto" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+    <div className="page-padding visite-liste" style={{ padding: "24px 28px", maxWidth: 860, margin: "0 auto", flex: 1, overflowY: "auto" }}>
+      <style>{`
+        @media(max-width:767px) {
+          .visite-liste .visite-row{flex-wrap:wrap!important;padding:12px!important;gap:10px!important}
+          .visite-liste .visite-row > div:nth-child(2){flex:1 1 100%!important;order:2}
+          .visite-liste .visite-row > div:first-child{order:1}
+          .visite-liste .visite-row > div:nth-child(3){order:3}
+          .visite-liste .visite-row > span,.visite-liste .visite-row > button{order:4}
+        }
+      `}</style>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap:"wrap", gap:10 }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: -0.5 }}>Visites de chantier</div>
           <div style={{ fontSize: 13, color: T.textMuted, marginTop: 3 }}>{visites.length} visite{visites.length !== 1 ? "s" : ""}</div>
@@ -167,7 +176,7 @@ function ListeVisites({ visites, chantiers, T, onNew, onSelect, onDelete }) {
           const st = STATUTS.find(s => s.id === v.statut);
 
           return (
-            <div key={v.id} onClick={() => onSelect(v)} style={{
+            <div key={v.id} className="visite-row" onClick={() => onSelect(v)} style={{
               background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12,
               padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 16,
               transition: "border-color .15s",
@@ -270,7 +279,7 @@ function FormVisite({ chantiers, phasages, T, saving, onSave, onCancel }) {
   };
 
   return (
-    <div style={{ padding: "24px 28px", maxWidth: 720, margin: "0 auto", flex: 1, overflowY: "auto" }}>
+    <div className="page-padding" style={{ padding: "24px 28px", maxWidth: 720, margin: "0 auto", flex: 1, overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 28 }}>
         <button onClick={onCancel} style={{
           background: T.card, border: `1px solid ${T.border}`, borderRadius: 8,
@@ -281,7 +290,7 @@ function FormVisite({ chantiers, phasages, T, saving, onSave, onCancel }) {
 
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 24, marginBottom: 20 }}>
         <Label T={T}>Informations générales</Label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 14 }}>
+        <div className="responsive-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 14 }}>
           <div>
             <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 6 }}>Chantier *</div>
             <select value={chantierId} onChange={e => setChantierId(e.target.value)} style={selectStyle(T)}>
@@ -389,11 +398,21 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
   const phasesAvecTaches = PHASES.filter(ph => (draft.audit?.[ph.id] || []).length > 0);
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
+    <div className="page-padding visite-audit" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
+      <style>{`
+        @media(max-width:767px) {
+          .visite-audit .audit-header{flex-wrap:wrap!important}
+          .visite-audit .audit-header > div:nth-child(2){flex:1 1 100%!important;order:0}
+          .visite-audit .audit-header select{flex:1}
+          .visite-audit .audit-kpis{grid-template-columns:repeat(2,1fr)!important;gap:8px!important}
+          .visite-audit .audit-kpis > div{padding:10px!important}
+          .visite-audit .audit-kpis > div > div:first-child{font-size:20px!important}
+        }
+      `}</style>
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 24 }}>
+        <div className="audit-header" style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 24 }}>
           <button onClick={onBack} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 14px", cursor: "pointer", color: T.text, fontFamily: "inherit", fontSize: 13, flexShrink: 0 }}>← Retour</button>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{ch?.nom || visite.chantier_id}</div>
@@ -420,7 +439,7 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
         </div>
 
         {/* KPIs */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
+        <div className="audit-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
           {[
             { label: "Conformes",      val: nb_ok,  color: "#22c55e" },
             { label: "Réserves",       val: nb_res, color: "#f59e0b" },

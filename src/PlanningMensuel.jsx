@@ -231,22 +231,41 @@ function PagePlanningMensuel({ T }) {
   const countByType = (typeId) => events.filter(e => e.type === typeId).length;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "auto" }}>
+    <div className="pm-page" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "auto" }}>
+      <style>{`
+        @media (max-width:767px) {
+          .pm-page .pm-header{padding:10px 12px!important;gap:8px!important}
+          .pm-page .pm-title{font-size:14px!important;letter-spacing:.5px!important}
+          .pm-page .pm-month-label{min-width:120px!important;font-size:14px!important;padding:5px 8px!important}
+          .pm-page .pm-filters{margin-left:0!important;width:100%!important;overflow-x:auto;flex-wrap:nowrap!important;-webkit-overflow-scrolling:touch}
+          .pm-page .pm-filters button{flex:0 0 auto;padding:5px 10px!important;font-size:11px!important;white-space:nowrap}
+          .pm-page .pm-body{padding:10px 10px 20px!important}
+          .pm-page .pm-calendar{grid-auto-rows:60px!important;gap:2px!important}
+          .pm-page .pm-day{padding:3px 3px 2px!important;border-radius:6px!important}
+          .pm-page .pm-day-number{font-size:11px!important}
+          .pm-page .pm-event-chip{font-size:9px!important;padding:1px 4px!important;line-height:13px!important}
+          .pm-page .pm-event-chip-text{display:none}
+          .pm-page .pm-event-dots{display:flex;gap:2px;flex-wrap:wrap}
+          .pm-page .pm-recap-row{padding:8px 10px!important;flex-wrap:wrap!important;gap:6px!important}
+          .pm-page .pm-recap-day{min-width:64px!important;font-size:10px!important}
+          .pm-page .pm-recap-text{font-size:12px!important;flex:1 1 100%!important;order:3}
+        }
+      `}</style>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{
+      <div className="pm-header" style={{
         padding: "16px 28px", borderBottom: `1px solid ${T.headerBorder || T.border}`,
         background: T.surface, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
         flexShrink: 0,
       }}>
-        <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}>
+        <div className="pm-title" style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}>
           📆 PLANNING MENSUEL
         </div>
 
         {/* Navigation mois */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button className="navbtn" onClick={prevMonth}>‹</button>
-          <div style={{
+          <div className="pm-month-label" style={{
             fontSize: 17, fontWeight: 800, padding: "6px 16px",
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 8,
             minWidth: 180, textAlign: "center",
@@ -261,7 +280,7 @@ function PagePlanningMensuel({ T }) {
         </div>
 
         {/* Filtres par type */}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="pm-filters" style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button
             onClick={() => setFilterType("all")}
             style={{
@@ -287,7 +306,7 @@ function PagePlanningMensuel({ T }) {
       </div>
 
       {/* ── Corps ──────────────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, padding: "20px 28px", overflow: "auto" }}>
+      <div className="pm-body" style={{ flex: 1, padding: "20px 28px", overflow: "auto" }}>
 
         {/* Message première utilisation */}
         {!loading && events.length === 0 && (
@@ -321,7 +340,7 @@ function PagePlanningMensuel({ T }) {
         </div>
 
         {/* ── Grille calendrier — hauteur fixe par ligne ─────────────────── */}
-        <div style={{
+        <div className="pm-calendar" style={{
           display: "grid",
           gridTemplateColumns: "repeat(7, 1fr)",
           gridAutoRows: "120px",   /* ← hauteur fixe : toutes les cases font 120px */
@@ -348,6 +367,7 @@ function PagePlanningMensuel({ T }) {
             return (
               <div
                 key={day}
+                className="pm-day"
                 onClick={() => setModal({ day, existing: null })}
                 style={{
                   /* Hauteur contrôlée par gridAutoRows, pas de minHeight ici */
@@ -374,7 +394,7 @@ function PagePlanningMensuel({ T }) {
                 }}
               >
                 {/* Numéro du jour */}
-                <div style={{
+                <div className="pm-day-number" style={{
                   fontSize: 12, fontWeight: todayMark ? 900 : 700, flexShrink: 0,
                   color: todayMark ? "#FFC200" : weekend ? T.textMuted : T.text,
                   display: "flex", alignItems: "center", gap: 4,
@@ -395,6 +415,7 @@ function PagePlanningMensuel({ T }) {
                   return (
                     <div
                       key={ev.id}
+                      className="pm-event-chip"
                       onClick={e => { e.stopPropagation(); setModal({ day, existing: ev }); }}
                       title={ev.texte}   /* ← texte complet au survol */
                       style={{
@@ -411,7 +432,7 @@ function PagePlanningMensuel({ T }) {
                         maxWidth: "100%",
                       }}
                     >
-                      {t.icon} {ev.texte}
+                      <span>{t.icon}</span><span className="pm-event-chip-text"> {ev.texte}</span>
                     </div>
                   );
                 })}
@@ -450,6 +471,7 @@ function PagePlanningMensuel({ T }) {
                   return (
                     <div
                       key={ev.id}
+                      className="pm-recap-row"
                       onClick={() => setModal({ day: d.getDate(), existing: ev })}
                       style={{
                         display: "flex", alignItems: "center", gap: 12,
@@ -460,7 +482,7 @@ function PagePlanningMensuel({ T }) {
                       onMouseEnter={e => e.currentTarget.style.borderColor = t.color}
                       onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
                     >
-                      <div style={{
+                      <div className="pm-recap-day" style={{
                         fontSize: 11, fontWeight: 800, color: T.textMuted,
                         minWidth: 80, textTransform: "capitalize",
                       }}>{dayLabel}</div>
@@ -471,7 +493,7 @@ function PagePlanningMensuel({ T }) {
                       }}>
                         {t.icon} {t.label}
                       </div>
-                      <div style={{ fontSize: 13, color: T.text, flex: 1 }}>{ev.texte}</div>
+                      <div className="pm-recap-text" style={{ fontSize: 13, color: T.text, flex: 1 }}>{ev.texte}</div>
                       <div style={{ fontSize: 12, color: T.textMuted }}>✏️</div>
                     </div>
                   );

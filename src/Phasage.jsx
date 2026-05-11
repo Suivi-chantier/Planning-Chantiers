@@ -1183,11 +1183,22 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const hEstAjout = cadSel && quantiteInput ? parseFloat((cadSel * parseFloat(quantiteInput)).toFixed(2)) : null;
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+    <div className="page-padding phase-detail" style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+      <style>{`
+        @media(max-width:767px){
+          .phase-detail .phase-detail-header{flex-wrap:wrap;gap:10px!important;margin-bottom:14px!important}
+          .phase-detail .phase-detail-header > div:nth-child(3){flex:1 1 100%;order:3}
+          .phase-detail .phase-detail-header > div:last-child{flex:1 1 100%;justify-content:stretch!important;order:4;gap:8px!important}
+          .phase-detail .phase-detail-header > div:last-child button{flex:1}
+          .phase-detail .phase-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+          .phase-detail .phase-table-wrap > div{min-width:640px}
+        }
+      `}</style>
+
       {showImport && <ModaleImportExcel T={T} bibliotheque={bibliotheque} onImporter={handleImportExcel} onFermer={() => setShowImport(false)} />}
 
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
+        <div className="phase-detail-header" style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
           <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Retour aux phasages</button>
           <div style={{ width: 12, height: 36, borderRadius: 6, background: ch ? ch.couleur : T.accent }} />
           <div style={{ flex: 1 }}>
@@ -1269,7 +1280,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
         )}
 
         {ouvrages.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="phase-table-wrap"><div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth:640 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 80px 70px 40px", gap: 8, padding: "6px 18px" }}>
               {["Nom dans le plan", "Bibliothèque", "H. vendues", "H. estimées", "Prix HT", ""].map((h, i) => (
                 <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>{h}</div>
@@ -1338,7 +1349,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
               </div>
               <div />
             </div>
-          </div>
+          </div></div>
         )}
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
@@ -1647,7 +1658,18 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   if (selected) return <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} onBack={() => setSelected(null)} onSave={savePhasage} onDelete={() => supprimerPhasage(selected.id)} />;
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+    <div className="page-padding phase-list" style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+      <style>{`
+        @media(max-width:767px){
+          .phase-list .phase-list-header{flex-direction:column;align-items:stretch!important;gap:10px!important;margin-bottom:18px!important}
+          .phase-list .phase-list-header > div:first-child > div:first-child{font-size:18px!important}
+          .phase-list .phase-list-actions{flex-wrap:wrap}
+          .phase-list .phase-list-actions button{flex:1}
+          .phase-list .phase-row{flex-wrap:wrap;padding:12px 14px!important;gap:10px!important}
+          .phase-list .phase-row > div:nth-child(2){flex:1 1 calc(100% - 26px)}
+          .phase-list .phase-row > div:nth-child(3){flex:1 1 100%;justify-content:flex-end}
+        }
+      `}</style>
 
       {showRapport && (
         <RapportModal
@@ -1659,12 +1681,12 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
       )}
 
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+        <div className="phase-list-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, color: T.text }}>📋 Phasages chantiers</div>
             <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>Avancement, coûts MO et ressources par tâche</div>
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div className="phase-list-actions" style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <button
               onClick={() => setShowRapport(true)}
               style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid rgba(245,166,35,0.4)", background: "rgba(245,166,35,0.1)", color: "#f5a623", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
@@ -1714,7 +1736,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
                   const coutTotal = coutMO + coutMat;
                   const prixVendu = p.plan_travaux?.meta?.prix_vendu || 0;
                   return (
-                    <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer", transition: "border .15s" }} onClick={() => setSelected(p)} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
+                    <div key={p.id} className="phase-row" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer", transition: "border .15s" }} onClick={() => setSelected(p)} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
                       <div style={{ width: 10, height: 56, borderRadius: 5, background: ch ? ch.couleur : T.accent, flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{p.chantier_nom}</div>

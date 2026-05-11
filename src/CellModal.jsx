@@ -51,6 +51,29 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
       display:"flex",alignItems:"center",
       justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
       onClick={onClose}>
+      <style>{`
+        @media (max-width:767px) {
+          .cm-header{padding:14px 16px!important}
+          .cm-title{font-size:18px!important;letter-spacing:.3px!important}
+          .cm-day-label{font-size:10px!important;letter-spacing:2px!important}
+          .cm-close{width:36px!important;height:36px!important;font-size:18px!important}
+          .cm-body-left{padding:14px 14px 8px!important;border-right:none!important;border-bottom:1px solid ${T.sectionDivider}}
+          .cm-body-right{padding:14px 14px 14px!important;gap:12px!important}
+          .cm-section-title{font-size:10px!important;letter-spacing:1.5px!important;margin-bottom:6px!important}
+          .cm-task-row{flex-wrap:wrap!important;gap:6px!important}
+          .cm-task-textarea{min-height:60px!important;width:100%!important;flex:1 1 100%!important}
+          .cm-task-duree{order:2;flex:0 0 auto!important}
+          .cm-task-del{order:3;flex:0 0 auto!important}
+          .cm-ouvrier-btn{padding:8px 12px!important;font-size:13px!important;min-height:34px}
+          .cm-footer{padding:12px 14px!important;flex-wrap:wrap!important;gap:8px!important}
+          .cm-footer-text{flex:1 1 100%!important;order:2;font-size:11px!important}
+          .cm-footer-btns{flex:1 1 100%!important;order:1;display:flex!important;gap:8px!important}
+          .cm-footer-btns button{flex:1}
+          .cm-textarea-cmd{min-height:120px!important}
+          .cm-textarea-note{min-height:90px!important}
+          .cm-textarea-reel{min-height:60px!important}
+        }
+      `}</style>
       <div className="cell-modal-box" style={{background:T.modal,
         borderRadius:18,
         width:"100%", maxWidth:860,
@@ -58,20 +81,21 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
         overflow:"hidden",display:"flex",flexDirection:"column",
         boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",border:`1px solid ${T.border}`}}
         onClick={e=>e.stopPropagation()}>
-        <div style={{background:chantier.couleur,padding:"20px 28px",display:"flex",
+        <div className="cm-header" style={{background:chantier.couleur,padding:"20px 28px",display:"flex",
           alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <div>
-            <div style={{fontSize:11,fontWeight:700,letterSpacing:3,textTransform:"uppercase",
+          <div style={{minWidth:0,flex:1}}>
+            <div className="cm-day-label" style={{fontSize:11,fontWeight:700,letterSpacing:3,textTransform:"uppercase",
               color:"rgba(0,0,0,0.4)",marginBottom:3}}>{jour}</div>
-            <div style={{fontSize:26,fontWeight:800,letterSpacing:1,color:"#1a1f2e",textTransform:"uppercase"}}>{chantier.nom}</div>
+            <div className="cm-title" style={{fontSize:26,fontWeight:800,letterSpacing:1,color:"#1a1f2e",textTransform:"uppercase",
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{chantier.nom}</div>
           </div>
-          <button onClick={onClose} style={{background:"rgba(0,0,0,0.12)",border:"none",
-            borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:20,
+          <button onClick={onClose} className="cm-close" style={{background:"rgba(0,0,0,0.12)",border:"none",
+            borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:20,flexShrink:0,marginLeft:10,
             color:"#1a1f2e",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>✕</button>
         </div>
-        <div className="cell-modal-body" style={{flex:1,overflow:"hidden",display:"grid",
+        <div className="cell-modal-body" style={{flex:1,overflow:"auto",display:"grid",
           gridTemplateColumns:"1fr 320px",minHeight:0}}>
-          <div style={{padding:"24px 20px 24px 28px",display:"flex",flexDirection:"column",gap:16,
+          <div className="cm-body-left" style={{padding:"24px 20px 24px 28px",display:"flex",flexDirection:"column",gap:16,
             overflowY:"auto",borderRight:`1px solid ${T.sectionDivider}`}}>
 
             {/* ── TÂCHES STRUCTURÉES ── */}
@@ -266,7 +290,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
                 ✏️ Note réel complémentaire
               </div>
-              <textarea value={draft.reel||""} onChange={e=>setDraft(p=>({...p,reel:e.target.value}))}
+              <textarea className="cm-textarea-reel" value={draft.reel||""} onChange={e=>setDraft(p=>({...p,reel:e.target.value}))}
                 placeholder="Complément ou correction manuelle…"
                 style={{minHeight:80,width:"100%",background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
                   borderRadius:12,padding:"14px 16px",color:T.reelColor,fontSize:14,lineHeight:1.7,
@@ -279,7 +303,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                 {ouvriers.map(o=>{
                   const sel=(draft.ouvriers||[]).includes(o);
                   return(
-                    <button key={o} onClick={()=>toggleOuvrier(o)} style={{
+                    <button key={o} onClick={()=>toggleOuvrier(o)} className="cm-ouvrier-btn" style={{
                       padding:"9px 18px",borderRadius:10,fontSize:14,fontWeight:700,
                       cursor:"pointer",fontFamily:"inherit",transition:"all .12s",
                       background:sel?chantier.couleur:T.fieldBg,
@@ -294,18 +318,18 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
             </div>
           </div>
 
-          <div style={{padding:"24px 28px 24px 20px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
+          <div className="cm-body-right" style={{padding:"24px 28px 24px 20px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
             <div style={{flex:1,display:"flex",flexDirection:"column"}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>📦 Commandes à prévoir</div>
-              <textarea value={commande.value||""} onChange={e=>commande.set(e.target.value)}
+              <div className="cm-section-title" style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>📦 Commandes à prévoir</div>
+              <textarea className="cm-textarea-cmd" value={commande.value||""} onChange={e=>commande.set(e.target.value)}
                 placeholder={"Matériaux\nLivraisons\nOutillage…"}
                 style={{flex:1,minHeight:180,width:"100%",background:T.cmdBg,border:`1.5px solid ${T.cmdBorder}`,
                   borderRadius:12,padding:"14px 16px",color:T.cmdColor,fontSize:14,lineHeight:1.7,
                   resize:"none",fontFamily:"inherit",outline:"none"}}/>
             </div>
             <div style={{display:"flex",flexDirection:"column"}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>🗒️ Notes chantier</div>
-              <textarea value={note.value||""} onChange={e=>note.set(e.target.value)}
+              <div className="cm-section-title" style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>🗒️ Notes chantier</div>
+              <textarea className="cm-textarea-note" value={note.value||""} onChange={e=>note.set(e.target.value)}
                 placeholder={"Code d'accès\nContact client\nInfos permanentes…"}
                 style={{minHeight:120,width:"100%",background:T.noteBg,border:`1.5px solid ${T.noteBorder}`,
                   borderRadius:12,padding:"14px 16px",color:T.noteColor,fontSize:14,lineHeight:1.7,
@@ -315,12 +339,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
           </div>
         </div>
 
-        <div style={{padding:"16px 28px",borderTop:`1px solid ${T.border}`,display:"flex",
+        <div className="cm-footer" style={{padding:"16px 28px",borderTop:`1px solid ${T.border}`,display:"flex",
           justifyContent:"space-between",alignItems:"center",flexShrink:0,background:T.modal}}>
-          <div style={{fontSize:12,color:T.textMuted}}>
+          <div className="cm-footer-text" style={{fontSize:12,color:T.textMuted}}>
             {(draft.ouvriers||[]).length>0?`👷 ${(draft.ouvriers||[]).join(", ")}`:"Aucun ouvrier sélectionné"}
           </div>
-          <div style={{display:"flex",gap:10}}>
+          <div className="cm-footer-btns" style={{display:"flex",gap:10}}>
             <button onClick={onClose} style={{background:"transparent",border:`1px solid ${T.border}`,
               borderRadius:8,padding:"10px 20px",color:T.textSub,fontFamily:"inherit",fontSize:14,cursor:"pointer"}}>Annuler</button>
             <button onClick={onClose} disabled={saving} style={{background:chantier.couleur,border:"none",

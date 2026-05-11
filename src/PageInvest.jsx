@@ -113,6 +113,28 @@ const THEMES_INV = {
 // ─── CSS INVEST — aligné sur Profero Rénovation ────────────────────────────────
 const getCSS = (T) => `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@media(max-width:767px){
+  .inv{flex-direction:column!important;overflow:hidden}
+  .inv > div:first-child{width:100%!important;height:auto!important;flex-direction:row!important;border-right:none!important;border-bottom:1px solid #1e2130;flex-shrink:0;align-items:center}
+  .inv > div:first-child > div:first-child{padding:6px 10px!important;border-bottom:none!important;border-right:1px solid #1e2130;flex-shrink:0;align-self:stretch}
+  .inv > div:first-child > div:first-child img{height:24px!important;width:auto!important}
+  .inv > div:first-child > div:first-child button{display:none}
+  .inv > div:first-child > nav{flex:1;display:flex!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:4px 6px!important;gap:2px}
+  .inv > div:first-child > nav::-webkit-scrollbar{display:none}
+  .inv > div:first-child > nav button{flex:0 0 auto;width:auto!important;padding:8px 12px!important;font-size:12px!important;margin-bottom:0!important;justify-content:center!important}
+  .inv > div:first-child > nav button span:last-child{display:inline!important}
+  .inv > div:first-child > div:last-child{display:none}
+  .inv-card-bd{padding:10px 12px!important}
+  .inv-row{flex-wrap:wrap;grid-template-columns:1fr!important;gap:6px!important}
+  .inv-kpi{padding:10px 12px!important}
+  .inv-kpi-val{font-size:18px!important}
+  .inv-scen-hd,.inv-scen-row{grid-template-columns:1fr 80px 80px!important;font-size:11px!important}
+  .inv-lot-grid{min-width:680px!important}
+  .inv-brow{grid-template-columns:1fr 60px 65px 75px 80px!important}
+  .inv-tab-nav{overflow-x:auto;-webkit-overflow-scrolling:touch;padding:0 8px!important}
+  .inv-tab-nav::-webkit-scrollbar{display:none}
+  .inv-tab-btn{padding:8px 12px!important;font-size:11px!important;flex:0 0 auto}
+}
 .inv{font-family:'Barlow Condensed','Arial Narrow',sans-serif;background:${T.bg};color:${T.text};font-size:14px;}
 .inv *{box-sizing:border-box;margin:0;padding:0;}
 .inv ::-webkit-scrollbar{width:5px;height:5px;}

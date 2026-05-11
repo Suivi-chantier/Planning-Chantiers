@@ -444,26 +444,85 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     .ib{background:transparent;border:none;cursor:pointer;font-size:14px;padding:2px 3px;opacity:.6;color:${T.text}}
     .ib:hover{opacity:1}
     .bottom-nav-mobile{display:none!important}
+    .mobile-only{display:none!important}
+
     @media (max-width: 767px) {
+      /* ============== STRUCTURE GLOBALE ============== */
       .app-sidebar{display:none!important}
       .bottom-nav-mobile{display:flex!important;position:fixed;bottom:0;left:0;right:0;z-index:200;
         background:#080a0d;border-top:2px solid #FFC200;align-items:stretch;
         padding-bottom:env(safe-area-inset-bottom)}
-      .page-content-area{padding-bottom:64px!important}
+      .desktop-only{display:none!important}
+      .mobile-only{display:flex!important}
+      .page-content-area{padding-bottom:70px!important}
       .page-padding{padding:14px 12px!important}
-      .app-topbar{padding:10px 14px!important}
+
+      /* ============== TOPBAR ============== */
+      .app-topbar{padding:8px 12px!important;gap:8px!important}
       .topbar-logo-mobile{display:block!important}
       .topbar-text-desktop{display:none!important}
+      .topbar-sync{padding:3px 8px!important;font-size:11px!important;gap:4px!important}
+      .topbar-sync-time{display:none!important}
+      .topbar-user-info{display:none!important}
+      .topbar-portail-btn{padding:5px 8px!important;font-size:11px!important}
+      .topbar-portail-btn-text{display:none!important}
+      .topbar-theme-btn{padding:4px 8px!important;font-size:15px!important}
+      .topbar-logout-btn{padding:5px 8px!important;font-size:11px!important}
+      .topbar-logout-btn-text{display:none!important}
+
+      /* ============== HEADERS DE PAGES ============== */
+      .page-header{padding:12px 14px!important;flex-wrap:wrap!important;gap:8px!important}
       .planning-header{padding:10px 12px!important;flex-wrap:wrap;gap:8px!important}
-      .planning-title{font-size:15px!important}
+      .planning-title{font-size:14px!important;letter-spacing:.5px!important}
       .navbtn-today{display:none!important}
       .btn-print{display:none!important}
+
+      /* ============== DASHBOARD ============== */
       .dashboard-row-1,.dashboard-row-2{grid-template-columns:1fr!important;gap:12px!important}
-      .cell-modal-backdrop{align-items:flex-end!important}
-      .cell-modal-box{border-radius:20px 20px 0 0!important;max-height:94vh!important;max-width:100%!important}
-      .cell-modal-body{grid-template-columns:1fr!important}
-      .tab{padding:6px 10px!important;font-size:12px!important}
+
+      /* ============== MODALES (bottom sheet) ============== */
+      .cell-modal-backdrop,.modal-backdrop{align-items:flex-end!important;padding:0!important}
+      .cell-modal-box,.modal-box{border-radius:20px 20px 0 0!important;max-height:94vh!important;max-width:100%!important;width:100%!important}
+      .cell-modal-body,.modal-body-grid{grid-template-columns:1fr!important}
+
+      /* ============== TABS ============== */
+      .tab{padding:7px 12px!important;font-size:12px!important;letter-spacing:.3px!important}
+      .atab{padding:6px 10px!important;font-size:11px!important}
+      .tabs-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap!important;white-space:nowrap}
+      .tabs-scroll::-webkit-scrollbar{display:none}
+
+      /* ============== TABLEAUX ============== */
       .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+      table{font-size:12px!important}
+      .hide-on-mobile{display:none!important}
+
+      /* ============== GRILLES → COLONNE UNIQUE ============== */
+      .responsive-grid,.responsive-grid-2,.responsive-grid-3,.responsive-grid-4{grid-template-columns:1fr!important;gap:10px!important}
+      .responsive-row{flex-direction:column!important;align-items:stretch!important;gap:8px!important}
+
+      /* ============== FORMULAIRES TACTILES ============== */
+      .ti,input[type="text"],input[type="email"],input[type="password"],input[type="number"],input[type="date"],input[type="tel"],input[type="url"],select,textarea{
+        font-size:16px!important;
+        min-height:42px;
+        padding:10px 12px!important;
+      }
+      textarea{min-height:80px!important}
+      .btn-p,.btn-g,.btn-d{min-height:40px;padding:10px 16px!important;font-size:14px!important}
+      .navbtn{min-height:38px;min-width:38px;padding:6px 12px!important;font-size:18px!important}
+
+      /* ============== CARTES ============== */
+      .ac{padding:14px!important;margin-bottom:10px!important;border-radius:10px!important}
+
+      /* ============== ÉLÉMENTS À MASQUER PAR DÉFAUT ============== */
+      .desktop-toolbar{display:none!important}
+
+      /* ============== IFRAMES ============== */
+      iframe{max-width:100%!important}
+    }
+
+    @media (max-width: 380px) {
+      .tab{padding:6px 8px!important;font-size:11px!important}
+      .planning-title{font-size:12px!important}
     }
   `;
 
@@ -477,29 +536,29 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
             Profero · Rénovation
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.card,borderRadius:8,fontSize:12,color:T.textSub}}>
+          <div className="topbar-sync" style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.card,borderRadius:8,fontSize:12,color:T.textSub,whiteSpace:"nowrap"}}>
             {syncing
               ?<><span style={{width:8,height:8,borderRadius:"50%",background:"#f5a623",display:"inline-block"}}/> Sync…</>
               :connected
-                ?<><span className="dot-pulse"/>{" "}En ligne {lastSync?`· ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}`:""}</>
+                ?<><span className="dot-pulse"/>{" "}En ligne <span className="topbar-sync-time">{lastSync?`· ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}`:""}</span></>
                 :<><span style={{width:8,height:8,borderRadius:"50%",background:"#e05c5c",display:"inline-block"}}/> Hors ligne</>
             }
           </div>
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
-            <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:1}}>
+            <div className="topbar-user-info" style={{textAlign:"right",display:"flex",flexDirection:"column",gap:1}}>
               <span style={{fontSize:13,fontWeight:700,color:T.text}}>{profil?.nom||user?.email}</span>
               <span style={{fontSize:10,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,194,0,0.6)"}}>{ROLE_LABELS[role]||role}</span>
             </div>
             {peutChangerBranche&&(
-              <button onClick={onRetourPortail} title="Retour au portail" style={{
+              <button onClick={onRetourPortail} title="Retour au portail" className="topbar-portail-btn" style={{
                 background:"rgba(255,194,0,0.08)",border:"1px solid rgba(255,194,0,0.2)",
                 borderRadius:6,padding:"6px 12px",color:"rgba(255,194,0,0.8)",fontSize:12,
                 cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:.5,
-              }}>⊞ Portail</button>
+              }}>⊞ <span className="topbar-portail-btn-text">Portail</span></button>
             )}
-            <button className="btn-g" onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
-            <button onClick={onLogout} title="Se déconnecter" style={{background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
-              Déconnexion
+            <button className="btn-g topbar-theme-btn" onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
+            <button onClick={onLogout} title="Se déconnecter" className="topbar-logout-btn" style={{background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+              <span style={{fontSize:14}}>⎋</span><span className="topbar-logout-btn-text"> Déconnexion</span>
             </button>
           </div>
         </div>

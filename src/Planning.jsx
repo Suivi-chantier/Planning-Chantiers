@@ -1,15 +1,18 @@
 import CellModal from "./CellModal";
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getCurrentWeek } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getCurrentWeek, getTodayJour } from "./constants";
+import { useIsMobile } from "./Navigation";
 
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
 function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes,setCommandes,notesData,setNotesData,weekId,view,setView,year,week,setYear,setWeek,T}){
+  const isMobile = useIsMobile();
   const [modal,setModal]=useState(null);
   const [cellDraft,setCellDraft]=useState(null);
   const [cmdDraft,setCmdDraft]=useState("");
   const [noteDraft,setNoteDraft]=useState("");
   const [saving,setSaving]=useState(false);
+  const [mobileDay,setMobileDay]=useState(()=>getTodayJour()||"Lundi");
 
   const prevWeek=()=>{if(week===1){setYear(y=>y-1);setWeek(52);}else setWeek(w=>w-1);};
   const nextWeek=()=>{if(week===52){setYear(y=>y+1);setWeek(1);}else setWeek(w=>w+1);};
@@ -165,7 +168,104 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
         </div>
       </div>
 
-      {/* Grille */}
+      {/* === VUE MOBILE === */}
+      {isMobile && (
+        <div style={{flex:1,overflowY:"auto",padding:"12px 12px 24px"}}>
+          {/* Sélecteur de jour en chips */}
+          <div className="tabs-scroll" style={{display:"flex",gap:6,marginBottom:14,paddingBottom:4}}>
+            {JOURS.map((j,di)=>{
+              const d=getDateDuJour(di);
+              const sel=j===mobileDay;
+              const today=getTodayJour()===j;
+              return(
+                <button key={j} onClick={()=>setMobileDay(j)} style={{
+                  flex:"0 0 auto",padding:"8px 14px",borderRadius:10,cursor:"pointer",
+                  fontFamily:"inherit",transition:"all .12s",display:"flex",flexDirection:"column",
+                  alignItems:"center",gap:1,minWidth:58,
+                  background:sel?T.accent:T.card,
+                  color:sel?"#111":T.textSub,
+                  border:`1.5px solid ${sel?T.accent:T.border}`,
+                  fontWeight:sel?800:600,
+                }}>
+                  <span style={{fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>{j.slice(0,3)}</span>
+                  <span style={{fontSize:16,fontWeight:800}}>{d.getDate()}</span>
+                  {today && !sel && <span style={{width:4,height:4,borderRadius:"50%",background:T.accent}}/>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Liste verticale des chantiers pour le jour sélectionné */}
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {chantiers.map(c=>{
+              const cell=getCell(c.id,mobileDay);
+              const filled=cell.planifie||cell.reel||cell.ouvriers?.length>0;
+              const di=JOURS.indexOf(mobileDay);
+              return(
+                <div key={c.id} onClick={()=>openModal(c.id,mobileDay)}
+                  style={{
+                    background:filled?T.cardFill:T.card,
+                    border:`1px solid ${filled?c.couleur+"66":T.border}`,
+                    borderLeft:`5px solid ${c.couleur}`,
+                    borderRadius:12,padding:"12px 14px",cursor:"pointer",
+                    display:"flex",flexDirection:"column",gap:8,
+                  }}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{fontWeight:800,fontSize:14,letterSpacing:.5,textTransform:"uppercase",
+                      color:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {c.nom}
+                    </div>
+                    <div style={{display:"flex",gap:4}}>
+                      {commandes[c.id]?.trim()&&<span title="Commandes" style={{width:7,height:7,borderRadius:"50%",background:"#f5a623"}}/>}
+                      {notesData[c.id]?.trim()&&<span title="Notes" style={{width:7,height:7,borderRadius:"50%",background:"#8070d0"}}/>}
+                    </div>
+                  </div>
+                  {!filled ? (
+                    <div style={{color:T.textMuted,fontSize:13,fontStyle:"italic",display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:18,opacity:.6}}>+</span> Toucher pour planifier
+                    </div>
+                  ) : (
+                    <>
+                      {view==="compare" ? (
+                        <>
+                          {cell.planifie && <div style={{fontSize:13,color:T.planColor,lineHeight:1.5,whiteSpace:"pre-wrap"}}>▸ {cell.planifie}</div>}
+                          {cell.reel && <div style={{fontSize:13,color:T.reelColor,lineHeight:1.5,whiteSpace:"pre-wrap"}}>✓ {cell.reel}</div>}
+                        </>
+                      ) : (
+                        <div style={{fontSize:13,lineHeight:1.5,color:view==="reel"?T.reelColor:T.text,whiteSpace:"pre-wrap"}}>
+                          {cell[view]||<span style={{color:T.emptyColor}}>—</span>}
+                        </div>
+                      )}
+                      {cell.ouvriers?.length>0 && (
+                        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:2}}>
+                          {cell.ouvriers.map(o=>(
+                            <span key={o} style={{background:c.couleur+"55",color:T.text,
+                              borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700}}>{o}</span>
+                          ))}
+                        </div>
+                      )}
+                      <a href={makeGCalUrl(c,mobileDay,di,cell)} target="_blank" rel="noopener noreferrer"
+                        onClick={e=>e.stopPropagation()}
+                        style={{alignSelf:"flex-end",fontSize:11,textDecoration:"none",
+                          background:"#4285F4",color:"#fff",borderRadius:5,padding:"3px 8px",fontWeight:600}}>
+                        📅 Agenda
+                      </a>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {chantiers.length===0 && (
+              <div style={{textAlign:"center",padding:"40px 20px",color:T.textMuted,fontSize:14}}>
+                Aucun chantier configuré.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* === VUE DESKTOP === */}
+      {!isMobile && (
       <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
         <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
           <div style={{display:"grid",gridTemplateColumns:`160px repeat(${JOURS.length},minmax(140px,1fr))`,gap:5,marginBottom:6,minWidth:860}}>
@@ -242,6 +342,7 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
           ))}
         </div>
       </div>
+      )}
     </div>
   );
 }

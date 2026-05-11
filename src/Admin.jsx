@@ -485,10 +485,19 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   ];
 
   return(
-    <div style={{flex:1,overflowY:"auto",padding:"16px"}}>
+    <div className="admin-page" style={{flex:1,overflowY:"auto",padding:"16px"}}>
+      <style>{`
+        @media(max-width:767px){
+          .admin-page > div:first-child{font-size:18px!important}
+          .admin-page > div:nth-child(2){font-size:12px!important;margin-bottom:14px!important}
+          .admin-page .admin-tabs{flex-wrap:nowrap!important;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;padding-bottom:6px!important}
+          .admin-page .admin-tabs::-webkit-scrollbar{display:none}
+          .admin-page .admin-tabs .atab{flex:0 0 auto}
+        }
+      `}</style>
       <div style={{fontSize:24,fontWeight:800,letterSpacing:1,marginBottom:4}}>Réglages</div>
       <div style={{color:T.textSub,fontSize:14,marginBottom:24}}>Modifications appliquées immédiatement pour toute l'équipe.</div>
-      <div style={{display:"flex",gap:4,marginBottom:22,borderBottom:`1px solid ${T.border}`,paddingBottom:8,flexWrap:"wrap"}}>
+      <div className="admin-tabs" style={{display:"flex",gap:4,marginBottom:22,borderBottom:`1px solid ${T.border}`,paddingBottom:8,flexWrap:"wrap"}}>
         {tabs.map(([k,l])=>(
           <button key={k} className={`atab ${adminTab===k?"on":"off"}`} onClick={()=>setAdminTab(k)}>{l}</button>
         ))}

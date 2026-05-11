@@ -274,10 +274,19 @@ function PageNotesEtTodo({ T }) {
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+    <div className="ntd-page" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+      <style>{`
+        @media(max-width:767px) {
+          .ntd-page .ntd-header{padding:10px 14px!important;font-size:14px}
+          .ntd-page .ntd-header > div:first-child{font-size:14px!important;letter-spacing:.5px!important}
+          .ntd-page .notes-todo-grid{grid-template-columns:1fr!important;overflow-y:auto!important}
+          .ntd-page .notes-todo-grid > div{border-right:none!important;border-bottom:1px solid ${T.border};min-height:auto!important;overflow:visible!important}
+          .ntd-page .notes-todo-grid textarea{min-height:200px!important}
+        }
+      `}</style>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{
+      <div className="ntd-header" style={{
         padding: "16px 28px", borderBottom: `1px solid ${T.headerBorder || T.border}`,
         background: T.surface, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
         flexShrink: 0,

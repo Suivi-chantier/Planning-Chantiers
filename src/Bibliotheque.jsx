@@ -43,7 +43,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
   }
 
   return (
-    <div style={{
+    <div className="biblio-row" style={{
       display: "grid",
       gridTemplateColumns: "1fr 180px 80px 70px 26px",
       gap: 8,
@@ -450,18 +450,27 @@ function PageBibliotheque({ T }) {
   ouvrages.forEach(o => { const cat = getCat(o.identifiant); catCounts[cat] = (catCounts[cat] || 0) + 1; });
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+    <div className="page-padding biblio-page" style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+      <style>{`
+        @media(max-width:767px){
+          .biblio-page .biblio-header > div:first-child > div:first-child{font-size:18px!important}
+          .biblio-page .biblio-actions{width:100%}
+          .biblio-page .biblio-actions input{flex:1 1 100%;width:100%!important}
+          .biblio-page .biblio-actions button{flex:1}
+          .biblio-page .biblio-row{grid-template-columns:1fr!important;gap:8px!important;padding:10px 12px!important}
+        }
+      `}</style>
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
 
         {/* En-tête */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 16 }}>
+        <div className="biblio-header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 16 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, color: T.text }}>📚 Bibliothèque de ratios</div>
             <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>
               Définissez vos ouvrages, leurs sous-tâches nommées, phases et cadences · Utilisé lors de l'import devis
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="biblio-actions" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <input
               value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…"
               style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 13, width: 200, outline: "none" }}

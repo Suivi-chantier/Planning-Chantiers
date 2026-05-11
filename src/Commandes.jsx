@@ -1161,7 +1161,21 @@ function PageCommandes({ chantiers, T }) {
   );
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+    <div className="page-padding cmd-page" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+      <style>{`
+        @media(max-width:767px) {
+          .cmd-page .cmd-header{flex-direction:column;align-items:stretch!important}
+          .cmd-page .cmd-header > div:first-child > div:first-child{font-size:22px!important}
+          .cmd-page .cmd-actions{flex-direction:column!important;align-items:stretch!important}
+          .cmd-page .cmd-actions > button,.cmd-page .cmd-actions > div{width:100%;justify-content:center}
+          .cmd-page .cmd-table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch}
+          .cmd-page .cmd-table-wrapper table{min-width:800px}
+          .cmd-page .cmd-counters > div{padding:8px 12px!important;min-width:0;flex:1}
+          .cmd-page .cmd-counters > div > div:first-child{font-size:16px!important}
+          .cmd-page .cmd-counters > div > div:last-child{font-size:10px!important}
+          .cmd-page .cmd-filters select{width:100%;flex:1 1 100%!important}
+        }
+      `}</style>
 
       {/* Modale import */}
       {modaleImport && (
@@ -1283,7 +1297,7 @@ function PageCommandes({ chantiers, T }) {
       )}
 
       {/* Header */}
-      <div style={{
+      <div className="cmd-header" style={{
         marginBottom: 24, display: "flex", alignItems: "flex-start",
         justifyContent: "space-between", flexWrap: "wrap", gap: 16,
       }}>
@@ -1291,7 +1305,7 @@ function PageCommandes({ chantiers, T }) {
           <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>Commandes</div>
           <div style={{ fontSize: 14, color: T.textSub }}>Suivi des besoins par chantier et par fournisseur</div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="cmd-actions" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <BoutonDemandes count={demandes.length} onClick={() => setPanneauOuvert(true)} T={T} />
           {/* Bouton import document */}
           <button
@@ -1324,7 +1338,7 @@ function PageCommandes({ chantiers, T }) {
       </div>
 
       {/* Compteurs statut */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="cmd-counters" style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         {STATUTS_COMMANDES.map(k => {
           const v = STATUTS[k];
           return (
@@ -1341,7 +1355,7 @@ function PageCommandes({ chantiers, T }) {
       </div>
 
       {/* Filtres */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="cmd-filters" style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
         {[
           { value: filterChantier, onChange: setFilterChantier, options: [{ value: "all", label: "Tous les chantiers" }, ...chantiers.map(c => ({ value: c.id, label: c.nom }))] },
           { value: filterStatut, onChange: setFilterStatut, options: [{ value: "all", label: "Tous les statuts" }, ...STATUTS_COMMANDES.map(k => ({ value: k, label: STATUTS[k].label }))] },
@@ -1360,7 +1374,7 @@ function PageCommandes({ chantiers, T }) {
       </div>
 
       {/* Tableau commandes */}
-      <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+      <div className="cmd-table-wrapper" style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: T.card, borderBottom: `2px solid ${T.border}` }}>

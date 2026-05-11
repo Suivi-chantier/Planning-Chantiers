@@ -238,23 +238,32 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
 
   // ── Bilan (étape 2) ──────────────────────────────────────────────────────────
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:600,
+    <div className="modal-backdrop bilan-modal" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:600,
       display:"flex", alignItems:"center", justifyContent:"center",
       padding:16, backdropFilter:"blur(4px)" }} onClick={onClose}>
-      <div style={{ background:T.modal, borderRadius:18, width:"100%", maxWidth:740,
+      <style>{`
+        @media(max-width:767px){
+          .bilan-modal .bilan-header{flex-direction:column;align-items:stretch!important;padding:14px 16px!important;gap:10px}
+          .bilan-modal .bilan-header > div:first-child > div:nth-child(2){font-size:18px!important}
+          .bilan-modal .bilan-header-actions{display:flex!important;gap:8px;flex-wrap:wrap}
+          .bilan-modal .bilan-header-actions > div{flex:1}
+          .bilan-modal .bilan-header-actions button{flex:1 1 100%}
+        }
+      `}</style>
+      <div className="modal-box" style={{ background:T.modal, borderRadius:18, width:"100%", maxWidth:740,
         maxHeight:"88vh", overflow:"hidden", display:"flex", flexDirection:"column",
         border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)", minHeight:0
       }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#1a1f2e,#252b3d)",
+        <div className="bilan-header" style={{ background:"linear-gradient(135deg,#1a1f2e,#252b3d)",
           padding:"22px 28px", display:"flex", alignItems:"center",
           justifyContent:"space-between", borderBottom:`2px solid ${T.accent}`, flexShrink:0 }}>
           <div>
             <div style={{ fontSize:11, fontWeight:700, letterSpacing:3, textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Bilan de la semaine</div>
             <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>{weekId}</div>
           </div>
-          <div style={{ display:"flex", gap:20, alignItems:"center" }}>
+          <div className="bilan-header-actions" style={{ display:"flex", gap:20, alignItems:"center" }}>
             <div style={{ textAlign:"center" }}>
               <div style={{ fontSize:28, fontWeight:800, color:T.accent }}>{totalHeures.toFixed(1)}h</div>
               <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Heures réelles</div>
@@ -528,14 +537,25 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
   };
 
   return (
-    <div className="page-padding" style={{flex:1,overflowY:"auto",padding:"24px 28px",background:T.bg}}>
+    <div className="page-padding eq-page" style={{flex:1,overflowY:"auto",padding:"24px 28px",background:T.bg}}>
+      <style>{`
+        @media(max-width:767px){
+          .eq-page .eq-header{flex-direction:column;align-items:stretch!important}
+          .eq-page .eq-header > div:first-child > div:first-child{font-size:20px!important}
+          .eq-page .eq-link-box{flex-wrap:wrap}
+          .eq-page .eq-link-box code{font-size:10px!important;word-break:break-all;flex:1 1 100%}
+          .eq-page .eq-filters{padding:10px 12px!important;gap:6px!important}
+          .eq-page .eq-filters select,.eq-page .eq-filters > div{width:100%!important;flex:1 1 100%!important}
+        }
+      `}</style>
+
       {showBilan&&(
         <BilanSemaine rapports={rapports} chantiers={chantiers} cells={cells}
           weekId={filterSemaine||weekId} onClose={()=>setShowBilan(false)} T={T}/>
       )}
 
       {/* ── Header ── */}
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",
+      <div className="eq-header" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",
         marginBottom:20,flexWrap:"wrap",gap:12}}>
         <div>
           <div style={{fontSize:26,fontWeight:800,letterSpacing:1,marginBottom:2}}>Équipe</div>
@@ -548,7 +568,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
             cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             📊 Bilan semaine
           </button>
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,
+          <div className="eq-link-box" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,
             padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
             <code style={{fontSize:12,color:T.accent}}>{appUrl}</code>
             <button onClick={copyLink} style={{background:T.accent,color:"#fff",border:"none",
@@ -560,7 +580,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
       </div>
 
       {/* ── Filtres + tri ── */}
-      <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,
+      <div className="eq-filters" style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,
         padding:"14px 16px",marginBottom:16,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
 
         {/* Tri / groupement */}

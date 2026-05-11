@@ -259,21 +259,33 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
   // ─── VUE LISTE ────────────────────────────────────────────────────────────────
   if (!selected) {
     return (
-      <div style={{ flex: 1, overflowY: "auto", background: bg, padding: "28px 32px" }}>
+      <div className="pchan-list" style={{ flex: 1, overflowY: "auto", background: bg, padding: "28px 32px" }}>
         <style>{`
           .chantier-card { transition: all .18s; cursor: pointer; }
           .chantier-card:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,195,0,0.2); border-color: rgba(255,195,0,0.35) !important; }
           @media(max-width:768px) { .chantiers-grid { grid-template-columns: 1fr !important; } }
+          @media(max-width:767px) {
+            .pchan-list{padding:14px 12px!important}
+            .pchan-list h1{font-size:20px!important}
+            .pchan-list .pchan-list-header{flex-direction:column;align-items:flex-start!important;gap:10px!important}
+            .pchan-list .pchan-stats{width:100%;gap:8px!important}
+            .pchan-list .pchan-stats > div{flex:1;min-width:0!important;padding:8px 10px!important}
+            .pchan-list .pchan-stats > div > div:first-child{font-size:18px!important}
+            .pchan-list .pchan-stats > div > div:last-child{font-size:10px!important}
+            .pchan-list .chantier-card .chantier-card-photo{height:130px!important}
+            .pchan-list .chantier-card .chantier-card-body{padding:12px 14px!important;gap:8px!important}
+            .pchan-list .chantier-card .chantier-card-name{font-size:15px!important}
+          }
         `}</style>
 
-        <div style={{ marginBottom: 28, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div className="pchan-list-header" style={{ marginBottom: 28, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <div>
             <h1 style={{ fontSize: 26, fontWeight: 800, color: text, letterSpacing: .5, margin: 0 }}>🏗️ Mes Chantiers</h1>
             <p style={{ fontSize: 13, color: textSub, marginTop: 4 }}>
               {chantiers.length} chantier{chantiers.length > 1 ? "s" : ""} · {phasages.length} phasage{phasages.length > 1 ? "s" : ""}
             </p>
           </div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div className="pchan-stats" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             {[
               { label: "En cours",  val: phasages.filter(p => !p.statut || p.statut === "en_cours").length, color: accent },
               { label: "Terminés",  val: phasages.filter(p => p.statut === "termine").length,               color: "#50c878" },
@@ -308,7 +320,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
                   onClick={() => setSelected(chantier.id)}
                   style={{ background: card, border: `1px solid ${border}`, borderRadius: 16, overflow: "hidden", display: "flex", flexDirection: "column" }}>
 
-                  <div style={{ height: 160, background: "rgba(255,255,255,0.04)", position: "relative", overflow: "hidden", flexShrink: 0 }}>
+                  <div className="chantier-card-photo" style={{ height: 160, background: "rgba(255,255,255,0.04)", position: "relative", overflow: "hidden", flexShrink: 0 }}>
                     {photo ? (
                       <img src={photo} alt={chantier.nom} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
                     ) : (
@@ -325,8 +337,8 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
                     )}
                   </div>
 
-                  <div style={{ padding: "16px 18px", flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: text }}>{chantier.nom}</div>
+                  <div className="chantier-card-body" style={{ padding: "16px 18px", flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div className="chantier-card-name" style={{ fontSize: 16, fontWeight: 700, color: text }}>{chantier.nom}</div>
 
                     {av !== null ? (
                       <div>
@@ -366,7 +378,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
 
   // ─── VUE DÉTAILLÉE ───────────────────────────────────────────────────────────
   return (
-    <div style={{ flex: 1, overflowY: "auto", background: bg }}>
+    <div className="pchan-detail" style={{ flex: 1, overflowY: "auto", background: bg }}>
       <style>{`
         .ch-stat-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px 18px; }
         .ch-photo-upload:hover { border-color: ${accent} !important; background: rgba(255,195,0,0.06) !important; }
@@ -374,10 +386,19 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
         .tache-row:hover { background: rgba(255,255,255,0.04); }
         .tache-row:last-child { border-bottom: none; }
         @media(max-width:768px) { .ch-fin-grid { grid-template-columns: 1fr 1fr !important; } .ch-content-grid { grid-template-columns: 1fr !important; } }
+        @media(max-width:767px) {
+          .pchan-detail .pchan-detail-header{padding:12px 14px!important;gap:10px!important}
+          .pchan-detail .pchan-detail-header h1{font-size:17px!important}
+          .pchan-detail .pchan-detail-body{padding:14px 12px!important;gap:18px!important}
+          .pchan-detail .ch-photo-upload{height:180px!important}
+          .pchan-detail .ch-stat-card{padding:12px!important}
+          .pchan-detail .ch-stat-card > div:nth-child(2){font-size:16px!important}
+          .pchan-detail .ch-fin-grid{grid-template-columns:1fr 1fr!important;gap:8px!important}
+        }
       `}</style>
 
       {/* Header */}
-      <div style={{ background: surface, borderBottom: `1px solid ${border}`, padding: "16px 28px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+      <div className="pchan-detail-header" style={{ background: surface, borderBottom: `1px solid ${border}`, padding: "16px 28px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <button onClick={() => { setSelected(null); setCompteRendus([]); }} style={{
           background: "rgba(255,255,255,0.07)", border: `1px solid ${border}`, borderRadius: 8,
           padding: "7px 14px", color: text, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
@@ -402,7 +423,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T }) 
         </div>
       </div>
 
-      <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1200, margin: "0 auto" }}>
+      <div className="pchan-detail-body" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1200, margin: "0 auto" }}>
 
         {/* ── Section 1 : Photo + avancement ── */}
         <div className="ch-content-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 20 }}>
