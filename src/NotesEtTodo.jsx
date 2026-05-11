@@ -16,17 +16,75 @@ function getPriorite(id) {
 const KEY_TODOS = "bloc_todos";
 const KEY_NOTES = "bloc_notes";
 
+// ─── EMAIL HELPER ────────────────────────────────────────────────────────────
+async function envoyerEmailAssignation({ to, nom, texte, priorite, assigneur }) {
+  if (!to) return { ok: false, reason: "no_email" };
+  const prioLabel = priorite === "haute" ? "🔴 Haute" : priorite === "basse" ? "🟢 Basse" : "🟡 Normale";
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
+    <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
+      <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Nouvelle tâche</div>
+      <div style="color:#fff;font-size:20px;font-weight:800">📋 Une tâche vous a été assignée</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px">
+      <p style="margin:0 0 14px;font-size:15px">Bonjour <strong>${escapeHtml(nom)}</strong>,</p>
+      <p style="margin:0 0 14px;font-size:14px;color:#555">${escapeHtml(assigneur || "Quelqu'un")} vous a assigné cette tâche :</p>
+      <div style="background:#f4f6fa;border-left:4px solid #FFC200;border-radius:6px;padding:14px 16px;margin:14px 0">
+        <div style="font-size:15px;color:#1a1f2e;line-height:1.5">${escapeHtml(texte)}</div>
+        <div style="margin-top:10px;font-size:12px;color:#666">Priorité : ${prioLabel}</div>
+      </div>
+      <p style="margin:18px 0 0;font-size:13px;color:#666">
+        Connecte-toi à <a href="https://planning-chantiers.vercel.app" style="color:#FFC200;font-weight:700;text-decoration:none">Profero Planning</a> → onglet <strong>Notes &amp; To-do</strong> pour cocher la tâche une fois terminée.
+      </p>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
+  </div>`;
+
+  try {
+    const res = await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to,
+        subject: `📋 Nouvelle tâche : ${texte.slice(0, 70)}${texte.length > 70 ? "…" : ""}`,
+        html,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, ...data };
+  } catch (e) {
+    console.error("Email assignation:", e);
+    return { ok: false, reason: e.message };
+  }
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
 // ─── COMPOSANT TODO ITEM ──────────────────────────────────────────────────────
-function TodoItem({ todo, onToggle, onDelete, onEdit, T }) {
+function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
   const [editing, setEditing]   = useState(false);
   const [draft, setDraft]       = useState(todo.texte);
   const [draftPrio, setDraftPrio] = useState(todo.priorite || "normale");
+  const [draftAssigne, setDraftAssigne] = useState(todo.assigne_email || "");
   const inputRef = useRef();
 
-  const startEdit = () => { setDraft(todo.texte); setDraftPrio(todo.priorite || "normale"); setEditing(true); };
+  const startEdit = () => {
+    setDraft(todo.texte);
+    setDraftPrio(todo.priorite || "normale");
+    setDraftAssigne(todo.assigne_email || "");
+    setEditing(true);
+  };
   const cancelEdit = () => setEditing(false);
   const saveEdit = () => {
-    if (draft.trim()) onEdit(todo.id, { texte: draft.trim(), priorite: draftPrio });
+    if (!draft.trim()) { setEditing(false); return; }
+    const u = utilisateurs.find(x => x.email === draftAssigne);
+    onEdit(todo.id, {
+      texte: draft.trim(),
+      priorite: draftPrio,
+      assigne_email: u ? u.email : null,
+      assigne_nom:   u ? u.nom   : null,
+    });
     setEditing(false);
   };
 
@@ -51,7 +109,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T }) {
             marginBottom: 10,
           }}
         />
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
           {PRIORITES.map(p => (
             <button key={p.id} onClick={() => setDraftPrio(p.id)} style={{
               padding: "4px 10px", borderRadius: 14, border: `1.5px solid`,
@@ -61,7 +119,20 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T }) {
               fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer",
             }}>{p.label}</button>
           ))}
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={draftAssigne} onChange={e => setDraftAssigne(e.target.value)} style={{
+            flex: 1, minWidth: 140, padding: "6px 10px", borderRadius: 8,
+            border: `1px solid ${T.border}`, background: T.card,
+            color: draftAssigne ? T.text : T.textMuted,
+            fontFamily: "inherit", fontSize: 12, outline: "none",
+          }}>
+            <option value="">👤 Personne assignée</option>
+            {utilisateurs.map(u => (
+              <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
+            ))}
+          </select>
+          <div style={{ display: "flex", gap: 6 }}>
             <button onClick={cancelEdit} style={{
               padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`,
               background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 12, cursor: "pointer",
@@ -104,21 +175,33 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T }) {
         }}>
           {todo.texte}
         </div>
-        {!todo.fait && (
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 3,
-            marginTop: 4, padding: "1px 8px", borderRadius: 10,
-            background: prio.bg, color: prio.color,
-            fontSize: 10, fontWeight: 700,
-          }}>
-            {prio.label}
-          </div>
-        )}
-        {todo.created_at && (
-          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
-            {new Date(todo.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-          </div>
-        )}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 4, alignItems: "center" }}>
+          {!todo.fait && (
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              padding: "1px 8px", borderRadius: 10,
+              background: prio.bg, color: prio.color,
+              fontSize: 10, fontWeight: 700,
+            }}>
+              {prio.label}
+            </div>
+          )}
+          {todo.assigne_nom && (
+            <div title={todo.assigne_email || ""} style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "1px 8px", borderRadius: 10,
+              background: "rgba(91,138,245,0.12)", color: "#5b8af5",
+              fontSize: 10, fontWeight: 700,
+            }}>
+              👤 {todo.assigne_nom}
+            </div>
+          )}
+          {todo.created_at && (
+            <span style={{ fontSize: 10, color: T.textMuted }}>
+              {new Date(todo.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Actions */}
@@ -145,34 +228,41 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T }) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-function PageNotesEtTodo({ T }) {
+function PageNotesEtTodo({ T, profil }) {
   const [todos, setTodos]         = useState([]);
   const [notes, setNotes]         = useState("");
   const [notesSaved, setNotesSaved] = useState("");
   const [newTodo, setNewTodo]     = useState("");
   const [newPrio, setNewPrio]     = useState("normale");
-  const [filtre, setFiltre]       = useState("actif"); // actif | fait | tout
+  const [newAssigne, setNewAssigne] = useState(""); // email
+  const [filtre, setFiltre]       = useState("actif"); // actif | fait | mes | tout
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
   const [notesDirty, setNotesDirty] = useState(false);
   const [notesSaveStatus, setNotesSaveStatus] = useState(""); // "" | "saving" | "saved"
+  const [utilisateurs, setUtilisateurs] = useState([]);
+  const [notifStatus, setNotifStatus]   = useState(""); // message éphémère
   const notesTimer = useRef(null);
   const inputRef = useRef();
+
+  const monEmail = profil?.email || null;
+  const monNom   = profil?.nom   || profil?.email || "Quelqu'un";
 
   // ── Chargement ──────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from("planning_config")
-        .select("*")
-        .in("key", [KEY_TODOS, KEY_NOTES]);
-      if (data) {
-        data.forEach(r => {
+      const [cfg, users] = await Promise.all([
+        supabase.from("planning_config").select("*").in("key", [KEY_TODOS, KEY_NOTES]),
+        supabase.from("utilisateurs").select("id, email, nom, role, actif").eq("actif", true).order("nom"),
+      ]);
+      if (cfg.data) {
+        cfg.data.forEach(r => {
           if (r.key === KEY_TODOS) setTodos(Array.isArray(r.value) ? r.value : []);
           if (r.key === KEY_NOTES) { setNotes(r.value || ""); setNotesSaved(r.value || ""); }
         });
       }
+      if (users.data) setUtilisateurs(users.data);
     } catch (e) {
       console.error(e);
     }
@@ -180,6 +270,9 @@ function PageNotesEtTodo({ T }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Message éphémère après une notif
+  const flashNotif = (msg) => { setNotifStatus(msg); setTimeout(() => setNotifStatus(""), 4000); };
 
   // ── Sauvegarde todos ────────────────────────────────────────────────────────
   const saveTodos = async (newList) => {
@@ -209,20 +302,34 @@ function PageNotesEtTodo({ T }) {
   };
 
   // ── Ajouter un todo ─────────────────────────────────────────────────────────
-  const addTodo = () => {
+  const addTodo = async () => {
     if (!newTodo.trim()) return;
+    const u = utilisateurs.find(x => x.email === newAssigne);
     const todo = {
       id: Math.random().toString(36).slice(2),
       texte: newTodo.trim(),
       priorite: newPrio,
       fait: false,
       created_at: new Date().toISOString(),
+      created_by_email: monEmail,
+      created_by_nom:   monNom,
+      assigne_email: u ? u.email : null,
+      assigne_nom:   u ? u.nom   : null,
     };
     const updated = [todo, ...todos];
     setTodos(updated);
     saveTodos(updated);
     setNewTodo("");
+    setNewAssigne("");
     inputRef.current?.focus();
+
+    if (u) {
+      flashNotif(`📧 Envoi de l'email à ${u.nom}…`);
+      const r = await envoyerEmailAssignation({
+        to: u.email, nom: u.nom, texte: todo.texte, priorite: todo.priorite, assigneur: monNom,
+      });
+      flashNotif(r.ok ? `✓ Email envoyé à ${u.nom}` : `⚠️ Email non envoyé : ${r.error || r.reason || "erreur"}`);
+    }
   };
 
   const toggleTodo = (id) => {
@@ -237,10 +344,21 @@ function PageNotesEtTodo({ T }) {
     saveTodos(updated);
   };
 
-  const editTodo = (id, patch) => {
+  const editTodo = async (id, patch) => {
+    const ancien = todos.find(t => t.id === id);
     const updated = todos.map(t => t.id === id ? { ...t, ...patch } : t);
     setTodos(updated);
     saveTodos(updated);
+    // Notification si nouvel assigné
+    const nouveauEmail = patch.assigne_email;
+    if (nouveauEmail && nouveauEmail !== ancien?.assigne_email) {
+      const final = { ...ancien, ...patch };
+      flashNotif(`📧 Envoi de l'email à ${final.assigne_nom}…`);
+      const r = await envoyerEmailAssignation({
+        to: final.assigne_email, nom: final.assigne_nom, texte: final.texte, priorite: final.priorite, assigneur: monNom,
+      });
+      flashNotif(r.ok ? `✓ Email envoyé à ${final.assigne_nom}` : `⚠️ Email non envoyé : ${r.error || r.reason || "erreur"}`);
+    }
   };
 
   const clearFaits = () => {
@@ -254,7 +372,8 @@ function PageNotesEtTodo({ T }) {
   const todosFiltres = todos
     .filter(t => {
       if (filtre === "actif") return !t.fait;
-      if (filtre === "fait") return t.fait;
+      if (filtre === "fait")  return t.fait;
+      if (filtre === "mes")   return !t.fait && monEmail && t.assigne_email === monEmail;
       return true;
     })
     .sort((a, b) => {
@@ -264,6 +383,7 @@ function PageNotesEtTodo({ T }) {
 
   const nbActifs = todos.filter(t => !t.fait).length;
   const nbFaits  = todos.filter(t => t.fait).length;
+  const nbMes    = monEmail ? todos.filter(t => !t.fait && t.assigne_email === monEmail).length : 0;
 
   if (loading) {
     return (
@@ -341,18 +461,19 @@ function PageNotesEtTodo({ T }) {
             </div>
 
             {/* Filtres */}
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {[
                 { id: "actif", label: `À faire (${nbActifs})` },
+                ...(monEmail ? [{ id: "mes", label: `👤 Mes tâches (${nbMes})`, highlight: nbMes > 0 }] : []),
                 { id: "fait",  label: `Terminées (${nbFaits})` },
                 { id: "tout",  label: `Tout (${todos.length})` },
               ].map(f => (
                 <button key={f.id} onClick={() => setFiltre(f.id)} style={{
                   padding: "5px 12px", borderRadius: 6, fontFamily: "inherit",
                   fontSize: 12, fontWeight: 700, cursor: "pointer",
-                  border: `1px solid ${filtre === f.id ? T.accent : T.border}`,
-                  background: filtre === f.id ? "rgba(255,194,0,0.1)" : "transparent",
-                  color: filtre === f.id ? T.accent : T.textSub,
+                  border: `1px solid ${filtre === f.id ? T.accent : (f.highlight ? "#5b8af5" : T.border)}`,
+                  background: filtre === f.id ? "rgba(255,194,0,0.1)" : (f.highlight ? "rgba(91,138,245,0.08)" : "transparent"),
+                  color: filtre === f.id ? T.accent : (f.highlight ? "#5b8af5" : T.textSub),
                 }}>{f.label}</button>
               ))}
             </div>
@@ -384,18 +505,43 @@ function PageNotesEtTodo({ T }) {
                 flexShrink: 0,
               }}>+ Ajouter</button>
             </div>
-            {/* Sélecteur priorité */}
-            <div style={{ display: "flex", gap: 6 }}>
-              {PRIORITES.map(p => (
-                <button key={p.id} onClick={() => setNewPrio(p.id)} style={{
-                  padding: "4px 12px", borderRadius: 14,
-                  border: `1.5px solid ${newPrio === p.id ? p.color : T.border}`,
-                  background: newPrio === p.id ? p.bg : "transparent",
-                  color: newPrio === p.id ? p.color : T.textSub,
-                  fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer",
-                }}>{p.label}</button>
-              ))}
+            {/* Sélecteur priorité + assigné */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                {PRIORITES.map(p => (
+                  <button key={p.id} onClick={() => setNewPrio(p.id)} style={{
+                    padding: "4px 12px", borderRadius: 14,
+                    border: `1.5px solid ${newPrio === p.id ? p.color : T.border}`,
+                    background: newPrio === p.id ? p.bg : "transparent",
+                    color: newPrio === p.id ? p.color : T.textSub,
+                    fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                  }}>{p.label}</button>
+                ))}
+              </div>
+              <select value={newAssigne} onChange={e => setNewAssigne(e.target.value)} style={{
+                flex: 1, minWidth: 160, padding: "5px 10px", borderRadius: 8,
+                border: `1px solid ${newAssigne ? "#5b8af5" : T.border}`,
+                background: T.card, color: newAssigne ? "#5b8af5" : T.textMuted,
+                fontFamily: "inherit", fontSize: 12, outline: "none", fontWeight: newAssigne ? 700 : 500,
+              }}>
+                <option value="">👤 Personne assignée (optionnel)</option>
+                {utilisateurs.map(u => (
+                  <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
+                ))}
+              </select>
             </div>
+            {notifStatus && (
+              <div style={{
+                marginTop: 8, padding: "5px 10px", borderRadius: 6,
+                background: notifStatus.startsWith("⚠") ? "rgba(245,166,35,0.12)"
+                          : notifStatus.startsWith("✓") ? "rgba(80,200,120,0.12)"
+                          : "rgba(91,138,245,0.1)",
+                color: notifStatus.startsWith("⚠") ? "#f5a623"
+                     : notifStatus.startsWith("✓") ? "#50c878"
+                     : "#5b8af5",
+                fontSize: 11, fontWeight: 600,
+              }}>{notifStatus}</div>
+            )}
           </div>
 
           {/* Liste des todos */}
@@ -422,6 +568,7 @@ function PageNotesEtTodo({ T }) {
                   onDelete={deleteTodo}
                   onEdit={editTodo}
                   T={T}
+                  utilisateurs={utilisateurs}
                 />
               ))
             )}

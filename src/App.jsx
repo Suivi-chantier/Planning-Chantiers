@@ -567,7 +567,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="dashboard"        && canAccess(role,"dashboard")        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
           {page==="planning"         && canAccess(role,"planning")         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
           {page==="planning-mensuel" && canAccess(role,"planning-mensuel") && <PagePlanningMensuel T={T}/>}
-          {page==="notes-todo"       && canAccess(role,"notes-todo")       && <PageNotesEtTodo T={T}/>}
+          {page==="notes-todo"       && canAccess(role,"notes-todo")       && <PageNotesEtTodo T={T} profil={profil}/>}
           {page==="commandes"        && canAccess(role,"commandes")        && <PageCommandes chantiers={chantiers} T={T}/>}
           {page==="equipe"           && canAccess(role,"equipe")           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
           {page==="plans"            && canAccess(role,"plans")            && <PagePlans T={T} chantiers={chantiers}/>}
