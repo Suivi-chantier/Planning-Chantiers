@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabase";
+import { getBranchAccent, FONT, RADIUS, SPACING } from "./constants";
+import { Icon } from "./ui";
+import {
+  ClipboardList, ListTodo, User, Trash2, Pencil, X, Plus, Check,
+  Calendar, AlarmClock, FileText, CircleCheck, Circle,
+} from "lucide-react";
 
 // ─── PRIORITÉS ────────────────────────────────────────────────────────────────
 const PRIORITES = [
@@ -62,7 +68,7 @@ function escapeHtml(s) {
 }
 
 // ─── COMPOSANT TODO ITEM ──────────────────────────────────────────────────────
-function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
+function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs, acc }) {
   const [editing, setEditing]   = useState(false);
   const [draft, setDraft]       = useState(todo.texte);
   const [draftPrio, setDraftPrio] = useState(todo.priorite || "normale");
@@ -102,8 +108,8 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
   if (editing) {
     return (
       <div style={{
-        background: T.surface, border: `1px solid ${T.accent}`,
-        borderRadius: 10, padding: "10px 14px", marginBottom: 6,
+        background: T.surface, border: `1px solid ${acc.accent}`,
+        borderRadius: RADIUS.lg, padding: "12px 14px", marginBottom: 6,
       }}>
         <input
           ref={inputRef}
@@ -112,162 +118,186 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
           onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") cancelEdit(); }}
           style={{
             width: "100%", background: "transparent", border: "none",
-            color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none",
+            color: T.text, fontFamily: "inherit", fontSize: FONT.base.size, outline: "none",
             marginBottom: 10,
           }}
         />
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
           {PRIORITES.map(p => (
             <button key={p.id} onClick={() => setDraftPrio(p.id)} style={{
-              padding: "4px 10px", borderRadius: 14, border: `1.5px solid`,
+              padding: "4px 11px", borderRadius: RADIUS.pill, border: `1.5px solid`,
               borderColor: draftPrio === p.id ? p.color : T.border,
               background: draftPrio === p.id ? p.bg : "transparent",
               color: draftPrio === p.id ? p.color : T.textSub,
-              fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer",
+              fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
             }}>{p.label}</button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
-          <select value={draftAssigne} onChange={e => setDraftAssigne(e.target.value)} style={{
-            flex: 1, minWidth: 140, padding: "6px 10px", borderRadius: 8,
-            border: `1px solid ${T.border}`, background: T.card,
-            color: draftAssigne ? T.text : T.textMuted,
-            fontFamily: "inherit", fontSize: 12, outline: "none",
-          }}>
-            <option value="">👤 Personne assignée</option>
-            {utilisateurs.map(u => (
-              <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
-            ))}
-          </select>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ position: "relative", flex: 1, minWidth: 140 }}>
+            <Icon as={User} size={13}
+              style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color: draftAssigne ? acc.accent : T.textMuted, pointerEvents:"none" }}/>
+            <select value={draftAssigne} onChange={e => setDraftAssigne(e.target.value)} style={{
+              width:"100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
+              border: `1px solid ${draftAssigne ? acc.border : T.border}`,
+              background: T.card, color: draftAssigne ? T.text : T.textMuted,
+              fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+              fontWeight: draftAssigne ? 600 : 500,
+            }}>
+              <option value="">Personne assignée</option>
+              {utilisateurs.map(u => (
+                <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
+              ))}
+            </select>
+          </div>
           <input type="date" value={draftDate} onChange={e => setDraftDate(e.target.value)}
             title="Date limite (optionnel)" style={{
-              padding: "6px 10px", borderRadius: 8,
+              padding: "6px 10px", borderRadius: RADIUS.md,
               border: `1px solid ${draftDate ? "#f5a623" : T.border}`, background: T.card,
               color: draftDate ? "#f5a623" : T.textMuted,
-              fontFamily: "inherit", fontSize: 12, outline: "none", fontWeight: draftDate ? 700 : 500,
+              fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", fontWeight: draftDate ? 700 : 500,
             }}/>
           {draftDate && (
             <button onClick={() => setDraftDate("")} title="Retirer la date" style={{
-              padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`,
-              background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 11, cursor: "pointer",
-            }}>✕</button>
+              padding: "5px 7px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+              background: "transparent", color: T.textSub,
+              fontFamily: "inherit", cursor: "pointer",
+              display:"inline-flex", alignItems:"center", justifyContent:"center",
+            }}>
+              <Icon as={X} size={12}/>
+            </button>
           )}
         </div>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
           <button onClick={cancelEdit} style={{
-            padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`,
-            background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 12, cursor: "pointer",
+            padding: "6px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub, fontFamily: "inherit",
+            fontSize: FONT.sm.size, fontWeight: 600, cursor: "pointer",
           }}>Annuler</button>
           <button onClick={saveEdit} style={{
-            padding: "5px 14px", borderRadius: 6, border: "none",
-            background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 12, fontWeight: 800, cursor: "pointer",
-          }}>✓ OK</button>
+            display:"inline-flex", alignItems:"center", gap:6,
+            padding: "6px 14px", borderRadius: RADIUS.md, border: "none",
+            background: acc.accent, color: acc.onAccent,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>
+            <Icon as={Check} size={14}/>
+            Enregistrer
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{
+    <div className="todo-row" style={{
       display: "flex", alignItems: "flex-start", gap: 10,
-      padding: "10px 12px", borderRadius: 10, marginBottom: 4,
+      padding: "10px 12px", borderRadius: RADIUS.md, marginBottom: 4,
       background: todo.fait ? "rgba(255,255,255,0.02)" : T.card,
       border: `1px solid ${todo.fait ? "transparent" : T.border}`,
-      transition: "all .15s", opacity: todo.fait ? 0.5 : 1,
+      borderLeft: todo.fait ? `1px solid transparent` : `3px solid ${prio.color}`,
+      transition: "all .15s", opacity: todo.fait ? 0.55 : 1,
     }}>
       {/* Checkbox */}
-      <button onClick={() => onToggle(todo.id)} style={{
-        width: 20, height: 20, borderRadius: 6, flexShrink: 0,
-        border: `2px solid ${todo.fait ? "#50c878" : prio.color}`,
-        background: todo.fait ? "#50c878" : "transparent",
-        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-        marginTop: 1,
-      }}>
-        {todo.fait && <span style={{ fontSize: 11, color: "#111", fontWeight: 900 }}>✓</span>}
+      <button onClick={() => onToggle(todo.id)} title={todo.fait ? "Marquer comme à faire" : "Marquer comme terminé"}
+        style={{
+          width: 20, height: 20, borderRadius: RADIUS.sm + 2, flexShrink: 0,
+          border: `2px solid ${todo.fait ? "#22c55e" : prio.color}`,
+          background: todo.fait ? "#22c55e" : "transparent",
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          marginTop: 2, padding: 0,
+        }}>
+        {todo.fait && <Icon as={Check} size={12} color="#ffffff" strokeWidth={3}/>}
       </button>
 
-      {/* Texte + priorité */}
+      {/* Texte + meta */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: 14, color: T.text,
+          fontSize: FONT.base.size, color: T.text,
           textDecoration: todo.fait ? "line-through" : "none",
           wordBreak: "break-word", lineHeight: 1.4,
         }}>
           {todo.texte}
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 4, alignItems: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 5, alignItems: "center" }}>
           {!todo.fait && (
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 3,
-              padding: "1px 8px", borderRadius: 10,
+            <span style={{
+              display: "inline-flex", alignItems: "center",
+              padding: "1px 8px", borderRadius: RADIUS.pill,
               background: prio.bg, color: prio.color,
-              fontSize: 10, fontWeight: 700,
-            }}>
-              {prio.label}
-            </div>
+              fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .3,
+            }}>{prio.label}</span>
           )}
           {todo.assigne_nom && (
-            <div title={todo.assigne_email || ""} style={{
+            <span title={todo.assigne_email || ""} style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              padding: "1px 8px", borderRadius: 10,
-              background: "rgba(91,138,245,0.12)", color: "#5b8af5",
-              fontSize: 10, fontWeight: 700,
+              padding: "1px 8px", borderRadius: RADIUS.pill,
+              background: acc.bg10, color: acc.accent,
+              fontSize: FONT.xs.size, fontWeight: 700,
             }}>
-              👤 {todo.assigne_nom}
-            </div>
+              <Icon as={User} size={10}/>
+              {todo.assigne_nom}
+            </span>
           )}
           {todo.date_limite && (() => {
             const todayIso = new Date().toISOString().slice(0, 10);
             const enRetard = !todo.fait && todo.date_limite < todayIso;
             const aujourdhui = todo.date_limite === todayIso;
-            const couleur = enRetard ? "#e05c5c" : aujourdhui ? "#f5a623" : "#5b8af5";
-            const bg = enRetard ? "rgba(224,92,92,0.15)" : aujourdhui ? "rgba(245,166,35,0.15)" : "rgba(91,138,245,0.10)";
+            const couleur = enRetard ? "#e15a5a" : aujourdhui ? "#f5a623" : T.textSub;
+            const bg = enRetard ? "rgba(225,90,90,0.12)" : aujourdhui ? "rgba(245,166,35,0.12)" : "rgba(255,255,255,0.04)";
             const dateAffichee = new Date(todo.date_limite + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
             return (
-              <div title={enRetard ? "Tâche en retard" : aujourdhui ? "Date limite aujourd'hui" : "Date limite"}
+              <span title={enRetard ? "Tâche en retard" : aujourdhui ? "Date limite aujourd'hui" : "Date limite"}
                 style={{
-                  display: "inline-flex", alignItems: "center", gap: 3,
-                  padding: "1px 8px", borderRadius: 10,
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  padding: "1px 8px", borderRadius: RADIUS.pill,
                   background: bg, color: couleur,
-                  fontSize: 10, fontWeight: 700,
+                  fontSize: FONT.xs.size, fontWeight: 700,
                 }}>
-                {enRetard ? "⏰" : "📅"} {dateAffichee}
-              </div>
+                <Icon as={enRetard ? AlarmClock : Calendar} size={10}/>
+                {dateAffichee}
+              </span>
             );
           })()}
           {todo.created_at && (
-            <span style={{ fontSize: 10, color: T.textMuted }}>
-              {new Date(todo.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+            <span style={{ fontSize: FONT.xs.size, color: T.textMuted, marginLeft:"auto" }}>
+              ajouté {new Date(todo.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
             </span>
           )}
         </div>
       </div>
 
       {/* Actions */}
-      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
         {!todo.fait && (
           <button onClick={startEdit} title="Modifier" style={{
             background: "transparent", border: "none", color: T.textMuted,
-            fontSize: 13, cursor: "pointer", padding: "2px 5px",
-            opacity: 0.5, transition: "opacity .15s",
+            cursor: "pointer", padding: 5, borderRadius: RADIUS.sm,
+            opacity: 0.55, transition: "opacity .15s, background .15s",
+            display:"inline-flex", alignItems:"center",
           }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "1"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "0.5"}>✏️</button>
+          onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
+            <Icon as={Pencil} size={13}/>
+          </button>
         )}
         <button onClick={() => onDelete(todo.id)} title="Supprimer" style={{
-          background: "transparent", border: "none", color: "#e05c5c",
-          fontSize: 13, cursor: "pointer", padding: "2px 5px",
-          opacity: 0.4, transition: "opacity .15s",
+          background: "transparent", border: "none", color: "#e15a5a",
+          cursor: "pointer", padding: 5, borderRadius: RADIUS.sm,
+          opacity: 0.45, transition: "opacity .15s, background .15s",
+          display:"inline-flex", alignItems:"center",
         }}
-        onMouseEnter={e => e.currentTarget.style.opacity = "1"}
-        onMouseLeave={e => e.currentTarget.style.opacity = "0.4"}>✕</button>
+        onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(225,90,90,0.08)"; }}
+        onMouseLeave={e => { e.currentTarget.style.opacity = "0.45"; e.currentTarget.style.background = "transparent"; }}>
+          <Icon as={X} size={14}/>
+        </button>
       </div>
     </div>
   );
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-function PageNotesEtTodo({ T, profil }) {
+function PageNotesEtTodo({ T, profil, branch = "renovation" }) {
+  const acc = getBranchAccent(branch);
   const [todos, setTodos]         = useState([]);
   const [notes, setNotes]         = useState("");
   const [notesSaved, setNotesSaved] = useState("");
@@ -449,16 +479,31 @@ function PageNotesEtTodo({ T, profil }) {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="ntd-header" style={{
-        padding: "16px 28px", borderBottom: `1px solid ${T.headerBorder || T.border}`,
+        padding: "14px 28px", borderBottom: `1px solid ${T.headerBorder || T.border}`,
         background: T.surface, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
         flexShrink: 0,
       }}>
-        <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}>
-          📋 NOTES & TO-DO
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: RADIUS.md,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={ClipboardList} size={18} strokeWidth={2}/>
+          </div>
+          <div style={{ fontSize: FONT.xl.size, fontWeight: 800, letterSpacing: -0.3, color: T.text }}>
+            Notes & To-do
+          </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-          {saving && <span style={{ fontSize: 11, color: T.textMuted }}>Sauvegarde…</span>}
-          {!saving && <span style={{ fontSize: 11, color: "#50c878" }}>✓ Synchronisé</span>}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", fontSize: FONT.xs.size + 1 }}>
+          {saving ? (
+            <span style={{ color: T.textMuted }}>Sauvegarde…</span>
+          ) : (
+            <span style={{ display:"inline-flex", alignItems:"center", gap:5, color: "#22c55e" }}>
+              <Icon as={CircleCheck} size={13}/>
+              Synchronisé
+            </span>
+          )}
         </div>
       </div>
 
@@ -476,48 +521,67 @@ function PageNotesEtTodo({ T, profil }) {
         }}>
           {/* Sous-header todo */}
           <div style={{
-            padding: "14px 20px 10px", borderBottom: `1px solid ${T.border}`,
+            padding: "14px 20px 12px", borderBottom: `1px solid ${T.border}`,
             background: T.surface, flexShrink: 0,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>
-                ✅ Liste de tâches
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Icon as={ListTodo} size={16} color={T.textSub}/>
+              <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text }}>
+                Liste de tâches
               </div>
               <div style={{
-                background: nbActifs > 0 ? "rgba(255,194,0,0.15)" : "rgba(80,200,120,0.15)",
-                color: nbActifs > 0 ? "#FFC200" : "#50c878",
-                borderRadius: 12, padding: "2px 9px", fontSize: 11, fontWeight: 800,
+                background: nbActifs > 0 ? acc.bg10 : "rgba(34,197,94,0.10)",
+                color: nbActifs > 0 ? acc.accent : "#22c55e",
+                borderRadius: RADIUS.pill, padding: "2px 10px",
+                fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .3,
               }}>
                 {nbActifs} à faire
               </div>
               {nbFaits > 0 && (
-                <button onClick={clearFaits} style={{
-                  marginLeft: "auto", background: "transparent",
-                  border: `1px solid rgba(224,92,92,0.3)`, borderRadius: 6,
-                  color: "#e05c5c", fontFamily: "inherit", fontSize: 11,
-                  cursor: "pointer", padding: "3px 10px",
-                }}>
-                  🗑 Vider les terminées ({nbFaits})
+                <button onClick={clearFaits} title={`Supprimer définitivement les ${nbFaits} tâches terminées`}
+                  style={{
+                    marginLeft: "auto",
+                    display:"inline-flex", alignItems:"center", gap:5,
+                    background: "transparent",
+                    border: `1px solid rgba(225,90,90,0.30)`, borderRadius: RADIUS.md,
+                    color: "#e15a5a", fontFamily: "inherit",
+                    fontSize: FONT.xs.size + 1, fontWeight: 600,
+                    cursor: "pointer", padding: "5px 10px",
+                  }}>
+                  <Icon as={Trash2} size={12}/>
+                  Vider terminées ({nbFaits})
                 </button>
               )}
             </div>
 
             {/* Filtres */}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
               {[
-                { id: "actif", label: `À faire (${nbActifs})` },
-                ...(monEmail ? [{ id: "mes", label: `👤 Mes tâches (${nbMes})`, highlight: nbMes > 0 }] : []),
-                { id: "fait",  label: `Terminées (${nbFaits})` },
-                { id: "tout",  label: `Tout (${todos.length})` },
-              ].map(f => (
-                <button key={f.id} onClick={() => setFiltre(f.id)} style={{
-                  padding: "5px 12px", borderRadius: 6, fontFamily: "inherit",
-                  fontSize: 12, fontWeight: 700, cursor: "pointer",
-                  border: `1px solid ${filtre === f.id ? T.accent : (f.highlight ? "#5b8af5" : T.border)}`,
-                  background: filtre === f.id ? "rgba(255,194,0,0.1)" : (f.highlight ? "rgba(91,138,245,0.08)" : "transparent"),
-                  color: filtre === f.id ? T.accent : (f.highlight ? "#5b8af5" : T.textSub),
-                }}>{f.label}</button>
-              ))}
+                { id: "actif", label: `À faire`, count: nbActifs },
+                ...(monEmail ? [{ id: "mes", label: `Mes tâches`, count: nbMes, icon: User, highlight: nbMes > 0 }] : []),
+                { id: "fait",  label: `Terminées`, count: nbFaits },
+                { id: "tout",  label: `Tout`, count: todos.length },
+              ].map(f => {
+                const active = filtre === f.id;
+                return (
+                  <button key={f.id} onClick={() => setFiltre(f.id)} style={{
+                    display:"inline-flex", alignItems:"center", gap:5,
+                    padding: "5px 11px", borderRadius: RADIUS.md, fontFamily: "inherit",
+                    fontSize: FONT.xs.size + 1, fontWeight: active ? 700 : 600,
+                    cursor: "pointer",
+                    border: `1px solid ${active ? acc.accent : T.border}`,
+                    background: active ? acc.bg10 : "transparent",
+                    color: active ? acc.accent : T.textSub,
+                  }}>
+                    {f.icon && <Icon as={f.icon} size={11}/>}
+                    {f.label}
+                    <span style={{
+                      fontSize: FONT.xs.size, fontWeight: 700,
+                      opacity: active ? .8 : .55,
+                    }}>({f.count})</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -526,7 +590,7 @@ function PageNotesEtTodo({ T, profil }) {
             padding: "12px 20px", borderBottom: `1px solid ${T.border}`,
             background: T.surface, flexShrink: 0,
           }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
               <input
                 ref={inputRef}
                 value={newTodo}
@@ -534,67 +598,87 @@ function PageNotesEtTodo({ T, profil }) {
                 onKeyDown={e => { if (e.key === "Enter") addTodo(); }}
                 placeholder="Nouvelle tâche… (Entrée pour valider)"
                 style={{
-                  flex: 1, padding: "9px 12px", borderRadius: 8,
+                  flex: 1, padding: "9px 12px", borderRadius: RADIUS.md,
                   border: `1px solid ${T.border}`, background: T.card,
-                  color: T.text, fontFamily: "inherit", fontSize: 14,
+                  color: T.text, fontFamily: "inherit", fontSize: FONT.base.size,
+                  outline: "none", transition: "border-color .12s",
                 }}
+                onFocus={e => e.target.style.borderColor = acc.accent}
+                onBlur={e => e.target.style.borderColor = T.border}
               />
               <button onClick={addTodo} disabled={!newTodo.trim()} style={{
-                background: newTodo.trim() ? T.accent : T.textMuted,
-                border: "none", borderRadius: 8, padding: "9px 16px",
-                color: "#111", fontFamily: "inherit", fontSize: 13,
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: newTodo.trim() ? acc.accent : T.card,
+                border: newTodo.trim() ? "none" : `1px solid ${T.border}`,
+                borderRadius: RADIUS.md, padding: "9px 16px",
+                color: newTodo.trim() ? acc.onAccent : T.textMuted,
+                fontFamily: "inherit", fontSize: FONT.sm.size + 1,
                 fontWeight: 800, cursor: newTodo.trim() ? "pointer" : "not-allowed",
                 flexShrink: 0,
-              }}>+ Ajouter</button>
+              }}>
+                <Icon as={Plus} size={15}/>
+                Ajouter
+              </button>
             </div>
-            {/* Sélecteur priorité + assigné */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ display: "flex", gap: 6 }}>
+            {/* Sélecteur priorité + assigné + date */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 5 }}>
                 {PRIORITES.map(p => (
                   <button key={p.id} onClick={() => setNewPrio(p.id)} style={{
-                    padding: "4px 12px", borderRadius: 14,
+                    padding: "4px 11px", borderRadius: RADIUS.pill,
                     border: `1.5px solid ${newPrio === p.id ? p.color : T.border}`,
                     background: newPrio === p.id ? p.bg : "transparent",
                     color: newPrio === p.id ? p.color : T.textSub,
-                    fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
                   }}>{p.label}</button>
                 ))}
               </div>
-              <select value={newAssigne} onChange={e => setNewAssigne(e.target.value)} style={{
-                flex: 1, minWidth: 160, padding: "5px 10px", borderRadius: 8,
-                border: `1px solid ${newAssigne ? "#5b8af5" : T.border}`,
-                background: T.card, color: newAssigne ? "#5b8af5" : T.textMuted,
-                fontFamily: "inherit", fontSize: 12, outline: "none", fontWeight: newAssigne ? 700 : 500,
-              }}>
-                <option value="">👤 Personne assignée (optionnel)</option>
-                {utilisateurs.map(u => (
-                  <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
-                ))}
-              </select>
+              <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
+                <Icon as={User} size={13}
+                  style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)",
+                    color: newAssigne ? acc.accent : T.textMuted, pointerEvents:"none" }}/>
+                <select value={newAssigne} onChange={e => setNewAssigne(e.target.value)} style={{
+                  width:"100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
+                  border: `1px solid ${newAssigne ? acc.border : T.border}`,
+                  background: T.card, color: newAssigne ? T.text : T.textMuted,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+                  fontWeight: newAssigne ? 600 : 500,
+                }}>
+                  <option value="">Personne assignée (optionnel)</option>
+                  {utilisateurs.map(u => (
+                    <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
+                  ))}
+                </select>
+              </div>
               <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
                 title="Date limite (optionnel)" style={{
-                  padding: "5px 10px", borderRadius: 8,
+                  padding: "6px 10px", borderRadius: RADIUS.md,
                   border: `1px solid ${newDate ? "#f5a623" : T.border}`,
                   background: T.card, color: newDate ? "#f5a623" : T.textMuted,
-                  fontFamily: "inherit", fontSize: 12, outline: "none", fontWeight: newDate ? 700 : 500,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+                  fontWeight: newDate ? 700 : 500,
                 }}/>
               {newDate && (
                 <button onClick={() => setNewDate("")} title="Retirer la date" style={{
-                  padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.border}`,
-                  background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 11, cursor: "pointer",
-                }}>✕</button>
+                  padding: "5px 7px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                  background: "transparent", color: T.textSub, fontFamily: "inherit",
+                  cursor: "pointer",
+                  display: "inline-flex", alignItems: "center",
+                }}>
+                  <Icon as={X} size={12}/>
+                </button>
               )}
             </div>
             {notifStatus && (
               <div style={{
-                marginTop: 8, padding: "5px 10px", borderRadius: 6,
-                background: notifStatus.startsWith("⚠") ? "rgba(245,166,35,0.12)"
-                          : notifStatus.startsWith("✓") ? "rgba(80,200,120,0.12)"
-                          : "rgba(91,138,245,0.1)",
-                color: notifStatus.startsWith("⚠") ? "#f5a623"
-                     : notifStatus.startsWith("✓") ? "#50c878"
-                     : "#5b8af5",
-                fontSize: 11, fontWeight: 600,
+                marginTop: 8, padding: "6px 12px", borderRadius: RADIUS.md,
+                background: notifStatus.startsWith("⚠") ? "rgba(245,166,35,0.10)"
+                          : notifStatus.startsWith("✓") ? "rgba(34,197,94,0.10)"
+                          : acc.bg10,
+                color:      notifStatus.startsWith("⚠") ? "#f5a623"
+                          : notifStatus.startsWith("✓") ? "#22c55e"
+                          : acc.accent,
+                fontSize: FONT.xs.size + 1, fontWeight: 600,
               }}>{notifStatus}</div>
             )}
           </div>
@@ -604,14 +688,20 @@ function PageNotesEtTodo({ T, profil }) {
             {todosFiltres.length === 0 ? (
               <div style={{
                 display: "flex", flexDirection: "column", alignItems: "center",
-                justifyContent: "center", height: "100%", gap: 12,
-                color: T.textMuted, fontSize: 13,
+                justifyContent: "center", height: "100%", gap: 14,
+                color: T.textMuted, fontSize: FONT.sm.size,
               }}>
-                <div style={{ fontSize: 40 }}>
-                  {filtre === "fait" ? "🎉" : "✅"}
+                <div style={{
+                  width: 56, height: 56, borderRadius: "50%",
+                  background: filtre === "fait" ? "rgba(34,197,94,0.10)" : acc.bg10,
+                  color: filtre === "fait" ? "#22c55e" : acc.accent,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon as={filtre === "fait" ? CircleCheck : ListTodo} size={28} strokeWidth={1.75}/>
                 </div>
                 {filtre === "actif" && "Aucune tâche en cours — bien joué !"}
                 {filtre === "fait" && "Aucune tâche terminée"}
+                {filtre === "mes" && "Aucune tâche assignée à vous"}
                 {filtre === "tout" && "Aucune tâche pour l'instant"}
               </div>
             ) : (
@@ -624,6 +714,7 @@ function PageNotesEtTodo({ T, profil }) {
                   onEdit={editTodo}
                   T={T}
                   utilisateurs={utilisateurs}
+                  acc={acc}
                 />
               ))
             )}
@@ -634,30 +725,41 @@ function PageNotesEtTodo({ T, profil }) {
         <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
           {/* Sous-header notes */}
           <div style={{
-            padding: "14px 20px 10px", borderBottom: `1px solid ${T.border}`,
+            padding: "14px 20px 12px", borderBottom: `1px solid ${T.border}`,
             background: T.surface, flexShrink: 0,
             display: "flex", alignItems: "center", gap: 10,
           }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>
-              📝 Notes libres
+            <Icon as={FileText} size={16} color={T.textSub}/>
+            <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text }}>
+              Notes libres
             </div>
-            <div style={{ marginLeft: "auto", fontSize: 11 }}>
+            <div style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, display:"inline-flex", alignItems:"center", gap:6 }}>
               {notesSaveStatus === "saving" && (
-                <span style={{ color: T.textMuted }}>⏳ Enregistrement…</span>
+                <span style={{ color: T.textMuted }}>Enregistrement…</span>
               )}
               {notesSaveStatus === "saved" && (
-                <span style={{ color: "#50c878" }}>✓ Sauvegardé</span>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:5, color: "#22c55e", fontWeight:600 }}>
+                  <Icon as={CircleCheck} size={13}/>
+                  Sauvegardé
+                </span>
               )}
               {notesSaveStatus === "" && notesDirty && (
-                <span style={{ color: "#f5a623" }}>● Non sauvegardé</span>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:5, color: "#f5a623", fontWeight:600 }}>
+                  <Icon as={Circle} size={9} fill="#f5a623"/>
+                  Non sauvegardé
+                </span>
               )}
             </div>
             {notesDirty && notesSaveStatus === "" && (
               <button onClick={() => saveNotes(notes)} style={{
-                padding: "5px 12px", borderRadius: 6, border: "none",
-                background: T.accent, color: "#111",
-                fontFamily: "inherit", fontSize: 11, fontWeight: 800, cursor: "pointer",
-              }}>Sauvegarder</button>
+                display:"inline-flex", alignItems:"center", gap:5,
+                padding: "5px 12px", borderRadius: RADIUS.md, border: "none",
+                background: acc.accent, color: acc.onAccent,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer",
+              }}>
+                <Icon as={Check} size={12}/>
+                Sauvegarder
+              </button>
             )}
           </div>
 
@@ -670,12 +772,12 @@ function PageNotesEtTodo({ T, profil }) {
               style={{
                 flex: 1, width: "100%", padding: "14px 16px",
                 background: T.card, border: `1px solid ${T.border}`,
-                borderRadius: 12, color: T.text,
-                fontFamily: "inherit", fontSize: 14, lineHeight: 1.7,
+                borderRadius: RADIUS.lg, color: T.text,
+                fontFamily: "inherit", fontSize: FONT.base.size, lineHeight: 1.7,
                 resize: "none", outline: "none",
                 transition: "border-color .15s",
               }}
-              onFocus={e => e.target.style.borderColor = T.accent}
+              onFocus={e => e.target.style.borderColor = acc.accent}
               onBlur={e => {
                 e.target.style.borderColor = T.border;
                 if (notesDirty) saveNotes(notes);
@@ -683,10 +785,10 @@ function PageNotesEtTodo({ T, profil }) {
             />
             <div style={{
               display: "flex", justifyContent: "space-between", alignItems: "center",
-              marginTop: 8, fontSize: 11, color: T.textMuted,
+              marginTop: 8, fontSize: FONT.xs.size + 1, color: T.textMuted,
             }}>
               <span>{notes.length} caractères · {notes.split("\n").filter(l => l.trim()).length} lignes</span>
-              <span>Sauvegarde automatique après 1,5 s</span>
+              <span>Sauvegarde auto après 1,5 s</span>
             </div>
           </div>
         </div>
