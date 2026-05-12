@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
+import { FONT, RADIUS, getBranchAccent } from "./constants";
+import { Icon } from "./ui";
+import {
+  ClipboardCheck, Plus, Trash2, ChevronLeft as ChevronLeftIcon,
+  ChevronRight, ChevronUp, ChevronDown, Check, X, AlertTriangle,
+  Building2, Calendar, MessageSquare, Save, History, ArrowRight,
+  Eye, FileWarning,
+} from "lucide-react";
 
 // ─── PHASES (mêmes IDs que Phasage.jsx) ──────────────────────────────────────
 const PHASES = [
@@ -57,12 +65,15 @@ async function removeVisite(id) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageVisiteChantier({ chantiers = [], T }) {
+export default function PageVisiteChantier({ chantiers = [], T, branch = "renovation" }) {
+  const acc = getBranchAccent(branch);
   const [view,     setView]     = useState("liste");
   const [visites,  setVisites]  = useState([]);
   const [phasages, setPhasages] = useState([]);
   const [selected, setSelected] = useState(null);
   const [saving,   setSaving]   = useState(false);
+  const [toDelete, setToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadVisites().then(setVisites);
@@ -83,55 +94,123 @@ export default function PageVisiteChantier({ chantiers = [], T }) {
     setView("liste");
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm("Supprimer cette visite ?")) return;
-    const ok = await removeVisite(id);
-    if (ok) setVisites(prev => prev.filter(v => v.id !== id));
-    setView("liste");
+  const askDelete = (v) => setToDelete(v);
+  const confirmDelete = async () => {
+    if (!toDelete) return;
+    setDeleting(true);
+    const ok = await removeVisite(toDelete.id);
+    if (ok) setVisites(prev => prev.filter(v => v.id !== toDelete.id));
+    setDeleting(false);
+    setToDelete(null);
+    if (selected?.id === toDelete.id) { setSelected(null); setView("liste"); }
   };
 
+  const deleteModal = toDelete && (
+    <div onClick={() => !deleting && setToDelete(null)} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.modal, borderRadius: RADIUS.xl, padding: 24,
+        width: "100%", maxWidth: 420, border: `1px solid ${T.border}`,
+        boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
+            background: "rgba(224,92,92,0.12)", color: "#e15a5a",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={AlertTriangle} size={20}/>
+          </div>
+          <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Supprimer cette visite&nbsp;?</div>
+        </div>
+        <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
+          La visite du <strong style={{ color: T.text }}>{fmtDate(toDelete.date)}</strong> sera définitivement supprimée avec tout son audit et ses commentaires.
+          <br/><span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>Cette action est irréversible.</span>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => setToDelete(null)} disabled={deleting}
+            style={{ background: "transparent", border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.md, padding: "9px 18px", color: T.textSub,
+              fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer", opacity: deleting ? .5 : 1 }}>
+            Annuler
+          </button>
+          <button onClick={confirmDelete} disabled={deleting}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6,
+              background: "#e15a5a", color: "#fff", border: "none",
+              borderRadius: RADIUS.md, padding: "9px 18px",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+              cursor: "pointer", opacity: deleting ? .6 : 1 }}>
+            <Icon as={Trash2} size={13}/>
+            {deleting ? "Suppression…" : "Supprimer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (view === "new") return (
-    <FormVisite
-      chantiers={chantiers}
-      phasages={phasages}
-      T={T}
-      saving={saving}
-      onSave={handleSave}
-      onCancel={() => setView("liste")}
-    />
+    <>
+      {deleteModal}
+      <FormVisite
+        chantiers={chantiers}
+        phasages={phasages}
+        T={T} acc={acc}
+        saving={saving}
+        onSave={handleSave}
+        onCancel={() => setView("liste")}
+      />
+    </>
   );
 
   if (view === "audit" && selected) return (
-    <AuditVisite
-      visite={selected}
-      chantiers={chantiers}
-      phasages={phasages}
-      T={T}
-      saving={saving}
-      onSave={async (v) => { setSelected(v); await handleSave(v); setView("audit"); setSaving(false); }}
-      onBack={() => setView("liste")}
-      onDelete={() => handleDelete(selected.id)}
-    />
+    <>
+      {deleteModal}
+      <AuditVisite
+        visite={selected}
+        chantiers={chantiers}
+        phasages={phasages}
+        toutesVisites={visites}
+        T={T} acc={acc}
+        saving={saving}
+        onSave={async (v) => { setSelected(v); await handleSave(v); setView("audit"); setSaving(false); }}
+        onBack={() => setView("liste")}
+        onDelete={() => askDelete(selected)}
+      />
+    </>
   );
 
   return (
-    <ListeVisites
-      visites={visites}
-      chantiers={chantiers}
-      T={T}
-      onNew={() => setView("new")}
-      onSelect={v => { setSelected(v); setView("audit"); }}
-      onDelete={handleDelete}
-    />
+    <>
+      {deleteModal}
+      <ListeVisites
+        visites={visites}
+        chantiers={chantiers}
+        T={T} acc={acc}
+        onNew={() => setView("new")}
+        onSelect={v => { setSelected(v); setView("audit"); }}
+        onDelete={askDelete}
+      />
+    </>
   );
 }
 
 // ─── LISTE ────────────────────────────────────────────────────────────────────
-function ListeVisites({ visites, chantiers, T, onNew, onSelect, onDelete }) {
+function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete }) {
   const ch = (id) => chantiers.find(c => c.id === id);
 
+  // ── Stats globales
+  const toutesTaches = visites.flatMap(v => Object.values(v.audit || {}).flat());
+  const stats = {
+    total: visites.length,
+    enCours: visites.filter(v => v.statut === "en_cours").length,
+    nbReserves: toutesTaches.filter(t => t.statut === "reserve").length,
+    nbNOK: toutesTaches.filter(t => t.statut === "nok").length,
+  };
+
   return (
-    <div className="page-padding visite-liste" style={{ padding: "24px 28px", maxWidth: 860, margin: "0 auto", flex: 1, overflowY: "auto" }}>
+    <div className="page-padding visite-liste" style={{ padding: "24px 28px", background: T.bg, flex: 1, overflowY: "auto" }}>
       <style>{`
         @media(max-width:767px) {
           .visite-liste .visite-row{flex-wrap:wrap!important;padding:12px!important;gap:10px!important}
@@ -141,220 +220,501 @@ function ListeVisites({ visites, chantiers, T, onNew, onSelect, onDelete }) {
           .visite-liste .visite-row > span,.visite-liste .visite-row > button{order:4}
         }
       `}</style>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap:"wrap", gap:10 }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: -0.5 }}>Visites de chantier</div>
-          <div style={{ fontSize: 13, color: T.textMuted, marginTop: 3 }}>{visites.length} visite{visites.length !== 1 ? "s" : ""}</div>
-        </div>
-        <button onClick={onNew} style={{
-          padding: "10px 22px", borderRadius: 10, border: "none", cursor: "pointer",
-          background: T.accent, color: "#111", fontFamily: "inherit",
-          fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8,
-        }}>+ Nouvelle visite</button>
-      </div>
 
-      {visites.length === 0 && (
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        {/* ── Header ── */}
         <div style={{
-          background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 14,
-          padding: 60, textAlign: "center", color: T.textMuted,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          marginBottom: 20, flexWrap: "wrap", gap: 12,
         }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>Aucune visite</div>
-          <div style={{ fontSize: 13, marginTop: 6 }}>Créez votre première visite de chantier</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: RADIUS.md,
+              background: acc.bg10, color: acc.accent,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <Icon as={ClipboardCheck} size={20} strokeWidth={2}/>
+            </div>
+            <div>
+              <div style={{ fontSize: FONT.xl.size + 4, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginBottom: 2 }}>
+                Visites de chantier
+              </div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+                Audits terrain pour s'assurer que tout est conforme
+              </div>
+            </div>
+          </div>
+          <button onClick={onNew} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 16px", borderRadius: RADIUS.md, border: "none",
+            background: acc.accent, color: acc.onAccent,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>
+            <Icon as={Plus} size={14}/>
+            Nouvelle visite
+          </button>
         </div>
-      )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {visites.map(v => {
-          const c = ch(v.chantier_id);
-          const audit = v.audit || {};
-          const toutes = Object.values(audit).flat();
-          const nb_ok  = toutes.filter(t => t.statut === "ok").length;
-          const nb_res = toutes.filter(t => t.statut === "reserve").length;
-          const nb_nok = toutes.filter(t => t.statut === "nok").length;
-          const total  = toutes.length;
-          const st = STATUTS.find(s => s.id === v.statut);
-
-          return (
-            <div key={v.id} className="visite-row" onClick={() => onSelect(v)} style={{
-              background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12,
-              padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 16,
-              transition: "border-color .15s",
-            }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
-              onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
-            >
-              <div style={{
-                width: 44, height: 44, borderRadius: 10,
-                background: (c?.couleur || T.accent) + "22",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20, flexShrink: 0,
-              }}>🔍</div>
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
-                  {c?.nom || v.chantier_id}
+        {/* ── Stats ── */}
+        {visites.length > 0 && (
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+            gap: 10, marginBottom: 18,
+          }}>
+            {[
+              { label: "Visites",      val: stats.total,      icon: ClipboardCheck, color: acc.accent },
+              { label: "En cours",     val: stats.enCours,    icon: History,        color: "#5b9cf6" },
+              { label: "Réserves",     val: stats.nbReserves, icon: AlertTriangle,  color: stats.nbReserves > 0 ? "#f59e0b" : T.textMuted },
+              { label: "Non conformes",val: stats.nbNOK,      icon: FileWarning,    color: stats.nbNOK > 0 ? "#e15a5a" : T.textMuted },
+            ].map(s => (
+              <div key={s.label} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderRadius: RADIUS.lg, padding: "12px 14px",
+                display: "flex", alignItems: "center", gap: 10,
+              }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+                  background: s.color + "18", color: s.color,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon as={s.icon} size={16} strokeWidth={2}/>
                 </div>
-                <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>
-                  Visite du {fmtDate(v.date)}
-                  {v.note_generale && " · Note rédigée"}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.xl.size, fontWeight: 800, color: T.text, letterSpacing: -.5, lineHeight: 1 }}>{s.val}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, fontWeight: 600, letterSpacing: .3 }}>{s.label}</div>
                 </div>
-                {/* Barre de progression audit */}
-                {total > 0 && (
-                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2, overflow: "hidden", display: "flex" }}>
-                      {nb_ok  > 0 && <div style={{ width: `${(nb_ok /total)*100}%`,  height: "100%", background: "#22c55e" }} />}
-                      {nb_res > 0 && <div style={{ width: `${(nb_res/total)*100}%`, height: "100%", background: "#f59e0b" }} />}
-                      {nb_nok > 0 && <div style={{ width: `${(nb_nok/total)*100}%`, height: "100%", background: "#ef4444" }} />}
-                    </div>
-                    <span style={{ fontSize: 11, color: T.textMuted, whiteSpace: "nowrap" }}>
-                      {total} tâche{total > 1 ? "s" : ""}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Empty state ── */}
+        {visites.length === 0 && (
+          <div style={{
+            background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl,
+            padding: "48px 32px", textAlign: "center", maxWidth: 540, margin: "0 auto",
+          }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: RADIUS.lg,
+              background: acc.bg10, color: acc.accent,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14,
+            }}>
+              <Icon as={ClipboardCheck} size={28} strokeWidth={1.5}/>
+            </div>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 700, color: T.text, marginBottom: 8 }}>Aucune visite pour l'instant</div>
+            <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.7, marginBottom: 22 }}>
+              Crée une visite pour auditer un chantier en cours : pointe les tâches conformes, les réserves et les non-conformités.
+            </div>
+            <button onClick={onNew} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: acc.accent, color: acc.onAccent, border: "none",
+              borderRadius: RADIUS.md, padding: "11px 22px",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+            }}>
+              <Icon as={Plus} size={14}/>
+              Créer ma première visite
+            </button>
+          </div>
+        )}
+
+        {/* ── Liste ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {visites.map(v => {
+            const c = ch(v.chantier_id);
+            const audit = v.audit || {};
+            const toutes = Object.values(audit).flat();
+            const nb_ok  = toutes.filter(t => t.statut === "ok").length;
+            const nb_res = toutes.filter(t => t.statut === "reserve").length;
+            const nb_nok = toutes.filter(t => t.statut === "nok").length;
+            const total  = toutes.length;
+            const st = STATUTS.find(s => s.id === v.statut);
+            const accentColor = c?.couleur || acc.accent;
+
+            return (
+              <div key={v.id} className="visite-row" onClick={() => onSelect(v)} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderLeft: `4px solid ${accentColor}`,
+                borderRadius: RADIUS.xl, padding: "14px 18px",
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 14,
+                transition: "all .15s",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.borderLeftColor = accentColor; e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.12)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.borderLeftColor = accentColor; e.currentTarget.style.boxShadow = "none"; }}>
+
+                <div style={{
+                  width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
+                  background: accentColor + "22", border: `1.5px solid ${accentColor}44`,
+                  color: accentColor,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon as={Building2} size={16} strokeWidth={2}/>
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text, letterSpacing: -.2 }}>
+                    {c?.nom || v.chantier_id}
+                  </div>
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 3, display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <Icon as={Calendar} size={11}/>
+                      {fmtDate(v.date)}
                     </span>
+                    {v.note_generale && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Icon as={MessageSquare} size={11}/>
+                        Note
+                      </span>
+                    )}
+                    {Array.isArray(v.phases_auditees) && v.phases_auditees.length > 0 && v.phases_auditees.length < PHASES.length && (
+                      <span style={{ color: acc.accent, fontWeight: 600 }}>
+                        · {v.phases_auditees.length} phase{v.phases_auditees.length > 1 ? "s" : ""} auditée{v.phases_auditees.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                  {total > 0 && (
+                    <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1, height: 5, background: T.border, borderRadius: 3, overflow: "hidden", display: "flex" }}>
+                        {nb_ok  > 0 && <div style={{ width: `${(nb_ok /total)*100}%`,  height: "100%", background: "#22c55e" }} />}
+                        {nb_res > 0 && <div style={{ width: `${(nb_res/total)*100}%`, height: "100%", background: "#f59e0b" }} />}
+                        {nb_nok > 0 && <div style={{ width: `${(nb_nok/total)*100}%`, height: "100%", background: "#ef4444" }} />}
+                      </div>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, whiteSpace: "nowrap", fontWeight: 600 }}>
+                        {total - toutes.filter(t => !t.statut).length}/{total} évaluées
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {total > 0 && (
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {nb_ok  > 0 && <Pill val={nb_ok}  color="#22c55e" label="OK"  />}
+                    {nb_res > 0 && <Pill val={nb_res} color="#f59e0b" label="Rés" />}
+                    {nb_nok > 0 && <Pill val={nb_nok} color="#ef4444" label="NOK" />}
                   </div>
                 )}
+
+                <span style={{
+                  padding: "3px 10px", borderRadius: RADIUS.pill,
+                  fontSize: FONT.xs.size, fontWeight: 700,
+                  background: (st?.color || "#888") + "22", color: st?.color || "#888",
+                  border: `1px solid ${(st?.color || "#888")}33`, flexShrink: 0,
+                }}>{st?.label || v.statut}</span>
+
+                <button onClick={e => { e.stopPropagation(); onDelete(v); }} title="Supprimer"
+                  style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: "transparent", border: `1px solid rgba(224,92,92,0.3)`,
+                    borderRadius: RADIUS.md, padding: "6px 9px", color: "#e15a5a",
+                    cursor: "pointer", flexShrink: 0,
+                  }}>
+                  <Icon as={Trash2} size={13}/>
+                </button>
+                <Icon as={ChevronRight} size={16} color={T.textMuted}/>
               </div>
-
-              {/* Compteurs */}
-              {total > 0 && (
-                <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-                  {nb_ok  > 0 && <Pill val={nb_ok}  color="#22c55e" label="OK"  />}
-                  {nb_res > 0 && <Pill val={nb_res} color="#f59e0b" label="Rés" />}
-                  {nb_nok > 0 && <Pill val={nb_nok} color="#ef4444" label="NOK" />}
-                </div>
-              )}
-
-              <span style={{
-                padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-                background: (st?.color || "#888") + "22", color: st?.color || "#888", flexShrink: 0,
-              }}>{st?.label || v.statut}</span>
-
-              <button onClick={e => { e.stopPropagation(); onDelete(v.id); }} style={{
-                background: "transparent", border: `1px solid rgba(224,92,92,0.3)`,
-                borderRadius: 6, padding: "4px 8px", color: "#e05c5c",
-                cursor: "pointer", fontSize: 13, flexShrink: 0,
-              }}>🗑</button>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
 // ─── FORMULAIRE CRÉATION ──────────────────────────────────────────────────────
-function FormVisite({ chantiers, phasages, T, saving, onSave, onCancel }) {
+function FormVisite({ chantiers, phasages, T, acc, saving, onSave, onCancel }) {
   const [chantierId, setChantierId] = useState(chantiers[0]?.id || "");
   const [date,       setDate]       = useState(today());
+  const [phasesSel,  setPhasesSel]  = useState([]); // IDs des phases à auditer
 
   const phasage = phasages.find(p => p.chantier_id === chantierId);
   const plan    = phasage?.plan_travaux || {};
-  const taches  = PHASES.flatMap(ph => (plan[ph.id] || []).map(t => ({ ...t, phaseId: ph.id })));
+  const phasesAvecTaches = PHASES.filter(ph => (plan[ph.id] || []).length > 0);
+
+  // ── Quand on change de chantier : pré-sélectionner toutes les phases qui ont
+  //    des tâches non terminées (avancement < 100%). Les phases entièrement
+  //    terminées sont par défaut décochées car peu d'intérêt à les ré-auditer.
+  useEffect(() => {
+    const presel = phasesAvecTaches.filter(ph => {
+      const ts = plan[ph.id] || [];
+      return ts.some(t => (parseFloat(t.avancement) || 0) < 100);
+    }).map(ph => ph.id);
+    setPhasesSel(presel.length > 0 ? presel : phasesAvecTaches.map(ph => ph.id));
+  }, [chantierId]);
+
+  const togglePhase = (id) => {
+    setPhasesSel(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
+  };
+  const toutCocher = () => setPhasesSel(phasesAvecTaches.map(ph => ph.id));
+  const toutDecocher = () => setPhasesSel([]);
 
   const handleCreate = () => {
     if (!chantierId) return;
-    // Initialiser l'audit avec toutes les tâches du plan (statut vide)
     const audit = {};
     PHASES.forEach(ph => {
       const ts = plan[ph.id] || [];
-      if (ts.length > 0) {
+      if (ts.length > 0 && phasesSel.includes(ph.id)) {
         audit[ph.id] = ts.map(t => ({
           tache_id:   t.id,
           nom:        t.nom,
           ouvrage:    t.ouvrage_libelle || "",
           h_vendues:  t.heures_vendues || 0,
           avancement: t.avancement || 0,
-          statut:     null,   // null = non évalué
+          statut:     null,
           commentaire: "",
         }));
       }
     });
     onSave({
-      id:            genId(),
-      chantier_id:   chantierId,
+      id:              genId(),
+      chantier_id:     chantierId,
       date,
-      statut:        "en_cours",
+      statut:          "en_cours",
       audit,
-      note_generale: "",
+      note_generale:   "",
+      phases_auditees: phasesSel,
     });
   };
 
-  return (
-    <div className="page-padding" style={{ padding: "24px 28px", maxWidth: 720, margin: "0 auto", flex: 1, overflowY: "auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 28 }}>
-        <button onClick={onCancel} style={{
-          background: T.card, border: `1px solid ${T.border}`, borderRadius: 8,
-          padding: "6px 14px", cursor: "pointer", color: T.text, fontFamily: "inherit", fontSize: 13,
-        }}>← Retour</button>
-        <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Nouvelle visite</div>
-      </div>
+  const ch = chantiers.find(c => c.id === chantierId);
+  const accentChantier = ch?.couleur || acc.accent;
 
-      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 24, marginBottom: 20 }}>
-        <Label T={T}>Informations générales</Label>
-        <div className="responsive-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 14 }}>
-          <div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 6 }}>Chantier *</div>
-            <select value={chantierId} onChange={e => setChantierId(e.target.value)} style={selectStyle(T)}>
-              {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-            </select>
+  return (
+    <div className="page-padding" style={{ padding: "24px 28px", background: T.bg, flex: 1, overflowY: "auto" }}>
+      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        {/* ── Bouton retour ── */}
+        <button onClick={onCancel} style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "7px 12px", borderRadius: RADIUS.md,
+          border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer", marginBottom: 14,
+        }}>
+          <Icon as={ChevronLeftIcon} size={13}/>
+          Retour
+        </button>
+
+        {/* ── Header ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: RADIUS.md,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={ClipboardCheck} size={20} strokeWidth={2}/>
           </div>
           <div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 6 }}>Date de visite</div>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...selectStyle(T), colorScheme: "dark" }} />
+            <div style={{ fontSize: FONT.xl.size + 2, fontWeight: 800, color: T.text, letterSpacing: -0.3 }}>Nouvelle visite</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Choisis un chantier, une date, puis les phases à auditer</div>
           </div>
         </div>
-      </div>
 
-      {/* Aperçu plan */}
-      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 24, marginBottom: 24 }}>
-        <Label T={T}>Plan de travail associé</Label>
-        {!phasage ? (
-          <div style={{ color: T.textMuted, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
-            Aucun plan de travail trouvé pour ce chantier.
+        {/* ── Infos générales ── */}
+        <div style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.xl, padding: 20, marginBottom: 14,
+        }}>
+          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 12 }}>
+            Informations générales
           </div>
-        ) : taches.length === 0 ? (
-          <div style={{ color: T.textMuted, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
-            Le plan de travail est vide.
+          <div className="responsive-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: T.textMuted, marginBottom: 6 }}>
+                <Icon as={Building2} size={11}/>
+                Chantier *
+              </div>
+              <select value={chantierId} onChange={e => setChantierId(e.target.value)} style={selectStyle(T)}>
+                {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: T.textMuted, marginBottom: 6 }}>
+                <Icon as={Calendar} size={11}/>
+                Date de visite
+              </div>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...selectStyle(T), colorScheme: "dark" }} />
+            </div>
           </div>
-        ) : (
-          <div style={{ marginTop: 14 }}>
-            <AvancementGlobal taches={taches} T={T} />
-            {PHASES.map(ph => {
-              const ts = plan[ph.id] || [];
-              if (!ts.length) return null;
-              return <MiniPhase key={ph.id} phase={ph} taches={ts} T={T} />;
-            })}
-          </div>
-        )}
-      </div>
+        </div>
 
-      <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-        <button onClick={onCancel} style={{ padding: "10px 24px", borderRadius: 10, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 14, cursor: "pointer" }}>Annuler</button>
-        <button onClick={handleCreate} disabled={saving || !chantierId} style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: saving ? T.textMuted : T.accent, color: "#111", fontFamily: "inherit", fontSize: 14, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
-          {saving ? "Création…" : "Créer la visite →"}
-        </button>
+        {/* ── Sélecteur de phases à auditer ── */}
+        <div style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.xl, padding: 20, marginBottom: 18,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 4 }}>
+                Portée de l'audit
+              </div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                Coche les phases que tu vas vérifier aujourd'hui. Tu pourras élargir ensuite.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={toutCocher} style={{
+                padding: "5px 10px", borderRadius: RADIUS.sm,
+                border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer",
+              }}>Tout cocher</button>
+              <button onClick={toutDecocher} style={{
+                padding: "5px 10px", borderRadius: RADIUS.sm,
+                border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer",
+              }}>Tout décocher</button>
+            </div>
+          </div>
+
+          {!phasage ? (
+            <div style={{
+              padding: "14px 16px", background: "rgba(245,166,35,0.08)",
+              border: "1px solid rgba(245,166,35,0.25)", borderRadius: RADIUS.md,
+              display: "flex", alignItems: "center", gap: 8,
+              fontSize: FONT.sm.size, color: "#f5a623",
+            }}>
+              <Icon as={AlertTriangle} size={14}/>
+              Aucun phasage trouvé pour ce chantier. Créez-en un dans l'onglet Phasage.
+            </div>
+          ) : phasesAvecTaches.length === 0 ? (
+            <div style={{
+              padding: "14px 16px", background: T.card,
+              border: `1px dashed ${T.border}`, borderRadius: RADIUS.md,
+              fontSize: FONT.sm.size, color: T.textMuted,
+            }}>
+              Le plan de travail est vide. Ajoute des tâches dans le phasage avant de créer une visite.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {phasesAvecTaches.map(ph => {
+                const ts = plan[ph.id] || [];
+                const totalH = ts.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+                const av = totalH > 0
+                  ? Math.round(ts.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalH)
+                  : ts.length > 0 ? Math.round(ts.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / ts.length) : 0;
+                const isCheck = phasesSel.includes(ph.id);
+                return (
+                  <div key={ph.id} onClick={() => togglePhase(ph.id)} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "10px 14px", borderRadius: RADIUS.md, cursor: "pointer",
+                    background: isCheck ? ph.color + "12" : T.card,
+                    border: `1px solid ${isCheck ? ph.color + "66" : T.border}`,
+                    transition: "all .15s",
+                  }}>
+                    <div style={{
+                      width: 18, height: 18, borderRadius: RADIUS.sm, flexShrink: 0,
+                      background: isCheck ? ph.color : "transparent",
+                      border: `2px solid ${isCheck ? ph.color : T.border}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "#fff",
+                    }}>
+                      {isCheck && <Icon as={Check} size={11} strokeWidth={3}/>}
+                    </div>
+                    <div style={{ width: 3, height: 22, borderRadius: 2, background: ph.color, flexShrink: 0 }}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: T.text }}>{ph.label}</div>
+                      <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>
+                        {ts.length} tâche{ts.length > 1 ? "s" : ""}
+                        {av === 100 && <span style={{ color: "#22c55e", fontWeight: 700 }}> · Terminée</span>}
+                        {av > 0 && av < 100 && <span> · {av}% avancé</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Actions ── */}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onCancel} style={{
+            padding: "10px 18px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub,
+            fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+          }}>Annuler</button>
+          <button onClick={handleCreate} disabled={saving || !chantierId || phasesSel.length === 0} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "10px 22px", borderRadius: RADIUS.md, border: "none",
+            background: (saving || phasesSel.length === 0) ? T.border : acc.accent,
+            color: acc.onAccent,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+            cursor: (saving || phasesSel.length === 0) ? "not-allowed" : "pointer",
+            opacity: (saving || phasesSel.length === 0) ? .6 : 1,
+          }}>
+            {saving ? "Création…" : (
+              <>
+                Créer la visite
+                <Icon as={ArrowRight} size={14}/>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 // ─── AUDIT VISITE (cœur de l'outil) ──────────────────────────────────────────
-function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, onDelete }) {
+function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, saving, onSave, onBack, onDelete }) {
   const [draft,    setDraft]    = useState(() => JSON.parse(JSON.stringify(visite)));
   const [expanded, setExpanded] = useState({});
   const [dirty,    setDirty]    = useState(false);
+  const [showAll,  setShowAll]  = useState(false); // élargir au-delà de phases_auditees
 
   const ch      = chantiers.find(c => c.id === visite.chantier_id);
   const phasage = phasages.find(p => p.chantier_id === visite.chantier_id);
   const plan    = phasage?.plan_travaux || {};
+  const accentChantier = ch?.couleur || acc.accent;
+
+  // ── Phases prévues à auditer (portée), fallback : toutes celles avec tâches
+  const phasesAuditees = Array.isArray(visite.phases_auditees) && visite.phases_auditees.length > 0
+    ? visite.phases_auditees
+    : PHASES.filter(ph => (plan[ph.id] || []).length > 0).map(ph => ph.id);
+
+  // ── Visites précédentes du même chantier (date < visite.date), tri DESC
+  const visitesPrecedentes = (toutesVisites || [])
+    .filter(v => v.chantier_id === visite.chantier_id && v.id !== visite.id && (v.date || "") < (visite.date || ""))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  // ── Réserves héritées : prendre la dernière visite et lister les tâches
+  //    encore en réserve/NOK qui sont aussi dans la portée actuelle
+  const derniereVisite = visitesPrecedentes[0];
+  const reservesHeritees = (() => {
+    if (!derniereVisite) return [];
+    const list = [];
+    PHASES.forEach(ph => {
+      const phaseInScope = phasesAuditees.includes(ph.id) || showAll;
+      if (!phaseInScope) return;
+      const tachesPrec = derniereVisite.audit?.[ph.id] || [];
+      tachesPrec.forEach(t => {
+        if (t.statut === "reserve" || t.statut === "nok") {
+          // Statut actuel de la même tâche dans la visite en cours
+          const tCourante = (draft.audit?.[ph.id] || []).find(x => x.tache_id === t.tache_id);
+          list.push({
+            phase_id: ph.id,
+            phase_label: ph.label,
+            phase_color: ph.color,
+            tache_id: t.tache_id,
+            nom_origine: t.nom,
+            commentaire_origine: t.commentaire || "",
+            statut_origine: t.statut,
+            tache_courante: tCourante || null,
+            statut_courant: tCourante?.statut || null,
+          });
+        }
+      });
+    });
+    return list;
+  })();
 
   // Sync : si le plan a des nouvelles tâches depuis la création de la visite,
-  // on les ajoute à l'audit automatiquement
+  // on les ajoute à l'audit, mais uniquement pour les phases auditées (ou
+  // toutes si showAll est actif).
   useEffect(() => {
-    const updated = { ...draft };
+    const updated = { ...draft, audit: { ...(draft.audit || {}) } };
     let changed = false;
     PHASES.forEach(ph => {
+      const inScope = phasesAuditees.includes(ph.id) || showAll;
+      if (!inScope) return;
       const planTaches = plan[ph.id] || [];
-      const auditTaches = draft.audit?.[ph.id] || [];
+      const auditTaches = updated.audit?.[ph.id] || [];
       const auditIds = new Set(auditTaches.map(t => t.tache_id));
       planTaches.forEach(t => {
         if (!auditIds.has(t.id)) {
@@ -371,7 +731,10 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
       });
     });
     if (changed) setDraft(updated);
-  }, []);
+  }, [showAll]);
+
+  // ── Marqueur visuel : tâches héritées d'une réserve/NOK
+  const idsHeritees = new Set(reservesHeritees.map(r => `${r.phase_id}::${r.tache_id}`));
 
   const updateTache = (phaseId, idx, updates) => {
     setDraft(d => {
@@ -395,7 +758,17 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
   const nb_nd   = toutes.filter(t => !t.statut).length;
   const total   = toutes.length;
 
-  const phasesAvecTaches = PHASES.filter(ph => (draft.audit?.[ph.id] || []).length > 0);
+  // ── Phases affichées : selon portée (sauf si élargi)
+  const phasesAffichees = PHASES.filter(ph => {
+    const inScope = phasesAuditees.includes(ph.id) || showAll;
+    return inScope && (draft.audit?.[ph.id] || []).length > 0;
+  });
+
+  // ── Phases hors portée (avec tâches dans le plan mais non auditées)
+  const phasesHorsPortee = PHASES.filter(ph => {
+    if (phasesAuditees.includes(ph.id)) return false;
+    return (plan[ph.id] || []).length > 0;
+  });
 
   return (
     <div className="page-padding visite-audit" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
@@ -405,112 +778,319 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
           .visite-audit .audit-header > div:nth-child(2){flex:1 1 100%!important;order:0}
           .visite-audit .audit-header select{flex:1}
           .visite-audit .audit-kpis{grid-template-columns:repeat(2,1fr)!important;gap:8px!important}
-          .visite-audit .audit-kpis > div{padding:10px!important}
-          .visite-audit .audit-kpis > div > div:first-child{font-size:20px!important}
+          .visite-audit .audit-tache-row{flex-wrap:wrap!important}
+          .visite-audit .audit-tache-row > div:last-child{flex:1 1 100%!important;justify-content:flex-start!important}
         }
       `}</style>
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+
+        {/* Bouton retour */}
+        <button onClick={onBack} style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "7px 12px", borderRadius: RADIUS.md,
+          border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer", marginBottom: 14,
+        }}>
+          <Icon as={ChevronLeftIcon} size={13}/>
+          Retour aux visites
+        </button>
 
         {/* Header */}
-        <div className="audit-header" style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 24 }}>
-          <button onClick={onBack} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 14px", cursor: "pointer", color: T.text, fontFamily: "inherit", fontSize: 13, flexShrink: 0 }}>← Retour</button>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{ch?.nom || visite.chantier_id}</div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>Visite du {fmtDate(draft.date)}</div>
+        <div className="audit-header" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18, flexWrap: "wrap" }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
+            background: accentChantier + "22", border: `1.5px solid ${accentChantier}55`,
+            color: accentChantier,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={Building2} size={20} strokeWidth={2}/>
           </div>
-          {/* Statut */}
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: FONT.lg.size + 2, fontWeight: 800, color: T.text, letterSpacing: -0.3 }}>{ch?.nom || visite.chantier_id}</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 3, display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={Calendar} size={11}/>
+                Visite du {fmtDate(draft.date)}
+              </span>
+              {visitesPrecedentes.length > 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Icon as={History} size={11}/>
+                  {visitesPrecedentes.length} visite{visitesPrecedentes.length > 1 ? "s" : ""} précédente{visitesPrecedentes.length > 1 ? "s" : ""}
+                </span>
+              )}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: acc.accent, fontWeight: 600 }}>
+                <Icon as={Eye} size={11}/>
+                {phasesAuditees.length} phase{phasesAuditees.length > 1 ? "s" : ""} dans la portée
+              </span>
+            </div>
+          </div>
           <select value={draft.statut} onChange={e => setStatutVisite(e.target.value)} style={{
-            padding: "6px 12px", borderRadius: 8, border: `1px solid ${T.border}`,
-            background: T.card, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none",
+            padding: "8px 12px", borderRadius: RADIUS.md, border: `1px solid ${T.fieldBorder || T.border}`,
+            background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", cursor: "pointer",
           }}>
             {STATUTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
           <button onClick={handleSave} disabled={saving} style={{
-            padding: "8px 20px", borderRadius: 10,
-            background: dirty ? T.accent : T.card,
-            color: dirty ? "#111" : T.textMuted,
-            fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 18px", borderRadius: RADIUS.md,
+            background: dirty ? acc.accent : T.card,
+            color: dirty ? acc.onAccent : T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
             border: dirty ? "none" : `1px solid ${T.border}`,
             transition: "all .2s",
           }}>
-            {saving ? "Sauvegarde…" : dirty ? "💾 Sauvegarder" : "✓ Sauvegardé"}
+            <Icon as={dirty ? Save : Check} size={13}/>
+            {saving ? "Sauvegarde…" : dirty ? "Sauvegarder" : "Sauvegardé"}
           </button>
-          <button onClick={onDelete} style={{ background: "transparent", border: `1px solid rgba(224,92,92,0.3)`, borderRadius: 8, padding: "8px 14px", color: "#e05c5c", fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>🗑</button>
+          <button onClick={onDelete} title="Supprimer" style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            background: "transparent", border: `1px solid rgba(224,92,92,0.3)`,
+            borderRadius: RADIUS.md, padding: "8px 10px", color: "#e15a5a",
+            cursor: "pointer",
+          }}>
+            <Icon as={Trash2} size={13}/>
+          </button>
         </div>
 
         {/* KPIs */}
-        <div className="audit-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
+        <div className="audit-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
           {[
-            { label: "Conformes",      val: nb_ok,  color: "#22c55e" },
-            { label: "Réserves",       val: nb_res, color: "#f59e0b" },
-            { label: "Non conformes",  val: nb_nok, color: "#ef4444" },
-            { label: "Non évalués",    val: nb_nd,  color: T.textMuted },
+            { label: "Conformes",      val: nb_ok,  color: "#22c55e", icon: Check },
+            { label: "Réserves",       val: nb_res, color: "#f59e0b", icon: AlertTriangle },
+            { label: "Non conformes",  val: nb_nok, color: "#ef4444", icon: X },
+            { label: "Non évalués",    val: nb_nd,  color: T.textMuted, icon: Eye },
           ].map(k => (
-            <div key={k.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: k.color }}>{k.val}</div>
-              <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3 }}>{k.label}</div>
+            <div key={k.label} style={{
+              background: T.surface, border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.lg, padding: "12px 14px",
+              display: "flex", alignItems: "center", gap: 10,
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+                background: k.color + "18", color: k.color,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon as={k.icon} size={16} strokeWidth={2}/>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: FONT.xl.size, fontWeight: 800, color: k.color, letterSpacing: -.5, lineHeight: 1 }}>{k.val}</div>
+                <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, fontWeight: 600, letterSpacing: .3 }}>{k.label}</div>
+              </div>
             </div>
           ))}
         </div>
 
         {/* Barre globale */}
         {total > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
             <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.border, overflow: "hidden", display: "flex" }}>
               {nb_ok  > 0 && <div style={{ width: `${(nb_ok /total)*100}%`, background: "#22c55e" }} />}
               {nb_res > 0 && <div style={{ width: `${(nb_res/total)*100}%`, background: "#f59e0b" }} />}
               {nb_nok > 0 && <div style={{ width: `${(nb_nok/total)*100}%`, background: "#ef4444" }} />}
             </div>
-            <span style={{ fontSize: 12, color: T.textMuted, whiteSpace: "nowrap" }}>
-              {total - nb_nd}/{total} tâches évaluées
+            <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, whiteSpace: "nowrap", fontWeight: 600 }}>
+              {total - nb_nd}/{total} évaluées
             </span>
           </div>
         )}
 
+        {/* ── Réserves héritées de la visite précédente ── */}
+        {reservesHeritees.length > 0 && (
+          <div style={{
+            background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.30)",
+            borderRadius: RADIUS.xl, padding: "16px 18px", marginBottom: 14,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+                background: "rgba(245,158,11,0.16)", color: "#f59e0b",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon as={History} size={16}/>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: "#f59e0b" }}>
+                  Réserves de la visite du {fmtDate(derniereVisite.date)} à vérifier
+                </div>
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 2 }}>
+                  Coche OK sur la tâche concernée plus bas pour marquer la réserve comme levée.
+                </div>
+              </div>
+              <div style={{
+                fontSize: FONT.xs.size + 1, fontWeight: 700,
+                background: "rgba(245,158,11,0.16)", color: "#f59e0b",
+                borderRadius: RADIUS.pill, padding: "2px 10px",
+              }}>
+                {reservesHeritees.length}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {reservesHeritees.map((r, i) => {
+                const isLevee = r.statut_courant === "ok";
+                const isToujoursPresente = r.statut_courant === "reserve" || r.statut_courant === "nok";
+                return (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "flex-start", gap: 10,
+                    padding: "10px 12px", borderRadius: RADIUS.md,
+                    background: isLevee ? "rgba(34,197,94,0.08)" : T.card,
+                    border: `1px solid ${isLevee ? "rgba(34,197,94,0.30)" : isToujoursPresente ? "rgba(239,68,68,0.25)" : T.border}`,
+                  }}>
+                    <div style={{
+                      width: 3, height: 24, borderRadius: 2, flexShrink: 0,
+                      background: r.phase_color,
+                    }}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{r.nom_origine}</span>
+                        <span style={{
+                          fontSize: FONT.xs.size, padding: "1px 7px", borderRadius: RADIUS.sm,
+                          background: r.phase_color + "22", color: r.phase_color, fontWeight: 600,
+                        }}>{r.phase_label}</span>
+                        <span style={{
+                          fontSize: FONT.xs.size, padding: "1px 7px", borderRadius: RADIUS.sm,
+                          background: r.statut_origine === "nok" ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)",
+                          color: r.statut_origine === "nok" ? "#ef4444" : "#f59e0b", fontWeight: 700,
+                        }}>{r.statut_origine === "nok" ? "NOK" : "RÉSERVE"}</span>
+                      </div>
+                      {r.commentaire_origine && (
+                        <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 4, fontStyle: "italic" }}>
+                          « {r.commentaire_origine} »
+                        </div>
+                      )}
+                    </div>
+                    {/* Indicateur statut courant */}
+                    {isLevee ? (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#22c55e",
+                        background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)",
+                        borderRadius: RADIUS.pill, padding: "2px 8px", flexShrink: 0,
+                      }}>
+                        <Icon as={Check} size={11}/>
+                        Levée
+                      </span>
+                    ) : isToujoursPresente ? (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#ef4444",
+                        background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)",
+                        borderRadius: RADIUS.pill, padding: "2px 8px", flexShrink: 0,
+                      }}>
+                        <Icon as={AlertTriangle} size={11}/>
+                        Toujours présente
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600,
+                        padding: "2px 8px", flexShrink: 0,
+                      }}>
+                        À évaluer
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Bandeau "Élargir la portée" ── */}
+        {phasesHorsPortee.length > 0 && !showAll && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 14px", marginBottom: 14,
+            background: T.surface, border: `1px dashed ${T.border}`, borderRadius: RADIUS.lg,
+          }}>
+            <Icon as={Eye} size={14} color={T.textMuted}/>
+            <div style={{ flex: 1, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+              <strong style={{ color: T.text }}>{phasesHorsPortee.length} phase{phasesHorsPortee.length > 1 ? "s" : ""}</strong> du plan n'{phasesHorsPortee.length > 1 ? "ont" : "a"} pas été incluse{phasesHorsPortee.length > 1 ? "s" : ""} dans cette visite.
+            </div>
+            <button onClick={() => setShowAll(true)} style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "5px 12px", borderRadius: RADIUS.sm,
+              border: `1px solid ${acc.accent}55`, background: acc.bg10, color: acc.accent,
+              fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer",
+            }}>
+              <Icon as={Plus} size={11}/>
+              Élargir la portée
+            </button>
+          </div>
+        )}
+
         {/* Phases */}
-        {total === 0 ? (
-          <div style={{ background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 14, padding: 48, textAlign: "center", color: T.textMuted }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Aucune tâche dans le plan de travail</div>
-            <div style={{ fontSize: 12, marginTop: 6 }}>Créez d'abord un phasage pour ce chantier dans l'onglet Phasage</div>
+        {phasesAffichees.length === 0 ? (
+          <div style={{
+            background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl,
+            padding: "40px 24px", textAlign: "center", color: T.textMuted,
+          }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: RADIUS.lg,
+              background: acc.bg10, color: acc.accent,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12,
+            }}>
+              <Icon as={ClipboardCheck} size={24} strokeWidth={1.5}/>
+            </div>
+            <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: T.text, marginBottom: 4 }}>
+              Aucune tâche à auditer
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, marginTop: 4 }}>
+              {phasesAuditees.length === 0
+                ? "Aucune phase n'est dans la portée — élargis la portée pour voir les tâches."
+                : "Crée d'abord un phasage pour ce chantier dans l'onglet Phasage."}
+            </div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {phasesAvecTaches.map(ph => {
+            {phasesAffichees.map(ph => {
               const taches = draft.audit?.[ph.id] || [];
               const ph_ok  = taches.filter(t => t.statut === "ok").length;
               const ph_res = taches.filter(t => t.statut === "reserve").length;
               const ph_nok = taches.filter(t => t.statut === "nok").length;
-              const isExp  = expanded[ph.id] !== false; // ouvert par défaut
+              const isExp  = expanded[ph.id] !== false;
+              const horsScope = !phasesAuditees.includes(ph.id);
 
               return (
-                <div key={ph.id} style={{ background: T.surface, border: `1px solid ${isExp ? ph.color + "66" : T.border}`, borderRadius: 12, overflow: "hidden", transition: "border .2s" }}>
-                  {/* En-tête phase */}
-                  <div
-                    onClick={() => setExpanded(prev => ({ ...prev, [ph.id]: !isExp }))}
-                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", cursor: "pointer", borderBottom: isExp ? `1px solid ${T.sectionDivider || T.border}` : "none" }}
-                  >
-                    <div style={{ width: 4, height: 28, borderRadius: 2, background: ph.color, flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{ph.label}</div>
-                      <div style={{ fontSize: 11, color: T.textMuted, marginTop: 1 }}>{taches.length} tâche{taches.length > 1 ? "s" : ""}</div>
+                <div key={ph.id} style={{
+                  background: T.surface, border: `1px solid ${isExp ? ph.color + "66" : T.border}`,
+                  borderRadius: RADIUS.xl, overflow: "hidden", transition: "border .2s",
+                  opacity: horsScope ? .85 : 1,
+                }}>
+                  <div onClick={() => setExpanded(prev => ({ ...prev, [ph.id]: !isExp }))}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", cursor: "pointer",
+                      borderBottom: isExp ? `1px solid ${T.sectionDivider || T.border}` : "none",
+                    }}>
+                    <div style={{ width: 4, height: 28, borderRadius: 2, background: ph.color, flexShrink: 0 }}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: T.text }}>{ph.label}</div>
+                        {horsScope && (
+                          <span style={{
+                            fontSize: FONT.xs.size, padding: "1px 7px", borderRadius: RADIUS.sm,
+                            background: T.card, color: T.textMuted, border: `1px solid ${T.border}`, fontWeight: 600,
+                          }}>Hors portée initiale</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 1 }}>
+                        {taches.length} tâche{taches.length > 1 ? "s" : ""}
+                      </div>
                     </div>
-                    {/* Mini compteurs */}
                     <div style={{ display: "flex", gap: 5 }}>
                       {ph_ok  > 0 && <Pill val={ph_ok}  color="#22c55e" label="OK"  />}
                       {ph_res > 0 && <Pill val={ph_res} color="#f59e0b" label="Rés" />}
                       {ph_nok > 0 && <Pill val={ph_nok} color="#ef4444" label="NOK" />}
                     </div>
-                    <span style={{ fontSize: 12, color: T.textMuted, padding: "0 8px", userSelect: "none" }}>{isExp ? "▲" : "▼"}</span>
+                    <Icon as={isExp ? ChevronUp : ChevronDown} size={14} color={isExp ? ph.color : T.textMuted}/>
                   </div>
 
                   {isExp && (
-                    <div style={{ padding: "8px 0" }}>
+                    <div style={{ padding: "6px 0" }}>
                       {taches.map((tache, idx) => (
                         <TacheAudit
                           key={tache.tache_id || idx}
                           tache={tache}
                           phaseColor={ph.color}
+                          isHeritee={idsHeritees.has(`${ph.id}::${tache.tache_id}`)}
                           T={T}
                           onChange={updates => updateTache(ph.id, idx, updates)}
                         />
@@ -524,53 +1104,65 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
         )}
 
         {/* Note générale */}
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 20, marginTop: 16 }}>
-          <Label T={T}>Note générale de visite</Label>
+        <div style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.xl, padding: 18, marginTop: 14,
+        }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 10 }}>
+            <Icon as={MessageSquare} size={12}/>
+            Note générale de visite
+          </div>
           <textarea
             value={draft.note_generale || ""}
             onChange={e => setNote(e.target.value)}
             placeholder="Observations générales, points d'attention, prochaines actions…"
             rows={4}
             style={{
-              marginTop: 12, width: "100%", background: T.inputBg || T.card,
-              border: `1px solid ${T.border}`, borderRadius: 10,
+              width: "100%", background: T.fieldBg || T.card,
+              border: `1px solid ${T.fieldBorder || T.border}`, borderRadius: RADIUS.md,
               padding: "12px 14px", color: T.text, fontFamily: "inherit",
-              fontSize: 14, resize: "vertical", outline: "none", boxSizing: "border-box",
+              fontSize: FONT.sm.size, resize: "vertical", outline: "none", boxSizing: "border-box",
             }}
           />
         </div>
 
         {/* Récap réserves/NOK en bas */}
         {(nb_res + nb_nok) > 0 && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 20, marginTop: 16 }}>
-            <Label T={T}>Récapitulatif des points à traiter</Label>
-            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{
+            background: T.surface, border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.xl, padding: 18, marginTop: 14,
+          }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 10 }}>
+              <Icon as={FileWarning} size={12}/>
+              Points à traiter à l'issue de la visite
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {PHASES.map(ph => {
                 const ts = (draft.audit?.[ph.id] || []).filter(t => t.statut === "reserve" || t.statut === "nok");
                 if (!ts.length) return null;
                 return ts.map((t, i) => (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "flex-start", gap: 12,
-                    padding: "10px 14px", borderRadius: 10,
+                  <div key={`${ph.id}-${i}`} style={{
+                    display: "flex", alignItems: "flex-start", gap: 10,
+                    padding: "10px 12px", borderRadius: RADIUS.md,
                     background: t.statut === "nok" ? "rgba(239,68,68,0.08)" : "rgba(245,158,11,0.08)",
                     border: `1px solid ${t.statut === "nok" ? "rgba(239,68,68,0.25)" : "rgba(245,158,11,0.25)"}`,
                   }}>
-                    <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>
-                      {t.statut === "nok" ? "⛔" : "⚠️"}
-                    </span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{t.nom}</div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>{ph.label}</div>
+                    <Icon as={t.statut === "nok" ? X : AlertTriangle} size={14}
+                      color={t.statut === "nok" ? "#ef4444" : "#f59e0b"}
+                      style={{ marginTop: 2, flexShrink: 0 }}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{t.nom}</div>
+                      <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{ph.label}</div>
                       {t.commentaire && (
-                        <div style={{ fontSize: 12, color: T.textMuted, marginTop: 4, fontStyle: "italic" }}>
+                        <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 4, fontStyle: "italic" }}>
                           → {t.commentaire}
                         </div>
                       )}
                     </div>
                     <span style={{
-                      fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 20,
+                      fontSize: FONT.xs.size, fontWeight: 700, padding: "3px 8px", borderRadius: RADIUS.pill,
                       background: t.statut === "nok" ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)",
-                      color: t.statut === "nok" ? "#ef4444" : "#f59e0b",
+                      color: t.statut === "nok" ? "#ef4444" : "#f59e0b", flexShrink: 0,
                     }}>
                       {t.statut === "nok" ? "NOK" : "RÉSERVE"}
                     </span>
@@ -587,7 +1179,7 @@ function AuditVisite({ visite, chantiers, phasages, T, saving, onSave, onBack, o
 }
 
 // ─── TÂCHE AUDIT ──────────────────────────────────────────────────────────────
-function TacheAudit({ tache, phaseColor, T, onChange }) {
+function TacheAudit({ tache, phaseColor, isHeritee = false, T, onChange }) {
   const [showComment, setShowComment] = useState(!!tache.commentaire);
 
   const setStatut = (s) => {
@@ -598,7 +1190,10 @@ function TacheAudit({ tache, phaseColor, T, onChange }) {
   const statutColor = tache.statut === "ok" ? "#22c55e" : tache.statut === "reserve" ? "#f59e0b" : tache.statut === "nok" ? "#ef4444" : T.border;
 
   return (
-    <div style={{ padding: "10px 18px", borderBottom: `1px solid ${T.sectionDivider || T.border}` }}>
+    <div className="audit-tache-row" style={{
+      padding: "10px 18px", borderBottom: `1px solid ${T.sectionDivider || T.border}`,
+      background: isHeritee && !tache.statut ? "rgba(245,158,11,0.04)" : "transparent",
+    }}>
       <div style={{ display: "grid", gridTemplateColumns: "20px 1fr auto", gap: 12, alignItems: "start" }}>
         {/* Indicateur statut */}
         <div style={{
@@ -607,17 +1202,30 @@ function TacheAudit({ tache, phaseColor, T, onChange }) {
           border: `2px solid ${statutColor}`,
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          {tache.statut === "ok" && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#22c55e" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>}
+          {tache.statut === "ok" && <Icon as={Check} size={9} color="#22c55e" strokeWidth={3.5}/>}
           {tache.statut === "reserve" && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b" }} />}
-          {tache.statut === "nok" && <svg width="8" height="8" viewBox="0 0 10 10"><line x1="2" y1="2" x2="8" y2="8" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"/><line x1="8" y1="2" x2="2" y2="8" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"/></svg>}
+          {tache.statut === "nok" && <Icon as={X} size={9} color="#ef4444" strokeWidth={3.5}/>}
         </div>
 
         {/* Infos tâche */}
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{tache.nom}</div>
-          <div style={{ fontSize: 11, color: T.textMuted, marginTop: 1, display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{tache.nom}</div>
+            {isHeritee && (
+              <span title="Réserve héritée de la visite précédente" style={{
+                display: "inline-flex", alignItems: "center", gap: 3,
+                fontSize: FONT.xs.size, fontWeight: 700, color: "#f59e0b",
+                background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: RADIUS.sm, padding: "1px 6px",
+              }}>
+                <Icon as={History} size={9}/>
+                Hérité
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
             {tache.ouvrage && <span>↳ {tache.ouvrage}</span>}
-            {tache.h_vendues > 0 && <span style={{ color: T.accent }}>{tache.h_vendues}h vendues</span>}
+            {tache.h_vendues > 0 && <span style={{ color: phaseColor, fontWeight: 600 }}>{tache.h_vendues}h vendues</span>}
             {tache.avancement > 0 && (
               <span style={{ color: tache.avancement === 100 ? "#22c55e" : T.textMuted }}>
                 {tache.avancement}% réalisé
@@ -635,9 +1243,10 @@ function TacheAudit({ tache, phaseColor, T, onChange }) {
                 placeholder="Commentaire / observation…"
                 rows={2}
                 style={{
-                  flex: 1, background: T.card, border: `1px solid ${T.border}`,
-                  borderRadius: 8, padding: "7px 10px", color: T.text,
-                  fontFamily: "inherit", fontSize: 12, resize: "vertical",
+                  flex: 1, background: T.fieldBg || T.card,
+                  border: `1px solid ${T.fieldBorder || T.border}`,
+                  borderRadius: RADIUS.md, padding: "7px 10px", color: T.text,
+                  fontFamily: "inherit", fontSize: FONT.xs.size + 1, resize: "vertical",
                   outline: "none",
                 }}
               />
@@ -656,10 +1265,10 @@ function TacheAudit({ tache, phaseColor, T, onChange }) {
               const isActive = tache.statut === btn.id;
               return (
                 <button key={btn.id} onClick={() => setStatut(btn.id)} style={{
-                  padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
+                  padding: "6px 14px", borderRadius: RADIUS.md, fontSize: FONT.xs.size + 1, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit", minWidth: 48,
                   background: isActive ? btn.activeColor + "22" : "transparent",
-                  border: `1px solid ${isActive ? btn.activeColor : T.border}`,
+                  border: `1.5px solid ${isActive ? btn.activeColor : T.border}`,
                   color: isActive ? btn.activeColor : T.textMuted,
                   transition: "all .15s",
                 }}>
@@ -668,13 +1277,12 @@ function TacheAudit({ tache, phaseColor, T, onChange }) {
               );
             })}
           </div>
-          {/* Bouton commentaire */}
           <button onClick={() => setShowComment(s => !s)} style={{
             background: "transparent", border: "none", cursor: "pointer",
-            fontSize: 11, color: showComment ? T.accent : T.textMuted,
-            fontFamily: "inherit", padding: "2px 4px",
+            fontSize: FONT.xs.size + 1, color: showComment ? phaseColor : T.textMuted,
+            fontFamily: "inherit", padding: "2px 4px", fontWeight: 600,
           }}>
-            {showComment ? "✕ cacher note" : "+ ajouter note"}
+            {showComment ? "− cacher note" : "+ ajouter note"}
           </button>
         </div>
       </div>
