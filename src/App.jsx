@@ -584,7 +584,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="bibliotheque"     && canAccess(role,"bibliotheque")     && <PageBibliotheque T={T} branch={branch}/>}
           {page==="biblio-materiaux" && canAccess(role,"biblio-materiaux") && <PageBibliothequeMateriaux T={T} branch={branch}/>}
           {page==="visite"           && canAccess(role,"visite")           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch}/>}
-          {page==="info-client"      && canAccess(role,"info-client")      && <PageInfoClient T={T}/>}
+          {page==="info-client"      && canAccess(role,"info-client")      && <PageInfoClient T={T} branch={branch}/>}
           {page==="compte-rendu"     && canAccess(role,"compte-rendu")     && <PageCompteRendu T={T} chantiers={chantiers}/>}
           {page==="admin"            && canAccess(role,"admin")            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil}/>}
         </div>

@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
+import { FONT, RADIUS, getBranchAccent } from "./constants";
+import { Icon } from "./ui";
+import {
+  UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
+  Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
+  Pencil, Eraser, Download, ChevronRight, Building2, Layers,
+} from "lucide-react";
 
 const CATEGORIES_DEFAUT = {
   "Électricité": ["Prise courant simple","Prise courant double","Interrupteur va-et-vient","Installation électrique T1 SANS chauffage","Installation électrique T1 AVEC chauffage","Installation électrique T2 SANS chauffage","Installation électrique T2 AVEC chauffage","Installation électrique T3 SANS chauffage","Installation électrique T3 AVEC chauffage","Radiateur 1500W","Radiateur 1000W","Radiateur 2000W","Tableau 2R T1"],
@@ -14,21 +21,36 @@ const CATEGORIES_DEFAUT = {
 const UNITES = { "Électricité":"U","Plomberie":"U","Ventilation":"U","Plaquiste":"m²","Sols & Peinture":"m²","Menuiseries":"U","Maçonnerie":"U","Démolition":"m²" };
 const LOGEMENTS = ["Studio (T0)","T1 (1 pièce)","T2 (2 pièces)","T3 (3 pièces)","T4 (4 pièces)"];
 
-export default function PageInfoClient({ T }) {
+// ─── STATUTS DE PROJET (flux commercial) ─────────────────────────────────────
+const STATUTS_PROJET = [
+  { id: "prospect",       label: "Prospect",         color: "#94a3b8" },
+  { id: "rdv_planifie",   label: "RDV planifié",     color: "#5b9cf6" },
+  { id: "visite_faite",   label: "Visite faite",     color: "#22c55e" },
+  { id: "chiffrage",      label: "Chiffrage",        color: "#f5a623" },
+  { id: "devis_envoye",   label: "Devis envoyé",     color: "#a78bfa" },
+  { id: "signe",          label: "Signé",            color: "#10b981" },
+  { id: "abandonne",      label: "Abandonné",        color: "#e15a5a" },
+];
+const statutMeta = (id) => STATUTS_PROJET.find(s => s.id === id) || STATUTS_PROJET[0];
+
+export default function PageInfoClient({ T, branch = "renovation" }) {
+  const acc = getBranchAccent(branch);
   const [projets, setProjets]         = useState([]);
   const [projetId, setProjetId]       = useState(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
-  const [infos, setInfos]             = useState({ client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[] });
+  const [infos, setInfos]             = useState({ client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect" });
   const [ouvrages, setOuvrages]       = useState([]);
   const [cotes, setCotes]             = useState([]);
   const [plans, setPlans]             = useState([{ nom:"Plan 1", data:null }]);
   const [planIdx, setPlanIdx]         = useState(0);
   const [categories, setCategories]   = useState(CATEGORIES_DEFAUT);
-  const [tabG, setTabG]               = useState("infos");
-  const [tabD, setTabD]               = useState("plan");
+  // Un seul flux d'onglets (au lieu de gauche/droite) — bien plus clair
+  const [tab, setTab]                 = useState("client");
   const [search, setSearch]           = useState("");
   const [filtresCat, setFiltresCat]   = useState([]);
+  const [filtreStatut, setFiltreStatut] = useState("all");
+  const [searchProjets, setSearchProjets] = useState("");
   const [showModal, setShowModal]     = useState(false);
   const [newCat, setNewCat]           = useState("Électricité");
   const [newLib, setNewLib]           = useState("");
@@ -36,6 +58,9 @@ export default function PageInfoClient({ T }) {
   const [drawActive, setDrawActive]   = useState(false);
   const [eraseActive, setEraseActive] = useState(false);
   const [mobileShowProjets, setMobileShowProjets] = useState(false);
+  const [toDelete, setToDelete]       = useState(null);
+  const [deleting, setDeleting]       = useState(false);
+  const [toDeleteOuvrage, setToDeleteOuvrage] = useState(null);
   const canvasRef  = useRef(null);
   const drawMode   = useRef(false);
   const eraseMode  = useRef(false);
@@ -98,7 +123,7 @@ export default function PageInfoClient({ T }) {
       supabase.from("profero_cotes").select("*").eq("projet_id",id),
       supabase.from("profero_plans").select("*").eq("projet_id",id),
     ]);
-    if (p) setInfos({ client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[] });
+    if (p) setInfos({ client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect" });
     setOuvrages(o||[]); setCotes(c||[]);
     setPlans(pl && pl.length > 0 ? pl : [{nom:"Plan 1",data:null}]);
     setPlanIdx(0); setLoading(false);
@@ -116,6 +141,7 @@ export default function PageInfoClient({ T }) {
       date_visite:         v.date_visite         ?? "",
       observations:        v.observations        ?? "",
       logements:           v.logements           ?? [],
+      statut:              v.statut              ?? "prospect",
     };
     const { error } = await supabase.from("profero_projets").update(payload).eq("id", projetId);
     if (error) console.error("saveInfos projet error:", error);
@@ -148,19 +174,29 @@ export default function PageInfoClient({ T }) {
   }
 
   async function nouveauProjet() {
-    const nom=window.prompt("Nom du projet :",`Projet ${projets.length+1}`); if(!nom) return;
     const{data}=await supabase.from("profero_projets").insert({
       client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"",
-      date_visite:new Date().toISOString().split("T")[0], observations:"", logements:[],
+      date_visite:new Date().toISOString().split("T")[0], observations:"", logements:[], statut:"prospect",
     }).select().single();
     if(data){ await supabase.from("profero_plans").insert({projet_id:data.id,nom:"Plan 1",data:null}); setProjets(p=>[data,...p]); chargerProjet(data.id); }
   }
-  async function suppProjet() {
-    if(!projetId||!window.confirm("Supprimer ce projet ?")) return;
-    await supabase.from("profero_projets").delete().eq("id",projetId);
-    const r=projets.filter(p=>p.id!==projetId); setProjets(r);
-    if(r.length>0) chargerProjet(r[0].id);
-    else { setProjetId(null); setInfos({client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",date_visite:"",observations:"",logements:[]}); setOuvrages([]); setCotes([]); setPlans([{nom:"Plan 1",data:null}]); }
+
+  async function confirmSuppProjet() {
+    if (!toDelete) return;
+    setDeleting(true);
+    await supabase.from("profero_projets").delete().eq("id", toDelete.id);
+    const r = projets.filter(p => p.id !== toDelete.id);
+    setProjets(r);
+    if (toDelete.id === projetId) {
+      if (r.length > 0) chargerProjet(r[0].id);
+      else {
+        setProjetId(null);
+        setInfos({client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",date_visite:"",observations:"",logements:[],statut:"prospect"});
+        setOuvrages([]); setCotes([]); setPlans([{nom:"Plan 1",data:null}]);
+      }
+    }
+    setDeleting(false);
+    setToDelete(null);
   }
 
   async function ajoutOuvrageLib() {
@@ -169,9 +205,9 @@ export default function PageInfoClient({ T }) {
     if(data){ const l=[...(data.ouvrages||[]),newLib.trim()]; await supabase.from("profero_categories_ouvrages").update({ouvrages:l}).eq("id",data.id); setCategories(p=>({...p,[newCat]:l})); setNewLib(""); }
   }
   async function delOuvrageLib(cat,idx) {
-    if(!window.confirm("Supprimer ?")) return;
     const{data}=await supabase.from("profero_categories_ouvrages").select("*").eq("nom",cat).single();
     if(data){ const l=data.ouvrages.filter((_,i)=>i!==idx); await supabase.from("profero_categories_ouvrages").update({ouvrages:l}).eq("id",data.id); setCategories(p=>({...p,[cat]:l})); }
+    setToDeleteOuvrage(null);
   }
 
   // ─── CANVAS ──────────────────────────────────────────────────────────────────
@@ -205,67 +241,173 @@ export default function PageInfoClient({ T }) {
   function clearCanvas(){ if(!window.confirm("Effacer le plan ?")) return; grille(canvasRef.current.getContext("2d")); savePlan(); }
   function dlCanvas(){ const a=document.createElement("a"); a.download=`plan-${plans[planIdx]?.nom||"plan"}.png`; a.href=canvasRef.current.toDataURL(); a.click(); }
 
+  // ─── COMPUTED ────────────────────────────────────────────────────────────────
+  // Filtrage projets (recherche + statut)
+  const projetsFiltres = projets.filter(p => {
+    if (filtreStatut !== "all" && (p.statut || "prospect") !== filtreStatut) return false;
+    if (searchProjets.trim()) {
+      const q = searchProjets.toLowerCase();
+      const name = `${p.client_nom || ""} ${p.client_prenom || ""} ${p.adresse_bien || ""}`.toLowerCase();
+      if (!name.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // Stats par statut
+  const statsParStatut = STATUTS_PROJET.reduce((acc, s) => {
+    acc[s.id] = projets.filter(p => (p.statut || "prospect") === s.id).length;
+    return acc;
+  }, {});
+
   // ─── RENDU ───────────────────────────────────────────────────────────────────
-  if (loading) return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:bg,color:accent,fontSize:16,fontWeight:700}}>Chargement…</div>;
+  if (loading) return (
+    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontSize:FONT.sm.size}}>
+      Chargement…
+    </div>
+  );
+
+  const projetActif = projets.find(p => p.id === projetId);
 
   return (
-    <div className="pic-page" style={{ display:"flex", height:"100%", background:bg, overflow:"hidden", position:"relative" }}>
+    <div className="pic-page" style={{ display:"flex", height:"100%", background:T.bg, overflow:"hidden", position:"relative" }}>
       <style>{`
         .pic-mobile-bar{display:none}
         @media(max-width:767px){
-          .pic-page .pic-list-panel{position:absolute;left:0;top:0;bottom:0;width:80%;max-width:300px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
+          .pic-page .pic-list-panel{position:absolute;left:0;top:0;bottom:0;width:88%;max-width:320px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
           .pic-page .pic-list-panel.open{transform:translateX(0)}
           .pic-page .pic-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.5);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
           .pic-page .pic-drawer-backdrop.open{opacity:1;pointer-events:auto}
-          .pic-page .pic-mobile-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:${surface};border-bottom:1px solid ${border};flex-shrink:0;width:100%}
-          .pic-page .pic-mobile-bar-btn{flex:0 0 auto;background:${card};border:1px solid ${border};border-radius:8px;padding:6px 12px;color:${text};font-family:inherit;font-size:12px;font-weight:600;cursor:pointer}
-          .pic-page .pic-main-2col{grid-template-columns:1fr!important;overflow-y:auto!important}
-          .pic-page .pic-main-2col > div{border-right:none!important;overflow-y:visible!important;padding:14px 12px!important}
+          .pic-page .pic-mobile-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:${T.surface};border-bottom:1px solid ${T.border};flex-shrink:0;width:100%}
           .pic-page .pic-form-grid{grid-template-columns:1fr!important;gap:8px!important}
         }
       `}</style>
 
+      {/* ── BARRE MOBILE ── */}
       <div className="pic-mobile-bar">
-        <button className="pic-mobile-bar-btn" onClick={()=>setMobileShowProjets(true)}>☰ Projets</button>
-        <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:700,color:text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        <button onClick={()=>setMobileShowProjets(true)} style={{
+          display:"inline-flex",alignItems:"center",gap:6,
+          background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+          padding:"7px 12px",color:T.text,fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+        }}>
+          <Icon as={Menu} size={13}/>
+          Projets
+        </button>
+        <div style={{flex:1,minWidth:0,fontSize:FONT.sm.size,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
           {projetId ? (infos.client_nom?`${infos.client_nom} ${infos.client_prenom||""}`:"Sans client") : "Aucun projet"}
         </div>
       </div>
 
-      <div className={`pic-drawer-backdrop ${mobileShowProjets?"open":""}`}
-        onClick={()=>setMobileShowProjets(false)}/>
+      <div className={`pic-drawer-backdrop ${mobileShowProjets?"open":""}`} onClick={()=>setMobileShowProjets(false)}/>
 
-      {/* ── LISTE PROJETS ── */}
-      <div className={`pic-list-panel ${mobileShowProjets?"open":""}`} style={{ width:230, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${border}`, flexShrink:0 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <div>
-              <div style={{ fontSize:12, fontWeight:800, color:accent, textTransform:"uppercase", letterSpacing:1 }}>
-                Projets {saving && <span style={{fontSize:10,opacity:.6}}>💾</span>}
+      {/* ── SIDEBAR LISTE PROJETS ── */}
+      <div className={`pic-list-panel ${mobileShowProjets?"open":""}`} style={{
+        width:280,flexShrink:0,display:"flex",flexDirection:"column",
+        background:T.surface,borderRight:`1px solid ${T.border}`,
+      }}>
+        {/* Header sidebar */}
+        <div style={{padding:"14px 14px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <div style={{
+              width:32,height:32,borderRadius:RADIUS.md,flexShrink:0,
+              background:acc.bg10,color:acc.accent,
+              display:"flex",alignItems:"center",justifyContent:"center",
+            }}>
+              <Icon as={UserCircle} size={18} strokeWidth={2}/>
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,letterSpacing:-.2}}>Info Client</div>
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>
+                {projets.length} projet{projets.length>1?"s":""}{saving && " · sauvegarde…"}
               </div>
-              <div style={{ fontSize:11, color:textSub, marginTop:1 }}>{projets.length} fiche{projets.length>1?"s":""}</div>
             </div>
-            <div style={{ display:"flex", gap:5 }}>
-              <button style={{...btn, padding:"5px 10px", fontSize:13}} onClick={nouveauProjet} title="Nouveau">＋</button>
-              <button style={{...btnDng, padding:"5px 8px"}} onClick={suppProjet} title="Supprimer">🗑</button>
-            </div>
+            <button onClick={nouveauProjet} title="Nouveau projet" style={{
+              display:"inline-flex",alignItems:"center",justifyContent:"center",
+              background:acc.accent,color:acc.onAccent,border:"none",
+              borderRadius:RADIUS.md,width:30,height:30,cursor:"pointer",
+            }}>
+              <Icon as={Plus} size={14}/>
+            </button>
           </div>
+
+          {/* Recherche */}
+          <div style={{position:"relative",marginBottom:8}}>
+            <Icon as={Search} size={12} color={T.textMuted}
+              style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+            <input value={searchProjets} onChange={e=>setSearchProjets(e.target.value)} placeholder="Rechercher…"
+              style={{
+                width:"100%",background:T.fieldBg||T.card,
+                border:`1px solid ${T.fieldBorder||T.border}`,borderRadius:RADIUS.md,
+                padding:"7px 10px 7px 28px",color:T.text,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,outline:"none",
+              }}/>
+          </div>
+
+          {/* Filtre statut */}
+          <select value={filtreStatut} onChange={e=>setFiltreStatut(e.target.value)} style={{
+            width:"100%",background:T.fieldBg||T.card,border:`1px solid ${T.fieldBorder||T.border}`,
+            borderRadius:RADIUS.md,padding:"7px 10px",color:T.text,
+            fontFamily:"inherit",fontSize:FONT.xs.size+1,outline:"none",cursor:"pointer",
+          }}>
+            <option value="all">Tous les statuts</option>
+            {STATUTS_PROJET.map(s => (
+              <option key={s.id} value={s.id}>{s.label} ({statsParStatut[s.id] || 0})</option>
+            ))}
+          </select>
         </div>
-        <div style={{ flex:1, overflowY:"auto", padding:8 }}>
+
+        {/* Liste */}
+        <div style={{flex:1,overflowY:"auto",padding:8}}>
           {projets.length===0 && (
-            <div style={{color:textSub,fontSize:12,textAlign:"center",marginTop:24,lineHeight:1.8}}>
+            <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,textAlign:"center",marginTop:20,lineHeight:1.8}}>
               Aucun projet<br/>
-              <button style={{...btn,marginTop:8,fontSize:11}} onClick={nouveauProjet}>Créer</button>
+              <button onClick={nouveauProjet} style={{
+                display:"inline-flex",alignItems:"center",gap:5,marginTop:10,
+                background:acc.accent,color:acc.onAccent,border:"none",
+                borderRadius:RADIUS.md,padding:"7px 14px",cursor:"pointer",
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,
+              }}>
+                <Icon as={Plus} size={12}/>
+                Créer
+              </button>
             </div>
           )}
-          {projets.map(p => {
+          {projetsFiltres.length===0 && projets.length>0 && (
+            <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,textAlign:"center",padding:"16px 12px",fontStyle:"italic"}}>
+              Aucun projet pour ces filtres.
+            </div>
+          )}
+          {projetsFiltres.map(p => {
             const act=p.id===projetId;
+            const st=statutMeta(p.statut);
             return (
-              <div key={p.id} onClick={()=>{chargerProjet(p.id);setMobileShowProjets(false);}} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
-                <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>{p.client_nom?`${p.client_nom} ${p.client_prenom||""}`:"Sans client"}</div>
-                <div style={{ fontSize:11, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
-                  {p.date_visite?`📅 ${new Date(p.date_visite).toLocaleDateString("fr-FR")}`:"Pas de date"}
+              <div key={p.id} onClick={()=>{chargerProjet(p.id);setMobileShowProjets(false);}} style={{
+                padding:"10px 12px",borderRadius:RADIUS.md,marginBottom:6,cursor:"pointer",
+                background:act?acc.bg10:T.card,
+                border:`1px solid ${act?acc.accent:T.border}`,
+                borderLeft:`3px solid ${st.color}`,
+                transition:"all .12s",
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                  <span style={{fontSize:FONT.sm.size,fontWeight:700,color:act?acc.accent:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {p.client_nom?`${p.client_nom} ${p.client_prenom||""}`:"Sans client"}
+                  </span>
+                  <span style={{
+                    fontSize:FONT.xs.size-1,fontWeight:700,padding:"1px 6px",borderRadius:RADIUS.sm,
+                    background:st.color+"22",color:st.color,whiteSpace:"nowrap",flexShrink:0,
+                  }}>{st.label}</span>
                 </div>
+                {p.adresse_bien && (
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2,display:"flex",alignItems:"center",gap:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    <Icon as={MapPin} size={9}/>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.adresse_bien}</span>
+                  </div>
+                )}
+                {p.date_visite && (
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2,display:"inline-flex",alignItems:"center",gap:4}}>
+                    <Icon as={Calendar} size={9}/>
+                    {new Date(p.date_visite).toLocaleDateString("fr-FR")}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -274,55 +416,149 @@ export default function PageInfoClient({ T }) {
 
       {/* ── CONTENU PRINCIPAL ── */}
       {!projetId ? (
-        <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,color:textSub}}>
-          <div style={{fontSize:52,opacity:.2}}>📋</div>
-          <div style={{fontSize:15,fontWeight:700}}>Sélectionne ou crée un projet</div>
-          <button style={btn} onClick={nouveauProjet}>➕ Nouveau projet</button>
+        <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,color:T.textSub,padding:24}}>
+          <div style={{
+            width:64,height:64,borderRadius:RADIUS.lg,
+            background:acc.bg10,color:acc.accent,
+            display:"flex",alignItems:"center",justifyContent:"center",
+          }}>
+            <Icon as={UserCircle} size={32} strokeWidth={1.5}/>
+          </div>
+          <div style={{fontSize:FONT.md.size,fontWeight:700,color:T.text}}>Sélectionne ou crée un projet</div>
+          <button onClick={nouveauProjet} style={{
+            display:"inline-flex",alignItems:"center",gap:6,
+            background:acc.accent,color:acc.onAccent,border:"none",
+            borderRadius:RADIUS.md,padding:"10px 20px",cursor:"pointer",
+            fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+          }}>
+            <Icon as={Plus} size={14}/>
+            Nouveau projet
+          </button>
         </div>
       ) : (
-        <div className="pic-main-2col" style={{ flex:1, display:"grid", gridTemplateColumns:"1fr 1fr", overflow:"hidden", minWidth:0 }}>
-
-          {/* ─ GAUCHE ─ */}
-          <div style={{ overflowY:"auto", padding:"18px 20px", borderRight:`1px solid ${border}`, background:bg }}>
-            <div style={{ display:"flex", gap:6, marginBottom:16, paddingBottom:14, borderBottom:`1px solid ${border}` }}>
-              <button style={tabS(tabG==="infos")} onClick={()=>setTabG("infos")}>📋 Infos</button>
-              <button style={tabS(tabG==="ouvrages")} onClick={()=>setTabG("ouvrages")}>🔨 Ouvrages</button>
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+          {/* En-tête projet + statut + onglets */}
+          <div style={{
+            padding:"14px 22px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0,
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+              <div style={{
+                width:36,height:36,borderRadius:RADIUS.md,flexShrink:0,
+                background:acc.bg10,color:acc.accent,
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>
+                <Icon as={UserCircle} size={20} strokeWidth={2}/>
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {infos.client_nom ? `${infos.client_nom} ${infos.client_prenom||""}` : "Nouveau projet"}
+                </div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,display:"flex",flexWrap:"wrap",gap:10}}>
+                  {infos.adresse_bien && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                      <Icon as={MapPin} size={11}/>{infos.adresse_bien}
+                    </span>
+                  )}
+                  {infos.date_visite && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                      <Icon as={Calendar} size={11}/>{new Date(infos.date_visite).toLocaleDateString("fr-FR")}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* Sélecteur statut */}
+              <select value={infos.statut || "prospect"} onChange={e=>updInfo("statut",e.target.value)}
+                style={{
+                  padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${statutMeta(infos.statut).color}55`,
+                  background:statutMeta(infos.statut).color+"18",color:statutMeta(infos.statut).color,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,outline:"none",cursor:"pointer",
+                }}>
+                {STATUTS_PROJET.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <button onClick={()=>setToDelete(projetActif)} title="Supprimer ce projet" style={{
+                display:"inline-flex",alignItems:"center",justifyContent:"center",
+                background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
+                borderRadius:RADIUS.md,padding:"7px 10px",color:"#e15a5a",cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+              </button>
             </div>
 
-            {tabG==="infos" && (
+            {/* Onglets unifiés */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[
+                { id:"client",   label:"Client & projet", icon:UserCircle },
+                { id:"ouvrages", label:"Ouvrages",        icon:Hammer },
+                { id:"plan",     label:"Plan & côtes",    icon:Ruler },
+                { id:"params",   label:"Paramètres",      icon:Settings },
+                { id:"export",   label:"Export",          icon:FileDown },
+              ].map(t => {
+                const a=tab===t.id;
+                return (
+                  <button key={t.id} onClick={()=>setTab(t.id)} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    padding:"7px 14px",borderRadius:RADIUS.md,
+                    border:a?"none":`1px solid ${T.border}`,
+                    background:a?acc.accent:T.card,color:a?acc.onAccent:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+                    transition:"all .12s",
+                  }}>
+                    <Icon as={t.icon} size={12}/>
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Corps onglet */}
+          <div style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg,minWidth:0}}>
+
+            {tab==="client" && (
               <>
-                <div style={{ fontSize:14, fontWeight:800, color:accent, marginBottom:14 }}>📝 Fiche Chantier</div>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={FileText} size={11}/>
+                  Fiche chantier
+                </div>
                 <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:10 }}>
                   <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom} onChange={e=>updInfo("client_nom",e.target.value)} placeholder="Dupont" /></div>
                   <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom} onChange={e=>updInfo("client_prenom",e.target.value)} placeholder="Jean" /></div>
                 </div>
-                <div style={{marginBottom:10}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, Code Postal, Ville" /></div>
-                <div style={{marginBottom:10}}><label style={lbl}>Description du projet</label><textarea style={ta} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex: Division en 1 studio + 2 T2" /></div>
+                <div style={{marginBottom:10}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" /></div>
+                <div style={{marginBottom:10}}><label style={lbl}>Description du projet</label><textarea style={ta} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : division en 1 studio + 2 T2" /></div>
                 <div style={{marginBottom:10}}><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
-                <div style={{marginBottom:14}}><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:80}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes..." /></div>
+                <div style={{marginBottom:14}}><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:80}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
 
                 <div style={h2s}>Composition du projet</div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:14 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:6, marginBottom:14 }}>
                   {LOGEMENTS.map(log => {
                     const val=log.split(" ")[0], chk=infos.logements.includes(val);
                     return (
-                      <div key={val} onClick={()=>togLog(val)} style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background:chk?`rgba(255,195,0,0.1)`:card, border:`1px solid ${chk?accent:border}`, borderRadius:7, cursor:"pointer", transition:"all .12s" }}>
-                        <input type="checkbox" checked={chk} onChange={()=>togLog(val)} style={{ accentColor:accent, width:15, height:15, flexShrink:0 }} />
-                        <span style={{ fontSize:13, color:chk?accent:text }}>{log}</span>
+                      <div key={val} onClick={()=>togLog(val)} style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background:chk?acc.bg10:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.md, cursor:"pointer", transition:"all .12s" }}>
+                        <input type="checkbox" checked={chk} onChange={()=>togLog(val)} style={{ accentColor:acc.accent, width:15, height:15, flexShrink:0 }} />
+                        <span style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{log}</span>
                       </div>
                     );
                   })}
                 </div>
-                <button style={btnSec} onClick={()=>{ if(window.confirm("Effacer les infos ?")){ const v={client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",observations:"",logements:[],date_visite:""}; setInfos(v); saveInfos(v); }}}>Effacer</button>
               </>
             )}
 
-            {tabG==="ouvrages" && (
+            {tab==="ouvrages" && (
               <>
-                <div style={{ fontSize:14, fontWeight:800, color:accent, marginBottom:14 }}>🔨 Sélection Ouvrages</div>
-                <input style={{...inp,marginBottom:10}} value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Rechercher un ouvrage..." />
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={Hammer} size={11}/>
+                  Sélection d'ouvrages
+                </div>
+                <div style={{position:"relative",marginBottom:10}}>
+                  <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+                  <input style={{...inp,padding:"9px 12px 9px 30px"}} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un ouvrage…" />
+                </div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:14 }}>
-                  {Object.keys(categories).map(cat => { const a=filtresCat.includes(cat); return <div key={cat} onClick={()=>setFiltresCat(p=>p.includes(cat)?p.filter(c=>c!==cat):[...p,cat])} style={{ padding:"3px 10px", borderRadius:20, border:`1px solid ${a?accent:border}`, background:a?accent:"transparent", color:a?"#000":textSub, fontSize:11, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.4 }}>{cat}</div>; })}
+                  {Object.keys(categories).map(cat => {
+                    const a=filtresCat.includes(cat);
+                    return <div key={cat} onClick={()=>setFiltresCat(p=>p.includes(cat)?p.filter(c=>c!==cat):[...p,cat])} style={{ padding:"3px 10px", borderRadius:RADIUS.pill, border:`1px solid ${a?acc.accent:T.border}`, background:a?acc.bg10:"transparent", color:a?acc.accent:T.textSub, fontSize:FONT.xs.size, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.4 }}>{cat}</div>;
+                  })}
                 </div>
 
                 {Object.entries(categories).map(([cat,items]) => {
@@ -334,15 +570,15 @@ export default function PageInfoClient({ T }) {
                       {vis.map((item,idx) => {
                         const sel=ouvrages.find(o=>o.category===cat&&o.item===item), chk=!!sel;
                         return (
-                          <div key={idx} style={{ padding:"9px 12px", background:chk?`rgba(255,195,0,0.08)`:card, border:`1px solid ${chk?accent:border}`, borderRadius:7, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
-                            <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />
-                            <div style={{flex:1}}>
-                              <div style={{ fontSize:13, color:chk?accent:text, fontWeight:chk?700:400 }}>{item}</div>
-                              <div style={{ fontSize:11, color:textSub }}>{cat}</div>
+                          <div key={idx} style={{ padding:"9px 12px", background:chk?acc.bg10:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
+                            <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{item}</div>
+                              <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}</div>
                               {chk && (
-                                <div style={{ display:"flex", gap:6, marginTop:6 }}>
-                                  <input type="number" placeholder="Quantité" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)} style={{...inp,width:90,padding:"5px 8px",fontSize:12}} />
-                                  <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)} style={{...inp,width:80,padding:"5px 8px",fontSize:12}}>
+                                <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap" }}>
+                                  <input type="number" placeholder="Quantité" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)} style={{...inp,width:90,padding:"5px 8px",fontSize:FONT.xs.size+1}} />
+                                  <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)} style={{...inp,width:80,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
                                     <option value="U">Unité</option><option value="m">Mètres</option><option value="m²">M²</option><option value="ml">ML</option>
                                   </select>
                                 </div>
@@ -355,84 +591,151 @@ export default function PageInfoClient({ T }) {
                   );
                 })}
 
-                <div style={{ display:"flex", gap:8, marginTop:18 }}>
-                  <div style={{ background:card, border:`1px solid ${border}`, borderRadius:8, padding:"12px 16px", textAlign:"center", flex:1 }}>
-                    <div style={{ fontSize:22, fontWeight:800, color:accent }}>{ouvrages.length}</div>
-                    <div style={{ fontSize:11, color:textSub }}>Sélectionnés</div>
+                <div style={{ display:"flex", gap:10, marginTop:18, flexWrap:"wrap" }}>
+                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                      <Icon as={Check} size={15}/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{ouvrages.length}</div>
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Sélectionnés</div>
+                    </div>
                   </div>
-                  <div style={{ background:card, border:`1px solid ${border}`, borderRadius:8, padding:"12px 16px", textAlign:"center", flex:1 }}>
-                    <div style={{ fontSize:22, fontWeight:800, color:textSub }}>{Object.values(categories).flat().length}</div>
-                    <div style={{ fontSize:11, color:textSub }}>Disponibles</div>
+                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(91,156,246,0.16)",color:"#5b9cf6",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                      <Icon as={Layers} size={15}/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{Object.values(categories).flat().length}</div>
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Disponibles</div>
+                    </div>
                   </div>
                 </div>
-                <div style={{ display:"flex", gap:8, marginTop:10 }}>
-                  <button style={btnSec} onClick={async()=>{ if(!window.confirm("Déselectionner tout ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}>Tout déselectionner</button>
-                  <button style={btn} onClick={()=>setShowModal(true)}>👁️ Voir sélection</button>
+                <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>
+                  <button onClick={async()=>{ if(!window.confirm("Désélectionner tous les ouvrages ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
+                    style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                    <Icon as={X} size={11}/>
+                    Tout désélectionner
+                  </button>
+                  <button onClick={()=>setShowModal(true)}
+                    style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
+                    <Icon as={FileText} size={11}/>
+                    Voir la sélection
+                  </button>
                 </div>
               </>
             )}
-          </div>
 
-          {/* ─ DROITE ─ */}
-          <div style={{ overflowY:"auto", padding:"18px 20px", background:bg }}>
-            <div style={{ display:"flex", gap:6, marginBottom:16, paddingBottom:14, borderBottom:`1px solid ${border}` }}>
-              <button style={tabS(tabD==="plan")} onClick={()=>setTabD("plan")}>📐 Plan</button>
-              <button style={tabS(tabD==="params")} onClick={()=>setTabD("params")}>⚙️ Paramètres</button>
-              <button style={tabS(tabD==="export")} onClick={()=>setTabD("export")}>📄 Export PDF</button>
-            </div>
-
-            {tabD==="plan" && (
+            {tab==="plan" && (
               <>
-                <div style={{ fontSize:14, fontWeight:800, color:accent, marginBottom:12 }}>📐 Plan du Chantier</div>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={Ruler} size={11}/>
+                  Plan & côtes
+                </div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:10 }}>
-                  {plans.map((p,i) => <button key={i} onClick={()=>setPlanIdx(i)} style={{ padding:"5px 12px", border:`1px solid ${i===planIdx?accent:border}`, background:i===planIdx?accent:card, color:i===planIdx?"#000":textSub, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:700, transition:"all .12s" }}>{p.nom}</button>)}
-                  <button style={{...btn,fontSize:11,padding:"5px 10px"}} onClick={ajoutPlan}>➕</button>
+                  {plans.map((p,i) => (
+                    <button key={i} onClick={()=>setPlanIdx(i)} style={{
+                      padding:"5px 12px",border:`1px solid ${i===planIdx?acc.accent:T.border}`,
+                      background:i===planIdx?acc.bg10:T.card,
+                      color:i===planIdx?acc.accent:T.textSub,
+                      borderRadius:RADIUS.md,cursor:"pointer",
+                      fontSize:FONT.xs.size+1,fontWeight:700,transition:"all .12s",
+                    }}>{p.nom}</button>
+                  ))}
+                  <button onClick={ajoutPlan} style={{
+                    display:"inline-flex",alignItems:"center",gap:4,
+                    padding:"5px 10px",background:acc.accent,color:acc.onAccent,border:"none",
+                    borderRadius:RADIUS.md,cursor:"pointer",
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,
+                  }}>
+                    <Icon as={Plus} size={11}/>
+                    Plan
+                  </button>
                 </div>
                 <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
-                  <button style={{...btn,background:drawActive?"#111":accent,color:drawActive?accent:"#000",fontSize:11,border:drawActive?`1px solid ${accent}`:"none"}} onClick={togDraw}>✏️ Dessiner</button>
-                  <button style={{...btnSec,fontSize:11,background:eraseActive?"#222":"transparent",color:eraseActive?accent:textSub}} onClick={togErase}>🧹 Gomme</button>
-                  <button style={{...btnSec,fontSize:11}} onClick={clearCanvas}>🗑️ Effacer</button>
-                  <button style={{...btnSec,fontSize:11}} onClick={dlCanvas}>💾 Télécharger</button>
+                  <button onClick={togDraw} style={{
+                    display:"inline-flex",alignItems:"center",gap:5,
+                    padding:"7px 12px",borderRadius:RADIUS.md,border:"none",
+                    background:drawActive?acc.accent:T.card,color:drawActive?acc.onAccent:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+                  }}>
+                    <Icon as={Pencil} size={11}/>
+                    Dessiner
+                  </button>
+                  <button onClick={togErase} style={{
+                    display:"inline-flex",alignItems:"center",gap:5,
+                    padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,
+                    background:eraseActive?T.surface:"transparent",color:eraseActive?acc.accent:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+                  }}>
+                    <Icon as={Eraser} size={11}/>
+                    Gomme
+                  </button>
+                  <button onClick={clearCanvas} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                    <Icon as={Trash2} size={11}/>
+                    Effacer
+                  </button>
+                  <button onClick={dlCanvas} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                    <Icon as={Download} size={11}/>
+                    Télécharger
+                  </button>
                 </div>
-                <div style={{ border:`2px solid ${accent}`, borderRadius:8, overflow:"hidden" }}>
+                <div style={{ border:`1px solid ${acc.accent}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
                   <canvas ref={canvasRef} width={800} height={600}
                     style={{ display:"block", width:"100%", cursor:drawActive?"crosshair":eraseActive?"cell":"default", touchAction:"none" }}
                     onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
-                    onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}
-                  />
+                    onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}/>
                 </div>
-                <div style={{...h2s,marginTop:20}}>Côtes menuiseries / huisseries</div>
-                <button style={{...btn,fontSize:11,marginBottom:10}} onClick={ajoutCote}>➕ Ajouter côte</button>
-                {cotes.length===0 && <div style={{color:textSub,fontSize:12,textAlign:"center",padding:16}}>Aucune côte enregistrée</div>}
+
+                <div style={{...h2s, marginTop:20}}>Côtes menuiseries / huisseries</div>
+                <button onClick={ajoutCote} style={{
+                  display:"inline-flex",alignItems:"center",gap:5,marginBottom:10,
+                  background:acc.accent,color:acc.onAccent,border:"none",
+                  borderRadius:RADIUS.md,padding:"7px 14px",cursor:"pointer",
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,
+                }}>
+                  <Icon as={Plus} size={11}/>
+                  Ajouter une côte
+                </button>
+                {cotes.length===0 && <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,textAlign:"center",padding:14,fontStyle:"italic"}}>Aucune côte enregistrée</div>}
                 {cotes.map(c => (
-                  <div key={c.id} style={{ background:card, border:`1px solid ${border}`, borderRadius:8, padding:12, marginBottom:8 }}>
+                  <div key={c.id} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:12, marginBottom:8 }}>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:6 }}>
-                      <input style={{...inp,fontSize:12}} value={c.nom||""} onChange={e=>updCote(c.id,"nom",e.target.value)} placeholder="Fenêtre salon" />
-                      <input style={{...inp,fontSize:12}} value={c.localisation||""} onChange={e=>updCote(c.id,"localisation",e.target.value)} placeholder="Localisation" />
-                      <input type="number" style={{...inp,fontSize:12}} value={c.largeur||""} onChange={e=>updCote(c.id,"largeur",e.target.value)} placeholder="Largeur (cm)" />
-                      <input type="number" style={{...inp,fontSize:12}} value={c.hauteur||""} onChange={e=>updCote(c.id,"hauteur",e.target.value)} placeholder="Hauteur (cm)" />
+                      <input style={{...inp,fontSize:FONT.xs.size+1}} value={c.nom||""} onChange={e=>updCote(c.id,"nom",e.target.value)} placeholder="Fenêtre salon" />
+                      <input style={{...inp,fontSize:FONT.xs.size+1}} value={c.localisation||""} onChange={e=>updCote(c.id,"localisation",e.target.value)} placeholder="Localisation" />
+                      <input type="number" style={{...inp,fontSize:FONT.xs.size+1}} value={c.largeur||""} onChange={e=>updCote(c.id,"largeur",e.target.value)} placeholder="Largeur (cm)" />
+                      <input type="number" style={{...inp,fontSize:FONT.xs.size+1}} value={c.hauteur||""} onChange={e=>updCote(c.id,"hauteur",e.target.value)} placeholder="Hauteur (cm)" />
                     </div>
-                    <button style={btnDng} onClick={()=>delCote(c.id)}>✕ Supprimer</button>
+                    <button onClick={()=>delCote(c.id)} style={{...btnDng, display:"inline-flex", alignItems:"center", gap:4}}>
+                      <Icon as={Trash2} size={10}/>
+                      Supprimer
+                    </button>
                   </div>
                 ))}
               </>
             )}
 
-            {tabD==="params" && (
+            {tab==="params" && (
               <>
-                <div style={{ fontSize:14, fontWeight:800, color:accent, marginBottom:14 }}>⚙️ Bibliothèque Ouvrages</div>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={Settings} size={11}/>
+                  Bibliothèque d'ouvrages
+                </div>
                 <label style={lbl}>Catégorie à modifier</label>
                 <select style={{...inp,marginBottom:10}} value={catParam} onChange={e=>setCatParam(e.target.value)}>
-                  <option value="">-- Sélectionner --</option>
+                  <option value="">— Sélectionner —</option>
                   {Object.keys(categories).map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
                 {catParam && (
                   <>
                     <div style={h2s}>Ouvrages ({(categories[catParam]||[]).length})</div>
                     {(categories[catParam]||[]).map((item,idx) => (
-                      <div key={idx} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", background:card, border:`1px solid ${border}`, borderRadius:7, marginBottom:6 }}>
-                        <span style={{flex:1,fontSize:13,color:text}}>{item}</span>
-                        <button style={btnDng} onClick={()=>delOuvrageLib(catParam,idx)}>✕</button>
+                      <div key={idx} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
+                        <span style={{flex:1,fontSize:FONT.sm.size,color:T.text}}>{item}</span>
+                        <button onClick={()=>setToDeleteOuvrage({cat:catParam,idx,label:item})} title="Supprimer"
+                          style={{...btnDng, display:"inline-flex", alignItems:"center", justifyContent:"center", padding:"4px 8px"}}>
+                          <Icon as={Trash2} size={11}/>
+                        </button>
                       </div>
                     ))}
                   </>
@@ -443,45 +746,191 @@ export default function PageInfoClient({ T }) {
                   {Object.keys(categories).map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
                 <label style={lbl}>Libellé</label>
-                <input style={{...inp,marginBottom:8}} value={newLib} onChange={e=>setNewLib(e.target.value)} placeholder="Ex: Installation électrique T2" onKeyDown={e=>e.key==="Enter"&&ajoutOuvrageLib()} />
-                <button style={btn} onClick={ajoutOuvrageLib}>➕ Ajouter</button>
+                <input style={{...inp,marginBottom:8}} value={newLib} onChange={e=>setNewLib(e.target.value)} placeholder="Ex : Installation électrique T2" onKeyDown={e=>e.key==="Enter"&&ajoutOuvrageLib()} />
+                <button onClick={ajoutOuvrageLib} style={{
+                  display:"inline-flex",alignItems:"center",gap:5,
+                  background:acc.accent,color:acc.onAccent,border:"none",
+                  borderRadius:RADIUS.md,padding:"8px 16px",cursor:"pointer",
+                  fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                }}>
+                  <Icon as={Plus} size={12}/>
+                  Ajouter
+                </button>
               </>
             )}
 
-            {tabD==="export" && (
+            {tab==="export" && (
               <>
-                <div style={{ fontSize:14, fontWeight:800, color:accent, marginBottom:14 }}>📄 Export PDF</div>
-                <p style={{color:textSub,fontSize:13,marginBottom:16,lineHeight:1.7}}>Génère un PDF complet avec infos client, ouvrages sélectionnés, côtes et plans.</p>
-                <div style={{ background:`rgba(255,195,0,0.07)`, border:`1px solid rgba(255,195,0,0.2)`, borderRadius:8, padding:"14px 16px", marginBottom:20 }}>
-                  <div style={{color:accent,fontWeight:700,marginBottom:8,fontSize:13}}>📋 Contenu du PDF</div>
-                  {["Infos client et projet","Composition (logements)","Tous les ouvrages sélectionnés","Côtes menuiseries / huisseries","Plans du chantier","Observations"].map(i=>(
-                    <div key={i} style={{fontSize:12,color:textSub,marginBottom:4}}>✓ {i}</div>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={FileDown} size={11}/>
+                  Export du dossier
+                </div>
+                <p style={{color:T.textSub,fontSize:FONT.sm.size,marginBottom:14,lineHeight:1.7}}>
+                  Génère une fiche complète avec infos client, ouvrages sélectionnés, côtes et plans.
+                </p>
+                <div style={{ background:acc.bg10, border:`1px solid ${acc.accent}33`, borderRadius:RADIUS.md, padding:"12px 14px", marginBottom:18 }}>
+                  <div style={{display:"inline-flex",alignItems:"center",gap:5,color:acc.accent,fontWeight:700,marginBottom:8,fontSize:FONT.sm.size}}>
+                    <Icon as={FileText} size={12}/>
+                    Contenu de la fiche
+                  </div>
+                  {["Infos client et projet","Composition (logements)","Ouvrages sélectionnés","Côtes menuiseries / huisseries","Plan du chantier","Observations"].map(i=>(
+                    <div key={i} style={{fontSize:FONT.xs.size+1,color:T.textSub,marginBottom:4,display:"inline-flex",alignItems:"center",gap:5,width:"100%"}}>
+                      <Icon as={Check} size={10} color={acc.accent}/>
+                      {i}
+                    </div>
                   ))}
                 </div>
-                <button style={btn} onClick={()=>genPDF({infos,ouvrages,cotes,plans,canvasRef})}>📥 Générer & Télécharger PDF</button>
+                <button onClick={()=>genPDF({infos,ouvrages,cotes,plans,canvasRef})} style={{
+                  display:"inline-flex",alignItems:"center",gap:6,
+                  background:acc.accent,color:acc.onAccent,border:"none",
+                  borderRadius:RADIUS.md,padding:"10px 18px",cursor:"pointer",
+                  fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                }}>
+                  <Icon as={Download} size={13}/>
+                  Générer & télécharger
+                </button>
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* ── MODAL ── */}
+      {/* ── MODAL SÉLECTION OUVRAGES ── */}
       {showModal && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
-          <div style={{background:surface,border:`2px solid ${accent}`,borderRadius:12,padding:24,maxWidth:520,width:"90%",maxHeight:"80vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,borderBottom:`2px solid ${accent}`,paddingBottom:10}}>
-              <span style={{color:accent,fontWeight:700,fontSize:15}}>✅ Ouvrages sélectionnés ({ouvrages.length})</span>
-              <button style={{background:"#e05c5c",border:"none",borderRadius:"50%",width:28,height:28,cursor:"pointer",color:"#fff",fontSize:16}} onClick={()=>setShowModal(false)}>×</button>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
+          onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
+          <div style={{
+            background:T.modal||T.surface,borderRadius:RADIUS.xl,
+            padding:0,maxWidth:560,width:"100%",maxHeight:"85vh",
+            border:`1px solid ${T.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+            display:"flex",flexDirection:"column",overflow:"hidden",
+          }}>
+            <div style={{padding:"18px 22px",borderBottom:`1px solid ${T.sectionDivider||T.border}`,display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:32,height:32,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={Check} size={16}/>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Ouvrages sélectionnés</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>{ouvrages.length} ouvrage{ouvrages.length>1?"s":""} retenus</div>
+              </div>
+              <button onClick={()=>setShowModal(false)} title="Fermer" style={{
+                display:"inline-flex",alignItems:"center",justifyContent:"center",
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,width:30,height:30,cursor:"pointer",color:T.textSub,
+              }}>
+                <Icon as={X} size={13}/>
+              </button>
             </div>
-            {ouvrages.length===0 ? <div style={{color:textSub,textAlign:"center",padding:20}}>Aucun ouvrage sélectionné</div> : (
-              Object.entries(ouvrages.reduce((a,o)=>{if(!a[o.category])a[o.category]=[];a[o.category].push(o);return a;},{})).map(([cat,items])=>(
-                <div key={cat} style={{marginBottom:14}}>
-                  <div style={{background:accent,color:"#000",padding:"6px 12px",borderRadius:6,fontWeight:700,fontSize:13,marginBottom:6}}>{cat}</div>
-                  {items.map((it,i)=><div key={i} style={{padding:"5px 12px",fontSize:13,color:text,borderLeft:`2px solid ${border}`,marginBottom:4}}>{it.item}{it.quantite?` — ${it.quantite} ${it.unite}`:""}</div>)}
-                </div>
-              ))
-            )}
-            <button style={{...btn,marginTop:12,width:"100%"}} onClick={()=>setShowModal(false)}>Fermer</button>
+            <div style={{flex:1,overflowY:"auto",padding:"16px 22px"}}>
+              {ouvrages.length===0 ? <div style={{color:T.textMuted,textAlign:"center",padding:20,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun ouvrage sélectionné</div> : (
+                Object.entries(ouvrages.reduce((a,o)=>{if(!a[o.category])a[o.category]=[];a[o.category].push(o);return a;},{})).map(([cat,items])=>(
+                  <div key={cat} style={{marginBottom:14}}>
+                    <div style={{display:"inline-flex",alignItems:"center",gap:5,background:acc.bg10,color:acc.accent,padding:"4px 10px",borderRadius:RADIUS.sm,fontWeight:700,fontSize:FONT.xs.size+1,marginBottom:6,border:`1px solid ${acc.accent}33`}}>
+                      <Icon as={Layers} size={11}/>
+                      {cat}
+                    </div>
+                    {items.map((it,i)=>(
+                      <div key={i} style={{padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${T.border}`,marginBottom:4}}>
+                        {it.item}{it.quantite?` — ${it.quantite} ${it.unite}`:""}
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.sectionDivider||T.border}`,display:"flex",justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowModal(false)} style={{
+                background:acc.accent,color:acc.onAccent,border:"none",
+                borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+              }}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL SUPPRESSION PROJET ── */}
+      {toDelete && (
+        <div onClick={()=>!deleting&&setToDelete(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{
+                width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,
+                background:"rgba(224,92,92,0.12)",color:"#e15a5a",
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce projet&nbsp;?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              Le projet <strong style={{color:T.text}}>« {toDelete.client_nom||"Sans client"} {toDelete.client_prenom||""} »</strong> sera supprimé avec ses ouvrages, ses côtes et ses plans.
+              <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Cette action est irréversible.</span>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDelete(null)} disabled={deleting} style={{
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",opacity:deleting?.5:1,
+              }}>Annuler</button>
+              <button onClick={confirmSuppProjet} disabled={deleting} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:"#e15a5a",color:"#fff",border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                cursor:"pointer",opacity:deleting?.6:1,
+              }}>
+                <Icon as={Trash2} size={13}/>
+                {deleting?"Suppression…":"Supprimer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL SUPPRESSION OUVRAGE BIBLIOTHÈQUE ── */}
+      {toDeleteOuvrage && (
+        <div onClick={()=>setToDeleteOuvrage(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer cet ouvrage ?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              L'ouvrage <strong style={{color:T.text}}>« {toDeleteOuvrage.label} »</strong> sera retiré de la bibliothèque <strong style={{color:T.text}}>{toDeleteOuvrage.cat}</strong>.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDeleteOuvrage(null)} style={{
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+              }}>Annuler</button>
+              <button onClick={()=>delOuvrageLib(toDeleteOuvrage.cat,toDeleteOuvrage.idx)} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:"#e15a5a",color:"#fff",border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
           </div>
         </div>
       )}
