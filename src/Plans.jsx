@@ -908,6 +908,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     try {
       ctx.clearRect(0,0,W,H);
       const isPrint = printModeRef.current;
+      // Désactive l'effet d'ombre quand beaucoup d'éléments sont sélectionnés
+      // (shadowBlur = compositing hors-écran très coûteux en multi-sélection)
+      const useShadow = !isPrint && selectedRef.current.size <= 30;
       ctx.fillStyle = isPrint ? '#ffffff' : '#12151f';
       ctx.fillRect(0,0,W,H);
       const C = {
@@ -1021,9 +1024,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const sel = selectedRef.current.has(s.id);
         ctx.strokeStyle = sel ? C.selC : C.seg(s.color);
         ctx.lineWidth   = sel ? 3 : (s.user ? 2 : 1.5);
-        if (sel && !isPrint) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=6; }
+        if (sel && useShadow) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=6; }
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-        ctx.shadowBlur=0;
+        if (sel && useShadow) ctx.shadowBlur=0;
       });
 
       if (lyrs.cotes) cotesRef.current.forEach(c => {
@@ -1226,9 +1229,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.save();
           ctx.translate(cx, cy);
           ctx.rotate((sym.angle||0)*Math.PI/180);
-          if (sel && !isPrint) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=8; }
+          if (sel && useShadow) { ctx.shadowColor='#f5a623'; ctx.shadowBlur=8; }
           drawLibSym(ctx, sym.symType, sym.label||'', sym.color||'#e8eaf0', fixedSz, isPrint);
-          ctx.shadowBlur=0;
+          if (sel && useShadow) ctx.shadowBlur=0;
           ctx.restore();
           // Cadre sélection
           if (sel) {
@@ -1431,7 +1434,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     } catch(e) { console.error('Render error:',e); }
   }, []);
 
-  useEffect(() => { render(); });
+  // Coalesce les redraws : un seul render par frame, même si plusieurs
+  // changements d'état React s'enchaînent (sélection, viewport, etc.)
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => render());
+    return () => cancelAnimationFrame(rafId);
+  });
 
   useEffect(() => {
     const handler = (e) => {
@@ -2636,9 +2644,27 @@ function PagePlans({T, chantiers}) {
 
   const loadPlans = async () => {
     setLoading(true);
-    const {data} = await supabase.from('plans').select('*').order('updated_at',{ascending:false});
+    // Liste légère : on exclut le blob `data` (segments, symboles, surfaces…)
+    // qui peut peser plusieurs Mo par plan. Il est chargé à la demande
+    // quand l'utilisateur ouvre ou duplique un plan.
+    const {data} = await supabase.from('plans')
+      .select('id,name,chantier_id,thumbnail,updated_at')
+      .order('updated_at',{ascending:false});
     setPlans(data||[]);
     setLoading(false);
+  };
+
+  // Récupère le blob `data` complet d'un plan donné (utilisé à l'ouverture
+  // et à la duplication, après le chargement allégé de la liste).
+  const fetchFullPlan = async (id) => {
+    const {data} = await supabase.from('plans').select('*').eq('id', id).single();
+    return data;
+  };
+
+  const openPlan = async (planFromList) => {
+    if (planFromList.data) { setEditingPlan(planFromList); return; }
+    const full = await fetchFullPlan(planFromList.id);
+    if (full) setEditingPlan(full);
   };
 
   useEffect(()=>{ loadPlans(); },[]);
@@ -2752,15 +2778,13 @@ function PagePlans({T, chantiers}) {
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16}}>
           {plans.map(plan=>{
             const ch=chantiers.find(c=>c.id===plan.chantier_id);
-            const segCount=plan.data?.segments?.filter(s=>!s.deleted)?.length||0;
-            const symCount=plan.data?.symbols?.filter(s=>!s.deleted)?.length||0;
             return (
               <div key={plan.id} style={{background:T.surface,border:`1px solid ${T.border}`,
                 borderRadius:14,overflow:'hidden',transition:'all .15s'}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.2)';}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform='none';e.currentTarget.style.boxShadow='none';}}>
 
-                <div onClick={()=>setEditingPlan(plan)} style={{cursor:'pointer',height:160,
+                <div onClick={()=>openPlan(plan)} style={{cursor:'pointer',height:160,
                   background:'#12151f',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
                   borderBottom:`1px solid ${T.border}`}}>
                   {plan.thumbnail
@@ -2778,7 +2802,6 @@ function PagePlans({T, chantiers}) {
                     borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700,color:ch.couleur==='#fff'?'#333':ch.couleur,
                     marginBottom:6}}>{ch.nom}</div>}
                   <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}}>{plan.name}</div>
-                  <div style={{fontSize:12,color:T.textMuted}}>{segCount} segments · {symCount} symboles</div>
                   <div style={{fontSize:11,color:T.textMuted,marginTop:3}}>
                     Modifié {new Date(plan.updated_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
                   </div>
@@ -2786,14 +2809,16 @@ function PagePlans({T, chantiers}) {
 
                 <div className="plan-card-actions" style={{padding:'10px 16px',borderTop:`1px solid ${T.sectionDivider}`,
                   display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}}>
-                  <button onClick={()=>setEditingPlan(plan)} style={{background:T.accent,color:'#fff',
+                  <button onClick={()=>openPlan(plan)} style={{background:T.accent,color:'#fff',
                     border:'none',borderRadius:7,padding:'6px 16px',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
                     Ouvrir
                   </button>
                   <button onClick={async()=>{
                     const nom=prompt(`Nom du nouveau plan (copie de "${plan.name}") :`, `${plan.name} — copie`);
                     if(!nom?.trim()) return;
-                    const srcData=plan.data||{};
+                    // La liste ne charge plus le blob `data` : on le récupère à la demande.
+                    const src = plan.data ? plan : await fetchFullPlan(plan.id);
+                    const srcData=src?.data||{};
                     const reId=arr=>(arr||[]).map(x=>({...x,id:Date.now()+Math.random(),
                       ...(x.points?{points:x.points.map(p=>({...p}))}:{})}));
                     const newData={
