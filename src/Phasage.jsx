@@ -7,7 +7,7 @@ import {
   ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
   Building2, Hammer, Clock, Euro, TrendingUp, AlertTriangle, Search, FileSpreadsheet,
   CalendarPlus, Check, GripVertical, X, ChevronDown, ChevronUp,
-  Info, Unlink, Link2, SplitSquareHorizontal,
+  Info, Unlink, Link2, SplitSquareHorizontal, HardHat, Package, CalendarCheck,
 } from "lucide-react";
 import GanttView from "./GanttView";
 
@@ -905,11 +905,26 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     setIsPlanningSaving(false);
   }
 
-  const allTaches = PHASES.flatMap(ph => (plan[ph.id] || []));
+  const allTaches = PHASES.flatMap(ph => (plan[ph.id] || []).map(t => ({ ...t, _phaseId: ph.id, _phaseCouleur: ph.couleur, _phaseLabel: ph.label })));
   const nbTaches = allTaches.length;
   const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
   const totalHVenduGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
   const totalHEstimeeGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+  const totalHReelGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+
+  // ── Date prévue de fin : la dernière date_prevue parmi toutes les tâches
+  const dateFin = (() => {
+    const dates = allTaches.map(t => t.date_prevue).filter(Boolean).sort();
+    return dates.length > 0 ? dates[dates.length - 1] : null;
+  })();
+  const dateFinFmt = dateFin ? new Date(dateFin).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : null;
+
+  // ── Détection dépassements pour bandeau d'alerte
+  const depassementsH = allTaches.filter(t => {
+    const hV = parseFloat(t.heures_vendues) || 0;
+    const hR = parseFloat(t.heures_reelles) || 0;
+    return hV > 0 && hR > hV;
+  });
 
   // ── Avancement global : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
   const avgAv = nbTaches === 0 ? 0
@@ -1015,8 +1030,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           </div>
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: planAcc.accent, letterSpacing: 1.2, textTransform: "uppercase" }}>
-                Étape 2 — Plan de travail
+              <div style={{ fontSize: FONT.lg.size + 2, fontWeight: 800, color: T.text, letterSpacing: -0.3 }}>
+                {phasage.chantier_nom}
               </div>
               <span style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
@@ -1032,10 +1047,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 {autoLabel}
               </span>
             </div>
-            <div style={{ fontSize: FONT.lg.size + 2, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginTop: 2 }}>
-              {phasage.chantier_nom}
-            </div>
-            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 3, display: "flex", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 5, display: "flex", flexWrap: "wrap", gap: 10 }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                 <Icon as={Hammer} size={11}/>
                 {nbTaches} tâche{nbTaches > 1 ? "s" : ""}
@@ -1044,6 +1056,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#22c55e", fontWeight: 700 }}>
                   <Icon as={Check} size={11}/>
                   {terminees} terminée{terminees > 1 ? "s" : ""}
+                </span>
+              )}
+              {dateFinFmt && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="Date prévue de fin (dernière échéance des tâches)">
+                  <Icon as={CalendarCheck} size={11}/>
+                  Fin prévue : <strong style={{ color: T.text, fontWeight: 700 }}>{dateFinFmt}</strong>
                 </span>
               )}
             </div>
@@ -1066,6 +1084,60 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             T={T}
             onClose={() => setShowGantt(false)}
           />
+        )}
+
+        {/* ── Bandeau d'alerte dépassements ── */}
+        {(depassementsH.length > 0 || (pVendu > 0 && marge < 0)) && (
+          <div style={{
+            display: "flex", alignItems: "flex-start", gap: 10,
+            padding: "12px 14px", marginBottom: 12,
+            background: "rgba(225,90,90,0.10)", border: "1px solid rgba(225,90,90,0.3)",
+            borderRadius: RADIUS.lg,
+          }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: RADIUS.md, flexShrink: 0,
+              background: "rgba(225,90,90,0.18)", color: "#e15a5a",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon as={AlertTriangle} size={14} strokeWidth={2.2}/>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: "#e15a5a", marginBottom: 2 }}>
+                Attention&nbsp;: dépassement{depassementsH.length > 1 ? "s" : ""} détecté{depassementsH.length > 1 ? "s" : ""}
+              </div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.5 }}>
+                {depassementsH.length > 0 && (
+                  <span>{depassementsH.length} tâche{depassementsH.length > 1 ? "s" : ""} dépasse{depassementsH.length > 1 ? "nt" : ""} les heures vendues</span>
+                )}
+                {depassementsH.length > 0 && pVendu > 0 && marge < 0 && <span> · </span>}
+                {pVendu > 0 && marge < 0 && (
+                  <span>Marge négative ({Math.round(marge).toLocaleString("fr-FR")} €)</span>
+                )}
+                {depassementsH.length > 0 && (
+                  <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {depassementsH.slice(0, 5).map(t => {
+                      const hV = parseFloat(t.heures_vendues) || 0;
+                      const hR = parseFloat(t.heures_reelles) || 0;
+                      return (
+                        <span key={t.id} style={{
+                          fontSize: FONT.xs.size, padding: "2px 7px", borderRadius: RADIUS.sm,
+                          background: t._phaseCouleur + "1A", color: t._phaseCouleur,
+                          border: `1px solid ${t._phaseCouleur}33`, fontWeight: 600,
+                        }}>
+                          {t.nom} · {hR}h / {hV}h
+                        </span>
+                      );
+                    })}
+                    {depassementsH.length > 5 && (
+                      <span style={{ fontSize: FONT.xs.size, color: T.textMuted, padding: "2px 4px" }}>
+                        +{depassementsH.length - 5} autre{depassementsH.length - 5 > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ── KPI cards ── */}
@@ -1092,14 +1164,26 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
               </div>
             </div>
           </div>
-          {[
-            { label: "Coûts cumulés", value: `${Math.round(coutTotal).toLocaleString("fr-FR")} €`, icon: Euro,
-              color: coutTotal > pVendu && pVendu > 0 ? "#e15a5a" : T.text },
-            { label: "Marge nette", value: `${marge > 0 ? "+" : ""}${Math.round(marge).toLocaleString("fr-FR")} €`,
-              icon: TrendingUp, color: marge < 0 ? "#e15a5a" : "#22c55e" },
-            { label: "Marge %", value: `${margePct.toFixed(1)} %`, icon: TrendingUp,
-              color: marge < 0 ? "#e15a5a" : "#22c55e" },
-          ].map((s, i) => (
+          {(() => {
+            const ratioH = totalHVenduGlobal > 0 ? (totalHReelGlobal / totalHVenduGlobal) * 100 : 0;
+            const heuresColor = totalHVenduGlobal === 0
+              ? T.textMuted
+              : ratioH > 100 ? "#e15a5a"
+              : ratioH > 85 ? "#f5a623"
+              : "#22c55e";
+            return [
+              { label: "Main d'œuvre", value: `${Math.round(totalMO).toLocaleString("fr-FR")} €`, icon: HardHat,
+                color: totalMO > pVendu && pVendu > 0 ? "#e15a5a" : "#5b9cf6" },
+              { label: "Matériaux", value: totalMat > 0 ? `${Math.round(totalMat).toLocaleString("fr-FR")} €` : "—",
+                icon: Package, color: totalMat > 0 ? "#a78bfa" : T.textMuted },
+              { label: totalHVenduGlobal > 0 ? `Heures · ${ratioH.toFixed(0)}%` : "Heures réelles",
+                value: `${totalHReelGlobal.toFixed(1)}h${totalHVenduGlobal > 0 ? ` / ${totalHVenduGlobal.toFixed(0)}h` : ""}`,
+                icon: Clock, color: heuresColor },
+              { label: "Marge nette",
+                value: `${marge > 0 ? "+" : ""}${Math.round(marge).toLocaleString("fr-FR")} €${pVendu > 0 ? ` · ${margePct.toFixed(1)}%` : ""}`,
+                icon: TrendingUp, color: marge < 0 ? "#e15a5a" : marge > 0 ? "#22c55e" : T.textMuted },
+            ];
+          })().map((s, i) => (
             <div key={i} style={{
               background: T.surface, border: `1px solid ${T.border}`,
               borderRadius: RADIUS.lg, padding: "12px 14px",
