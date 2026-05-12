@@ -453,7 +453,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       .page-padding{padding:14px 12px!important}
 
       /* ============== TOPBAR ============== */
-      .app-topbar{padding:8px 12px!important;gap:8px!important}
+      .app-topbar{display:flex!important;padding:8px 12px!important;gap:8px!important}
       .topbar-logo-mobile{display:block!important}
       .topbar-text-desktop{display:none!important}
       .topbar-sync{padding:3px 8px!important;font-size:11px!important;gap:4px!important}
@@ -524,9 +524,15 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   return(
     <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{css}</style>
-      <div className="app-sidebar"><Sidebar page={page} setPage={setPage} T={T} role={role}/></div>
+      <div className="app-sidebar"><Sidebar
+        page={page} setPage={setPage} T={T} role={role} branch="renovation"
+        profil={profil} theme={theme} setTheme={setTheme}
+        onLogout={onLogout}
+        peutChangerBranche={peutChangerBranche} onRetourPortail={onRetourPortail}
+        syncing={syncing} connected={connected} lastSync={lastSync}
+      /></div>
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
-        <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+        <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,padding:"8px 28px",alignItems:"center",gap:12,flexShrink:0,display:"none"}}>
           <img src={LOGO_RENO_H} alt="Profero Rénovation" className="topbar-logo-mobile" style={{height:36,objectFit:"contain",display:"none"}}/>
           <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
             Profero · Rénovation

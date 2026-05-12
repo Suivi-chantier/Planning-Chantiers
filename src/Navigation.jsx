@@ -2,9 +2,9 @@ import React, { useState, useEffect } from "react";
 import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, Layers, Search, IdCard, FileText, Settings,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid,
 } from "lucide-react";
-import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, NEUTRAL, RADIUS } from "./constants";
+import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "./constants";
 import { Icon } from "./ui";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
@@ -18,7 +18,9 @@ function useIsMobile() {
   return mobile;
 }
 
-// ─── PAGES PAR RÔLE (doit correspondre à ROLE_PAGES dans App.jsx) ─────────────
+const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+
+// ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
@@ -81,7 +83,12 @@ function BottomNav({ page, setPage, T, role = "admin", branch = "renovation" }) 
 }
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-function Sidebar({ page, setPage, T, role = "admin", branch = "renovation" }) {
+function Sidebar({
+  page, setPage, T, role = "admin", branch = "renovation",
+  // Tout l'ancien contenu de la topbar :
+  profil, theme, setTheme, onLogout, peutChangerBranche, onRetourPortail,
+  syncing = false, connected = true, lastSync = null,
+}) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "1");
   const acc = getBranchAccent(branch);
 
@@ -112,7 +119,20 @@ function Sidebar({ page, setPage, T, role = "admin", branch = "renovation" }) {
     localStorage.setItem("sidebar_collapsed", next ? "1" : "0");
   };
 
+  const switchTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("theme", next);
+  };
+
   const W = collapsed ? 64 : 220;
+  const sidebarBtnStyle = (color, bgHover) => ({
+    display:"flex", alignItems:"center", justifyContent:"center",
+    width: 32, height: 32, borderRadius: RADIUS.md,
+    background: "transparent", border:"none", cursor:"pointer",
+    color: color, transition:"background .15s",
+    flexShrink: 0,
+  });
 
   return (
     <div style={{
@@ -152,14 +172,12 @@ function Sidebar({ page, setPage, T, role = "admin", branch = "renovation" }) {
       <nav style={{ flex:1, padding: collapsed ? "8px 6px" : "8px", overflowY:"auto" }}>
         {nav.map(n => {
           const active = page === n.id;
-          // Séparateur visuel avant Infos Client
           const separateur = n.id === "info-client";
           return (
             <React.Fragment key={n.id}>
               {separateur && (
                 <div style={{
-                  height:1,
-                  background:acc.bg20,
+                  height:1, background:acc.bg20,
                   margin: collapsed ? "8px 4px" : "8px 10px",
                 }}/>
               )}
@@ -191,14 +209,78 @@ function Sidebar({ page, setPage, T, role = "admin", branch = "renovation" }) {
         })}
       </nav>
 
-      {/* Date en bas */}
-      {!collapsed && (
-        <div style={{ padding:"12px 16px", borderTop:`1px solid ${T.sidebarBorder}`, flexShrink:0 }}>
-          <div style={{ fontSize:11, color:"rgba(255,255,255,0.30)", lineHeight:1.5, letterSpacing:.2 }}>
-            {new Date().toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" })}
-          </div>
+      {/* ── Sync indicator ── */}
+      <div style={{
+        padding: collapsed ? "8px 0" : "10px 14px",
+        borderTop:`1px solid ${T.sidebarBorder}`,
+        display:"flex",
+        alignItems:"center",
+        justifyContent: collapsed ? "center" : "flex-start",
+        gap: 8,
+        flexShrink:0,
+      }} title={syncing ? "Synchronisation en cours" : connected ? "En ligne" : "Hors ligne"}>
+        <span style={{
+          width:8, height:8, borderRadius:"50%",
+          background: syncing ? "#f5a623" : connected ? "#22c55e" : "#ef4444",
+          flexShrink:0,
+          animation: connected && !syncing ? "pulse 2s infinite" : "none",
+        }}/>
+        {!collapsed && (
+          <span style={{ fontSize: FONT.xs.size + 1, color: "rgba(255,255,255,0.55)", letterSpacing: .2 }}>
+            {syncing ? "Synchronisation…" : connected ? `En ligne${lastSync ? ` · ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}` : ""}` : "Hors ligne"}
+          </span>
+        )}
+      </div>
+
+      {/* ── User info ── */}
+      {profil && !collapsed && (
+        <div style={{
+          padding:"10px 14px",
+          borderTop:`1px solid ${T.sidebarBorder}`,
+          display:"flex", flexDirection:"column", gap:1,
+          flexShrink:0,
+        }}>
+          <span style={{ fontSize: FONT.sm.size, fontWeight:700, color:"#fff", letterSpacing:.1,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+          }}>{profil?.nom || profil?.email}</span>
+          <span style={{ fontSize: FONT.xs.size, letterSpacing:.8, textTransform:"uppercase",
+            color: acc.accent, opacity:.75, fontWeight:600,
+          }}>{ROLE_LABELS[role] || role}</span>
         </div>
       )}
+
+      {/* ── Action buttons : Portail / Theme / Logout ── */}
+      <div style={{
+        padding: collapsed ? "8px 6px 10px" : "10px 12px 12px",
+        borderTop:`1px solid ${T.sidebarBorder}`,
+        display:"flex",
+        flexDirection: collapsed ? "column" : "row",
+        gap: collapsed ? 4 : 6,
+        flexShrink:0,
+        alignItems:"center",
+        justifyContent: collapsed ? "center" : "space-between",
+      }}>
+        {peutChangerBranche && (
+          <button onClick={onRetourPortail} title="Retour au portail"
+            style={sidebarBtnStyle(acc.accent)}
+            onMouseEnter={e => e.currentTarget.style.background = acc.bg10}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <Icon as={LayoutGrid} size={16}/>
+          </button>
+        )}
+        <button onClick={switchTheme} title={theme === "dark" ? "Passer en thème clair" : "Passer en thème sombre"}
+          style={sidebarBtnStyle("rgba(255,255,255,0.55)")}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <Icon as={theme === "dark" ? Sun : Moon} size={16}/>
+        </button>
+        <button onClick={onLogout} title="Se déconnecter"
+          style={sidebarBtnStyle("#e15a5a")}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(225,90,90,0.10)"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <Icon as={LogOut} size={16}/>
+        </button>
+      </div>
     </div>
   );
 }
