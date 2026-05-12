@@ -527,6 +527,58 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     .normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 
+  // Synchronisation des comptes rendus : pour chaque CR sans chantier_id,
+  // cherche un chantier dont le nom apparait dans l'adresse du CR.
+  const [syncingCR, setSyncingCR] = useState(false);
+  const [syncCRMsg, setSyncCRMsg] = useState("");
+  const synchroniserCRs = async () => {
+    setSyncingCR(true); setSyncCRMsg("");
+    try {
+      const { data: tousCRs } = await supabase
+        .from("cr_comptes_rendus")
+        .select("id, chantier_id, adresse, client_nom1");
+      const crs = tousCRs || [];
+
+      const aLier = [];
+      const sansMatch = [];
+      let dejaLies = 0;
+
+      for (const cr of crs) {
+        if (cr.chantier_id) { dejaLies++; continue; }
+        // Cherche un chantier dont le nom (normalisé) apparait dans l'adresse
+        const adr = normalise(cr.adresse || "");
+        if (!adr) { sansMatch.push(cr); continue; }
+        const matchCh = chantiers.find(c => {
+          const nom = normalise(c.nom);
+          if (!nom) return false;
+          if (adr.includes(nom)) return true;
+          // Mot par mot (mots > 2 chars)
+          const mots = nom.split(" ").filter(m => m.length > 2);
+          return mots.some(m => adr.includes(m));
+        });
+        if (matchCh) aLier.push({ crId: cr.id, chantier: matchCh });
+        else         sansMatch.push(cr);
+      }
+
+      for (const item of aLier) {
+        const { error } = await supabase.from("cr_comptes_rendus")
+          .update({ chantier_id: item.chantier.id })
+          .eq("id", item.crId);
+        if (error) console.warn("Sync CR :", error.message);
+      }
+
+      const parties = [];
+      if (dejaLies > 0)        parties.push(`${dejaLies} déjà lié${dejaLies > 1 ? "s" : ""}`);
+      if (aLier.length > 0)    parties.push(`${aLier.length} CR rattaché${aLier.length > 1 ? "s" : ""}`);
+      if (sansMatch.length > 0) parties.push(`${sansMatch.length} sans correspondance trouvée`);
+      setSyncCRMsg(`✓ ${parties.join(" · ") || "Aucun compte rendu à traiter"}`);
+    } catch (e) {
+      setSyncCRMsg(`⚠ Erreur : ${e.message}`);
+    }
+    setSyncingCR(false);
+    setTimeout(() => setSyncCRMsg(""), 12000);
+  };
+
   const synchroniserPhasages = async () => {
     setSyncing(true); setSyncMsg("");
     try {
@@ -798,6 +850,43 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 fontWeight: 600,
               }}>
                 {syncMsg}
+              </div>
+            )}
+          </div>
+
+          {/* Synchronisation comptes rendus */}
+          <div style={{
+            marginTop: 12, padding: "12px 14px",
+            background: "rgba(91,138,245,0.06)",
+            border: "1px dashed rgba(91,138,245,0.30)",
+            borderRadius: 10,
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2 }}>
+                Lier les comptes rendus existants aux chantiers
+              </div>
+              <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1.55 }}>
+                Pour chaque CR sans chantier, cherche un chantier dont le nom apparait
+                dans l'adresse du CR et met à jour le lien.
+              </div>
+            </div>
+            <button onClick={synchroniserCRs} disabled={syncingCR} style={{
+              padding: "8px 14px", borderRadius: 8, border: "none",
+              background: syncingCR ? T.textMuted : "#5B8AF5", color: "#fff",
+              fontFamily: "inherit", fontSize: 12, fontWeight: 800,
+              cursor: syncingCR ? "not-allowed" : "pointer",
+            }}>
+              {syncingCR ? "Sync…" : "↻ Synchroniser CR"}
+            </button>
+            {syncCRMsg && (
+              <div style={{
+                flex: "1 1 100%",
+                fontSize: 12,
+                color: syncCRMsg.startsWith("⚠") ? "#e15a5a" : "#22c55e",
+                fontWeight: 600,
+              }}>
+                {syncCRMsg}
               </div>
             )}
           </div>

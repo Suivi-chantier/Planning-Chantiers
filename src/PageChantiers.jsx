@@ -833,59 +833,106 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
               }}>{adresseError}</div>
             )}
 
-            {adresseGeo && (
-              <div style={{
-                display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
-                marginTop: 14,
-              }} className="ch-map-grid">
-                <div>
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: textMuted, letterSpacing: .8, textTransform: "uppercase" }}>
-                      Vue carte
-                    </span>
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${adresseGeo.lat},${adresseGeo.lon}`}
-                       target="_blank" rel="noopener noreferrer"
-                       style={{
-                         display: "inline-flex", alignItems: "center", gap: 4,
-                         fontSize: FONT.xs.size, color: acc.accent, textDecoration: "none",
-                         fontWeight: 700,
-                       }}>
-                      <Icon as={ExternalLink} size={11}/>
-                      Itinéraire
-                    </a>
+            {adresseGeo && (() => {
+              // Si une clé Google Maps Embed est fournie via VITE_GOOGLE_MAPS_KEY,
+              // on utilise l'API officielle qui permet d'afficher Street View
+              // directement en iframe. Sinon, fallback sur la carte basique
+              // (sans clé) + bouton qui ouvre Street View dans un nouvel onglet.
+              const gMapsKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
+              const mapSrc = gMapsKey
+                ? `https://www.google.com/maps/embed/v1/place?key=${gMapsKey}&q=${adresseGeo.lat},${adresseGeo.lon}&zoom=17`
+                : `https://www.google.com/maps?q=${adresseGeo.lat},${adresseGeo.lon}&z=17&output=embed`;
+              const svSrc = gMapsKey
+                ? `https://www.google.com/maps/embed/v1/streetview?key=${gMapsKey}&location=${adresseGeo.lat},${adresseGeo.lon}&heading=0&pitch=0&fov=90`
+                : null;
+              return (
+                <div style={{
+                  display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
+                  marginTop: 14,
+                }} className="ch-map-grid">
+                  <div>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 6 }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: textMuted, letterSpacing: .8, textTransform: "uppercase" }}>
+                        Vue carte
+                      </span>
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${adresseGeo.lat},${adresseGeo.lon}`}
+                         target="_blank" rel="noopener noreferrer"
+                         style={{
+                           display: "inline-flex", alignItems: "center", gap: 4,
+                           fontSize: FONT.xs.size, color: acc.accent, textDecoration: "none",
+                           fontWeight: 700,
+                         }}>
+                        <Icon as={ExternalLink} size={11}/>
+                        Itinéraire
+                      </a>
+                    </div>
+                    <iframe
+                      title="Carte du chantier"
+                      src={mapSrc}
+                      style={{ width: "100%", height: 280, border: 0, borderRadius: RADIUS.lg, display: "block" }}
+                      loading="lazy"
+                      allowFullScreen
+                    />
                   </div>
-                  <iframe
-                    title="Carte du chantier"
-                    src={`https://www.google.com/maps?q=${adresseGeo.lat},${adresseGeo.lon}&z=17&output=embed`}
-                    style={{ width: "100%", height: 280, border: 0, borderRadius: RADIUS.lg, display: "block" }}
-                    loading="lazy"
-                  />
-                </div>
-                <div>
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: textMuted, letterSpacing: .8, textTransform: "uppercase" }}>
-                      Street View
-                    </span>
-                    <a href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${adresseGeo.lat},${adresseGeo.lon}`}
-                       target="_blank" rel="noopener noreferrer"
-                       style={{
-                         display: "inline-flex", alignItems: "center", gap: 4,
-                         fontSize: FONT.xs.size, color: acc.accent, textDecoration: "none",
-                         fontWeight: 700,
-                       }}>
-                      <Icon as={ExternalLink} size={11}/>
-                      Ouvrir
-                    </a>
+                  <div>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 6 }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: textMuted, letterSpacing: .8, textTransform: "uppercase" }}>
+                        Street View
+                      </span>
+                      <a href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${adresseGeo.lat},${adresseGeo.lon}`}
+                         target="_blank" rel="noopener noreferrer"
+                         style={{
+                           display: "inline-flex", alignItems: "center", gap: 4,
+                           fontSize: FONT.xs.size, color: acc.accent, textDecoration: "none",
+                           fontWeight: 700,
+                         }}>
+                        <Icon as={ExternalLink} size={11}/>
+                        Plein écran
+                      </a>
+                    </div>
+                    {svSrc ? (
+                      <iframe
+                        title="Street View"
+                        src={svSrc}
+                        style={{ width: "100%", height: 280, border: 0, borderRadius: RADIUS.lg, display: "block" }}
+                        loading="lazy"
+                        allowFullScreen
+                      />
+                    ) : (
+                      <a href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${adresseGeo.lat},${adresseGeo.lon}`}
+                         target="_blank" rel="noopener noreferrer"
+                         style={{
+                           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12,
+                           width: "100%", height: 280,
+                           borderRadius: RADIUS.lg,
+                           background: `linear-gradient(135deg, ${acc.bg10}, ${acc.bg20})`,
+                           border: `1px dashed ${acc.border}`,
+                           color: acc.accent,
+                           textDecoration: "none",
+                           cursor: "pointer", transition: "transform .15s, border-color .15s",
+                         }}
+                         onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.borderColor = acc.accent; }}
+                         onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.borderColor = acc.border; }}>
+                        <div style={{
+                          width: 48, height: 48, borderRadius: "50%",
+                          background: acc.bg20, color: acc.accent,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          <Icon as={MapPin} size={24}/>
+                        </div>
+                        <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, textAlign: "center", maxWidth: 260, lineHeight: 1.4 }}>
+                          Configurez VITE_GOOGLE_MAPS_KEY pour afficher Street View intégré
+                        </div>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size, fontWeight: 700, color: textMuted }}>
+                          <Icon as={ExternalLink} size={11}/>
+                          Cliquer pour ouvrir Street View dans Google Maps
+                        </span>
+                      </a>
+                    )}
                   </div>
-                  <iframe
-                    title="Street View"
-                    src={`https://maps.google.com/maps?layer=c&cbll=${adresseGeo.lat},${adresseGeo.lon}&cbp=11,0,0,0,0&output=embed`}
-                    style={{ width: "100%", height: 280, border: 0, borderRadius: RADIUS.lg, display: "block" }}
-                    loading="lazy"
-                  />
                 </div>
-              </div>
-            )}
+              );
+            })()}
             {!adresseGeo && (
               <div style={{
                 marginTop: 12, fontSize: FONT.xs.size + 1, color: textMuted, opacity: .7,
