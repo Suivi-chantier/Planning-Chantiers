@@ -61,6 +61,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [showEmail, setShowEmail] = useState(false);
   const [emailDest, setEmailDest] = useState("");
   const [emailCc, setEmailCc]     = useState("");
@@ -174,8 +175,18 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
       statut:           v.statut           ?? "brouillon",
     };
     const { error } = await supabase.from("cr_comptes_rendus").update(payload).eq("id", crId);
-    if (error) console.error("saveInfos CR error:", error);
-    setSaving(false); setCrs(prev=>prev.map(c=>c.id===crId?{...c,...v}:c));
+    if (error) {
+      console.error("saveInfos CR error:", error);
+      const hint = (error.message||"").toLowerCase().includes("schema") || (error.message||"").includes("column")
+        ? "Cache schéma : exécute « NOTIFY pgrst, 'reload schema'; » dans Supabase SQL Editor."
+        : "";
+      setSaveError({ msg: error.message || "Erreur de sauvegarde", hint });
+      setTimeout(() => setSaveError(null), 8000);
+    } else {
+      setSaveError(null);
+      setCrs(prev=>prev.map(c=>c.id===crId?{...c,...v}:c));
+    }
+    setSaving(false);
   }
   function updInfo(f,v) { const u={...infos,[f]:v}; setInfos(u); debounce(()=>saveInfos(u)); }
 
@@ -866,6 +877,31 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
 
           {/* Corps onglet */}
           <div style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg}}>
+
+            {/* Bandeau erreur de sauvegarde */}
+            {saveError && (
+              <div style={{
+                display:"flex",alignItems:"flex-start",gap:8,
+                padding:"10px 14px",marginBottom:14,
+                background:"rgba(224,92,92,0.10)",border:"1px solid rgba(224,92,92,0.30)",
+                borderRadius:RADIUS.md,
+              }}>
+                <Icon as={AlertTriangle} size={14} color="#e15a5a" style={{marginTop:2,flexShrink:0}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:FONT.sm.size,fontWeight:700,color:"#e15a5a",marginBottom:2}}>Sauvegarde échouée</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.5}}>
+                    {saveError.msg}
+                    {saveError.hint && <><br/><strong style={{color:T.text}}>Astuce :</strong> {saveError.hint}</>}
+                  </div>
+                </div>
+                <button onClick={()=>setSaveError(null)} style={{
+                  background:"transparent",border:"none",cursor:"pointer",color:T.textMuted,padding:4,
+                  display:"inline-flex",alignItems:"center",justifyContent:"center",
+                }}>
+                  <Icon as={X} size={12}/>
+                </button>
+              </div>
+            )}
 
             {/* ── SYNTHÈSE (Client + Visite + Avancement + Résumé) ── */}
             {section==="synthese" && (
