@@ -175,13 +175,16 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
     ? Math.round((ouvriersAttendus.length - ouvriersManquants.length) / ouvriersAttendus.length * 100)
     : null;
 
-  // Stats KPI
+  // Stats KPI — toutes en couleur d'accent pour la sobriété.
+  // Seul "Rapports rendus" garde un code couleur dynamique car c'est un
+  // indicateur de performance qu'on veut voir d'un coup d'œil.
   const stats = [
-    { label: "Chantiers actifs",    value: chantiersAujourdHui.length, icon: Building2,       color: acc.accent },
-    { label: "Ouvriers terrain",    value: ouvriersAttendus.length,    icon: HardHat,         color: "#4caf78"   },
-    { label: "Commandes à passer",  value: cmdCount,                   icon: Package,         color: "#f5a623"   },
-    { label: "Rapports rendus",     value: ouvriersAttendus.length ? `${ouvriersAttendus.length - ouvriersManquants.length}/${ouvriersAttendus.length}` : "—",
-      icon: ClipboardCheck, color: tauxRendus === null ? "#94a3b8" : tauxRendus >= 80 ? "#4caf78" : tauxRendus >= 50 ? "#f5a623" : "#e15a5a" },
+    { label: "Chantiers actifs",   value: chantiersAujourdHui.length, icon: Building2,      color: acc.accent },
+    { label: "Ouvriers terrain",   value: ouvriersAttendus.length,    icon: HardHat,        color: acc.accent },
+    { label: "Commandes à passer", value: cmdCount,                   icon: Package,        color: acc.accent },
+    { label: "Rapports rendus",    value: ouvriersAttendus.length ? `${ouvriersAttendus.length - ouvriersManquants.length}/${ouvriersAttendus.length}` : "—",
+      icon: ClipboardCheck,
+      color: tauxRendus === null ? acc.accent : tauxRendus >= 80 ? "#22c55e" : tauxRendus >= 50 ? "#f59e0b" : "#ef4444" },
   ];
 
   return (
@@ -276,7 +279,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
         {/* Colonne droite : 3 widgets empilés */}
         <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
 
-          <DashWidget T={T} accent="#4caf78" title="Activité équipe" icon={Users}>
+          <DashWidget T={T} accent={acc.accent} title="Activité équipe" icon={Users}>
             {todayJour && ouvriersAttendus.length === 0 ? (
               <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Personne planifié</div>
             ) : !todayJour ? (
@@ -363,7 +366,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
             )}
           </DashWidget>
 
-          <DashWidget T={T} accent="#5b8af5" title={`Météo · ${weather?.city || weatherCity}`} icon={Cloud}
+          <DashWidget T={T} accent={acc.accent} title={`Météo · ${weather?.city || weatherCity}`} icon={Cloud}
             action={
               <button onClick={() => {
                 const v = prompt("Ville pour la météo :", weatherCity);

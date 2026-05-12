@@ -14,10 +14,25 @@ export const PROFERO_YELLOW_LIGHT = "#FFD84D";
 export const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 export const JOURS_JS = [null,"Lundi","Mardi","Mercredi","Jeudi","Vendredi",null];
 
+// Palette vive (Tailwind 500/600) — couleurs bien distinctes pour
+// différencier les chantiers d'un coup d'œil.
 export const COULEURS_PALETTE = [
-  "#c8d8f0","#ffd6cc","#fce4a0","#d4edda","#d1f7e4","#e8d0e8",
-  "#fff0c0","#ffd6e7","#d0e8ff","#e0f0e0","#ffe4b5","#d6e4ff",
-  "#f0d6e8","#d6f0e4","#fff0d6","#e8d6f0",
+  "#ef4444", // rouge
+  "#f97316", // orange
+  "#eab308", // jaune
+  "#84cc16", // vert lime
+  "#22c55e", // vert
+  "#14b8a6", // teal
+  "#0ea5e9", // bleu ciel
+  "#3b82f6", // bleu
+  "#6366f1", // indigo
+  "#a855f7", // violet
+  "#ec4899", // rose
+  "#64748b", // gris ardoise
+  "#d97706", // ambre foncé
+  "#0891b2", // cyan foncé
+  "#7c3aed", // violet foncé
+  "#be123c", // rouge bourgogne
 ];
 
 export const STATUTS = {
@@ -47,7 +62,7 @@ export const THEMES = {
     widgetBg:"rgba(255,255,255,0.02)", inputBg:"rgba(255,255,255,0.06)",
   },
   light: {
-    bg:"#f0f2f8", surface:"#ffffff", modal:"#ffffff",
+    bg:"#f7f7f7", surface:"#ffffff", modal:"#ffffff",
     card:"rgba(0,0,0,0.02)", cardHover:"rgba(0,0,0,0.05)",
     cardFill:"rgba(91,138,245,0.05)", border:"rgba(0,0,0,0.09)",
     borderHover:"rgba(0,0,0,0.22)", text:"#1a1f2e", textSub:"#4a5568",
