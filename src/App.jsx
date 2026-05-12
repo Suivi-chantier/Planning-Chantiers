@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
-import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H } from "./constants";
+import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H } from "./constants";
 
 import { Sidebar, BottomNav } from "./Navigation";
 import PageDashboard          from "./Dashboard";
@@ -280,12 +280,8 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:24, width:"100%", maxWidth:720 }}>
           <div className={`portal-card${!hasReno?" disabled":""}`} onClick={()=>hasReno&&onSelectBranche("renovation")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#FFC200,#ff9500)", borderRadius:"20px 20px 0 0" }}/>
-            <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(255,194,0,0.1)", border:"1px solid rgba(255,194,0,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏗️</div>
-              <div>
-                <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,194,0,0.6)", marginBottom:3 }}>Profero</div>
-                <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Rénovation</div>
-              </div>
+            <div style={{ display:"flex", alignItems:"center", minHeight:56 }}>
+              <img src={LOGO_RENO_H} alt="Profero Rénovation" style={{ height:56, objectFit:"contain", objectPosition:"left" }}/>
             </div>
             <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
               Planning chantiers, commandes, équipes, phasage, comptes rendus et suivi de travaux.
@@ -302,12 +298,8 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
           </div>
           <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
-            <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:52, height:52, borderRadius:14, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏢</div>
-              <div>
-                <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:"rgba(77,184,255,0.7)", marginBottom:3 }}>Profero</div>
-                <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>Invest</div>
-              </div>
+            <div style={{ display:"flex", alignItems:"center", minHeight:56 }}>
+              <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:56, objectFit:"contain", objectPosition:"left" }}/>
             </div>
             <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
               Gestion des investissements immobiliers, suivi de portefeuille et reporting financier.
