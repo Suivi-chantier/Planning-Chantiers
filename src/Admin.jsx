@@ -6,6 +6,8 @@ import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
+  LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
+  Download, ClipboardCheck, FileText, Activity, ChevronRight,
 } from "lucide-react";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
@@ -486,9 +488,37 @@ function OngletUtilisateurs({ T, acc }) {
 }
 
 // ─── PAGE ADMIN ───────────────────────────────────────────────────────────────
+// ─── DÉFAUTS POUR LA SOCIÉTÉ ET LE PLANNING ──────────────────────────────────
+const SOCIETE_DEFAUT = {
+  nom: "Profero Rénovation",
+  adresse: "",
+  siret: "",
+  telephone: "",
+  email: "",
+  site_web: "",
+};
+const HEURES_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 8 };
+const PHRASES_DEFAUT = {
+  cr_observation: [
+    "Travaux conformes au plan, RAS.",
+    "Bonne avancée, équipe motivée.",
+    "Retard sur la phase en cours, à rattraper.",
+  ],
+  visite_observation: [
+    "Chantier propre, EPI respectés.",
+    "Quelques points à reprendre, voir réserves.",
+    "Très bon état d'avancement.",
+  ],
+  vigilance: [
+    "Vérifier l'évacuation des gravats avant la fin de semaine.",
+    "Surveiller l'humidité dans la pièce concernée.",
+    "Pensez à protéger les sols pendant les travaux.",
+  ],
+};
+
 function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
-  const [adminTab,setAdminTab]=useState("ouvriers");
+  const [adminTab,setAdminTab]=useState("vue");
   const [newOuvrier,setNewOuvrier]=useState("");
   const [editOuvrier,setEditOuvrier]=useState(null);
   const [newNom,setNewNom]=useState("");
@@ -496,6 +526,95 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [editChIdx,setEditChIdx]=useState(null);
   const [ouvrierToDelete,setOuvrierToDelete]=useState(null);
   const [chantierToDelete,setChantierToDelete]=useState(null);
+
+  // ─── NOUVELLES CONFIGS (Bloc 1) ──────────────────────────────────────────
+  const [societe, setSociete]           = useState(SOCIETE_DEFAUT);
+  const [heuresParJour, setHeuresParJour] = useState(HEURES_DEFAUT);
+  const [phrases, setPhrases]           = useState(PHRASES_DEFAUT);
+  const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, visitesEnCours: 0, ouvriersActifs: 0, derniersRapports: [], dernieresVisites: [] });
+  const [backuping, setBackuping]       = useState(false);
+
+  // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
+  useEffect(() => {
+    const loadConfigs = async () => {
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank"]);
+      if (data) {
+        data.forEach(r => {
+          if (r.key === "societe" && r.value)         setSociete({ ...SOCIETE_DEFAUT, ...r.value });
+          if (r.key === "heures_par_jour" && r.value) setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
+          if (r.key === "phrases_bank" && r.value)    setPhrases({ ...PHRASES_DEFAUT, ...r.value });
+        });
+      }
+    };
+    loadConfigs();
+  }, []);
+
+  // ─── STATS POUR VUE D'ENSEMBLE ───────────────────────────────────────────
+  useEffect(() => {
+    if (adminTab !== "vue") return;
+    const loadStats = async () => {
+      try {
+        const [{ data: projets }, { data: visites }, { data: rapports }] = await Promise.all([
+          supabase.from("profero_projets").select("id, statut, client_nom, client_prenom, date_visite").order("created_at", { ascending: false }).limit(20),
+          supabase.from("visites_chantier").select("id, chantier_id, chantier_nom, date, statut, audit").order("date", { ascending: false }).limit(10),
+          supabase.from("rapports").select("id, ouvrier, chantier_nom, date_rapport, submitted_at").order("submitted_at", { ascending: false }).limit(5),
+        ]);
+        setStats({
+          chantiersActifs: chantiers.length,
+          ouvriersActifs: ouvriers.length,
+          projetsEnCours: (projets || []).filter(p => !["abandonne","signe"].includes(p.statut || "prospect")).length,
+          visitesEnCours: (visites || []).filter(v => (v.statut || "en_cours") === "en_cours").length,
+          derniersRapports: rapports || [],
+          dernieresVisites: visites?.slice(0, 5) || [],
+        });
+      } catch (e) { console.warn("stats load:", e.message); }
+    };
+    loadStats();
+  }, [adminTab, chantiers.length, ouvriers.length]);
+
+  // ─── SAUVEGARDE CONFIGS ──────────────────────────────────────────────────
+  const saveDebounce = React.useRef(null);
+  const updSociete = (field, val) => {
+    const next = { ...societe, [field]: val };
+    setSociete(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("societe", next), 600);
+  };
+  const updHeureJour = (jour, val) => {
+    const next = { ...heuresParJour, [jour]: parseFloat(val) || 0 };
+    setHeuresParJour(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("heures_par_jour", next), 600);
+  };
+  const updPhrases = (cat, list) => {
+    const next = { ...phrases, [cat]: list };
+    setPhrases(next);
+    saveConfig("phrases_bank", next);
+  };
+
+  // ─── BACKUP JSON ─────────────────────────────────────────────────────────
+  const doBackup = async () => {
+    setBackuping(true);
+    try {
+      const tables = ["planning_config","planning_cells","planning_mensuel","phasages","visites_chantier","profero_projets","profero_ouvrages_selectionnes","profero_cotes","profero_plans","profero_categories_ouvrages","rapports","cr_comptes_rendus","materiaux_bibliotheque","bibliotheque_ratios","commandes_detail","plans","utilisateurs"];
+      const out = { version: 1, exported_at: new Date().toISOString(), tables: {} };
+      for (const t of tables) {
+        const { data, error } = await supabase.from(t).select("*");
+        if (error) { console.warn(`backup ${t}:`, error.message); continue; }
+        out.tables[t] = data || [];
+      }
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `backup-profero-${new Date().toISOString().split("T")[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Erreur backup : " + e.message);
+    }
+    setBackuping(false);
+  };
 
   // ─── LOGOS (stockés dans Supabase planning_config) ───────────────────────
   const [logoNavbar,  setLogoNavbar]  = useState(null);
@@ -764,12 +883,16 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const isAdmin = profil?.role === "admin";
 
   const tabs = [
+    ["vue",          "Vue d'ensemble", LayoutDashboard],
     ["ouvriers",     "Ouvriers",       HardHat],
     ["taux",         "Taux horaires",  Euro],
     ["chantiers",    "Chantiers",      Building2],
+    ["societe",      "Société",        Briefcase],
+    ["planning",     "Planning",       Clock],
     ["logos",        "Logos",          ImageIcon],
-    ["apparence",    "Apparence",      Palette],
+    ["phrases",      "Phrases types",  MessageSquare],
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
+    ["maintenance",  "Maintenance",    Wrench],
   ];
 
   return(
@@ -822,6 +945,299 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="utilisateurs" && isAdmin && (
         <OngletUtilisateurs T={T} acc={acc}/>
+      )}
+
+      {/* ── VUE D'ENSEMBLE ── */}
+      {adminTab==="vue" && (
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Vue d'ensemble</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>État global de l'application.</div>
+
+          {/* KPI grid */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10,marginBottom:18}}>
+            {[
+              { label:"Chantiers actifs",  val:stats.chantiersActifs, icon:Building2,    color:acc.accent },
+              { label:"Équipe",            val:stats.ouvriersActifs,  icon:HardHat,      color:"#5b9cf6" },
+              { label:"Projets commerciaux",val:stats.projetsEnCours, icon:Briefcase,    color:"#a78bfa" },
+              { label:"Visites en cours",  val:stats.visitesEnCours,  icon:ClipboardCheck,color:"#22c55e" },
+            ].map(s => (
+              <div key={s.label} style={{
+                background:T.surface,border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.lg,padding:"12px 14px",
+                display:"flex",alignItems:"center",gap:10,
+              }}>
+                <div style={{
+                  width:32,height:32,borderRadius:RADIUS.md,flexShrink:0,
+                  background:s.color+"18",color:s.color,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                }}>
+                  <Icon as={s.icon} size={16} strokeWidth={2}/>
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:FONT.xl.size,fontWeight:800,color:T.text,letterSpacing:-.5,lineHeight:1}}>{s.val}</div>
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:3,fontWeight:600,letterSpacing:.3}}>{s.label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Activité récente */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+            {/* Derniers rapports */}
+            <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14}}>
+              <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
+                <Icon as={Activity} size={11}/>
+                Derniers rapports équipe
+              </div>
+              {stats.derniersRapports.length === 0 ? (
+                <div style={{color:T.textMuted,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun rapport récent.</div>
+              ) : (
+                stats.derniersRapports.map(r => (
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text}}>{r.ouvrier}</div>
+                      <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>{r.chantier_nom} · {r.date_rapport}</div>
+                    </div>
+                    <Icon as={ChevronRight} size={13} color={T.textMuted}/>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Dernières visites */}
+            <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14}}>
+              <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
+                <Icon as={ClipboardCheck} size={11}/>
+                Dernières visites de chantier
+              </div>
+              {stats.dernieresVisites.length === 0 ? (
+                <div style={{color:T.textMuted,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucune visite récente.</div>
+              ) : (
+                stats.dernieresVisites.map(v => {
+                  const toutes = Object.values(v.audit || {}).flat();
+                  const nb_nok = toutes.filter(t => t.statut === "nok").length;
+                  const nb_res = toutes.filter(t => t.statut === "reserve").length;
+                  return (
+                    <div key={v.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text}}>{v.chantier_nom}</div>
+                        <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>{v.date} · {toutes.length} pts</div>
+                      </div>
+                      {nb_nok > 0 && <span style={{fontSize:FONT.xs.size,fontWeight:700,color:"#e15a5a",background:"rgba(239,68,68,0.15)",padding:"1px 7px",borderRadius:RADIUS.pill}}>{nb_nok} NOK</span>}
+                      {nb_res > 0 && <span style={{fontSize:FONT.xs.size,fontWeight:700,color:"#f59e0b",background:"rgba(245,158,11,0.15)",padding:"1px 7px",borderRadius:RADIUS.pill}}>{nb_res} rés</span>}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SOCIÉTÉ ── */}
+      {adminTab==="societe" && (
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Coordonnées société</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
+            Utilisées automatiquement dans les en-têtes des exports PDF/Word (visites, comptes rendus, fiches client).
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Nom de la société *</label>
+              <input className="ti" value={societe.nom||""} onChange={e=>updSociete("nom",e.target.value)} placeholder="Profero Rénovation" style={{width:"100%"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>SIRET</label>
+              <input className="ti" value={societe.siret||""} onChange={e=>updSociete("siret",e.target.value)} placeholder="123 456 789 00012" style={{width:"100%"}}/>
+            </div>
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Adresse complète</label>
+              <textarea className="ti" value={societe.adresse||""} onChange={e=>updSociete("adresse",e.target.value)} placeholder="Rue, Code Postal, Ville" rows={2} style={{width:"100%",resize:"vertical"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Téléphone</label>
+              <input className="ti" value={societe.telephone||""} onChange={e=>updSociete("telephone",e.target.value)} placeholder="01 23 45 67 89" style={{width:"100%"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Email</label>
+              <input className="ti" type="email" value={societe.email||""} onChange={e=>updSociete("email",e.target.value)} placeholder="contact@profero.fr" style={{width:"100%"}}/>
+            </div>
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Site web</label>
+              <input className="ti" value={societe.site_web||""} onChange={e=>updSociete("site_web",e.target.value)} placeholder="https://www.groupe-profero.com" style={{width:"100%"}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:16,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
+            <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
+            <span>Modifications enregistrées automatiquement. Les en-têtes des prochains exports utiliseront ces informations.</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── PLANNING : heures par jour ── */}
+      {adminTab==="planning" && (
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Heures travaillées par jour</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
+            Volume horaire de référence par jour de la semaine. Utilisé pour calculer la répartition des heures dans le bilan équipe.
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:14}}>
+            {JOURS.map(j => (
+              <div key={j} style={{
+                background:T.surface,border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.lg,padding:"12px 14px",
+              }}>
+                <div style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>{j}</div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <input type="number" min="0" step="0.5"
+                    value={heuresParJour[j] || 0}
+                    onChange={e=>updHeureJour(j,e.target.value)}
+                    style={{
+                      width:60,padding:"7px 10px",borderRadius:RADIUS.md,textAlign:"center",
+                      border:`1px solid ${T.border}`,background:T.inputBg||T.card,color:acc.accent,
+                      fontFamily:"inherit",fontSize:FONT.md.size,fontWeight:800,outline:"none",
+                    }}/>
+                  <span style={{fontSize:FONT.sm.size,color:T.textMuted}}>h</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
+            <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
+            <span>Total semaine : <strong style={{color:T.text}}>{JOURS.reduce((s,j) => s + (parseFloat(heuresParJour[j])||0), 0).toFixed(1)}h</strong>. Les modifications sont prises en compte dans les bilans futurs ; les bilans déjà saisis ne sont pas recalculés.</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── PHRASES TYPES ── */}
+      {adminTab==="phrases" && (
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Banque de phrases</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
+            Observations et notes réutilisables. Affichées en suggestions dans les CR équipe, visites de chantier et points de vigilance.
+          </div>
+          {[
+            { key:"cr_observation",      label:"Observations CR équipe" },
+            { key:"visite_observation",  label:"Observations visite chantier" },
+            { key:"vigilance",           label:"Points de vigilance" },
+          ].map(cat => (
+            <PhrasesEditor key={cat.key} catKey={cat.key} label={cat.label}
+              items={phrases[cat.key] || []} onChange={(items)=>updPhrases(cat.key, items)}
+              T={T} acc={acc}/>
+          ))}
+        </div>
+      )}
+
+      {/* ── MAINTENANCE ── */}
+      {adminTab==="maintenance" && (
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Maintenance</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
+            Synchronisations ponctuelles, sauvegarde des données et préférences d'affichage.
+          </div>
+
+          {/* Apparence */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14,marginBottom:14}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
+              <Icon as={Palette} size={11}/>
+              Affichage local
+            </div>
+            <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:12}}>Chaque utilisateur choisit son thème, sauvegardé localement.</div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              {[["dark",Moon,"Sombre"],["light",Sun,"Clair"]].map(([k,IconC,lb])=>{
+                const a = theme === k;
+                return (
+                  <button key={k} onClick={()=>{setTheme(k);localStorage.setItem("theme",k);}}
+                    style={{
+                      display:"inline-flex",alignItems:"center",gap:6,
+                      padding:"8px 14px",borderRadius:RADIUS.md,
+                      border:`1.5px solid ${a?acc.accent:T.border}`,
+                      background:a?acc.bg10:"transparent",
+                      color:a?acc.accent:T.textSub,
+                      fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,cursor:"pointer",
+                    }}>
+                    <Icon as={IconC} size={13}/>
+                    {lb}
+                    {a && <Icon as={Check} size={11}/>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Backup JSON */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14,marginBottom:14}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+              <Icon as={Database} size={11}/>
+              Sauvegarde des données
+            </div>
+            <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:12,lineHeight:1.6}}>
+              Télécharge un fichier JSON contenant toutes les données de l'application (chantiers, phasages, visites, projets info client, rapports, commandes, etc.). À garder en archive régulière.
+            </div>
+            <button onClick={doBackup} disabled={backuping} style={{
+              display:"inline-flex",alignItems:"center",gap:6,
+              background:acc.accent,color:acc.onAccent,border:"none",
+              borderRadius:RADIUS.md,padding:"9px 18px",cursor:backuping?"not-allowed":"pointer",
+              fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,opacity:backuping?.6:1,
+            }}>
+              <Icon as={Download} size={13}/>
+              {backuping ? "Sauvegarde en cours…" : "Télécharger la sauvegarde"}
+            </button>
+          </div>
+
+          {/* Synchronisations */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
+              <Icon as={RefreshCw} size={11}/>
+              Synchronisations
+            </div>
+            <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:14,lineHeight:1.6}}>
+              Utilitaires de rattrapage des liens entre tables. À utiliser en cas de désynchronisation, généralement une fois.
+            </div>
+
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",marginBottom:10,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:2}}>Phasages ↔ Chantiers</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.55}}>
+                  Crée un phasage vide pour chaque chantier qui n'en a pas. Aligne les liens cassés.
+                </div>
+              </div>
+              <button onClick={synchroniserPhasages} disabled={syncing} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:syncing?T.border:acc.accent,color:syncing?T.textMuted:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:syncing?"not-allowed":"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11} style={syncing?{animation:"spin 1s linear infinite"}:undefined}/>
+                {syncing?"Sync…":"Synchroniser"}
+              </button>
+              {syncMsg && (
+                <div style={{flex:"1 1 100%",fontSize:FONT.xs.size+1,color:syncMsg.startsWith("⚠")?"#e15a5a":"#22c55e",fontWeight:600}}>{syncMsg}</div>
+              )}
+            </div>
+
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",padding:"10px 12px",background:T.card,borderRadius:RADIUS.md}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:2}}>Comptes rendus client ↔ Chantiers</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.55}}>
+                  Pour chaque CR client sans chantier_id, cherche un chantier dont le nom apparaît dans l'adresse.
+                </div>
+              </div>
+              <button onClick={synchroniserCRs} disabled={syncingCR} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:syncingCR?T.border:"#5B8AF5",color:syncingCR?T.textMuted:"#fff",
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:syncingCR?"not-allowed":"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11} style={syncingCR?{animation:"spin 1s linear infinite"}:undefined}/>
+                {syncingCR?"Sync…":"Synchroniser"}
+              </button>
+              {syncCRMsg && (
+                <div style={{flex:"1 1 100%",fontSize:FONT.xs.size+1,color:syncCRMsg.startsWith("⚠")?"#e15a5a":"#22c55e",fontWeight:600}}>{syncCRMsg}</div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {adminTab==="taux"&&(
@@ -980,85 +1396,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             </button>
           </div>
 
-          {/* Synchronisation phasages : crée les phasages manquants pour les
-              chantiers existants. À utiliser une seule fois pour rattraper. */}
-          <div style={{
-            marginTop: 22, padding: "12px 14px",
-            background: "rgba(255,194,0,0.06)",
-            border: "1px dashed rgba(255,194,0,0.30)",
-            borderRadius: 10,
-            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-          }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2 }}>
-                Lier les chantiers existants aux phasages
-              </div>
-              <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1.55 }}>
-                Crée un phasage vide pour chaque chantier qui n'en a pas encore.
-                À utiliser une fois pour rattraper l'historique — les nouveaux
-                chantiers seront liés automatiquement.
-              </div>
-            </div>
-            <button onClick={synchroniserPhasages} disabled={syncing} style={{
-              display:"inline-flex",alignItems:"center",gap:5,
-              padding: "8px 14px", borderRadius: RADIUS.md, border: "none",
-              background: syncing ? T.border : acc.accent, color: syncing ? T.textMuted : acc.onAccent,
-              fontFamily: "inherit", fontSize: FONT.xs.size+1, fontWeight: 800,
-              cursor: syncing ? "not-allowed" : "pointer",
-            }}>
-              <Icon as={RefreshCw} size={11} style={syncing?{animation:"spin 1s linear infinite"}:undefined}/>
-              {syncing ? "Sync…" : "Synchroniser"}
-            </button>
-            {syncMsg && (
-              <div style={{
-                flex: "1 1 100%",
-                fontSize: 12,
-                color: syncMsg.startsWith("⚠") ? "#e15a5a" : "#22c55e",
-                fontWeight: 600,
-              }}>
-                {syncMsg}
-              </div>
-            )}
-          </div>
-
-          {/* Synchronisation comptes rendus */}
-          <div style={{
-            marginTop: 12, padding: "12px 14px",
-            background: "rgba(91,138,245,0.06)",
-            border: "1px dashed rgba(91,138,245,0.30)",
-            borderRadius: 10,
-            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-          }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2 }}>
-                Lier les comptes rendus existants aux chantiers
-              </div>
-              <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1.55 }}>
-                Pour chaque CR sans chantier, cherche un chantier dont le nom apparait
-                dans l'adresse du CR et met à jour le lien.
-              </div>
-            </div>
-            <button onClick={synchroniserCRs} disabled={syncingCR} style={{
-              display:"inline-flex",alignItems:"center",gap:5,
-              padding: "8px 14px", borderRadius: RADIUS.md, border: "none",
-              background: syncingCR ? T.border : "#5B8AF5", color: syncingCR ? T.textMuted : "#fff",
-              fontFamily: "inherit", fontSize: FONT.xs.size+1, fontWeight: 800,
-              cursor: syncingCR ? "not-allowed" : "pointer",
-            }}>
-              <Icon as={RefreshCw} size={11} style={syncingCR?{animation:"spin 1s linear infinite"}:undefined}/>
-              {syncingCR ? "Sync…" : "Synchroniser CR"}
-            </button>
-            {syncCRMsg && (
-              <div style={{
-                flex: "1 1 100%",
-                fontSize: 12,
-                color: syncCRMsg.startsWith("⚠") ? "#e15a5a" : "#22c55e",
-                fontWeight: 600,
-              }}>
-                {syncCRMsg}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -1137,35 +1474,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           <div style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:16,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
             <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
             <span>Les logos sont sauvegardés dans Supabase et partagés avec toute l'équipe. Formats acceptés : PNG, JPG, WEBP, SVG.</span>
-          </div>
-        </div>
-      )}
-
-      {adminTab==="apparence"&&(
-        <div className="ac">
-          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Thème d'affichage</div>
-          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>Chaque membre choisit son thème, sauvegardé sur son appareil.</div>
-          <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-            {[["dark",Moon,"Sombre","#1a1f2e","#e8eaf0"],["light",Sun,"Clair","#f0f2f8","#1a1f2e"]].map(([k,IconC,lb,bg,col])=>(
-              <div key={k} onClick={()=>{setTheme(k);localStorage.setItem("theme",k);}}
-                style={{flex:"1 1 200px",background:bg,border:`2px solid ${theme===k?acc.accent:T.border}`,
-                  borderRadius:RADIUS.xl,padding:"24px 16px",cursor:"pointer",textAlign:"center",transition:"border .15s"}}>
-                <div style={{
-                  width:48,height:48,borderRadius:RADIUS.lg,margin:"0 auto 10px",
-                  background:`${col}1A`,color:col,
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                }}>
-                  <Icon as={IconC} size={22}/>
-                </div>
-                <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:col}}>{lb}</div>
-                {theme===k&&(
-                  <div style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:FONT.xs.size,color:acc.accent,marginTop:6,fontWeight:700}}>
-                    <Icon as={Check} size={11}/>
-                    Actif
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
         </div>
       )}
@@ -1259,6 +1567,81 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── EDITOR DE PHRASES (utilisé dans l'onglet Phrases) ───────────────────────
+function PhrasesEditor({ catKey, label, items, onChange, T, acc }) {
+  const [draftItems, setDraftItems] = useState(items);
+  const [newItem, setNewItem] = useState("");
+
+  useEffect(() => { setDraftItems(items); }, [items]);
+
+  const add = () => {
+    if (!newItem.trim()) return;
+    const next = [...draftItems, newItem.trim()];
+    setDraftItems(next);
+    onChange(next);
+    setNewItem("");
+  };
+  const remove = (i) => {
+    const next = draftItems.filter((_, idx) => idx !== i);
+    setDraftItems(next);
+    onChange(next);
+  };
+  const update = (i, val) => {
+    const next = draftItems.map((x, idx) => idx === i ? val : x);
+    setDraftItems(next);
+  };
+  const commit = () => onChange(draftItems);
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: 14, marginBottom: 14 }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 10 }}>
+        <Icon as={FileText} size={11}/>
+        {label}
+        {draftItems.length > 0 && <span style={{ color: acc.accent }}>· {draftItems.length}</span>}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {draftItems.map((it, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input value={it} onChange={e => update(i, e.target.value)} onBlur={commit}
+              placeholder="Phrase…"
+              style={{
+                flex: 1, padding: "7px 10px", borderRadius: RADIUS.md,
+                border: `1px solid ${T.border}`, background: T.card, color: T.text,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none",
+              }}/>
+            <button onClick={() => remove(i)} title="Supprimer" style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              background: "transparent", border: `1px solid rgba(224,92,92,0.3)`,
+              borderRadius: RADIUS.md, padding: "6px 8px", color: "#e15a5a", cursor: "pointer",
+            }}>
+              <Icon as={Trash2} size={11}/>
+            </button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <input value={newItem} onChange={e => setNewItem(e.target.value)} placeholder="Ajouter une phrase…"
+          onKeyDown={e => e.key === "Enter" && add()}
+          style={{
+            flex: 1, padding: "7px 10px", borderRadius: RADIUS.md,
+            border: `1px dashed ${T.border}`, background: "transparent", color: T.text,
+            fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none",
+          }}/>
+        <button onClick={add} disabled={!newItem.trim()} style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          background: newItem.trim() ? acc.accent : T.border,
+          color: newItem.trim() ? acc.onAccent : T.textMuted,
+          border: "none", borderRadius: RADIUS.md, padding: "7px 14px",
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: newItem.trim() ? "pointer" : "not-allowed",
+        }}>
+          <Icon as={Plus} size={11}/>
+          Ajouter
+        </button>
+      </div>
     </div>
   );
 }
