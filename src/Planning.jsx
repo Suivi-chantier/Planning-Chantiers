@@ -1,11 +1,12 @@
 import CellModal from "./CellModal";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase";
-import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS } from "./constants";
+import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "./constants";
 import { useIsMobile } from "./Navigation";
 import { Icon } from "./ui";
 import {
   ChevronLeft, ChevronRight, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
+  ArrowRightLeft,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap,
 } from "lucide-react";
 
@@ -49,6 +50,8 @@ function PagePlanning({ chantiers, ouvriers, ouvrierEmails, cells, setCells, com
   const [noteDraft, setNoteDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => getTodayJour() || "Lundi");
+  // Menu "déplacer vers …" — ancré sur la position du bouton dans la viewport.
+  const [moveMenu, setMoveMenu] = useState(null); // { cId, jour, taskIdx, x, y }
 
   const prevWeek = () => { if (week === 1) { setYear(y => y - 1); setWeek(52); } else setWeek(w => w - 1); };
   const nextWeek = () => { if (week === 52) { setYear(y => y + 1); setWeek(1); } else setWeek(w => w + 1); };
@@ -131,6 +134,62 @@ function PagePlanning({ chantiers, ouvriers, ouvrierEmails, cells, setCells, com
     setCellDraft({ ...existing, taches });
     setCmdDraft(commandes[cId] || "");
     setNoteDraft(notesData[cId] || "");
+  };
+
+  // Liste de tâches affichables pour une cellule. Si `taches` est vide mais
+  // que `planifie` contient du texte (ancien format), on découpe ligne à ligne
+  // pour pouvoir quand même proposer un bouton "déplacer".
+  const getDisplayTaches = (cell) => {
+    if (cell.taches?.length > 0) return cell.taches;
+    if (cell.planifie?.trim()) {
+      return cell.planifie.split("\n").filter(l => l.trim()).map((text, i) => ({
+        id: `legacy-${i}`, text, ouvriers: [],
+      }));
+    }
+    return [];
+  };
+
+  // Déplace une tâche d'un jour à un autre sur le même chantier.
+  // Met à jour les deux cellules en local puis sur Supabase.
+  const moveTache = async (cId, fromJour, taskIdx, toJour) => {
+    setMoveMenu(null);
+    if (fromJour === toJour) return;
+    const fromKey = `${cId}_${fromJour}`;
+    const toKey   = `${cId}_${toJour}`;
+    const fromCell = cells[fromKey] || emptyCell();
+    // On reconstruit toujours des tâches avec id stable (pour les legacy).
+    const fromTaches = getDisplayTaches(fromCell).map(t =>
+      String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t
+    );
+    if (taskIdx < 0 || taskIdx >= fromTaches.length) return;
+    const moved = fromTaches[taskIdx];
+    const newFromTaches = fromTaches.filter((_, i) => i !== taskIdx);
+    const newFromCell = {
+      ...fromCell,
+      taches: newFromTaches,
+      planifie: newFromTaches.map(t => t.text).join("\n"),
+    };
+    const toCell = cells[toKey] || emptyCell();
+    const toTaches = getDisplayTaches(toCell).map(t =>
+      String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t
+    );
+    const newToTaches = [...toTaches, moved];
+    const newToCell = {
+      ...toCell,
+      taches: newToTaches,
+      planifie: newToTaches.map(t => t.text).join("\n"),
+    };
+    setCells(prev => ({ ...prev, [fromKey]: newFromCell, [toKey]: newToCell }));
+    await Promise.all([
+      supabase.from("planning_cells").upsert(
+        { week_id: weekId, chantier_id: cId, jour: fromJour, ...newFromCell },
+        { onConflict: "week_id,chantier_id,jour" }
+      ),
+      supabase.from("planning_cells").upsert(
+        { week_id: weekId, chantier_id: cId, jour: toJour, ...newToCell },
+        { onConflict: "week_id,chantier_id,jour" }
+      ),
+    ]);
   };
 
   const closeModal = async () => {
@@ -238,7 +297,58 @@ function PagePlanning({ chantiers, ouvriers, ouvrierEmails, cells, setCells, com
       <style>{`
         .cell-with-agenda:hover .cell-agenda-btn { opacity: .85; pointer-events: auto; }
         .cell-with-agenda .cell-agenda-btn:hover { opacity: 1; }
+        .cell-with-agenda:hover .tache-move-btn { opacity: .55; pointer-events: auto; }
+        .tache-move-btn:hover { opacity: 1 !important; }
       `}</style>
+
+      {/* ── Menu "déplacer vers …" (popup ancré sur le bouton) ── */}
+      {moveMenu && (
+        <>
+          <div onClick={() => setMoveMenu(null)}
+            style={{ position:"fixed", inset:0, zIndex:100, background:"transparent" }}/>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{
+              position:"fixed",
+              top: Math.min(moveMenu.y + 4, window.innerHeight - 60),
+              left: Math.max(8, Math.min(moveMenu.x - 220, window.innerWidth - 230)),
+              zIndex:101, background:T.modal, border:`1px solid ${T.border}`,
+              borderRadius:RADIUS.md, padding:6, boxShadow:SHADOW.lg,
+              display:"flex", flexDirection:"column", gap:4, minWidth:210,
+            }}>
+            <div style={{
+              fontSize:10, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase",
+              color:T.textMuted, padding:"2px 4px 4px",
+            }}>
+              Déplacer vers
+            </div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+              {JOURS.filter(j => j !== moveMenu.jour).map(targetJour => (
+                <button key={targetJour}
+                  onClick={() => moveTache(moveMenu.cId, moveMenu.jour, moveMenu.taskIdx, targetJour)}
+                  style={{
+                    flex:"1 1 auto",
+                    background:"transparent", border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.sm, padding:"6px 10px",
+                    fontSize:11, fontWeight:700, letterSpacing:.6, textTransform:"uppercase",
+                    cursor:"pointer", color:T.textSub, fontFamily:"inherit", transition:"all .1s",
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = acc.accent;
+                    e.currentTarget.style.color = acc.onAccent;
+                    e.currentTarget.style.borderColor = acc.accent;
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = T.textSub;
+                    e.currentTarget.style.borderColor = T.border;
+                  }}>
+                  {targetJour.slice(0,3)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {modal && cellDraft && <CellModal
         chantier={modalChantier}
@@ -369,8 +479,30 @@ function PagePlanning({ chantiers, ouvriers, ouvrierEmails, cells, setCells, com
                     </div>
                   ) : (
                     <>
-                      <div style={{ fontSize:13, lineHeight:1.5, color: T.text, whiteSpace:"pre-wrap" }}>
-                        {cell.planifie || <span style={{ color:T.emptyColor }}>—</span>}
+                      <div style={{ fontSize:13, lineHeight:1.5, color: T.text, display:"flex", flexDirection:"column", gap:4 }}>
+                        {(() => {
+                          const displayTaches = getDisplayTaches(cell);
+                          if (displayTaches.length === 0) return <span style={{ color:T.emptyColor }}>—</span>;
+                          return displayTaches.map((tache, ti) => (
+                            <div key={tache.id || ti} style={{ display:"flex", alignItems:"flex-start", gap:6 }}>
+                              <span style={{ flex:1, minWidth:0, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{tache.text}</span>
+                              <button
+                                title="Déplacer vers un autre jour"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const r = e.currentTarget.getBoundingClientRect();
+                                  setMoveMenu({ cId: c.id, jour: mobileDay, taskIdx: ti, x: r.right, y: r.bottom });
+                                }}
+                                style={{
+                                  background:"transparent", border:`1px solid ${T.border}`,
+                                  borderRadius:RADIUS.sm, padding:"3px 6px",
+                                  cursor:"pointer", color:T.textSub, flexShrink:0, lineHeight:0,
+                                }}>
+                                <Icon as={ArrowRightLeft} size={12}/>
+                              </button>
+                            </div>
+                          ));
+                        })()}
                       </div>
                       {cell.ouvriers?.length > 0 && (
                         <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginTop:2 }}>
@@ -512,13 +644,33 @@ function PagePlanning({ chantiers, ouvriers, ouvrierEmails, cells, setCells, com
                   {JOURS.map((jour, di) => {
                     const cell = getCell(c.id, jour);
                     const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0;
+                    const displayTaches = getDisplayTaches(cell);
                     return (
                       <div key={jour} className={`cell ${filled ? "filled" : ""} cell-with-agenda`} onClick={() => openModal(c.id, jour)}
                         style={{ position:"relative" }}>
                         {filled ? (
                           <>
-                            <div style={{ fontSize:12, lineHeight:1.5, color: T.text }}>
-                              {cell.planifie || <span style={{ color:T.emptyColor }}>—</span>}
+                            <div style={{ fontSize:12, lineHeight:1.5, color: T.text, display:"flex", flexDirection:"column", gap:2 }}>
+                              {displayTaches.length > 0 ? displayTaches.map((tache, ti) => (
+                                <div key={tache.id || ti} style={{ display:"flex", alignItems:"flex-start", gap:3 }}>
+                                  <span style={{ flex:1, minWidth:0, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{tache.text}</span>
+                                  <button
+                                    className="tache-move-btn"
+                                    title="Déplacer vers un autre jour"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const r = e.currentTarget.getBoundingClientRect();
+                                      setMoveMenu({ cId: c.id, jour, taskIdx: ti, x: r.right, y: r.bottom });
+                                    }}
+                                    style={{
+                                      background:"transparent", border:"none", padding:2,
+                                      cursor:"pointer", color:T.textMuted, flexShrink:0, lineHeight:0,
+                                      opacity:0, pointerEvents:"none", transition:"opacity .15s",
+                                    }}>
+                                    <Icon as={ArrowRightLeft} size={11}/>
+                                  </button>
+                                </div>
+                              )) : <span style={{ color:T.emptyColor }}>—</span>}
                             </div>
                             {cell.ouvriers?.length > 0 && (
                               <div style={{ marginTop:5, display:"flex", flexWrap:"wrap", gap:3 }}>
