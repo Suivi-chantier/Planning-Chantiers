@@ -478,13 +478,13 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     setNewNom("");
     // Création auto du phasage lié — assure la boucle logique chantier ↔ phasage
     // dès la création. L'utilisateur peut ensuite remplir les ouvrages/tâches.
+    // On reste sur les colonnes minimales pour éviter les erreurs si le schéma
+    // diffère d'une instance à l'autre.
     try {
       await supabase.from("phasages").insert({
         chantier_id: id,
         chantier_nom: nc.nom,
         ouvrages: [],
-        plan_travaux: null,
-        statut: "planifie",
       });
     } catch (e) {
       console.warn("Création phasage auto échouée :", e?.message || e);
@@ -533,8 +533,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           chantier_id: c.id,
           chantier_nom: c.nom,
           ouvrages: [],
-          plan_travaux: null,
-          statut: "planifie",
         }));
         const { error } = await supabase.from("phasages").insert(rows);
         if (error) setSyncMsg(`⚠ Erreur : ${error.message}`);
