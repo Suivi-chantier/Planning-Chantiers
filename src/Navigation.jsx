@@ -106,7 +106,7 @@ function Sidebar({
     { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
     { id:"visite",           icon:Search,          label:"Visites chantier" },
     { id:"info-client",      icon:IdCard,          label:"Infos Client"     },
-    { id:"compte-rendu",     icon:FileText,        label:"Compte rendu"     },
+    { id:"compte-rendu",     icon:FileText,        label:"Compte rendu client"},
     { id:"admin",            icon:Settings,        label:"Réglages"         },
   ];
 

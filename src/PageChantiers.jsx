@@ -1071,7 +1071,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ ...sectionTitle, marginBottom: 0 }}>
-                <Icon as={ClipboardList} size={13}/> Derniers comptes rendus
+                <Icon as={ClipboardList} size={13}/> Derniers comptes rendus client
               </div>
               <button onClick={ouvrirLierModal} style={{
                 display: "inline-flex", alignItems: "center", gap: 5,
@@ -1183,9 +1183,9 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
                 <div style={{ padding: 24, textAlign: "center", color: textMuted, fontSize: FONT.sm.size }}>Chargement…</div>
               ) : compteRendus.length === 0 ? (
                 <div style={{ padding: 24, textAlign: "center", color: textMuted, fontSize: FONT.sm.size }}>
-                  <div style={{ opacity: .55, marginBottom: 8 }}>Aucun compte rendu trouvé.</div>
+                  <div style={{ opacity: .55, marginBottom: 8 }}>Aucun compte rendu client pour ce chantier.</div>
                   <div style={{ fontSize: FONT.xs.size + 1, opacity: .55, lineHeight: 1.6 }}>
-                    Dans la page « Compte rendu », renseignez<br/>
+                    Dans la page « Compte rendu client », renseignez<br/>
                     <strong style={{ color: text, opacity: .75 }}>{selectedChantier?.nom}</strong> dans le champ <em>Adresse</em><br/>
                     pour lier automatiquement les CRs à ce chantier.
                   </div>
@@ -1225,6 +1225,93 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
             </div>
           </div>
         </div>
+
+        {/* ── Section : Activité équipe récente (rapports ouvriers) ── */}
+        {rapportsEquipe.length > 0 && (
+          <div>
+            <div style={{ ...sectionTitle, marginBottom: 12 }}>
+              <Icon as={HardHat} size={13}/>
+              Activité équipe récente
+              <span style={{ color: acc.accent, fontWeight: 800, marginLeft: 4 }}>· {rapportsEquipe.length}</span>
+            </div>
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: RADIUS.xl, overflow: "hidden" }}>
+              {rapportsEquipe.slice(0, 8).map(r => {
+                const taches = r.taches || [];
+                const nbFaites    = taches.filter(t => t.statut === "faite").length;
+                const nbEnCours   = taches.filter(t => t.statut === "en_cours").length;
+                const nbNonFaites = taches.filter(t => t.statut === "non_faite").length;
+                const totalHeures = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+                return (
+                  <div key={r.id} className="tache-row" style={{ padding: "12px 16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        fontSize: FONT.sm.size + 1, fontWeight: 700, color: text,
+                      }}>
+                        <Icon as={HardHat} size={13} color={acc.accent}/>
+                        {r.ouvrier}
+                      </span>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+                        {r.date_rapport}
+                      </span>
+                      {totalHeures > 0 && (
+                        <span style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", fontWeight: 700 }}>
+                          {totalHeures}h
+                        </span>
+                      )}
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        {nbFaites > 0 && (
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            fontSize: FONT.xs.size, fontWeight: 700,
+                            color: "#22c55e", background: "rgba(34,197,94,0.10)",
+                            border: "1px solid rgba(34,197,94,0.25)",
+                            borderRadius: RADIUS.pill, padding: "1px 7px",
+                          }}>
+                            <Icon as={Check} size={9}/> {nbFaites} faite{nbFaites > 1 ? "s" : ""}
+                          </span>
+                        )}
+                        {nbEnCours > 0 && (
+                          <span style={{
+                            fontSize: FONT.xs.size, fontWeight: 700,
+                            color: "#f59e0b", background: "rgba(245,158,11,0.10)",
+                            border: "1px solid rgba(245,158,11,0.25)",
+                            borderRadius: RADIUS.pill, padding: "1px 7px",
+                          }}>
+                            {nbEnCours} en cours
+                          </span>
+                        )}
+                        {nbNonFaites > 0 && (
+                          <span style={{
+                            fontSize: FONT.xs.size, fontWeight: 700,
+                            color: "#e15a5a", background: "rgba(225,90,90,0.10)",
+                            border: "1px solid rgba(225,90,90,0.25)",
+                            borderRadius: RADIUS.pill, padding: "1px 7px",
+                          }}>
+                            {nbNonFaites} non faite{nbNonFaites > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {taches.length > 0 && (
+                      <div style={{
+                        fontSize: FONT.xs.size + 1, color: textMuted, lineHeight: 1.5,
+                        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                      }}>
+                        {taches.map(t => t.planifie).filter(Boolean).join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {rapportsEquipe.length > 8 && (
+                <div style={{ padding: "10px 16px", textAlign: "center", fontSize: FONT.xs.size + 1, color: textMuted, borderTop: `1px solid ${border}` }}>
+                  + {rapportsEquipe.length - 8} rapport{rapportsEquipe.length - 8 > 1 ? "s" : ""} plus ancien{rapportsEquipe.length - 8 > 1 ? "s" : ""}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Section 4 : Galerie photos équipe ── */}
         <div>
