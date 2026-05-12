@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabase";
-import { COULEURS_PALETTE, THEMES, emptyCommande } from "./constants";
+import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS } from "./constants";
+import { Icon } from "./ui";
+import {
+  Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
+  ExternalLink, AlertTriangle, Search, Bell, User, Building2,
+  Settings, ListChecks, Link2, LayoutList, Truck, Download, FileSpreadsheet, Printer,
+} from "lucide-react";
 
 // Statuts pour les commandes (hors besoin_ouvrier)
 const STATUTS_CMD = {
@@ -83,7 +89,8 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
         cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
         whiteSpace: "nowrap",
       }}>
-        📦 {selected ? selected.nom.substring(0, 22) + (selected.nom.length > 22 ? "…" : "") : "Lier à la biblio."}
+        <Icon as={Package} size={12}/>
+        {selected ? selected.nom.substring(0, 22) + (selected.nom.length > 22 ? "…" : "") : "Lier à la biblio."}
         {selected && (
           <span onClick={e => { e.stopPropagation(); onChange(null); }}
             style={{ marginLeft: 4, opacity: .6, cursor: "pointer", fontSize: 14 }}>×</span>
@@ -435,18 +442,24 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
 
                 {erreur && (
                   <div style={{
-                    background: "rgba(224,92,92,0.1)", border: "1px solid rgba(224,92,92,0.3)",
-                    borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#e05c5c",
-                  }}>⚠️ {erreur}</div>
+                    background: "rgba(225,90,90,0.10)", border: "1px solid rgba(225,90,90,0.30)",
+                    borderRadius: RADIUS.md, padding: "9px 14px", fontSize: FONT.sm.size, color: "#e15a5a",
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                  }}>
+                    <Icon as={AlertTriangle} size={14}/>
+                    {erreur}
+                  </div>
                 )}
 
                 {file && (
                   <button onClick={analyser} style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                     padding: "12px 0", borderRadius: 10, border: "none",
                     background: "#5b9cf6", color: "#fff",
                     fontFamily: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer",
                   }}>
-                    🔍 Analyser le document
+                    <Icon as={Search} size={16}/>
+                    Analyser le document
                   </button>
                 )}
               </div>
@@ -462,9 +475,12 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                 <div style={{
                   width: 64, height: 64, borderRadius: 16,
                   background: "rgba(91,156,246,0.15)",
+                  color: "#5b9cf6",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 32, animation: "spin 2s linear infinite",
-                }}>🔍</div>
+                  animation: "spin 2s linear infinite",
+                }}>
+                  <Icon as={Search} size={32}/>
+                </div>
                 <div style={{ textAlign: "center" }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: P.text, marginBottom: 6 }}>
                     Analyse en cours…
@@ -486,8 +502,9 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                   border: "1px solid rgba(91,156,246,0.2)",
                   padding: "16px 18px",
                 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#5b9cf6", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
-                    ⚙️ Paramètres globaux — appliqués à toutes les lignes sélectionnées
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#5b9cf6", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
+                    <Icon as={Settings} size={12}/>
+                    Paramètres globaux — appliqués à toutes les lignes sélectionnées
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "end" }}>
                     <div>
@@ -583,8 +600,9 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                         <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr", gap: 8, paddingLeft: 0 }}>
                           <div />
                           <div>
-                            <div style={{ fontSize: 10, color: P.textMuted, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>
-                              📦 Article bibliothèque {matLie && <span style={{ color: "#FFC200" }}>· {matLie.nom.substring(0, 18)}</span>}
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: P.textMuted, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                              <Icon as={Package} size={11}/>
+                              Article bibliothèque {matLie && <span style={{ color: "#FFC200" }}>· {matLie.nom.substring(0, 18)}</span>}
                             </div>
                             <BiblioSelector
                               value={l.materiau_id}
@@ -594,8 +612,9 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                             />
                           </div>
                           <div>
-                            <div style={{ fontSize: 10, color: P.textMuted, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>
-                              🏗️ Plan de travail
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: P.textMuted, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                              <Icon as={ListChecks} size={11}/>
+                              Plan de travail
                             </div>
                             <TacheSelector
                               phasageId={l.phasage_id}
@@ -779,9 +798,10 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSuppr
                     )}
                     {d.ouvrier_demandeur && (
                       <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
                         fontSize: 11, fontWeight: 700, color: "#a0b8ff",
                         background: "rgba(160,184,255,0.14)", borderRadius: 5, padding: "2px 7px",
-                      }}>👤 {d.ouvrier_demandeur}</span>
+                      }}><Icon as={User} size={10}/> {d.ouvrier_demandeur}</span>
                     )}
                     {urgent && (
                       <span style={{
@@ -818,7 +838,10 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSuppr
                 </div>
 
                 <div style={{ padding: "8px 14px", borderBottom: `1px solid ${P.border}`, background: "rgba(255,194,0,0.03)" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: P.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>📦 Lier à un article de la bibliothèque</div>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: P.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                    <Icon as={Package} size={11}/>
+                    Lier à un article de la bibliothèque
+                  </div>
                   <BiblioSelector
                     value={draft.materiau_id || null}
                     onChange={mId => handleSelectMateriau(d.id, mId)}
@@ -865,32 +888,34 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSuppr
 }
 
 // ─── BOUTON DEMANDES FLOTTANT ─────────────────────────────────────────────────
-function BoutonDemandes({ count, onClick, T }) {
+function BoutonDemandes({ count, onClick, T, acc }) {
   const hasNew = count > 0;
   return (
     <div style={{ position: "relative", display: "inline-flex" }}>
       {hasNew && (
         <span style={{
-          position: "absolute", inset: 0, borderRadius: 10,
-          border: "2px solid #e05c5c",
+          position: "absolute", inset: 0, borderRadius: RADIUS.md,
+          border: "2px solid #e15a5a",
           animation: "pulseRing 1.6s ease-out infinite",
           pointerEvents: "none",
         }} />
       )}
       <button onClick={onClick} style={{
-        background: hasNew ? "rgba(224,92,92,0.15)" : T.card,
-        border: `1px solid ${hasNew ? "rgba(224,92,92,0.5)" : T.border}`,
-        borderRadius: 10, padding: "10px 18px",
-        fontFamily: "inherit", fontSize: 13, fontWeight: 700,
-        color: hasNew ? "#e05c5c" : T.textSub,
-        cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
-        transition: "all .2s", position: "relative",
+        display: "inline-flex", alignItems: "center", gap: 6,
+        background: hasNew ? "rgba(225,90,90,0.12)" : "transparent",
+        border: `1px solid ${hasNew ? "rgba(225,90,90,0.50)" : T.border}`,
+        borderRadius: RADIUS.md, padding: "8px 14px",
+        fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 600,
+        color: hasNew ? "#e15a5a" : T.textSub,
+        cursor: "pointer",
+        transition: "border-color .12s, color .12s",
+        position: "relative",
       }}>
-        <span style={{ fontSize: 16 }}>📋</span>
+        <Icon as={Bell} size={14}/>
         Demandes ouvriers
         {hasNew && (
           <span style={{
-            background: "#e05c5c", color: "#fff", borderRadius: 20,
+            background: "#e15a5a", color: "#fff", borderRadius: RADIUS.pill,
             fontSize: 11, fontWeight: 900, padding: "1px 7px",
             minWidth: 20, textAlign: "center",
             animation: "badgePulse 1.2s ease-in-out infinite",
@@ -901,14 +926,199 @@ function BoutonDemandes({ count, onClick, T }) {
   );
 }
 
+// ─── VUE GROUPÉE (par fournisseur ou par chantier) ────────────────────────────
+function VueGroupee({ commandes, groupBy, chantiers, materiaux, T, acc, onEditRow }) {
+  // Construit les groupes
+  const groupes = {};
+  commandes.forEach(r => {
+    let key, label, couleur;
+    if (groupBy === "fournisseur") {
+      key = r.fournisseur || "_sans";
+      label = r.fournisseur || "Sans fournisseur";
+      couleur = null;
+    } else {
+      key = r.chantier_id || "_sans";
+      const ch = chantiers.find(c => c.id === r.chantier_id);
+      label = ch?.nom || "Sans chantier";
+      couleur = ch?.couleur;
+    }
+    if (!groupes[key]) groupes[key] = { key, label, couleur, items: [], total: 0 };
+    groupes[key].items.push(r);
+    groupes[key].total += parseFloat(r.prix_ht) || 0;
+  });
+  // Trie : non commandés d'abord (plus de "à commander"), puis alphabétique
+  const ordre = Object.values(groupes).sort((a, b) => {
+    const ac = a.items.filter(i => i.statut === "a_commander").length;
+    const bc = b.items.filter(i => i.statut === "a_commander").length;
+    if (ac !== bc) return bc - ac;
+    return a.label.localeCompare(b.label);
+  });
+
+  if (ordre.length === 0) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: FONT.sm.size }}>
+        Aucune commande dans cette vue.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {ordre.map(g => {
+        const aCmd  = g.items.filter(i => i.statut === "a_commander").length;
+        const cmd   = g.items.filter(i => i.statut === "commande").length;
+        const ret   = g.items.filter(i => i.statut === "retire").length;
+        return (
+          <div key={g.key} style={{
+            background: T.surface, border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.xl, overflow: "hidden",
+            borderLeft: g.couleur ? `4px solid ${g.couleur}` : `1px solid ${T.border}`,
+          }}>
+            {/* Header du groupe */}
+            <div style={{
+              padding: "12px 18px", borderBottom: `1px solid ${T.border}`,
+              background: T.card,
+              display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+            }}>
+              {g.couleur && (
+                <span style={{ width: 12, height: 12, borderRadius: 3, background: g.couleur }}/>
+              )}
+              {!g.couleur && (
+                <Icon as={Truck} size={16} color={T.textSub}/>
+              )}
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text, letterSpacing: -.2 }}>{g.label}</div>
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 1 }}>
+                  {g.items.length} article{g.items.length > 1 ? "s" : ""}
+                  {g.total > 0 && ` · ${g.total.toLocaleString("fr-FR", { minimumFractionDigits: 0 })} € HT`}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 5 }}>
+                {aCmd > 0 && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    background: "rgba(245,166,35,0.12)", color: "#f5a623",
+                    border: "1px solid rgba(245,166,35,0.30)",
+                    borderRadius: RADIUS.pill, padding: "2px 9px",
+                    fontSize: FONT.xs.size, fontWeight: 700,
+                  }}>{aCmd} à commander</span>
+                )}
+                {cmd > 0 && (
+                  <span style={{
+                    background: "rgba(34,197,94,0.12)", color: "#22c55e",
+                    border: "1px solid rgba(34,197,94,0.30)",
+                    borderRadius: RADIUS.pill, padding: "2px 9px",
+                    fontSize: FONT.xs.size, fontWeight: 700,
+                  }}>{cmd} commandé{cmd > 1 ? "s" : ""}</span>
+                )}
+                {ret > 0 && (
+                  <span style={{
+                    background: "rgba(154,165,192,0.10)", color: "#9aa5c0",
+                    border: "1px solid rgba(154,165,192,0.25)",
+                    borderRadius: RADIUS.pill, padding: "2px 9px",
+                    fontSize: FONT.xs.size, fontWeight: 700,
+                  }}>{ret} retiré{ret > 1 ? "s" : ""}</span>
+                )}
+              </div>
+            </div>
+            {/* Items */}
+            <div>
+              {g.items.map(r => {
+                const statut = STATUTS_CMD[r.statut] || STATUTS_CMD.a_commander;
+                const matLie = r.materiau_id && materiaux.find(m => m.id === r.materiau_id);
+                const ch = chantiers.find(c => c.id === r.chantier_id);
+                return (
+                  <div key={r.id} onClick={() => onEditRow(r)} className="tache-row" style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "11px 18px",
+                    borderBottom: `1px solid ${T.sectionDivider || T.border}`,
+                    cursor: "pointer",
+                  }}>
+                    <span style={{
+                      width: 9, height: 9, borderRadius: "50%",
+                      background: statut.color, flexShrink: 0,
+                    }}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: T.text, lineHeight: 1.3 }}>
+                        {r.article || "—"}
+                        {r.quantite && (
+                          <span style={{ color: T.textMuted, fontWeight: 500, marginLeft: 6 }}>× {r.quantite}</span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2, fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+                        {groupBy === "fournisseur" && ch && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: 2, background: ch.couleur }}/>
+                            {ch.nom}
+                          </span>
+                        )}
+                        {groupBy === "chantier" && r.fournisseur && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <Icon as={Truck} size={10}/>
+                            {r.fournisseur}
+                          </span>
+                        )}
+                        {matLie && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#FFC200", fontWeight: 600 }}>
+                            <Icon as={Package} size={10}/>
+                            {matLie.reference || matLie.nom.substring(0, 22)}
+                          </span>
+                        )}
+                        {r.priorite === "urgent" && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#e15a5a", fontWeight: 700 }}>
+                            <Icon as={AlertTriangle} size={10}/>
+                            Urgent
+                          </span>
+                        )}
+                        {r.ouvrier_demandeur && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <Icon as={User} size={10}/>
+                            {r.ouvrier_demandeur}
+                          </span>
+                        )}
+                      </div>
+                      {r.notes && (
+                        <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2, opacity: .8 }}>
+                          {r.notes}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{
+                        display: "inline-flex", alignItems: "center",
+                        background: statut.bg, color: statut.color,
+                        border: `1px solid ${statut.border}`,
+                        borderRadius: RADIUS.pill, padding: "2px 9px",
+                        fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .3, textTransform: "uppercase",
+                      }}>{statut.label}</div>
+                      {r.prix_ht > 0 && (
+                        <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: "#22c55e", marginTop: 4 }}>
+                          {parseFloat(r.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── PAGE COMMANDES ───────────────────────────────────────────────────────────
-function PageCommandes({ chantiers, T }) {
+function PageCommandes({ chantiers, T, branch = "renovation" }) {
+  const acc = getBranchAccent(branch);
   const [rows, setRows] = useState([]);
   const [materiaux, setMateriaux] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterChantier, setFilterChantier] = useState("all");
   const [filterStatut, setFilterStatut] = useState("all");
   const [filterOuvrier, setFilterOuvrier] = useState("all");
+  // viewMode : 'liste' | 'fournisseur' | 'chantier'
+  const [viewMode, setViewMode] = useState("liste");
   const [editRow, setEditRow] = useState(null);
   const [newRow, setNewRow] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
@@ -1075,6 +1285,78 @@ function PageCommandes({ chantiers, T }) {
     load();
   };
 
+  // ── Export CSV (Excel) ──────────────────────────────────────────────────────
+  const exporterCSV = () => {
+    const escapeCSV = (val) => {
+      const s = String(val ?? "");
+      if (s.includes(";") || s.includes('"') || s.includes("\n")) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+    const headers = ["Chantier", "Article", "Fournisseur", "Référence", "Quantité", "Prix HT", "Statut", "Priorité", "Ouvrier", "Notes", "Date création"];
+    const rows = commandes.map(r => {
+      const ch = chantiers.find(c => c.id === r.chantier_id);
+      const mat = r.materiau_id && materiaux.find(m => m.id === r.materiau_id);
+      const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString("fr-FR") : "";
+      return [
+        ch?.nom || "", r.article || "", r.fournisseur || "",
+        mat?.reference || "", r.quantite || "",
+        r.prix_ht ? parseFloat(r.prix_ht).toFixed(2) : "",
+        STATUTS_CMD[r.statut]?.label || r.statut,
+        r.priorite === "urgent" ? "Urgent" : "Normal",
+        r.ouvrier_demandeur || "", r.notes || "", dateStr,
+      ].map(escapeCSV).join(";");
+    });
+    const csv = "﻿" + [headers.join(";"), ...rows].join("\r\n"); // BOM pour Excel FR
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const now = new Date();
+    a.href = url;
+    a.download = `commandes_${now.toISOString().slice(0,10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // ── Export PDF (via window.print) ──────────────────────────────────────────
+  const exporterPDF = () => {
+    const filtreLabel = [
+      filterChantier !== "all" && `Chantier : ${chantiers.find(c => c.id === filterChantier)?.nom || filterChantier}`,
+      filterStatut !== "all" && `Statut : ${STATUTS_CMD[filterStatut]?.label || filterStatut}`,
+    ].filter(Boolean).join(" · ");
+    const rowsHtml = commandes.map(r => {
+      const ch = chantiers.find(c => c.id === r.chantier_id);
+      const mat = r.materiau_id && materiaux.find(m => m.id === r.materiau_id);
+      const statut = STATUTS_CMD[r.statut] || STATUTS_CMD.a_commander;
+      const urgent = r.priorite === "urgent" ? '<span style="color:#e15a5a;font-weight:700;margin-left:4px">URGENT</span>' : "";
+      return `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee">${ch ? `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ch.couleur};margin-right:5px;vertical-align:middle"></span>${ch.nom}` : ""}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee">${r.article || ""}${mat ? `<br><span style="font-size:9px;color:#888">${mat.reference || ""}</span>` : ""}${urgent}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee">${r.fournisseur || ""}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${r.quantite || ""}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${r.prix_ht ? parseFloat(r.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " €" : ""}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee"><span style="background:${statut.bg};color:${statut.color};padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700">${statut.label}</span></td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:10px;color:#666">${r.ouvrier_demandeur || ""}${r.notes ? `<br>${r.notes}` : ""}</td>
+      </tr>`;
+    }).join("");
+    const totalHT = commandes.reduce((s, r) => s + (parseFloat(r.prix_ht) || 0), 0);
+    const w = window.open("", "_blank");
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Commandes</title>
+      <style>@page{size:A4 landscape;margin:12mm}body{font-family:Arial,sans-serif;font-size:11px;color:#1a1f2e}
+        h1{font-size:18px;margin:0 0 4px}.sub{font-size:11px;color:#666;margin-bottom:14px}
+        table{width:100%;border-collapse:collapse}thead th{background:#1a1f2e;color:#fff;padding:7px 8px;text-align:left;font-size:10px;letter-spacing:.5px}
+        .total{margin-top:14px;text-align:right;font-size:13px;font-weight:700}
+      </style></head><body>
+      <h1>Commandes</h1>
+      <div class="sub">${commandes.length} ligne${commandes.length > 1 ? "s" : ""}${filtreLabel ? ` · ${filtreLabel}` : ""} · imprimé le ${new Date().toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" })}</div>
+      <table><thead><tr><th>Chantier</th><th>Article</th><th>Fournisseur</th><th>Qté</th><th>Prix HT</th><th>Statut</th><th>Demandeur / Notes</th></tr></thead><tbody>${rowsHtml || `<tr><td colspan="7" style="padding:14px;text-align:center;color:#888">Aucune commande</td></tr>`}</tbody></table>
+      ${totalHT > 0 ? `<div class="total">Total : ${totalHT.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € HT</div>` : ""}
+      </body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  };
+
   const cycleStatut = async (row) => {
     const order = ["a_commander", "commande", "retire"];
     const curIdx = order.indexOf(row.statut);
@@ -1144,8 +1426,9 @@ function PageCommandes({ chantiers, T }) {
 
   const renderBiblioRowEditor = (draft, setDraft) => (
     <div style={{ marginBottom: 4 }}>
-      <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
-        📦 Lier à la bibliothèque
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: T.textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+        <Icon as={Package} size={11}/>
+        Lier à la bibliothèque
       </div>
       <BiblioSelector
         value={draft.materiau_id || null}
@@ -1216,9 +1499,12 @@ function PageCommandes({ chantiers, T }) {
               background: "rgba(80,200,120,0.08)", display: "flex", alignItems: "center", gap: 12,
             }}>
               <div style={{
-                width: 36, height: 36, borderRadius: 10, background: "rgba(80,200,120,0.2)",
-                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-              }}>🛒</div>
+                width: 36, height: 36, borderRadius: 10, background: "rgba(34,197,94,0.18)",
+                color: "#22c55e",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon as={ShoppingCart} size={18} strokeWidth={2}/>
+              </div>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Commande passée</div>
                 <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>{modaleCommande.row.article}</div>
@@ -1287,10 +1573,14 @@ function PageCommandes({ chantiers, T }) {
                 background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer",
               }}>Annuler</button>
               <button onClick={confirmerCommande} style={{
-                padding: "9px 24px", borderRadius: 8, border: "none",
-                background: "#50c878", color: "#111", fontFamily: "inherit",
-                fontSize: 13, fontWeight: 800, cursor: "pointer",
-              }}>✓ Confirmer la commande</button>
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "9px 22px", borderRadius: RADIUS.md, border: "none",
+                background: "#22c55e", color: "#fff", fontFamily: "inherit",
+                fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              }}>
+                <Icon as={Check} size={14}/>
+                Confirmer la commande
+              </button>
             </div>
           </div>
         </div>
@@ -1298,82 +1588,175 @@ function PageCommandes({ chantiers, T }) {
 
       {/* Header */}
       <div className="cmd-header" style={{
-        marginBottom: 24, display: "flex", alignItems: "flex-start",
+        marginBottom: 24, display: "flex", alignItems: "center",
         justifyContent: "space-between", flexWrap: "wrap", gap: 16,
       }}>
-        <div>
-          <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>Commandes</div>
-          <div style={{ fontSize: 14, color: T.textSub }}>Suivi des besoins par chantier et par fournisseur</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: RADIUS.md,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={Package} size={20} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{ fontSize: FONT.xl.size + 4, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginBottom: 2 }}>Commandes</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Suivi des besoins par chantier et par fournisseur</div>
+          </div>
         </div>
-        <div className="cmd-actions" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <BoutonDemandes count={demandes.length} onClick={() => setPanneauOuvert(true)} T={T} />
-          {/* Bouton import document */}
+        <div className="cmd-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <BoutonDemandes count={demandes.length} onClick={() => setPanneauOuvert(true)} T={T} acc={acc} />
           <button
             onClick={() => setModaleImport(true)}
             style={{
-              background: "rgba(91,156,246,0.1)",
-              border: "1px solid rgba(91,156,246,0.35)",
-              borderRadius: 10, padding: "10px 18px",
-              fontFamily: "inherit", fontSize: 13, fontWeight: 700,
-              color: "#5b9cf6", cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 8,
-              transition: "all .2s",
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: "transparent",
+              border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.md, padding: "8px 14px",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 600,
+              color: T.textSub, cursor: "pointer",
+              transition: "border-color .12s, color .12s",
             }}
-            onMouseEnter={e => e.currentTarget.style.background = "rgba(91,156,246,0.2)"}
-            onMouseLeave={e => e.currentTarget.style.background = "rgba(91,156,246,0.1)"}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}
           >
-            <span style={{ fontSize: 16 }}>📄</span>
+            <Icon as={FileText} size={14}/>
             Importer un document
           </button>
           <button
             onClick={() => { const e = emptyCommande(); setNewRow(e); setEditDraft(e); }}
             style={{
-              background: T.accent, color: "#fff", border: "none",
-              borderRadius: 10, padding: "11px 22px", fontFamily: "inherit",
-              fontSize: 14, fontWeight: 700, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: acc.accent, color: acc.onAccent, border: "none",
+              borderRadius: RADIUS.md, padding: "9px 16px", fontFamily: "inherit",
+              fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
             }}>
-            + Nouvelle commande
+            <Icon as={Plus} size={14}/>
+            Nouvelle commande
           </button>
         </div>
       </div>
 
       {/* Compteurs statut */}
-      <div className="cmd-counters" style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="cmd-counters" style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         {STATUTS_COMMANDES.map(k => {
           const v = STATUTS[k];
+          const active = filterStatut === k;
           return (
             <div key={k} style={{
-              background: v.bg, border: `1px solid ${v.border}`, borderRadius: 10,
-              padding: "10px 18px", cursor: "pointer", transition: "all .15s",
-              outline: filterStatut === k ? `2px solid ${v.color}` : "none",
-            }} onClick={() => setFilterStatut(filterStatut === k ? "all" : k)}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: v.color }}>{counts[k] || 0}</div>
-              <div style={{ fontSize: 12, color: v.color, fontWeight: 600 }}>{v.label}</div>
+              background: active ? v.bg : "transparent",
+              border: `1px solid ${active ? v.color : T.border}`,
+              borderRadius: RADIUS.lg,
+              padding: "10px 16px", cursor: "pointer",
+              transition: "border-color .12s, background .12s",
+              display: "flex", alignItems: "center", gap: 10,
+            }} onClick={() => setFilterStatut(active ? "all" : k)}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = v.color + "80"; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = T.border; }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: v.color, lineHeight: 1.1, letterSpacing: -0.3 }}>
+                {counts[k] || 0}
+              </div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: active ? v.color : T.textSub, fontWeight: 600, letterSpacing: .3, textTransform: "uppercase" }}>
+                {v.label}
+              </div>
             </div>
           );
         })}
       </div>
 
       {/* Filtres */}
-      <div className="cmd-filters" style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="cmd-filters" style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
         {[
-          { value: filterChantier, onChange: setFilterChantier, options: [{ value: "all", label: "Tous les chantiers" }, ...chantiers.map(c => ({ value: c.id, label: c.nom }))] },
-          { value: filterStatut, onChange: setFilterStatut, options: [{ value: "all", label: "Tous les statuts" }, ...STATUTS_COMMANDES.map(k => ({ value: k, label: STATUTS[k].label }))] },
-          { value: filterOuvrier, onChange: setFilterOuvrier, options: [{ value: "all", label: "Tous les ouvriers" }, ...ouvriersDansCmds.map(o => ({ value: o, label: o }))] },
-        ].map((sel, i) => (
-          <select key={i} value={sel.value} onChange={e => sel.onChange(e.target.value)}
-            style={{
-              background: "#1e2336", border: `1px solid ${T.border}`, borderRadius: 8,
-              padding: "8px 12px", color: "#e8eaf0", fontFamily: "inherit", fontSize: 13, outline: "none",
-            }}>
-            {sel.options.map(o => (
-              <option key={o.value} value={o.value} style={{ background: "#1e2336", color: "#e8eaf0" }}>{o.label}</option>
-            ))}
-          </select>
-        ))}
+          { icon: Building2, value: filterChantier, onChange: setFilterChantier, options: [{ value: "all", label: "Tous les chantiers" }, ...chantiers.map(c => ({ value: c.id, label: c.nom }))] },
+          { icon: ListChecks, value: filterStatut, onChange: setFilterStatut, options: [{ value: "all", label: "Tous les statuts" }, ...STATUTS_COMMANDES.map(k => ({ value: k, label: STATUTS[k].label }))] },
+        ].map((sel, i) => {
+          const has = sel.value && sel.value !== "all";
+          return (
+            <div key={i} style={{ position: "relative" }}>
+              <Icon as={sel.icon} size={13} style={{
+                position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                color: has ? acc.accent : T.textMuted, pointerEvents: "none",
+              }}/>
+              <select value={sel.value} onChange={e => sel.onChange(e.target.value)}
+                style={{
+                  background: T.card, border: `1px solid ${has ? acc.border : T.border}`,
+                  borderRadius: RADIUS.md,
+                  padding: "7px 12px 7px 30px",
+                  color: has ? T.text : T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+                  fontWeight: has ? 600 : 500, cursor: "pointer",
+                }}>
+                {sel.options.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })}
+
+        {/* View switch + Export — alignés à droite */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{
+            display: "flex", padding: 3, gap: 2,
+            background: T.card, border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.lg,
+          }}>
+            {[
+              { id: "liste",       label: "Liste",         icon: LayoutList },
+              { id: "fournisseur", label: "Fournisseur",   icon: Truck },
+              { id: "chantier",    label: "Chantier",      icon: Building2 },
+            ].map(v => {
+              const active = viewMode === v.id;
+              return (
+                <button key={v.id} onClick={() => setViewMode(v.id)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  padding: "5px 12px",
+                  border: "none",
+                  borderRadius: RADIUS.md,
+                  fontFamily: "inherit",
+                  fontSize: FONT.xs.size + 1, fontWeight: active ? 800 : 600,
+                  letterSpacing: .4,
+                  cursor: "pointer",
+                  background: active ? acc.accent : "transparent",
+                  color: active ? acc.onAccent : T.textSub,
+                  transition: "background .12s, color .12s",
+                }}>
+                  <Icon as={v.icon} size={12}/>
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
+          <button onClick={() => exporterCSV()} title="Exporter en CSV (Excel)" style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            width: "auto", padding: "6px 12px",
+            border: `1px solid ${T.border}`, background: "transparent",
+            color: T.textSub, fontFamily: "inherit",
+            fontSize: FONT.xs.size + 1, fontWeight: 600,
+            borderRadius: RADIUS.md, cursor: "pointer",
+            transition: "border-color .12s, color .12s",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>
+            <Icon as={FileSpreadsheet} size={13}/>
+            CSV
+          </button>
+          <button onClick={() => exporterPDF()} title="Imprimer / Exporter PDF" style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: 32, height: 32,
+            border: `1px solid ${T.border}`, background: "transparent",
+            color: T.textSub, borderRadius: RADIUS.md, cursor: "pointer",
+            transition: "border-color .12s, color .12s",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>
+            <Icon as={Printer} size={14}/>
+          </button>
+        </div>
       </div>
 
-      {/* Tableau commandes */}
+      {/* Tableau commandes ou vues groupées */}
+      {viewMode === "liste" && (
       <div className="cmd-table-wrapper" style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -1431,8 +1814,22 @@ function PageCommandes({ chantiers, T }) {
                 </td>
                 <td style={{ padding: "8px 10px" }}></td>
                 <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
-                  <button onClick={() => saveRow(editDraft)} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginRight: 6 }}>✓</button>
-                  <button onClick={() => { setNewRow(null); setEditDraft(null); }} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer", color: T.textSub, fontFamily: "inherit" }}>✕</button>
+                  <button onClick={() => saveRow(editDraft)} title="Enregistrer" style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: acc.accent, color: acc.onAccent, border: "none",
+                    borderRadius: RADIUS.sm + 2, padding: "6px 10px",
+                    cursor: "pointer", fontFamily: "inherit", marginRight: 4,
+                  }}>
+                    <Icon as={Check} size={14}/>
+                  </button>
+                  <button onClick={() => { setNewRow(null); setEditDraft(null); }} title="Annuler" style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: "transparent", border: `1px solid ${T.border}`,
+                    borderRadius: RADIUS.sm + 2, padding: "6px 8px",
+                    cursor: "pointer", color: T.textSub, fontFamily: "inherit",
+                  }}>
+                    <Icon as={X} size={13}/>
+                  </button>
                 </td>
               </tr>
             )}
@@ -1495,8 +1892,22 @@ function PageCommandes({ chantiers, T }) {
                   </td>
                   <td style={{ padding: "8px 10px" }}></td>
                   <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
-                    <button onClick={() => saveRow(editDraft)} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginRight: 6 }}>✓</button>
-                    <button onClick={() => { setEditRow(null); setEditDraft(null); }} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer", color: T.textSub, fontFamily: "inherit" }}>✕</button>
+                    <button onClick={() => saveRow(editDraft)} title="Enregistrer" style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      background: acc.accent, color: acc.onAccent, border: "none",
+                      borderRadius: RADIUS.sm + 2, padding: "6px 10px",
+                      cursor: "pointer", fontFamily: "inherit", marginRight: 4,
+                    }}>
+                      <Icon as={Check} size={14}/>
+                    </button>
+                    <button onClick={() => { setEditRow(null); setEditDraft(null); }} title="Annuler" style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      background: "transparent", border: `1px solid ${T.border}`,
+                      borderRadius: RADIUS.sm + 2, padding: "6px 8px",
+                      cursor: "pointer", color: T.textSub, fontFamily: "inherit",
+                    }}>
+                      <Icon as={X} size={13}/>
+                    </button>
                   </td>
                 </tr>
               );
@@ -1529,12 +1940,15 @@ function PageCommandes({ chantiers, T }) {
                         background: "rgba(255,194,0,0.10)", border: "1px solid rgba(255,194,0,0.25)",
                         borderRadius: 5, padding: "2px 7px", fontSize: 11, color: "#FFC200", fontWeight: 700,
                       }}>
-                        📦 {matLie.reference || matLie.nom.substring(0, 20)}
+                        <Icon as={Package} size={11}/>
+                        {matLie.reference || matLie.nom.substring(0, 20)}
                         {matLie.lien_fournisseur && (
                           <a href={matLie.lien_fournisseur} target="_blank" rel="noreferrer"
                             onClick={e => e.stopPropagation()}
-                            style={{ color: "#5b9cf6", marginLeft: 4, textDecoration: "none", fontSize: 12 }}
-                            title="Voir sur le site fournisseur">🔗</a>
+                            style={{ display: "inline-flex", alignItems: "center", color: "#5b9cf6", marginLeft: 4, textDecoration: "none" }}
+                            title="Voir sur le site fournisseur">
+                            <Icon as={ExternalLink} size={11}/>
+                          </a>
                         )}
                       </div>
                     )}
@@ -1550,7 +1964,7 @@ function PageCommandes({ chantiers, T }) {
                       </div>
                     )}
                     {row.prix_ht > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: "#50c878", marginTop: 2 }}>{parseFloat(row.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € HT</div>}
-                    {row.tache_id && <div style={{ fontSize: 10, color: "#5b9cf6", marginTop: 1 }}>🔗 Lié au plan</div>}
+                    {row.tache_id && <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#5b9cf6", marginTop: 1, fontWeight: 600 }}><Icon as={Link2} size={9}/> Lié au plan</div>}
                   </td>
                   <td style={{ padding: "11px 10px" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1560,17 +1974,23 @@ function PageCommandes({ chantiers, T }) {
                         cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", transition: "all .15s",
                       }} title="Cliquer pour changer le statut">{st.label}</button>
                       <span style={{
-                        display: "inline-block", borderRadius: 5, padding: "2px 7px", fontSize: 11, fontWeight: 700,
-                        background: urgent ? "rgba(224,92,92,0.15)" : "rgba(245,166,35,0.10)",
-                        color: urgent ? "#e05c5c" : "#c0a060",
-                        border: `1px solid ${urgent ? "rgba(224,92,92,0.35)" : "rgba(245,166,35,0.2)"}`,
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        borderRadius: RADIUS.pill, padding: "2px 8px", fontSize: 11, fontWeight: 700,
+                        background: urgent ? "rgba(225,90,90,0.15)" : "rgba(245,166,35,0.10)",
+                        color: urgent ? "#e15a5a" : "#c0a060",
+                        border: `1px solid ${urgent ? "rgba(225,90,90,0.35)" : "rgba(245,166,35,0.2)"}`,
                         alignSelf: "flex-start",
-                      }}>{urgent ? "🔴 Urgent" : "🟡 Normal"}</span>
+                      }}>
+                        {urgent && <Icon as={AlertTriangle} size={10}/>}
+                        {urgent ? "Urgent" : "Normal"}
+                      </span>
                     </div>
                   </td>
                   <td style={{ padding: "11px 10px" }}>
                     {row.ouvrier_demandeur && (
-                      <div style={{ fontSize: 12, color: "#a0b8ff", fontWeight: 700, marginBottom: 2 }}>👤 {row.ouvrier_demandeur}</div>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#a0b8ff", fontWeight: 700, marginBottom: 2 }}>
+                        <Icon as={User} size={11}/> {row.ouvrier_demandeur}
+                      </div>
                     )}
                     <div style={{ fontSize: 13, color: T.textSub, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {row.notes || ""}
@@ -1581,8 +2001,26 @@ function PageCommandes({ chantiers, T }) {
                     <div style={{ fontSize: 11, color: T.textMuted }}>{heureCreation}</div>
                   </td>
                   <td style={{ padding: "11px 10px", whiteSpace: "nowrap" }}>
-                    <button onClick={() => { setEditRow(row.id); setEditDraft({ ...row }); }} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 15, opacity: .6, marginRight: 4, color: T.text }} title="Modifier">✏️</button>
-                    <button onClick={() => deleteRow(row.id)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 15, opacity: .5, color: "#e05c5c" }} title="Supprimer">🗑</button>
+                    <button onClick={() => { setEditRow(row.id); setEditDraft({ ...row }); }} title="Modifier" style={{
+                      background: "transparent", border: "none", cursor: "pointer",
+                      padding: 5, borderRadius: RADIUS.sm, marginRight: 2,
+                      color: T.textMuted, opacity: .65, transition: "opacity .15s, background .15s",
+                      display: "inline-flex", alignItems: "center",
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = ".65"; e.currentTarget.style.background = "transparent"; }}>
+                      <Icon as={Pencil} size={14}/>
+                    </button>
+                    <button onClick={() => deleteRow(row.id)} title="Supprimer" style={{
+                      background: "transparent", border: "none", cursor: "pointer",
+                      padding: 5, borderRadius: RADIUS.sm,
+                      color: "#e15a5a", opacity: .55, transition: "opacity .15s, background .15s",
+                      display: "inline-flex", alignItems: "center",
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(225,90,90,0.08)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = ".55"; e.currentTarget.style.background = "transparent"; }}>
+                      <Icon as={Trash2} size={14}/>
+                    </button>
                   </td>
                 </tr>
               );
@@ -1590,44 +2028,33 @@ function PageCommandes({ chantiers, T }) {
           </tbody>
         </table>
       </div>
-
-      {/* Résumé par fournisseur */}
-      {commandes.filter(r => r.statut !== "retire" && r.fournisseur).length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.textMuted, marginBottom: 12 }}>
-            Par fournisseur
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {[...new Set(commandes.filter(r => r.statut !== "retire" && r.fournisseur).map(r => r.fournisseur))].map(f => {
-              const items = commandes.filter(r => r.fournisseur === f && r.statut !== "retire");
-              return (
-                <div key={f} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", minWidth: 160 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8, color: T.text }}>{f}</div>
-                  {items.map(it => (
-                    <div key={it.id} style={{ fontSize: 12, color: T.textSub, marginBottom: 3, display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ width: 6, height: 6, borderRadius: 2, background: STATUTS[it.statut]?.color || "#888", display: "block", flexShrink: 0 }} />
-                      {it.article}{it.quantite ? ` × ${it.quantite}` : ""}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
       )}
 
-      {/* SQL migration */}
-      <div style={{
-        marginTop: 24, background: "rgba(91,156,246,0.06)",
-        border: "1px solid rgba(91,156,246,0.2)",
-        borderRadius: 10, padding: "12px 16px",
-        fontSize: 12, color: T.textMuted,
-      }}>
-        <strong style={{ color: "#5b9cf6" }}>⚙️ Migration SQL nécessaire</strong> — Ajoute la colonne <code style={{ background: "rgba(255,255,255,0.07)", borderRadius: 4, padding: "1px 5px" }}>materiau_id</code> si elle n'existe pas :<br />
-        <code style={{ display: "block", marginTop: 6, padding: "6px 10px", background: "rgba(0,0,0,0.3)", borderRadius: 6 }}>
-          ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS materiau_id uuid REFERENCES materiaux_bibliotheque(id) ON DELETE SET NULL;
-        </code>
-      </div>
+      {/* Vue groupée par fournisseur */}
+      {viewMode === "fournisseur" && (
+        <VueGroupee
+          commandes={commandes}
+          groupBy="fournisseur"
+          chantiers={chantiers}
+          materiaux={materiaux}
+          T={T}
+          acc={acc}
+          onEditRow={(row) => { setEditRow(row.id); setEditDraft({ ...row }); }}
+        />
+      )}
+
+      {/* Vue groupée par chantier */}
+      {viewMode === "chantier" && (
+        <VueGroupee
+          commandes={commandes}
+          groupBy="chantier"
+          chantiers={chantiers}
+          materiaux={materiaux}
+          T={T}
+          acc={acc}
+          onEditRow={(row) => { setEditRow(row.id); setEditDraft({ ...row }); }}
+        />
+      )}
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
