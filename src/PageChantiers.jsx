@@ -164,13 +164,17 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
   const textMuted = T?.textMuted || "#5b6a8a";
 
   // ── Chargement phasages ──
+  // select("*") plutôt que la liste explicite : évite les erreurs si une
+  // colonne (statut, plan_travaux, photo_batiment…) n'existe pas dans le
+  // schéma de cette instance.
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("phasages")
-        .select("id, chantier_id, chantier_nom, prix_vendu, plan_travaux, statut, photo_batiment, created_at, updated_at");
-      if (!error && data) {
+      const { data, error } = await supabase.from("phasages").select("*");
+      if (error) {
+        console.warn("Chargement phasages :", error.message);
+        setPhasages([]);
+      } else if (data) {
         setPhasages(data);
         const pm = {};
         data.forEach(p => { if (p.photo_batiment) pm[p.chantier_id] = p.photo_batiment; });
