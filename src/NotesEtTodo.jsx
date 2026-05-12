@@ -67,23 +67,30 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
   const [draft, setDraft]       = useState(todo.texte);
   const [draftPrio, setDraftPrio] = useState(todo.priorite || "normale");
   const [draftAssigne, setDraftAssigne] = useState(todo.assigne_email || "");
+  const [draftDate, setDraftDate] = useState(todo.date_limite || "");
   const inputRef = useRef();
 
   const startEdit = () => {
     setDraft(todo.texte);
     setDraftPrio(todo.priorite || "normale");
     setDraftAssigne(todo.assigne_email || "");
+    setDraftDate(todo.date_limite || "");
     setEditing(true);
   };
   const cancelEdit = () => setEditing(false);
   const saveEdit = () => {
     if (!draft.trim()) { setEditing(false); return; }
     const u = utilisateurs.find(x => x.email === draftAssigne);
+    const dateChanged = (draftDate || null) !== (todo.date_limite || null);
     onEdit(todo.id, {
       texte: draft.trim(),
       priorite: draftPrio,
       assigne_email: u ? u.email : null,
       assigne_nom:   u ? u.nom   : null,
+      date_limite:   draftDate || null,
+      // Reset le flag de relance si la date a été modifiée
+      // → permet de re-notifier si la nouvelle date est aussi dépassée
+      ...(dateChanged ? { relance_envoyee: false, relance_envoyee_date: null } : {}),
     });
     setEditing(false);
   };
@@ -120,7 +127,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
             }}>{p.label}</button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
           <select value={draftAssigne} onChange={e => setDraftAssigne(e.target.value)} style={{
             flex: 1, minWidth: 140, padding: "6px 10px", borderRadius: 8,
             border: `1px solid ${T.border}`, background: T.card,
@@ -132,16 +139,29 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
               <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
             ))}
           </select>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={cancelEdit} style={{
-              padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`,
-              background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 12, cursor: "pointer",
-            }}>Annuler</button>
-            <button onClick={saveEdit} style={{
-              padding: "5px 14px", borderRadius: 6, border: "none",
-              background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 12, fontWeight: 800, cursor: "pointer",
-            }}>✓ OK</button>
-          </div>
+          <input type="date" value={draftDate} onChange={e => setDraftDate(e.target.value)}
+            title="Date limite (optionnel)" style={{
+              padding: "6px 10px", borderRadius: 8,
+              border: `1px solid ${draftDate ? "#f5a623" : T.border}`, background: T.card,
+              color: draftDate ? "#f5a623" : T.textMuted,
+              fontFamily: "inherit", fontSize: 12, outline: "none", fontWeight: draftDate ? 700 : 500,
+            }}/>
+          {draftDate && (
+            <button onClick={() => setDraftDate("")} title="Retirer la date" style={{
+              padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`,
+              background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 11, cursor: "pointer",
+            }}>✕</button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+          <button onClick={cancelEdit} style={{
+            padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 12, cursor: "pointer",
+          }}>Annuler</button>
+          <button onClick={saveEdit} style={{
+            padding: "5px 14px", borderRadius: 6, border: "none",
+            background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 12, fontWeight: 800, cursor: "pointer",
+          }}>✓ OK</button>
         </div>
       </div>
     );
@@ -196,6 +216,25 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, T, utilisateurs }) {
               👤 {todo.assigne_nom}
             </div>
           )}
+          {todo.date_limite && (() => {
+            const todayIso = new Date().toISOString().slice(0, 10);
+            const enRetard = !todo.fait && todo.date_limite < todayIso;
+            const aujourdhui = todo.date_limite === todayIso;
+            const couleur = enRetard ? "#e05c5c" : aujourdhui ? "#f5a623" : "#5b8af5";
+            const bg = enRetard ? "rgba(224,92,92,0.15)" : aujourdhui ? "rgba(245,166,35,0.15)" : "rgba(91,138,245,0.10)";
+            const dateAffichee = new Date(todo.date_limite + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+            return (
+              <div title={enRetard ? "Tâche en retard" : aujourdhui ? "Date limite aujourd'hui" : "Date limite"}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 3,
+                  padding: "1px 8px", borderRadius: 10,
+                  background: bg, color: couleur,
+                  fontSize: 10, fontWeight: 700,
+                }}>
+                {enRetard ? "⏰" : "📅"} {dateAffichee}
+              </div>
+            );
+          })()}
           {todo.created_at && (
             <span style={{ fontSize: 10, color: T.textMuted }}>
               {new Date(todo.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
@@ -235,6 +274,7 @@ function PageNotesEtTodo({ T, profil }) {
   const [newTodo, setNewTodo]     = useState("");
   const [newPrio, setNewPrio]     = useState("normale");
   const [newAssigne, setNewAssigne] = useState(""); // email
+  const [newDate, setNewDate]       = useState(""); // date_limite ISO YYYY-MM-DD
   const [filtre, setFiltre]       = useState("actif"); // actif | fait | mes | tout
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
@@ -315,12 +355,14 @@ function PageNotesEtTodo({ T, profil }) {
       created_by_nom:   monNom,
       assigne_email: u ? u.email : null,
       assigne_nom:   u ? u.nom   : null,
+      date_limite:   newDate || null,
     };
     const updated = [todo, ...todos];
     setTodos(updated);
     saveTodos(updated);
     setNewTodo("");
     setNewAssigne("");
+    setNewDate("");
     inputRef.current?.focus();
 
     if (u) {
@@ -529,6 +571,19 @@ function PageNotesEtTodo({ T, profil }) {
                   <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
                 ))}
               </select>
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+                title="Date limite (optionnel)" style={{
+                  padding: "5px 10px", borderRadius: 8,
+                  border: `1px solid ${newDate ? "#f5a623" : T.border}`,
+                  background: T.card, color: newDate ? "#f5a623" : T.textMuted,
+                  fontFamily: "inherit", fontSize: 12, outline: "none", fontWeight: newDate ? 700 : 500,
+                }}/>
+              {newDate && (
+                <button onClick={() => setNewDate("")} title="Retirer la date" style={{
+                  padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.border}`,
+                  background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 11, cursor: "pointer",
+                }}>✕</button>
+              )}
             </div>
             {notifStatus && (
               <div style={{

@@ -49,9 +49,10 @@ function parisNow() {
   // weekday est "lundi", "mardi"… (minuscule en fr-FR) → on normalise en "Lundi"
   const weekday = parts.weekday.charAt(0).toUpperCase() + parts.weekday.slice(1).toLowerCase();
   const dateFr  = `${parts.day}/${parts.month}/${parts.year}`; // format identique à rapports.date_rapport
+  const dateIso = `${parts.year}-${parts.month}-${parts.day}`; // format ISO YYYY-MM-DD
   const hour    = parseInt(parts.hour, 10);
   const minute  = parseInt(parts.minute, 10);
-  return { weekday, dateFr, hour, minute, year: parseInt(parts.year, 10) };
+  return { weekday, dateFr, dateIso, hour, minute, year: parseInt(parts.year, 10) };
 }
 
 // Calcule l'identifiant de semaine ISO ("2026-W20") pour la date Paris courante.
@@ -99,6 +100,41 @@ function buildMailHtml(prenom, dateFr) {
       </div>
       <p style="margin:18px 0 0;font-size:12px;color:#888">
         Si vous l'avez déjà soumis, vous pouvez ignorer ce message.
+      </p>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
+  </div>`;
+}
+
+// Construit le mail "tâche en retard" envoyé à l'assigné + au créateur.
+function buildTodoRetardHtml(todo, joursRetard) {
+  const prioLabel = todo.priorite === "haute" ? "🔴 Haute"
+                  : todo.priorite === "basse" ? "🟢 Basse"
+                  : "🟡 Normale";
+  const dateLimiteFr = new Date(todo.date_limite + "T00:00:00").toLocaleDateString("fr-FR", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+  return `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
+    <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #e05c5c">
+      <div style="color:#e05c5c;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Tâche en retard</div>
+      <div style="color:#fff;font-size:20px;font-weight:800">⏰ Date limite dépassée</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px">
+      <p style="margin:0 0 14px;font-size:15px">Bonjour ${escapeHtml(todo.assigne_nom || "")},</p>
+      <p style="margin:0 0 14px;font-size:14px;color:#333">
+        La tâche ci-dessous était à terminer pour le <strong>${escapeHtml(dateLimiteFr)}</strong>
+        (soit ${joursRetard} jour${joursRetard > 1 ? "s" : ""} de retard) et n'est toujours pas marquée comme terminée :
+      </p>
+      <div style="background:#fdf2f2;border-left:4px solid #e05c5c;border-radius:6px;padding:14px 16px;margin:14px 0">
+        <div style="font-size:15px;color:#1a1f2e;line-height:1.5">${escapeHtml(todo.texte)}</div>
+        <div style="margin-top:10px;font-size:12px;color:#666">Priorité : ${prioLabel}</div>
+      </div>
+      <p style="margin:18px 0 0;font-size:13px;color:#666">
+        Connectez-vous à <a href="https://planning-chantiers.vercel.app" style="color:#FFC200;font-weight:700;text-decoration:none">Profero Planning</a>
+        → onglet <strong>Notes &amp; To-do</strong> pour mettre à jour cette tâche.
+      </p>
+      <p style="margin:14px 0 0;font-size:11px;color:#999">
+        ℹ Ce rappel n'est envoyé qu'une seule fois. Si vous modifiez la date limite, un nouveau rappel pourra être déclenché si la nouvelle date est aussi dépassée.
       </p>
     </div>
     <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
@@ -179,6 +215,64 @@ async function envoyerMail(req, to, subject, html) {
   return { ok: resp.ok, status: resp.status, data };
 }
 
+// Vérifie les tâches To-Do dont date_limite est dépassée et qui ne sont pas
+// terminées. Envoie 1 mail à l'assigné + au créateur (idempotent : 1× par
+// tâche, jusqu'à modification de date_limite côté UI).
+async function checkTodosEnRetard(supabase, req, todayIso) {
+  const result = { en_retard: 0, envoyes: [], echecs: [], skipped: [] };
+  try {
+    const { data: row } = await supabase.from("planning_config")
+      .select("value").eq("key", "bloc_todos").maybeSingle();
+    const todos = Array.isArray(row?.value) ? row.value : [];
+    if (todos.length === 0) return result;
+
+    const enRetard = todos.filter(t =>
+      !t.fait &&
+      t.date_limite &&
+      t.date_limite < todayIso &&
+      !t.relance_envoyee &&
+      (t.assigne_email || t.created_by_email)
+    );
+    result.en_retard = enRetard.length;
+    if (enRetard.length === 0) return result;
+
+    const updated = [...todos];
+    for (const todo of enRetard) {
+      const dests = Array.from(new Set([todo.assigne_email, todo.created_by_email].filter(Boolean)));
+      if (dests.length === 0) { result.skipped.push({ id: todo.id, raison: "no_email" }); continue; }
+      const ms = (iso) => {
+        const [y, m, d] = iso.split("-").map(Number);
+        return Date.UTC(y, m - 1, d);
+      };
+      const joursRetard = Math.max(1, Math.round((ms(todayIso) - ms(todo.date_limite)) / 86400000));
+      const subject = `⏰ Tâche en retard : ${todo.texte.slice(0, 60)}${todo.texte.length > 60 ? "…" : ""}`;
+      const html = buildTodoRetardHtml(todo, joursRetard);
+      try {
+        const r = await envoyerMail(req, dests, subject, html);
+        if (r.ok) {
+          result.envoyes.push({ id: todo.id, to: dests, jours_retard: joursRetard });
+          const idx = updated.findIndex(x => x.id === todo.id);
+          if (idx !== -1) updated[idx] = { ...updated[idx], relance_envoyee: true, relance_envoyee_date: todayIso };
+        } else {
+          result.echecs.push({ id: todo.id, status: r.status, data: r.data });
+        }
+      } catch (e) {
+        result.echecs.push({ id: todo.id, error: e.message });
+      }
+    }
+
+    // Persiste l'état de relance dans le blob bloc_todos
+    if (result.envoyes.length > 0) {
+      await supabase.from("planning_config")
+        .upsert({ key: "bloc_todos", value: updated }, { onConflict: "key" });
+    }
+  } catch (e) {
+    console.error("checkTodosEnRetard error:", e);
+    result.error = e.message;
+  }
+  return result;
+}
+
 module.exports = async function handler(req, res) {
   // ── Auth : Vercel envoie Authorization: Bearer ${CRON_SECRET} ──
   const expected = process.env.CRON_SECRET;
@@ -240,50 +334,53 @@ module.exports = async function handler(req, res) {
       (cell.ouvriers || []).forEach(nom => { if (nom) assignes.add(nom); });
     });
 
-    if (assignes.size === 0) {
-      return res.status(200).json({ ok: true, skipped: "no_assignees", weekId, jour, dateFr });
-    }
-
-    // 3. Rapports déjà rendus aujourd'hui (filtrés par prénoms assignés)
-    const { data: rapports } = await supabase
-      .from("rapports").select("ouvrier")
-      .eq("date_rapport", dateFr)
-      .in("ouvrier", Array.from(assignes));
-    const rendus = new Set((rapports || []).map(r => r.ouvrier));
-
-    // 4. Diff → à relancer (avec email + pas déjà notifié)
-    const aRelancer = Array.from(assignes).filter(p =>
-      !rendus.has(p) && !alreadySentToday.has(p) && emails[p]
-    );
-
     const resultats = { envoyes: [], echecs: [], ignores: [] };
-    for (const prenom of aRelancer) {
-      const to = emails[prenom];
-      const subject = `📝 Rappel : votre compte rendu du ${dateFr}`;
-      const html = buildMailHtml(prenom, dateFr);
-      try {
-        const r = await envoyerMail(req, to, subject, html);
-        if (r.ok) resultats.envoyes.push(prenom);
-        else      resultats.echecs.push({ prenom, status: r.status, data: r.data });
-      } catch (e) {
-        resultats.echecs.push({ prenom, error: e.message });
+    let rendus = new Set();
+
+    if (assignes.size > 0) {
+      // 3. Rapports déjà rendus aujourd'hui (filtrés par prénoms assignés)
+      const { data: rapports } = await supabase
+        .from("rapports").select("ouvrier")
+        .eq("date_rapport", dateFr)
+        .in("ouvrier", Array.from(assignes));
+      rendus = new Set((rapports || []).map(r => r.ouvrier));
+
+      // 4. Diff → à relancer (avec email + pas déjà notifié)
+      const aRelancer = Array.from(assignes).filter(p =>
+        !rendus.has(p) && !alreadySentToday.has(p) && emails[p]
+      );
+
+      for (const prenom of aRelancer) {
+        const to = emails[prenom];
+        const subject = `📝 Rappel : votre compte rendu du ${dateFr}`;
+        const html = buildMailHtml(prenom, dateFr);
+        try {
+          const r = await envoyerMail(req, to, subject, html);
+          if (r.ok) resultats.envoyes.push(prenom);
+          else      resultats.echecs.push({ prenom, status: r.status, data: r.data });
+        } catch (e) {
+          resultats.echecs.push({ prenom, error: e.message });
+        }
+      }
+
+      // 5. Ouvriers assignés sans rapport et sans email → ignorés silencieusement
+      Array.from(assignes).forEach(p => {
+        if (!rendus.has(p) && !emails[p]) resultats.ignores.push({ prenom: p, raison: "no_email" });
+      });
+
+      // 6. Mise à jour de l'état d'idempotence
+      if (resultats.envoyes.length > 0) {
+        const newState = {
+          date: dateFr,
+          prenoms: Array.from(new Set([...Array.from(alreadySentToday), ...resultats.envoyes])),
+        };
+        await supabase.from("planning_config")
+          .upsert({ key: "rappels_rapport_state", value: newState }, { onConflict: "key" });
       }
     }
 
-    // 5. Ouvriers assignés sans rapport et sans email → ignorés silencieusement
-    Array.from(assignes).forEach(p => {
-      if (!rendus.has(p) && !emails[p]) resultats.ignores.push({ prenom: p, raison: "no_email" });
-    });
-
-    // 6. Mise à jour de l'état d'idempotence
-    if (resultats.envoyes.length > 0) {
-      const newState = {
-        date: dateFr,
-        prenoms: Array.from(new Set([...Array.from(alreadySentToday), ...resultats.envoyes])),
-      };
-      await supabase.from("planning_config")
-        .upsert({ key: "rappels_rapport_state", value: newState }, { onConflict: "key" });
-    }
+    // ── Vérification des tâches To-Do en retard (indépendant des rapports) ──
+    const todoResultats = await checkTodosEnRetard(supabase, req, t.dateIso);
 
     return res.status(200).json({
       ok: true,
@@ -291,9 +388,12 @@ module.exports = async function handler(req, res) {
       heureParis: `${String(t.hour).padStart(2,"0")}:${String(t.minute).padStart(2,"0")}`,
       heureAttendue: `${expectedHour}:50`,
       dstAlert,
-      assignes: assignes.size,
-      rendus: rendus.size,
-      ...resultats,
+      rapports: {
+        assignes: assignes.size,
+        rendus: rendus.size,
+        ...resultats,
+      },
+      todos: todoResultats,
     });
   } catch (e) {
     console.error("cron-rappel-rapport error:", e);
