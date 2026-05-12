@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
-import { JOURS, getCurrentWeek, getWeekId } from "./constants";
+import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent } from "./constants";
+import { Icon } from "./ui";
+import {
+  ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
+  Building2, Hammer, Clock, Euro, TrendingUp, AlertTriangle, Search, FileSpreadsheet,
+} from "lucide-react";
 import GanttView from "./GanttView";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1201,8 +1206,14 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const cadSel = parseFloat(biblSel?.cadence) || null;
   const hEstAjout = cadSel && quantiteInput ? parseFloat((cadSel * parseFloat(quantiteInput)).toFixed(2)) : null;
 
+  const acc = getBranchAccent("renovation");
+  const accentColor = ch ? ch.couleur : acc.accent;
+  const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+  const autoSaveColor = autoSaveStatus === "saved" ? "#22c55e" : autoSaveStatus === "saving" ? acc.accent : "#f5a623";
+  const autoSaveLabel = autoSaveStatus === "saved" ? "Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "Modification en cours";
+
   return (
-    <div className="page-padding phase-detail" style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+    <div className="page-padding phase-detail" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
       <style>{`
         @media(max-width:767px){
           .phase-detail .phase-detail-header{flex-wrap:wrap;gap:10px!important;margin-bottom:14px!important}
@@ -1216,19 +1227,76 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
 
       {showImport && <ModaleImportExcel T={T} bibliotheque={bibliotheque} onImporter={handleImportExcel} onFermer={() => setShowImport(false)} />}
 
-      <div style={{ maxWidth: 960, margin: "0 auto" }}>
-        <div className="phase-detail-header" style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
-          <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Retour aux phasages</button>
-          <div style={{ width: 12, height: 36, borderRadius: 6, background: ch ? ch.couleur : T.accent }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>Étape 1 : Préparation du devis — {phasage.chantier_nom}</div>
-            <div style={{ fontSize: 12, color: T.textMuted }}>
-              {ouvrages.length} ouvrage(s) · {totalH.toFixed(1)}h total vendues
-              {ouvrages.some(o => o.prix_ht > 0) && ` · ${ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0).toFixed(0)} € HT`}
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        {/* ── Bouton retour ── */}
+        <button onClick={onBack} style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "7px 12px", borderRadius: RADIUS.md,
+          border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer", marginBottom: 14,
+        }}>
+          <Icon as={ChevronLeftIcon} size={13}/>
+          Retour aux phasages
+        </button>
+
+        <div className="phase-detail-header" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18, flexWrap: "wrap" }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
+            background: accentColor + "22", border: `1.5px solid ${accentColor}55`,
+            color: accentColor,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={Building2} size={20} strokeWidth={2}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: acc.accent, letterSpacing: 1.2, textTransform: "uppercase" }}>
+                Étape 1 — Préparation du devis
+              </div>
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: FONT.xs.size, fontWeight: 700, color: autoSaveColor,
+                background: autoSaveColor + "1A", border: `1px solid ${autoSaveColor}44`,
+                borderRadius: RADIUS.pill, padding: "1px 8px",
+              }}>
+                {autoSaveStatus === "saving" && (
+                  <svg width="10" height="10" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}>
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
+                  </svg>
+                )}
+                {autoSaveLabel}
+              </span>
+            </div>
+            <div style={{ fontSize: FONT.lg.size + 2, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginTop: 2 }}>
+              {phasage.chantier_nom}
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 3, display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={Hammer} size={11}/>
+                {ouvrages.length} ouvrage{ouvrages.length > 1 ? "s" : ""}
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={Clock} size={11}/>
+                {totalH.toFixed(1)}h vendues
+              </span>
+              {totalPrix > 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+                  <Icon as={Euro} size={11}/>
+                  {Math.round(totalPrix).toLocaleString("fr-FR")} € HT
+                </span>
+              )}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button onClick={onDelete} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Supprimer</button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={onDelete} style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "8px 14px", borderRadius: RADIUS.md,
+              border: `1px solid rgba(224,92,92,0.3)`, background: "transparent", color: "#e15a5a",
+              fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer",
+            }}>
+              <Icon as={Trash2} size={12}/>
+              Supprimer
+            </button>
             <button
               onClick={async () => {
                 if (!phasage.plan_travaux || Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length === 0) {
@@ -1238,17 +1306,40 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
                 }
                 setView("plan");
               }}
-              style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-            >Générer le plan de travail →</button>
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "9px 16px", borderRadius: RADIUS.md,
+                border: "none", background: acc.accent, color: acc.onAccent,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              }}>
+              Générer le plan de travail
+              <Icon as={ChevronRight} size={13}/>
+            </button>
           </div>
         </div>
 
         {!showAjout && (
-          <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-            <button onClick={() => setShowImport(true)} style={{ flex: 2, padding: "16px 22px", borderRadius: 10, border: `2px dashed ${T.accent}`, background: `${T.accent}0A`, color: T.accent, fontFamily: "inherit", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>
-              📂 Importer un devis Excel (.xlsx)
+          <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+            <button onClick={() => setShowImport(true)} style={{
+              flex: "2 1 280px",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
+              padding: "16px 22px", borderRadius: RADIUS.xl,
+              border: `2px dashed ${acc.accent}`, background: acc.accent + "0A", color: acc.accent,
+              fontFamily: "inherit", fontSize: FONT.md.size, fontWeight: 800, cursor: "pointer",
+            }}>
+              <Icon as={FileSpreadsheet} size={18}/>
+              Importer un devis Excel (.xlsx)
             </button>
-            <button onClick={() => setShowAjout(true)} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `1.5px dashed ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Saisie manuelle</button>
+            <button onClick={() => setShowAjout(true)} style={{
+              flex: "1 1 180px",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+              padding: "12px", borderRadius: RADIUS.xl,
+              border: `1.5px dashed ${T.border}`, background: "transparent", color: T.textMuted,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 600, cursor: "pointer",
+            }}>
+              <Icon as={Plus} size={13}/>
+              Saisie manuelle
+            </button>
           </div>
         )}
 
@@ -1262,7 +1353,10 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
             </select>
             {cadSel && (
               <div style={{ marginBottom: 12, padding: "10px 14px", background: `${BLEU}0D`, border: `1px solid ${BLEU}33`, borderRadius: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: BLEU, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>⏱ Cadence : {cadSel}h / {biblSel?.unite}</div>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: BLEU, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+                  <Icon as={Clock} size={11}/>
+                  Cadence : {cadSel}h / {biblSel?.unite}
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontSize: 13, color: T.textMuted }}>Quantité :</span>
                   <input type="number" min="0" step="1" value={quantiteInput} onChange={e => { setQuantiteInput(e.target.value); const q = parseFloat(e.target.value); if (q && cadSel) setHeuresInput((cadSel * q).toFixed(1)); }} style={{ width: 100, padding: "8px 12px", borderRadius: 8, border: `1px solid ${BLEU}55`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, fontWeight: 700, outline: "none" }} />
@@ -1334,7 +1428,14 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
                     <div style={{ textAlign: "right" }}>
                       {ouvrage.prix_ht ? <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ouvrage.prix_ht.toFixed(0)} €</span> : <span style={{ fontSize: 12, color: T.textMuted }}>—</span>}
                     </div>
-                    <button onClick={() => supprimerOuvrage(ouvrage.id)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer", textAlign: "center" }}>🗑</button>
+                    <button onClick={() => supprimerOuvrage(ouvrage.id)} title="Supprimer cet ouvrage" style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      padding: "5px 8px", borderRadius: RADIUS.sm,
+                      border: `1px solid rgba(224,92,92,0.3)`, background: "transparent", color: "#e15a5a",
+                      fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer",
+                    }}>
+                      <Icon as={Trash2} size={12}/>
+                    </button>
                   </div>
                   {(ouvrage.taches || []).length > 0 && (
                     <div style={{ padding: "6px 18px 10px", borderTop: `1px solid ${T.sectionDivider}` }}>
@@ -1633,7 +1734,8 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
 }
 
 // ─── PAGE PHASAGE (ENTRÉE PRINCIPALE) ─────────────────────────────────────────
-function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
+function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovation" }) {
+  const acc = getBranchAccent(branch);
   const [phasages, setPhasages] = useState([]);
   const [bibliotheque, setBibliotheque] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1642,6 +1744,9 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   const [newChantier, setNewChantier] = useState("");
   const [showRapport, setShowRapport] = useState(false);
   const [ganttPhasage, setGanttPhasage] = useState(null);
+  const [search, setSearch] = useState("");
+  const [toDelete, setToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { loadAll(); }, []);
   async function loadAll() {
@@ -1669,20 +1774,59 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
   }
 
   async function supprimerPhasage(id) {
-    if (!confirm("Supprimer ce phasage ?")) return;
+    setDeleting(true);
     await supabase.from("phasages").delete().eq("id", id);
     setPhasages(prev => prev.filter(p => p.id !== id));
     if (selected?.id === id) setSelected(null);
+    setDeleting(false);
+    setToDelete(null);
   }
 
   if (selected) return <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} onBack={() => setSelected(null)} onSave={savePhasage} onDelete={() => supprimerPhasage(selected.id)} />;
 
+  // ── Stats globales : on calcule en parcourant les phasages
+  const calcsByPhasage = phasages.map(p => {
+    const tPlan = p.plan_travaux ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat() : [];
+    const totalHVendu   = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+    const totalHEstimee = tPlan.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+    const totalHReel    = tPlan.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+    const avgAv = tPlan.length === 0 ? 0
+      : totalHVendu > 0
+        ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
+        : totalHEstimee > 0
+          ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimee)
+          : Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length);
+    const coutMO = tPlan.reduce((s, t) => {
+      const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
+      return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45));
+    }, 0);
+    const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+    const coutTotal = coutMO + coutMat;
+    const prixVendu = p.plan_travaux?.meta?.prix_vendu || 0;
+    const marge = prixVendu > 0 ? prixVendu - coutTotal : 0;
+    return { p, tPlan, avgAv, coutMO, coutMat, coutTotal, prixVendu, marge, totalHVendu, totalHEstimee, totalHReel };
+  });
+
+  const stats = {
+    total:     phasages.length,
+    actifs:    calcsByPhasage.filter(x => x.avgAv > 0 && x.avgAv < 100).length,
+    termines:  calcsByPhasage.filter(x => x.avgAv === 100 && x.tPlan.length > 0).length,
+    coutTotal: calcsByPhasage.reduce((s, x) => s + x.coutTotal, 0),
+    margeTotale: calcsByPhasage.reduce((s, x) => s + x.marge, 0),
+  };
+
+  // ── Filtrage par recherche ──────────────────────────────────────────────────
+  const calcsFiltres = calcsByPhasage.filter(({ p }) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return p.chantier_nom?.toLowerCase().includes(q);
+  });
+
   return (
-    <div className="page-padding phase-list" style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg }}>
+    <div className="page-padding phase-list" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
       <style>{`
         @media(max-width:767px){
-          .phase-list .phase-list-header{flex-direction:column;align-items:stretch!important;gap:10px!important;margin-bottom:18px!important}
-          .phase-list .phase-list-header > div:first-child > div:first-child{font-size:18px!important}
+          .phase-list .phase-list-header{flex-direction:column;align-items:stretch!important;gap:10px!important;margin-bottom:14px!important}
           .phase-list .phase-list-actions{flex-wrap:wrap}
           .phase-list .phase-list-actions button{flex:1}
           .phase-list .phase-row{flex-wrap:wrap;padding:12px 14px!important;gap:10px!important}
@@ -1700,80 +1844,334 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T }) {
         />
       )}
 
-      <div style={{ maxWidth: 860, margin: "0 auto" }}>
-        <div className="phase-list-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, color: T.text }}>📋 Phasages chantiers</div>
-            <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>Avancement, coûts MO et ressources par tâche</div>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        {/* ── Header ── */}
+        <div className="phase-list-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: RADIUS.md,
+              background: acc.bg10, color: acc.accent,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <Icon as={ClipboardList} size={20} strokeWidth={2}/>
+            </div>
+            <div>
+              <div style={{ fontSize: FONT.xl.size + 4, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginBottom: 2 }}>Phasages chantiers</div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Avancement, coûts main-d'œuvre et ressources par tâche</div>
+            </div>
           </div>
-          <div className="phase-list-actions" style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button
-              onClick={() => setShowRapport(true)}
-              style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid rgba(245,166,35,0.4)", background: "rgba(245,166,35,0.1)", color: "#f5a623", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-            >
-              📊 Rapport
+          <div className="phase-list-actions" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => setShowRapport(true)} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "9px 16px", borderRadius: RADIUS.md,
+              border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+            }}>
+              <Icon as={BarChart3} size={13}/>
+              Rapport
             </button>
-            <button onClick={() => setShowNew(true)} style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Nouveau phasage</button>
+            <button onClick={() => setShowNew(true)} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "9px 16px", borderRadius: RADIUS.md,
+              border: "none", background: acc.accent, color: acc.onAccent,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+            }}>
+              <Icon as={Plus} size={14}/>
+              Nouveau phasage
+            </button>
           </div>
         </div>
 
-        {showNew && (
-          <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Nouveau phasage</div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <select value={newChantier} onChange={e => setNewChantier(e.target.value)} style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: newChantier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: 14, outline: "none" }}>
-                <option value="">Choisir un chantier…</option>
-                {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-              </select>
-              <button onClick={creerPhasage} disabled={!newChantier} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: newChantier ? T.accent : T.border, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: newChantier ? "pointer" : "default" }}>Créer et Importer le devis</button>
-              <button onClick={() => { setShowNew(false); setNewChantier(""); }} style={{ padding: "9px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
+        {/* ── Stats ── */}
+        {!loading && phasages.length > 0 && (
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+            gap: 10, marginBottom: 14,
+          }}>
+            {[
+              { label: "Total",     value: stats.total,    icon: ClipboardList, color: acc.accent },
+              { label: "En cours",  value: stats.actifs,   icon: Hammer,        color: "#5b9cf6" },
+              { label: "Terminés",  value: stats.termines, icon: TrendingUp,    color: "#22c55e" },
+              { label: "Coût cumulé", value: stats.coutTotal > 0 ? `${Math.round(stats.coutTotal).toLocaleString("fr-FR")}€` : "—", icon: Euro, color: "#f5a623" },
+              { label: "Marge",     value: stats.margeTotale !== 0 ? `${Math.round(stats.margeTotale).toLocaleString("fr-FR")}€` : "—",
+                icon: TrendingUp, color: stats.margeTotale > 0 ? "#22c55e" : stats.margeTotale < 0 ? "#e15a5a" : T.textMuted },
+            ].map((s, i) => (
+              <div key={i} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderRadius: RADIUS.lg, padding: "12px 14px",
+                display: "flex", alignItems: "center", gap: 10,
+              }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+                  background: s.color + "18", color: s.color,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon as={s.icon} size={16} strokeWidth={2}/>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text, letterSpacing: -.5, lineHeight: 1 }}>{s.value}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, fontWeight: 600, letterSpacing: .3 }}>{s.label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Recherche ── */}
+        {!loading && phasages.length > 0 && (
+          <div style={{
+            display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14,
+            background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: "10px 12px",
+          }}>
+            <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 380 }}>
+              <Icon as={Search} size={13} color={T.textMuted}
+                style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}/>
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Rechercher un phasage…"
+                style={{ width: "100%", background: T.fieldBg || T.card, border: `1px solid ${T.fieldBorder || T.border}`,
+                  borderRadius: RADIUS.md, padding: "8px 10px 8px 30px", color: T.text,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none" }}/>
+            </div>
+            <div style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600 }}>
+              {calcsFiltres.length} / {phasages.length}
             </div>
           </div>
         )}
 
+        {/* ── Modale nouveau phasage ── */}
+        {showNew && (
+          <div onClick={() => { setShowNew(false); setNewChantier(""); }} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 500,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
+          }}>
+            <div onClick={e => e.stopPropagation()} style={{
+              background: T.modal, borderRadius: RADIUS.xl, padding: 24,
+              width: "100%", maxWidth: 480, border: `1px solid ${T.border}`,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+                <div style={{ width: 32, height: 32, borderRadius: RADIUS.md, background: acc.bg10, color: acc.accent,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon as={Plus} size={16}/>
+                </div>
+                <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Nouveau phasage</div>
+              </div>
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase",
+                  color: T.textMuted, marginBottom: 6 }}>Chantier</div>
+                <select value={newChantier} onChange={e => setNewChantier(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: RADIUS.md,
+                    border: `1px solid ${T.fieldBorder || T.border}`, background: T.fieldBg || T.card,
+                    color: newChantier ? T.text : T.textMuted, fontFamily: "inherit", fontSize: FONT.sm.size,
+                    outline: "none", cursor: "pointer" }}>
+                  <option value="">— Choisir un chantier —</option>
+                  {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => { setShowNew(false); setNewChantier(""); }} style={{
+                  padding: "9px 18px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                  background: "transparent", color: T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer" }}>Annuler</button>
+                <button onClick={creerPhasage} disabled={!newChantier} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+                  background: newChantier ? acc.accent : T.border, color: acc.onAccent,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                  cursor: newChantier ? "pointer" : "default", opacity: newChantier ? 1 : .5 }}>
+                  <Icon as={Plus} size={13}/>
+                  Créer et importer le devis
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modale confirmation suppression ── */}
+        {toDelete && (
+          <div onClick={() => !deleting && setToDelete(null)} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 500,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
+          }}>
+            <div onClick={e => e.stopPropagation()} style={{
+              background: T.modal, borderRadius: RADIUS.xl, padding: 24,
+              width: "100%", maxWidth: 420, border: `1px solid ${T.border}`,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
+                  background: "rgba(224,92,92,0.12)", color: "#e15a5a",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon as={AlertTriangle} size={20} strokeWidth={2}/>
+                </div>
+                <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Supprimer ce phasage&nbsp;?</div>
+              </div>
+              <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
+                Le phasage de <strong style={{ color: T.text }}>« {toDelete.chantier_nom} »</strong> sera supprimé avec toutes ses tâches, ses heures réelles et son plan de travaux.
+                <br/><span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>Cette action est irréversible.</span>
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setToDelete(null)} disabled={deleting}
+                  style={{ background: "transparent", border: `1px solid ${T.border}`,
+                    borderRadius: RADIUS.md, padding: "9px 18px", color: T.textSub,
+                    fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer", opacity: deleting ? .5 : 1 }}>
+                  Annuler
+                </button>
+                <button onClick={() => supprimerPhasage(toDelete.id)} disabled={deleting}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                    background: "#e15a5a", color: "#fff", border: "none",
+                    borderRadius: RADIUS.md, padding: "9px 18px",
+                    fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                    cursor: "pointer", opacity: deleting ? .6 : 1 }}>
+                  <Icon as={Trash2} size={13}/>
+                  {deleting ? "Suppression…" : "Supprimer"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Liste / état vide ── */}
         {loading
-          ? <div style={{ color: T.textMuted, textAlign: "center", padding: 60 }}>Chargement…</div>
+          ? <div style={{ color: T.textMuted, textAlign: "center", padding: 60, fontSize: FONT.sm.size }}>Chargement…</div>
           : phasages.length === 0
-            ? <div style={{ textAlign: "center", padding: 60, color: T.textMuted }}><div style={{ fontSize: 32, marginBottom: 12 }}>📋</div><div>Aucun phasage. Créez-en un pour commencer.</div></div>
+            ? (
+              <div style={{ background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl,
+                padding: "48px 32px", textAlign: "center", maxWidth: 540, margin: "0 auto" }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: RADIUS.lg,
+                  background: acc.bg10, color: acc.accent,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14,
+                }}>
+                  <Icon as={ClipboardList} size={28} strokeWidth={1.5}/>
+                </div>
+                <div style={{ fontSize: FONT.lg.size, fontWeight: 700, color: T.text, marginBottom: 8 }}>Aucun phasage</div>
+                <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.7, marginBottom: 22 }}>
+                  Crée un phasage pour suivre l'avancement, les coûts main-d'œuvre et les ressources tâche par tâche.
+                </div>
+                <button onClick={() => setShowNew(true)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: acc.accent, color: acc.onAccent, border: "none",
+                  borderRadius: RADIUS.md, padding: "11px 22px",
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer" }}>
+                  <Icon as={Plus} size={14}/>
+                  Créer mon premier phasage
+                </button>
+              </div>
+            )
+            : calcsFiltres.length === 0
+              ? (
+                <div style={{ background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl,
+                  padding: "32px 24px", textAlign: "center", color: T.textSub, fontSize: FONT.sm.size }}>
+                  Aucun phasage ne correspond à cette recherche.
+                </div>
+              )
             : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {phasages.map(p => {
+                {calcsFiltres.map(({ p, tPlan, avgAv, coutTotal, prixVendu, marge, totalHReel }) => {
                   const ch = chantiers.find(c => c.id === p.chantier_id);
-                  const tPlan = p.plan_travaux ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat() : [];
-                  const totalHVendu = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-                  const totalHEstimee = tPlan.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-
-                  // ── Avancement carte : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
-                  const avgAv = tPlan.length === 0 ? 0
-                    : totalHVendu > 0
-                      ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
-                      : totalHEstimee > 0
-                        ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimee)
-                        : Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length);
-
-                  const coutMO = tPlan.reduce((s, t) => { const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45)); }, 0);
-                  const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
-                  const coutTotal = coutMO + coutMat;
-                  const prixVendu = p.plan_travaux?.meta?.prix_vendu || 0;
+                  const accentColor = ch ? ch.couleur : acc.accent;
+                  const isTermine = avgAv === 100 && tPlan.length > 0;
                   return (
-                    <div key={p.id} className="phase-row" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer", transition: "border .15s" }} onClick={() => setSelected(p)} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
-                      <div style={{ width: 10, height: 56, borderRadius: 5, background: ch ? ch.couleur : T.accent, flexShrink: 0 }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{p.chantier_nom}</div>
-                        <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>
-                          {tPlan.length} tâche{tPlan.length > 1 ? "s" : ""} · Coûts cumulés : <span style={{ fontWeight: 700, color: T.text }}>{coutTotal > 0 ? `${coutTotal.toFixed(0)}€` : "0€"}</span>
-                          {prixVendu > 0 && ` / Vendu : ${prixVendu}€`}
-                        </div>
-                        {tPlan.length > 0 && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", borderRadius: 2, background: avgAv === 100 ? "#50c878" : T.accent, width: `${avgAv}%`, transition: "width .3s" }} /></div><span style={{ fontSize: 11, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 32 }}>{avgAv}%</span></div>}
+                    <div key={p.id} className="phase-row" style={{
+                      background: T.surface, border: `1px solid ${T.border}`,
+                      borderLeft: `4px solid ${accentColor}`,
+                      borderRadius: RADIUS.xl, padding: "14px 18px",
+                      display: "flex", alignItems: "center", gap: 14, cursor: "pointer", transition: "all .15s"
+                    }} onClick={() => setSelected(p)}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.borderLeftColor = accentColor; e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.12)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.borderLeftColor = accentColor; e.currentTarget.style.boxShadow = "none"; }}>
+
+                      <div style={{
+                        width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
+                        background: accentColor + "22", border: `1.5px solid ${accentColor}44`,
+                        color: accentColor,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <Icon as={Building2} size={16} strokeWidth={2}/>
                       </div>
-                      <div style={{ display: "flex", gap: 8 }}>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text, letterSpacing: -0.2 }}>{p.chantier_nom}</div>
+                          {isTermine && (
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 3,
+                              fontSize: FONT.xs.size, fontWeight: 700, color: "#22c55e",
+                              background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)",
+                              borderRadius: RADIUS.pill, padding: "2px 8px",
+                            }}>Terminé</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 10 }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <Icon as={Hammer} size={11}/>
+                            {tPlan.length} tâche{tPlan.length > 1 ? "s" : ""}
+                          </span>
+                          {totalHReel > 0 && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              <Icon as={Clock} size={11}/>
+                              {totalHReel.toFixed(1)}h
+                            </span>
+                          )}
+                          {coutTotal > 0 && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: T.textSub, fontWeight: 600 }}>
+                              <Icon as={Euro} size={11}/>
+                              {Math.round(coutTotal).toLocaleString("fr-FR")}€
+                              {prixVendu > 0 && <> / {Math.round(prixVendu).toLocaleString("fr-FR")}€</>}
+                            </span>
+                          )}
+                          {prixVendu > 0 && marge !== 0 && (
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              fontWeight: 700,
+                              color: marge > 0 ? "#22c55e" : "#e15a5a",
+                            }}>
+                              {marge > 0 ? "+" : ""}{Math.round(marge).toLocaleString("fr-FR")}€
+                            </span>
+                          )}
+                        </div>
+                        {tPlan.length > 0 && (
+                          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ flex: 1, height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                              <div style={{ height: "100%", borderRadius: 3,
+                                background: avgAv === 100 ? "#22c55e" : acc.accent,
+                                width: `${avgAv}%`, transition: "width .3s" }}/>
+                            </div>
+                            <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 800,
+                              color: avgAv === 100 ? "#22c55e" : acc.accent, minWidth: 36, textAlign: "right" }}>
+                              {avgAv}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <button onClick={e => { e.stopPropagation(); setGanttPhasage(p); }}
                           title="Vue Gantt"
-                          style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(91,138,245,0.35)", background: "rgba(91,138,245,0.08)", color: "#5b8af5", fontFamily: "inherit", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                          📊
+                          style={{
+                            display: "inline-flex", alignItems: "center",
+                            padding: "7px 10px", borderRadius: RADIUS.md,
+                            border: `1px solid rgba(91,156,246,0.35)`,
+                            background: "rgba(91,156,246,0.08)", color: "#5b9cf6",
+                            fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer",
+                          }}>
+                          <Icon as={GanttChartSquare} size={13}/>
                         </button>
-                        <button onClick={e => { e.stopPropagation(); supprimerPhasage(p.id); }} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>🗑</button>
-                        <span style={{ fontSize: 18, color: T.textMuted, alignSelf: "center" }}>▶</span>
+                        <button onClick={e => { e.stopPropagation(); setToDelete(p); }}
+                          title="Supprimer"
+                          style={{
+                            display: "inline-flex", alignItems: "center",
+                            padding: "7px 10px", borderRadius: RADIUS.md,
+                            border: `1px solid rgba(224,92,92,0.3)`,
+                            background: "transparent", color: "#e15a5a",
+                            fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer",
+                          }}>
+                          <Icon as={Trash2} size={13}/>
+                        </button>
+                        <Icon as={ChevronRight} size={16} color={T.textMuted}/>
                       </div>
                     </div>
                   );
