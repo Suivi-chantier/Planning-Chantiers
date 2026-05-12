@@ -6,6 +6,8 @@ import { Icon } from "./ui";
 import {
   ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
   Building2, Hammer, Clock, Euro, TrendingUp, AlertTriangle, Search, FileSpreadsheet,
+  CalendarPlus, Check, GripVertical, X, ChevronDown, ChevronUp,
+  Info, Unlink, Link2, SplitSquareHorizontal,
 } from "lucide-react";
 import GanttView from "./GanttView";
 
@@ -217,6 +219,7 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
   const [ouvragesDetectes, setOuvragesDetectes] = useState([]);
   const fileRef = useRef();
   const BLEU = "#5b9cf6";
+  const acc = getBranchAccent("renovation");
 
   async function handleFile(file) {
     if (!file) return;
@@ -332,30 +335,55 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={onFermer}>
-      <div style={{ background: T.modal || T.surface, borderRadius: 16, width: "100%", maxWidth: 780, maxHeight: "90vh", border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 800, maxHeight: "90vh", border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
 
-        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.sectionDivider}`, background: T.surface, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>
-              {etape === "upload" && "📂 Importer un devis Excel"}
-              {etape === "detection" && "🔍 Ouvrages détectés — Personnalisation"}
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.sectionDivider}`, background: T.surface, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
+              background: acc.bg10, color: acc.accent,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon as={etape === "upload" ? FileSpreadsheet : Search} size={18}/>
             </div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>
-              {etape === "upload" && "Glisse ou sélectionne ton fichier .xlsx / .xls"}
-              {etape === "detection" && `${ouvragesDetectes.length} ouvrage(s) · ${nbMatch} correspondance(s) bibliothèque · Modifie les noms, regroupe ou sépare`}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>
+                {etape === "upload" && "Importer un devis Excel"}
+                {etape === "detection" && "Ouvrages détectés"}
+              </div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>
+                {etape === "upload" && "Glisse ou sélectionne ton fichier .xlsx / .xls"}
+                {etape === "detection" && `${ouvragesDetectes.length} ouvrage${ouvragesDetectes.length > 1 ? "s" : ""} · ${nbMatch} match${nbMatch > 1 ? "s" : ""} bibliothèque`}
+              </div>
             </div>
           </div>
-          <button onClick={onFermer} style={{ background: "transparent", border: "none", color: T.textMuted, fontSize: 20, cursor: "pointer" }}>✕</button>
+          <button onClick={onFermer} title="Fermer" style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            background: "transparent", border: "none", color: T.textMuted,
+            cursor: "pointer", padding: 4,
+          }}>
+            <Icon as={X} size={18}/>
+          </button>
         </div>
 
         <div style={{ display: "flex", background: T.card, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
           {["upload", "detection"].map((s, i) => {
-            const labels = ["1 · Upload fichier", "2 · Personnalisation"];
+            const labels = ["Upload fichier", "Personnalisation"];
             const active = etape === s;
             const done = (s === "upload" && etape === "detection");
             return (
-              <div key={s} style={{ flex: 1, padding: "8px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: active ? T.accent : done ? "#50c878" : T.textMuted, borderBottom: active ? `2px solid ${T.accent}` : done ? "2px solid #50c878" : "2px solid transparent", transition: "all .2s" }}>
-                {done ? "✓ " : ""}{labels[i]}
+              <div key={s} style={{
+                flex: 1, padding: "9px 16px", textAlign: "center",
+                fontSize: FONT.xs.size + 1, fontWeight: 700,
+                color: active ? acc.accent : done ? "#22c55e" : T.textMuted,
+                borderBottom: active ? `2px solid ${acc.accent}` : done ? "2px solid #22c55e" : "2px solid transparent",
+                transition: "all .2s",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
+              }}>
+                {done && <Icon as={Check} size={12}/>}
+                <span style={{ opacity: .6 }}>{i + 1}</span>
+                <span>·</span>
+                {labels[i]}
               </div>
             );
           })}
@@ -369,24 +397,48 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                 onClick={() => fileRef.current?.click()}
                 onDragOver={e => e.preventDefault()}
                 onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
-                style={{ border: `2px dashed ${T.accent}55`, borderRadius: 12, padding: "44px 24px", textAlign: "center", cursor: "pointer", background: `${T.accent}08` }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
-                onMouseLeave={e => e.currentTarget.style.borderColor = `${T.accent}55`}
+                style={{ border: `2px dashed ${acc.accent}55`, borderRadius: RADIUS.xl, padding: "44px 24px",
+                  textAlign: "center", cursor: "pointer", background: `${acc.accent}08`, transition: "border .15s" }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = acc.accent}
+                onMouseLeave={e => e.currentTarget.style.borderColor = `${acc.accent}55`}
               >
-                <div style={{ fontSize: 36, marginBottom: 10 }}>📊</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 6 }}>Glisse ton fichier ici ou clique pour parcourir</div>
-                <div style={{ fontSize: 12, color: T.textMuted }}>Formats acceptés : .xlsx, .xls</div>
+                <div style={{
+                  width: 56, height: 56, borderRadius: RADIUS.lg,
+                  background: acc.bg10, color: acc.accent,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12,
+                }}>
+                  <Icon as={FileSpreadsheet} size={28} strokeWidth={1.5}/>
+                </div>
+                <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text, marginBottom: 4 }}>
+                  Glisse ton fichier ici ou clique pour parcourir
+                </div>
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Formats acceptés : .xlsx, .xls</div>
                 <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
               </div>
-              {parsing && <div style={{ textAlign: "center", padding: 20, color: T.textMuted, fontSize: 13 }}>⏳ Analyse du fichier…</div>}
-              {erreur && <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(224,92,92,0.1)", border: "1px solid rgba(224,92,92,0.3)", borderRadius: 8, color: "#e05c5c", fontSize: 13 }}>⚠️ {erreur}</div>}
-              <div style={{ marginTop: 18, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Colonnes détectées automatiquement</div>
-                <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.9 }}>
-                  • <strong style={{ color: T.text }}>Libellé / désignation</strong> — nom de l'ouvrage <span style={{ color: T.accent, fontWeight: 700 }}>obligatoire</span><br />
-                  • <strong style={{ color: T.text }}>Heures MO</strong> — <span style={{ color: "#50c878", fontWeight: 600 }}>optionnel</span> — si absent, tu les saisis dans l'étape suivante<br />
-                  • <strong style={{ color: T.text }}>Quantité</strong> — <span style={{ color: "#50c878", fontWeight: 600 }}>optionnel</span> — pour calcul cadence automatique<br />
-                  • <strong style={{ color: T.text }}>Total HT</strong> — <span style={{ color: "#50c878", fontWeight: 600 }}>optionnel</span> — montant de la ligne
+              {parsing && (
+                <div style={{ textAlign: "center", padding: 20, color: T.textMuted, fontSize: FONT.sm.size,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}>
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
+                  </svg>
+                  Analyse du fichier…
+                </div>
+              )}
+              {erreur && (
+                <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(224,92,92,0.1)",
+                  border: "1px solid rgba(224,92,92,0.3)", borderRadius: RADIUS.md, color: "#e15a5a",
+                  fontSize: FONT.sm.size, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon as={AlertTriangle} size={14}/>
+                  {erreur}
+                </div>
+              )}
+              <div style={{ marginTop: 18, padding: "14px 16px", background: T.card, borderRadius: RADIUS.lg, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Colonnes détectées automatiquement</div>
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, lineHeight: 1.9 }}>
+                  • <strong style={{ color: T.text }}>Libellé / désignation</strong> — nom de l'ouvrage <span style={{ color: acc.accent, fontWeight: 700 }}>obligatoire</span><br />
+                  • <strong style={{ color: T.text }}>Heures MO</strong> — <span style={{ color: "#22c55e", fontWeight: 600 }}>optionnel</span> — si absent, tu les saisis dans l'étape suivante<br />
+                  • <strong style={{ color: T.text }}>Quantité</strong> — <span style={{ color: "#22c55e", fontWeight: 600 }}>optionnel</span> — pour calcul cadence automatique<br />
+                  • <strong style={{ color: T.text }}>Total HT</strong> — <span style={{ color: "#22c55e", fontWeight: 600 }}>optionnel</span> — montant de la ligne
                 </div>
               </div>
             </>
@@ -414,8 +466,9 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                 </div>
               </div>
 
-              <div style={{ padding: "10px 14px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 14, fontSize: 12, color: T.textMuted, lineHeight: 1.7 }}>
-                💡 <strong style={{ color: T.text }}>Personnalise chaque ouvrage</strong> : renomme-le pour le contexte du chantier, ajuste les heures, sépare les lignes groupées ou fusionne des lignes similaires.
+              <div style={{ padding: "10px 14px", background: T.card, borderRadius: RADIUS.md, border: `1px solid ${T.border}`, marginBottom: 14, fontSize: FONT.xs.size + 1, color: T.textMuted, lineHeight: 1.7, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <Icon as={Info} size={14} color={acc.accent} style={{ marginTop: 2, flexShrink: 0 }}/>
+                <span><strong style={{ color: T.text }}>Personnalise chaque ouvrage</strong> : renomme-le pour le contexte du chantier, ajuste les heures, sépare les lignes groupées ou fusionne des lignes similaires.</span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -474,8 +527,16 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                                 </span>
                                 <button
                                   onClick={() => updateOuvrage(ouvrage.id, { match: null })}
-                                  style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: "1px solid rgba(224,92,92,0.3)", background: "transparent", color: "#e05c5c", cursor: "pointer", fontFamily: "inherit" }}
-                                >✕ délier</button>
+                                  title="Délier de la bibliothèque"
+                                  style={{
+                                    display: "inline-flex", alignItems: "center", gap: 3,
+                                    fontSize: FONT.xs.size, padding: "2px 7px", borderRadius: RADIUS.sm,
+                                    border: "1px solid rgba(224,92,92,0.3)", background: "transparent",
+                                    color: "#e15a5a", cursor: "pointer", fontFamily: "inherit",
+                                  }}>
+                                  <Icon as={Unlink} size={9}/>
+                                  délier
+                                </button>
                               </div>
                             : <div style={{ marginBottom: 6 }}>
                                 {ouvrage._showLier
@@ -522,12 +583,15 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                                       <button
                                         onClick={() => updateOuvrage(ouvrage.id, { _showLier: true })}
                                         style={{
-                                          fontSize: 11, padding: "2px 10px", borderRadius: 5,
-                                          border: `1px solid ${T.accent}66`,
-                                          background: `${T.accent}12`, color: T.accent,
+                                          display: "inline-flex", alignItems: "center", gap: 4,
+                                          fontSize: FONT.xs.size + 1, padding: "3px 10px", borderRadius: RADIUS.sm,
+                                          border: `1px solid ${acc.accent}66`,
+                                          background: `${acc.accent}12`, color: acc.accent,
                                           fontFamily: "inherit", fontWeight: 700, cursor: "pointer",
-                                        }}
-                                      >🔗 Lier à la bibliothèque</button>
+                                        }}>
+                                        <Icon as={Link2} size={11}/>
+                                        Lier à la bibliothèque
+                                      </button>
                                     </div>
                                 }
                               </div>
@@ -574,7 +638,10 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
 
                       {ouvrage.match && (ouvrage.match.sous_taches || []).length > 0 && ouvrage.selectionne && (
                         <div style={{ margin: "0 14px 10px 38px", padding: "8px 12px", background: "rgba(91,156,246,0.08)", border: "1px solid rgba(91,156,246,0.2)", borderRadius: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: BLEU, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>📋 Sous-tâches générées depuis la bibliothèque</div>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size, fontWeight: 700, color: BLEU, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
+                            <Icon as={ClipboardList} size={11}/>
+                            Sous-tâches générées depuis la bibliothèque
+                          </div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                             {(ouvrage.match.sous_taches || []).map((st, i) => {
                               const ph = PHASES.find(p => p.id === st.phaseId);
@@ -601,8 +668,15 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
                             <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Lignes du devis ({ouvrage.lignes.length})</div>
                             <button
                               onClick={() => separerLignes(ouvrage.id)}
-                              style={{ padding: "3px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
-                            >⎘ Séparer en {ouvrage.lignes.length} ouvrages</button>
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 4,
+                                padding: "3px 10px", borderRadius: RADIUS.sm,
+                                border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted,
+                                fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
+                              }}>
+                              <Icon as={SplitSquareHorizontal} size={11}/>
+                              Séparer en {ouvrage.lignes.length} ouvrages
+                            </button>
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             {ouvrage.lignes.map((ligne, li) => (
@@ -631,24 +705,44 @@ function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
         </div>
 
         {etape === "detection" && (
-          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.sectionDivider}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: T.surface, flexShrink: 0 }}>
-            <div style={{ fontSize: 13, color: T.textMuted }}>
-              <span style={{ fontWeight: 700, color: T.text }}>{nbSel}</span> ouvrage{nbSel > 1 ? "s" : ""} sélectionné{nbSel > 1 ? "s" : ""}
-              {nbMatch > 0 && <> · <span style={{ color: "#50c878", fontWeight: 700 }}>{nbMatch}</span> avec sous-tâches auto</>}
+          <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.sectionDivider}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: T.surface, flexShrink: 0, gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontSize: FONT.sm.size, color: T.textMuted, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span><strong style={{ color: T.text, fontWeight: 700 }}>{nbSel}</strong> ouvrage{nbSel > 1 ? "s" : ""} sélectionné{nbSel > 1 ? "s" : ""}</span>
+              {nbMatch > 0 && <span>· <strong style={{ color: "#22c55e", fontWeight: 700 }}>{nbMatch}</strong> avec sous-tâches auto</span>}
               {(() => {
                 const nbSansH = ouvragesDetectes.filter(o => o.selectionne && o.lignes.filter(l => l.selectionne !== false).reduce((s, l) => s + (parseFloat(l.heures) || 0), 0) === 0).length;
                 return nbSansH > 0
-                  ? <> · <span style={{ color: "#f5a623", fontWeight: 700 }}>⚠ {nbSansH} sans heures</span></>
+                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>·
+                      <Icon as={AlertTriangle} size={11} color="#f5a623"/>
+                      <span style={{ color: "#f5a623", fontWeight: 700 }}>{nbSansH} sans heures</span>
+                    </span>
                   : null;
               })()}
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => { setEtape("upload"); setOuvragesDetectes([]); setLignesBrutes([]); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Retour</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setEtape("upload"); setOuvragesDetectes([]); setLignesBrutes([]); }}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  padding: "9px 16px", borderRadius: RADIUS.md,
+                  border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+                }}>
+                <Icon as={ChevronLeftIcon} size={12}/>
+                Retour
+              </button>
               <button
                 onClick={() => onImporter(construireImport())}
                 disabled={nbSel === 0}
-                style={{ padding: "9px 24px", borderRadius: 8, border: "none", background: nbSel > 0 ? T.accent : T.border, color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 800, cursor: nbSel > 0 ? "pointer" : "default" }}
-              >✓ Importer {nbSel} ouvrage{nbSel > 1 ? "s" : ""}</button>
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "9px 20px", borderRadius: RADIUS.md, border: "none",
+                  background: nbSel > 0 ? acc.accent : T.border, color: acc.onAccent,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                  cursor: nbSel > 0 ? "pointer" : "default", opacity: nbSel > 0 ? 1 : .6,
+                }}>
+                <Icon as={Check} size={13}/>
+                Importer {nbSel} ouvrage{nbSel > 1 ? "s" : ""}
+              </button>
             </div>
           </div>
         )}
@@ -720,6 +814,7 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
 // ─── PLAN TRAVAUX ─────────────────────────────────────────────────────────────
 function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onSavePlan }) {
   const BLEU = "#5b9cf6";
+  const planAcc = getBranchAccent("renovation");
 
   const initPlan = () => {
     if (phasage.plan_travaux && Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length > 0) {
@@ -840,55 +935,128 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
 
       {planifierTask && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={() => setPlanifierTask(null)}>
-          <div style={{ background: T.modal || T.surface, borderRadius: 16, width: "100%", maxWidth: 400, border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.sectionDivider}` }}><div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>📅 Envoyer dans le Planning</div></div>
-            <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ background: T.card, padding: "12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{planifierTask.tache.nom}</div>
-                <div style={{ fontSize: 12, color: T.textMuted, marginTop: 4 }}>Durée : {planifierTask.tache.heures_vendues}h{(planifierTask.tache.ouvriers || []).length > 0 ? ` · ${planifierTask.tache.ouvriers.join(", ")}` : " · Aucun ouvrier assigné"}</div>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={() => setPlanifierTask(null)}>
+          <div style={{ background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 440, border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.sectionDivider}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 32, height: 32, borderRadius: RADIUS.md, background: planAcc.bg10, color: planAcc.accent,
+                display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon as={CalendarPlus} size={16}/>
+              </div>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Envoyer dans le planning</div>
+            </div>
+            <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ background: T.card, padding: "12px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{planifierTask.tache.nom}</div>
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <Icon as={Clock} size={11}/>
+                    {planifierTask.tache.heures_vendues}h
+                  </span>
+                  {(planifierTask.tache.ouvriers || []).length > 0
+                    ? <span>· {planifierTask.tache.ouvriers.join(", ")}</span>
+                    : <span style={{ color: "#f5a623" }}>· Aucun ouvrier assigné</span>}
+                </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Semaine</label>
-                <select value={planifierWeek} onChange={e => setPlanifierWeek(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none" }}>
+                <label style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Semaine</label>
+                <select value={planifierWeek} onChange={e => setPlanifierWeek(e.target.value)}
+                  style={{ padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${T.fieldBorder || T.border}`,
+                    background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", cursor: "pointer" }}>
                   <option value="" disabled>Choisir…</option>
                   {semainesFutures.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Jour</label>
-                <select value={planifierJour} onChange={e => setPlanifierJour(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none" }}>
+                <label style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Jour</label>
+                <select value={planifierJour} onChange={e => setPlanifierJour(e.target.value)}
+                  style={{ padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${T.fieldBorder || T.border}`,
+                    background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", cursor: "pointer" }}>
                   {JOURS.map(j => <option key={j} value={j}>{j}</option>)}
                 </select>
               </div>
             </div>
-            <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.sectionDivider}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setPlanifierTask(null)} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 18px", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
-              <button onClick={executerPlanification} disabled={isPlanningSaving || !planifierWeek} style={{ background: T.accent, border: "none", borderRadius: 8, padding: "9px 22px", color: "#111", fontFamily: "inherit", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>{isPlanningSaving ? "Envoi..." : "✓ Ajouter au planning"}</button>
+            <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.sectionDivider}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setPlanifierTask(null)}
+                style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "9px 18px",
+                  color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer" }}>Annuler</button>
+              <button onClick={executerPlanification} disabled={isPlanningSaving || !planifierWeek}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                  background: planAcc.accent, border: "none", borderRadius: RADIUS.md, padding: "9px 18px",
+                  color: planAcc.onAccent, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+                  opacity: (isPlanningSaving || !planifierWeek) ? .6 : 1 }}>
+                <Icon as={Check} size={13}/>
+                {isPlanningSaving ? "Envoi…" : "Ajouter au planning"}
+              </button>
             </div>
           </div>
         </div>
       )}
 
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-          <button onClick={onBack} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>← Préparation du devis</button>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>📋 Plan de travail — {phasage.chantier_nom}</div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginTop: 3 }}>{nbTaches} tâche{nbTaches > 1 ? "s" : ""} · {terminees} terminée{terminees > 1 ? "s" : ""}</div>
+        {/* ── Bouton retour ── */}
+        <button onClick={onBack} style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "7px 12px", borderRadius: RADIUS.md,
+          border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer", marginBottom: 14,
+        }}>
+          <Icon as={ChevronLeftIcon} size={13}/>
+          Préparation du devis
+        </button>
+
+        {/* ── Header ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18, flexWrap: "wrap" }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
+            background: planAcc.bg10, color: planAcc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={ClipboardList} size={20} strokeWidth={2}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: planAcc.accent, letterSpacing: 1.2, textTransform: "uppercase" }}>
+                Étape 2 — Plan de travail
+              </div>
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: FONT.xs.size, fontWeight: 700, color: autoColor,
+                background: autoColor + "1A", border: `1px solid ${autoColor}44`,
+                borderRadius: RADIUS.pill, padding: "1px 8px",
+              }}>
+                {autoSaveStatus === "saving" && (
+                  <svg width="10" height="10" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}>
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
+                  </svg>
+                )}
+                {autoLabel}
+              </span>
+            </div>
+            <div style={{ fontSize: FONT.lg.size + 2, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginTop: 2 }}>
+              {phasage.chantier_nom}
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 3, display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={Hammer} size={11}/>
+                {nbTaches} tâche{nbTaches > 1 ? "s" : ""}
+              </span>
+              {terminees > 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#22c55e", fontWeight: 700 }}>
+                  <Icon as={Check} size={11}/>
+                  {terminees} terminée{terminees > 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
           </div>
           <button onClick={() => setShowGantt(true)} style={{
-            padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(91,138,245,0.4)",
-            background: "rgba(91,138,245,0.1)", color: "#5b8af5",
-            fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 6,
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 14px", borderRadius: RADIUS.md,
+            border: `1px solid rgba(91,156,246,0.4)`, background: "rgba(91,156,246,0.10)", color: "#5b9cf6",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
           }} title="Afficher la vue Gantt">
-            📊 Vue Gantt
+            <Icon as={GanttChartSquare} size={13}/>
+            Vue Gantt
           </button>
-          <div style={{ fontSize: 12, fontWeight: 600, color: autoColor, display: "flex", alignItems: "center", gap: 5 }}>
-            {autoSaveStatus === "saving" && <svg width="12" height="12" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70" /></svg>}
-            {autoLabel}
-          </div>
         </div>
 
         {showGantt && (
@@ -900,26 +1068,56 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           />
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
-          <div style={{ background: T.surface, border: `1px solid ${T.accent}`, borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontSize: 11, color: T.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Prix de vente final</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <input type="number" value={prixVendu || ""} onChange={e => setPrixVendu(e.target.value)} placeholder="Ex: 15000" style={{ flex: 1, padding: "4px 8px", background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, fontSize: 20, fontWeight: 800, outline: "none", width: "100%" }} />
-              <span style={{ fontSize: 18, fontWeight: 800, color: T.textMuted }}>€</span>
+        {/* ── KPI cards ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, marginBottom: 14 }}>
+          <div style={{
+            background: T.surface, border: `1px solid ${planAcc.accent}66`,
+            borderRadius: RADIUS.lg, padding: "12px 14px",
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+              background: planAcc.bg10, color: planAcc.accent,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon as={Euro} size={16} strokeWidth={2}/>
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600, letterSpacing: .3 }}>Prix de vente</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 2 }}>
+                <input type="number" value={prixVendu || ""} onChange={e => setPrixVendu(e.target.value)} placeholder="0"
+                  style={{ flex: 1, minWidth: 0, padding: "2px 4px", background: "transparent", border: "none",
+                    color: T.text, fontSize: FONT.xl.size - 2, fontWeight: 800, outline: "none", letterSpacing: -.5 }}/>
+                <span style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.textMuted }}>€</span>
+              </div>
             </div>
           </div>
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Coûts cumulés</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: coutTotal > pVendu && pVendu > 0 ? "#e05c5c" : T.text }}>{coutTotal.toFixed(0)} €</div>
-          </div>
-          <div style={{ background: marge < 0 ? "rgba(224,92,92,0.1)" : "rgba(80,200,120,0.1)", border: `1px solid ${marge < 0 ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)"}`, borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontSize: 11, color: marge < 0 ? "#e05c5c" : "#50c878", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Marge Nette</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: marge < 0 ? "#e05c5c" : "#50c878" }}>{marge > 0 ? "+" : ""}{marge.toFixed(0)} €</div>
-          </div>
-          <div style={{ background: marge < 0 ? "rgba(224,92,92,0.1)" : "rgba(80,200,120,0.1)", border: `1px solid ${marge < 0 ? "rgba(224,92,92,0.3)" : "rgba(80,200,120,0.3)"}`, borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontSize: 11, color: marge < 0 ? "#e05c5c" : "#50c878", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Marge %</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: marge < 0 ? "#e05c5c" : "#50c878" }}>{margePct.toFixed(1)} %</div>
-          </div>
+          {[
+            { label: "Coûts cumulés", value: `${Math.round(coutTotal).toLocaleString("fr-FR")} €`, icon: Euro,
+              color: coutTotal > pVendu && pVendu > 0 ? "#e15a5a" : T.text },
+            { label: "Marge nette", value: `${marge > 0 ? "+" : ""}${Math.round(marge).toLocaleString("fr-FR")} €`,
+              icon: TrendingUp, color: marge < 0 ? "#e15a5a" : "#22c55e" },
+            { label: "Marge %", value: `${margePct.toFixed(1)} %`, icon: TrendingUp,
+              color: marge < 0 ? "#e15a5a" : "#22c55e" },
+          ].map((s, i) => (
+            <div key={i} style={{
+              background: T.surface, border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.lg, padding: "12px 14px",
+              display: "flex", alignItems: "center", gap: 10,
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+                background: s.color + "18", color: s.color,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon as={s.icon} size={16} strokeWidth={2}/>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600, letterSpacing: .3 }}>{s.label}</div>
+                <div style={{ fontSize: FONT.xl.size - 2, fontWeight: 800, color: s.color, letterSpacing: -.5, marginTop: 2, lineHeight: 1 }}>{s.value}</div>
+              </div>
+            </div>
+          ))}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
@@ -983,7 +1181,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                       <span style={{ fontSize: 11, fontWeight: 700, color: phAv === 100 ? "#50c878" : T.textMuted, minWidth: 28 }}>{phAv}%</span>
                     </div>
                   )}
-                  <span style={{ fontSize: 12, color: isExp ? phase.couleur : T.textMuted, userSelect: "none", padding: "0 8px" }}>{isExp ? "▲" : "▼"}</span>
+                  <span style={{ color: isExp ? phase.couleur : T.textMuted, userSelect: "none", padding: "0 4px", display: "flex", alignItems: "center" }}>
+                    <Icon as={isExp ? ChevronUp : ChevronDown} size={14}/>
+                  </span>
                 </div>
 
                 {isExp && (
@@ -1012,7 +1212,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           onDragOver={e => e.preventDefault()}
                           style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s", cursor: "grab" }}>
 
-                          <div style={{ color: T.textMuted, fontSize: 13, cursor: "grab", userSelect: "none", textAlign: "center" }}>⠿</div>
+                          <div style={{ color: T.textMuted, cursor: "grab", userSelect: "none", display: "flex", alignItems: "center", justifyContent: "center" }} title="Glisser pour réordonner">
+                            <Icon as={GripVertical} size={14}/>
+                          </div>
 
                           <div style={{ minWidth: 0 }}>
                             <input value={tache.nom} onChange={e => updateTache(phase.id, tache.id, { nom: e.target.value })} onPointerDown={stopDrag} style={{ width: "100%", padding: "4px 6px", borderRadius: 6, border: "1px solid transparent", background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none" }} onFocus={e => e.target.style.borderColor = T.border} onBlur={e => e.target.style.borderColor = "transparent"} />
@@ -1033,10 +1235,30 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           </div>
 
                           <div style={{ textAlign: "center" }}>
-                            <button onClick={() => { setPlanifierWeek(semainesFutures[0]); setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache: { ...tache, ouvriers: ouvriersActuels } }); }} onPointerDown={stopDrag} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.accent}55`, background: T.accent + "15", color: T.accent, fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "30"} onMouseLeave={e => e.currentTarget.style.background = T.accent + "15"}>📅 Planifier</button>
+                            <button onClick={() => { setPlanifierWeek(semainesFutures[0]); setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache: { ...tache, ouvriers: ouvriersActuels } }); }}
+                              onPointerDown={stopDrag}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 4,
+                                padding: "4px 8px", borderRadius: RADIUS.sm,
+                                border: `1px solid ${planAcc.accent}55`, background: planAcc.accent + "15", color: planAcc.accent,
+                                fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = planAcc.accent + "30"}
+                              onMouseLeave={e => e.currentTarget.style.background = planAcc.accent + "15"}>
+                              <Icon as={CalendarPlus} size={11}/>
+                              Planifier
+                            </button>
                           </div>
 
-                          <button onClick={() => deleteTache(phase.id, tache.id)} onPointerDown={stopDrag} style={{ background: "transparent", border: "none", color: "#e05c5c", cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>
+                          <button onClick={() => deleteTache(phase.id, tache.id)} onPointerDown={stopDrag}
+                            title="Supprimer la tâche"
+                            style={{
+                              display: "inline-flex", alignItems: "center", justifyContent: "center",
+                              background: "transparent", border: "none", color: "#e15a5a",
+                              cursor: "pointer", padding: 0, lineHeight: 1,
+                            }}>
+                            <Icon as={X} size={14}/>
+                          </button>
                         </div>
                       );
                     })}
@@ -1061,13 +1283,36 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 10 }}>
-                          <button onClick={() => addTache(phase.id)} disabled={!ajoutForm.nom} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: ajoutForm.nom ? phase.couleur : T.border, color: ajoutForm.nom ? "#fff" : T.textMuted, fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: ajoutForm.nom ? "pointer" : "default" }}>✓ Ajouter</button>
-                          <button onClick={() => { setAjoutPhase(null); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvriers: [], date_prevue: "" }); }} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
+                          <button onClick={() => addTache(phase.id)} disabled={!ajoutForm.nom}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              padding: "8px 16px", borderRadius: RADIUS.md, border: "none",
+                              background: ajoutForm.nom ? phase.couleur : T.border,
+                              color: ajoutForm.nom ? "#fff" : T.textMuted,
+                              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700,
+                              cursor: ajoutForm.nom ? "pointer" : "default",
+                            }}>
+                            <Icon as={Check} size={12}/>
+                            Ajouter
+                          </button>
+                          <button onClick={() => { setAjoutPhase(null); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvriers: [], date_prevue: "" }); }}
+                            style={{ padding: "8px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                              background: "transparent", color: T.textMuted,
+                              fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer" }}>Annuler</button>
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => { setAjoutPhase(phase.id); setExpandedPhases(prev => ({ ...prev, [phase.id]: true })); }} style={{ margin: "10px 16px 0", padding: "8px", borderRadius: 8, border: `1.5px dashed ${phase.couleur}55`, background: "transparent", color: phase.couleur, fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "block", width: "calc(100% - 32px)" }}>
-                        + Ajouter une tâche
+                      <button onClick={() => { setAjoutPhase(phase.id); setExpandedPhases(prev => ({ ...prev, [phase.id]: true })); }}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                          margin: "10px 16px 0", padding: "8px",
+                          borderRadius: RADIUS.md, border: `1.5px dashed ${phase.couleur}55`,
+                          background: "transparent", color: phase.couleur,
+                          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600,
+                          cursor: "pointer", width: "calc(100% - 32px)",
+                        }}>
+                        <Icon as={Plus} size={12}/>
+                        Ajouter une tâche
                       </button>
                     )}
                   </div>
