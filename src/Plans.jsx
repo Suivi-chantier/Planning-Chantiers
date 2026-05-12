@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabase";
-import { COULEURS_PALETTE, THEMES, DEFAULT_CHANTIERS } from "./constants";
+import { COULEURS_PALETTE, THEMES, DEFAULT_CHANTIERS, FONT, RADIUS, SPACING, getBranchAccent } from "./constants";
+import { Icon } from "./ui";
+import {
+  Ruler, Plus, Copy, Trash2, FolderOpen, Building2, ImageOff, Search,
+  Layers, AlertTriangle,
+} from "lucide-react";
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
 
@@ -2633,7 +2638,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
-function PagePlans({T, chantiers}) {
+function PagePlans({T, chantiers, branch = "renovation"}) {
+  const acc = getBranchAccent(branch);
   const [plans, setPlans]           = useState([]);
   const [loading, setLoading]       = useState(true);
   const [editingPlan, setEditingPlan] = useState(null);
@@ -2641,6 +2647,10 @@ function PagePlans({T, chantiers}) {
   const [newName, setNewName]       = useState('');
   const [newChantier, setNewChantier] = useState('');
   const [creating, setCreating]     = useState(false);
+  const [search, setSearch]         = useState('');
+  const [filterChantier, setFilterChantier] = useState('all');
+  const [toDelete, setToDelete]     = useState(null); // plan en attente de suppression
+  const [deleting, setDeleting]     = useState(false);
 
   const loadPlans = async () => {
     setLoading(true);
@@ -2681,10 +2691,13 @@ function PagePlans({T, chantiers}) {
     setNewName(''); setNewChantier(''); setShowNew(false); setCreating(false);
   };
 
-  const deletePlan = async (id) => {
-    if (!confirm('Supprimer ce plan définitivement ?')) return;
-    await supabase.from('plans').delete().eq('id',id);
-    setPlans(p=>p.filter(x=>x.id!==id));
+  const confirmDelete = async () => {
+    if (!toDelete) return;
+    setDeleting(true);
+    await supabase.from('plans').delete().eq('id', toDelete.id);
+    setPlans(p => p.filter(x => x.id !== toDelete.id));
+    setDeleting(false);
+    setToDelete(null);
   };
 
   const onSave = (updated) => {
@@ -2701,55 +2714,166 @@ function PagePlans({T, chantiers}) {
     </div>
   );
 
+  // ── Filtrage ────────────────────────────────────────────────────────────────
+  const plansFiltres = plans.filter(p => {
+    if (filterChantier !== 'all' && p.chantier_id !== filterChantier) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const ch = chantiers.find(c=>c.id===p.chantier_id);
+      if (!p.name?.toLowerCase().includes(q) && !ch?.nom?.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  // ── Stats globales ──────────────────────────────────────────────────────────
+  const stats = {
+    total: plans.length,
+    chantiers: new Set(plans.filter(p=>p.chantier_id).map(p=>p.chantier_id)).size,
+    sansChantier: plans.filter(p=>!p.chantier_id).length,
+  };
+
   return (
-    <div className="page-padding plans-list" style={{flex:1,overflowY:'auto',padding:'28px 32px'}}>
+    <div className="page-padding plans-list" style={{flex:1,overflowY:'auto',padding:'24px 28px',background:T.bg}}>
       <style>{`
         @media(max-width:767px){
-          .plans-list .plans-header > div:first-child > div:first-child{font-size:22px!important}
-          .plans-list .plans-header > div:first-child > div:nth-child(2){font-size:13px!important}
+          .plans-list .plans-header{flex-direction:column;align-items:stretch!important}
+          .plans-list .plans-filters > *{flex:1 1 100%!important}
           .plans-list .plan-card-actions{padding:8px 12px!important;gap:6px!important}
           .plans-list .plan-card-actions button{flex:1;font-size:11px!important;padding:7px 10px!important}
         }
       `}</style>
-      <div className="plans-header" style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:16}}>
-        <div>
-          <div style={{fontSize:36,fontWeight:800,letterSpacing:1,marginBottom:4,color:T.text}}>Plans</div>
-          <div style={{fontSize:15,color:T.textSub}}>Relevés DXF annotés par chantier</div>
+
+      {/* ── Header ── */}
+      <div className="plans-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+        marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{
+            width:36,height:36,borderRadius:RADIUS.md,
+            background:acc.bg10,color:acc.accent,
+            display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,
+          }}>
+            <Icon as={Ruler} size={20} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{fontSize:FONT.xl.size+4,fontWeight:800,color:T.text,letterSpacing:-0.3,marginBottom:2}}>Plans</div>
+            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>Relevés DXF annotés par chantier</div>
+          </div>
         </div>
-        <button onClick={()=>setShowNew(true)} style={{background:T.accent,color:'#fff',border:'none',
-          borderRadius:10,padding:'11px 22px',fontFamily:'inherit',fontSize:14,fontWeight:700,cursor:'pointer'}}>
-          + Nouveau plan
+        <button onClick={()=>setShowNew(true)} style={{
+          display:'inline-flex',alignItems:'center',gap:6,
+          background:acc.accent,color:acc.onAccent,border:'none',
+          borderRadius:RADIUS.md,padding:'9px 16px',
+          fontFamily:'inherit',fontSize:FONT.sm.size,fontWeight:800,cursor:'pointer',
+        }}>
+          <Icon as={Plus} size={14}/>
+          Nouveau plan
         </button>
       </div>
 
+      {/* ── Stats ── */}
+      {!loading && plans.length > 0 && (
+        <div style={{
+          display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',
+          gap:10,marginBottom:14,
+        }}>
+          {[
+            { label:'Total plans',     value:stats.total,        icon:Ruler,     color:acc.accent },
+            { label:'Chantiers couverts', value:stats.chantiers, icon:Building2, color:'#5b9cf6' },
+            { label:'Sans chantier',   value:stats.sansChantier, icon:Layers,    color:stats.sansChantier > 0 ? '#f5a623' : T.textMuted },
+          ].map((s, i) => (
+            <div key={i} style={{
+              background:T.surface,border:`1px solid ${T.border}`,
+              borderRadius:RADIUS.lg,padding:'12px 14px',
+              display:'flex',alignItems:'center',gap:10,
+            }}>
+              <div style={{
+                width:32,height:32,borderRadius:RADIUS.md,flexShrink:0,
+                background:s.color + '18',color:s.color,
+                display:'flex',alignItems:'center',justifyContent:'center',
+              }}>
+                <Icon as={s.icon} size={16} strokeWidth={2}/>
+              </div>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:FONT.xl.size,fontWeight:800,color:T.text,letterSpacing:-.5,lineHeight:1}}>{s.value}</div>
+                <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:3,fontWeight:600,letterSpacing:.3}}>{s.label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Filtres ── */}
+      {!loading && plans.length > 0 && (
+        <div className="plans-filters" style={{
+          display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16,
+          background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:'10px 12px',
+        }}>
+          <div style={{position:'relative',flex:'1 1 200px',maxWidth:320}}>
+            <Icon as={Search} size={13} color={T.textMuted}
+              style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}/>
+            <input value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="Rechercher un plan…"
+              style={{width:'100%',background:T.fieldBg||T.card,border:`1px solid ${T.fieldBorder||T.border}`,
+                borderRadius:RADIUS.md,padding:'8px 10px 8px 30px',color:T.text,
+                fontFamily:'inherit',fontSize:FONT.sm.size,outline:'none'}}/>
+          </div>
+          <select value={filterChantier} onChange={e=>setFilterChantier(e.target.value)}
+            style={{background:T.fieldBg||T.card,border:`1px solid ${T.fieldBorder||T.border}`,
+              borderRadius:RADIUS.md,padding:'8px 10px',color:T.text,
+              fontFamily:'inherit',fontSize:FONT.sm.size,outline:'none',cursor:'pointer'}}>
+            <option value="all">Tous les chantiers</option>
+            {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+          </select>
+          <div style={{marginLeft:'auto',fontSize:FONT.xs.size+1,color:T.textMuted,fontWeight:600}}>
+            {plansFiltres.length} / {plans.length}
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Nouveau plan ── */}
       {showNew&&(
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:500,
-          display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-          <div style={{background:T.modal,borderRadius:14,padding:28,width:"100%",maxWidth:420,border:`1px solid ${T.border}`}}>
-            <div style={{fontSize:20,fontWeight:800,marginBottom:20,color:T.text}}>Nouveau plan</div>
+        <div onClick={()=>setShowNew(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:500,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:16,backdropFilter:'blur(4px)'}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.modal,borderRadius:RADIUS.xl,
+            padding:24,width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+            boxShadow:'0 24px 60px rgba(0,0,0,0.5)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:18}}>
+              <div style={{width:32,height:32,borderRadius:RADIUS.md,background:acc.bg10,
+                color:acc.accent,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <Icon as={Ruler} size={16}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Nouveau plan</div>
+            </div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:T.textMuted,marginBottom:6}}>Nom</div>
+              <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1,textTransform:'uppercase',
+                color:T.textMuted,marginBottom:6}}>Nom</div>
               <input value={newName} onChange={e=>setNewName(e.target.value)} autoFocus
                 onKeyDown={e=>e.key==='Enter'&&createPlan()}
                 placeholder="Ex: RDC — Alfred Falloux"
-                style={{width:'100%',background:T.fieldBg,border:`1px solid ${T.fieldBorder}`,borderRadius:8,
-                  padding:'10px 12px',color:T.text,fontFamily:'inherit',fontSize:14,outline:'none'}}/>
+                style={{width:'100%',background:T.fieldBg,border:`1px solid ${T.fieldBorder}`,borderRadius:RADIUS.md,
+                  padding:'10px 12px',color:T.text,fontFamily:'inherit',fontSize:FONT.sm.size,outline:'none'}}/>
             </div>
             <div style={{marginBottom:22}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:T.textMuted,marginBottom:6}}>Chantier associé</div>
+              <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1,textTransform:'uppercase',
+                color:T.textMuted,marginBottom:6}}>Chantier associé</div>
               <select value={newChantier} onChange={e=>setNewChantier(e.target.value)}
-                style={{width:'100%',background:'#1e2336',border:`1px solid ${T.fieldBorder}`,borderRadius:8,
-                  padding:'10px 12px',color:'#e8eaf0',fontFamily:'inherit',fontSize:14,outline:'none'}}>
-                <option value="" style={{background:'#1e2336'}}>— Aucun —</option>
-                {chantiers.map(c=><option key={c.id} value={c.id} style={{background:'#1e2336'}}>{c.nom}</option>)}
+                style={{width:'100%',background:T.fieldBg,border:`1px solid ${T.fieldBorder}`,borderRadius:RADIUS.md,
+                  padding:'10px 12px',color:T.text,fontFamily:'inherit',fontSize:FONT.sm.size,outline:'none',cursor:'pointer'}}>
+                <option value="">— Aucun —</option>
+                {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
               </select>
             </div>
             <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
               <button onClick={()=>setShowNew(false)} style={{background:'transparent',border:`1px solid ${T.border}`,
-                borderRadius:8,padding:'9px 18px',color:T.textSub,fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>Annuler</button>
-              <button onClick={createPlan} disabled={creating||!newName.trim()} style={{background:T.accent,color:'#fff',
-                border:'none',borderRadius:8,padding:'9px 20px',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',
+                borderRadius:RADIUS.md,padding:'9px 18px',color:T.textSub,
+                fontFamily:'inherit',fontSize:FONT.sm.size,cursor:'pointer'}}>Annuler</button>
+              <button onClick={createPlan} disabled={creating||!newName.trim()} style={{
+                display:'inline-flex',alignItems:'center',gap:6,
+                background:acc.accent,color:acc.onAccent,border:'none',
+                borderRadius:RADIUS.md,padding:'9px 20px',
+                fontFamily:'inherit',fontSize:FONT.sm.size,fontWeight:800,cursor:'pointer',
                 opacity:(!newName.trim()||creating)?0.5:1}}>
+                <Icon as={Plus} size={13}/>
                 {creating?'Création…':'Créer'}
               </button>
             </div>
@@ -2757,66 +2881,150 @@ function PagePlans({T, chantiers}) {
         </div>
       )}
 
-      {loading&&<div style={{color:T.textMuted,fontSize:15,padding:32}}>Chargement…</div>}
+      {/* ── Modal confirmation suppression ── */}
+      {toDelete && (
+        <div onClick={()=>!deleting && setToDelete(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:500,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:16,backdropFilter:'blur(4px)'}}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,
+            padding:24,width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:'0 24px 60px rgba(0,0,0,0.5)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14}}>
+              <div style={{
+                width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,
+                background:'rgba(224,92,92,0.12)',color:'#e15a5a',
+                display:'flex',alignItems:'center',justifyContent:'center',
+              }}>
+                <Icon as={AlertTriangle} size={20} strokeWidth={2}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce plan&nbsp;?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              Le plan <strong style={{color:T.text}}>« {toDelete.name} »</strong> sera définitivement supprimé, ainsi que tous ses tracés, symboles et annotations.
+              <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Cette action est irréversible.</span>
+            </div>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={()=>setToDelete(null)} disabled={deleting}
+                style={{background:'transparent',border:`1px solid ${T.border}`,
+                  borderRadius:RADIUS.md,padding:'9px 18px',color:T.textSub,
+                  fontFamily:'inherit',fontSize:FONT.sm.size,cursor:'pointer',
+                  opacity:deleting?0.5:1}}>
+                Annuler
+              </button>
+              <button onClick={confirmDelete} disabled={deleting}
+                style={{
+                  display:'inline-flex',alignItems:'center',gap:6,
+                  background:'#e15a5a',color:'#fff',border:'none',
+                  borderRadius:RADIUS.md,padding:'9px 18px',
+                  fontFamily:'inherit',fontSize:FONT.sm.size,fontWeight:800,cursor:'pointer',
+                  opacity:deleting?0.6:1}}>
+                <Icon as={Trash2} size={13}/>
+                {deleting ? 'Suppression…' : 'Supprimer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {loading&&<div style={{color:T.textMuted,fontSize:FONT.sm.size,padding:32}}>Chargement…</div>}
+
+      {/* ── Empty state ── */}
       {!loading&&plans.length===0&&(
-        <div style={{background:T.card,border:`1px dashed ${T.border}`,borderRadius:14,
-          padding:'48px 32px',textAlign:'center',maxWidth:520,margin:'0 auto'}}>
-          <div style={{fontSize:48,marginBottom:16}}>📐</div>
-          <div style={{fontSize:18,fontWeight:700,marginBottom:10,color:T.text}}>Aucun plan pour l'instant</div>
-          <div style={{fontSize:14,color:T.textSub,lineHeight:1.8,marginBottom:24}}>
+        <div style={{background:T.card,border:`1px dashed ${T.border}`,borderRadius:RADIUS.xl,
+          padding:'48px 32px',textAlign:'center',maxWidth:540,margin:'0 auto'}}>
+          <div style={{
+            width:56,height:56,borderRadius:RADIUS.lg,
+            background:acc.bg10,color:acc.accent,
+            display:'inline-flex',alignItems:'center',justifyContent:'center',marginBottom:14,
+          }}>
+            <Icon as={Ruler} size={28} strokeWidth={1.5}/>
+          </div>
+          <div style={{fontSize:FONT.lg.size,fontWeight:700,marginBottom:8,color:T.text}}>Aucun plan pour l'instant</div>
+          <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.7,marginBottom:22}}>
             Crée un plan, importe un fichier .DXF, et l'outil reliera automatiquement les points entre eux. Tu pourras ensuite ajouter des portes, fenêtres, annotations et exporter en PNG ou PDF.
           </div>
-          <button onClick={()=>setShowNew(true)} style={{background:T.accent,color:'#fff',border:'none',
-            borderRadius:10,padding:'12px 24px',fontFamily:'inherit',fontSize:14,fontWeight:700,cursor:'pointer'}}>
-            + Créer mon premier plan
+          <button onClick={()=>setShowNew(true)} style={{
+            display:'inline-flex',alignItems:'center',gap:6,
+            background:acc.accent,color:acc.onAccent,border:'none',
+            borderRadius:RADIUS.md,padding:'11px 22px',
+            fontFamily:'inherit',fontSize:FONT.sm.size,fontWeight:800,cursor:'pointer'}}>
+            <Icon as={Plus} size={14}/>
+            Créer mon premier plan
           </button>
         </div>
       )}
 
-      {!loading&&plans.length>0&&(
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16}}>
-          {plans.map(plan=>{
+      {/* ── Empty filter result ── */}
+      {!loading&&plans.length>0&&plansFiltres.length===0&&(
+        <div style={{background:T.card,border:`1px dashed ${T.border}`,borderRadius:RADIUS.xl,
+          padding:'32px 24px',textAlign:'center',color:T.textSub,fontSize:FONT.sm.size}}>
+          Aucun plan ne correspond à ces filtres.
+        </div>
+      )}
+
+      {/* ── Grille ── */}
+      {!loading&&plansFiltres.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
+          {plansFiltres.map(plan=>{
             const ch=chantiers.find(c=>c.id===plan.chantier_id);
+            const accentColor = ch?.couleur || T.border;
             return (
               <div key={plan.id} style={{background:T.surface,border:`1px solid ${T.border}`,
-                borderRadius:14,overflow:'hidden',transition:'all .15s'}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.2)';}}
+                borderRadius:RADIUS.xl,overflow:'hidden',transition:'all .15s',
+                borderLeft:ch ? `4px solid ${accentColor}` : `1px solid ${T.border}`}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=acc.accent;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.2)';}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform='none';e.currentTarget.style.boxShadow='none';}}>
 
                 <div onClick={()=>openPlan(plan)} style={{cursor:'pointer',height:160,
-                  background:'#12151f',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
-                  borderBottom:`1px solid ${T.border}`}}>
+                  background:T.card,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
+                  borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>
                   {plan.thumbnail
                     ? <img src={plan.thumbnail} style={{width:'100%',height:'100%',objectFit:'contain'}} alt=""/>
-                    : <div style={{textAlign:'center'}}>
-                        <div style={{fontSize:40,marginBottom:8}}>📐</div>
-                        <div style={{fontSize:12,color:T.textMuted}}>Cliquer pour ouvrir</div>
+                    : <div style={{textAlign:'center',color:T.textMuted}}>
+                        <Icon as={ImageOff} size={36} strokeWidth={1.5}/>
+                        <div style={{fontSize:FONT.xs.size+1,marginTop:6}}>Cliquer pour ouvrir</div>
                       </div>
                   }
                 </div>
 
-                <div style={{padding:'14px 16px'}}>
-                  {ch&&<div style={{display:'inline-flex',alignItems:'center',gap:5,
-                    background:ch.couleur+'33',border:`1px solid ${ch.couleur}55`,
-                    borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700,color:ch.couleur==='#fff'?'#333':ch.couleur,
-                    marginBottom:6}}>{ch.nom}</div>}
-                  <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}}>{plan.name}</div>
-                  <div style={{fontSize:11,color:T.textMuted,marginTop:3}}>
+                <div style={{padding:'12px 14px'}}>
+                  {ch ? (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:5,
+                      background:accentColor+'22',border:`1px solid ${accentColor}55`,
+                      borderRadius:RADIUS.sm,padding:'2px 8px',
+                      fontSize:FONT.xs.size,fontWeight:700,color:accentColor,
+                      marginBottom:6}}>
+                      <Icon as={Building2} size={10}/>
+                      {ch.nom}
+                    </div>
+                  ) : (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:5,
+                      background:T.card,border:`1px dashed ${T.border}`,
+                      borderRadius:RADIUS.sm,padding:'2px 8px',
+                      fontSize:FONT.xs.size,fontWeight:600,color:T.textMuted,
+                      marginBottom:6}}>
+                      Sans chantier
+                    </div>
+                  )}
+                  <div style={{fontSize:FONT.md.size,fontWeight:700,color:T.text,marginBottom:3,letterSpacing:-.1}}>{plan.name}</div>
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2}}>
                     Modifié {new Date(plan.updated_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
                   </div>
                 </div>
 
-                <div className="plan-card-actions" style={{padding:'10px 16px',borderTop:`1px solid ${T.sectionDivider}`,
-                  display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}}>
-                  <button onClick={()=>openPlan(plan)} style={{background:T.accent,color:'#fff',
-                    border:'none',borderRadius:7,padding:'6px 16px',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                <div className="plan-card-actions" style={{padding:'10px 14px',borderTop:`1px solid ${T.sectionDivider||T.border}`,
+                  display:'flex',gap:6,justifyContent:'flex-end',flexWrap:'wrap'}}>
+                  <button onClick={()=>openPlan(plan)} style={{
+                    display:'inline-flex',alignItems:'center',gap:5,
+                    background:acc.accent,color:acc.onAccent,border:'none',
+                    borderRadius:RADIUS.md,padding:'6px 14px',
+                    fontFamily:'inherit',fontSize:FONT.xs.size+1,fontWeight:800,cursor:'pointer'}}>
+                    <Icon as={FolderOpen} size={12}/>
                     Ouvrir
                   </button>
                   <button onClick={async()=>{
                     const nom=prompt(`Nom du nouveau plan (copie de "${plan.name}") :`, `${plan.name} — copie`);
                     if(!nom?.trim()) return;
-                    // La liste ne charge plus le blob `data` : on le récupère à la demande.
                     const src = plan.data ? plan : await fetchFullPlan(plan.id);
                     const srcData=src?.data||{};
                     const reId=arr=>(arr||[]).map(x=>({...x,id:Date.now()+Math.random(),
@@ -2836,15 +3044,19 @@ function PagePlans({T, chantiers}) {
                     }).select().single();
                     if(created){ setPlans(p=>[created,...p]); setEditingPlan(created); }
                   }} title="Dupliquer ce plan (avant/après, copie, variante…)" style={{
-                    background:'rgba(91,138,245,0.15)',border:'1px solid rgba(91,138,245,0.3)',
-                    borderRadius:7,padding:'6px 12px',color:'#a0b8ff',
-                    fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>
-                    ⎘ Dupliquer
+                    display:'inline-flex',alignItems:'center',gap:5,
+                    background:T.card,border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:'6px 10px',color:T.textSub,
+                    fontFamily:'inherit',fontSize:FONT.xs.size+1,cursor:'pointer'}}>
+                    <Icon as={Copy} size={11}/>
+                    Dupliquer
                   </button>
-                  <button onClick={()=>deletePlan(plan.id)} style={{background:'transparent',
-                    border:'1px solid rgba(224,92,92,0.3)',borderRadius:7,padding:'6px 12px',
-                    color:'#e05c5c',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>
-                    🗑
+                  <button onClick={()=>setToDelete(plan)} title="Supprimer ce plan" style={{
+                    display:'inline-flex',alignItems:'center',
+                    background:'transparent',border:`1px solid rgba(224,92,92,0.3)`,
+                    borderRadius:RADIUS.md,padding:'6px 9px',color:'#e05c5c',
+                    fontFamily:'inherit',fontSize:FONT.xs.size+1,cursor:'pointer'}}>
+                    <Icon as={Trash2} size={12}/>
                   </button>
                 </div>
               </div>

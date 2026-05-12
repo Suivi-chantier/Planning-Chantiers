@@ -578,7 +578,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="notes-todo"       && canAccess(role,"notes-todo")       && <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/>}
           {page==="commandes"        && canAccess(role,"commandes")        && <PageCommandes chantiers={chantiers} T={T}/>}
           {page==="equipe"           && canAccess(role,"equipe")           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
-          {page==="plans"            && canAccess(role,"plans")            && <PagePlans T={T} chantiers={chantiers}/>}
+          {page==="plans"            && canAccess(role,"plans")            && <PagePlans T={T} chantiers={chantiers} branch={branch}/>}
           {page==="phasage"          && canAccess(role,"phasage")          && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T}/>}
           {page==="bibliotheque"     && canAccess(role,"bibliotheque")     && <PageBibliotheque T={T}/>}
           {page==="biblio-materiaux" && canAccess(role,"biblio-materiaux") && <PageBibliothequeMateriaux T={T}/>}
