@@ -295,9 +295,9 @@ function PagePlanning({ chantiers, ouvriers, ouvrierEmails, cells, setCells, com
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", minHeight:0 }}>
       <style>{`
-        .cell-with-agenda:hover .cell-agenda-btn { opacity: .85; pointer-events: auto; }
-        .cell-with-agenda .cell-agenda-btn:hover { opacity: 1; }
-        .cell-with-agenda:hover .tache-move-btn { opacity: .55; pointer-events: auto; }
+        .cell-with-agenda:hover .cell-agenda-btn { opacity: .85 !important; pointer-events: auto !important; }
+        .cell-with-agenda .cell-agenda-btn:hover { opacity: 1 !important; }
+        .cell-with-agenda:hover .tache-move-btn { opacity: .6 !important; pointer-events: auto !important; }
         .tache-move-btn:hover { opacity: 1 !important; }
       `}</style>
 
