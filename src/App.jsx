@@ -566,7 +566,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
           {page==="chantiers"         && canAccess(role,"chantiers")         && <PageChantiers chantiers={chantiers} tauxHoraires={tauxHoraires} T={T}/>}
-          {page==="dashboard"        && canAccess(role,"dashboard")        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T}/>}
+          {page==="dashboard"        && canAccess(role,"dashboard")        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/>}
           {page==="planning"         && canAccess(role,"planning")         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
           {page==="planning-mensuel" && canAccess(role,"planning-mensuel") && <PagePlanningMensuel T={T}/>}
           {page==="notes-todo"       && canAccess(role,"notes-todo")       && <PageNotesEtTodo T={T} profil={profil}/>}

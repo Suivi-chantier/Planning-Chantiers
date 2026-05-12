@@ -76,6 +76,14 @@ function StatCard({ label, value, sub, icon: IconComp, color, T }) {
   );
 }
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function formatDateLimite(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  } catch { return iso; }
+}
+
 // ─── MÉTÉO : code WMO → icône + label ─────────────────────────────────────────
 function weatherInfo(code) {
   if (code === 0)                         return { icon: Sun,          label: "Ensoleillé",     color: "#f5a623" };
@@ -90,7 +98,7 @@ function weatherInfo(code) {
 }
 
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
-function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, branch = "renovation" }) {
+function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const todayJour = getTodayJour();
   const now = new Date();
@@ -113,7 +121,6 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
   const [cmdCount, setCmdCount]         = useState(0);
   const [todos, setTodos]               = useState([]);
   const [rapportsToday, setRapportsToday] = useState([]);
-  const [taskAlerts, setTaskAlerts]     = useState([]); // tâches non_faites des rapports d'hier
   const [weather, setWeather]           = useState(null);
   const [weatherCity, setWeatherCity]   = useState(() => localStorage.getItem("dash_weather_city") || "Paris");
 
@@ -126,34 +133,10 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
     supabase.from("planning_config").select("value").eq("key", "bloc_todos").maybeSingle()
       .then(({ data }) => setTodos(Array.isArray(data?.value) ? data.value : []));
 
-    // Rapports du jour
+    // Rapports du jour (pour Activité équipe)
     supabase.from("rapports").select("ouvrier,chantier_nom,taches,submitted_at")
       .eq("date_rapport", todayFr)
       .then(({ data }) => setRapportsToday(data || []));
-
-    // Tâches "non_faite" / "en_cours" des rapports des 2 derniers jours
-    const il2j = new Date(now); il2j.setDate(il2j.getDate() - 2);
-    supabase.from("rapports").select("ouvrier,chantier_nom,taches,date_rapport,submitted_at")
-      .gte("submitted_at", il2j.toISOString())
-      .order("submitted_at", { ascending: false })
-      .then(({ data }) => {
-        const alerts = [];
-        (data || []).forEach(r => {
-          (r.taches || []).forEach(t => {
-            if (t.statut === "non_faite" || t.statut === "en_cours") {
-              alerts.push({
-                statut: t.statut,
-                tache: t.planifie,
-                remarque: t.remarque,
-                ouvrier: r.ouvrier,
-                chantier: r.chantier_nom,
-                date: r.date_rapport,
-              });
-            }
-          });
-        });
-        setTaskAlerts(alerts.slice(0, 5));
-      });
   }, [todayFr]);
 
   // ── Météo : Open-Meteo (gratuit, sans clé). On géocode la ville d'abord. ──
@@ -177,9 +160,14 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
     return () => { cancelled = true; };
   }, [weatherCity]);
 
-  // ── Calculs dérivés (alertes, todos) ──
-  const todosEnRetard = todos.filter(t => !t.fait && t.date_limite && t.date_limite < todayIso);
-  const todosAujourdhui = todos.filter(t => !t.fait && t.date_limite === todayIso);
+  // ── Calculs dérivés (mes tâches To-Do) ──
+  // Filtre les todos assignées à l'utilisateur connecté (par email).
+  // Catégories : en retard / aujourd'hui / autres (à venir ou sans date).
+  const monEmail = profil?.email || null;
+  const mesTodos = todos.filter(t => !t.fait && monEmail && t.assigne_email === monEmail);
+  const todosEnRetard   = mesTodos.filter(t => t.date_limite && t.date_limite < todayIso);
+  const todosAujourdhui = mesTodos.filter(t => t.date_limite === todayIso);
+  const todosAutres     = mesTodos.filter(t => !t.date_limite || t.date_limite > todayIso);
 
   const ouvriersRendus = new Set((rapportsToday || []).map(r => r.ouvrier));
   const ouvriersManquants = ouvriersAttendus.filter(o => !ouvriersRendus.has(o));
@@ -339,32 +327,36 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
             )}
           </DashWidget>
 
-          <DashWidget T={T} accent="#e15a5a" title="À traiter" icon={TriangleAlert}>
-            {(todosEnRetard.length === 0 && todosAujourdhui.length === 0 && taskAlerts.length === 0) ? (
+          <DashWidget T={T} accent={acc.accent} title="Mes tâches" icon={ClipboardCheck}>
+            {!monEmail ? (
+              <div style={{ fontSize: FONT.sm.size, color: T.textMuted }}>
+                Aucun email associé à votre profil.
+              </div>
+            ) : mesTodos.length === 0 ? (
               <div>
-                <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600, marginBottom:8 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600, marginBottom:6 }}>
                   <Icon as={Check} size={16}/>
-                  Rien à signaler
+                  Aucune tâche en cours
                 </div>
                 <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, lineHeight: 1.55 }}>
-                  Ce widget affichera ici les tâches Notes & To-Do en retard, celles dues aujourd'hui, et les tâches marquées "non faite" ou "en cours" dans les comptes rendus récents.
+                  Les tâches que vous vous assignez depuis la page Notes &amp; To-Do apparaîtront ici.
                 </div>
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                 {todosEnRetard.length > 0 && (
-                  <AlertGroup T={T} color="#e15a5a" label={`${todosEnRetard.length} tâche${todosEnRetard.length > 1 ? "s" : ""} en retard`}
-                    items={todosEnRetard.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
+                  <AlertGroup T={T} color="#e15a5a" icon={TriangleAlert} label={`${todosEnRetard.length} en retard`}
+                    items={todosEnRetard.slice(0,4).map(t => ({ text: t.texte, sub: formatDateLimite(t.date_limite) }))}/>
                 )}
                 {todosAujourdhui.length > 0 && (
-                  <AlertGroup T={T} color="#f5a623" label={`${todosAujourdhui.length} tâche${todosAujourdhui.length > 1 ? "s" : ""} aujourd'hui`}
-                    items={todosAujourdhui.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
+                  <AlertGroup T={T} color="#f5a623" icon={Clock} label={`${todosAujourdhui.length} aujourd'hui`}
+                    items={todosAujourdhui.slice(0,4).map(t => ({ text: t.texte }))}/>
                 )}
-                {taskAlerts.length > 0 && (
-                  <AlertGroup T={T} color="#5b8af5" label={`${taskAlerts.length} tâche${taskAlerts.length > 1 ? "s" : ""} signalée${taskAlerts.length > 1 ? "s" : ""}`}
-                    items={taskAlerts.slice(0,3).map(a => ({
-                      text: a.tache,
-                      sub: `${a.ouvrier} · ${a.chantier} · ${a.statut === "non_faite" ? "non faite" : "en cours"}`,
+                {todosAutres.length > 0 && (
+                  <AlertGroup T={T} color={acc.accent} icon={ClipboardCheck} label={`${todosAutres.length} à venir`}
+                    items={todosAutres.slice(0,4).map(t => ({
+                      text: t.texte,
+                      sub: t.date_limite ? formatDateLimite(t.date_limite) : null,
                     }))}/>
                 )}
               </div>
@@ -403,8 +395,8 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
   );
 }
 
-// ─── ALERT GROUP (sous-composant pour À traiter) ──────────────────────────────
-function AlertGroup({ T, color, label, items }) {
+// ─── ALERT GROUP (sous-composant pour Mes tâches) ─────────────────────────────
+function AlertGroup({ T, color, label, items, icon: HeaderIcon = TriangleAlert }) {
   return (
     <div style={{
       background: color + "10",
@@ -416,7 +408,7 @@ function AlertGroup({ T, color, label, items }) {
         fontSize: FONT.sm.size, fontWeight: 700, color: color, marginBottom: items.length ? 6 : 0,
         display: "flex", alignItems: "center", gap: 6,
       }}>
-        <Icon as={TriangleAlert} size={13}/>
+        <Icon as={HeaderIcon} size={13}/>
         {label}
       </div>
       {items.map((it, i) => (
