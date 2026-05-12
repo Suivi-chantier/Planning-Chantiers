@@ -1,5 +1,11 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron-rappel-rapport",
+      "schedule": "50 14,15,16 * * 1-5"
+    }
   ]
 }
