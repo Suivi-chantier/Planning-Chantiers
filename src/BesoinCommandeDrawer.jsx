@@ -116,7 +116,7 @@ export default function BesoinCommandeDrawer({
 
         {/* Header */}
         <div style={{
-          background: "#080a0d",
+          background: "#16181d",
           padding: "14px 16px 10px",
           borderBottom: `3px solid ${accent}`,
           flexShrink: 0,
@@ -305,7 +305,7 @@ export default function BesoinCommandeDrawer({
 
         {/* Barre panier */}
         <div style={{
-          background: "#080a0d",
+          background: "#16181d",
           borderTop: `3px solid ${accent}`,
           padding: "10px 16px 20px",
           flexShrink: 0,

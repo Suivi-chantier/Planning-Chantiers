@@ -92,7 +92,7 @@ const initBudgetState = (lots, surface) => {
 // ─── THÈMES INVEST ────────────────────────────────────────────────────────────
 const THEMES_INV = {
   dark: {
-    bg:"#080a0d", surface:"#111318", card:"#111318", cardHover:"rgba(255,255,255,0.04)",
+    bg:"#1e2128", surface:"#262a32", card:"#262a32", cardHover:"rgba(255,255,255,0.04)",
     border:"#1e2130", text:"#e8eaf0", textSub:"rgba(255,255,255,0.5)",
     textMuted:"rgba(255,255,255,0.25)", accent:"#4db8ff", sidebar:"#0c0e14",
     input:"#1a1d24", inputBorder:"#2a2d3a", scrollThumb:"#2a2d3a",
@@ -349,7 +349,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
     <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,overflowY:"auto"}}>
       <style>{CSS}</style>
       {/* Header */}
-      <div style={{background:"#080a0d",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${T.border}`}}>
+      <div style={{background:"#16181d",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${T.border}`}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,194,0,0.5)",fontFamily:"'Barlow Condensed',sans-serif"}}>Profero</span>
           <span style={{fontSize:22,fontWeight:800,color:"white"}}>Invest</span>
@@ -648,7 +648,7 @@ function Simulateur({ projet, profil, onRetour }) {
       </div>
 
       {/* Contenu scrollable */}
-      <div style={{flex:1,overflowY:"auto",background:"#080a0d"}}>
+      <div style={{flex:1,overflowY:"auto",background:"#1e2128"}}>
 
         {/* ══ TAB SIMULATEUR ══ */}
         {tab==="simulateur"&&(

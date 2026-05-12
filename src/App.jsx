@@ -135,7 +135,7 @@ function PageCreerMotDePasse({ onDone }) {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
+    <div style={{ minHeight:"100vh", background:"#1e2128", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
       <style>{CSS_BASE}</style>
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
@@ -208,7 +208,7 @@ function PageLogin({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
+    <div style={{ minHeight:"100vh", background:"#1e2128", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
       <style>{CSS_BASE}</style>
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
@@ -253,7 +253,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
   const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:"#1e2128", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{CSS_BASE}</style>
       <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
         <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:48, objectFit:"contain" }}/>
@@ -442,7 +442,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       /* ============== STRUCTURE GLOBALE ============== */
       .app-sidebar{display:none!important}
       .bottom-nav-mobile{display:flex!important;position:fixed;bottom:0;left:0;right:0;z-index:200;
-        background:#080a0d;border-top:2px solid #FFC200;align-items:stretch;
+        background:#16181d;border-top:2px solid #FFC200;align-items:stretch;
         padding-bottom:env(safe-area-inset-bottom)}
       .desktop-only{display:none!important}
       .mobile-only{display:flex!important}
@@ -671,7 +671,7 @@ export default function App() {
   ) return <PageRapportMobile />;
 
   if (authState === "loading") return (
-    <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:"#1e2128", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;800&display=swap');`}</style>
       <div style={{ textAlign:"center" }}>
         <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:56, objectFit:"contain", marginBottom:20 }}/>

@@ -29,7 +29,7 @@ export const STATUTS = {
 
 export const THEMES = {
   dark: {
-    bg:"#0d0f14", surface:"#14171f", modal:"#1a1d28",
+    bg:"#1e2128", surface:"#262a32", modal:"#2a2e37",
     card:"rgba(255,255,255,0.04)", cardHover:"rgba(255,194,0,0.07)",
     cardFill:"rgba(255,194,0,0.06)", border:"rgba(255,255,255,0.07)",
     borderHover:"rgba(255,194,0,0.4)", text:"#f0f0f0", textSub:"#9aa5c0",
@@ -43,7 +43,7 @@ export const THEMES = {
     scrollThumb:"#3a4060", labelText:"#111318",
     fieldBg:"rgba(255,255,255,0.05)", fieldBorder:"rgba(255,255,255,0.1)",
     sectionDivider:"rgba(255,255,255,0.06)",
-    sidebar:"#080a0d", sidebarActive:"rgba(255,194,0,0.12)", sidebarBorder:"rgba(255,255,255,0.06)",
+    sidebar:"#16181d", sidebarActive:"rgba(255,194,0,0.12)", sidebarBorder:"rgba(255,255,255,0.06)",
     widgetBg:"rgba(255,255,255,0.02)", inputBg:"rgba(255,255,255,0.06)",
   },
   light: {

@@ -335,7 +335,7 @@ function PageRapportMobile() {
 
   const S = {
     wrap:  { minHeight:"100vh", background:"#f4f6fa", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" },
-    header:{ background:"#080a0d", padding:"16px 20px 14px", position:"sticky", top:0, zIndex:10, borderBottom:"2px solid #FFC200" },
+    header:{ background:"#16181d", padding:"16px 20px 14px", position:"sticky", top:0, zIndex:10, borderBottom:"2px solid #FFC200" },
     card:  { background:"#fff", borderRadius:14, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)" },
     label: { fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"#8a9ab0", marginBottom:8, display:"block" },
     input: { width:"100%", border:"1.5px solid #e0e4ef", borderRadius:10, padding:"14px 14px", fontSize:16, fontFamily:"inherit", outline:"none", boxSizing:"border-box" },
