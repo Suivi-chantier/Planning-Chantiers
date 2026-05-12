@@ -468,9 +468,84 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     setEditOuvrier(null);
   };
   const moveOuvrier=(i,d)=>{const a=[...ouvriers],j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];setOuvriers(a);saveConfig("ouvriers",a);};
-  const addChantier=()=>{if(!newNom.trim())return;const id=newNom.trim().toLowerCase().replace(/\s+/g,"-")+"-"+Date.now();const nc={id,nom:newNom.trim().toUpperCase(),couleur:newColor};const u=[...chantiers,nc];setChantiers(u);saveConfig("chantiers",u);setNewNom("");};
-  const removeChantier=i=>{const u=chantiers.filter((_,idx)=>idx!==i);setChantiers(u);saveConfig("chantiers",u);};
-  const updateChantier=(i,ch)=>{const u=chantiers.map((c,idx)=>idx===i?{...c,...ch}:c);setChantiers(u);saveConfig("chantiers",u);};
+  const addChantier = async () => {
+    if (!newNom.trim()) return;
+    const id  = newNom.trim().toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
+    const nc  = { id, nom: newNom.trim().toUpperCase(), couleur: newColor };
+    const u   = [...chantiers, nc];
+    setChantiers(u);
+    saveConfig("chantiers", u);
+    setNewNom("");
+    // Création auto du phasage lié — assure la boucle logique chantier ↔ phasage
+    // dès la création. L'utilisateur peut ensuite remplir les ouvrages/tâches.
+    try {
+      await supabase.from("phasages").insert({
+        chantier_id: id,
+        chantier_nom: nc.nom,
+        ouvrages: [],
+        plan_travaux: null,
+        statut: "planifie",
+      });
+    } catch (e) {
+      console.warn("Création phasage auto échouée :", e?.message || e);
+    }
+  };
+
+  const removeChantier = i => {
+    const u = chantiers.filter((_, idx) => idx !== i);
+    setChantiers(u);
+    saveConfig("chantiers", u);
+  };
+
+  const updateChantier = async (i, ch) => {
+    const ancien = chantiers[i];
+    const u = chantiers.map((c, idx) => idx === i ? { ...c, ...ch } : c);
+    setChantiers(u);
+    saveConfig("chantiers", u);
+    // Synchronise le nom du phasage si le chantier a été renommé.
+    if (ch.nom && ancien?.id && ch.nom !== ancien.nom) {
+      try {
+        await supabase.from("phasages")
+          .update({ chantier_nom: ch.nom })
+          .eq("chantier_id", ancien.id);
+      } catch (e) {
+        console.warn("Sync nom phasage échouée :", e?.message || e);
+      }
+    }
+  };
+
+  // Synchronisation manuelle : pour chaque chantier sans phasage, crée la ligne
+  // manquante. Permet de rattraper les chantiers existants avant cette boucle auto.
+  const [syncing, setSyncing]       = useState(false);
+  const [syncMsg, setSyncMsg]       = useState("");
+  const synchroniserPhasages = async () => {
+    setSyncing(true); setSyncMsg("");
+    try {
+      const { data: existants } = await supabase
+        .from("phasages")
+        .select("chantier_id");
+      const setExistants = new Set((existants || []).map(p => p.chantier_id));
+      const manquants = chantiers.filter(c => !setExistants.has(c.id));
+      if (manquants.length === 0) {
+        setSyncMsg(`✓ Tous les chantiers sont déjà liés à un phasage (${chantiers.length} chantiers, ${existants?.length || 0} phasages).`);
+      } else {
+        const rows = manquants.map(c => ({
+          chantier_id: c.id,
+          chantier_nom: c.nom,
+          ouvrages: [],
+          plan_travaux: null,
+          statut: "planifie",
+        }));
+        const { error } = await supabase.from("phasages").insert(rows);
+        if (error) setSyncMsg(`⚠ Erreur : ${error.message}`);
+        else setSyncMsg(`✓ ${manquants.length} phasage${manquants.length > 1 ? "s" : ""} créé${manquants.length > 1 ? "s" : ""} : ${manquants.map(c => c.nom).join(", ")}`);
+      }
+    } catch (e) {
+      setSyncMsg(`⚠ Erreur : ${e.message}`);
+    }
+    setSyncing(false);
+    setTimeout(() => setSyncMsg(""), 8000);
+  };
   const moveChantier=(i,d)=>{const a=[...chantiers],j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];setChantiers(a);saveConfig("chantiers",a);};
 
   const isAdmin = profil?.role === "admin";
@@ -630,6 +705,45 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             <input className="ti" value={newNom} onChange={e=>setNewNom(e.target.value)}
               placeholder="Nom du chantier…" style={{flex:1,minWidth:140}} onKeyDown={e=>e.key==="Enter"&&addChantier()}/>
             <button className="btn-p" onClick={addChantier}>+ Ajouter</button>
+          </div>
+
+          {/* Synchronisation phasages : crée les phasages manquants pour les
+              chantiers existants. À utiliser une seule fois pour rattraper. */}
+          <div style={{
+            marginTop: 22, padding: "12px 14px",
+            background: "rgba(255,194,0,0.06)",
+            border: "1px dashed rgba(255,194,0,0.30)",
+            borderRadius: 10,
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2 }}>
+                Lier les chantiers existants aux phasages
+              </div>
+              <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1.55 }}>
+                Crée un phasage vide pour chaque chantier qui n'en a pas encore.
+                À utiliser une fois pour rattraper l'historique — les nouveaux
+                chantiers seront liés automatiquement.
+              </div>
+            </div>
+            <button onClick={synchroniserPhasages} disabled={syncing} style={{
+              padding: "8px 14px", borderRadius: 8, border: "none",
+              background: syncing ? T.textMuted : T.accent, color: "#111",
+              fontFamily: "inherit", fontSize: 12, fontWeight: 800,
+              cursor: syncing ? "not-allowed" : "pointer",
+            }}>
+              {syncing ? "Sync…" : "↻ Synchroniser"}
+            </button>
+            {syncMsg && (
+              <div style={{
+                flex: "1 1 100%",
+                fontSize: 12,
+                color: syncMsg.startsWith("⚠") ? "#e15a5a" : "#22c55e",
+                fontWeight: 600,
+              }}>
+                {syncMsg}
+              </div>
+            )}
           </div>
         </div>
       )}
