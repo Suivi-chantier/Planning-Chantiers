@@ -229,8 +229,9 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
         {stats.map((s, i) => <StatCard key={i} T={T} {...s} />)}
       </div>
 
-      {/* Rangée 1 : Chantiers (2/3) + Alertes (1/3) */}
-      <div className="dashboard-row" style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20, marginBottom:20 }}>
+      {/* Layout : Chantiers en colonne gauche (héros), tous les autres widgets
+         empilés à droite — tout visible sans scroller la page */}
+      <div className="dashboard-row" style={{ display:"grid", gridTemplateColumns:"3fr 2fr", gap:20, alignItems:"start", marginBottom:24 }}>
 
         <DashWidget T={T} accent={acc.accent} title="Chantiers aujourd'hui" icon={HardHat}>
           {!todayJour ? (
@@ -243,10 +244,10 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
               <span style={{ color:T.textMuted }}>Ouvre le planning pour remplir la journée.</span>
             </div>
           ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:560, overflowY:"auto", paddingRight:4 }}>
               {chantiersAujourdHui.map(c => (
                 <div key={c.id} className="dash-chantier-item" style={{
-                  display:"flex", alignItems:"flex-start", gap:14, padding:"14px 16px",
+                  display:"flex", alignItems:"flex-start", gap:12, padding:"11px 14px",
                   borderRadius: RADIUS.lg,
                   background: c.couleur + "1c",
                   border: `1px solid ${c.couleur}44`,
@@ -258,21 +259,21 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
                   }}/>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div className="dash-chantier-name" style={{
-                      fontWeight: 700, fontSize: FONT.md.size,
-                      color: T.text, marginBottom: 6,
+                      fontWeight: 700, fontSize: FONT.base.size + 1,
+                      color: T.text, marginBottom: 4,
                     }}>{c.nom}</div>
                     {c.cell.planifie && (
                       <div style={{
-                        fontSize: FONT.sm.size + 1, color: T.textSub,
-                        lineHeight: 1.55, marginBottom: 10, whiteSpace: "pre-wrap",
+                        fontSize: FONT.sm.size, color: T.textSub,
+                        lineHeight: 1.5, marginBottom: 7, whiteSpace: "pre-wrap",
                       }}>{c.cell.planifie}</div>
                     )}
-                    <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
                       {c.cell.ouvriers.map(o => (
                         <span key={o} style={{
                           background: c.couleur, color: "#1a1f2e",
                           borderRadius: RADIUS.sm + 2,
-                          padding: "2px 9px", fontSize: FONT.xs.size + 1,
+                          padding: "2px 8px", fontSize: FONT.xs.size,
                           fontWeight: 700, letterSpacing: .2,
                         }}>{o}</span>
                       ))}
@@ -284,114 +285,119 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
           )}
         </DashWidget>
 
-        <DashWidget T={T} accent="#e15a5a" title="À traiter" icon={TriangleAlert}>
-          {(todosEnRetard.length === 0 && todosAujourdhui.length === 0 && taskAlerts.length === 0) ? (
-            <div style={{ display:"flex", alignItems:"center", gap:8, color:T.textSub, fontSize:FONT.base.size }}>
-              <Icon as={Check} size={16} color="#4caf78"/>
-              <span>Rien à signaler</span>
-            </div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {todosEnRetard.length > 0 && (
-                <AlertGroup T={T} color="#e15a5a" label={`${todosEnRetard.length} tâche${todosEnRetard.length > 1 ? "s" : ""} en retard`}
-                  items={todosEnRetard.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
-              )}
-              {todosAujourdhui.length > 0 && (
-                <AlertGroup T={T} color="#f5a623" label={`${todosAujourdhui.length} tâche${todosAujourdhui.length > 1 ? "s" : ""} aujourd'hui`}
-                  items={todosAujourdhui.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
-              )}
-              {taskAlerts.length > 0 && (
-                <AlertGroup T={T} color="#5b8af5" label={`${taskAlerts.length} tâche${taskAlerts.length > 1 ? "s" : ""} signalée${taskAlerts.length > 1 ? "s" : ""}`}
-                  items={taskAlerts.slice(0,3).map(a => ({
-                    text: a.tache,
-                    sub: `${a.ouvrier} · ${a.chantier} · ${a.statut === "non_faite" ? "non faite" : "en cours"}`,
-                  }))}/>
-              )}
-            </div>
-          )}
-        </DashWidget>
-      </div>
+        {/* Colonne droite : 3 widgets empilés */}
+        <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
 
-      {/* Rangée 2 : Météo (2/3) + Activité équipe (1/3) */}
-      <div className="dashboard-row" style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20, marginBottom:24 }}>
-
-        <DashWidget T={T} accent="#5b8af5" title={`Météo · ${weather?.city || weatherCity}`} icon={Cloud}
-          action={
-            <button onClick={() => {
-              const v = prompt("Ville pour la météo :", weatherCity);
-              if (v && v.trim()) { setWeatherCity(v.trim()); localStorage.setItem("dash_weather_city", v.trim()); setWeather(null); }
-            }} style={{
-              display:"inline-flex", alignItems:"center", gap:5,
-              background:"transparent",
-              border:`1px solid ${T.border}`, borderRadius:RADIUS.md,
-              padding:"4px 10px", color:T.textSub,
-              fontSize:FONT.xs.size + 1, fontWeight:600,
-              cursor:"pointer", fontFamily:"inherit",
-            }}>
-              <Icon as={MapPin} size={12}/>
-              Changer
-            </button>
-          }>
-          {!weather ? (
-            <div style={{ color:T.textMuted, fontSize:FONT.sm.size, padding:"12px 0" }}>Chargement…</div>
-          ) : weather.error ? (
-            <div style={{ color:"#e15a5a", fontSize:FONT.sm.size, padding:"12px 0" }}>Météo indisponible — {weather.error}</div>
-          ) : (
-            <WeatherDisplay weather={weather} T={T} />
-          )}
-        </DashWidget>
-
-        <DashWidget T={T} accent="#4caf78" title="Activité équipe" icon={Users}>
-          {todayJour && ouvriersAttendus.length === 0 ? (
-            <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Personne planifié</div>
-          ) : !todayJour ? (
-            <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Week-end</div>
-          ) : (
-            <>
-              <div style={{ display:"flex", alignItems:"baseline", gap:6, marginBottom:14 }}>
-                <span style={{
-                  fontSize: 26, fontWeight: 800, color: T.text, letterSpacing: -0.3,
-                }}>{ouvriersAttendus.length - ouvriersManquants.length}</span>
-                <span style={{ fontSize: FONT.sm.size, color: T.textMuted }}>/ {ouvriersAttendus.length} compte rendu{ouvriersAttendus.length > 1 ? "s" : ""}</span>
-              </div>
-              {/* Progress bar */}
-              <div style={{ height:6, borderRadius:3, background:T.card, marginBottom:14, overflow:"hidden" }}>
-                <div style={{
-                  height:"100%",
-                  width: `${tauxRendus || 0}%`,
-                  background: tauxRendus === null ? "#94a3b8" : tauxRendus >= 80 ? "#4caf78" : tauxRendus >= 50 ? "#f5a623" : "#e15a5a",
-                  transition: "width .3s",
-                }}/>
-              </div>
-              {ouvriersManquants.length > 0 ? (
-                <>
-                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginBottom: 6, fontWeight: 600, letterSpacing: .8, textTransform: "uppercase" }}>
-                    En attente
-                  </div>
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-                    {ouvriersManquants.map(o => (
-                      <span key={o} style={{
-                        display:"inline-flex", alignItems:"center", gap:4,
-                        background:"rgba(225,90,90,0.12)", color:"#e15a5a",
-                        border:"1px solid rgba(225,90,90,0.25)",
-                        borderRadius: RADIUS.sm + 2, padding:"3px 9px",
-                        fontSize: FONT.xs.size + 1, fontWeight: 700,
-                      }}>
-                        <Icon as={Clock} size={10}/>
-                        {o}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600 }}>
-                  <Icon as={Check} size={16}/>
-                  Tous les rapports sont rendus
+          <DashWidget T={T} accent="#4caf78" title="Activité équipe" icon={Users}>
+            {todayJour && ouvriersAttendus.length === 0 ? (
+              <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Personne planifié</div>
+            ) : !todayJour ? (
+              <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Week-end</div>
+            ) : (
+              <>
+                <div style={{ display:"flex", alignItems:"baseline", gap:6, marginBottom:10 }}>
+                  <span style={{
+                    fontSize: 26, fontWeight: 800, color: T.text, letterSpacing: -0.3,
+                  }}>{ouvriersAttendus.length - ouvriersManquants.length}</span>
+                  <span style={{ fontSize: FONT.sm.size, color: T.textMuted }}>/ {ouvriersAttendus.length} compte rendu{ouvriersAttendus.length > 1 ? "s" : ""}</span>
                 </div>
-              )}
-            </>
-          )}
-        </DashWidget>
+                <div style={{ height:6, borderRadius:3, background:T.card, marginBottom:12, overflow:"hidden" }}>
+                  <div style={{
+                    height:"100%",
+                    width: `${tauxRendus || 0}%`,
+                    background: tauxRendus === null ? "#94a3b8" : tauxRendus >= 80 ? "#4caf78" : tauxRendus >= 50 ? "#f5a623" : "#e15a5a",
+                    transition: "width .3s",
+                  }}/>
+                </div>
+                {ouvriersManquants.length > 0 ? (
+                  <>
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginBottom: 5, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase" }}>
+                      En attente
+                    </div>
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                      {ouvriersManquants.map(o => (
+                        <span key={o} style={{
+                          display:"inline-flex", alignItems:"center", gap:4,
+                          background:"rgba(225,90,90,0.12)", color:"#e15a5a",
+                          border:"1px solid rgba(225,90,90,0.25)",
+                          borderRadius: RADIUS.sm + 2, padding:"3px 9px",
+                          fontSize: FONT.xs.size + 1, fontWeight: 700,
+                        }}>
+                          <Icon as={Clock} size={10}/>
+                          {o}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600 }}>
+                    <Icon as={Check} size={16}/>
+                    Tous les rapports sont rendus
+                  </div>
+                )}
+              </>
+            )}
+          </DashWidget>
+
+          <DashWidget T={T} accent="#e15a5a" title="À traiter" icon={TriangleAlert}>
+            {(todosEnRetard.length === 0 && todosAujourdhui.length === 0 && taskAlerts.length === 0) ? (
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600, marginBottom:8 }}>
+                  <Icon as={Check} size={16}/>
+                  Rien à signaler
+                </div>
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, lineHeight: 1.55 }}>
+                  Ce widget affichera ici les tâches Notes & To-Do en retard, celles dues aujourd'hui, et les tâches marquées "non faite" ou "en cours" dans les comptes rendus récents.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {todosEnRetard.length > 0 && (
+                  <AlertGroup T={T} color="#e15a5a" label={`${todosEnRetard.length} tâche${todosEnRetard.length > 1 ? "s" : ""} en retard`}
+                    items={todosEnRetard.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
+                )}
+                {todosAujourdhui.length > 0 && (
+                  <AlertGroup T={T} color="#f5a623" label={`${todosAujourdhui.length} tâche${todosAujourdhui.length > 1 ? "s" : ""} aujourd'hui`}
+                    items={todosAujourdhui.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
+                )}
+                {taskAlerts.length > 0 && (
+                  <AlertGroup T={T} color="#5b8af5" label={`${taskAlerts.length} tâche${taskAlerts.length > 1 ? "s" : ""} signalée${taskAlerts.length > 1 ? "s" : ""}`}
+                    items={taskAlerts.slice(0,3).map(a => ({
+                      text: a.tache,
+                      sub: `${a.ouvrier} · ${a.chantier} · ${a.statut === "non_faite" ? "non faite" : "en cours"}`,
+                    }))}/>
+                )}
+              </div>
+            )}
+          </DashWidget>
+
+          <DashWidget T={T} accent="#5b8af5" title={`Météo · ${weather?.city || weatherCity}`} icon={Cloud}
+            action={
+              <button onClick={() => {
+                const v = prompt("Ville pour la météo :", weatherCity);
+                if (v && v.trim()) { setWeatherCity(v.trim()); localStorage.setItem("dash_weather_city", v.trim()); setWeather(null); }
+              }} style={{
+                display:"inline-flex", alignItems:"center", gap:5,
+                background:"transparent",
+                border:`1px solid ${T.border}`, borderRadius:RADIUS.md,
+                padding:"4px 10px", color:T.textSub,
+                fontSize:FONT.xs.size + 1, fontWeight:600,
+                cursor:"pointer", fontFamily:"inherit",
+              }}>
+                <Icon as={MapPin} size={12}/>
+                Changer
+              </button>
+            }>
+            {!weather ? (
+              <div style={{ color:T.textMuted, fontSize:FONT.sm.size, padding:"12px 0" }}>Chargement…</div>
+            ) : weather.error ? (
+              <div style={{ color:"#e15a5a", fontSize:FONT.sm.size, padding:"12px 0" }}>Météo indisponible — {weather.error}</div>
+            ) : (
+              <WeatherDisplay weather={weather} T={T} />
+            )}
+          </DashWidget>
+
+        </div>
       </div>
     </div>
   );
