@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS } from "./constants";
+import { Icon } from "./ui";
+import {
+  Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
+  Check, X, RefreshCw, MessageSquare, Pencil, Camera, FileDown, Trash2,
+  ArrowRight, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, RotateCcw, ExternalLink,
+} from "lucide-react";
 
 // ─── PAGE ÉQUIPE ──────────────────────────────────────────────────────────────
 // ─── HEURES PAR JOUR ─────────────────────────────────────────────────────────
@@ -103,6 +109,39 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       const hpc = calcHeuresParChantier();
       const totalH = Object.values(hpc).reduce((a, b) => a + b, 0);
 
+      // ── Dédoublonnage des tâches : si plusieurs ouvriers ont rendu la même
+      //    tâche, on fusionne en une seule entrée avec la liste des ouvriers
+      //    et les remarques concaténées (uniques).
+      const normTexte = (s) => (s||"").toLowerCase().replace(/\s+/g," ").trim();
+      const dedupe = (rawList) => {
+        const map = {};
+        rawList.forEach(t => {
+          const key = normTexte(t.texte);
+          if (!key) return;
+          if (!map[key]) map[key] = { texte: t.texte, remarques: new Set(), ouvriers: new Set() };
+          if (t.remarque && t.remarque.trim()) map[key].remarques.add(t.remarque.trim());
+          if (t.ouvrier) map[key].ouvriers.add(t.ouvrier);
+        });
+        return Object.values(map).map(v => ({
+          texte: v.texte,
+          remarque: [...v.remarques].join(" · "),
+          ouvrier: [...v.ouvriers].join(", "),
+        }));
+      };
+      const dedupeRemarques = (rawList) => {
+        const map = {};
+        rawList.forEach(r => {
+          const key = normTexte(r.texte);
+          if (!key) return;
+          if (!map[key]) map[key] = { texte: r.texte, ouvriers: new Set() };
+          if (r.ouvrier) map[key].ouvriers.add(r.ouvrier);
+        });
+        return Object.values(map).map(v => ({
+          texte: v.texte,
+          ouvrier: [...v.ouvriers].join(", "),
+        }));
+      };
+
       // Construire les données structurées pour le document
       const chantierData = Object.entries(parChantier).map(([cId, grp]) => {
         const hCh = hpc[cId] || 0;
@@ -113,14 +152,18 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
           if (cell && (cell.ouvriers||[]).length)
             presences.push(`${jour} : ${cell.ouvriers.join(", ")}`);
         });
+        const rawFaites    = taches.filter(t=>t.statut==="faite")    .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
+        const rawEnCours   = taches.filter(t=>t.statut==="en_cours") .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
+        const rawNonFaites = taches.filter(t=>t.statut==="non_faite").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
+        const rawRemarques = grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque }));
         return {
           nom: grp.nom,
           heures: hCh,
           presences,
-          faites:    taches.filter(t=>t.statut==="faite").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier })),
-          enCours:   taches.filter(t=>t.statut==="en_cours").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier })),
-          nonFaites: taches.filter(t=>t.statut==="non_faite").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier })),
-          remarques: grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque })),
+          faites:    dedupe(rawFaites),
+          enCours:   dedupe(rawEnCours),
+          nonFaites: dedupe(rawNonFaites),
+          remarques: dedupeRemarques(rawRemarques),
         };
       });
 
@@ -227,9 +270,15 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
             <button onClick={onClose} style={{ background:"transparent", border:`1px solid ${T.border}`,
               borderRadius:10, padding:"10px 20px", color:T.textSub,
               fontFamily:"inherit", fontSize:14, cursor:"pointer" }}>Annuler</button>
-            <button onClick={() => setEtape("bilan")} style={{ background:T.accent, border:"none",
-              borderRadius:10, padding:"10px 24px", color:"#111",
-              fontFamily:"inherit", fontSize:14, fontWeight:800, cursor:"pointer" }}>Voir le bilan →</button>
+            <button onClick={() => setEtape("bilan")} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: T.accent, border: "none",
+              borderRadius: 10, padding: "10px 22px", color: "#111",
+              fontFamily: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer",
+            }}>
+              Voir le bilan
+              <Icon as={ArrowRight} size={14}/>
+            </button>
           </div>
         </div>
       </div>
@@ -278,11 +327,31 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                 cursor: generatingDoc ? "wait" : "pointer", fontSize:13, fontWeight:700,
                 color:"#fff", display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap",
                 opacity: generatingDoc ? 0.7 : 1 }}>
-              {generatingDoc ? "⏳ Génération…" : draftStatus==="ok" ? "✅ Téléchargé !" : draftStatus==="error" ? "❌ Erreur" : "📄 Compte rendu .docx"}
+              {generatingDoc ? (
+                <>
+                  <Icon as={RefreshCw} size={13}/> Génération…
+                </>
+              ) : draftStatus === "ok" ? (
+                <>
+                  <Icon as={Check} size={13}/> Téléchargé
+                </>
+              ) : draftStatus === "error" ? (
+                <>
+                  <Icon as={X} size={13}/> Erreur
+                </>
+              ) : (
+                <>
+                  <Icon as={FileDown} size={14}/> Compte rendu .docx
+                </>
+              )}
             </button>
-            <button onClick={onClose} style={{ background:"rgba(255,255,255,0.08)", border:"none",
-              borderRadius:10, width:40, height:40, cursor:"pointer", fontSize:20, color:"#fff",
-              display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+            <button onClick={onClose} style={{
+              background: "rgba(255,255,255,0.08)", border: "none",
+              borderRadius: 10, width: 40, height: 40, cursor: "pointer",
+              color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon as={X} size={18}/>
+            </button>
           </div>
         </div>
 
@@ -393,7 +462,10 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                 <div style={{ padding:"14px 20px", display:"flex", flexDirection:"column", gap:14 }}>
                   {detailJours.length > 0 && (
                     <div>
-                      <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:T.textMuted, marginBottom:8 }}>⏱ Présences</div>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textMuted, marginBottom:8 }}>
+                        <Icon as={Clock} size={11}/>
+                        Présences
+                      </div>
                       <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                         {detailJours.map(({jour, ouvriers}) => (
                           <div key={jour} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"7px 12px" }}>
@@ -411,7 +483,10 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                   )}
                   {faites.length > 0 && (
                     <div>
-                      <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"#50c878", marginBottom:8 }}>✅ Réalisé</div>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#22c55e", marginBottom:8 }}>
+                        <Icon as={Check} size={11}/>
+                        Réalisé
+                      </div>
                       {faites.map((t,i) => (
                         <div key={i} style={{ fontSize:13, color:T.text, marginBottom:4, display:"flex", gap:8 }}>
                           <span style={{ color:"#50c878", flexShrink:0 }}>✓</span>
@@ -423,7 +498,10 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                   )}
                   {enCours.length > 0 && (
                     <div>
-                      <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:T.accent, marginBottom:8 }}>🔄 En cours</div>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#f5a623", marginBottom:8 }}>
+                        <Icon as={RefreshCw} size={11}/>
+                        En cours
+                      </div>
                       {enCours.map((t,i) => (
                         <div key={i} style={{ fontSize:13, color:T.text, marginBottom:4, display:"flex", gap:8 }}>
                           <span style={{ color:T.accent, flexShrink:0 }}>→</span>
@@ -435,7 +513,10 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                   )}
                   {nonFaites.length > 0 && (
                     <div>
-                      <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"#e05c5c", marginBottom:8 }}>❌ Non réalisé</div>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#e15a5a", marginBottom:8 }}>
+                        <Icon as={X} size={11}/>
+                        Non réalisé
+                      </div>
                       {nonFaites.map((t,i) => (
                         <div key={i} style={{ fontSize:13, color:T.text, marginBottom:4, display:"flex", gap:8 }}>
                           <span style={{ color:"#e05c5c", flexShrink:0 }}>✕</span>
@@ -447,7 +528,10 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                   )}
                   {remarques.length > 0 && (
                     <div>
-                      <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"#a0b8ff", marginBottom:8 }}>💬 Remarques</div>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#a0b8ff", marginBottom:8 }}>
+                        <Icon as={MessageSquare} size={11}/>
+                        Remarques
+                      </div>
                       {remarques.map((r,i) => (
                         <div key={i} style={{ fontSize:13, color:T.textSub, marginBottom:4 }}>
                           <strong style={{color:T.text}}>{r.ouvrier}</strong> : {r.remarque}
@@ -465,13 +549,15 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   );
 }
 
-function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
+function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation"}) {
+  const acc = getBranchAccent(branch);
   const [rapports, setRapports]       = useState([]);
   const [loading, setLoading]         = useState(true);
   const [filterOuvrier, setFilterOuvrier] = useState("all");
   const [filterChantier, setFilterChantier] = useState("all");
   const [filterSemaine, setFilterSemaine]   = useState(weekId);
   const [groupBy, setGroupBy]         = useState("ouvrier"); // "ouvrier" | "chantier"
+  const [viewMode, setViewMode]       = useState("liste");   // "liste" | "calendrier"
   const [showBilan, setShowBilan]     = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
@@ -540,6 +626,37 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
     heures:  allTaches.reduce((s,t)=>s+(parseFloat(t.heures_reelles)||0),0),
   };
 
+  // ── Récap heures par ouvrier sur les rapports filtrés ──
+  const heuresParOuvrier = {};
+  rapports.forEach(r => {
+    const total = (r.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+    if (total > 0) heuresParOuvrier[r.ouvrier] = (heuresParOuvrier[r.ouvrier] || 0) + total;
+  });
+
+  // ── Rapports manquants du jour : ouvriers planifiés aujourd'hui qui n'ont
+  //    pas (encore) rendu de rapport. Basé sur les cells du planning de la
+  //    semaine en cours.
+  const todayJour = (() => {
+    const d = new Date().getDay();
+    return JOURS_JS[d] || null; // null si week-end
+  })();
+  const todayDateFr = new Date().toLocaleDateString("fr-FR"); // format DD/MM/YYYY (rapports.date_rapport)
+  const ouvriersPlanifsToday = [];
+  if (todayJour) {
+    chantiers.forEach(c => {
+      const cell = cells[`${c.id}_${todayJour}`];
+      const aUneTache = cell && ((cell.taches && cell.taches.length > 0) || (cell.planifie && cell.planifie.trim()));
+      if (!aUneTache) return;
+      (cell.ouvriers || []).forEach(o => {
+        if (o && !ouvriersPlanifsToday.includes(o)) ouvriersPlanifsToday.push(o);
+      });
+    });
+  }
+  const ouvriersRendusToday = new Set(
+    rapports.filter(r => r.date_rapport === todayDateFr).map(r => r.ouvrier)
+  );
+  const manquantsAujourdhui = ouvriersPlanifsToday.filter(o => !ouvriersRendusToday.has(o));
+
   return (
     <div className="page-padding eq-page" style={{flex:1,overflowY:"auto",padding:"24px 28px",background:T.bg}}>
       <style>{`
@@ -596,101 +713,229 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
       )}
 
       {/* ── Header ── */}
-      <div className="eq-header" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",
+      <div className="eq-header" style={{display:"flex",alignItems:"center",justifyContent:"space-between",
         marginBottom:20,flexWrap:"wrap",gap:12}}>
-        <div>
-          <div style={{fontSize:26,fontWeight:800,letterSpacing:1,marginBottom:2}}>Équipe</div>
-          <div style={{fontSize:13,color:T.textSub}}>Comptes rendus journaliers de l'équipe</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: RADIUS.md,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={Users} size={20} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{fontSize: FONT.xl.size + 4, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginBottom: 2}}>Équipe</div>
+            <div style={{fontSize: FONT.xs.size + 1, color: T.textMuted}}>Comptes rendus journaliers de l'équipe</div>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <button onClick={()=>setShowBilan(true)} style={{
-            background:"linear-gradient(135deg,#FFC200,#e6ae00)",color:"#111",border:"none",
-            borderRadius:10,padding:"9px 18px",fontFamily:"inherit",fontSize:13,fontWeight:800,
-            cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-            📊 Bilan semaine
+            display:"inline-flex", alignItems:"center", gap:6,
+            background: acc.accent, color: acc.onAccent, border: "none",
+            borderRadius: RADIUS.md, padding: "9px 16px",
+            fontFamily:"inherit", fontSize: FONT.sm.size, fontWeight:800,
+            cursor:"pointer",
+          }}>
+            <Icon as={ChartBar} size={14}/>
+            Bilan semaine
           </button>
-          <div className="eq-link-box" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,
-            padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
-            <code style={{fontSize:12,color:T.accent}}>{appUrl}</code>
-            <button onClick={copyLink} style={{background:T.accent,color:"#fff",border:"none",
-              borderRadius:6,padding:"6px 12px",fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-              {copied?"✓ Copié !":"📋 Copier"}
+          <div className="eq-link-box" style={{
+            background: T.card, border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.md, padding: "6px 8px 6px 12px",
+            display:"flex", alignItems:"center", gap: 8,
+          }}>
+            <Icon as={Link2} size={13} color={acc.accent}/>
+            <code style={{fontSize: FONT.xs.size + 1, color: T.text}}>{appUrl}</code>
+            <button onClick={copyLink} title="Copier le lien" style={{
+              display:"inline-flex", alignItems:"center", gap:5,
+              background: copied ? "rgba(34,197,94,0.12)" : "transparent",
+              color: copied ? "#22c55e" : T.textSub,
+              border: `1px solid ${copied ? "rgba(34,197,94,0.30)" : T.border}`,
+              borderRadius: RADIUS.sm + 2, padding: "5px 10px",
+              fontFamily:"inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
+              cursor:"pointer", transition: "all .12s",
+            }}>
+              <Icon as={copied ? Check : Copy} size={11}/>
+              {copied ? "Copié" : "Copier"}
             </button>
           </div>
         </div>
       </div>
 
+      {/* ── Rapports manquants du jour ── */}
+      {todayJour && manquantsAujourdhui.length > 0 && (
+        <div style={{
+          background: "rgba(245,166,35,0.08)",
+          border: "1px solid rgba(245,166,35,0.30)",
+          borderRadius: RADIUS.lg, padding: "12px 16px",
+          marginBottom: 16,
+          display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+        }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: RADIUS.md,
+            background: "rgba(245,166,35,0.18)", color: "#f5a623",
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={Clock} size={16}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: T.text, marginBottom: 2 }}>
+              {manquantsAujourdhui.length} rapport{manquantsAujourdhui.length > 1 ? "s" : ""} en attente pour {todayJour.toLowerCase()}
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+              {manquantsAujourdhui.length}/{ouvriersPlanifsToday.length} planifié{ouvriersPlanifsToday.length > 1 ? "s" : ""} aujourd'hui n'{manquantsAujourdhui.length > 1 ? "ont" : "a"} pas encore rendu
+            </div>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {manquantsAujourdhui.map(o => (
+              <span key={o} style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                background: "rgba(245,166,35,0.15)", color: "#f5a623",
+                border: "1px solid rgba(245,166,35,0.35)",
+                borderRadius: RADIUS.pill, padding: "3px 9px",
+                fontSize: FONT.xs.size + 1, fontWeight: 700,
+              }}>
+                <Icon as={HardHat} size={10}/> {o}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Filtres + tri ── */}
-      <div className="eq-filters" style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,
-        padding:"14px 16px",marginBottom:16,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+      <div className="eq-filters" style={{
+        background: T.surface, border: `1px solid ${T.border}`,
+        borderRadius: RADIUS.lg,
+        padding: "12px 14px", marginBottom: 16,
+        display:"flex", gap: 8, flexWrap:"wrap", alignItems:"center",
+      }}>
 
         {/* Tri / groupement */}
-        <div style={{display:"flex",background:T.card,borderRadius:8,padding:3,gap:2,flexShrink:0}}>
-          {[["ouvrier","👷 Par ouvrier"],["chantier","🏗️ Par chantier"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setGroupBy(v)} style={{
-              padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",
-              fontFamily:"inherit",fontSize:12,fontWeight:700,
-              background: groupBy===v ? T.accent : "transparent",
-              color: groupBy===v ? "#111" : T.textMuted,
-              transition:"all .15s",
-            }}>{l}</button>
-          ))}
+        <div style={{
+          display: "flex", padding: 3, gap: 2,
+          background: T.card, border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg, flexShrink: 0,
+        }}>
+          {[
+            { id: "ouvrier",  label: "Par ouvrier",  icon: HardHat },
+            { id: "chantier", label: "Par chantier", icon: Building2 },
+          ].map(v => {
+            const active = groupBy === v.id;
+            return (
+              <button key={v.id} onClick={() => setGroupBy(v.id)} style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                padding: "5px 12px", border: "none",
+                borderRadius: RADIUS.md,
+                fontFamily: "inherit",
+                fontSize: FONT.xs.size + 1, fontWeight: active ? 800 : 600,
+                cursor: "pointer",
+                background: active ? acc.accent : "transparent",
+                color: active ? acc.onAccent : T.textSub,
+                transition: "background .12s, color .12s",
+              }}>
+                <Icon as={v.icon} size={12}/>
+                {v.label}
+              </button>
+            );
+          })}
         </div>
 
-        <div style={{width:1,height:28,background:T.border,flexShrink:0}}/>
+        {/* Sélecteurs filtres avec icônes inline */}
+        {[
+          { icon: Calendar, value: filterSemaine, onChange: setFilterSemaine, options: [{ value: "", label: "Toutes les semaines" }, ...semaines.map(s => ({ value: s, label: s }))], isAll: filterSemaine === "" },
+          { icon: HardHat, value: filterOuvrier, onChange: setFilterOuvrier, options: [{ value: "all", label: "Tous les ouvriers" }, ...ouvriers.map(o => ({ value: o, label: o }))], isAll: filterOuvrier === "all" },
+          { icon: Building2, value: filterChantier, onChange: setFilterChantier, options: [{ value: "all", label: "Tous les chantiers" }, ...chantiers.map(c => ({ value: c.id, label: c.nom }))], isAll: filterChantier === "all" },
+        ].map((sel, i) => (
+          <div key={i} style={{ position: "relative" }}>
+            <Icon as={sel.icon} size={13} style={{
+              position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+              color: sel.isAll ? T.textMuted : acc.accent, pointerEvents: "none",
+            }}/>
+            <select value={sel.value} onChange={e => sel.onChange(e.target.value)}
+              style={{
+                background: T.inputBg, color: sel.isAll ? T.textSub : T.text,
+                border: `1px solid ${sel.isAll ? T.border : acc.border}`,
+                borderRadius: RADIUS.md,
+                padding: "6px 10px 6px 30px",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: sel.isAll ? 500 : 600,
+                outline: "none", cursor: "pointer",
+              }}>
+              {sel.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        ))}
 
-        {/* Semaine */}
-        <select value={filterSemaine} onChange={e=>setFilterSemaine(e.target.value)}
-          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,
-            padding:"7px 10px",color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
-          <option value="">Toutes les semaines</option>
-          {semaines.map(s=><option key={s} value={s}>{s}</option>)}
-        </select>
-
-        {/* Ouvrier */}
-        <select value={filterOuvrier} onChange={e=>setFilterOuvrier(e.target.value)}
-          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,
-            padding:"7px 10px",color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
-          <option value="all">Tous les ouvriers</option>
-          {ouvriers.map(o=><option key={o} value={o}>{o}</option>)}
-        </select>
-
-        {/* Chantier */}
-        <select value={filterChantier} onChange={e=>setFilterChantier(e.target.value)}
-          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,
-            padding:"7px 10px",color:T.text,fontFamily:"inherit",fontSize:13,outline:"none"}}>
-          <option value="all">Tous les chantiers</option>
-          {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
-        </select>
-
-        {(filterOuvrier!=="all"||filterChantier!=="all")&&(
-          <button onClick={()=>{setFilterOuvrier("all");setFilterChantier("all");}}
-            style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:7,
-              padding:"6px 10px",color:T.textMuted,fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>
-            ✕ Réinitialiser
+        {(filterOuvrier !== "all" || filterChantier !== "all" || filterSemaine) && (
+          <button onClick={() => { setFilterOuvrier("all"); setFilterChantier("all"); setFilterSemaine(""); }}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              background: "transparent", border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.md, padding: "6px 10px",
+              color: T.textMuted, fontFamily: "inherit",
+              fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
+            }}>
+            <Icon as={RotateCcw} size={11}/>
+            Réinitialiser
           </button>
         )}
+
+        {/* Switch de vue : Liste / Calendrier — à droite */}
+        <div style={{
+          marginLeft: "auto",
+          display: "flex", padding: 3, gap: 2,
+          background: T.card, border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg, flexShrink: 0,
+        }}>
+          {[
+            { id: "liste",      label: "Liste",      icon: FileDown },
+            { id: "calendrier", label: "Calendrier", icon: Calendar },
+          ].map(v => {
+            const active = viewMode === v.id;
+            return (
+              <button key={v.id} onClick={() => setViewMode(v.id)} style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                padding: "5px 12px", border: "none",
+                borderRadius: RADIUS.md,
+                fontFamily: "inherit",
+                fontSize: FONT.xs.size + 1, fontWeight: active ? 800 : 600,
+                cursor: "pointer",
+                background: active ? acc.accent : "transparent",
+                color: active ? acc.onAccent : T.textSub,
+                transition: "background .12s, color .12s",
+              }}>
+                <Icon as={v.icon} size={12}/>
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ── Stats ── */}
-      {rapports.length>0&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16}}>
+      {rapports.length > 0 && (
+        <div className="eq-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 16 }}>
           {[
-            {label:"Comptes rendus", val:stats.total,    color:T.accent,        icon:"📋"},
-            {label:"Heures réelles", val:stats.heures>0?stats.heures.toFixed(1)+"h":"—", color:"#5b9cf6", icon:"⏱"},
-            {label:"Tâches faites",  val:stats.faites,   color:"#50c878",       icon:"✅"},
-            {label:"En cours",       val:stats.enCours,  color:"#f5a623",       icon:"🔄"},
-            {label:"Non faites",     val:stats.nonFaites,color:"#e05c5c",       icon:"❌"},
-          ].map(s=>(
-            <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,
-              borderRadius:10,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
-              <div style={{width:36,height:36,borderRadius:8,background:s.color+"18",
-                display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
-                {s.icon}
+            { label: "Comptes rendus", val: stats.total,    color: acc.accent, icon: FileDown },
+            { label: "Heures réelles", val: stats.heures > 0 ? stats.heures.toFixed(1) + "h" : "—", color: "#5b9cf6", icon: Clock },
+            { label: "Tâches faites",  val: stats.faites,   color: "#22c55e",  icon: Check },
+            { label: "En cours",       val: stats.enCours,  color: "#f5a623",  icon: RefreshCw },
+            { label: "Non faites",     val: stats.nonFaites, color: "#e15a5a", icon: X },
+          ].map(s => (
+            <div key={s.label} style={{
+              background: T.surface, border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.lg, padding: "12px 14px",
+              display: "flex", alignItems: "center", gap: 10,
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: RADIUS.md,
+                background: s.color + "18", color: s.color,
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
+                <Icon as={s.icon} size={18} strokeWidth={2}/>
               </div>
               <div>
-                <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
-                <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{s.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1.1, letterSpacing: -0.3 }}>{s.val}</div>
+                <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, fontWeight: 600, letterSpacing: .3, textTransform: "uppercase" }}>{s.label}</div>
               </div>
             </div>
           ))}
@@ -698,18 +943,40 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
       )}
 
       {/* ── Contenu ── */}
-      {loading&&<div style={{color:T.textMuted,padding:40,textAlign:"center"}}>Chargement…</div>}
+      {loading && <div style={{ color: T.textMuted, padding: 40, textAlign: "center", fontSize: FONT.sm.size }}>Chargement…</div>}
 
-      {!loading&&rapports.length===0&&(
-        <div style={{background:T.surface,border:`1px dashed ${T.border}`,borderRadius:14,
-          padding:"48px 32px",textAlign:"center"}}>
-          <div style={{fontSize:40,marginBottom:12}}>📋</div>
-          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Aucun compte rendu</div>
-          <div style={{fontSize:13,color:T.textSub}}>Partage le lien ci-dessus à ton équipe.</div>
+      {!loading && rapports.length === 0 && (
+        <div style={{
+          background: T.surface, border: `1px dashed ${T.border}`,
+          borderRadius: RADIUS.xl, padding: "48px 32px", textAlign: "center",
+        }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: "50%",
+            background: acc.bg10, color: acc.accent,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            marginBottom: 12,
+          }}>
+            <Icon as={FileDown} size={28} strokeWidth={1.5}/>
+          </div>
+          <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text, marginBottom: 6 }}>Aucun compte rendu</div>
+          <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>Partage le lien ci-dessus à ton équipe.</div>
         </div>
       )}
 
+      {/* ── Vue calendrier hebdo ── */}
+      {viewMode === "calendrier" && !loading && (
+        <VueCalendrierEquipe
+          rapports={rapports}
+          ouvriers={ouvriers}
+          chantiers={chantiers}
+          cells={cells}
+          weekId={filterSemaine || weekId}
+          T={T} acc={acc}
+        />
+      )}
+
       {/* ── Groupes ── */}
+      {viewMode === "liste" && (
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {grouped.map(grp => {
           const isOpen = expandedGroups[grp.key] !== false; // ouvert par défaut
@@ -726,38 +993,57 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
               borderRadius:14,overflow:"hidden"}}>
 
               {/* En-tête groupe */}
-              <div onClick={()=>toggleGroup(grp.key)} style={{
-                padding:"14px 18px",cursor:"pointer",
-                background: ch ? ch.couleur+"14" : T.card,
+              <div onClick={() => toggleGroup(grp.key)} style={{
+                padding: "12px 16px", cursor: "pointer",
+                background: ch ? ch.couleur + "14" : T.card,
                 borderBottom: isOpen ? `1px solid ${T.sectionDivider}` : "none",
-                display:"flex",alignItems:"center",gap:12,
-                borderLeft:`4px solid ${accentColor}`,
+                display: "flex", alignItems: "center", gap: 12,
+                borderLeft: `4px solid ${accentColor}`,
               }}>
                 {/* Icône / avatar */}
-                <div style={{width:38,height:38,borderRadius:10,flexShrink:0,
-                  background:accentColor+"22",border:`1.5px solid ${accentColor}44`,
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:18,fontWeight:800,color:accentColor}}>
-                  {groupBy==="ouvrier" ? grp.label[0].toUpperCase() : "🏗️"}
+                <div style={{
+                  width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
+                  background: accentColor + "22", border: `1.5px solid ${accentColor}44`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: accentColor,
+                }}>
+                  {groupBy === "ouvrier"
+                    ? <span style={{ fontSize: 16, fontWeight: 800 }}>{grp.label[0].toUpperCase()}</span>
+                    : <Icon as={Building2} size={18} strokeWidth={2}/>}
                 </div>
 
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>{grp.label}</div>
-                  <div style={{fontSize:12,color:T.textMuted,marginTop:1}}>
-                    {grp.rapports.length} compte{grp.rapports.length>1?"s":""} rendu{grp.rapports.length>1?"s":""}
-                    {grpHeures>0&&<> · <span style={{color:"#5b9cf6",fontWeight:700}}>{grpHeures.toFixed(1)}h</span></>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text, letterSpacing: -.2 }}>{grp.label}</div>
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>
+                    {grp.rapports.length} compte{grp.rapports.length > 1 ? "s" : ""} rendu{grp.rapports.length > 1 ? "s" : ""}
+                    {grpHeures > 0 && <> · <span style={{ color: "#5b9cf6", fontWeight: 700 }}>{grpHeures.toFixed(1)}h</span></>}
                   </div>
                 </div>
 
                 {/* Mini stats */}
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                  {grpFaites>0&&<span style={{fontSize:12,fontWeight:700,color:"#50c878",
-                    background:"rgba(80,200,120,0.12)",borderRadius:6,padding:"3px 8px"}}>✅ {grpFaites}</span>}
-                  {grpEnCours>0&&<span style={{fontSize:12,fontWeight:700,color:"#f5a623",
-                    background:"rgba(245,166,35,0.12)",borderRadius:6,padding:"3px 8px"}}>🔄 {grpEnCours}</span>}
-                  {grpNonFaites>0&&<span style={{fontSize:12,fontWeight:700,color:"#e05c5c",
-                    background:"rgba(224,92,92,0.12)",borderRadius:6,padding:"3px 8px"}}>❌ {grpNonFaites}</span>}
-                  <span style={{color:T.textMuted,fontSize:14,marginLeft:4}}>{isOpen?"▲":"▼"}</span>
+                <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                  {grpFaites > 0 && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#22c55e",
+                      background: "rgba(34,197,94,0.12)", borderRadius: RADIUS.pill, padding: "2px 9px",
+                    }}><Icon as={Check} size={10}/> {grpFaites}</span>
+                  )}
+                  {grpEnCours > 0 && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#f5a623",
+                      background: "rgba(245,166,35,0.12)", borderRadius: RADIUS.pill, padding: "2px 9px",
+                    }}><Icon as={RefreshCw} size={10}/> {grpEnCours}</span>
+                  )}
+                  {grpNonFaites > 0 && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#e15a5a",
+                      background: "rgba(225,90,90,0.12)", borderRadius: RADIUS.pill, padding: "2px 9px",
+                    }}><Icon as={X} size={10}/> {grpNonFaites}</span>
+                  )}
+                  <Icon as={isOpen ? ChevronUp : ChevronDown} size={14} color={T.textMuted} style={{ marginLeft: 4 }}/>
                 </div>
               </div>
 
@@ -778,60 +1064,104 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
                         padding:"16px 20px",
                       }}>
                         {/* Ligne meta */}
-                        <div style={{display:"flex",alignItems:"center",gap:10,
+                        <div style={{display:"flex",alignItems:"center",gap:8,
                           marginBottom:12,flexWrap:"wrap"}}>
                           {/* Date */}
-                          <div style={{fontSize:13,fontWeight:700,color:T.textMuted,
-                            background:T.card,borderRadius:6,padding:"3px 9px",border:`1px solid ${T.border}`}}>
-                            📅 {r.date_rapport}
+                          <div style={{
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.textMuted,
+                            background: T.card, borderRadius: RADIUS.sm + 2,
+                            padding: "3px 9px", border: `1px solid ${T.border}`,
+                          }}>
+                            <Icon as={Calendar} size={11}/>
+                            {r.date_rapport}
                           </div>
                           {/* Ouvrier (si vue chantier) */}
-                          {groupBy==="chantier"&&(
-                            <div style={{fontSize:13,fontWeight:700,color:T.accent,
-                              background:T.accent+"15",borderRadius:6,padding:"3px 9px"}}>
-                              👷 {r.ouvrier}
+                          {groupBy === "chantier" && (
+                            <div style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              fontSize: FONT.xs.size + 1, fontWeight: 700, color: acc.accent,
+                              background: acc.bg10, borderRadius: RADIUS.sm + 2, padding: "3px 9px",
+                            }}>
+                              <Icon as={HardHat} size={11}/>
+                              {r.ouvrier}
                             </div>
                           )}
                           {/* Chantier (si vue ouvrier) */}
-                          {groupBy==="ouvrier"&&rCh&&(
-                            <div style={{fontSize:12,fontWeight:700,color:"#1a1f2e",
-                              background:rCh.couleur,borderRadius:6,padding:"3px 9px"}}>
+                          {groupBy === "ouvrier" && rCh && (
+                            <div style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#1a1f2e",
+                              background: rCh.couleur, borderRadius: RADIUS.sm + 2, padding: "3px 9px",
+                            }}>
+                              <span style={{ width: 7, height: 7, borderRadius: 2, background: "#1a1f2e22" }}/>
                               {rCh.nom}
                             </div>
                           )}
                           {/* Heures totales */}
-                          {heuresTotal>0&&(
-                            <div style={{fontSize:13,fontWeight:800,color:"#5b9cf6",
-                              background:"rgba(91,156,246,0.12)",borderRadius:6,padding:"3px 9px",
-                              border:"1px solid rgba(91,156,246,0.25)"}}>
-                              ⏱ {heuresTotal.toFixed(1)}h
+                          {heuresTotal > 0 && (
+                            <div style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              fontSize: FONT.xs.size + 1, fontWeight: 800, color: "#5b9cf6",
+                              background: "rgba(91,156,246,0.12)", borderRadius: RADIUS.sm + 2,
+                              padding: "3px 9px", border: "1px solid rgba(91,156,246,0.25)",
+                            }}>
+                              <Icon as={Clock} size={11}/>
+                              {heuresTotal.toFixed(1)}h
                             </div>
                           )}
-                          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-                            {faites.length>0&&<span style={{fontSize:12,color:"#50c878",fontWeight:700}}>✅{faites.length}</span>}
-                            {enCours.length>0&&<span style={{fontSize:12,color:"#f5a623",fontWeight:700}}>🔄{enCours.length}</span>}
-                            {nonFaites.length>0&&<span style={{fontSize:12,color:"#e05c5c",fontWeight:700}}>❌{nonFaites.length}</span>}
-                            <button onClick={async()=>{
-                              if(!confirm(`Supprimer le CR de ${r.ouvrier} du ${r.date_rapport} ?`))return;
-                              await supabase.from("rapports").delete().eq("id",r.id);
-                              setRapports(p=>p.filter(x=>x.id!==r.id));
-                            }} style={{background:"transparent",border:"none",color:"#e05c5c",
-                              cursor:"pointer",fontSize:14,padding:"0 4px",opacity:.6}}>🗑</button>
+                          <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+                            {faites.length > 0 && (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: FONT.xs.size + 1, color: "#22c55e", fontWeight: 700 }}>
+                                <Icon as={Check} size={11}/> {faites.length}
+                              </span>
+                            )}
+                            {enCours.length > 0 && (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: FONT.xs.size + 1, color: "#f5a623", fontWeight: 700 }}>
+                                <Icon as={RefreshCw} size={11}/> {enCours.length}
+                              </span>
+                            )}
+                            {nonFaites.length > 0 && (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 700 }}>
+                                <Icon as={X} size={11}/> {nonFaites.length}
+                              </span>
+                            )}
+                            <button onClick={async () => {
+                              if (!confirm(`Supprimer le CR de ${r.ouvrier} du ${r.date_rapport} ?`)) return;
+                              await supabase.from("rapports").delete().eq("id", r.id);
+                              setRapports(p => p.filter(x => x.id !== r.id));
+                            }} title="Supprimer ce rapport" style={{
+                              background: "transparent", border: "none", color: "#e15a5a",
+                              cursor: "pointer", padding: 4, borderRadius: RADIUS.sm,
+                              opacity: .55, marginLeft: 4,
+                              display: "inline-flex", alignItems: "center",
+                              transition: "opacity .15s, background .15s",
+                            }}
+                              onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(225,90,90,0.08)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.opacity = ".55"; e.currentTarget.style.background = "transparent"; }}>
+                              <Icon as={Trash2} size={13}/>
+                            </button>
                           </div>
                         </div>
 
                         {/* Tâches */}
                         {taches.length>0&&(
                           <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                            {[["faite","✅","#50c878","rgba(80,200,120,0.08)","rgba(80,200,120,0.2)",faites],
-                              ["en_cours","🔄","#f5a623","rgba(245,166,35,0.08)","rgba(245,166,35,0.2)",enCours],
-                              ["non_faite","❌","#e05c5c","rgba(224,92,92,0.08)","rgba(224,92,92,0.2)",nonFaites],
-                            ].filter(([,,,,, arr])=>arr.length>0).map(([statut,icon,color,bg,border,arr])=>(
-                              <div key={statut} style={{background:bg,border:`1px solid ${border}`,
-                                borderRadius:10,padding:"10px 14px"}}>
-                                <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,
-                                  textTransform:"uppercase",color,marginBottom:8}}>
-                                  {icon} {statut==="faite"?"Réalisé":statut==="en_cours"?"En cours":"Non réalisé"}
+                            {[["faite", Check, "#22c55e", "rgba(34,197,94,0.08)", "rgba(34,197,94,0.20)", faites],
+                              ["en_cours", RefreshCw, "#f5a623", "rgba(245,166,35,0.08)", "rgba(245,166,35,0.20)", enCours],
+                              ["non_faite", X, "#e15a5a", "rgba(225,90,90,0.08)", "rgba(225,90,90,0.20)", nonFaites],
+                            ].filter(([,,,,, arr]) => arr.length > 0).map(([statut, IconComp, color, bg, border, arr]) => (
+                              <div key={statut} style={{
+                                background: bg, border: `1px solid ${border}`,
+                                borderRadius: RADIUS.lg, padding: "10px 14px",
+                              }}>
+                                <div style={{
+                                  display: "inline-flex", alignItems: "center", gap: 5,
+                                  fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+                                  textTransform: "uppercase", color, marginBottom: 8,
+                                }}>
+                                  <Icon as={IconComp} size={11}/>
+                                  {statut === "faite" ? "Réalisé" : statut === "en_cours" ? "En cours" : "Non réalisé"}
                                 </div>
                                 {arr.map((t,ti)=>(
                                   <div key={ti} style={{display:"flex",alignItems:"flex-start",
@@ -879,21 +1209,31 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
                             background:"rgba(91,138,245,0.08)",borderRadius:10,
                             border:"1px solid rgba(91,138,245,0.2)",
                             borderLeft:`3px solid #5b8af5`}}>
-                            <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,
-                              textTransform:"uppercase",color:"#5b8af5",marginBottom:5}}>
-                              💬 Remarque générale
+                            <div style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+                              textTransform: "uppercase", color: "#5b8af5", marginBottom: 5,
+                            }}>
+                              <Icon as={MessageSquare} size={11}/>
+                              Remarque générale
                             </div>
-                            <div style={{fontSize:14,color:T.text,lineHeight:1.5}}>{r.remarque}</div>
+                            <div style={{fontSize: FONT.base.size, color: T.text, lineHeight: 1.55}}>{r.remarque}</div>
                           </div>
                         )}
 
                         {/* Photos générales du chantier */}
-                        {(r.photos_chantier||[]).length>0 && (
-                          <div style={{marginTop:10,padding:"10px 14px",
-                            background:T.card,borderRadius:10,border:`1px solid ${T.border}`}}>
-                            <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,
-                              textTransform:"uppercase",color:T.textMuted,marginBottom:8}}>
-                              📸 Photos du chantier · {r.photos_chantier.length}
+                        {(r.photos_chantier || []).length > 0 && (
+                          <div style={{
+                            marginTop: 10, padding: "10px 14px",
+                            background: T.card, borderRadius: RADIUS.lg, border: `1px solid ${T.border}`,
+                          }}>
+                            <div style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+                              textTransform: "uppercase", color: T.textMuted, marginBottom: 8,
+                            }}>
+                              <Icon as={Camera} size={11}/>
+                              Photos du chantier · {r.photos_chantier.length}
                             </div>
                             <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                               {r.photos_chantier.map((url,pi)=>(
@@ -914,6 +1254,186 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
           );
         })}
       </div>
+      )}
+
+      {/* ── Récap heures par ouvrier ── */}
+      {Object.keys(heuresParOuvrier).length > 0 && (
+        <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${T.headerBorder || T.border}` }}>
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted,
+            letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10,
+          }}>
+            <Icon as={Clock} size={12}/>
+            Heures par ouvrier · période filtrée
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {ouvriers.filter(o => heuresParOuvrier[o]).map(o => {
+              const h = heuresParOuvrier[o];
+              // Seuil indicatif : 35-40h = OK (vert), <35 = peu (gris), >40 = surcharge (rouge)
+              const col = h > 40 ? "#e15a5a" : h >= 35 ? "#22c55e" : T.textSub;
+              const bg  = h > 40 ? "rgba(225,90,90,0.10)"
+                        : h >= 35 ? "rgba(34,197,94,0.10)"
+                        : T.card;
+              return (
+                <div key={o} style={{
+                  display: "inline-flex", alignItems: "baseline", gap: 6,
+                  padding: "6px 12px", background: bg,
+                  border: `1px solid ${col === T.textSub ? T.border : col + "44"}`,
+                  borderRadius: RADIUS.md,
+                }}>
+                  <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.textSub, letterSpacing: .3 }}>{o}</span>
+                  <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: col }}>{h.toFixed(1)}h</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── VUE CALENDRIER : grille jours × ouvriers ────────────────────────────────
+function VueCalendrierEquipe({ rapports, ouvriers, chantiers, cells, weekId, T, acc }) {
+  // Extrait l'année/semaine depuis weekId (format "2026-W20")
+  const m = (weekId || "").match(/^(\d{4})-W(\d{1,2})$/);
+  const year = m ? parseInt(m[1], 10) : new Date().getFullYear();
+  const week = m ? parseInt(m[2], 10) : 1;
+
+  // Date du lundi de la semaine
+  const jan4 = new Date(year, 0, 4);
+  const mon  = new Date(jan4);
+  mon.setDate(jan4.getDate() - (((jan4.getDay() || 7) - 1)) + (week - 1) * 7);
+
+  const dateOfJour = (idx) => {
+    const d = new Date(mon); d.setDate(mon.getDate() + idx);
+    return d;
+  };
+  const dateFrOfJour = (idx) => dateOfJour(idx).toLocaleDateString("fr-FR");
+
+  // Liste des ouvriers : ceux planifiés cette semaine OU ayant un rapport
+  const ouvriersAvecActivite = new Set();
+  JOURS.forEach(j => {
+    chantiers.forEach(c => {
+      const cell = cells[`${c.id}_${j}`];
+      (cell?.ouvriers || []).forEach(o => o && ouvriersAvecActivite.add(o));
+    });
+  });
+  rapports.forEach(r => { if (r.ouvrier) ouvriersAvecActivite.add(r.ouvrier); });
+  const ouvriersAffiches = ouvriers.filter(o => ouvriersAvecActivite.has(o));
+
+  // Map rapports par ouvrier × date
+  const map = {}; // map[ouvrier][dateFr] = rapport
+  rapports.forEach(r => {
+    if (!map[r.ouvrier]) map[r.ouvrier] = {};
+    map[r.ouvrier][r.date_rapport] = r;
+  });
+
+  // Est-ce que cet ouvrier était planifié ce jour ?
+  const planifie = (ouvrier, jour) => {
+    return chantiers.some(c => {
+      const cell = cells[`${c.id}_${jour}`];
+      return (cell?.ouvriers || []).includes(ouvrier);
+    });
+  };
+
+  return (
+    <div style={{
+      background: T.surface, border: `1px solid ${T.border}`,
+      borderRadius: RADIUS.xl, overflow: "hidden", overflowX: "auto",
+    }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+        <thead>
+          <tr style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>
+            <th style={{
+              padding: "10px 14px", textAlign: "left",
+              fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted,
+              letterSpacing: 1, textTransform: "uppercase",
+            }}>Ouvrier</th>
+            {JOURS.map((j, idx) => {
+              const d = dateOfJour(idx);
+              return (
+                <th key={j} style={{
+                  padding: "8px 6px", textAlign: "center",
+                  fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted,
+                  letterSpacing: 1, textTransform: "uppercase",
+                }}>
+                  <div>{j.slice(0, 3)}</div>
+                  <div style={{ fontSize: FONT.xs.size - 1, opacity: .65, fontWeight: 500 }}>
+                    {d.getDate()}/{String(d.getMonth() + 1).padStart(2, "0")}
+                  </div>
+                </th>
+              );
+            })}
+            <th style={{
+              padding: "10px 8px", textAlign: "center",
+              fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted,
+              letterSpacing: 1, textTransform: "uppercase",
+            }}>Heures</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ouvriersAffiches.length === 0 ? (
+            <tr>
+              <td colSpan={JOURS.length + 2} style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: FONT.sm.size }}>
+                Aucun ouvrier avec activité cette semaine
+              </td>
+            </tr>
+          ) : ouvriersAffiches.map(o => {
+            const totalH = (map[o] ? Object.values(map[o]) : []).reduce((s, r) => {
+              return s + (r.taches || []).reduce((ss, t) => ss + (parseFloat(t.heures_reelles) || 0), 0);
+            }, 0);
+            return (
+              <tr key={o} style={{ borderTop: `1px solid ${T.sectionDivider || T.border}` }}>
+                <td style={{ padding: "10px 14px" }}>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    fontSize: FONT.sm.size + 1, fontWeight: 700, color: T.text,
+                  }}>
+                    <Icon as={HardHat} size={13} color={acc.accent}/>
+                    {o}
+                  </span>
+                </td>
+                {JOURS.map((j, idx) => {
+                  const dateFr = dateFrOfJour(idx);
+                  const rapport = map[o]?.[dateFr];
+                  const wasPlanned = planifie(o, j);
+                  let bg = "transparent", color = T.textMuted, content = null, title = "";
+                  if (rapport) {
+                    bg = "rgba(34,197,94,0.12)";
+                    color = "#22c55e";
+                    content = <Icon as={Check} size={14}/>;
+                    const h = (rapport.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+                    title = `Rapport rendu${h > 0 ? ` · ${h.toFixed(1)}h` : ""}`;
+                  } else if (wasPlanned) {
+                    bg = "rgba(225,90,90,0.10)";
+                    color = "#e15a5a";
+                    content = <Icon as={X} size={14}/>;
+                    title = "Planifié, pas de rapport rendu";
+                  } else {
+                    content = <span style={{ opacity: .35 }}>—</span>;
+                    title = "Pas planifié";
+                  }
+                  return (
+                    <td key={j} title={title} style={{
+                      padding: "10px 6px", textAlign: "center",
+                      background: bg, color,
+                    }}>
+                      {content}
+                    </td>
+                  );
+                })}
+                <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                  <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: totalH > 0 ? "#5b9cf6" : T.textMuted }}>
+                    {totalH > 0 ? `${totalH.toFixed(1)}h` : "—"}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
