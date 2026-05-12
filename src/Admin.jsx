@@ -514,35 +514,93 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     }
   };
 
-  // Synchronisation manuelle : pour chaque chantier sans phasage, crée la ligne
-  // manquante. Permet de rattraper les chantiers existants avant cette boucle auto.
+  // Synchronisation manuelle : aligne chaque chantier sur un phasage existant
+  //   (par nom si chantier_id ne correspond pas), ou en crée un sinon.
+  //   Permet de réparer les liens cassés ET de rattraper les chantiers sans phasage.
   const [syncing, setSyncing]       = useState(false);
   const [syncMsg, setSyncMsg]       = useState("");
+
+  // Normalisation pour comparer des noms : minuscule, sans accents, sans
+  // ponctuation, espaces simples.
+  const normalise = (str) => (str || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+
   const synchroniserPhasages = async () => {
     setSyncing(true); setSyncMsg("");
     try {
-      const { data: existants } = await supabase
+      const { data: tous } = await supabase
         .from("phasages")
-        .select("chantier_id");
-      const setExistants = new Set((existants || []).map(p => p.chantier_id));
-      const manquants = chantiers.filter(c => !setExistants.has(c.id));
-      if (manquants.length === 0) {
-        setSyncMsg(`✓ Tous les chantiers sont déjà liés à un phasage (${chantiers.length} chantiers, ${existants?.length || 0} phasages).`);
-      } else {
-        const rows = manquants.map(c => ({
-          chantier_id: c.id,
-          chantier_nom: c.nom,
-          ouvrages: [],
+        .select("id, chantier_id, chantier_nom");
+      const phasages = tous || [];
+
+      const aLier = []; // phasages existants à relier (update chantier_id)
+      const aCreer = []; // chantiers sans phasage du tout
+      const dejaOk = []; // chantiers déjà correctement liés
+
+      // Garde une trace des ids de phasages déjà appariés pour éviter de
+      // mapper plusieurs chantiers sur le même phasage.
+      const phasagesPris = new Set();
+
+      for (const c of chantiers) {
+        // a) Match exact par chantier_id → rien à faire
+        const exact = phasages.find(p => p.chantier_id === c.id);
+        if (exact) { dejaOk.push(c.nom); phasagesPris.add(exact.id); continue; }
+
+        // b) Match par nom (normalisé). On ignore les phasages déjà appariés.
+        const nomC = normalise(c.nom);
+        const motsC = nomC.split(" ").filter(m => m.length > 2);
+        const matchByName = phasages.find(p => {
+          if (phasagesPris.has(p.id)) return false;
+          const nomP = normalise(p.chantier_nom || "");
+          if (!nomP || !nomC) return false;
+          if (nomP === nomC || nomP.includes(nomC) || nomC.includes(nomP)) return true;
+          // Au moins un mot significatif en commun
+          const motsP = nomP.split(" ").filter(m => m.length > 2);
+          return motsC.some(m => motsP.includes(m));
+        });
+
+        if (matchByName) {
+          aLier.push({ phasageId: matchByName.id, ancienNom: matchByName.chantier_nom, chantier: c });
+          phasagesPris.add(matchByName.id);
+        } else {
+          aCreer.push(c);
+        }
+      }
+
+      // Exécute les updates
+      for (const item of aLier) {
+        const { error } = await supabase.from("phasages")
+          .update({ chantier_id: item.chantier.id, chantier_nom: item.chantier.nom })
+          .eq("id", item.phasageId);
+        if (error) console.warn("Sync update :", item.chantier.nom, error.message);
+      }
+
+      // Exécute les inserts
+      if (aCreer.length > 0) {
+        const rows = aCreer.map(c => ({
+          chantier_id: c.id, chantier_nom: c.nom, ouvrages: [],
         }));
         const { error } = await supabase.from("phasages").insert(rows);
-        if (error) setSyncMsg(`⚠ Erreur : ${error.message}`);
-        else setSyncMsg(`✓ ${manquants.length} phasage${manquants.length > 1 ? "s" : ""} créé${manquants.length > 1 ? "s" : ""} : ${manquants.map(c => c.nom).join(", ")}`);
+        if (error) {
+          setSyncMsg(`⚠ Erreur création : ${error.message}`);
+          setSyncing(false);
+          return;
+        }
       }
+
+      // Construit le message récap
+      const parties = [];
+      if (dejaOk.length > 0) parties.push(`${dejaOk.length} déjà OK`);
+      if (aLier.length > 0)  parties.push(`${aLier.length} phasage${aLier.length > 1 ? "s" : ""} relié${aLier.length > 1 ? "s" : ""} par nom (${aLier.map(l => l.chantier.nom).join(", ")})`);
+      if (aCreer.length > 0) parties.push(`${aCreer.length} nouveau${aCreer.length > 1 ? "x" : ""} phasage${aCreer.length > 1 ? "s" : ""} créé${aCreer.length > 1 ? "s" : ""} (${aCreer.map(c => c.nom).join(", ")})`);
+      setSyncMsg(`✓ ${parties.join(" · ") || "Rien à faire"}`);
     } catch (e) {
       setSyncMsg(`⚠ Erreur : ${e.message}`);
     }
     setSyncing(false);
-    setTimeout(() => setSyncMsg(""), 8000);
+    setTimeout(() => setSyncMsg(""), 12000);
   };
   const moveChantier=(i,d)=>{const a=[...chantiers],j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];setChantiers(a);saveConfig("chantiers",a);};
 
