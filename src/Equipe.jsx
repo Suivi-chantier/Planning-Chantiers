@@ -476,7 +476,10 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T}) {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
 
-  const appUrl = window.location.origin + "/rapport";
+  // Format avec fragment #rapport : plus robuste face aux parseurs d'URL
+  // de certaines apps mobiles (Calendar, messageries) qui peuvent tronquer
+  // le pathname mais préservent toujours le fragment.
+  const appUrl = window.location.origin + "/rapport#rapport";
   const [copied, setCopied] = useState(false);
 
   const load = async () => {

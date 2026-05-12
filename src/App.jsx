@@ -668,7 +668,15 @@ export default function App() {
   const handleSelectBranche = (b) => setAuthState(b);
   const handleRetourPortail  = () => setAuthState("portail");
 
-  if (window.location.pathname.startsWith("/rapport")) return <PageRapportMobile />;
+  // Page rapport mobile : tolère plusieurs formats d'URL pour survivre aux
+  // parseurs d'URL parfois capricieux (apps mobiles, Google Calendar, etc.)
+  // qui peuvent tronquer le pathname.
+  if (
+    window.location.pathname.toLowerCase().startsWith("/rapport") ||
+    window.location.hash.toLowerCase().startsWith("#rapport") ||
+    window.location.hash.toLowerCase().startsWith("#/rapport") ||
+    window.location.search.toLowerCase().includes("rapport")
+  ) return <PageRapportMobile />;
 
   if (authState === "loading") return (
     <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>

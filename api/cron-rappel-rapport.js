@@ -80,7 +80,7 @@ function buildMailHtml(prenom, dateFr) {
         Merci de remplir votre compte rendu du <strong>${escapeHtml(dateFr)}</strong> avant la fin de journée.
       </p>
       <div style="text-align:center;margin:22px 0">
-        <a href="https://planning-chantiers.vercel.app/rapport"
+        <a href="https://planning-chantiers.vercel.app/rapport#rapport"
            style="background:#FFC200;color:#1a1f2e;font-weight:800;text-decoration:none;padding:12px 28px;border-radius:8px;display:inline-block;font-size:14px">
           Remplir mon compte rendu →
         </a>

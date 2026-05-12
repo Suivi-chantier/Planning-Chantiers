@@ -81,7 +81,7 @@ function PagePlanning({chantiers,ouvriers,ouvrierEmails,cells,setCells,commandes
     const title=ouv?`${chantier.nom} / ${ouv}`:chantier.nom;
     const descLines=[...lignes];
     if(cell.reel) descLines.push('','Réalisé :',cell.reel);
-    descLines.push('','📱 Compte rendu : https://planning-chantiers.vercel.app/rapport');
+    descLines.push('','📱 Compte rendu : https://planning-chantiers.vercel.app/rapport#rapport');
     const params=new URLSearchParams({
       action:'TEMPLATE',
       text:title,
