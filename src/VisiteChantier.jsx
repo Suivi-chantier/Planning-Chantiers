@@ -141,7 +141,11 @@ async function loadPhasages() {
 
 async function upsertVisite(visite) {
   const { error } = await supabase.from("visites_chantier").upsert(visite);
-  return !error;
+  if (error) {
+    console.error("upsertVisite error:", error);
+    return { ok: false, error };
+  }
+  return { ok: true };
 }
 
 async function removeVisite(id) {
@@ -186,16 +190,22 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
 
   const handleSave = async (visite) => {
     setSaving(true);
-    const ok = await upsertVisite(visite);
-    if (ok) {
+    const res = await upsertVisite(visite);
+    if (res.ok) {
       setVisites(prev => {
         const idx = prev.findIndex(v => v.id === visite.id);
         if (idx >= 0) { const n = [...prev]; n[idx] = visite; return n; }
         return [visite, ...prev];
       });
+    } else {
+      const msg = res.error?.message || "Erreur inconnue";
+      const hint = msg.includes("column") || msg.includes("schema")
+        ? `\n\nIl manque probablement une colonne dans Supabase :\nALTER TABLE visites_chantier ADD COLUMN IF NOT EXISTS phases_auditees JSONB DEFAULT '[]'::jsonb, ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb;`
+        : "";
+      alert(`Erreur lors de la sauvegarde de la visite :\n${msg}${hint}`);
     }
     setSaving(false);
-    setView("liste");
+    if (res.ok) setView("liste");
   };
 
   const askDelete = (v) => setToDelete(v);
