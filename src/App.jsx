@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
-import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H } from "./constants";
+import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent } from "./constants";
+import { LayoutGrid, Sun, Moon, LogOut } from "lucide-react";
+import { Icon } from "./ui";
 
 import { Sidebar, BottomNav } from "./Navigation";
 import PageDashboard          from "./Dashboard";
@@ -264,7 +266,8 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
               {ROLE_LABELS[profil?.role] || profil?.role}
             </div>
           </div>
-          <button onClick={onLogout} style={{ background:"rgba(224,92,92,0.1)", border:"1px solid rgba(224,92,92,0.25)", borderRadius:8, padding:"8px 14px", color:"#e05c5c", fontSize:13, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+          <button onClick={onLogout} style={{ display:"inline-flex",alignItems:"center",gap:6, background:"rgba(224,92,92,0.1)", border:"1px solid rgba(224,92,92,0.25)", borderRadius:8, padding:"8px 14px", color:"#e05c5c", fontSize:13, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+            <Icon as={LogOut} size={14}/>
             Déconnexion
           </button>
         </div>
@@ -543,14 +546,21 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
             </div>
             {peutChangerBranche&&(
               <button onClick={onRetourPortail} title="Retour au portail" className="topbar-portail-btn" style={{
+                display:"inline-flex",alignItems:"center",gap:6,
                 background:"rgba(255,194,0,0.08)",border:"1px solid rgba(255,194,0,0.2)",
-                borderRadius:6,padding:"6px 12px",color:"rgba(255,194,0,0.8)",fontSize:12,
-                cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:.5,
-              }}>⊞ <span className="topbar-portail-btn-text">Portail</span></button>
+                borderRadius:6,padding:"6px 12px",color:"rgba(255,194,0,0.85)",fontSize:12,
+                cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:.3,
+              }}>
+                <Icon as={LayoutGrid} size={14}/>
+                <span className="topbar-portail-btn-text">Portail</span>
+              </button>
             )}
-            <button className="btn-g topbar-theme-btn" onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{fontSize:16,padding:"5px 10px"}}>{theme==="dark"?"☀️":"🌙"}</button>
-            <button onClick={onLogout} title="Se déconnecter" className="topbar-logout-btn" style={{background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
-              <span style={{fontSize:14}}>⎋</span><span className="topbar-logout-btn-text"> Déconnexion</span>
+            <button className="btn-g topbar-theme-btn" title={theme==="dark"?"Passer en thème clair":"Passer en thème sombre"} onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px"}}>
+              <Icon as={theme==="dark"?Sun:Moon} size={16}/>
+            </button>
+            <button onClick={onLogout} title="Se déconnecter" className="topbar-logout-btn" style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(224,92,92,0.1)",border:"1px solid rgba(224,92,92,0.25)",borderRadius:6,padding:"6px 12px",color:"#e05c5c",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+              <Icon as={LogOut} size={14}/>
+              <span className="topbar-logout-btn-text">Déconnexion</span>
             </button>
           </div>
         </div>

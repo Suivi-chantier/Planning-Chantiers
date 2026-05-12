@@ -200,3 +200,93 @@ export const BIBLIOTHEQUE_INITIALE = [
   { identifiant:"ragreage_fibre", libelle:"Ragréage fibre", unite:"m²",
     sous_taches:[{nom:"Préparation du support",ratio:30},{nom:"Application ragréage",ratio:70}]},
 ];
+
+// ─── DESIGN SYSTEM ─────────────────────────────────────────────────────────────
+// Tokens partagés par toute l'app. À utiliser au lieu de couleurs/valeurs
+// codées en dur pour assurer la cohérence visuelle.
+
+// Palette neutre — 9 niveaux du clair au foncé
+export const NEUTRAL = {
+  50:  "#f8f9fb",
+  100: "#f0f2f6",
+  200: "#dbdfe6",
+  300: "#b6bcc8",
+  400: "#7d8595",
+  500: "#5a6273",
+  600: "#3f4555",
+  700: "#2a2e37",
+  800: "#1e2128",
+  900: "#16181d",
+};
+
+// Couleurs d'accentuation par branche.
+// Utiliser via getBranchAccent(branch) plutôt que d'accéder direct au map.
+export const BRANCH_ACCENTS = {
+  renovation: {
+    name: "Profero Rénovation",
+    accent:      "#FFC200",
+    accentDark:  "#e6ae00",
+    accentLight: "#FFD84D",
+    bg10:        "rgba(255,194,0,0.10)",
+    bg20:        "rgba(255,194,0,0.20)",
+    border:      "rgba(255,194,0,0.35)",
+    onAccent:    "#1a1f2e", // texte sur fond accent
+  },
+  invest: {
+    name: "Profero Invest",
+    accent:      "#4070e8",
+    accentDark:  "#3060d0",
+    accentLight: "#6a90f5",
+    bg10:        "rgba(64,112,232,0.10)",
+    bg20:        "rgba(64,112,232,0.20)",
+    border:      "rgba(64,112,232,0.35)",
+    onAccent:    "#ffffff",
+  },
+  groupe: {
+    name: "Groupe Profero",
+    accent:      "#c9a14f",
+    accentDark:  "#a8843e",
+    accentLight: "#dbb96d",
+    bg10:        "rgba(201,161,79,0.10)",
+    bg20:        "rgba(201,161,79,0.20)",
+    border:      "rgba(201,161,79,0.35)",
+    onAccent:    "#1a1f2e",
+  },
+};
+
+export function getBranchAccent(branch = "renovation") {
+  return BRANCH_ACCENTS[branch] || BRANCH_ACCENTS.renovation;
+}
+
+// Espacements (multiples de 4 px). Utiliser en JS : SPACING.md, en CSS : 16
+export const SPACING = { xs:4, sm:8, md:12, lg:16, xl:24, xxl:32, xxxl:48 };
+
+// Rayons de bordure
+export const RADIUS = { sm:4, md:6, lg:8, xl:12, pill:9999 };
+
+// Tailles de police (px) — échelle restreinte pour limiter la cacophonie
+export const FONT = {
+  xs:   { size: 11, line: 16, weight: 600, tracking: 0.4 },
+  sm:   { size: 12, line: 18, weight: 500, tracking: 0   },
+  base: { size: 14, line: 20, weight: 500, tracking: 0   },
+  md:   { size: 15, line: 22, weight: 600, tracking: 0   },
+  lg:   { size: 17, line: 24, weight: 700, tracking: 0   },
+  xl:   { size: 20, line: 28, weight: 700, tracking: 0   },
+  h2:   { size: 24, line: 32, weight: 800, tracking: -0.2 },
+  h1:   { size: 32, line: 40, weight: 800, tracking: -0.4 },
+};
+
+// Sémantique couleurs (statuts)
+export const SEMANTIC = {
+  success: { color:"#4caf78", bg:"rgba(76,175,120,0.12)", border:"rgba(76,175,120,0.30)" },
+  warning: { color:"#f5a623", bg:"rgba(245,166,35,0.12)", border:"rgba(245,166,35,0.30)" },
+  danger:  { color:"#e15a5a", bg:"rgba(225,90,90,0.12)",  border:"rgba(225,90,90,0.30)"  },
+  info:    { color:"#5b8af5", bg:"rgba(91,138,245,0.12)", border:"rgba(91,138,245,0.30)" },
+};
+
+// Élévation (box-shadow)
+export const SHADOW = {
+  sm: "0 1px 2px rgba(0,0,0,0.08)",
+  md: "0 2px 6px rgba(0,0,0,0.12)",
+  lg: "0 8px 24px rgba(0,0,0,0.20)",
+};
