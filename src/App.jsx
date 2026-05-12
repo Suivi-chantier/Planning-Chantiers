@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
-import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_HORIZ } from "./constants";
+import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H } from "./constants";
 
 import { Sidebar, BottomNav } from "./Navigation";
 import PageDashboard          from "./Dashboard";
@@ -139,7 +139,7 @@ function PageCreerMotDePasse({ onDone }) {
       <style>{CSS_BASE}</style>
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
-          <img src={LOGO_HORIZ} alt="Profero" style={{ height:44, objectFit:"contain" }}/>
+          <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:64, objectFit:"contain" }}/>
           <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
             Bienvenue chez Profero
           </div>
@@ -212,7 +212,7 @@ function PageLogin({ onLogin }) {
       <style>{CSS_BASE}</style>
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
-          <img src={LOGO_HORIZ} alt="Profero" style={{ height:44, objectFit:"contain" }}/>
+          <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:64, objectFit:"contain" }}/>
           <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
             Espace collaborateurs
           </div>
@@ -256,7 +256,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
     <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{CSS_BASE}</style>
       <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
-        <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain" }}/>
+        <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:48, objectFit:"contain" }}/>
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{profil?.nom || user?.email}</div>
@@ -532,7 +532,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       <div className="app-sidebar"><Sidebar page={page} setPage={setPage} T={T} role={role}/></div>
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden"}}>
         <div className="app-topbar" style={{background:T.surface,borderBottom:`2px solid #FFC200`,padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-          <img src={LOGO_HORIZ} alt="Profero" className="topbar-logo-mobile" style={{height:26,objectFit:"contain",display:"none"}}/>
+          <img src={LOGO_RENO_H} alt="Profero Rénovation" className="topbar-logo-mobile" style={{height:36,objectFit:"contain",display:"none"}}/>
           <div className="topbar-text-desktop" style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"rgba(255,194,0,0.5)",textTransform:"uppercase"}}>
             Profero · Rénovation
           </div>
@@ -682,7 +682,7 @@ export default function App() {
     <div style={{ minHeight:"100vh", background:"#080a0d", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;800&display=swap');`}</style>
       <div style={{ textAlign:"center" }}>
-        <img src={LOGO_HORIZ} alt="Profero" style={{ height:36, objectFit:"contain", marginBottom:20 }}/>
+        <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:56, objectFit:"contain", marginBottom:20 }}/>
         <div style={{ fontSize:13, color:"rgba(255,255,255,0.3)", letterSpacing:2 }}>CHARGEMENT…</div>
       </div>
     </div>

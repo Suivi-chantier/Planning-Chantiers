@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_HORIZ, LOGO_SQ, getCurrentWeek, getWeekId, getTodayJour } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour } from "./constants";
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
 
 // ─── HELPER EMAIL ─────────────────────────────────────────────────────────────
@@ -347,7 +347,7 @@ function PageRapportMobile() {
     <div style={S.wrap}>
       <div style={S.header}>
         <div style={{fontSize:11,letterSpacing:3,textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:4}}>Planning Pro</div>
-        <img src={LOGO_HORIZ} alt="Profero" style={{height:28,objectFit:"contain",objectPosition:"left",marginBottom:6}}/>
+        <img src={LOGO_RENO_H} alt="Profero Rénovation" style={{height:44,objectFit:"contain",objectPosition:"left",marginBottom:6}}/>
         <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>Mon compte rendu</div>
         <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",marginTop:4}}>{dateStr}</div>
       </div>
@@ -404,7 +404,7 @@ function PageRapportMobile() {
       <div style={S.header}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
-            <img src={LOGO_SQ} alt="Profero" style={{height:24,objectFit:"contain",objectPosition:"left",marginBottom:4}}/>
+            <img src={LOGO_RENO_V} alt="Profero" style={{height:40,objectFit:"contain",objectPosition:"left",marginBottom:4}}/>
             <div style={{fontSize:13,color:"#FFC200",fontWeight:700,marginBottom:1}}>Bonjour {ouvrier} 👋</div>
             <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>{dateStr}</div>
           </div>

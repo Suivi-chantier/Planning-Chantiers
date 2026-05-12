@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { LOGO_HORIZ, LOGO_SQ } from "./constants";
+import { LOGO_RENO_H, LOGO_RENO_V } from "./constants";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -120,11 +120,11 @@ function Sidebar({ page, setPage, T, role = "admin" }) {
         gap:8, flexShrink:0, borderBottom:`1px solid ${T.sidebarBorder}`,
       }}>
         {!collapsed && (
-          <img src={LOGO_HORIZ} alt="Profero" style={{ height:34, objectFit:"contain", objectPosition:"left" }}/>
+          <img src={LOGO_RENO_H} alt="Profero Rénovation" style={{ height:44, objectFit:"contain", objectPosition:"left" }}/>
         )}
         {collapsed && (
-          <div style={{ width:34, height:34, borderRadius:6, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <img src={LOGO_SQ} alt="P" style={{ width:34, height:34, objectFit:"contain" }}/>
+          <div style={{ width:44, height:44, borderRadius:6, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <img src={LOGO_RENO_V} alt="P" style={{ width:44, height:44, objectFit:"contain" }}/>
           </div>
         )}
         <button onClick={toggle} title={collapsed ? "Agrandir le menu" : "Réduire le menu"} style={{
