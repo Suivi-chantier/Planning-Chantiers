@@ -343,6 +343,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const weekId=getWeekId(year,week);
   const role=profil?.role||"commercial";
   const peutChangerBranche=(profil?.branches||["renovation"]).length>1;
+  const branch="renovation";
 
   useEffect(()=>{ if(!canAccess(role,page)) setPage("dashboard"); },[role,page]);
 
