@@ -534,9 +534,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const synchroniserCRs = async () => {
     setSyncingCR(true); setSyncCRMsg("");
     try {
-      const { data: tousCRs } = await supabase
+      const { data: tousCRs, error: errLoad } = await supabase
         .from("cr_comptes_rendus")
-        .select("id, chantier_id, adresse, client_nom1");
+        .select("id, chantier_id, adresse");
+      if (errLoad) {
+        setSyncCRMsg(`⚠ Erreur chargement : ${errLoad.message}`);
+        setSyncingCR(false);
+        return;
+      }
       const crs = tousCRs || [];
 
       const aLier = [];

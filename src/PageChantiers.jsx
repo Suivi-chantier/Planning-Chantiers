@@ -252,7 +252,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
       const phasage  = trouverPhasage(phasages, chantier);
       const { data: dataById } = await supabase
         .from("cr_comptes_rendus")
-        .select("id, chantier_id, adresse, date_visite, resume, avancement, prochaine_etape, type_visite, client_nom1, client_prenom1")
+        .select("*")
         .eq("chantier_id", selected)
         .order("date_visite", { ascending: false })
         .limit(5);
@@ -261,7 +261,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
       } else {
         const { data, error } = await supabase
           .from("cr_comptes_rendus")
-          .select("id, chantier_id, adresse, date_visite, resume, avancement, prochaine_etape, type_visite, client_nom1, client_prenom1")
+          .select("*")
           .order("date_visite", { ascending: false })
           .limit(150);
         if (!error && data) {
@@ -321,7 +321,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
     setLoadingTous(true);
     const { data } = await supabase
       .from("cr_comptes_rendus")
-      .select("id, chantier_id, adresse, date_visite, resume, type_visite, client_prenom1, client_nom1, avancement")
+      .select("*")
       .order("date_visite", { ascending: false });
     setTousCRs((data || []).filter(cr => cr.chantier_id !== selected));
     setLoadingTous(false);
@@ -347,7 +347,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
     setTousCRs(prev => prev.filter(cr => cr.id !== crId));
     const { data } = await supabase
       .from("cr_comptes_rendus")
-      .select("id, chantier_id, adresse, date_visite, resume, avancement, prochaine_etape, type_visite, client_nom1, client_prenom1")
+      .select("*")
       .eq("chantier_id", selected)
       .order("date_visite", { ascending: false })
       .limit(5);
