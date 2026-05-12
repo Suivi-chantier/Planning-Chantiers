@@ -19,13 +19,25 @@ module.exports = async function handler(req, res) {
   const key = process.env.RESEND_KEY;
   if (!key) return res.status(500).json({ error: "RESEND_KEY non configuré côté serveur" });
 
-  const { to, subject, html, from } = req.body || {};
+  const { to, cc, subject, html, from, attachments } = req.body || {};
   if (!to || !subject || !html) {
     return res.status(400).json({ error: "Champs requis : to, subject, html" });
   }
 
   const recipients = Array.isArray(to) ? to : [to];
   const sender = from || process.env.RESEND_FROM || "Profero Planning <onboarding@resend.dev>";
+
+  const payload = { from: sender, to: recipients, subject, html };
+  if (cc && (Array.isArray(cc) ? cc.length > 0 : cc.trim?.())) {
+    payload.cc = Array.isArray(cc) ? cc : [cc];
+  }
+  // Pièces jointes : Resend attend [{ filename, content }] où content = base64 string
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    payload.attachments = attachments.map(a => ({
+      filename: a.filename,
+      content: a.content,
+    }));
+  }
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
@@ -34,7 +46,7 @@ module.exports = async function handler(req, res) {
         "Authorization": `Bearer ${key}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from: sender, to: recipients, subject, html }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json().catch(() => ({}));

@@ -23,6 +23,17 @@ const STATUTS_CR = [
 ];
 const statutMeta = (id) => STATUTS_CR.find(s => s.id === id) || STATUTS_CR[0];
 
+// ─── UPLOAD PHOTO (bucket "photos") ──────────────────────────────────────────
+async function uploadCrPhoto(file, crId) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `cr-client/${crId}/${safe}`;
+  const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+  if (error) { console.error("upload cr photo:", error); return null; }
+  const { data } = supabase.storage.from("photos").getPublicUrl(path);
+  return data?.publicUrl || null;
+}
+
 export default function PageCompteRendu({ T, chantiers = [], branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   // ── État liste CRs ──
@@ -49,6 +60,17 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
   const [filterStatut, setFilterStatut] = useState("all");
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showEmail, setShowEmail] = useState(false);
+  const [emailDest, setEmailDest] = useState("");
+  const [emailCc, setEmailCc]     = useState("");
+  const [emailSujet, setEmailSujet] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [sending, setSending]     = useState(false);
+  const [emailStatus, setEmailStatus] = useState(null);
+  const [societe, setSociete]     = useState({});
+  const [visitesChantier, setVisitesChantier] = useState([]);
+  const [importingVisite, setImportingVisite] = useState(false);
   const photoInputRef           = useRef(null);
   const saveTimer               = useRef(null);
 
@@ -73,7 +95,21 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
   const cardTitle = { fontSize:11, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.8, marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${border}`, display:"flex", alignItems:"center", gap:8 };
 
   // ── Init ──
-  useEffect(() => { chargerCRs(); chargerPhrases(); }, []);
+  useEffect(() => { chargerCRs(); chargerPhrases(); chargerSociete(); }, []);
+
+  // ── Charge les visites du chantier sélectionné (pour pré-remplissage)
+  useEffect(() => {
+    const ch = infos.chantier_id;
+    if (!ch) { setVisitesChantier([]); return; }
+    supabase.from("visites_chantier").select("id, date, chantier_nom, statut, audit, note_generale")
+      .eq("chantier_id", ch).order("date", { ascending: false }).limit(20)
+      .then(({ data }) => setVisitesChantier(data || []));
+  }, [infos.chantier_id]);
+
+  async function chargerSociete() {
+    const { data } = await supabase.from("planning_config").select("value").eq("key", "societe").maybeSingle();
+    if (data?.value) setSociete(data.value);
+  }
 
   // ── DATA ──
   async function chargerCRs() {
@@ -172,17 +208,19 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
     setObs(p=>p.filter(o=>o.id!==id));
   }
 
-  // ── Photos ──
+  // ── Photos (upload vers Supabase Storage, plus léger que base64 en DB) ─────
   async function ajoutPhotos(e) {
-    Array.from(e.target.files).forEach(f => {
-      const r = new FileReader();
-      r.onload = async (ev) => {
-        const data64 = ev.target.result;
-        const { data } = await supabase.from("cr_photos").insert({ cr_id:crId, data:data64, nom:f.name }).select().single();
-        setPhotos(p=>[...p, data || { id:`new_${Date.now()}`, data:data64, nom:f.name }]);
-      };
-      r.readAsDataURL(f);
-    });
+    if (!crId) return;
+    const files = Array.from(e.target.files || []);
+    for (const f of files) {
+      const url = await uploadCrPhoto(f, crId);
+      if (!url) continue;
+      const { data } = await supabase.from("cr_photos").insert({
+        cr_id: crId, data: url, nom: f.name,
+      }).select().single();
+      setPhotos(p => [...p, data || { id: `new_${Date.now()}`, data: url, nom: f.name }]);
+    }
+    if (photoInputRef.current) photoInputRef.current.value = "";
   }
 
   async function delPhoto(id) {
@@ -390,6 +428,155 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
     const w = window.open("","_blank","width=900,height=700");
     w.document.write(html); w.document.close();
     w.onload = () => setTimeout(()=>{ w.focus(); w.print(); }, 300);
+  }
+
+  // ── EXPORT WORD ──────────────────────────────────────────────────────────
+  async function handleExportWord() {
+    if (!crId || exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/generate-cr-client-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ infos, obs: obs.filter(o => o.texte), photos, societe }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur serveur" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const safe = (infos.client_nom1 || "client").replace(/[^a-zA-Z0-9-_]/g, "_");
+      a.download = `CR-${safe}-${infos.date_visite || ""}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Erreur lors de la génération du document : " + e.message);
+    }
+    setExporting(false);
+  }
+
+  // ── PRÉ-REMPLISSAGE DEPUIS UNE VISITE ────────────────────────────────────
+  async function importerDepuisVisite(visiteId) {
+    if (!visiteId || !crId) return;
+    setImportingVisite(true);
+    try {
+      const visite = visitesChantier.find(v => v.id === visiteId);
+      if (!visite) throw new Error("Visite introuvable");
+
+      // Construit le résumé + observations à partir de la visite
+      const audit = visite.audit || {};
+      const toutes = Object.values(audit).flat();
+      const ok = toutes.filter(t => t.statut === "ok").length;
+      const res = toutes.filter(t => t.statut === "reserve").length;
+      const nok = toutes.filter(t => t.statut === "nok").length;
+
+      const resume = `Visite de chantier du ${visite.date} — ${toutes.length} points évalués (${ok} conformes, ${res} réserves, ${nok} non conformes).${visite.note_generale ? "\n\n" + visite.note_generale : ""}`;
+
+      // Convertit les Rés/NOK de la visite en observations CR
+      const obsFromVisite = toutes
+        .filter(t => t.statut === "reserve" || t.statut === "nok")
+        .map((t, i) => ({
+          statut: t.statut === "nok" ? "urgent" : "warn",
+          texte: `${t.nom}${t.commentaire ? " — " + t.commentaire : ""}`,
+          ordre: i,
+        }));
+
+      // Met à jour les infos
+      const newInfos = {
+        ...infos,
+        date_visite: visite.date || infos.date_visite,
+        resume: infos.resume ? infos.resume + "\n\n" + resume : resume,
+      };
+      setInfos(newInfos);
+      await saveInfos(newInfos);
+
+      // Insère les observations (sans écraser celles existantes)
+      if (obsFromVisite.length > 0) {
+        const baseOrdre = obs.length;
+        const inserts = obsFromVisite.map((o, i) => ({
+          cr_id: crId,
+          statut: o.statut,
+          texte: o.texte,
+          ordre: baseOrdre + i,
+        }));
+        const { data: newObs } = await supabase.from("cr_observations").insert(inserts).select();
+        if (newObs) setObs(prev => [...prev.filter(o => o.texte), ...newObs]);
+      }
+    } catch (e) {
+      alert("Erreur pré-remplissage : " + e.message);
+    }
+    setImportingVisite(false);
+  }
+
+  // ── ENVOI EMAIL AU CLIENT ────────────────────────────────────────────────
+  function ouvrirModalEmail() {
+    setEmailDest("");
+    setEmailCc("");
+    const clientNom = `${infos.client_prenom1 || ""} ${infos.client_nom1 || ""}`.trim() || "Client";
+    const dateF = infos.date_visite ? new Date(infos.date_visite).toLocaleDateString("fr-FR") : "";
+    setEmailSujet(`Compte rendu de visite du ${dateF}${infos.adresse ? " — " + infos.adresse.split(",")[0] : ""}`);
+    setEmailBody(`Bonjour ${clientNom},\n\nVeuillez trouver ci-joint le compte rendu de notre visite du ${dateF}.\n\nN'hésitez pas à revenir vers nous pour toute question.\n\nCordialement,\n${societe.nom || "Profero Rénovation"}`);
+    setEmailStatus(null);
+    setShowEmail(true);
+  }
+
+  async function handleSendEmail() {
+    if (!emailDest.trim() || !emailSujet.trim()) {
+      setEmailStatus({ ok: false, msg: "Destinataire et sujet obligatoires." });
+      return;
+    }
+    setSending(true); setEmailStatus(null);
+    try {
+      // 1) Générer le docx
+      const docxRes = await fetch("/api/generate-cr-client-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ infos, obs: obs.filter(o => o.texte), photos, societe }),
+      });
+      if (!docxRes.ok) throw new Error("Génération docx échouée");
+      const blob = await docxRes.blob();
+      // Convertit en base64
+      const base64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result.split(",")[1]);
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+      const safe = (infos.client_nom1 || "client").replace(/[^a-zA-Z0-9-_]/g, "_");
+      const filename = `CR-${safe}-${infos.date_visite || ""}.docx`;
+
+      // 2) Envoyer via /api/send-email avec pièce jointe
+      const to = emailDest.split(",").map(s => s.trim()).filter(Boolean);
+      const cc = emailCc ? emailCc.split(",").map(s => s.trim()).filter(Boolean) : null;
+      const bodyHtml = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1f2e;line-height:1.6">${
+        emailBody.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>")
+      }</div>`;
+
+      const mailRes = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to, cc, subject: emailSujet, html: bodyHtml,
+          attachments: [{ filename, content: base64 }],
+        }),
+      });
+      const mailData = await mailRes.json().catch(() => ({}));
+      if (!mailRes.ok) throw new Error(mailData.error || `Erreur envoi (HTTP ${mailRes.status})`);
+
+      // 3) Marquer le CR comme envoyé
+      const newInfos = { ...infos, statut: "envoye" };
+      setInfos(newInfos);
+      await saveInfos(newInfos);
+
+      setEmailStatus({ ok: true, msg: "Email envoyé avec succès ✓" });
+      setTimeout(() => setShowEmail(false), 1500);
+    } catch (e) {
+      setEmailStatus({ ok: false, msg: "Erreur : " + e.message });
+    }
+    setSending(false);
   }
 
   // ── RENDU ──
@@ -621,14 +808,31 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
                 }}>
                 {STATUTS_CR.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
-              <button onClick={genPDF} title="Générer le PDF" style={{
+              <button onClick={handleExportWord} disabled={exporting} title="Exporter en Word (.docx)" style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"7px 14px",borderRadius:RADIUS.md,border:"none",
+                background:acc.accent,color:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:exporting?"not-allowed":"pointer",
+                opacity:exporting?.6:1,
+              }}>
+                <Icon as={Download} size={13}/>
+                {exporting ? "Export…" : "Word"}
+              </button>
+              <button onClick={ouvrirModalEmail} title="Envoyer au client par email" style={{
                 display:"inline-flex",alignItems:"center",gap:5,
                 padding:"7px 14px",borderRadius:RADIUS.md,
                 border:`1px solid ${T.border}`,background:T.surface,color:T.textSub,
                 fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,cursor:"pointer",
               }}>
+                <Icon as={Send} size={13}/>
+                Envoyer
+              </button>
+              <button onClick={genPDF} title="Générer le PDF (impression navigateur)" style={{
+                display:"inline-flex",alignItems:"center",justifyContent:"center",
+                padding:"7px 10px",borderRadius:RADIUS.md,
+                border:`1px solid ${T.border}`,background:"transparent",color:T.textMuted,cursor:"pointer",
+              }}>
                 <Icon as={Download} size={13}/>
-                PDF
               </button>
               <button onClick={()=>setToDelete(crActif)} title="Supprimer" style={{
                 display:"inline-flex",alignItems:"center",justifyContent:"center",
@@ -900,6 +1104,65 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
             {/* ── IMPORT IA ── */}
             {section==="ia" && (
               <div style={{maxWidth:880}}>
+                {/* Pré-remplissage depuis une visite chantier */}
+                {visitesChantier.length > 0 && (
+                  <>
+                    <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                      <Icon as={ClipboardCheck} size={11}/>
+                      Pré-remplir depuis une visite chantier
+                    </div>
+                    <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:18,marginBottom:18}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                        <div style={{width:32,height:32,borderRadius:RADIUS.md,background:"rgba(91,156,246,0.16)",color:"#5b9cf6",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <Icon as={ClipboardCheck} size={16}/>
+                        </div>
+                        <div>
+                          <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text}}>Récupérer une visite interne</div>
+                          <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>
+                            Reprend la date, le résumé et les réserves comme observations.
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {visitesChantier.map(v => {
+                          const audit = v.audit || {};
+                          const toutes = Object.values(audit).flat();
+                          const res = toutes.filter(t => t.statut === "reserve").length;
+                          const nok = toutes.filter(t => t.statut === "nok").length;
+                          return (
+                            <div key={v.id} style={{
+                              display:"flex",alignItems:"center",gap:10,
+                              padding:"10px 12px",background:T.card,
+                              border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+                            }}>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text}}>
+                                  Visite du {v.date ? new Date(v.date).toLocaleDateString("fr-FR") : "—"}
+                                </div>
+                                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,display:"inline-flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:2}}>
+                                  <span>{toutes.length} points</span>
+                                  {res>0 && <span style={{color:"#f5a623",fontWeight:700}}>· {res} réserves</span>}
+                                  {nok>0 && <span style={{color:"#e15a5a",fontWeight:700}}>· {nok} NOK</span>}
+                                </div>
+                              </div>
+                              <button onClick={()=>importerDepuisVisite(v.id)} disabled={importingVisite} style={{
+                                display:"inline-flex",alignItems:"center",gap:5,
+                                background:"rgba(91,156,246,0.12)",color:"#5b9cf6",
+                                border:`1px solid rgba(91,156,246,0.3)`,
+                                borderRadius:RADIUS.md,padding:"7px 12px",cursor:importingVisite?"not-allowed":"pointer",
+                                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,opacity:importingVisite?.6:1,
+                              }}>
+                                <Icon as={ChevronRight} size={11}/>
+                                Pré-remplir
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
                   <Icon as={Sparkles} size={11}/>
                   Import IA — Claude
@@ -944,6 +1207,95 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
               </div>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL ENVOI EMAIL ── */}
+      {showEmail && (
+        <div onClick={()=>!sending&&setShowEmail(false)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:0,
+            width:"100%",maxWidth:560,maxHeight:"90vh",
+            border:`1px solid ${T.border}`,overflow:"hidden",
+            display:"flex",flexDirection:"column",
+          }}>
+            <div style={{padding:"18px 22px",borderBottom:`1px solid ${T.sectionDivider||T.border}`,display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:36,height:36,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={Send} size={18}/>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Envoyer le compte rendu</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>Document Word généré et joint automatiquement</div>
+              </div>
+              <button onClick={()=>!sending&&setShowEmail(false)} disabled={sending} title="Fermer" style={{
+                display:"inline-flex",alignItems:"center",justifyContent:"center",
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,width:32,height:32,cursor:sending?"not-allowed":"pointer",color:T.textSub,
+              }}>
+                <Icon as={X} size={14}/>
+              </button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"16px 22px",display:"flex",flexDirection:"column",gap:12}}>
+              <div>
+                <label style={lbl}>Destinataire(s) *</label>
+                <input style={inp} value={emailDest} onChange={e=>setEmailDest(e.target.value)}
+                  placeholder="client@example.com, autre@example.com"/>
+                <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:4,fontStyle:"italic"}}>
+                  Séparer plusieurs adresses par des virgules.
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Copie (CC)</label>
+                <input style={inp} value={emailCc} onChange={e=>setEmailCc(e.target.value)}
+                  placeholder="francois.huet@groupe-profero.com"/>
+              </div>
+              <div>
+                <label style={lbl}>Sujet *</label>
+                <input style={inp} value={emailSujet} onChange={e=>setEmailSujet(e.target.value)}/>
+              </div>
+              <div>
+                <label style={lbl}>Message</label>
+                <textarea style={{...ta,minHeight:140}} value={emailBody} onChange={e=>setEmailBody(e.target.value)}/>
+              </div>
+              <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
+                <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
+                <span>Une fois envoyé, le statut du CR passera automatiquement à <strong style={{color:"#22c55e"}}>Envoyé</strong>.</span>
+              </div>
+              {emailStatus && (
+                <div style={{
+                  display:"flex",alignItems:"center",gap:8,
+                  padding:"10px 12px",borderRadius:RADIUS.md,
+                  background: emailStatus.ok ? "rgba(34,197,94,0.12)" : "rgba(224,92,92,0.12)",
+                  border: `1px solid ${emailStatus.ok ? "rgba(34,197,94,0.3)" : "rgba(224,92,92,0.3)"}`,
+                  color: emailStatus.ok ? "#22c55e" : "#e15a5a",
+                  fontSize:FONT.xs.size+1, fontWeight:600,
+                }}>
+                  <Icon as={emailStatus.ok ? Check : AlertTriangle} size={13}/>
+                  {emailStatus.msg}
+                </div>
+              )}
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.sectionDivider||T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowEmail(false)} disabled={sending} style={{
+                padding:"9px 18px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,
+                background:"transparent",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",opacity:sending?.5:1,
+              }}>Annuler</button>
+              <button onClick={handleSendEmail} disabled={sending} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:acc.accent,color:acc.onAccent,border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                cursor:sending?"not-allowed":"pointer",opacity:sending?.6:1,
+              }}>
+                <Icon as={Send} size={13}/>
+                {sending ? "Envoi…" : "Envoyer"}
+              </button>
+            </div>
           </div>
         </div>
       )}
