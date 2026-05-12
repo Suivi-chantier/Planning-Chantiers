@@ -271,7 +271,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
       </div>
       <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 20px" }}>
         <div style={{ textAlign:"center", marginBottom:56 }}>
-          <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:"rgba(255,194,0,0.5)", marginBottom:12 }}>Groupe Profero</div>
+          <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:72, objectFit:"contain", marginBottom:18 }}/>
           <div style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:.5 }}>Choisissez votre espace</div>
           <div style={{ fontSize:15, color:"rgba(255,255,255,0.3)", marginTop:8 }}>
             Bonjour {profil?.nom?.split(" ")[0] || "vous"} — sélectionnez la branche à laquelle accéder
