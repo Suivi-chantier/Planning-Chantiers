@@ -9,11 +9,29 @@
 //   CRON_SECRET           — chaîne aléatoire, validée via header Authorization
 //   VITE_SUPABASE_URL     — URL projet Supabase
 //   VITE_SUPABASE_KEY     — clé anon Supabase (lecture/écriture planning_config)
+//   ADMIN_EMAIL           — destinataire des alertes DST (défaut: francois.huet@groupe-profero.com)
 //   RESEND_KEY / RESEND_FROM — utilisés par /api/send-email (déjà configurés)
 //
-// Planification (vercel.json) :
-//   "50 14,15,16 * * 1-5"  — couvre 17h50 CEST (été) et 17h50 CET (hiver)
-//                            la fonction décide elle-même via l'heure Paris.
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ ⚠ AJUSTEMENT HEURE D'ÉTÉ / HEURE D'HIVER                                 │
+// │                                                                          │
+// │ Vercel cron fonctionne en UTC. Le plan Hobby ne permet qu'1 invocation   │
+// │ par jour par cron, donc on ne peut pas faire de détection runtime.       │
+// │                                                                          │
+// │ Schedule actuel (HEURE D'ÉTÉ - CEST, UTC+2) :                            │
+// │   "50 15 * * 1-3"   → Lun-Mer 17h50 Paris ✓                              │
+// │   "50 14 * * 4-5"   → Jeu-Ven 16h50 Paris ✓                              │
+// │                                                                          │
+// │ À CHANGER au passage à L'HEURE D'HIVER (dernier dimanche d'octobre) :    │
+// │   "50 16 * * 1-3"   → Lun-Mer 17h50 Paris (CET, UTC+1)                   │
+// │   "50 15 * * 4-5"   → Jeu-Ven 16h50 Paris                                │
+// │                                                                          │
+// │ À RECHANGER au passage à L'HEURE D'ÉTÉ (dernier dimanche de mars) :      │
+// │   "50 15 * * 1-3"  /  "50 14 * * 4-5"  (valeurs ci-dessus)               │
+// │                                                                          │
+// │ Le handler détecte automatiquement le décalage et envoie une alerte      │
+// │ par email à ADMIN_EMAIL pour rappeler de faire le changement.            │
+// └─────────────────────────────────────────────────────────────────────────┘
 
 const { createClient } = require("@supabase/supabase-js");
 
@@ -51,17 +69,11 @@ function currentWeekIdParis() {
   return `${y}-W${String(w).padStart(2, "0")}`;
 }
 
-// Détermine si on est dans une fenêtre d'envoi (avec ~7 min de tolérance).
-function dansFenetreEnvoi({ weekday, hour, minute }) {
-  const minutesDepuis = hour * 60 + minute;
-  if (["Lundi", "Mardi", "Mercredi"].includes(weekday)) {
-    // 17h45 → 17h55
-    return minutesDepuis >= 17 * 60 + 45 && minutesDepuis <= 17 * 60 + 55;
-  }
-  if (["Jeudi", "Vendredi"].includes(weekday)) {
-    return minutesDepuis >= 16 * 60 + 45 && minutesDepuis <= 16 * 60 + 55;
-  }
-  return false;
+// Heure de Paris attendue pour chaque jour de la semaine.
+function heureAttendue(weekday) {
+  if (["Lundi", "Mardi", "Mercredi"].includes(weekday)) return 17;
+  if (["Jeudi", "Vendredi"].includes(weekday)) return 16;
+  return null;
 }
 
 function escapeHtml(s) {
@@ -93,6 +105,66 @@ function buildMailHtml(prenom, dateFr) {
   </div>`;
 }
 
+// Construit le mail d'alerte DST envoyé à l'admin.
+function buildDstAlertHtml({ weekday, hour, minute }, expectedHour, sens) {
+  const sensTexte = sens === "ete_vers_hiver"
+    ? "Passage à l'heure d'hiver détecté"
+    : sens === "hiver_vers_ete"
+    ? "Passage à l'heure d'été détecté"
+    : "Décalage horaire détecté";
+  return `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
+    <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
+      <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Action requise</div>
+      <div style="color:#fff;font-size:20px;font-weight:800">⚠ Cron à ajuster : ${escapeHtml(sensTexte)}</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px">
+      <p style="margin:0 0 14px;font-size:14px">
+        Le cron de rappel de compte rendu vient de tirer un <strong>${escapeHtml(weekday)}</strong> à
+        <strong>${String(hour).padStart(2,"0")}h${String(minute).padStart(2,"0")}</strong> heure de Paris,
+        alors qu'il devrait tirer à <strong>${expectedHour}h50</strong>.
+      </p>
+      <p style="margin:0 0 14px;font-size:14px">
+        Il faut éditer <code style="background:#f4f6fa;padding:2px 6px;border-radius:3px;font-size:13px">vercel.json</code>
+        avec les nouvelles valeurs UTC, puis push :
+      </p>
+      <div style="background:#1a1f2e;color:#e8eaf0;padding:14px 16px;border-radius:6px;font-family:monospace;font-size:12px;line-height:1.6;margin:14px 0">
+        ${sens === "ete_vers_hiver" ? `
+        "schedule": "50 16 * * 1-3"  &larr; Lun-Mer<br>
+        "schedule": "50 15 * * 4-5"  &larr; Jeu-Ven
+        ` : `
+        "schedule": "50 15 * * 1-3"  &larr; Lun-Mer<br>
+        "schedule": "50 14 * * 4-5"  &larr; Jeu-Ven
+        `}
+      </div>
+      <p style="margin:14px 0 0;font-size:13px;color:#666">
+        En attendant, les ouvriers continuent de recevoir leurs rappels — juste à ${Math.abs(expectedHour - hour) === 1 ? "une heure de décalage" : "horaire incorrect"}.
+      </p>
+      <p style="margin:14px 0 0;font-size:12px;color:#888">
+        ℹ Cette alerte n'est envoyée qu'une fois par jour tant que le décalage persiste.
+      </p>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
+  </div>`;
+}
+
+async function envoyerAlerteDstSiNecessaire(supabase, req, t, expectedHour) {
+  const adminEmail = process.env.ADMIN_EMAIL || "francois.huet@groupe-profero.com";
+  // Idempotence : on n'alerte qu'une fois par jour
+  const { data } = await supabase.from("planning_config")
+    .select("value").eq("key", "dst_alert_state").maybeSingle();
+  if (data?.value?.last_alert_date === t.dateFr) return { skipped: "already_alerted_today" };
+
+  const sens = t.hour < expectedHour ? "ete_vers_hiver" : "hiver_vers_ete";
+  const html = buildDstAlertHtml(t, expectedHour, sens);
+  const r = await envoyerMail(req, adminEmail, `⚠ Profero Planning : ajustement cron requis (${sens === "ete_vers_hiver" ? "heure d'hiver" : "heure d'été"})`, html);
+
+  await supabase.from("planning_config").upsert(
+    { key: "dst_alert_state", value: { last_alert_date: t.dateFr, sens } },
+    { onConflict: "key" }
+  );
+  return { sent: r.ok, sens };
+}
+
 async function envoyerMail(req, to, subject, html) {
   // Construit l'URL absolue de /api/send-email à partir du host de la requête.
   const proto = req.headers["x-forwarded-proto"] || "https";
@@ -117,10 +189,11 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // ── Fenêtre temporelle Paris ──
+  // ── Vérification jour ouvré (Lun-Ven) ──
   const t = parisNow();
-  if (!dansFenetreEnvoi(t)) {
-    return res.status(200).json({ ok: true, skipped: "outside_window", time: t });
+  const expectedHour = heureAttendue(t.weekday);
+  if (expectedHour === null) {
+    return res.status(200).json({ ok: true, skipped: "weekend", time: t });
   }
 
   // ── Supabase ──
@@ -130,6 +203,15 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: "Supabase env vars missing" });
   }
   const supabase = createClient(supaUrl, supaKey, { auth: { persistSession: false } });
+
+  // ── Détection drift DST : si l'heure Paris ne correspond pas à l'heure
+  //    attendue, c'est qu'on a basculé été↔hiver. On alerte l'admin par mail
+  //    (1× / jour) mais on continue d'envoyer les rappels aux ouvriers.
+  let dstAlert = null;
+  if (t.hour !== expectedHour) {
+    try { dstAlert = await envoyerAlerteDstSiNecessaire(supabase, req, t, expectedHour); }
+    catch (e) { console.error("DST alert error:", e); }
+  }
 
   try {
     const weekId = currentWeekIdParis();
@@ -206,6 +288,9 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       weekId, jour, dateFr,
+      heureParis: `${String(t.hour).padStart(2,"0")}:${String(t.minute).padStart(2,"0")}`,
+      heureAttendue: `${expectedHour}:50`,
+      dstAlert,
       assignes: assignes.size,
       rendus: rendus.size,
       ...resultats,
