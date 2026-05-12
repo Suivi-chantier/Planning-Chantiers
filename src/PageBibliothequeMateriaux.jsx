@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
+import { FONT, RADIUS, getBranchAccent } from "./constants";
+import { Icon } from "./ui";
+import {
+  Package, Plus, Search, X, Trash2, Pencil, ExternalLink, Check,
+  AlertTriangle, FileSpreadsheet, Sheet, Tag, Euro, Link2, Inbox,
+} from "lucide-react";
 
 // ─── CATÉGORIES ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -580,9 +586,10 @@ function ModaleImportSheets({ onClose, onImport, T }) {
 }
 
 // ─── MODALE ARTICLE ───────────────────────────────────────────────────────────
-function ArticleModal({ article, onClose, onSave, T }) {
+function ArticleModal({ article, onClose, onSave, T, acc }) {
   const [draft, setDraft] = useState(article || emptyArticle());
   const [saving, setSaving] = useState(false);
+  acc = acc || getBranchAccent("renovation");
 
   const set = (field, val) => setDraft(p => ({ ...p, [field]: val }));
 
@@ -611,27 +618,42 @@ function ArticleModal({ article, onClose, onSave, T }) {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)", zIndex: 900 }} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)", zIndex: 900 }} />
       <div style={{
         position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
         width: "min(600px, 96vw)", maxHeight: "90vh",
-        background: T.surface, borderRadius: 18, border: "1px solid rgba(255,255,255,0.1)",
+        background: T.modal || T.surface, borderRadius: RADIUS.xl,
+        border: `1px solid ${T.border}`,
         boxShadow: "0 32px 80px rgba(0,0,0,0.8)",
         zIndex: 901, display: "flex", flexDirection: "column", overflow: "hidden",
       }}>
         <div style={{
-          padding: "20px 24px", borderBottom: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(255,194,0,0.06)",
+          padding: "18px 22px", borderBottom: `1px solid ${T.sectionDivider || T.border}`,
           display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,194,0,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>📦</div>
+            <div style={{
+              width: 36, height: 36, borderRadius: RADIUS.md,
+              background: acc.bg10, color: acc.accent,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon as={Package} size={18}/>
+            </div>
             <div>
-              <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>{draft.id ? "Modifier l'article" : "Nouvel article"}</div>
-              <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>Bibliothèque matériaux</div>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>
+                {draft.id ? "Modifier l'article" : "Nouvel article"}
+              </div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>Bibliothèque matériaux</div>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, width: 34, height: 34, cursor: "pointer", color: T.textSub, fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+          <button onClick={onClose} title="Fermer" style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            background: "transparent", border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.md, width: 32, height: 32,
+            cursor: "pointer", color: T.textSub,
+          }}>
+            <Icon as={X} size={14}/>
+          </button>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
@@ -680,7 +702,15 @@ function ArticleModal({ article, onClose, onSave, T }) {
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={draft.lien_fournisseur} onChange={e => set("lien_fournisseur", e.target.value)} placeholder="https://…" style={{ ...inp(), flex: 1 }} />
                 {draft.lien_fournisseur && (
-                  <a href={draft.lien_fournisseur} target="_blank" rel="noreferrer" style={{ background: "rgba(255,194,0,0.15)", border: "1px solid rgba(255,194,0,0.3)", borderRadius: 8, padding: "9px 14px", color: "#FFC200", textDecoration: "none", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>🔗 Ouvrir</a>
+                  <a href={draft.lien_fournisseur} target="_blank" rel="noreferrer" style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    background: acc.bg10, border: `1px solid ${acc.accent}55`,
+                    borderRadius: RADIUS.md, padding: "9px 14px", color: acc.accent,
+                    textDecoration: "none", fontSize: FONT.sm.size, fontWeight: 700, whiteSpace: "nowrap",
+                  }}>
+                    <Icon as={ExternalLink} size={12}/>
+                    Ouvrir
+                  </a>
                 )}
               </div>
             </div>
@@ -700,10 +730,27 @@ function ArticleModal({ article, onClose, onSave, T }) {
           </div>
         </div>
 
-        <div style={{ padding: "14px 24px", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", gap: 10, justifyContent: "flex-end", background: T.surface, flexShrink: 0 }}>
-          <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
-          <button onClick={handleSave} disabled={!draft.nom?.trim() || saving} style={{ padding: "9px 24px", borderRadius: 8, border: "none", background: draft.nom?.trim() ? "#FFC200" : "rgba(255,194,0,0.2)", color: draft.nom?.trim() ? "#111" : T.textMuted, fontFamily: "inherit", fontSize: 13, fontWeight: 800, cursor: draft.nom?.trim() ? "pointer" : "not-allowed", transition: "all .15s" }}>
-            {saving ? "Enregistrement…" : draft.id ? "✓ Modifier" : "✓ Ajouter"}
+        <div style={{
+          padding: "14px 22px", borderTop: `1px solid ${T.sectionDivider || T.border}`,
+          display: "flex", gap: 10, justifyContent: "flex-end",
+          background: T.modal || T.surface, flexShrink: 0,
+        }}>
+          <button onClick={onClose} style={{
+            padding: "9px 18px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub,
+            fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+          }}>Annuler</button>
+          <button onClick={handleSave} disabled={!draft.nom?.trim() || saving} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 20px", borderRadius: RADIUS.md, border: "none",
+            background: draft.nom?.trim() ? acc.accent : T.border,
+            color: draft.nom?.trim() ? acc.onAccent : T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+            cursor: draft.nom?.trim() ? "pointer" : "not-allowed",
+            opacity: saving ? .6 : 1,
+          }}>
+            <Icon as={Check} size={13}/>
+            {saving ? "Enregistrement…" : draft.id ? "Modifier" : "Ajouter"}
           </button>
         </div>
       </div>
@@ -712,7 +759,8 @@ function ArticleModal({ article, onClose, onSave, T }) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-function PageBibliothequeMateriaux({ T }) {
+function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
+  const acc = getBranchAccent(branch);
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -720,6 +768,9 @@ function PageBibliothequeMateriaux({ T }) {
   const [modale, setModale] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [modaleSheets, setModaleSheets] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [sortBy, setSortBy] = useState("az");           // az / za / prix-asc / prix-desc / fournisseur
+  const [viewMode, setViewMode] = useState("liste");    // liste / groupe
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -736,6 +787,27 @@ function PageBibliothequeMateriaux({ T }) {
     const matchSearch = !q || a.nom?.toLowerCase().includes(q) || a.reference?.toLowerCase().includes(q) || a.fournisseur?.toLowerCase().includes(q);
     return matchCat && matchSearch;
   });
+
+  // ── Tri
+  const sortFn = {
+    "az":        (a, b) => (a.nom || "").localeCompare(b.nom || ""),
+    "za":        (a, b) => (b.nom || "").localeCompare(a.nom || ""),
+    "prix-asc":  (a, b) => (parseFloat(a.prix_unitaire) || 0) - (parseFloat(b.prix_unitaire) || 0),
+    "prix-desc": (a, b) => (parseFloat(b.prix_unitaire) || 0) - (parseFloat(a.prix_unitaire) || 0),
+    "fournisseur": (a, b) => (a.fournisseur || "~").localeCompare(b.fournisseur || "~"),
+  }[sortBy] || ((a, b) => 0);
+  const sorted = [...filtered].sort(sortFn);
+
+  // ── Groupement par catégorie pour la vue "groupé"
+  const grouped = (() => {
+    const map = {};
+    sorted.forEach(a => {
+      const cat = a.categorie || "Sans catégorie";
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(a);
+    });
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  })();
 
   const catsPresentes = [...new Set(articles.map(a => a.categorie).filter(Boolean))].sort();
 
@@ -762,182 +834,417 @@ function PageBibliothequeMateriaux({ T }) {
   };
 
   const deleteArticle = async (id) => {
+    setDeleting(true);
     await supabase.from("materiaux_bibliotheque").delete().eq("id", id);
     setConfirmDelete(null);
+    setDeleting(false);
     load();
   };
 
   return (
-    <div className="page-padding bm-page" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+    <div className="page-padding bm-page" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
       <style>{`
         @media(max-width:767px){
           .bm-page .bm-header{flex-direction:column;align-items:stretch!important}
-          .bm-page .bm-header > div:first-child > div:first-child{font-size:20px!important}
           .bm-page .bm-actions button{flex:1;justify-content:center}
-          .bm-page .bm-kpis > div{flex:1;min-width:0;padding:8px 12px!important}
-          .bm-page .bm-kpis > div > div:first-child{font-size:18px!important}
           .bm-page .bm-search-bar{flex-direction:column!important;gap:8px!important}
-          .bm-page .bm-search-bar input,.bm-page .bm-search-bar select{width:100%!important;min-width:0!important}
+          .bm-page .bm-search-bar > div,.bm-page .bm-search-bar select{width:100%!important;min-width:0!important}
           .bm-page .bm-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
           .bm-page .bm-table-wrap table{min-width:760px}
         }
       `}</style>
 
       {modaleSheets && <ModaleImportSheets onClose={() => setModaleSheets(false)} onImport={load} T={T} />}
-      {modale && <ArticleModal article={modale === "new" ? null : modale} onClose={() => setModale(null)} onSave={saveArticle} T={T} />}
+      {modale && <ArticleModal article={modale === "new" ? null : modale} onClose={() => setModale(null)} onSave={saveArticle} T={T} acc={acc}/>}
 
+      {/* ── Modale confirmation suppression ── */}
       {confirmDelete && (
-        <>
-          <div onClick={() => setConfirmDelete(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", zIndex: 900 }} />
-          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.surface, borderRadius: 16, border: "1px solid rgba(224,92,92,0.4)", padding: "24px 28px", zIndex: 901, maxWidth: 400, width: "90vw", textAlign: "center" }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>🗑</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>Supprimer cet article ?</div>
-            <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20 }}>« {confirmDelete.nom} » sera supprimé définitivement.</div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-              <button onClick={() => setConfirmDelete(null)} style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 13, cursor: "pointer" }}>Annuler</button>
-              <button onClick={() => deleteArticle(confirmDelete.id)} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#e05c5c", color: "#fff", fontFamily: "inherit", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>Supprimer</button>
+        <div onClick={() => !deleting && setConfirmDelete(null)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 900,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.modal, borderRadius: RADIUS.xl, padding: 24,
+            width: "100%", maxWidth: 420, border: `1px solid ${T.border}`,
+            boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
+                background: "rgba(224,92,92,0.12)", color: "#e15a5a",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon as={AlertTriangle} size={20} strokeWidth={2}/>
+              </div>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Supprimer cet article&nbsp;?</div>
+            </div>
+            <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
+              L'article <strong style={{ color: T.text }}>« {confirmDelete.nom} »</strong> sera supprimé définitivement de la bibliothèque.
+              <br/><span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>Cette action est irréversible.</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmDelete(null)} disabled={deleting}
+                style={{ background: "transparent", border: `1px solid ${T.border}`,
+                  borderRadius: RADIUS.md, padding: "9px 18px", color: T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer", opacity: deleting ? .5 : 1 }}>
+                Annuler
+              </button>
+              <button onClick={() => deleteArticle(confirmDelete.id)} disabled={deleting}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                  background: "#e15a5a", color: "#fff", border: "none",
+                  borderRadius: RADIUS.md, padding: "9px 18px",
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                  cursor: "pointer", opacity: deleting ? .6 : 1 }}>
+                <Icon as={Trash2} size={13}/>
+                {deleting ? "Suppression…" : "Supprimer"}
+              </button>
             </div>
           </div>
-        </>
+        </div>
       )}
 
-      {/* Header */}
-      <div className="bm-header" style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
-        <div>
-          <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>Bibliothèque matériaux</div>
-          <div style={{ fontSize: 14, color: T.textSub }}>Catalogue des articles, consommables et matériaux récurrents</div>
+      {/* ── Header ── */}
+      <div className="bm-header" style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 20, flexWrap: "wrap", gap: 12,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: RADIUS.md,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={Package} size={20} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{ fontSize: FONT.xl.size + 4, fontWeight: 800, color: T.text, letterSpacing: -0.3, marginBottom: 2 }}>
+              Bibliothèque matériaux
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+              Catalogue des articles, consommables et matériaux récurrents
+            </div>
+          </div>
         </div>
-        <div className="bm-actions" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="bm-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button onClick={() => setModaleSheets(true)} style={{
-            display: "flex", alignItems: "center", gap: 8,
+            display: "inline-flex", alignItems: "center", gap: 6,
             background: "rgba(15,157,88,0.12)", border: "1px solid rgba(15,157,88,0.35)",
-            borderRadius: 10, padding: "11px 18px",
-            fontFamily: "inherit", fontSize: 13, fontWeight: 700, color: "#0F9D58",
+            borderRadius: RADIUS.md, padding: "9px 16px",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, color: "#0F9D58",
             cursor: "pointer", transition: "all .15s",
           }}
             onMouseEnter={e => e.currentTarget.style.background = "rgba(15,157,88,0.22)"}
-            onMouseLeave={e => e.currentTarget.style.background = "rgba(15,157,88,0.12)"}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="#0F9D58">
-              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H7v-2h5v2zm5-4H7v-2h10v2zm0-4H7V7h10v2z"/>
-            </svg>
+            onMouseLeave={e => e.currentTarget.style.background = "rgba(15,157,88,0.12)"}>
+            <Icon as={Sheet} size={13}/>
             Importer depuis Sheets
           </button>
-          <button onClick={() => setModale("new")} style={{ background: T.accent, color: "#111", border: "none", borderRadius: 10, padding: "11px 22px", fontFamily: "inherit", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-            + Nouvel article
+          <button onClick={() => setModale("new")} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: acc.accent, color: acc.onAccent, border: "none",
+            borderRadius: RADIUS.md, padding: "9px 16px",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>
+            <Icon as={Plus} size={14}/>
+            Nouvel article
           </button>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="bm-kpis" style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+      {/* ── KPIs ── */}
+      <div style={{
+        display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+        gap: 10, marginBottom: 14,
+      }}>
         {[
-          { label: "Articles",   val: articles.length,                           color: "#FFC200", bg: "rgba(255,194,0,0.12)",   border: "rgba(255,194,0,0.3)"   },
-          { label: "Avec prix",  val: articles.filter(a => a.prix_unitaire).length, color: "#50c878", bg: "rgba(80,200,120,0.12)",  border: "rgba(80,200,120,0.3)"  },
-          { label: "Avec lien",  val: articles.filter(a => a.lien_fournisseur).length, color: "#5b9cf6", bg: "rgba(91,156,246,0.12)", border: "rgba(91,156,246,0.3)" },
-          { label: "Catégories", val: catsPresentes.length,                      color: "#b060ff", bg: "rgba(176,96,255,0.12)",  border: "rgba(176,96,255,0.3)"  },
+          { label: "Articles",   val: articles.length,                                        icon: Package,        color: acc.accent },
+          { label: "Avec prix",  val: articles.filter(a => a.prix_unitaire).length,           icon: Euro,           color: "#22c55e" },
+          { label: "Avec lien",  val: articles.filter(a => a.lien_fournisseur).length,        icon: Link2,          color: "#5b9cf6" },
+          { label: "Catégories", val: catsPresentes.length,                                   icon: Tag,            color: "#a78bfa" },
         ].map(k => (
-          <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.border}`, borderRadius: 10, padding: "10px 18px" }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: k.color }}>{k.val}</div>
-            <div style={{ fontSize: 12, color: k.color, fontWeight: 600 }}>{k.label}</div>
+          <div key={k.label} style={{
+            background: T.surface, border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.lg, padding: "12px 14px",
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+              background: k.color + "18", color: k.color,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon as={k.icon} size={16} strokeWidth={2}/>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: FONT.xl.size, fontWeight: 800, color: T.text, letterSpacing: -.5, lineHeight: 1 }}>{k.val}</div>
+              <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, fontWeight: 600, letterSpacing: .3 }}>{k.label}</div>
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Bandeau vide */}
+      {/* ── Bandeau vide ── */}
       {articles.length === 0 && !loading && (
         <div style={{
-          marginBottom: 24,
-          background: "linear-gradient(135deg, rgba(15,157,88,0.07), rgba(66,133,244,0.07))",
-          border: "1px solid rgba(15,157,88,0.18)",
-          borderRadius: 14, padding: "24px 28px",
-          display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap",
+          marginBottom: 18,
+          background: T.card, border: `1px dashed ${T.border}`,
+          borderRadius: RADIUS.xl, padding: "22px 24px",
+          display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap",
         }}>
-          <div style={{ fontSize: 40 }}>📋</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: T.text, marginBottom: 4 }}>Ta bibliothèque est vide</div>
-            <div style={{ fontSize: 13, color: T.textSub }}>Importe tes articles depuis un Google Sheet partagé ou ajoute-les un par un.</div>
+          <div style={{
+            width: 48, height: 48, borderRadius: RADIUS.lg,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={Package} size={24} strokeWidth={1.5}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text, marginBottom: 2 }}>Ta bibliothèque est vide</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub }}>Importe tes articles depuis un Google Sheet partagé ou ajoute-les un par un.</div>
           </div>
           <button onClick={() => setModaleSheets(true)} style={{
-            background: "linear-gradient(135deg, #0F9D58, #4285F4)", color: "#fff", border: "none",
-            borderRadius: 10, padding: "12px 24px", fontFamily: "inherit",
-            fontSize: 14, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap",
-          }}>📥 Importer depuis Google Sheets</button>
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: "#0F9D58", color: "#fff", border: "none",
+            borderRadius: RADIUS.md, padding: "10px 18px", fontFamily: "inherit",
+            fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap",
+          }}>
+            <Icon as={Sheet} size={14}/>
+            Importer depuis Google Sheets
+          </button>
         </div>
       )}
 
-      {/* Recherche + filtre */}
-      <div className="bm-search-bar" style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Rechercher un article, référence, fournisseur…"
-          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 14px", color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none", flex: "1 1 220px", minWidth: 200 }} />
-        <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
-          style={{ background: "#1e2336", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", color: "#e8eaf0", fontFamily: "inherit", fontSize: 13, outline: "none" }}>
-          <option value="all">Toutes catégories</option>
-          {catsPresentes.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </div>
+      {/* ── Recherche + filtre + tri + vue ── */}
+      {articles.length > 0 && (
+        <div className="bm-search-bar" style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg, padding: "10px 12px", marginBottom: 14,
+          display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
+        }}>
+          <div style={{ position: "relative", flex: "1 1 200px", maxWidth: 360 }}>
+            <Icon as={Search} size={13} color={T.textMuted}
+              style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}/>
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Rechercher un article, référence, fournisseur…"
+              style={{ width: "100%", background: T.fieldBg || T.card, border: `1px solid ${T.fieldBorder || T.border}`,
+                borderRadius: RADIUS.md, padding: "8px 10px 8px 30px", color: T.text,
+                fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none" }}/>
+          </div>
+          <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
+            style={{ background: T.fieldBg || T.card, border: `1px solid ${T.fieldBorder || T.border}`,
+              borderRadius: RADIUS.md, padding: "8px 12px", color: T.text,
+              fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", cursor: "pointer" }}>
+            <option value="all">Toutes catégories</option>
+            {catsPresentes.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)} title="Trier"
+            style={{ background: T.fieldBg || T.card, border: `1px solid ${T.fieldBorder || T.border}`,
+              borderRadius: RADIUS.md, padding: "8px 12px", color: T.text,
+              fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", cursor: "pointer" }}>
+            <option value="az">A → Z</option>
+            <option value="za">Z → A</option>
+            <option value="prix-asc">Prix croissant</option>
+            <option value="prix-desc">Prix décroissant</option>
+            <option value="fournisseur">Fournisseur</option>
+          </select>
+          {/* Toggle vue */}
+          <div style={{
+            display: "flex", background: T.fieldBg || T.card,
+            border: `1px solid ${T.fieldBorder || T.border}`, borderRadius: RADIUS.md, padding: 2,
+          }}>
+            {[
+              { id: "liste", label: "Liste" },
+              { id: "groupe", label: "Groupé" },
+            ].map(v => {
+              const active = viewMode === v.id;
+              return (
+                <button key={v.id} onClick={() => setViewMode(v.id)} style={{
+                  padding: "6px 12px", borderRadius: RADIUS.sm, border: "none",
+                  background: active ? acc.accent : "transparent",
+                  color: active ? acc.onAccent : T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer",
+                }}>{v.label}</button>
+              );
+            })}
+          </div>
+          <div style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600 }}>
+            {filtered.length} / {articles.length}
+          </div>
+        </div>
+      )}
 
-      {/* Table */}
-      <div className="bm-table-wrap" style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      {/* ── Table(s) ── */}
+      {articles.length > 0 && (() => {
+        const renderRow = (a) => (
+          <tr key={a.id} style={{ borderBottom: `1px solid ${T.sectionDivider || T.border}`, transition: "background .1s" }}
+            onMouseEnter={e => e.currentTarget.style.background = T.card}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <td style={{ padding: "10px 10px", width: 60 }}>
+              {a.photo_url
+                ? <img src={a.photo_url} alt={a.nom} onError={e => { e.target.style.display = "none"; }}
+                    style={{ width: 44, height: 44, borderRadius: RADIUS.md, objectFit: "cover", border: `1px solid ${T.border}` }}/>
+                : <div style={{
+                    width: 44, height: 44, borderRadius: RADIUS.md, background: T.card,
+                    border: `1px solid ${T.border}`,
+                    display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted,
+                  }}>
+                    <Icon as={Package} size={18} strokeWidth={1.5}/>
+                  </div>
+              }
+            </td>
+            <td style={{ padding: "10px 10px", maxWidth: 240 }}>
+              <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{a.nom}</div>
+              {a.reference && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, fontFamily: "monospace" }}>{a.reference}</div>}
+              {a.notes && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>{a.notes}</div>}
+            </td>
+            {viewMode === "liste" && (
+              <td style={{ padding: "10px 10px" }}>
+                {a.categorie && <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  background: acc.bg10, color: acc.accent, border: `1px solid ${acc.accent}33`,
+                  borderRadius: RADIUS.sm, padding: "3px 8px", fontSize: FONT.xs.size, fontWeight: 700,
+                }}>
+                  <Icon as={Tag} size={9}/>
+                  {a.categorie}
+                </span>}
+              </td>
+            )}
+            <td style={{ padding: "10px 10px", fontSize: FONT.sm.size, color: T.textSub }}>
+              {a.fournisseur || <span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>—</span>}
+            </td>
+            <td style={{ padding: "10px 10px", whiteSpace: "nowrap" }}>
+              {a.prix_unitaire != null
+                ? <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: "#22c55e" }}>
+                    {parseFloat(a.prix_unitaire).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €
+                    <span style={{ fontSize: FONT.xs.size, fontWeight: 400, color: T.textMuted }}> HT / {a.unite || "U"}</span>
+                  </div>
+                : <span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1, fontStyle: "italic" }}>À renseigner</span>
+              }
+            </td>
+            <td style={{ padding: "10px 10px", fontSize: FONT.sm.size, color: T.textSub }}>
+              {a.stock_min != null ? `${a.stock_min} ${a.unite || "U"}` : <span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>—</span>}
+            </td>
+            <td style={{ padding: "10px 10px" }}>
+              {a.lien_fournisseur
+                ? <a href={a.lien_fournisseur} target="_blank" rel="noreferrer" style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    background: "rgba(91,156,246,0.12)", border: "1px solid rgba(91,156,246,0.3)",
+                    borderRadius: RADIUS.sm, padding: "4px 10px", color: "#5b9cf6",
+                    fontSize: FONT.xs.size + 1, fontWeight: 700, textDecoration: "none",
+                  }}>
+                    <Icon as={ExternalLink} size={10}/>
+                    Voir
+                  </a>
+                : <span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>—</span>
+              }
+            </td>
+            <td style={{ padding: "10px 10px", whiteSpace: "nowrap" }}>
+              <button onClick={() => setModale(a)} title="Modifier" style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                background: "transparent", border: "none", cursor: "pointer",
+                padding: "4px 6px", color: T.textSub,
+              }}>
+                <Icon as={Pencil} size={14}/>
+              </button>
+              <button onClick={() => setConfirmDelete(a)} title="Supprimer" style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                background: "transparent", border: "none", cursor: "pointer",
+                padding: "4px 6px", color: "#e15a5a",
+              }}>
+                <Icon as={Trash2} size={14}/>
+              </button>
+            </td>
+          </tr>
+        );
+
+        const headers = viewMode === "liste"
+          ? ["Photo", "Désignation / Réf.", "Catégorie", "Fournisseur", "Prix unitaire", "Stock min", "Lien", ""]
+          : ["Photo", "Désignation / Réf.", "Fournisseur", "Prix unitaire", "Stock min", "Lien", ""];
+        const colSpan = headers.length;
+
+        const tableHeader = (
           <thead>
-            <tr style={{ background: T.card, borderBottom: `2px solid ${T.border}` }}>
-              {["Photo", "Désignation / Réf.", "Catégorie", "Fournisseur", "Prix unitaire", "Stock min", "Lien", ""].map(h => (
-                <th key={h} style={{ padding: "12px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: T.textMuted, textAlign: "left" }}>{h}</th>
+            <tr style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>
+              {headers.map(h => (
+                <th key={h} style={{
+                  padding: "11px 10px", fontSize: FONT.xs.size, fontWeight: 700,
+                  letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, textAlign: "left",
+                }}>{h}</th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: T.textMuted }}>Chargement…</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: T.textMuted }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
-                {articles.length === 0 ? "Importe depuis Google Sheets ou ajoute manuellement." : "Aucun résultat."}
-              </td></tr>
-            ) : filtered.map(a => (
-              <tr key={a.id} style={{ borderBottom: `1px solid ${T.sectionDivider}`, transition: "background .1s" }}
-                onMouseEnter={e => e.currentTarget.style.background = T.card}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <td style={{ padding: "10px 10px", width: 60 }}>
-                  {a.photo_url
-                    ? <img src={a.photo_url} alt={a.nom} onError={e => { e.target.style.display = "none"; }} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${T.border}` }} />
-                    : <div style={{ width: 44, height: 44, borderRadius: 8, background: "rgba(255,255,255,0.04)", border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: T.textMuted }}>📦</div>
-                  }
-                </td>
-                <td style={{ padding: "10px 10px", maxWidth: 240 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{a.nom}</div>
-                  {a.reference && <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3, fontFamily: "monospace" }}>{a.reference}</div>}
-                  {a.notes && <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>{a.notes}</div>}
-                </td>
-                <td style={{ padding: "10px 10px" }}>
-                  {a.categorie && <span style={{ background: "rgba(255,194,0,0.12)", color: "#FFC200", border: "1px solid rgba(255,194,0,0.3)", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>{a.categorie}</span>}
-                </td>
-                <td style={{ padding: "10px 10px", fontSize: 13, color: T.textSub }}>{a.fournisseur || <span style={{ color: T.emptyColor, fontSize: 12 }}>—</span>}</td>
-                <td style={{ padding: "10px 10px", whiteSpace: "nowrap" }}>
-                  {a.prix_unitaire != null
-                    ? <div style={{ fontSize: 14, fontWeight: 800, color: "#50c878" }}>{parseFloat(a.prix_unitaire).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € <span style={{ fontSize: 11, fontWeight: 400, color: T.textMuted }}>HT / {a.unite || "U"}</span></div>
-                    : <span style={{ color: T.emptyColor, fontSize: 12 }}>À renseigner</span>
-                  }
-                </td>
-                <td style={{ padding: "10px 10px", fontSize: 13, color: T.textSub }}>
-                  {a.stock_min != null ? `${a.stock_min} ${a.unite || "U"}` : <span style={{ color: T.emptyColor, fontSize: 12 }}>—</span>}
-                </td>
-                <td style={{ padding: "10px 10px" }}>
-                  {a.lien_fournisseur
-                    ? <a href={a.lien_fournisseur} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(91,156,246,0.12)", border: "1px solid rgba(91,156,246,0.3)", borderRadius: 6, padding: "4px 10px", color: "#5b9cf6", fontSize: 12, fontWeight: 700, textDecoration: "none" }}>🔗 Voir</a>
-                    : <span style={{ color: T.emptyColor, fontSize: 12 }}>—</span>
-                  }
-                </td>
-                <td style={{ padding: "10px 10px", whiteSpace: "nowrap" }}>
-                  <button onClick={() => setModale(a)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 15, opacity: .6, marginRight: 4, color: T.text }} title="Modifier">✏️</button>
-                  <button onClick={() => setConfirmDelete(a)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 15, opacity: .5, color: "#e05c5c" }} title="Supprimer">🗑</button>
-                </td>
-              </tr>
+        );
+
+        if (loading) {
+          return (
+            <div className="bm-table-wrap" style={{
+              background: T.surface, borderRadius: RADIUS.xl, border: `1px solid ${T.border}`,
+              padding: 32, textAlign: "center", color: T.textMuted, fontSize: FONT.sm.size,
+            }}>Chargement…</div>
+          );
+        }
+
+        if (sorted.length === 0) {
+          return (
+            <div style={{
+              background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl,
+              padding: 40, textAlign: "center", color: T.textMuted,
+            }}>
+              <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                <Icon as={Inbox} size={28} strokeWidth={1.5}/>
+                <span style={{ fontSize: FONT.sm.size }}>Aucun résultat pour cette recherche.</span>
+              </div>
+            </div>
+          );
+        }
+
+        if (viewMode === "liste") {
+          return (
+            <div className="bm-table-wrap" style={{
+              background: T.surface, borderRadius: RADIUS.xl, border: `1px solid ${T.border}`, overflow: "hidden",
+            }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                {tableHeader}
+                <tbody>
+                  {sorted.map(renderRow)}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
+        // ── Vue groupée par catégorie ──
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            {grouped.map(([cat, items]) => (
+              <div key={cat}>
+                <div style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  marginBottom: 8, paddingLeft: 2,
+                }}>
+                  <Icon as={Tag} size={12} color={acc.accent}/>
+                  <div style={{
+                    fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 2.5,
+                    textTransform: "uppercase", color: acc.accent,
+                  }}>{cat}</div>
+                  <div style={{
+                    fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600,
+                    background: T.card, borderRadius: RADIUS.pill, padding: "1px 8px",
+                  }}>{items.length}</div>
+                </div>
+                <div className="bm-table-wrap" style={{
+                  background: T.surface, borderRadius: RADIUS.xl, border: `1px solid ${T.border}`, overflow: "hidden",
+                }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    {tableHeader}
+                    <tbody>
+                      {items.map(renderRow)}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

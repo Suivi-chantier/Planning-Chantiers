@@ -582,7 +582,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="plans"            && canAccess(role,"plans")            && <PagePlans T={T} chantiers={chantiers} branch={branch}/>}
           {page==="phasage"          && canAccess(role,"phasage")          && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/>}
           {page==="bibliotheque"     && canAccess(role,"bibliotheque")     && <PageBibliotheque T={T} branch={branch}/>}
-          {page==="biblio-materiaux" && canAccess(role,"biblio-materiaux") && <PageBibliothequeMateriaux T={T}/>}
+          {page==="biblio-materiaux" && canAccess(role,"biblio-materiaux") && <PageBibliothequeMateriaux T={T} branch={branch}/>}
           {page==="visite"           && canAccess(role,"visite")           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T}/>}
           {page==="info-client"      && canAccess(role,"info-client")      && <PageInfoClient T={T}/>}
           {page==="compte-rendu"     && canAccess(role,"compte-rendu")     && <PageCompteRendu T={T} chantiers={chantiers}/>}
