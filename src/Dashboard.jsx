@@ -3,8 +3,9 @@ import { supabase } from "./supabase";
 import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING } from "./constants";
 import { Icon } from "./ui";
 import {
-  HardHat, TriangleAlert, Link2, Calendar, Mail, StickyNote, HardDrive,
-  MessageCircle, Folder, Plus, Check, X, ExternalLink, Pencil, Settings,
+  HardHat, TriangleAlert, Users, Building2, Package, ClipboardCheck,
+  Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap, Wind,
+  MapPin, Thermometer, Check, X, Clock, ArrowRight, Pencil,
 } from "lucide-react";
 
 // ─── WIDGET CONTAINER ─────────────────────────────────────────────────────────
@@ -15,12 +16,11 @@ function DashWidget({ title, icon: IconComp, children, action, T, accent = "#FFC
       border: `1px solid ${T.border}`,
       borderRadius: RADIUS.xl,
       overflow: "hidden",
+      display: "flex", flexDirection: "column",
     }}>
       <div style={{
         padding: "14px 20px 12px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
         borderBottom: `1px solid ${T.sectionDivider}`,
         gap: SPACING.md,
       }}>
@@ -28,58 +28,65 @@ function DashWidget({ title, icon: IconComp, children, action, T, accent = "#FFC
           {IconComp && (
             <div style={{
               width: 28, height: 28, borderRadius: RADIUS.md,
-              background: accent + "1a",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: accent, flexShrink: 0,
+              background: accent + "1a", color: accent,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             }}>
               <Icon as={IconComp} size={16} strokeWidth={2} />
             </div>
           )}
           <div style={{
-            fontSize: FONT.xs.size,
-            fontWeight: 700,
-            letterSpacing: 1.2,
-            textTransform: "uppercase",
-            color: T.textSub,
+            fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+            textTransform: "uppercase", color: T.textSub,
           }}>{title}</div>
         </div>
         {action}
       </div>
-      <div style={{ padding: "16px 20px" }}>{children}</div>
+      <div style={{ padding: "16px 20px", flex: 1 }}>{children}</div>
     </div>
   );
 }
 
-// ─── LIEN EXTERNE ─────────────────────────────────────────────────────────────
-function DashExternalBtn({ href, icon: IconComp, label, color = "#5b8af5", T }) {
+// ─── STAT CARD (KPI tile) ─────────────────────────────────────────────────────
+function StatCard({ label, value, sub, icon: IconComp, color, T }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{
-      display: "flex", alignItems: "center", gap: 12,
-      padding: "10px 14px",
-      borderRadius: RADIUS.md,
+    <div style={{
+      background: T.widgetBg,
       border: `1px solid ${T.border}`,
-      background: T.card,
-      color: T.text,
-      textDecoration: "none",
-      fontSize: FONT.base.size,
-      fontWeight: 600,
-      transition: "border-color .15s, background .15s",
-      marginBottom: 8,
-    }}
-    onMouseEnter={e => { e.currentTarget.style.background = T.cardHover; e.currentTarget.style.borderColor = color + "66"; }}
-    onMouseLeave={e => { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = T.border; }}>
+      borderRadius: RADIUS.lg,
+      padding: "14px 16px",
+      display: "flex", alignItems: "center", gap: 14,
+    }}>
       <div style={{
-        width: 28, height: 28, borderRadius: RADIUS.md,
-        background: color + "1f", color: color,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        flexShrink: 0,
+        width: 44, height: 44, borderRadius: RADIUS.md,
+        background: color + "18", color: color,
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
       }}>
-        <Icon as={IconComp} size={16} strokeWidth={2} />
+        <Icon as={IconComp} size={22} strokeWidth={2} />
       </div>
-      <span style={{ flex: 1 }}>{label}</span>
-      <Icon as={ExternalLink} size={14} color={T.textMuted} />
-    </a>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700, marginBottom: 2 }}>
+          {label}
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: T.text, lineHeight: 1.1, letterSpacing: -0.3 }}>
+          {value}
+          {sub && <span style={{ fontSize: 13, color: T.textMuted, fontWeight: 600, marginLeft: 5 }}>{sub}</span>}
+        </div>
+      </div>
+    </div>
   );
+}
+
+// ─── MÉTÉO : code WMO → icône + label ─────────────────────────────────────────
+function weatherInfo(code) {
+  if (code === 0)                         return { icon: Sun,          label: "Ensoleillé",     color: "#f5a623" };
+  if (code >= 1 && code <= 3)             return { icon: Cloud,        label: "Nuageux",        color: "#94a3b8" };
+  if (code === 45 || code === 48)         return { icon: CloudFog,     label: "Brouillard",     color: "#94a3b8" };
+  if (code >= 51 && code <= 57)           return { icon: CloudDrizzle, label: "Bruine",         color: "#5b8af5" };
+  if (code >= 61 && code <= 67)           return { icon: CloudRain,    label: "Pluie",          color: "#5b8af5" };
+  if (code >= 71 && code <= 77)           return { icon: CloudSnow,    label: "Neige",          color: "#cbd5e1" };
+  if (code >= 80 && code <= 82)           return { icon: CloudRain,    label: "Averses",        color: "#5b8af5" };
+  if (code >= 95 && code <= 99)           return { icon: Zap,          label: "Orage",          color: "#a855f7" };
+  return                                         { icon: Cloud,        label: "Variable",       color: "#94a3b8" };
 }
 
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
@@ -87,81 +94,143 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
   const acc = getBranchAccent(branch);
   const todayJour = getTodayJour();
   const now = new Date();
-  const greeting = now.getHours() < 12 ? "Bonjour" : "Bon après-midi";
+  const todayIso = now.toISOString().slice(0, 10);
+  const todayFr  = now.toLocaleDateString("fr-FR"); // DD/MM/YYYY (format rapports.date_rapport)
+  const greeting = now.getHours() < 12 ? "Bonjour" : now.getHours() < 18 ? "Bon après-midi" : "Bonsoir";
 
-  // Chantiers actifs aujourd'hui
+  // ── Chantiers actifs aujourd'hui ──
   const chantiersAujourdHui = todayJour ? chantiers.map(c => {
     const cell = cells[`${c.id}_${todayJour}`] || { planifie:"", reel:"", ouvriers:[] };
     return { ...c, cell };
   }).filter(c => c.cell.ouvriers?.length > 0 || c.cell.planifie) : [];
 
-  // Commandes urgentes (à commander)
-  const [cmdDetails, setCmdDetails] = useState([]);
+  // ── Ouvriers attendus aujourd'hui (uniques) ──
+  const ouvriersAttendus = Array.from(new Set(
+    chantiersAujourdHui.flatMap(c => c.cell.ouvriers || [])
+  ));
+
+  // ── Données fetched ──
+  const [cmdCount, setCmdCount]         = useState(0);
+  const [todos, setTodos]               = useState([]);
+  const [rapportsToday, setRapportsToday] = useState([]);
+  const [taskAlerts, setTaskAlerts]     = useState([]); // tâches non_faites des rapports d'hier
+  const [weather, setWeather]           = useState(null);
+  const [weatherCity, setWeatherCity]   = useState(() => localStorage.getItem("dash_weather_city") || "Paris");
+
   useEffect(() => {
-    supabase.from("commandes_detail").select("*").eq("statut", "a_commander")
-      .then(({ data }) => setCmdDetails(data || []));
-  }, []);
+    // Commandes en attente
+    supabase.from("commandes_detail").select("id", { count: "exact", head: true }).eq("statut", "a_commander")
+      .then(({ count }) => setCmdCount(count || 0));
 
-  // Config liens Google (stockée localement)
-  const [calEmbed, setCalEmbed] = useState(() => localStorage.getItem("gcal_embed") || "");
-  const [driveLinks, setDriveLinks] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("drive_links") || "[]"); } catch { return []; }
-  });
-  const [editLinks, setEditLinks] = useState(false);
-  const [newLinkName, setNewLinkName] = useState("");
-  const [newLinkUrl, setNewLinkUrl] = useState("");
+    // Todos
+    supabase.from("planning_config").select("value").eq("key", "bloc_todos").maybeSingle()
+      .then(({ data }) => setTodos(Array.isArray(data?.value) ? data.value : []));
 
-  const saveCalEmbed = (v) => { setCalEmbed(v); localStorage.setItem("gcal_embed", v); };
-  const addDriveLink = () => {
-    if (!newLinkName.trim() || !newLinkUrl.trim()) return;
-    const updated = [...driveLinks, { name: newLinkName.trim(), url: newLinkUrl.trim() }];
-    setDriveLinks(updated);
-    localStorage.setItem("drive_links", JSON.stringify(updated));
-    setNewLinkName(""); setNewLinkUrl("");
-  };
-  const removeDriveLink = (i) => {
-    const updated = driveLinks.filter((_, idx) => idx !== i);
-    setDriveLinks(updated);
-    localStorage.setItem("drive_links", JSON.stringify(updated));
-  };
+    // Rapports du jour
+    supabase.from("rapports").select("ouvrier,chantier_nom,taches,submitted_at")
+      .eq("date_rapport", todayFr)
+      .then(({ data }) => setRapportsToday(data || []));
+
+    // Tâches "non_faite" / "en_cours" des rapports des 2 derniers jours
+    const il2j = new Date(now); il2j.setDate(il2j.getDate() - 2);
+    supabase.from("rapports").select("ouvrier,chantier_nom,taches,date_rapport,submitted_at")
+      .gte("submitted_at", il2j.toISOString())
+      .order("submitted_at", { ascending: false })
+      .then(({ data }) => {
+        const alerts = [];
+        (data || []).forEach(r => {
+          (r.taches || []).forEach(t => {
+            if (t.statut === "non_faite" || t.statut === "en_cours") {
+              alerts.push({
+                statut: t.statut,
+                tache: t.planifie,
+                remarque: t.remarque,
+                ouvrier: r.ouvrier,
+                chantier: r.chantier_nom,
+                date: r.date_rapport,
+              });
+            }
+          });
+        });
+        setTaskAlerts(alerts.slice(0, 5));
+      });
+  }, [todayFr]);
+
+  // ── Météo : Open-Meteo (gratuit, sans clé). On géocode la ville d'abord. ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // 1. Géocodage de la ville → lat/lon
+        const geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(weatherCity)}&count=1&language=fr&format=json`).then(r => r.json());
+        const loc = geo?.results?.[0];
+        if (!loc) { if (!cancelled) setWeather({ error: "Ville inconnue" }); return; }
+
+        // 2. Prévisions
+        const f = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&forecast_days=4&timezone=Europe%2FParis`).then(r => r.json());
+
+        if (!cancelled) setWeather({ city: loc.name, current: f.current, daily: f.daily });
+      } catch (e) {
+        if (!cancelled) setWeather({ error: e.message });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [weatherCity]);
+
+  // ── Calculs dérivés (alertes, todos) ──
+  const todosEnRetard = todos.filter(t => !t.fait && t.date_limite && t.date_limite < todayIso);
+  const todosAujourdhui = todos.filter(t => !t.fait && t.date_limite === todayIso);
+
+  const ouvriersRendus = new Set((rapportsToday || []).map(r => r.ouvrier));
+  const ouvriersManquants = ouvriersAttendus.filter(o => !ouvriersRendus.has(o));
+  const tauxRendus = ouvriersAttendus.length > 0
+    ? Math.round((ouvriersAttendus.length - ouvriersManquants.length) / ouvriersAttendus.length * 100)
+    : null;
+
+  // Stats KPI
+  const stats = [
+    { label: "Chantiers actifs",    value: chantiersAujourdHui.length, icon: Building2,       color: acc.accent },
+    { label: "Ouvriers terrain",    value: ouvriersAttendus.length,    icon: HardHat,         color: "#4caf78"   },
+    { label: "Commandes à passer",  value: cmdCount,                   icon: Package,         color: "#f5a623"   },
+    { label: "Rapports rendus",     value: ouvriersAttendus.length ? `${ouvriersAttendus.length - ouvriersManquants.length}/${ouvriersAttendus.length}` : "—",
+      icon: ClipboardCheck, color: tauxRendus === null ? "#94a3b8" : tauxRendus >= 80 ? "#4caf78" : tauxRendus >= 50 ? "#f5a623" : "#e15a5a" },
+  ];
 
   return (
     <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"28px 32px" }}>
       <style>{`
         @media (max-width:767px) {
-          .dashboard-page .dash-title{font-size:26px!important;letter-spacing:.3px!important}
-          .dashboard-page .dash-subtitle{font-size:13px!important}
-          .dashboard-page .dash-greeting-block{margin-bottom:16px!important}
-          .dashboard-page iframe{height:380px!important}
-          .dashboard-page .dash-chantier-item{padding:12px!important;gap:10px!important}
+          .dashboard-page .dash-title{font-size:26px!important}
+          .dashboard-page .dash-stats-grid{grid-template-columns:repeat(2,1fr)!important}
+          .dashboard-page .dashboard-row{grid-template-columns:1fr!important}
+          .dashboard-page .dash-chantier-item{padding:12px!important}
           .dashboard-page .dash-chantier-name{font-size:15px!important}
-          .dashboard-page .dash-chantier-plan{font-size:13px!important}
-          .dashboard-page .dashboard-row-1,.dashboard-page .dashboard-row-2{grid-template-columns:1fr!important}
         }
       `}</style>
 
       {/* En-tête */}
-      <div className="dash-greeting-block" style={{ marginBottom: 32 }}>
-        <div className="dash-subtitle" style={{
-          fontSize: FONT.sm.size,
-          color: T.textMuted,
-          marginBottom: 4,
-          letterSpacing: .3,
-          textTransform: "capitalize",
+      <div style={{ marginBottom: 24 }}>
+        <div style={{
+          fontSize: FONT.sm.size, color: T.textMuted, marginBottom: 4,
+          letterSpacing: .3, textTransform: "capitalize",
         }}>
           {now.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
         </div>
         <div className="dash-title" style={{
-          fontSize: FONT.h1.size + 4,
-          fontWeight: 800,
-          letterSpacing: -0.4,
-          lineHeight: 1.1,
-          color: T.text,
+          fontSize: FONT.h1.size + 4, fontWeight: 800,
+          letterSpacing: -0.4, lineHeight: 1.1, color: T.text,
         }}>{greeting}</div>
       </div>
 
-      {/* Rangée 1 : Chantiers (2/3) + Commandes urgentes (1/3) */}
-      <div className="dashboard-row-1" style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20, marginBottom:20 }}>
+      {/* Stats KPI : 4 tuiles */}
+      <div className="dash-stats-grid" style={{
+        display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20,
+      }}>
+        {stats.map((s, i) => <StatCard key={i} T={T} {...s} />)}
+      </div>
+
+      {/* Rangée 1 : Chantiers (2/3) + Alertes (1/3) */}
+      <div className="dashboard-row" style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20, marginBottom:20 }}>
 
         <DashWidget T={T} accent={acc.accent} title="Chantiers aujourd'hui" icon={HardHat}>
           {!todayJour ? (
@@ -177,8 +246,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               {chantiersAujourdHui.map(c => (
                 <div key={c.id} className="dash-chantier-item" style={{
-                  display:"flex", alignItems:"flex-start", gap:14,
-                  padding:"14px 16px",
+                  display:"flex", alignItems:"flex-start", gap:14, padding:"14px 16px",
                   borderRadius: RADIUS.lg,
                   background: c.couleur + "1c",
                   border: `1px solid ${c.couleur}44`,
@@ -194,7 +262,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
                       color: T.text, marginBottom: 6,
                     }}>{c.nom}</div>
                     {c.cell.planifie && (
-                      <div className="dash-chantier-plan" style={{
+                      <div style={{
                         fontSize: FONT.sm.size + 1, color: T.textSub,
                         lineHeight: 1.55, marginBottom: 10, whiteSpace: "pre-wrap",
                       }}>{c.cell.planifie}</div>
@@ -204,9 +272,8 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
                         <span key={o} style={{
                           background: c.couleur, color: "#1a1f2e",
                           borderRadius: RADIUS.sm + 2,
-                          padding: "2px 9px",
-                          fontSize: FONT.xs.size + 1, fontWeight: 700,
-                          letterSpacing: .2,
+                          padding: "2px 9px", fontSize: FONT.xs.size + 1,
+                          fontWeight: 700, letterSpacing: .2,
                         }}>{o}</span>
                       ))}
                     </div>
@@ -217,190 +284,214 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, bran
           )}
         </DashWidget>
 
-        <DashWidget T={T} accent="#e15a5a" title="Commandes urgentes" icon={TriangleAlert}>
-          {cmdDetails.length === 0 ? (
+        <DashWidget T={T} accent="#e15a5a" title="À traiter" icon={TriangleAlert}>
+          {(todosEnRetard.length === 0 && todosAujourdhui.length === 0 && taskAlerts.length === 0) ? (
             <div style={{ display:"flex", alignItems:"center", gap:8, color:T.textSub, fontSize:FONT.base.size }}>
               <Icon as={Check} size={16} color="#4caf78"/>
-              <span>Aucune commande en attente</span>
+              <span>Rien à signaler</span>
             </div>
           ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-              {cmdDetails.slice(0, 7).map(c => {
-                const ch = chantiers.find(x => x.id === c.chantier_id);
-                return (
-                  <div key={c.id} style={{
-                    fontSize: FONT.sm.size + 1,
-                    display: "flex", alignItems: "center", gap: 9,
-                    padding: "9px 12px",
-                    borderRadius: RADIUS.md,
-                    background: "rgba(225,90,90,0.08)",
-                    border: "1px solid rgba(225,90,90,0.20)",
-                  }}>
-                    {ch && <span style={{ width:8, height:8, borderRadius:2, background:ch.couleur, display:"block", flexShrink:0 }}/>}
-                    <span style={{ flex:1, color:T.text, fontWeight:600 }}>{c.article}</span>
-                    {ch && <span style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{ch.nom}</span>}
-                  </div>
-                );
-              })}
-              {cmdDetails.length > 7 && (
-                <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, paddingTop:4 }}>
-                  +{cmdDetails.length - 7} autres
-                </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {todosEnRetard.length > 0 && (
+                <AlertGroup T={T} color="#e15a5a" label={`${todosEnRetard.length} tâche${todosEnRetard.length > 1 ? "s" : ""} en retard`}
+                  items={todosEnRetard.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
+              )}
+              {todosAujourdhui.length > 0 && (
+                <AlertGroup T={T} color="#f5a623" label={`${todosAujourdhui.length} tâche${todosAujourdhui.length > 1 ? "s" : ""} aujourd'hui`}
+                  items={todosAujourdhui.slice(0,3).map(t => ({ text: t.texte, sub: t.assigne_nom }))}/>
+              )}
+              {taskAlerts.length > 0 && (
+                <AlertGroup T={T} color="#5b8af5" label={`${taskAlerts.length} tâche${taskAlerts.length > 1 ? "s" : ""} signalée${taskAlerts.length > 1 ? "s" : ""}`}
+                  items={taskAlerts.slice(0,3).map(a => ({
+                    text: a.tache,
+                    sub: `${a.ouvrier} · ${a.chantier} · ${a.statut === "non_faite" ? "non faite" : "en cours"}`,
+                  }))}/>
               )}
             </div>
           )}
         </DashWidget>
       </div>
 
-      {/* Rangée 2 : Accès rapides (1/3) + Agenda large (2/3) */}
-      <div className="dashboard-row-2" style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:20, marginBottom:24 }}>
+      {/* Rangée 2 : Météo (2/3) + Activité équipe (1/3) */}
+      <div className="dashboard-row" style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20, marginBottom:24 }}>
 
-        <DashWidget T={T} accent={acc.accent} title="Accès rapides" icon={Link2}
+        <DashWidget T={T} accent="#5b8af5" title={`Météo · ${weather?.city || weatherCity}`} icon={Cloud}
           action={
-            <button onClick={() => setEditLinks(!editLinks)} style={{
+            <button onClick={() => {
+              const v = prompt("Ville pour la météo :", weatherCity);
+              if (v && v.trim()) { setWeatherCity(v.trim()); localStorage.setItem("dash_weather_city", v.trim()); setWeather(null); }
+            }} style={{
               display:"inline-flex", alignItems:"center", gap:5,
-              background: editLinks ? acc.bg10 : "transparent",
-              border: `1px solid ${editLinks ? acc.border : T.border}`,
-              borderRadius: RADIUS.md,
-              padding: "4px 10px",
-              color: editLinks ? acc.accent : T.textSub,
-              fontSize: FONT.xs.size + 1,
-              fontWeight: 600,
-              cursor: "pointer", fontFamily: "inherit",
+              background:"transparent",
+              border:`1px solid ${T.border}`, borderRadius:RADIUS.md,
+              padding:"4px 10px", color:T.textSub,
+              fontSize:FONT.xs.size + 1, fontWeight:600,
+              cursor:"pointer", fontFamily:"inherit",
             }}>
-              <Icon as={editLinks ? Check : Pencil} size={12}/>
-              {editLinks ? "Terminer" : "Modifier"}
+              <Icon as={MapPin} size={12}/>
+              Changer
             </button>
           }>
-          <DashExternalBtn T={T} href="https://mail.google.com"     icon={Mail}           label="Gmail"          color="#ea4335"/>
-          <DashExternalBtn T={T} href="https://calendar.google.com" icon={Calendar}       label="Google Agenda"  color="#4285f4"/>
-          <DashExternalBtn T={T} href="https://keep.google.com"     icon={StickyNote}     label="Google Keep"    color="#fbbc04"/>
-          <DashExternalBtn T={T} href="https://drive.google.com"    icon={HardDrive}      label="Google Drive"   color="#34a853"/>
-          <DashExternalBtn T={T} href="https://web.whatsapp.com"    icon={MessageCircle}  label="WhatsApp Web"   color="#25d366"/>
-
-          {driveLinks.length > 0 && <>
-            <div style={{
-              fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.5,
-              textTransform: "uppercase",
-              color: T.textMuted,
-              margin: "14px 0 8px",
-            }}>Dossiers Drive</div>
-            {driveLinks.map((l, i) => (
-              <div key={i} style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <div style={{ flex:1 }}>
-                  <DashExternalBtn T={T} href={l.url} icon={Folder} label={l.name} color="#34a853"/>
-                </div>
-                {editLinks && (
-                  <button onClick={() => removeDriveLink(i)} title="Supprimer" style={{
-                    background:"transparent", border:"none", color:"#e15a5a",
-                    cursor:"pointer", flexShrink:0, padding:6,
-                    display:"flex", alignItems:"center",
-                  }}>
-                    <Icon as={Trash2} size={14}/>
-                  </button>
-                )}
-              </div>
-            ))}
-          </>}
-
-          {editLinks && (
-            <div style={{
-              marginTop: 14, display: "flex", flexDirection: "column", gap: 8,
-              paddingTop: 14, borderTop: `1px solid ${T.sectionDivider}`,
-            }}>
-              <div style={{
-                fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.5,
-                textTransform: "uppercase", color: T.textMuted,
-              }}>Ajouter un dossier</div>
-              <input value={newLinkName} onChange={e => setNewLinkName(e.target.value)} placeholder="Nom"
-                style={{
-                  background: T.inputBg, border: `1px solid ${T.border}`,
-                  borderRadius: RADIUS.md, padding: "9px 12px",
-                  color: T.text, fontSize: FONT.base.size,
-                  fontFamily: "inherit", outline: "none",
-                }}/>
-              <input value={newLinkUrl} onChange={e => setNewLinkUrl(e.target.value)} placeholder="URL Drive"
-                style={{
-                  background: T.inputBg, border: `1px solid ${T.border}`,
-                  borderRadius: RADIUS.md, padding: "9px 12px",
-                  color: T.text, fontSize: FONT.base.size,
-                  fontFamily: "inherit", outline: "none",
-                }}/>
-              <button onClick={addDriveLink} style={{
-                display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6,
-                background: acc.accent, color: acc.onAccent, border: "none",
-                borderRadius: RADIUS.md, padding: "10px",
-                fontFamily: "inherit", fontSize: FONT.base.size, fontWeight: 700, cursor: "pointer",
-              }}>
-                <Icon as={Plus} size={15}/>
-                Ajouter
-              </button>
-            </div>
-          )}
-        </DashWidget>
-
-        {/* AGENDA — large, hauteur généreuse */}
-        <DashWidget T={T} accent="#4285f4" title="Mon agenda" icon={Calendar}
-          action={
-            <button onClick={() => { const url = prompt("Colle l'URL d'intégration Google Calendar :", calEmbed); if (url !== null) saveCalEmbed(url.trim()); }}
-              style={{
-                display:"inline-flex", alignItems:"center", gap:5,
-                background:"transparent",
-                border: `1px solid ${T.border}`,
-                borderRadius: RADIUS.md,
-                padding: "4px 10px",
-                color: T.textSub,
-                fontSize: FONT.xs.size + 1, fontWeight: 600,
-                cursor: "pointer", fontFamily: "inherit",
-              }}>
-              <Icon as={Pencil} size={12}/>
-              {calEmbed ? "Modifier" : "Configurer"}
-            </button>
-          }>
-          {calEmbed ? (
-            <iframe src={calEmbed} style={{ width:"100%", height:480, border:"none", borderRadius:RADIUS.lg, display:"block" }} title="Google Agenda"/>
+          {!weather ? (
+            <div style={{ color:T.textMuted, fontSize:FONT.sm.size, padding:"12px 0" }}>Chargement…</div>
+          ) : weather.error ? (
+            <div style={{ color:"#e15a5a", fontSize:FONT.sm.size, padding:"12px 0" }}>Météo indisponible — {weather.error}</div>
           ) : (
-            <div style={{
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              padding: "50px 20px", textAlign: "center", minHeight: 300,
-            }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: RADIUS.xl,
-                background: "rgba(66,133,244,0.12)",
-                color: "#4285f4",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                marginBottom: 18,
-              }}>
-                <Icon as={Calendar} size={28} strokeWidth={2}/>
-              </div>
-              <div style={{ fontSize: FONT.lg.size, color: T.text, fontWeight: 700, marginBottom: 8 }}>
-                Intègre ton agenda Google
-              </div>
-              <div style={{
-                fontSize: FONT.base.size, color: T.textSub,
-                lineHeight: 1.65, marginBottom: 22, maxWidth: 420,
-                display:"inline-flex", flexDirection:"column", gap:4,
-              }}>
-                <span>Va sur <strong>calendar.google.com</strong></span>
-                <span style={{display:"inline-flex",alignItems:"center",gap:5,justifyContent:"center"}}>
-                  <Icon as={Settings} size={13}/> Paramètres → clique sur ton calendrier à gauche
-                </span>
-                <span>Section <strong>"Intégrer le calendrier"</strong> → copie l'<strong>Adresse intégrable</strong></span>
-              </div>
-              <button onClick={() => { const url = prompt("Adresse intégrable Google Calendar :"); if (url) saveCalEmbed(url.trim()); }}
-                style={{
-                  display:"inline-flex", alignItems:"center", gap:8,
-                  background: acc.accent, color: acc.onAccent,
-                  border: "none", borderRadius: RADIUS.lg,
-                  padding: "12px 24px",
-                  fontFamily: "inherit", fontSize: FONT.base.size,
-                  fontWeight: 700, cursor: "pointer",
-                }}>
-                Coller l'URL et activer
-              </button>
-            </div>
+            <WeatherDisplay weather={weather} T={T} />
           )}
         </DashWidget>
+
+        <DashWidget T={T} accent="#4caf78" title="Activité équipe" icon={Users}>
+          {todayJour && ouvriersAttendus.length === 0 ? (
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Personne planifié</div>
+          ) : !todayJour ? (
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Week-end</div>
+          ) : (
+            <>
+              <div style={{ display:"flex", alignItems:"baseline", gap:6, marginBottom:14 }}>
+                <span style={{
+                  fontSize: 26, fontWeight: 800, color: T.text, letterSpacing: -0.3,
+                }}>{ouvriersAttendus.length - ouvriersManquants.length}</span>
+                <span style={{ fontSize: FONT.sm.size, color: T.textMuted }}>/ {ouvriersAttendus.length} compte rendu{ouvriersAttendus.length > 1 ? "s" : ""}</span>
+              </div>
+              {/* Progress bar */}
+              <div style={{ height:6, borderRadius:3, background:T.card, marginBottom:14, overflow:"hidden" }}>
+                <div style={{
+                  height:"100%",
+                  width: `${tauxRendus || 0}%`,
+                  background: tauxRendus === null ? "#94a3b8" : tauxRendus >= 80 ? "#4caf78" : tauxRendus >= 50 ? "#f5a623" : "#e15a5a",
+                  transition: "width .3s",
+                }}/>
+              </div>
+              {ouvriersManquants.length > 0 ? (
+                <>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginBottom: 6, fontWeight: 600, letterSpacing: .8, textTransform: "uppercase" }}>
+                    En attente
+                  </div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+                    {ouvriersManquants.map(o => (
+                      <span key={o} style={{
+                        display:"inline-flex", alignItems:"center", gap:4,
+                        background:"rgba(225,90,90,0.12)", color:"#e15a5a",
+                        border:"1px solid rgba(225,90,90,0.25)",
+                        borderRadius: RADIUS.sm + 2, padding:"3px 9px",
+                        fontSize: FONT.xs.size + 1, fontWeight: 700,
+                      }}>
+                        <Icon as={Clock} size={10}/>
+                        {o}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600 }}>
+                  <Icon as={Check} size={16}/>
+                  Tous les rapports sont rendus
+                </div>
+              )}
+            </>
+          )}
+        </DashWidget>
+      </div>
+    </div>
+  );
+}
+
+// ─── ALERT GROUP (sous-composant pour À traiter) ──────────────────────────────
+function AlertGroup({ T, color, label, items }) {
+  return (
+    <div style={{
+      background: color + "10",
+      border: `1px solid ${color}33`,
+      borderRadius: RADIUS.md,
+      padding: "9px 12px",
+    }}>
+      <div style={{
+        fontSize: FONT.sm.size, fontWeight: 700, color: color, marginBottom: items.length ? 6 : 0,
+        display: "flex", alignItems: "center", gap: 6,
+      }}>
+        <Icon as={TriangleAlert} size={13}/>
+        {label}
+      </div>
+      {items.map((it, i) => (
+        <div key={i} style={{
+          fontSize: FONT.xs.size + 1,
+          color: T.text, lineHeight: 1.4,
+          marginTop: i === 0 ? 0 : 5,
+          display: "flex", flexDirection: "column",
+        }}>
+          <span style={{ fontWeight: 600 }}>{it.text}</span>
+          {it.sub && <span style={{ color: T.textMuted, fontSize: FONT.xs.size }}>{it.sub}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── WEATHER DISPLAY (sous-composant) ─────────────────────────────────────────
+function WeatherDisplay({ weather, T }) {
+  const { current, daily } = weather;
+  const wi = weatherInfo(current?.weather_code);
+
+  return (
+    <div>
+      {/* Bloc actuel */}
+      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:16 }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: RADIUS.lg,
+          background: wi.color + "18", color: wi.color,
+          display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+        }}>
+          <Icon as={wi.icon} size={32} strokeWidth={1.75}/>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 800, color: T.text, letterSpacing: -0.5, lineHeight: 1 }}>
+            {Math.round(current?.temperature_2m)}°
+          </div>
+          <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginTop: 3 }}>
+            {wi.label}
+          </div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:5, fontSize: FONT.sm.size, color: T.textMuted }}>
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <Icon as={Wind} size={13}/>
+            <span>{Math.round(current?.wind_speed_10m)} km/h</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Prévisions 3 jours */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+        {(daily?.time || []).slice(1, 4).map((dateStr, i) => {
+          const idx = i + 1;
+          const di = weatherInfo(daily.weather_code[idx]);
+          const dayName = new Date(dateStr + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short" });
+          return (
+            <div key={dateStr} style={{
+              padding:"10px 8px",
+              border:`1px solid ${T.border}`,
+              borderRadius: RADIUS.md,
+              background: T.card,
+              display:"flex", flexDirection:"column", alignItems:"center", gap:4,
+            }}>
+              <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textSub, textTransform: "capitalize", letterSpacing: .3 }}>
+                {dayName.replace(".", "")}
+              </div>
+              <Icon as={di.icon} size={22} color={di.color}/>
+              <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>
+                {Math.round(daily.temperature_2m_max[idx])}°
+                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 500, marginLeft: 3 }}>
+                  {Math.round(daily.temperature_2m_min[idx])}°
+                </span>
+              </div>
+              {daily.precipitation_sum[idx] > 0.5 && (
+                <div style={{ fontSize: FONT.xs.size, color: "#5b8af5", fontWeight: 600 }}>
+                  {daily.precipitation_sum[idx].toFixed(1)} mm
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
