@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { getBranchAccent, FONT, RADIUS } from "./constants";
+import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases } from "./constants";
 import { Icon } from "./ui";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
@@ -9,20 +9,9 @@ import {
   Clock, Search,
 } from "lucide-react";
 
-// ─── PHASES (identiques à Phasage.jsx) ───────────────────────────────────────
-const PHASES = [
-  { id: "demolition",     label: "Démolition",            couleur: "#e05c5c" },
-  { id: "plomberie_ro",   label: "Réseaux plomberie",     couleur: "#3b82f6" },
-  { id: "menuiserie",     label: "Menuiserie",            couleur: "#8b5cf6" },
-  { id: "feraillage",     label: "Feraillage / Cloisons", couleur: "#f59e0b" },
-  { id: "elec_vmc",       label: "Électricité & VMC",     couleur: "#eab308" },
-  { id: "placo",          label: "Placo / Enduits",       couleur: "#6366f1" },
-  { id: "peinture_sols",  label: "Peintures & sols",      couleur: "#ec4899" },
-  { id: "finition_elec",  label: "Finitions électricité", couleur: "#f97316" },
-  { id: "finition_plomb", label: "Finitions plomberie",   couleur: "#06b6d4" },
-  { id: "cuisine",        label: "Cuisine",               couleur: "#10b981" },
-  { id: "finitions_gen",  label: "Finitions générales",   couleur: "#a78bfa" },
-];
+// PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
+let PHASES = [...PHASES_DEFAUT];
+loadPhases().then(p => { PHASES = p; });
 
 const STATUTS = {
   en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },

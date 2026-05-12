@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent } from "./constants";
+import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
 import { Icon } from "./ui";
 import {
   ClipboardCheck, Plus, Trash2, ChevronLeft as ChevronLeftIcon,
@@ -9,20 +9,11 @@ import {
   Eye, FileWarning, Camera, FileDown, ListChecks, Settings,
 } from "lucide-react";
 
-// ─── PHASES (mêmes IDs que Phasage.jsx) ──────────────────────────────────────
-const PHASES = [
-  { id: "demolition",     label: "Démolition",                        color: "#e05c5c" },
-  { id: "plomberie_ro",   label: "Réseaux plomberie (gros œuvre)",    color: "#3b82f6" },
-  { id: "menuiserie",     label: "Menuiserie ext. & int.",            color: "#8b5cf6" },
-  { id: "feraillage",     label: "Feraillage cloisons & doublages",   color: "#f59e0b" },
-  { id: "elec_vmc",       label: "Réseaux élec & VMC",                color: "#eab308" },
-  { id: "placo",          label: "Lainage / Placo / Bandes & enduits",color: "#6366f1" },
-  { id: "peinture_sols",  label: "Peintures & sols",                  color: "#ec4899" },
-  { id: "finition_elec",  label: "Finitions électricité",             color: "#f97316" },
-  { id: "finition_plomb", label: "Finitions plomberie",               color: "#06b6d4" },
-  { id: "cuisine",        label: "Cuisine",                           color: "#10b981" },
-  { id: "finitions_gen",  label: "Finitions générales",               color: "#a78bfa" },
-];
+// ─── PHASES (chargées depuis Supabase, fallback sur défaut) ─────────────────
+// Normalise `couleur` → `color` pour cohérence avec le code existant ici.
+const normalizePhases = (list) => list.map(p => ({ ...p, color: p.couleur || p.color }));
+let PHASES = normalizePhases(PHASES_DEFAUT);
+loadPhases().then(p => { PHASES = normalizePhases(p); });
 
 const STATUTS = [
   { id: "en_cours", label: "En cours",  color: "#f59e0b" },

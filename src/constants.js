@@ -305,3 +305,39 @@ export const SHADOW = {
   md: "0 2px 6px rgba(0,0,0,0.12)",
   lg: "0 8px 24px rgba(0,0,0,0.20)",
 };
+
+// ─── PHASES DE TRAVAUX (modèle commun) ─────────────────────────────────────
+// Forme : { id, label, couleur, emoji? }
+// Personnalisables via Admin → onglet Phases (stockage planning_config/phases_travaux)
+export const PHASES_DEFAUT = [
+  { id: "demolition",     label: "Démolition",                         emoji: "🔨", couleur: "#e05c5c" },
+  { id: "plomberie_ro",   label: "Réseaux plomberie (gros œuvre)",     emoji: "🔵", couleur: "#3b82f6" },
+  { id: "menuiserie",     label: "Menuiserie ext. & int.",             emoji: "🚪", couleur: "#8b5cf6" },
+  { id: "feraillage",     label: "Feraillage cloisons & doublages",    emoji: "🧱", couleur: "#f59e0b" },
+  { id: "elec_vmc",       label: "Réseaux élec & VMC",                 emoji: "⚡", couleur: "#eab308" },
+  { id: "placo",          label: "Lainage / Placo / Bandes & enduits", emoji: "🪣", couleur: "#6366f1" },
+  { id: "peinture_sols",  label: "Peintures & sols",                   emoji: "🎨", couleur: "#ec4899" },
+  { id: "finition_elec",  label: "Finitions électricité",              emoji: "💡", couleur: "#f97316" },
+  { id: "finition_plomb", label: "Finitions plomberie",                emoji: "🚿", couleur: "#06b6d4" },
+  { id: "cuisine",        label: "Cuisine",                            emoji: "🍳", couleur: "#10b981" },
+  { id: "finitions_gen",  label: "Finitions générales",                emoji: "✨", couleur: "#a78bfa" },
+];
+
+// Charge les phases personnalisées depuis Supabase, sinon retourne PHASES_DEFAUT.
+import { supabase as _supabase } from "./supabase";
+export async function loadPhases() {
+  try {
+    const { data } = await _supabase.from("planning_config").select("value").eq("key", "phases_travaux").maybeSingle();
+    const items = data?.value?.items;
+    if (Array.isArray(items) && items.length > 0) {
+      // Normalisation : on garantit la présence de `couleur` et `label`
+      return items.map((p, i) => ({
+        id:     p.id     || `phase_${i}`,
+        label:  p.label  || `Phase ${i + 1}`,
+        couleur:p.couleur || p.color || "#888888",
+        emoji:  p.emoji  || "",
+      }));
+    }
+  } catch (e) { console.warn("loadPhases:", e?.message || e); }
+  return PHASES_DEFAUT;
+}

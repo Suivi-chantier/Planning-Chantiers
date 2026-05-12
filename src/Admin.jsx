@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT } from "./constants";
 import { Icon } from "./ui";
 import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
@@ -534,15 +534,25 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, visitesEnCours: 0, ouvriersActifs: 0, derniersRapports: [], dernieresVisites: [] });
   const [backuping, setBackuping]       = useState(false);
 
+  // ─── PHASES DE TRAVAUX (Bloc 2) ──────────────────────────────────────────
+  const [phases, setPhases]             = useState(PHASES_DEFAUT);
+  const [editPhaseIdx, setEditPhaseIdx] = useState(null);
+  const [editPhaseColIdx, setEditPhaseColIdx] = useState(null);
+  const [phaseToDelete, setPhaseToDelete] = useState(null);
+  const [resetPhasesConfirm, setResetPhasesConfirm] = useState(false);
+
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "societe" && r.value)         setSociete({ ...SOCIETE_DEFAUT, ...r.value });
           if (r.key === "heures_par_jour" && r.value) setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
           if (r.key === "phrases_bank" && r.value)    setPhrases({ ...PHRASES_DEFAUT, ...r.value });
+          if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
+            setPhases(r.value.items);
+          }
         });
       }
     };
@@ -590,6 +600,39 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     const next = { ...phrases, [cat]: list };
     setPhrases(next);
     saveConfig("phrases_bank", next);
+  };
+
+  // ─── PHASES TRAVAUX CRUD ─────────────────────────────────────────────────
+  const savePhases = async (next) => {
+    setPhases(next);
+    await saveConfig("phases_travaux", { items: next });
+  };
+  const addPhase = () => {
+    const id = `phase_${Date.now()}`;
+    savePhases([...phases, { id, label: "Nouvelle phase", emoji: "", couleur: COULEURS_PALETTE[phases.length % COULEURS_PALETTE.length] }]);
+  };
+  const updPhase = (i, patch) => {
+    const next = phases.map((p, idx) => idx === i ? { ...p, ...patch } : p);
+    setPhases(next);
+    // Debounce save
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("phases_travaux", { items: next }), 600);
+  };
+  const removePhase = () => {
+    if (phaseToDelete === null) return;
+    const next = phases.filter((_, idx) => idx !== phaseToDelete);
+    savePhases(next);
+    setPhaseToDelete(null);
+  };
+  const movePhase = (i, d) => {
+    const a = [...phases], j = i + d;
+    if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]];
+    savePhases(a);
+  };
+  const resetPhases = () => {
+    savePhases([...PHASES_DEFAUT]);
+    setResetPhasesConfirm(false);
   };
 
   // ─── BACKUP JSON ─────────────────────────────────────────────────────────
@@ -887,6 +930,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["ouvriers",     "Ouvriers",       HardHat],
     ["taux",         "Taux horaires",  Euro],
     ["chantiers",    "Chantiers",      Building2],
+    ["phases",       "Phases",         ClipboardCheck],
     ["societe",      "Société",        Briefcase],
     ["planning",     "Planning",       Clock],
     ["logos",        "Logos",          ImageIcon],
@@ -945,6 +989,165 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="utilisateurs" && isAdmin && (
         <OngletUtilisateurs T={T} acc={acc}/>
+      )}
+
+      {/* ── PHASES DE TRAVAUX ── */}
+      {adminTab==="phases" && (
+        <div className="ac">
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Phases de travaux</div>
+              <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
+                Phases utilisées dans le Phasage, la Bibliothèque d'ouvrages, les Visites de chantier et la page Chantiers.
+                Les modifications s'appliquent aux nouvelles entrées et au prochain affichage.
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>setResetPhasesConfirm(true)} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"7px 12px",borderRadius:RADIUS.md,
+                border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:600,cursor:"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11}/>
+                Restaurer par défaut
+              </button>
+              <button onClick={addPhase} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:acc.accent,color:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Plus} size={12}/>
+                Ajouter une phase
+              </button>
+            </div>
+          </div>
+
+          <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",background:"rgba(245,166,35,0.08)",border:"1px solid rgba(245,166,35,0.30)",borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:"#f5a623",lineHeight:1.5,marginBottom:14}}>
+            <Icon as={AlertTriangle} size={13} style={{marginTop:2,flexShrink:0}}/>
+            <span>Si tu supprimes une phase utilisée dans un phasage existant, les tâches resteront accessibles mais ne seront plus regroupées. Préfère renommer plutôt que supprimer.</span>
+          </div>
+
+          {phases.map((ph, i) => (
+            <div key={ph.id || i} className="ar" style={{flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                <button className="ib" onClick={()=>movePhase(i,-1)} title="Monter"><Icon as={ChevronUp} size={12}/></button>
+                <button className="ib" onClick={()=>movePhase(i,1)} title="Descendre"><Icon as={ChevronDown} size={12}/></button>
+              </div>
+
+              {/* Pastille couleur */}
+              <div onClick={()=>setEditPhaseColIdx(editPhaseColIdx===i?null:i)}
+                style={{
+                  width:30,height:30,borderRadius:RADIUS.md,flexShrink:0,
+                  background:ph.couleur||"#888",border:`2px solid ${T.border}`,cursor:"pointer",
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
+                }} title="Couleur de la phase">
+                {ph.emoji}
+              </div>
+
+              {editPhaseColIdx===i ? (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,flex:"1 1 200px"}}>
+                  {COULEURS_PALETTE.map(col=>(
+                    <div key={col} onClick={()=>{updPhase(i,{couleur:col});setEditPhaseColIdx(null);}}
+                      className={`cdot ${ph.couleur===col?"sel":""}`} style={{background:col,cursor:"pointer"}}/>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <input className="ti" value={ph.label||""} onChange={e=>updPhase(i,{label:e.target.value})}
+                    placeholder="Libellé de la phase" style={{flex:"2 1 200px",minWidth:140,fontWeight:600}}/>
+                  <input className="ti" value={ph.emoji||""} onChange={e=>updPhase(i,{emoji:e.target.value.slice(0,2)})}
+                    placeholder="Emoji" style={{width:60,textAlign:"center",fontSize:FONT.md.size}}/>
+                  <button className="btn-d" onClick={()=>setPhaseToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                    <Icon as={Trash2} size={11}/>
+                    Supprimer
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+
+          {/* Modale confirmation suppression phase */}
+          {phaseToDelete !== null && (
+            <div onClick={()=>setPhaseToDelete(null)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={AlertTriangle} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer cette phase&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  La phase <strong style={{color:T.text}}>« {phases[phaseToDelete]?.label} »</strong> sera retirée de la liste.
+                  <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les phasages, visites et ouvrages bibliothèque qui l'utilisaient restent en base mais ne seront plus regroupés sous cette phase.</span>
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setPhaseToDelete(null)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={removePhase} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"#e15a5a",color:"#fff",border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Trash2} size={13}/>
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modale confirmation restauration défaut */}
+          {resetPhasesConfirm && (
+            <div onClick={()=>setResetPhasesConfirm(false)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(245,166,35,0.16)",color:"#f5a623",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={RefreshCw} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Restaurer les 11 phases par défaut&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  Ta liste actuelle sera remplacée par les 11 phases standards (Démolition → Finitions générales).
+                  <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les phasages existants utilisant des phases personnalisées resteront orphelins.</span>
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setResetPhasesConfirm(false)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={resetPhases} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:acc.accent,color:acc.onAccent,border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Check} size={13}/>
+                    Restaurer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── VUE D'ENSEMBLE ── */}
