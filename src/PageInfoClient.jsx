@@ -175,8 +175,12 @@ export default function PageInfoClient({ T }) {
   }
 
   // ─── CANVAS ──────────────────────────────────────────────────────────────────
+  // T.card est semi-transparent (rgba alpha 0.04) → inutilisable pour peindre
+  // le canvas. On utilise T.surface qui est opaque, ainsi la gomme couvre
+  // vraiment les traits au lieu de juste teinter le fond.
+  const canvasBg = T.surface || "#14171f";
   function grille(ctx) {
-    ctx.fillStyle=card; ctx.fillRect(0,0,800,600);
+    ctx.fillStyle=canvasBg; ctx.fillRect(0,0,800,600);
     ctx.strokeStyle="rgba(255,195,0,0.07)"; ctx.lineWidth=1;
     for(let i=0;i<=800;i+=20){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,600);ctx.stroke();}
     for(let i=0;i<=600;i+=20){ctx.beginPath();ctx.moveTo(0,i);ctx.lineTo(800,i);ctx.stroke();}
@@ -188,8 +192,8 @@ export default function PageInfoClient({ T }) {
     if(!isDrawing.current||(!drawMode.current&&!eraseMode.current)) return; e.preventDefault();
     const c=canvasRef.current,ctx=c.getContext("2d"),p=getPos(e,c);
     if(eraseMode.current){
-      // Trait épais couleur fond pour gommer en continu entre les points
-      ctx.strokeStyle=card; ctx.lineWidth=24; ctx.lineCap="round"; ctx.lineJoin="round";
+      // Trait épais couleur fond opaque pour gommer en continu entre les points
+      ctx.strokeStyle=canvasBg; ctx.lineWidth=24; ctx.lineCap="round"; ctx.lineJoin="round";
       ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(p.x,p.y); ctx.stroke();
     }
     else{ ctx.strokeStyle=accent; ctx.lineWidth=2; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(p.x,p.y); ctx.stroke(); }
