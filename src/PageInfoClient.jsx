@@ -6,6 +6,7 @@ import {
   UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
   Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
   Pencil, Eraser, Download, ChevronRight, Building2, Layers,
+  Camera, Copy, Euro, ChevronLeft as ChevronLeftIcon,
 } from "lucide-react";
 
 const CATEGORIES_DEFAUT = {
@@ -32,6 +33,17 @@ const STATUTS_PROJET = [
   { id: "abandonne",      label: "Abandonné",        color: "#e15a5a" },
 ];
 const statutMeta = (id) => STATUTS_PROJET.find(s => s.id === id) || STATUTS_PROJET[0];
+
+// ─── UPLOAD PHOTO (bucket "photos") ──────────────────────────────────────────
+async function uploadInfoClientPhoto(file, projetId) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `info-client/${projetId}/${safe}`;
+  const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+  if (error) { console.error("upload photo:", error); return null; }
+  const { data } = supabase.storage.from("photos").getPublicUrl(path);
+  return data?.publicUrl || null;
+}
 
 export default function PageInfoClient({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
@@ -61,6 +73,11 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   const [toDelete, setToDelete]       = useState(null);
   const [deleting, setDeleting]       = useState(false);
   const [toDeleteOuvrage, setToDeleteOuvrage] = useState(null);
+  const [photos, setPhotos]           = useState([]); // [{ id, url, label, created_at }]
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
+  const [exporting, setExporting]     = useState(false);
+  const photoInputRef = useRef(null);
   const canvasRef  = useRef(null);
   const drawMode   = useRef(false);
   const eraseMode  = useRef(false);
@@ -126,8 +143,37 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
     if (p) setInfos({ client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect" });
     setOuvrages(o||[]); setCotes(c||[]);
     setPlans(pl && pl.length > 0 ? pl : [{nom:"Plan 1",data:null}]);
+    setPhotos(Array.isArray(p?.photos) ? p.photos : []);
     setPlanIdx(0); setLoading(false);
   }
+
+  async function savePhotos(newPhotos) {
+    setPhotos(newPhotos);
+    if (!projetId) return;
+    const { error } = await supabase.from("profero_projets").update({ photos: newPhotos }).eq("id", projetId);
+    if (error) console.error("savePhotos:", error);
+  }
+
+  async function onPhotoFiles(files) {
+    if (!projetId) return;
+    const arr = Array.from(files || []);
+    if (arr.length === 0) return;
+    setUploadingCount(arr.length);
+    const news = [];
+    for (const f of arr) {
+      const url = await uploadInfoClientPhoto(f, projetId);
+      if (url) news.push({ id: Math.random().toString(36).slice(2), url, label: "", created_at: new Date().toISOString() });
+      setUploadingCount(n => n - 1);
+    }
+    if (news.length > 0) await savePhotos([...photos, ...news]);
+    if (photoInputRef.current) photoInputRef.current.value = "";
+  }
+  const removePhoto = (i) => savePhotos(photos.filter((_, idx) => idx !== i));
+  const updatePhotoLabel = (i, label) => {
+    const next = photos.map((p, idx) => idx === i ? { ...p, label } : p);
+    setPhotos(next);
+    debounce(() => savePhotos(next));
+  };
 
   function debounce(fn, d=800) { if(saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current=setTimeout(fn,d); }
 
@@ -158,6 +204,10 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   }
   async function updQte(id,q) { setOuvrages(p=>p.map(o=>o.id===id?{...o,quantite:q}:o)); debounce(()=>supabase.from("profero_ouvrages_selectionnes").update({quantite:q}).eq("id",id)); }
   async function updUnite(id,u) { setOuvrages(p=>p.map(o=>o.id===id?{...o,unite:u}:o)); await supabase.from("profero_ouvrages_selectionnes").update({unite:u}).eq("id",id); }
+  async function updPrix(id,prix) {
+    setOuvrages(p=>p.map(o=>o.id===id?{...o,prix_unitaire:prix}:o));
+    debounce(()=>supabase.from("profero_ouvrages_selectionnes").update({prix_unitaire:prix===""?null:parseFloat(prix)}).eq("id",id));
+  }
 
   async function ajoutCote() { if(!projetId) return; const{data}=await supabase.from("profero_cotes").insert({projet_id:projetId,nom:"",largeur:"",hauteur:"",localisation:""}).select().single(); if(data) setCotes(p=>[...p,data]); }
   async function updCote(id,f,v) { setCotes(p=>p.map(c=>c.id===id?{...c,[f]:v}:c)); debounce(()=>supabase.from("profero_cotes").update({[f]:v}).eq("id",id)); }
@@ -179,6 +229,51 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
       date_visite:new Date().toISOString().split("T")[0], observations:"", logements:[], statut:"prospect",
     }).select().single();
     if(data){ await supabase.from("profero_plans").insert({projet_id:data.id,nom:"Plan 1",data:null}); setProjets(p=>[data,...p]); chargerProjet(data.id); }
+  }
+
+  async function dupliquerProjet() {
+    if (!projetId) return;
+    const src = projets.find(p => p.id === projetId);
+    if (!src) return;
+    // 1) Création du nouveau projet (copie des infos + photos, statut reset à prospect)
+    const newNom = src.client_nom ? `Copie de ${src.client_nom}` : "Copie sans client";
+    const { data: nouveau } = await supabase.from("profero_projets").insert({
+      client_nom:      newNom,
+      client_prenom:   src.client_prenom || "",
+      adresse_bien:    src.adresse_bien || "",
+      description_projet: src.description_projet || "",
+      date_visite:     new Date().toISOString().split("T")[0],
+      observations:    src.observations || "",
+      logements:       src.logements || [],
+      statut:          "prospect",
+      photos:          src.photos || [],
+    }).select().single();
+    if (!nouveau) return;
+    // 2) Clone ouvrages
+    const ouvrSrc = ouvrages.map(o => ({
+      projet_id: nouveau.id,
+      category:  o.category,
+      item:      o.item,
+      quantite:  o.quantite,
+      unite:     o.unite,
+      prix_unitaire: o.prix_unitaire ?? null,
+    }));
+    if (ouvrSrc.length > 0) await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc);
+    // 3) Clone côtes
+    const cotesSrc = cotes.map(c => ({
+      projet_id: nouveau.id,
+      nom: c.nom, largeur: c.largeur, hauteur: c.hauteur, localisation: c.localisation,
+    }));
+    if (cotesSrc.length > 0) await supabase.from("profero_cotes").insert(cotesSrc);
+    // 4) Clone plans
+    const plansSrc = plans.filter(p => p.id).map(p => ({
+      projet_id: nouveau.id, nom: p.nom, data: p.data,
+    }));
+    if (plansSrc.length > 0) await supabase.from("profero_plans").insert(plansSrc);
+    else await supabase.from("profero_plans").insert({ projet_id: nouveau.id, nom: "Plan 1", data: null });
+    // 5) Refresh
+    setProjets(p => [nouveau, ...p]);
+    chargerProjet(nouveau.id);
   }
 
   async function confirmSuppProjet() {
@@ -240,6 +335,43 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   function togErase(){ eraseMode.current=!eraseMode.current; drawMode.current=false; setEraseActive(eraseMode.current); setDrawActive(false); }
   function clearCanvas(){ if(!window.confirm("Effacer le plan ?")) return; grille(canvasRef.current.getContext("2d")); savePlan(); }
   function dlCanvas(){ const a=document.createElement("a"); a.download=`plan-${plans[planIdx]?.nom||"plan"}.png`; a.href=canvasRef.current.toDataURL(); a.click(); }
+
+  // ─── EXPORT WORD ─────────────────────────────────────────────────────────────
+  async function handleExportWord() {
+    if (!projetId || exporting) return;
+    setExporting(true);
+    try {
+      // Snapshot du canvas du plan en cours (s'il y a quelque chose)
+      const plansSnap = plans.map((p, i) => {
+        if (i === planIdx && canvasRef.current) {
+          return { ...p, data: canvasRef.current.toDataURL() };
+        }
+        return p;
+      });
+      const payload = { infos, ouvrages, cotes, plans: plansSnap, photos };
+      const res = await fetch("/api/generate-info-client-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur serveur" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const safe = (infos.client_nom || "client").replace(/[^a-zA-Z0-9-_]/g, "_");
+      a.download = `Fiche-${safe}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export docx:", e);
+      alert("Erreur lors de la génération du document : " + e.message);
+    }
+    setExporting(false);
+  }
 
   // ─── COMPUTED ────────────────────────────────────────────────────────────────
   // Filtrage projets (recherche + statut)
@@ -475,6 +607,13 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                 }}>
                 {STATUTS_PROJET.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
+              <button onClick={dupliquerProjet} title="Dupliquer ce projet" style={{
+                display:"inline-flex",alignItems:"center",justifyContent:"center",
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"7px 10px",color:T.textSub,cursor:"pointer",
+              }}>
+                <Icon as={Copy} size={13}/>
+              </button>
               <button onClick={()=>setToDelete(projetActif)} title="Supprimer ce projet" style={{
                 display:"inline-flex",alignItems:"center",justifyContent:"center",
                 background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
@@ -490,6 +629,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                 { id:"client",   label:"Client & projet", icon:UserCircle },
                 { id:"ouvrages", label:"Ouvrages",        icon:Hammer },
                 { id:"plan",     label:"Plan & côtes",    icon:Ruler },
+                { id:"photos",   label:"Photos",          icon:Camera },
                 { id:"params",   label:"Paramètres",      icon:Settings },
                 { id:"export",   label:"Export",          icon:FileDown },
               ].map(t => {
@@ -575,14 +715,37 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{item}</div>
                               <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}</div>
-                              {chk && (
-                                <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap" }}>
-                                  <input type="number" placeholder="Quantité" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)} style={{...inp,width:90,padding:"5px 8px",fontSize:FONT.xs.size+1}} />
-                                  <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)} style={{...inp,width:80,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
-                                    <option value="U">Unité</option><option value="m">Mètres</option><option value="m²">M²</option><option value="ml">ML</option>
-                                  </select>
-                                </div>
-                              )}
+                              {chk && (() => {
+                                const q  = parseFloat(sel.quantite) || 0;
+                                const pu = parseFloat(sel.prix_unitaire) || 0;
+                                const totalLigne = q * pu;
+                                return (
+                                  <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
+                                    <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
+                                      style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
+                                    <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)}
+                                      style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
+                                      <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option>
+                                    </select>
+                                    <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
+                                    <div style={{position:"relative",width:100}}>
+                                      <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
+                                        style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
+                                      <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
+                                    </div>
+                                    {totalLigne > 0 && (
+                                      <span style={{
+                                        marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:4,
+                                        fontSize:FONT.xs.size+1, fontWeight:800, color:"#22c55e",
+                                        background:"rgba(34,197,94,0.10)", border:"1px solid rgba(34,197,94,0.25)",
+                                        borderRadius:RADIUS.sm, padding:"3px 8px",
+                                      }}>
+                                        = {totalLigne.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         );
@@ -591,26 +754,80 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                   );
                 })}
 
-                <div style={{ display:"flex", gap:10, marginTop:18, flexWrap:"wrap" }}>
-                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
-                    <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center" }}>
-                      <Icon as={Check} size={15}/>
-                    </div>
-                    <div>
-                      <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{ouvrages.length}</div>
-                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Sélectionnés</div>
-                    </div>
-                  </div>
-                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
-                    <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(91,156,246,0.16)",color:"#5b9cf6",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                      <Icon as={Layers} size={15}/>
-                    </div>
-                    <div>
-                      <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{Object.values(categories).flat().length}</div>
-                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Disponibles</div>
-                    </div>
-                  </div>
-                </div>
+                {(() => {
+                  // Estimation par catégorie + total
+                  const totauxParCat = {};
+                  ouvrages.forEach(o => {
+                    const q  = parseFloat(o.quantite) || 0;
+                    const pu = parseFloat(o.prix_unitaire) || 0;
+                    if (q > 0 && pu > 0) {
+                      totauxParCat[o.category] = (totauxParCat[o.category] || 0) + q * pu;
+                    }
+                  });
+                  const totalGlobal = Object.values(totauxParCat).reduce((s, v) => s + v, 0);
+                  const fmt = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  return (
+                    <>
+                      <div style={{ display:"flex", gap:10, marginTop:18, flexWrap:"wrap" }}>
+                        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
+                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                            <Icon as={Check} size={15}/>
+                          </div>
+                          <div>
+                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{ouvrages.length}</div>
+                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Sélectionnés</div>
+                          </div>
+                        </div>
+                        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
+                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(91,156,246,0.16)",color:"#5b9cf6",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                            <Icon as={Layers} size={15}/>
+                          </div>
+                          <div>
+                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{Object.values(categories).flat().length}</div>
+                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Disponibles</div>
+                          </div>
+                        </div>
+                        <div style={{ background:T.surface, border:`1px solid ${totalGlobal > 0 ? "rgba(34,197,94,0.40)" : T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:"2 1 240px", display:"flex", alignItems:"center", gap:10 }}>
+                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(34,197,94,0.16)",color:"#22c55e",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                            <Icon as={Euro} size={15}/>
+                          </div>
+                          <div style={{flex:1}}>
+                            <div style={{ fontSize:FONT.xl.size, fontWeight:800, color: totalGlobal > 0 ? "#22c55e" : T.textMuted, lineHeight:1, letterSpacing:-.5 }}>
+                              {fmt(totalGlobal)} €
+                            </div>
+                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Estimation totale</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Détail par catégorie */}
+                      {Object.keys(totauxParCat).length > 0 && (
+                        <div style={{
+                          marginTop: 10, background: T.surface, border: `1px solid ${T.border}`,
+                          borderRadius: RADIUS.lg, padding: "10px 14px",
+                        }}>
+                          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
+                            Détail par catégorie
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {Object.entries(totauxParCat).sort(([,a],[,b])=>b-a).map(([cat, total]) => (
+                              <div key={cat} style={{
+                                display: "inline-flex", alignItems: "baseline", gap: 6,
+                                padding: "6px 12px", background: T.card,
+                                border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+                              }}>
+                                <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.textSub }}>{cat}</span>
+                                <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: "#22c55e" }}>
+                                  {fmt(total)} €
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>
                   <button onClick={async()=>{ if(!window.confirm("Désélectionner tous les ouvrages ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
                     style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
@@ -715,6 +932,90 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
               </>
             )}
 
+            {tab==="photos" && (
+              <>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:10, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={Camera} size={11}/>
+                    Photos du projet
+                    {photos.length > 0 && <span style={{color:acc.accent}}>· {photos.length}</span>}
+                  </div>
+                  <label style={{
+                    display:"inline-flex", alignItems:"center", gap:6,
+                    background:acc.accent, color:acc.onAccent, border:"none",
+                    borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
+                    fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
+                  }}>
+                    <Icon as={Camera} size={13}/>
+                    Ajouter des photos
+                    <input ref={photoInputRef} type="file" accept="image/*" multiple capture="environment"
+                      onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                  </label>
+                </div>
+                {uploadingCount > 0 && (
+                  <div style={{ display:"flex", alignItems:"center", gap:8, color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, marginBottom:10 }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" style={{animation:"spin 1s linear infinite"}}>
+                      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
+                    </svg>
+                    Upload en cours… {uploadingCount} restante{uploadingCount > 1 ? "s" : ""}
+                  </div>
+                )}
+                {photos.length === 0 ? (
+                  <div style={{
+                    background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl,
+                    padding:"40px 24px", textAlign:"center", color:T.textSub,
+                  }}>
+                    <div style={{
+                      width:48,height:48,borderRadius:RADIUS.lg,
+                      background:acc.bg10,color:acc.accent,
+                      display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
+                    }}>
+                      <Icon as={Camera} size={24} strokeWidth={1.5}/>
+                    </div>
+                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucune photo</div>
+                    <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>
+                      Prends des photos sur place (état de l'existant, points d'attention) — l'appareil photo s'ouvrira directement sur mobile.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{
+                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12,
+                  }}>
+                    {photos.map((ph, i) => (
+                      <div key={ph.id || i} style={{
+                        background:T.surface, border:`1px solid ${T.border}`,
+                        borderRadius:RADIUS.lg, overflow:"hidden",
+                      }}>
+                        <div style={{ position:"relative", aspectRatio:"4/3", background:T.card, cursor:"pointer" }}
+                          onClick={()=>setLightbox({urls:photos.map(p=>p.url),idx:i})}>
+                          <img src={ph.url} alt={ph.label||""} loading="lazy"
+                            style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
+                          <button onClick={(e)=>{e.stopPropagation();removePhoto(i);}} title="Supprimer cette photo"
+                            style={{
+                              position:"absolute", top:6, right:6,
+                              display:"inline-flex", alignItems:"center", justifyContent:"center",
+                              background:"rgba(0,0,0,0.65)", color:"#fff", border:"none",
+                              borderRadius:"50%", width:26, height:26, cursor:"pointer", padding:0,
+                            }}>
+                            <Icon as={Trash2} size={11}/>
+                          </button>
+                        </div>
+                        <div style={{ padding:"8px 10px" }}>
+                          <input value={ph.label || ""} onChange={e=>updatePhotoLabel(i, e.target.value)}
+                            placeholder="Libellé (ex : Salon — mur sud)"
+                            style={{
+                              width:"100%", background:"transparent", border:"none",
+                              color:T.text, fontFamily:"inherit", fontSize:FONT.xs.size+1, outline:"none",
+                              padding:"3px 0",
+                            }}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
             {tab==="params" && (
               <>
                 <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
@@ -766,31 +1067,91 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                   Export du dossier
                 </div>
                 <p style={{color:T.textSub,fontSize:FONT.sm.size,marginBottom:14,lineHeight:1.7}}>
-                  Génère une fiche complète avec infos client, ouvrages sélectionnés, côtes et plans.
+                  Génère une fiche complète avec infos client, ouvrages sélectionnés, côtes, plan et photos.
                 </p>
                 <div style={{ background:acc.bg10, border:`1px solid ${acc.accent}33`, borderRadius:RADIUS.md, padding:"12px 14px", marginBottom:18 }}>
                   <div style={{display:"inline-flex",alignItems:"center",gap:5,color:acc.accent,fontWeight:700,marginBottom:8,fontSize:FONT.sm.size}}>
                     <Icon as={FileText} size={12}/>
                     Contenu de la fiche
                   </div>
-                  {["Infos client et projet","Composition (logements)","Ouvrages sélectionnés","Côtes menuiseries / huisseries","Plan du chantier","Observations"].map(i=>(
+                  {["Infos client et projet","Composition (logements)","Ouvrages avec estimation budgétaire","Côtes menuiseries / huisseries","Plan du chantier","Photos sur place","Observations"].map(i=>(
                     <div key={i} style={{fontSize:FONT.xs.size+1,color:T.textSub,marginBottom:4,display:"inline-flex",alignItems:"center",gap:5,width:"100%"}}>
                       <Icon as={Check} size={10} color={acc.accent}/>
                       {i}
                     </div>
                   ))}
                 </div>
-                <button onClick={()=>genPDF({infos,ouvrages,cotes,plans,canvasRef})} style={{
-                  display:"inline-flex",alignItems:"center",gap:6,
-                  background:acc.accent,color:acc.onAccent,border:"none",
-                  borderRadius:RADIUS.md,padding:"10px 18px",cursor:"pointer",
-                  fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
-                }}>
-                  <Icon as={Download} size={13}/>
-                  Générer & télécharger
+                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                  <button onClick={handleExportWord} disabled={exporting} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:acc.accent,color:acc.onAccent,border:"none",
+                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,opacity:exporting?.6:1,
+                  }}>
+                    <Icon as={FileDown} size={13}/>
+                    {exporting ? "Génération…" : "Exporter en Word (.docx)"}
+                  </button>
+                  <button onClick={()=>genPDF({infos,ouvrages,cotes,plans,canvasRef})} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"transparent",color:T.textSub,border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:"pointer",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,
+                  }}>
+                    <Icon as={Download} size={13}/>
+                    PDF (impression navigateur)
+                  </button>
+                </div>
+                <p style={{color:T.textMuted,fontSize:FONT.xs.size+1,marginTop:14,lineHeight:1.6,fontStyle:"italic"}}>
+                  Le Word inclut les photos directement dans le document. Le PDF reste accessible via l'impression du navigateur.
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── LIGHTBOX PHOTOS ── */}
+      {lightbox && (
+        <div onClick={()=>setLightbox(null)} style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:1200,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          padding:20, flexDirection:"column", gap:14,
+        }}>
+          <img src={lightbox.urls[lightbox.idx]} alt=""
+            onClick={e=>e.stopPropagation()}
+            style={{ maxWidth:"100%", maxHeight:"calc(100vh - 120px)", objectFit:"contain", borderRadius:8 }}/>
+          <div onClick={e=>e.stopPropagation()} style={{ display:"flex", gap:12, alignItems:"center" }}>
+            {lightbox.urls.length > 1 && (
+              <>
+                <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx-1+l.urls.length)%l.urls.length}))}
+                  style={{
+                    display:"inline-flex", alignItems:"center", justifyContent:"center",
+                    background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
+                    color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit",
+                  }}>
+                  <Icon as={ChevronLeftIcon} size={16}/>
+                </button>
+                <span style={{ color:"#fff", fontSize:13, fontWeight:600 }}>
+                  {lightbox.idx + 1} / {lightbox.urls.length}
+                </span>
+                <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx+1)%l.urls.length}))}
+                  style={{
+                    display:"inline-flex", alignItems:"center", justifyContent:"center",
+                    background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
+                    color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit",
+                  }}>
+                  <Icon as={ChevronRight} size={16}/>
                 </button>
               </>
             )}
+            <button onClick={()=>setLightbox(null)}
+              style={{
+                background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
+                color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer",
+                fontFamily:"inherit", fontSize:13, fontWeight:600,
+              }}>
+              Fermer
+            </button>
           </div>
         </div>
       )}
