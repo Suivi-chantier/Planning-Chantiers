@@ -1,12 +1,30 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
+import { FONT, RADIUS, getBranchAccent } from "./constants";
+import { Icon } from "./ui";
+import {
+  FileText, Plus, Trash2, Search, Calendar, MapPin, User, Users, Sparkles,
+  ClipboardCheck, AlertTriangle, Wrench, Camera, MessageSquare, Menu,
+  Check, X, Building2, ChevronRight, Download, Send, Clock as ClockIcon,
+  TrendingUp, Info, Lightbulb,
+} from "lucide-react";
 
 const TYPES_VISITE = ["Visite de chantier","Réunion de suivi","Réception travaux","Constat contradictoire","Autre"];
 const STATUTS_OBS  = ["ok","info","warn","urgent"];
 const STATUT_LABEL = { ok:"Conforme", info:"Info", warn:"Attention", urgent:"Urgent" };
-const STATUT_COLOR = { ok:"#2e7d32", info:"#1565c0", warn:"#e65100", urgent:"#c62828" };
+const STATUT_COLOR = { ok:"#22c55e", info:"#5b9cf6", warn:"#f5a623", urgent:"#e15a5a" };
 
-export default function PageCompteRendu({ T }) {
+// ─── STATUTS DE COMPTE RENDU (flux opérationnel) ─────────────────────────────
+const STATUTS_CR = [
+  { id: "brouillon", label: "Brouillon", color: "#94a3b8" },
+  { id: "valide",    label: "Validé",    color: "#5b9cf6" },
+  { id: "envoye",    label: "Envoyé",    color: "#22c55e" },
+  { id: "archive",   label: "Archivé",   color: "#a78bfa" },
+];
+const statutMeta = (id) => STATUTS_CR.find(s => s.id === id) || STATUTS_CR[0];
+
+export default function PageCompteRendu({ T, chantiers = [], branch = "renovation" }) {
+  const acc = getBranchAccent(branch);
   // ── État liste CRs ──
   const [crs, setCrs]           = useState([]);
   const [crId, setCrId]         = useState(null);
@@ -14,19 +32,23 @@ export default function PageCompteRendu({ T }) {
   const [saving, setSaving]     = useState(false);
 
   // ── Données CR courant ──
-  const INFOS_VIDE = { client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"" };
+  const INFOS_VIDE = { client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", chantier_id:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"", statut:"brouillon" };
   const [infos, setInfos]       = useState(INFOS_VIDE);
   const [obs, setObs]           = useState([]);
   const [photos, setPhotos]     = useState([]);
   const [deuxiemeClient, setDeuxiemeClient] = useState(false);
+  const [phrases, setPhrases]   = useState({ cr_observation: [], visite_observation: [], vigilance: [] });
 
   // ── UI ──
-  const [section, setSection]   = useState("ia");
+  const [section, setSection]   = useState("synthese");
   const [iaTexte, setIaTexte]   = useState("");
   const [iaLoading, setIaLoading] = useState(false);
   const [iaStatus, setIaStatus] = useState(null); // {ok, msg}
   const [mobileShowList, setMobileShowList] = useState(false);
-  const [mobileShowNav, setMobileShowNav]   = useState(false);
+  const [searchCrs, setSearchCrs] = useState("");
+  const [filterStatut, setFilterStatut] = useState("all");
+  const [toDelete, setToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const photoInputRef           = useRef(null);
   const saveTimer               = useRef(null);
 
@@ -51,7 +73,7 @@ export default function PageCompteRendu({ T }) {
   const cardTitle = { fontSize:11, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.8, marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${border}`, display:"flex", alignItems:"center", gap:8 };
 
   // ── Init ──
-  useEffect(() => { chargerCRs(); }, []);
+  useEffect(() => { chargerCRs(); chargerPhrases(); }, []);
 
   // ── DATA ──
   async function chargerCRs() {
@@ -59,6 +81,11 @@ export default function PageCompteRendu({ T }) {
     const { data } = await supabase.from("cr_comptes_rendus").select("*").order("created_at", { ascending:false });
     if (data) { setCrs(data); if (data.length > 0) chargerCR(data[0].id); else setLoading(false); }
     else setLoading(false);
+  }
+
+  async function chargerPhrases() {
+    const { data } = await supabase.from("planning_config").select("value").eq("key", "phrases_bank").maybeSingle();
+    if (data?.value) setPhrases({ cr_observation: [], visite_observation: [], vigilance: [], ...data.value });
   }
 
   async function chargerCR(id) {
@@ -69,7 +96,18 @@ export default function PageCompteRendu({ T }) {
       supabase.from("cr_photos").select("*").eq("cr_id",id),
     ]);
     if (cr) {
-      setInfos({ client_prenom1:cr.client_prenom1||"", client_nom1:cr.client_nom1||"", client_prenom2:cr.client_prenom2||"", client_nom2:cr.client_nom2||"", adresse:cr.adresse||"", date_visite:cr.date_visite||"", heure_visite:cr.heure_visite||"", type_visite:cr.type_visite||"Visite de chantier", participants:cr.participants||"", resume:cr.resume||"", avancement:cr.avancement||0, prochaine_etape:cr.prochaine_etape||"", travaux:cr.travaux||"", remarques:cr.remarques||"" });
+      setInfos({
+        client_prenom1:cr.client_prenom1||"", client_nom1:cr.client_nom1||"",
+        client_prenom2:cr.client_prenom2||"", client_nom2:cr.client_nom2||"",
+        adresse:cr.adresse||"", chantier_id:cr.chantier_id||"",
+        date_visite:cr.date_visite||"", heure_visite:cr.heure_visite||"",
+        type_visite:cr.type_visite||"Visite de chantier",
+        participants:cr.participants||"",
+        resume:cr.resume||"", avancement:cr.avancement||0,
+        prochaine_etape:cr.prochaine_etape||"",
+        travaux:cr.travaux||"", remarques:cr.remarques||"",
+        statut:cr.statut||"brouillon",
+      });
       setDeuxiemeClient(!!(cr.client_prenom2 || cr.client_nom2));
     }
     setObs(o && o.length > 0 ? o : [{ id:"new_1", statut:"warn", texte:"", ordre:0 }]);
@@ -87,6 +125,7 @@ export default function PageCompteRendu({ T }) {
       client_prenom2:   v.client_prenom2   ?? "",
       client_nom2:      v.client_nom2      ?? "",
       adresse:          v.adresse          ?? "",
+      chantier_id:      v.chantier_id      || null,
       date_visite:      v.date_visite      ?? "",
       heure_visite:     v.heure_visite     ?? "",
       type_visite:      v.type_visite      ?? "",
@@ -96,6 +135,7 @@ export default function PageCompteRendu({ T }) {
       prochaine_etape:  v.prochaine_etape  ?? "",
       travaux:          v.travaux          ?? "",
       remarques:        v.remarques        ?? "",
+      statut:           v.statut           ?? "brouillon",
     };
     const { error } = await supabase.from("cr_comptes_rendus").update(payload).eq("id", crId);
     if (error) console.error("saveInfos CR error:", error);
@@ -152,14 +192,14 @@ export default function PageCompteRendu({ T }) {
 
   // ── Nouveau CR ──
   async function nouveauCR() {
-    const nom = window.prompt("Nom du compte rendu :", `CR ${crs.length+1}`);
-    if (!nom) return;
     const { data } = await supabase.from("cr_comptes_rendus").insert({
       client_prenom1: "", client_nom1: "", client_prenom2: "", client_nom2: "",
-      adresse: "", date_visite: new Date().toISOString().split("T")[0],
+      adresse: "", chantier_id: null,
+      date_visite: new Date().toISOString().split("T")[0],
       heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`,
       type_visite: "Visite de chantier", participants: "", resume: "",
       avancement: 0, prochaine_etape: "", travaux: "", remarques: "",
+      statut: "brouillon",
     }).select().single();
     if (data) {
       await supabase.from("cr_observations").insert({ cr_id:data.id, statut:"warn", texte:"", ordre:0 });
@@ -167,12 +207,17 @@ export default function PageCompteRendu({ T }) {
     }
   }
 
-  async function suppCR() {
-    if (!crId || !window.confirm("Supprimer ce compte rendu ?")) return;
-    await supabase.from("cr_comptes_rendus").delete().eq("id",crId);
-    const r = crs.filter(c=>c.id!==crId); setCrs(r);
-    if (r.length > 0) chargerCR(r[0].id);
-    else { setCrId(null); setInfos(INFOS_VIDE); setObs([]); setPhotos([]); }
+  async function confirmSuppCR() {
+    if (!toDelete) return;
+    setDeleting(true);
+    await supabase.from("cr_comptes_rendus").delete().eq("id", toDelete.id);
+    const r = crs.filter(c=>c.id !== toDelete.id); setCrs(r);
+    if (toDelete.id === crId) {
+      if (r.length > 0) chargerCR(r[0].id);
+      else { setCrId(null); setInfos(INFOS_VIDE); setObs([]); setPhotos([]); }
+    }
+    setDeleting(false);
+    setToDelete(null);
   }
 
   // ── IA ──
@@ -348,77 +393,168 @@ export default function PageCompteRendu({ T }) {
   }
 
   // ── RENDU ──
-  if (loading) return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:bg,color:accent,fontSize:16,fontWeight:700}}>Chargement…</div>;
+  if (loading) return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontSize:FONT.sm.size}}>Chargement…</div>;
 
-  const NAV_ITEMS = [
-    { id:"ia",      label:"Import IA",      icon:"✦" },
-    { id:"client",  label:"Client",         icon:"👤" },
-    { id:"visite",  label:"Visite",         icon:"📅" },
-    { id:"avanc",   label:"Avancement",     icon:"📈" },
-    { id:"obs",     label:"Observations",   icon:"⚠️" },
-    { id:"travaux", label:"Travaux",        icon:"🔧" },
-    { id:"photos",  label:"Photos",         icon:"📷" },
-    { id:"rem",     label:"Remarques",      icon:"📝" },
+  // Onglets unifiés (au lieu de 3 panneaux)
+  const TABS = [
+    { id:"synthese",  label:"Synthèse",     icon:FileText },
+    { id:"obs",       label:"Observations", icon:AlertTriangle },
+    { id:"travaux",   label:"Travaux",      icon:Wrench },
+    { id:"remarques", label:"Remarques",    icon:MessageSquare },
+    { id:"photos",    label:"Photos",       icon:Camera },
+    { id:"ia",        label:"Import IA",    icon:Sparkles },
   ];
 
+  // Filtrage CRs
+  const crsFiltres = crs.filter(c => {
+    if (filterStatut !== "all" && (c.statut || "brouillon") !== filterStatut) return false;
+    if (searchCrs.trim()) {
+      const q = searchCrs.toLowerCase();
+      const txt = `${c.client_nom1||""} ${c.client_prenom1||""} ${c.adresse||""} ${c.type_visite||""}`.toLowerCase();
+      if (!txt.includes(q)) return false;
+    }
+    return true;
+  });
+  const statsParStatut = STATUTS_CR.reduce((a,s) => { a[s.id] = crs.filter(c => (c.statut||"brouillon") === s.id).length; return a; }, {});
+  const crActif = crs.find(c => c.id === crId);
+
   return (
-    <div className="cr-page" style={{ display:"flex", height:"100%", background:bg, overflow:"hidden", position:"relative" }}>
+    <div className="cr-page" style={{ display:"flex", height:"100%", background:T.bg, overflow:"hidden", position:"relative" }}>
       <style>{`
         .cr-mobile-bar{display:none}
         @media(max-width:767px){
-          .cr-page .cr-list-panel{position:absolute;left:0;top:0;bottom:0;width:80%;max-width:300px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
+          .cr-page .cr-list-panel{position:absolute;left:0;top:0;bottom:0;width:88%;max-width:320px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
           .cr-page .cr-list-panel.open{transform:translateX(0)}
-          .cr-page .cr-nav-panel{position:absolute;left:0;top:0;bottom:0;width:75%;max-width:260px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
-          .cr-page .cr-nav-panel.open{transform:translateX(0)}
           .cr-page .cr-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.5);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
           .cr-page .cr-drawer-backdrop.open{opacity:1;pointer-events:auto}
-          .cr-page .cr-mobile-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:${surface};border-bottom:1px solid ${border};flex-shrink:0}
-          .cr-page .cr-mobile-bar-btn{flex:0 0 auto;background:${card};border:1px solid ${border};border-radius:8px;padding:6px 10px;color:${text};font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px}
-          .cr-page .cr-mobile-bar-title{flex:1;min-width:0;font-size:13px;font-weight:700;color:${text};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-          .cr-page .cr-main-content{padding:14px 12px!important}
-          .cr-page .cr-main-content > div > div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+          .cr-page .cr-mobile-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:${T.surface};border-bottom:1px solid ${T.border};flex-shrink:0}
+          .cr-page .cr-form-grid{grid-template-columns:1fr!important;gap:10px!important}
         }
+        @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
 
-      {/* === BARRE MOBILE (toggles) === */}
+      {/* ── BARRE MOBILE ── */}
       <div className="cr-mobile-bar">
-        <button className="cr-mobile-bar-btn" onClick={()=>setMobileShowList(true)}>☰ Liste</button>
-        {crId && <button className="cr-mobile-bar-btn" onClick={()=>setMobileShowNav(true)}>⋯ Sections</button>}
-        <div className="cr-mobile-bar-title">
-          {(() => { const c=crs.find(x=>x.id===crId); if(!c) return "Aucun CR"; return c.client_nom1?`${c.client_prenom1||""} ${c.client_nom1}`.trim():"Sans client"; })()}
+        <button onClick={()=>setMobileShowList(true)} style={{
+          display:"inline-flex",alignItems:"center",gap:6,
+          background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+          padding:"7px 12px",color:T.text,fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+        }}>
+          <Icon as={Menu} size={13}/>
+          Comptes rendus
+        </button>
+        <div style={{flex:1,minWidth:0,fontSize:FONT.sm.size,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {crActif ? (crActif.client_nom1 ? `${crActif.client_prenom1||""} ${crActif.client_nom1}`.trim() : "Sans client") : "Aucun CR"}
         </div>
-        {crId && <button className="cr-mobile-bar-btn" onClick={genPDF} title="PDF">↓</button>}
       </div>
 
-      <div className={`cr-drawer-backdrop ${(mobileShowList||mobileShowNav)?"open":""}`}
-        onClick={()=>{setMobileShowList(false);setMobileShowNav(false);}}/>
+      <div className={`cr-drawer-backdrop ${mobileShowList?"open":""}`} onClick={()=>setMobileShowList(false)}/>
 
-      {/* ── LISTE CRs ── */}
-      <div className={`cr-list-panel ${mobileShowList?"open":""}`} style={{ width:220, flexShrink:0, display:"flex", flexDirection:"column", background:surface, borderRight:`1px solid ${border}` }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${border}`, flexShrink:0 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <div>
-              <div style={{ fontSize:12, fontWeight:800, color:accent, textTransform:"uppercase", letterSpacing:1 }}>
-                Comptes rendus {saving && <span style={{fontSize:10,opacity:.6}}>💾</span>}
+      {/* ── SIDEBAR LISTE ── */}
+      <div className={`cr-list-panel ${mobileShowList?"open":""}`} style={{
+        width:300, flexShrink:0, display:"flex", flexDirection:"column",
+        background:T.surface, borderRight:`1px solid ${T.border}`,
+      }}>
+        {/* Header */}
+        <div style={{padding:"14px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <div style={{
+              width:32,height:32,borderRadius:RADIUS.md,flexShrink:0,
+              background:acc.bg10,color:acc.accent,
+              display:"flex",alignItems:"center",justifyContent:"center",
+            }}>
+              <Icon as={FileText} size={18} strokeWidth={2}/>
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,letterSpacing:-.2}}>Comptes rendus</div>
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>
+                {crs.length} CR{crs.length>1?"s":""}{saving && " · sauvegarde…"}
               </div>
-              <div style={{ fontSize:11, color:textSub, marginTop:1 }}>{crs.length} CR{crs.length>1?"s":""}</div>
             </div>
-            <div style={{ display:"flex", gap:5 }}>
-              <button style={{...btn,padding:"5px 10px",fontSize:13}} onClick={nouveauCR} title="Nouveau">＋</button>
-              <button style={{...btnD,padding:"5px 8px"}} onClick={suppCR} title="Supprimer">🗑</button>
-            </div>
+            <button onClick={nouveauCR} title="Nouveau" style={{
+              display:"inline-flex",alignItems:"center",justifyContent:"center",
+              background:acc.accent,color:acc.onAccent,border:"none",
+              borderRadius:RADIUS.md,width:30,height:30,cursor:"pointer",
+            }}>
+              <Icon as={Plus} size={14}/>
+            </button>
           </div>
+
+          {/* Recherche */}
+          <div style={{position:"relative",marginBottom:8}}>
+            <Icon as={Search} size={12} color={T.textMuted}
+              style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+            <input value={searchCrs} onChange={e=>setSearchCrs(e.target.value)} placeholder="Rechercher…"
+              style={{
+                width:"100%",background:T.fieldBg||T.card,
+                border:`1px solid ${T.fieldBorder||T.border}`,borderRadius:RADIUS.md,
+                padding:"7px 10px 7px 28px",color:T.text,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,outline:"none",
+              }}/>
+          </div>
+
+          {/* Filtre statut */}
+          <select value={filterStatut} onChange={e=>setFilterStatut(e.target.value)} style={{
+            width:"100%",background:T.fieldBg||T.card,border:`1px solid ${T.fieldBorder||T.border}`,
+            borderRadius:RADIUS.md,padding:"7px 10px",color:T.text,
+            fontFamily:"inherit",fontSize:FONT.xs.size+1,outline:"none",cursor:"pointer",
+          }}>
+            <option value="all">Tous les statuts</option>
+            {STATUTS_CR.map(s => (
+              <option key={s.id} value={s.id}>{s.label} ({statsParStatut[s.id]||0})</option>
+            ))}
+          </select>
         </div>
-        <div style={{ flex:1, overflowY:"auto", padding:8 }}>
-          {crs.length===0 && <div style={{color:textSub,fontSize:12,textAlign:"center",marginTop:24,lineHeight:1.8}}>Aucun compte rendu<br/><button style={{...btn,marginTop:8,fontSize:11}} onClick={nouveauCR}>Créer</button></div>}
-          {crs.map(c => {
+
+        {/* Liste */}
+        <div style={{flex:1,overflowY:"auto",padding:8}}>
+          {crs.length===0 && (
+            <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,textAlign:"center",marginTop:20,lineHeight:1.8}}>
+              Aucun compte rendu<br/>
+              <button onClick={nouveauCR} style={{
+                display:"inline-flex",alignItems:"center",gap:5,marginTop:10,
+                background:acc.accent,color:acc.onAccent,border:"none",
+                borderRadius:RADIUS.md,padding:"7px 14px",cursor:"pointer",
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,
+              }}>
+                <Icon as={Plus} size={12}/>
+                Créer
+              </button>
+            </div>
+          )}
+          {crsFiltres.length===0 && crs.length>0 && (
+            <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,textAlign:"center",padding:"16px 12px",fontStyle:"italic"}}>
+              Aucun CR ne correspond à ces filtres.
+            </div>
+          )}
+          {crsFiltres.map(c => {
             const act = c.id===crId;
+            const st = statutMeta(c.statut);
             const nomClient = c.client_nom1 ? `${c.client_prenom1||""} ${c.client_nom1}`.trim() : "Sans client";
             return (
-              <div key={c.id} onClick={()=>{chargerCR(c.id);setMobileShowList(false);}} style={{ padding:"10px 12px", borderRadius:8, marginBottom:6, cursor:"pointer", background:act?accent:card, border:`1px solid ${act?accent:border}`, borderLeft:`3px solid ${accent}`, transition:"all .12s" }}>
-                <div style={{ fontSize:13, fontWeight:700, color:act?"#000":text }}>{nomClient}</div>
-                <div style={{ fontSize:11, marginTop:2, color:act?"rgba(0,0,0,0.55)":textSub }}>
-                  {c.type_visite || "Visite"} {c.date_visite ? `· ${new Date(c.date_visite).toLocaleDateString("fr-FR")}` : ""}
+              <div key={c.id} onClick={()=>{chargerCR(c.id);setMobileShowList(false);}} style={{
+                padding:"10px 12px",borderRadius:RADIUS.md,marginBottom:6,cursor:"pointer",
+                background:act?acc.bg10:T.card,
+                border:`1px solid ${act?acc.accent:T.border}`,
+                borderLeft:`3px solid ${st.color}`,
+                transition:"all .12s",
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                  <span style={{fontSize:FONT.sm.size,fontWeight:700,color:act?acc.accent:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {nomClient}
+                  </span>
+                  <span style={{
+                    fontSize:FONT.xs.size-1,fontWeight:700,padding:"1px 6px",borderRadius:RADIUS.sm,
+                    background:st.color+"22",color:st.color,whiteSpace:"nowrap",flexShrink:0,
+                  }}>{st.label}</span>
+                </div>
+                <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:3}}>
+                    <Icon as={Calendar} size={9}/>
+                    {c.date_visite ? new Date(c.date_visite).toLocaleDateString("fr-FR") : "—"}
+                  </span>
+                  <span>·</span>
+                  <span>{c.type_visite || "Visite"}</span>
                 </div>
               </div>
             );
@@ -426,209 +562,457 @@ export default function PageCompteRendu({ T }) {
         </div>
       </div>
 
-      {/* ── CONTENU ── */}
+      {/* ── CONTENU PRINCIPAL ── */}
       {!crId ? (
-        <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,color:textSub}}>
-          <div style={{fontSize:52,opacity:.2}}>📋</div>
-          <div style={{fontSize:15,fontWeight:700}}>Sélectionne ou crée un compte rendu</div>
-          <button style={btn} onClick={nouveauCR}>➕ Nouveau CR</button>
+        <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,color:T.textSub,padding:24}}>
+          <div style={{
+            width:64,height:64,borderRadius:RADIUS.lg,
+            background:acc.bg10,color:acc.accent,
+            display:"flex",alignItems:"center",justifyContent:"center",
+          }}>
+            <Icon as={FileText} size={32} strokeWidth={1.5}/>
+          </div>
+          <div style={{fontSize:FONT.md.size,fontWeight:700,color:T.text}}>Sélectionne ou crée un compte rendu</div>
+          <button onClick={nouveauCR} style={{
+            display:"inline-flex",alignItems:"center",gap:6,
+            background:acc.accent,color:acc.onAccent,border:"none",
+            borderRadius:RADIUS.md,padding:"10px 20px",cursor:"pointer",
+            fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+          }}>
+            <Icon as={Plus} size={14}/>
+            Nouveau compte rendu
+          </button>
         </div>
       ) : (
-        <div style={{ flex:1, display:"flex", overflow:"hidden", minWidth:0 }}>
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+          {/* En-tête CR */}
+          <div style={{padding:"14px 22px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+              <div style={{
+                width:36,height:36,borderRadius:RADIUS.md,flexShrink:0,
+                background:acc.bg10,color:acc.accent,
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>
+                <Icon as={FileText} size={20} strokeWidth={2}/>
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {infos.client_nom1 ? `${infos.client_nom1} ${infos.client_prenom1||""}` : "Nouveau compte rendu"}
+                </div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,display:"flex",flexWrap:"wrap",gap:10}}>
+                  {infos.adresse && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                      <Icon as={MapPin} size={11}/>{infos.adresse}
+                    </span>
+                  )}
+                  {infos.date_visite && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                      <Icon as={Calendar} size={11}/>{new Date(infos.date_visite).toLocaleDateString("fr-FR")}
+                    </span>
+                  )}
+                  <span>· {infos.type_visite}</span>
+                </div>
+              </div>
+              <select value={infos.statut || "brouillon"} onChange={e=>updInfo("statut",e.target.value)}
+                style={{
+                  padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${statutMeta(infos.statut).color}55`,
+                  background:statutMeta(infos.statut).color+"18",color:statutMeta(infos.statut).color,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,outline:"none",cursor:"pointer",
+                }}>
+                {STATUTS_CR.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <button onClick={genPDF} title="Générer le PDF" style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"7px 14px",borderRadius:RADIUS.md,
+                border:`1px solid ${T.border}`,background:T.surface,color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,cursor:"pointer",
+              }}>
+                <Icon as={Download} size={13}/>
+                PDF
+              </button>
+              <button onClick={()=>setToDelete(crActif)} title="Supprimer" style={{
+                display:"inline-flex",alignItems:"center",justifyContent:"center",
+                background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
+                borderRadius:RADIUS.md,padding:"7px 10px",color:"#e15a5a",cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+              </button>
+            </div>
 
-          {/* ── NAV INTERNE ── */}
-          <div className={`cr-nav-panel ${mobileShowNav?"open":""}`} style={{ width:160, flexShrink:0, background:surface, borderRight:`1px solid ${border}`, padding:"12px 8px", overflowY:"auto" }}>
-            <div style={{ fontSize:10, fontWeight:700, color:textSub, textTransform:"uppercase", letterSpacing:.8, padding:"0 6px", marginBottom:8 }}>Sections</div>
-            {NAV_ITEMS.map(n => (
-              <button key={n.id} style={sec(n.id)} onClick={()=>{setSection(n.id);setMobileShowNav(false);}}>
-                <span style={{fontSize:14}}>{n.icon}</span>
-                <span style={{fontSize:12}}>{n.label}</span>
-              </button>
-            ))}
-            <div style={{ borderTop:`1px solid ${border}`, marginTop:10, paddingTop:10 }}>
-              <button style={{...btn, width:"100%", justifyContent:"center", fontSize:12, display:"flex", alignItems:"center", gap:6}} onClick={genPDF}>
-                ↓ PDF
-              </button>
+            {/* Onglets unifiés */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {TABS.map(t => {
+                const a = section===t.id;
+                return (
+                  <button key={t.id} onClick={()=>setSection(t.id)} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    padding:"7px 14px",borderRadius:RADIUS.md,
+                    border:a?"none":`1px solid ${T.border}`,
+                    background:a?acc.accent:T.card,color:a?acc.onAccent:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+                    transition:"all .12s",
+                  }}>
+                    <Icon as={t.icon} size={12}/>
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* ── FORMULAIRE ── */}
-          <div className="cr-main-content" style={{ flex:1, overflowY:"auto", padding:"20px 24px", background:bg }}>
+          {/* Corps onglet */}
+          <div style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg}}>
 
-            {/* ─ IA ─ */}
-            {section==="ia" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>✦ Import IA</div>
-                <div style={{ background:"#0d0f12", border:`1px solid ${border}`, borderRadius:10, padding:"18px 20px", marginBottom:14 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
-                    <div style={{ width:34, height:34, background:accent, borderRadius:7, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>✦</div>
-                    <div>
-                      <div style={{ fontSize:13, fontWeight:700, color:text }}>Reformulation IA — Claude</div>
-                      <div style={{ fontSize:11, color:textSub, marginTop:2 }}>Colle tes notes brutes — l'IA remplit tous les champs automatiquement</div>
-                    </div>
-                  </div>
-                  <textarea value={iaTexte} onChange={e=>setIaTexte(e.target.value)} placeholder="Notes de visite, dictée retranscrite, bullet points..." style={{ ...ta, background:"#1a1d24", minHeight:100 }} />
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:10 }}>
-                    <button style={{ ...btn, opacity: iaLoading ? .6 : 1 }} onClick={processIA} disabled={iaLoading}>
-                      {iaLoading ? "Analyse en cours…" : "Reformuler avec l'IA"}
-                    </button>
-                    {iaLoading && <div style={{ width:14, height:14, border:"2px solid rgba(255,195,0,.2)", borderTopColor:accent, borderRadius:"50%", animation:"spin .7s linear infinite" }} />}
-                    {iaStatus && <span style={{ fontSize:12, color:iaStatus.ok?"#4caf50":"#e05c5c", fontWeight:600 }}>{iaStatus.msg}</span>}
-                  </div>
+            {/* ── SYNTHÈSE (Client + Visite + Avancement + Résumé) ── */}
+            {section==="synthese" && (
+              <div style={{maxWidth:880}}>
+                {/* Client */}
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:10, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={User} size={11}/>
+                  Client
                 </div>
-                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-                <div style={{ background:`rgba(255,195,0,0.06)`, border:`1px solid rgba(255,195,0,0.15)`, borderRadius:8, padding:"12px 16px", fontSize:12, color:textSub, lineHeight:1.7 }}>
-                  💡 L'IA détecte automatiquement : noms des clients, adresse, type de visite, résumé, observations avec niveaux d'alerte, travaux à venir et remarques.
+                <div className="cr-form-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                  <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom1} onChange={e=>updInfo("client_prenom1",e.target.value)} placeholder="Jean" /></div>
+                  <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom1} onChange={e=>updInfo("client_nom1",e.target.value)} placeholder="Dupont" /></div>
                 </div>
-              </div>
-            )}
-
-            {/* ─ CLIENT ─ */}
-            {section==="client" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>👤 Informations client</div>
-                <div style={cardS}>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:10 }}>
-                    <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom1} onChange={e=>updInfo("client_prenom1",e.target.value)} placeholder="Jean" /></div>
-                    <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom1} onChange={e=>updInfo("client_nom1",e.target.value)} placeholder="Dupont" /></div>
-                  </div>
-                  <div><label style={lbl}>Adresse du chantier</label><input style={inp} value={infos.adresse} onChange={e=>updInfo("adresse",e.target.value)} placeholder="14 Bd du Roi René, 49000 Angers" /></div>
-
-                  {!deuxiemeClient ? (
-                    <button onClick={()=>setDeuxiemeClient(true)} style={{ background:"none", border:"none", color:accent, fontFamily:"inherit", fontSize:12, fontWeight:600, cursor:"pointer", marginTop:12, padding:0 }}>+ Ajouter un second client</button>
-                  ) : (
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginTop:12 }}>
-                      <div><label style={lbl}>Prénom (2)</label><input style={inp} value={infos.client_prenom2} onChange={e=>updInfo("client_prenom2",e.target.value)} placeholder="Marie" /></div>
-                      <div><label style={lbl}>Nom (2)</label><input style={inp} value={infos.client_nom2} onChange={e=>updInfo("client_nom2",e.target.value)} placeholder="Martin" /></div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ─ VISITE ─ */}
-            {section==="visite" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>📅 Détails de la visite</div>
-                <div style={cardS}>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:12 }}>
-                    <div><label style={lbl}>Date</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
-                    <div><label style={lbl}>Heure</label><input type="time" style={inp} value={infos.heure_visite} onChange={e=>updInfo("heure_visite",e.target.value)} /></div>
-                    <div>
-                      <label style={lbl}>Type</label>
-                      <select style={inp} value={infos.type_visite} onChange={e=>updInfo("type_visite",e.target.value)}>
-                        {TYPES_VISITE.map(t=><option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  <div><label style={lbl}>Participants</label><input style={inp} value={infos.participants} onChange={e=>updInfo("participants",e.target.value)} placeholder="Loris BESSONNEAU (PROFERO), client..." /></div>
-                </div>
-              </div>
-            )}
-
-            {/* ─ AVANCEMENT ─ */}
-            {section==="avanc" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>📈 Avancement général</div>
-                <div style={cardS}>
-                  <div style={{ marginBottom:14 }}>
-                    <label style={lbl}>Résumé</label>
-                    <textarea style={{...ta,minHeight:90}} value={infos.resume} onChange={e=>updInfo("resume",e.target.value)} placeholder="État du chantier, travaux réalisés..." />
-                  </div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                    <div>
-                      <label style={lbl}>Avancement (%)</label>
-                      <input type="number" style={inp} value={infos.avancement} min={0} max={100} onChange={e=>updInfo("avancement",parseInt(e.target.value)||0)} placeholder="65" />
-                      <div style={{ marginTop:8, height:6, background:border, borderRadius:3, overflow:"hidden" }}>
-                        <div style={{ height:"100%", background:accent, borderRadius:3, width:`${Math.min(100,infos.avancement||0)}%`, transition:"width .3s" }} />
-                      </div>
-                      <div style={{ marginTop:4, fontSize:11, color:textSub, textAlign:"right" }}>{infos.avancement||0}%</div>
-                    </div>
-                    <div>
-                      <label style={lbl}>Prochaine étape</label>
-                      <input style={inp} value={infos.prochaine_etape} onChange={e=>updInfo("prochaine_etape",e.target.value)} placeholder="Pose carrelage S47" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ─ OBSERVATIONS ─ */}
-            {section==="obs" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>⚠️ Observations & points de vigilance</div>
-                <div style={cardS}>
-                  {obs.map(o => (
-                    <div key={o.id} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:8 }}>
-                      <select value={o.statut} onChange={e=>updObs(o.id,"statut",e.target.value)} style={{ ...inp, width:120, flexShrink:0, fontSize:12, padding:"8px 10px", color: STATUT_COLOR[o.statut]||text, fontWeight:700 }}>
-                        {STATUTS_OBS.map(s=><option key={s} value={s}>{STATUT_LABEL[s]}</option>)}
-                      </select>
-                      <textarea value={o.texte} onChange={e=>updObs(o.id,"texte",e.target.value)} placeholder="Décris l'observation..." style={{ ...ta, minHeight:52, flex:1 }} />
-                      <button style={{ ...btnD, padding:"8px 10px", alignSelf:"flex-start" }} onClick={()=>delObs(o.id)}>×</button>
-                    </div>
-                  ))}
-                  <button onClick={ajoutObs} style={{ width:"100%", padding:"10px", border:`1.5px dashed ${border}`, borderRadius:7, background:"none", color:textSub, fontFamily:"inherit", fontSize:12, fontWeight:500, cursor:"pointer", marginTop:4, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                    onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.color=accent;}}
-                    onMouseLeave={e=>{e.currentTarget.style.borderColor=border;e.currentTarget.style.color=textSub;}}>
-                    + Ajouter une observation
+                {!deuxiemeClient ? (
+                  <button onClick={()=>setDeuxiemeClient(true)} style={{
+                    display:"inline-flex",alignItems:"center",gap:5,
+                    background:"transparent",border:"none",color:acc.accent,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",padding:0,marginBottom:14,
+                  }}>
+                    <Icon as={Plus} size={11}/>
+                    Ajouter un second client
                   </button>
-                </div>
-              </div>
-            )}
-
-            {/* ─ TRAVAUX ─ */}
-            {section==="travaux" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>🔧 Travaux à venir / Décisions prises</div>
-                <div style={cardS}>
-                  <textarea style={{...ta,minHeight:120}} value={infos.travaux} onChange={e=>updInfo("travaux",e.target.value)} placeholder="Décisions prises, travaux planifiés, délais..." />
-                </div>
-              </div>
-            )}
-
-            {/* ─ PHOTOS ─ */}
-            {section==="photos" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>📷 Photos jointes</div>
-                <div style={cardS}>
-                  <input ref={photoInputRef} type="file" multiple accept="image/*" onChange={ajoutPhotos} style={{display:"none"}} />
-                  <div onClick={()=>photoInputRef.current.click()} style={{ border:`1.5px dashed ${border}`, borderRadius:8, padding:"20px", textAlign:"center", cursor:"pointer", color:textSub, fontSize:12, marginBottom:12 }}
-                    onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.color=accent;}}
-                    onMouseLeave={e=>{e.currentTarget.style.borderColor=border;e.currentTarget.style.color=textSub;}}>
-                    <div style={{fontSize:24,marginBottom:6}}>📷</div>
-                    Ajouter des photos
-                    <p style={{fontSize:10,color:textSub,marginTop:3}}>Galerie ou appareil photo</p>
+                ) : (
+                  <div className="cr-form-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+                    <div><label style={lbl}>Prénom (2)</label><input style={inp} value={infos.client_prenom2} onChange={e=>updInfo("client_prenom2",e.target.value)} placeholder="Marie" /></div>
+                    <div><label style={lbl}>Nom (2)</label><input style={inp} value={infos.client_nom2} onChange={e=>updInfo("client_nom2",e.target.value)} placeholder="Martin" /></div>
                   </div>
-                  {photos.length > 0 && (
-                    <div style={{ display:"flex", flexWrap:"wrap", gap:10 }}>
-                      {photos.map(p => (
-                        <div key={p.id} style={{ position:"relative" }}>
-                          <img src={p.data} alt={p.nom} style={{ width:90, height:90, objectFit:"cover", borderRadius:8, border:`1px solid ${border}`, display:"block" }} />
-                          <button onClick={()=>delPhoto(p.id)} style={{ position:"absolute", top:-6, right:-6, width:20, height:20, background:"#e05c5c", color:"#fff", border:"none", borderRadius:"50%", cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 }}>×</button>
-                        </div>
-                      ))}
-                    </div>
+                )}
+
+                {/* Chantier (sélecteur) + adresse */}
+                <div className="cr-form-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+                  <div>
+                    <label style={lbl}>Chantier lié</label>
+                    <select style={inp} value={infos.chantier_id||""} onChange={e=>{
+                      const ch = chantiers.find(c=>c.id===e.target.value);
+                      const u = {...infos, chantier_id:e.target.value};
+                      // Si on choisit un chantier, on peut auto-remplir l'adresse si vide
+                      if (ch && !infos.adresse) u.adresse = ch.adresse || "";
+                      setInfos(u); debounce(()=>saveInfos(u));
+                    }}>
+                      <option value="">— Aucun —</option>
+                      {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={lbl}>Adresse</label>
+                    <input style={inp} value={infos.adresse} onChange={e=>updInfo("adresse",e.target.value)} placeholder="14 Bd du Roi René, 49000 Angers" />
+                  </div>
+                </div>
+
+                {/* Visite */}
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:10, marginTop:14, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={Calendar} size={11}/>
+                  Visite
+                </div>
+                <div className="cr-form-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:12}}>
+                  <div><label style={lbl}>Date</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
+                  <div><label style={lbl}>Heure</label><input type="time" style={inp} value={infos.heure_visite} onChange={e=>updInfo("heure_visite",e.target.value)} /></div>
+                  <div>
+                    <label style={lbl}>Type</label>
+                    <select style={inp} value={infos.type_visite} onChange={e=>updInfo("type_visite",e.target.value)}>
+                      {TYPES_VISITE.map(t=><option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{marginBottom:14}}>
+                  <label style={lbl}>Participants</label>
+                  <input style={inp} value={infos.participants} onChange={e=>updInfo("participants",e.target.value)} placeholder="Loris BESSONNEAU (PROFERO), client…" />
+                </div>
+
+                {/* Résumé + Avancement */}
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:10, marginTop:14, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={TrendingUp} size={11}/>
+                  Résumé & avancement
+                </div>
+                <div style={{marginBottom:12}}>
+                  <label style={lbl}>Résumé de la visite</label>
+                  <textarea style={{...ta,minHeight:90}} value={infos.resume} onChange={e=>updInfo("resume",e.target.value)} placeholder="État du chantier, travaux réalisés…" />
+                  {phrases.cr_observation.length > 0 && (
+                    <PhrasesSuggestions phrases={phrases.cr_observation} onPick={(p)=>updInfo("resume", (infos.resume ? infos.resume+" " : "")+p)} T={T} acc={acc}/>
                   )}
                 </div>
+                <div className="cr-form-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={lbl}>Avancement (%)</label>
+                    <input type="number" style={inp} value={infos.avancement} min={0} max={100} onChange={e=>updInfo("avancement",parseInt(e.target.value)||0)} placeholder="65" />
+                    <div style={{marginTop:8,height:6,background:T.border,borderRadius:3,overflow:"hidden"}}>
+                      <div style={{height:"100%",background:acc.accent,borderRadius:3,width:`${Math.min(100,infos.avancement||0)}%`,transition:"width .3s"}}/>
+                    </div>
+                    <div style={{marginTop:4,fontSize:FONT.xs.size,color:T.textMuted,textAlign:"right"}}>{infos.avancement||0}%</div>
+                  </div>
+                  <div>
+                    <label style={lbl}>Prochaine étape</label>
+                    <input style={inp} value={infos.prochaine_etape} onChange={e=>updInfo("prochaine_etape",e.target.value)} placeholder="Pose carrelage S47" />
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* ─ REMARQUES ─ */}
-            {section==="rem" && (
-              <div>
-                <div style={{ fontSize:15, fontWeight:800, color:accent, marginBottom:16 }}>📝 Remarques complémentaires</div>
-                <div style={cardS}>
-                  <textarea style={{...ta,minHeight:100}} value={infos.remarques} onChange={e=>updInfo("remarques",e.target.value)} placeholder="Points à surveiller, messages au client..." />
+            {/* ── OBSERVATIONS ── */}
+            {section==="obs" && (
+              <div style={{maxWidth:880}}>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={AlertTriangle} size={11}/>
+                  Observations & points de vigilance
                 </div>
-                <button style={{ ...btn, display:"flex", alignItems:"center", gap:8, fontSize:13, padding:"11px 20px" }} onClick={genPDF}>
-                  ↓ Générer & imprimer le PDF
+                {obs.map(o => (
+                  <div key={o.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:8}}>
+                    <select value={o.statut} onChange={e=>updObs(o.id,"statut",e.target.value)} style={{
+                      ...inp, width:120, flexShrink:0, fontSize:FONT.xs.size+1, padding:"8px 10px",
+                      color:STATUT_COLOR[o.statut]||T.text, fontWeight:700,
+                    }}>
+                      {STATUTS_OBS.map(s=><option key={s} value={s}>{STATUT_LABEL[s]}</option>)}
+                    </select>
+                    <textarea value={o.texte} onChange={e=>updObs(o.id,"texte",e.target.value)} placeholder="Décris l'observation…" style={{...ta,minHeight:52,flex:1}}/>
+                    <button onClick={()=>delObs(o.id)} title="Supprimer" style={{...btnD,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"8px 10px",alignSelf:"flex-start"}}>
+                      <Icon as={X} size={12}/>
+                    </button>
+                  </div>
+                ))}
+                <button onClick={ajoutObs} style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",gap:5,
+                  width:"100%",padding:10,
+                  border:`1.5px dashed ${T.border}`,borderRadius:RADIUS.md,
+                  background:"none",color:T.textMuted,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:600,cursor:"pointer",
+                }}>
+                  <Icon as={Plus} size={12}/>
+                  Ajouter une observation
                 </button>
+                {phrases.vigilance.length > 0 && (
+                  <div style={{marginTop:14,padding:"12px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.md}}>
+                    <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:8}}>
+                      <Icon as={Lightbulb} size={11}/>
+                      Suggestions
+                    </div>
+                    <PhrasesSuggestions phrases={phrases.vigilance} onPick={async(p)=>{
+                      // Si la dernière observation est vide, on remplit. Sinon on en crée une nouvelle.
+                      const last = obs[obs.length-1];
+                      if (last && !last.texte) {
+                        await updObs(last.id, "texte", p);
+                      } else {
+                        await ajoutObs();
+                        // L'ajout est async — pour simplifier, on demande à l'utilisateur de re-cliquer
+                      }
+                    }} T={T} acc={acc}/>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── TRAVAUX ── */}
+            {section==="travaux" && (
+              <div style={{maxWidth:880}}>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={Wrench} size={11}/>
+                  Travaux à venir / Décisions prises
+                </div>
+                <textarea style={{...ta,minHeight:160}} value={infos.travaux} onChange={e=>updInfo("travaux",e.target.value)} placeholder="Décisions prises, travaux planifiés, délais…" />
+              </div>
+            )}
+
+            {/* ── REMARQUES ── */}
+            {section==="remarques" && (
+              <div style={{maxWidth:880}}>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={MessageSquare} size={11}/>
+                  Remarques complémentaires
+                </div>
+                <textarea style={{...ta,minHeight:140}} value={infos.remarques} onChange={e=>updInfo("remarques",e.target.value)} placeholder="Points à surveiller, messages au client…" />
+                {phrases.visite_observation.length > 0 && (
+                  <PhrasesSuggestions phrases={phrases.visite_observation} onPick={(p)=>updInfo("remarques", (infos.remarques ? infos.remarques+"\n" : "")+p)} T={T} acc={acc}/>
+                )}
+              </div>
+            )}
+
+            {/* ── PHOTOS ── */}
+            {section==="photos" && (
+              <div style={{maxWidth:880}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={Camera} size={11}/>
+                    Photos
+                    {photos.length>0 && <span style={{color:acc.accent}}>· {photos.length}</span>}
+                  </div>
+                  <label style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:acc.accent,color:acc.onAccent,border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 16px",cursor:"pointer",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                  }}>
+                    <Icon as={Camera} size={13}/>
+                    Ajouter des photos
+                    <input ref={photoInputRef} type="file" accept="image/*" multiple capture="environment" onChange={ajoutPhotos} style={{display:"none"}}/>
+                  </label>
+                </div>
+                {photos.length === 0 ? (
+                  <div style={{
+                    background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl,
+                    padding:"40px 24px", textAlign:"center", color:T.textSub,
+                  }}>
+                    <div style={{
+                      width:48,height:48,borderRadius:RADIUS.lg,
+                      background:acc.bg10,color:acc.accent,
+                      display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
+                    }}>
+                      <Icon as={Camera} size={24} strokeWidth={1.5}/>
+                    </div>
+                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucune photo</div>
+                    <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Capture l'état du chantier — l'appareil photo s'ouvrira directement sur mobile.</div>
+                  </div>
+                ) : (
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+                    {photos.map(p => (
+                      <div key={p.id} style={{
+                        position:"relative",aspectRatio:"4/3",borderRadius:RADIUS.lg,overflow:"hidden",
+                        background:T.card,border:`1px solid ${T.border}`,
+                      }}>
+                        <img src={p.data} alt={p.nom} loading="lazy"
+                          style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                        <button onClick={()=>delPhoto(p.id)} title="Supprimer" style={{
+                          position:"absolute",top:6,right:6,
+                          display:"inline-flex",alignItems:"center",justifyContent:"center",
+                          width:26,height:26,background:"rgba(0,0,0,0.65)",color:"#fff",border:"none",
+                          borderRadius:"50%",cursor:"pointer",padding:0,
+                        }}>
+                          <Icon as={Trash2} size={11}/>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── IMPORT IA ── */}
+            {section==="ia" && (
+              <div style={{maxWidth:880}}>
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={Sparkles} size={11}/>
+                  Import IA — Claude
+                </div>
+                <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:18,marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                    <div style={{
+                      width:32,height:32,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                    }}>
+                      <Icon as={Sparkles} size={16}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text}}>Reformulation automatique</div>
+                      <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>Colle tes notes brutes — l'IA remplit tous les champs automatiquement.</div>
+                    </div>
+                  </div>
+                  <textarea value={iaTexte} onChange={e=>setIaTexte(e.target.value)} placeholder="Notes de visite, dictée retranscrite, bullet points…" style={{...ta,minHeight:120}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginTop:12}}>
+                    <button onClick={processIA} disabled={iaLoading} style={{
+                      display:"inline-flex",alignItems:"center",gap:6,
+                      background:acc.accent,color:acc.onAccent,border:"none",
+                      borderRadius:RADIUS.md,padding:"9px 18px",cursor:iaLoading?"not-allowed":"pointer",
+                      fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,opacity:iaLoading?.6:1,
+                    }}>
+                      {iaLoading
+                        ? <><svg width="13" height="13" viewBox="0 0 24 24" style={{animation:"spin 1s linear infinite"}}><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/></svg> Analyse…</>
+                        : <><Icon as={Sparkles} size={13}/> Reformuler avec l'IA</>}
+                    </button>
+                    {iaStatus && (
+                      <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size+1,color:iaStatus.ok?"#22c55e":"#e15a5a",fontWeight:600}}>
+                        <Icon as={iaStatus.ok?Check:AlertTriangle} size={11}/>
+                        {iaStatus.msg.replace(/✓ /, "")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"12px 14px",background:acc.bg10,border:`1px solid ${acc.accent}33`,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.7}}>
+                  <Icon as={Info} size={13} color={acc.accent} style={{marginTop:2,flexShrink:0}}/>
+                  <span>L'IA détecte automatiquement : noms des clients, adresse, type de visite, résumé, observations avec niveaux d'alerte, travaux à venir et remarques.</span>
+                </div>
               </div>
             )}
 
           </div>
         </div>
       )}
+
+      {/* ── MODAL SUPPRESSION ── */}
+      {toDelete && (
+        <div onClick={()=>!deleting&&setToDelete(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{
+                width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,
+                background:"rgba(224,92,92,0.12)",color:"#e15a5a",
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce compte rendu&nbsp;?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              Le CR pour <strong style={{color:T.text}}>« {toDelete.client_nom1 || "Sans client"} »</strong> sera supprimé avec ses observations et ses photos.
+              <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Cette action est irréversible.</span>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDelete(null)} disabled={deleting} style={{
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",opacity:deleting?.5:1,
+              }}>Annuler</button>
+              <button onClick={confirmSuppCR} disabled={deleting} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:"#e15a5a",color:"#fff",border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                cursor:"pointer",opacity:deleting?.6:1,
+              }}>
+                <Icon as={Trash2} size={13}/>
+                {deleting?"Suppression…":"Supprimer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── COMPOSANT : SUGGESTIONS DE PHRASES ──────────────────────────────────────
+function PhrasesSuggestions({ phrases, onPick, T, acc }) {
+  if (!phrases || phrases.length === 0) return null;
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8}}>
+      {phrases.map((p, i) => (
+        <button key={i} onClick={()=>onPick(p)} title="Insérer dans le texte" style={{
+          display:"inline-flex",alignItems:"center",gap:4,
+          padding:"4px 9px",borderRadius:RADIUS.sm,
+          border:`1px solid ${acc.accent}44`,background:acc.bg10,color:acc.accent,
+          fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer",
+          maxWidth:280,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+        }}>
+          <Icon as={Plus} size={9}/>
+          {p}
+        </button>
+      ))}
     </div>
   );
 }
