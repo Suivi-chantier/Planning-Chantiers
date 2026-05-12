@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import { FONT, RADIUS, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
@@ -6,7 +6,7 @@ import {
   ClipboardCheck, Plus, Trash2, ChevronLeft as ChevronLeftIcon,
   ChevronRight, ChevronUp, ChevronDown, Check, X, AlertTriangle,
   Building2, Calendar, MessageSquare, Save, History, ArrowRight,
-  Eye, FileWarning,
+  Eye, FileWarning, Camera, FileDown, ListChecks, Settings,
 } from "lucide-react";
 
 // ─── PHASES (mêmes IDs que Phasage.jsx) ──────────────────────────────────────
@@ -30,6 +30,18 @@ const STATUTS = [
   { id: "annulee",  label: "Annulée",   color: "#ef4444" },
 ];
 
+// ─── CHECKLIST PAR DÉFAUT (points de vigilance récurrents) ──────────────────
+const CHECKLIST_DEFAUT = [
+  { id: "secu_epi",        label: "Port des EPI (casque, chaussures, gants)" },
+  { id: "secu_balisage",   label: "Balisage et signalisation chantier" },
+  { id: "proprete_chantier", label: "Propreté générale du chantier" },
+  { id: "proprete_dechets", label: "Évacuation des déchets et gravats" },
+  { id: "stockage_mat",    label: "Stockage des matériaux organisé" },
+  { id: "outillage",       label: "Outillage rangé et en bon état" },
+  { id: "elec_protection", label: "Protections électriques en place" },
+  { id: "voisinage",       label: "Pas de nuisances pour le voisinage" },
+];
+
 const genId  = () => Math.random().toString(36).slice(2);
 const today  = () => new Date().toISOString().split("T")[0];
 const fmtDate = (d) => {
@@ -37,6 +49,79 @@ const fmtDate = (d) => {
   const [y, m, j] = d.split("-");
   return `${j}/${m}/${y}`;
 };
+
+// ─── UPLOAD PHOTO (bucket "photos") ──────────────────────────────────────────
+async function uploadVisitePhoto(file, pathPrefix) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `${pathPrefix}/${safe}`;
+  const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+  if (error) { console.error("upload photo:", error); return null; }
+  const { data } = supabase.storage.from("photos").getPublicUrl(path);
+  return data?.publicUrl || null;
+}
+
+// ─── COMPOSANT PHOTOS PICKER (compact, intégré dans une tâche d'audit) ───────
+function PhotosPicker({ photos, onChange, pathPrefix, color = "#5b9cf6", onLightbox }) {
+  const [uploading, setUploading] = useState(0);
+  const inputRef = useRef(null);
+
+  const onFiles = async (files) => {
+    const arr = Array.from(files || []);
+    if (arr.length === 0) return;
+    setUploading(arr.length);
+    const urls = [];
+    for (const f of arr) {
+      const url = await uploadVisitePhoto(f, pathPrefix);
+      if (url) urls.push(url);
+      setUploading(n => n - 1);
+    }
+    if (urls.length > 0) onChange([...(photos || []), ...urls]);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const remove = (i) => onChange((photos || []).filter((_, idx) => idx !== i));
+
+  return (
+    <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      {(photos || []).map((url, i) => (
+        <div key={i} style={{
+          position: "relative", width: 56, height: 56, borderRadius: RADIUS.md, overflow: "hidden",
+          border: `1.5px solid ${color}44`,
+        }}>
+          <img src={url} alt="" loading="lazy"
+            onClick={() => onLightbox?.({ urls: photos, idx: i })}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", cursor: "pointer" }}/>
+          <button onClick={(e) => { e.stopPropagation(); remove(i); }} title="Retirer"
+            style={{
+              position: "absolute", top: 2, right: 2,
+              background: "rgba(0,0,0,0.6)", border: "none", color: "#fff",
+              borderRadius: "50%", width: 18, height: 18, cursor: "pointer", padding: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+            <Icon as={X} size={10} strokeWidth={3}/>
+          </button>
+        </div>
+      ))}
+      <label style={{
+        display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+        width: 56, height: 56, borderRadius: RADIUS.md, cursor: "pointer",
+        border: `1.5px dashed ${color}66`, background: `${color}0A`, color,
+        fontSize: FONT.xs.size, fontWeight: 700,
+      }}>
+        <Icon as={Camera} size={16} strokeWidth={1.8}/>
+        <span style={{ fontSize: 9, letterSpacing: .3 }}>Photo</span>
+        <input ref={inputRef} type="file" accept="image/*" multiple capture="environment"
+          onChange={e => onFiles(e.target.files)} style={{ display: "none" }}/>
+      </label>
+      {uploading > 0 && (
+        <span style={{ fontSize: FONT.xs.size + 1, color: "#f5a623", fontWeight: 600 }}>
+          Upload… {uploading}
+        </span>
+      )}
+    </div>
+  );
+}
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
 async function loadVisites() {
@@ -64,6 +149,16 @@ async function removeVisite(id) {
   return !error;
 }
 
+async function loadChecklistTemplate() {
+  const { data } = await supabase.from("planning_config").select("*").eq("key", "visite_checklist_template").maybeSingle();
+  const items = data?.value?.items;
+  return Array.isArray(items) && items.length > 0 ? items : CHECKLIST_DEFAUT;
+}
+
+async function saveChecklistTemplate(items) {
+  await supabase.from("planning_config").upsert({ key: "visite_checklist_template", value: { items } });
+}
+
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
 export default function PageVisiteChantier({ chantiers = [], T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
@@ -74,11 +169,20 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
   const [saving,   setSaving]   = useState(false);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [checklistTemplate, setChecklistTemplate] = useState(CHECKLIST_DEFAUT);
+  const [showTemplate, setShowTemplate] = useState(false);
 
   useEffect(() => {
     loadVisites().then(setVisites);
     loadPhasages().then(setPhasages);
+    loadChecklistTemplate().then(setChecklistTemplate);
   }, []);
+
+  const handleSaveTemplate = async (items) => {
+    setChecklistTemplate(items);
+    await saveChecklistTemplate(items);
+    setShowTemplate(false);
+  };
 
   const handleSave = async (visite) => {
     setSaving(true);
@@ -150,12 +254,23 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
     </div>
   );
 
+  const templateModal = showTemplate && (
+    <ChecklistTemplateModal
+      items={checklistTemplate}
+      T={T} acc={acc}
+      onSave={handleSaveTemplate}
+      onClose={() => setShowTemplate(false)}
+    />
+  );
+
   if (view === "new") return (
     <>
       {deleteModal}
+      {templateModal}
       <FormVisite
         chantiers={chantiers}
         phasages={phasages}
+        checklistTemplate={checklistTemplate}
         T={T} acc={acc}
         saving={saving}
         onSave={handleSave}
@@ -167,6 +282,7 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
   if (view === "audit" && selected) return (
     <>
       {deleteModal}
+      {templateModal}
       <AuditVisite
         visite={selected}
         chantiers={chantiers}
@@ -184,6 +300,7 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
   return (
     <>
       {deleteModal}
+      {templateModal}
       <ListeVisites
         visites={visites}
         chantiers={chantiers}
@@ -191,13 +308,14 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
         onNew={() => setView("new")}
         onSelect={v => { setSelected(v); setView("audit"); }}
         onDelete={askDelete}
+        onOpenTemplate={() => setShowTemplate(true)}
       />
     </>
   );
 }
 
 // ─── LISTE ────────────────────────────────────────────────────────────────────
-function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete }) {
+function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete, onOpenTemplate }) {
   const ch = (id) => chantiers.find(c => c.id === id);
 
   // ── Stats globales
@@ -244,15 +362,26 @@ function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete })
               </div>
             </div>
           </div>
-          <button onClick={onNew} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "9px 16px", borderRadius: RADIUS.md, border: "none",
-            background: acc.accent, color: acc.onAccent,
-            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
-          }}>
-            <Icon as={Plus} size={14}/>
-            Nouvelle visite
-          </button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={onOpenTemplate} title="Gérer les points de vigilance par défaut" style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", borderRadius: RADIUS.md,
+              border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+            }}>
+              <Icon as={ListChecks} size={13}/>
+              Checklist
+            </button>
+            <button onClick={onNew} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "9px 16px", borderRadius: RADIUS.md, border: "none",
+              background: acc.accent, color: acc.onAccent,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+            }}>
+              <Icon as={Plus} size={14}/>
+              Nouvelle visite
+            </button>
+          </div>
         </div>
 
         {/* ── Stats ── */}
@@ -420,7 +549,7 @@ function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete })
 }
 
 // ─── FORMULAIRE CRÉATION ──────────────────────────────────────────────────────
-function FormVisite({ chantiers, phasages, T, acc, saving, onSave, onCancel }) {
+function FormVisite({ chantiers, phasages, checklistTemplate = [], T, acc, saving, onSave, onCancel }) {
   const [chantierId, setChantierId] = useState(chantiers[0]?.id || "");
   const [date,       setDate]       = useState(today());
   const [phasesSel,  setPhasesSel]  = useState([]); // IDs des phases à auditer
@@ -471,6 +600,13 @@ function FormVisite({ chantiers, phasages, T, acc, saving, onSave, onCancel }) {
       audit,
       note_generale:   "",
       phases_auditees: phasesSel,
+      checklist: checklistTemplate.map(item => ({
+        id: item.id,
+        label: item.label,
+        statut: null,
+        commentaire: "",
+        photos: [],
+      })),
     });
   };
 
@@ -657,6 +793,11 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   const [expanded, setExpanded] = useState({});
   const [dirty,    setDirty]    = useState(false);
   const [showAll,  setShowAll]  = useState(false); // élargir au-delà de phases_auditees
+  const [lightbox, setLightbox] = useState(null);  // { urls:[], idx:0 }
+  const [exporting,setExporting]= useState(false);
+
+  // Préfixe de stockage pour les photos de cette visite
+  const photoPathPrefix = `visites/${visite.chantier_id}/${visite.id}`;
 
   const ch      = chantiers.find(c => c.id === visite.chantier_id);
   const phasage = phasages.find(p => p.chantier_id === visite.chantier_id);
@@ -745,13 +886,59 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
     setDirty(true);
   };
 
+  const updateChecklistItem = (idx, updates) => {
+    setDraft(d => {
+      const n = JSON.parse(JSON.stringify(d));
+      if (!Array.isArray(n.checklist)) n.checklist = [];
+      n.checklist[idx] = { ...n.checklist[idx], ...updates };
+      return n;
+    });
+    setDirty(true);
+  };
+
   const setNote = (val) => { setDraft(d => ({ ...d, note_generale: val })); setDirty(true); };
   const setStatutVisite = (val) => { setDraft(d => ({ ...d, statut: val })); setDirty(true); };
 
   const handleSave = async () => { await onSave(draft); setDirty(false); };
 
-  // KPIs globaux
-  const toutes  = Object.values(draft.audit || {}).flat();
+  const handleExport = async () => {
+    if (dirty || exporting) return;
+    setExporting(true);
+    try {
+      const payload = {
+        visite: draft, // draft.checklist transporte les items
+        chantier: ch ? { id: ch.id, nom: ch.nom, couleur: ch.couleur } : null,
+        phases: PHASES.map(p => ({ id: p.id, label: p.label, color: p.color })),
+        reserves_heritees: reservesHeritees,
+        derniere_visite_date: derniereVisite?.date || null,
+      };
+      const res = await fetch("/api/generate-visite-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur serveur" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const safeName = (ch?.nom || "visite").replace(/[^a-zA-Z0-9-_]/g, "_");
+      a.download = `Visite-${safeName}-${draft.date}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export docx:", e);
+      alert("Erreur lors de la génération du document : " + e.message);
+    }
+    setExporting(false);
+  };
+
+  // KPIs globaux : on inclut les items de checklist comme tâches d'audit
+  const checklist = Array.isArray(draft.checklist) ? draft.checklist : [];
+  const toutes  = [...Object.values(draft.audit || {}).flat(), ...checklist];
   const nb_ok   = toutes.filter(t => t.statut === "ok").length;
   const nb_res  = toutes.filter(t => t.statut === "reserve").length;
   const nb_nok  = toutes.filter(t => t.statut === "nok").length;
@@ -841,6 +1028,18 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
           }}>
             <Icon as={dirty ? Save : Check} size={13}/>
             {saving ? "Sauvegarde…" : dirty ? "Sauvegarder" : "Sauvegardé"}
+          </button>
+          <button onClick={handleExport} disabled={exporting || dirty} title={dirty ? "Sauvegarde d'abord la visite" : "Exporter en .docx"}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", borderRadius: RADIUS.md,
+              border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700,
+              cursor: exporting || dirty ? "not-allowed" : "pointer",
+              opacity: dirty ? .5 : 1,
+            }}>
+            <Icon as={FileDown} size={13}/>
+            {exporting ? "Export…" : "Word"}
           </button>
           <button onClick={onDelete} title="Supprimer" style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -994,6 +1193,63 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
           </div>
         )}
 
+        {/* ── Points de vigilance (checklist) ── */}
+        {checklist.length > 0 && (
+          <div style={{
+            background: T.surface, border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.xl, padding: "14px 18px", marginBottom: 14, overflow: "hidden",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+                background: acc.bg10, color: acc.accent,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon as={ListChecks} size={16}/>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: T.text }}>Points de vigilance</div>
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 1 }}>
+                  Sécurité, propreté, conditions générales du chantier
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 5 }}>
+                {(() => {
+                  const ck_ok  = checklist.filter(c => c.statut === "ok").length;
+                  const ck_res = checklist.filter(c => c.statut === "reserve").length;
+                  const ck_nok = checklist.filter(c => c.statut === "nok").length;
+                  return (
+                    <>
+                      {ck_ok  > 0 && <Pill val={ck_ok}  color="#22c55e" label="OK"  />}
+                      {ck_res > 0 && <Pill val={ck_res} color="#f59e0b" label="Rés" />}
+                      {ck_nok > 0 && <Pill val={ck_nok} color="#ef4444" label="NOK" />}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {checklist.map((item, idx) => (
+                <TacheAudit
+                  key={item.id || idx}
+                  tache={{
+                    nom: item.label,
+                    statut: item.statut,
+                    commentaire: item.commentaire,
+                    photos: item.photos,
+                    h_vendues: 0, avancement: 0, ouvrage: "",
+                  }}
+                  phaseColor={acc.accent}
+                  T={T}
+                  pathPrefix={`${photoPathPrefix}/checklist`}
+                  onLightbox={setLightbox}
+                  onChange={updates => updateChecklistItem(idx, updates)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Bandeau "Élargir la portée" ── */}
         {phasesHorsPortee.length > 0 && !showAll && (
           <div style={{
@@ -1092,6 +1348,8 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
                           phaseColor={ph.color}
                           isHeritee={idsHeritees.has(`${ph.id}::${tache.tache_id}`)}
                           T={T}
+                          pathPrefix={`${photoPathPrefix}/${ph.id}`}
+                          onLightbox={setLightbox}
                           onChange={updates => updateTache(ph.id, idx, updates)}
                         />
                       ))}
@@ -1125,6 +1383,52 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
             }}
           />
         </div>
+
+        {/* Lightbox photos */}
+        {lightbox && (
+          <div onClick={() => setLightbox(null)} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 1200,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 20, flexDirection: "column", gap: 14,
+          }}>
+            <img src={lightbox.urls[lightbox.idx]} alt=""
+              onClick={e => e.stopPropagation()}
+              style={{ maxWidth: "100%", maxHeight: "calc(100vh - 120px)", objectFit: "contain", borderRadius: 8 }}/>
+            <div onClick={e => e.stopPropagation()} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              {lightbox.urls.length > 1 && (
+                <>
+                  <button onClick={() => setLightbox(l => ({ ...l, idx: (l.idx - 1 + l.urls.length) % l.urls.length }))}
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+                      color: "#fff", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontFamily: "inherit",
+                    }}>
+                    <Icon as={ChevronLeftIcon} size={16}/>
+                  </button>
+                  <span style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>
+                    {lightbox.idx + 1} / {lightbox.urls.length}
+                  </span>
+                  <button onClick={() => setLightbox(l => ({ ...l, idx: (l.idx + 1) % l.urls.length }))}
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+                      color: "#fff", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontFamily: "inherit",
+                    }}>
+                    <Icon as={ChevronRight} size={16}/>
+                  </button>
+                </>
+              )}
+              <button onClick={() => setLightbox(null)}
+                style={{
+                  background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+                  color: "#fff", borderRadius: 8, padding: "8px 14px", cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 13, fontWeight: 600,
+                }}>
+                Fermer
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Récap réserves/NOK en bas */}
         {(nb_res + nb_nok) > 0 && (
@@ -1179,8 +1483,9 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
 }
 
 // ─── TÂCHE AUDIT ──────────────────────────────────────────────────────────────
-function TacheAudit({ tache, phaseColor, isHeritee = false, T, onChange }) {
+function TacheAudit({ tache, phaseColor, isHeritee = false, T, pathPrefix, onLightbox, onChange }) {
   const [showComment, setShowComment] = useState(!!tache.commentaire);
+  const [showPhotos,  setShowPhotos]  = useState((tache.photos || []).length > 0);
 
   const setStatut = (s) => {
     onChange({ statut: s === tache.statut ? null : s });
@@ -1252,6 +1557,17 @@ function TacheAudit({ tache, phaseColor, isHeritee = false, T, onChange }) {
               />
             </div>
           )}
+
+          {/* Photos */}
+          {(showPhotos || (tache.photos || []).length > 0) && (
+            <PhotosPicker
+              photos={tache.photos || []}
+              onChange={(nv) => onChange({ photos: nv })}
+              pathPrefix={pathPrefix}
+              color={phaseColor}
+              onLightbox={onLightbox}
+            />
+          )}
         </div>
 
         {/* Boutons statut */}
@@ -1277,13 +1593,177 @@ function TacheAudit({ tache, phaseColor, isHeritee = false, T, onChange }) {
               );
             })}
           </div>
-          <button onClick={() => setShowComment(s => !s)} style={{
-            background: "transparent", border: "none", cursor: "pointer",
-            fontSize: FONT.xs.size + 1, color: showComment ? phaseColor : T.textMuted,
-            fontFamily: "inherit", padding: "2px 4px", fontWeight: 600,
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => setShowComment(s => !s)} style={{
+              background: "transparent", border: "none", cursor: "pointer",
+              fontSize: FONT.xs.size + 1, color: showComment ? phaseColor : T.textMuted,
+              fontFamily: "inherit", padding: "2px 4px", fontWeight: 600,
+            }}>
+              {showComment ? "− note" : "+ note"}
+            </button>
+            <button onClick={() => setShowPhotos(s => !s)} style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              background: "transparent", border: "none", cursor: "pointer",
+              fontSize: FONT.xs.size + 1, color: showPhotos || (tache.photos || []).length > 0 ? phaseColor : T.textMuted,
+              fontFamily: "inherit", padding: "2px 4px", fontWeight: 600,
+            }}>
+              <Icon as={Camera} size={11}/>
+              photo{(tache.photos || []).length > 0 ? ` · ${(tache.photos || []).length}` : ""}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MODALE GESTION DU TEMPLATE CHECKLIST ────────────────────────────────────
+function ChecklistTemplateModal({ items, T, acc, onSave, onClose }) {
+  const [draft, setDraft]   = useState(() => items.map(i => ({ ...i })));
+  const [saving, setSaving] = useState(false);
+
+  const addItem = () => setDraft(d => [...d, { id: genId(), label: "" }]);
+  const removeItem = (i) => setDraft(d => d.filter((_, idx) => idx !== i));
+  const updateItem = (i, label) => setDraft(d => d.map((x, idx) => idx === i ? { ...x, label } : x));
+  const moveUp = (i) => setDraft(d => {
+    if (i === 0) return d;
+    const n = [...d]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n;
+  });
+  const moveDown = (i) => setDraft(d => {
+    if (i === d.length - 1) return d;
+    const n = [...d]; [n[i], n[i + 1]] = [n[i + 1], n[i]]; return n;
+  });
+
+  const handleSave = async () => {
+    setSaving(true);
+    const cleaned = draft.map(it => ({ id: it.id || genId(), label: (it.label || "").trim() })).filter(it => it.label);
+    await onSave(cleaned);
+    setSaving(false);
+  };
+
+  const handleReset = () => {
+    if (!confirm("Restaurer la checklist par défaut ?")) return;
+    setDraft(CHECKLIST_DEFAUT.map(i => ({ ...i })));
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.modal, borderRadius: RADIUS.xl,
+        width: "100%", maxWidth: 560, maxHeight: "90vh",
+        border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.sectionDivider || T.border}`,
+          display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: RADIUS.md,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            {showComment ? "− cacher note" : "+ ajouter note"}
+            <Icon as={ListChecks} size={16}/>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Points de vigilance</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>
+              Items récurrents repris automatiquement dans chaque nouvelle visite
+            </div>
+          </div>
+          <button onClick={onClose} title="Fermer" style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            background: "transparent", border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.md, width: 32, height: 32,
+            cursor: "pointer", color: T.textSub,
+          }}>
+            <Icon as={X} size={14}/>
           </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {draft.map((it, i) => (
+              <div key={it.id || i} style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 10px", borderRadius: RADIUS.md,
+                background: T.card, border: `1px solid ${T.border}`,
+              }}>
+                <input
+                  value={it.label}
+                  onChange={e => updateItem(i, e.target.value)}
+                  placeholder="Ex : Port des EPI"
+                  style={{
+                    flex: 1, background: "transparent", border: "none",
+                    color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+                  }}/>
+                <button onClick={() => moveUp(i)} disabled={i === 0} title="Monter"
+                  style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: "transparent", border: "none", cursor: i === 0 ? "default" : "pointer",
+                    padding: 3, color: i === 0 ? T.textMuted : T.textSub, opacity: i === 0 ? .4 : 1,
+                  }}>
+                  <Icon as={ChevronUp} size={14}/>
+                </button>
+                <button onClick={() => moveDown(i)} disabled={i === draft.length - 1} title="Descendre"
+                  style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: "transparent", border: "none", cursor: i === draft.length - 1 ? "default" : "pointer",
+                    padding: 3, color: i === draft.length - 1 ? T.textMuted : T.textSub, opacity: i === draft.length - 1 ? .4 : 1,
+                  }}>
+                  <Icon as={ChevronDown} size={14}/>
+                </button>
+                <button onClick={() => removeItem(i)} title="Supprimer"
+                  style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: "transparent", border: "none", cursor: "pointer",
+                    padding: 3, color: "#e15a5a",
+                  }}>
+                  <Icon as={Trash2} size={13}/>
+                </button>
+              </div>
+            ))}
+          </div>
+          <button onClick={addItem} style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            marginTop: 10, width: "100%", padding: 10,
+            border: `1.5px dashed ${T.border}`, borderRadius: RADIUS.md,
+            background: "transparent", color: T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 600, cursor: "pointer",
+          }}>
+            <Icon as={Plus} size={13}/>
+            Ajouter un point
+          </button>
+        </div>
+
+        <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.sectionDivider || T.border}`,
+          display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+          <button onClick={handleReset} style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "8px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer",
+          }}>
+            Restaurer par défaut
+          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={{
+              padding: "9px 18px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+              background: "transparent", color: T.textSub,
+              fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+            }}>Annuler</button>
+            <button onClick={handleSave} disabled={saving} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+              background: acc.accent, color: acc.onAccent,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              opacity: saving ? .6 : 1,
+            }}>
+              <Icon as={Check} size={13}/>
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
