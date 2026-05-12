@@ -187,7 +187,11 @@ export default function PageInfoClient({ T }) {
   function onMove(e){
     if(!isDrawing.current||(!drawMode.current&&!eraseMode.current)) return; e.preventDefault();
     const c=canvasRef.current,ctx=c.getContext("2d"),p=getPos(e,c);
-    if(eraseMode.current){ ctx.fillStyle=card; ctx.fillRect(p.x-12,p.y-12,24,24); }
+    if(eraseMode.current){
+      // Trait épais couleur fond pour gommer en continu entre les points
+      ctx.strokeStyle=card; ctx.lineWidth=24; ctx.lineCap="round"; ctx.lineJoin="round";
+      ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(p.x,p.y); ctx.stroke();
+    }
     else{ ctx.strokeStyle=accent; ctx.lineWidth=2; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(p.x,p.y); ctx.stroke(); }
     lastPos.current=p;
   }
