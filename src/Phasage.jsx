@@ -2062,6 +2062,8 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [newChantier, setNewChantier] = useState("");
+  const [newTplId, setNewTplId]       = useState("");
+  const [phasageTemplates, setPhasageTemplates] = useState([]);
   const [showRapport, setShowRapport] = useState(false);
   const [ganttPhasage, setGanttPhasage] = useState(null);
   const [search, setSearch] = useState("");
@@ -2071,19 +2073,41 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
   useEffect(() => { loadAll(); }, []);
   async function loadAll() {
     setLoading(true);
-    const [{ data: p }, { data: b }] = await Promise.all([
+    const [{ data: p }, { data: b }, { data: cfg }] = await Promise.all([
       supabase.from("phasages").select("*").order("created_at", { ascending: false }),
       supabase.from("bibliotheque_ratios").select("*").order("libelle"),
+      supabase.from("planning_config").select("value").eq("key", "phasage_templates").maybeSingle(),
     ]);
     setPhasages(p || []); setBibliotheque(b || []); setLoading(false);
+    if (cfg?.value?.items && Array.isArray(cfg.value.items)) setPhasageTemplates(cfg.value.items);
   }
 
   async function creerPhasage() {
     if (!newChantier) return;
     const ch = chantiers.find(c => c.id === newChantier);
-    const { data, error } = await supabase.from("phasages").insert({ chantier_id: newChantier, chantier_nom: ch ? ch.nom : newChantier, ouvrages: [] }).select().single();
+    // Si un template est sélectionné, on duplique ses ouvrages
+    let ouvragesInit = [];
+    if (newTplId) {
+      const tpl = phasageTemplates.find(t => t.id === newTplId);
+      if (tpl && Array.isArray(tpl.ouvrages)) {
+        ouvragesInit = tpl.ouvrages.map(o => ({
+          id: Math.random().toString(36).slice(2),
+          libelle: o.libelle || "",
+          unite: o.unite || "U",
+          heures_devis: parseFloat(o.heures) || 0,
+          quantite: null,
+          heures_estimees: null,
+          taches: [],
+        }));
+      }
+    }
+    const { data, error } = await supabase.from("phasages").insert({
+      chantier_id: newChantier,
+      chantier_nom: ch ? ch.nom : newChantier,
+      ouvrages: ouvragesInit,
+    }).select().single();
     if (error) { console.error(error.message); return; }
-    if (data) { setPhasages(p => [data, ...p]); setSelected(data); setShowNew(false); setNewChantier(""); }
+    if (data) { setPhasages(p => [data, ...p]); setSelected(data); setShowNew(false); setNewChantier(""); setNewTplId(""); }
   }
 
   async function savePhasage(phasage) {
@@ -2276,7 +2300,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
                 </div>
                 <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Nouveau phasage</div>
               </div>
-              <div style={{ marginBottom: 18 }}>
+              <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase",
                   color: T.textMuted, marginBottom: 6 }}>Chantier</div>
                 <select value={newChantier} onChange={e => setNewChantier(e.target.value)}
@@ -2288,8 +2312,31 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
                   {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                 </select>
               </div>
+              {phasageTemplates.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase",
+                    color: T.textMuted, marginBottom: 6 }}>Modèle (optionnel)</div>
+                  <select value={newTplId} onChange={e => setNewTplId(e.target.value)}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: RADIUS.md,
+                      border: `1px solid ${T.fieldBorder || T.border}`, background: T.fieldBg || T.card,
+                      color: newTplId ? T.text : T.textMuted, fontFamily: "inherit", fontSize: FONT.sm.size,
+                      outline: "none", cursor: "pointer" }}>
+                    <option value="">— Phasage vide —</option>
+                    {phasageTemplates.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.nom} ({(t.ouvrages||[]).length} ouvrage{(t.ouvrages||[]).length>1?"s":""})
+                      </option>
+                    ))}
+                  </select>
+                  {newTplId && (
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 5, fontStyle: "italic" }}>
+                      Les ouvrages du modèle seront pré-remplis. Tu pourras ensuite les ajuster ou importer un devis Excel.
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button onClick={() => { setShowNew(false); setNewChantier(""); }} style={{
+                <button onClick={() => { setShowNew(false); setNewChantier(""); setNewTplId(""); }} style={{
                   padding: "9px 18px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
                   background: "transparent", color: T.textSub,
                   fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer" }}>Annuler</button>

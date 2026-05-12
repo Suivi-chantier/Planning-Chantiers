@@ -24,24 +24,41 @@ const KEY_TODOS = "bloc_todos";
 const KEY_NOTES = "bloc_notes";
 
 // ─── EMAIL HELPER ────────────────────────────────────────────────────────────
+const DEFAULT_TODO_TEMPLATE = {
+  subject: "Nouvelle tâche : {texte}",
+  body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
+};
+
+const interpolate = (str, vars) => Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), str || "");
+
 async function envoyerEmailAssignation({ to, nom, texte, priorite, assigneur }) {
   if (!to) return { ok: false, reason: "no_email" };
   const prioLabel = priorite === "haute" ? "🔴 Haute" : priorite === "basse" ? "🟢 Basse" : "🟡 Normale";
+
+  // Charge le template personnalisé depuis Supabase (fallback : default)
+  let tpl = DEFAULT_TODO_TEMPLATE;
+  try {
+    const { data } = await supabase.from("planning_config").select("value").eq("key", "email_templates").maybeSingle();
+    if (data?.value?.todo_assign) tpl = { ...DEFAULT_TODO_TEMPLATE, ...data.value.todo_assign };
+  } catch (e) { /* fallback déjà en place */ }
+
+  const vars = {
+    prenom:    nom || "",
+    texte:     texte || "",
+    priorite:  prioLabel,
+    assigneur: assigneur || "Quelqu'un",
+  };
+  const subject = interpolate(tpl.subject, vars);
+  const bodyTxt = interpolate(tpl.body, vars);
+  const bodyHtml = escapeHtml(bodyTxt).replace(/\n/g, "<br/>");
+
   const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
     <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
       <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Nouvelle tâche</div>
       <div style="color:#fff;font-size:20px;font-weight:800">📋 Une tâche vous a été assignée</div>
     </div>
     <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px">
-      <p style="margin:0 0 14px;font-size:15px">Bonjour <strong>${escapeHtml(nom)}</strong>,</p>
-      <p style="margin:0 0 14px;font-size:14px;color:#555">${escapeHtml(assigneur || "Quelqu'un")} vous a assigné cette tâche :</p>
-      <div style="background:#f4f6fa;border-left:4px solid #FFC200;border-radius:6px;padding:14px 16px;margin:14px 0">
-        <div style="font-size:15px;color:#1a1f2e;line-height:1.5">${escapeHtml(texte)}</div>
-        <div style="margin-top:10px;font-size:12px;color:#666">Priorité : ${prioLabel}</div>
-      </div>
-      <p style="margin:18px 0 0;font-size:13px;color:#666">
-        Connecte-toi à <a href="https://planning-chantiers.vercel.app" style="color:#FFC200;font-weight:700;text-decoration:none">Profero Planning</a> → onglet <strong>Notes &amp; To-do</strong> pour cocher la tâche une fois terminée.
-      </p>
+      <div style="font-size:14px;color:#1a1f2e;line-height:1.7">${bodyHtml}</div>
     </div>
     <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
   </div>`;
@@ -50,11 +67,7 @@ async function envoyerEmailAssignation({ to, nom, texte, priorite, assigneur }) 
     const res = await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to,
-        subject: `📋 Nouvelle tâche : ${texte.slice(0, 70)}${texte.length > 70 ? "…" : ""}`,
-        html,
-      }),
+      body: JSON.stringify({ to, subject, html }),
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, ...data };

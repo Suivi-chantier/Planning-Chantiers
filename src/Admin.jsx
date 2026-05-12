@@ -488,6 +488,16 @@ function OngletUtilisateurs({ T, acc }) {
 }
 
 // ─── PAGE ADMIN ───────────────────────────────────────────────────────────────
+// ─── TEMPLATES D'EMAILS PAR DÉFAUT ───────────────────────────────────────────
+const EMAIL_TEMPLATES_DEFAUT = {
+  todo_assign: {
+    nom: "Assignation d'une tâche To-Do",
+    subject: "Nouvelle tâche : {texte}",
+    body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
+    variables: ["{prenom}", "{texte}", "{priorite}", "{assigneur}"],
+  },
+};
+
 // ─── DÉFAUTS POUR LA SOCIÉTÉ ET LE PLANNING ──────────────────────────────────
 const SOCIETE_DEFAUT = {
   nom: "Profero Rénovation",
@@ -541,10 +551,18 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [phaseToDelete, setPhaseToDelete] = useState(null);
   const [resetPhasesConfirm, setResetPhasesConfirm] = useState(false);
 
+  // ─── EMAIL TEMPLATES (Bloc 3) ────────────────────────────────────────────
+  const [emailTemplates, setEmailTemplates] = useState(EMAIL_TEMPLATES_DEFAUT);
+
+  // ─── PHASAGE TEMPLATES (Bloc 3) ──────────────────────────────────────────
+  const [phasageTemplates, setPhasageTemplates] = useState([]);
+  const [editTplIdx, setEditTplIdx]         = useState(null);
+  const [tplToDelete, setTplToDelete]       = useState(null);
+
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "email_templates", "phasage_templates"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "societe" && r.value)         setSociete({ ...SOCIETE_DEFAUT, ...r.value });
@@ -552,6 +570,12 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           if (r.key === "phrases_bank" && r.value)    setPhrases({ ...PHRASES_DEFAUT, ...r.value });
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
             setPhases(r.value.items);
+          }
+          if (r.key === "email_templates" && r.value) {
+            setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
+          }
+          if (r.key === "phasage_templates" && r.value && Array.isArray(r.value.items)) {
+            setPhasageTemplates(r.value.items);
           }
         });
       }
@@ -600,6 +624,63 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     const next = { ...phrases, [cat]: list };
     setPhrases(next);
     saveConfig("phrases_bank", next);
+  };
+
+  // ─── EMAIL TEMPLATES CRUD ────────────────────────────────────────────────
+  const updEmailTemplate = (key, field, val) => {
+    const next = { ...emailTemplates, [key]: { ...emailTemplates[key], [field]: val } };
+    setEmailTemplates(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("email_templates", next), 600);
+  };
+  const resetEmailTemplate = (key) => {
+    const next = { ...emailTemplates, [key]: EMAIL_TEMPLATES_DEFAUT[key] };
+    setEmailTemplates(next);
+    saveConfig("email_templates", next);
+  };
+
+  // ─── PHASAGE TEMPLATES CRUD ──────────────────────────────────────────────
+  const savePhasageTemplates = async (next) => {
+    setPhasageTemplates(next);
+    await saveConfig("phasage_templates", { items: next });
+  };
+  const addPhasageTpl = () => {
+    const nouveau = {
+      id:  `tpl_${Date.now()}`,
+      nom: "Nouveau modèle",
+      description: "",
+      ouvrages: [],
+    };
+    savePhasageTemplates([...phasageTemplates, nouveau]);
+    setEditTplIdx(phasageTemplates.length);
+  };
+  const updPhasageTpl = (i, patch) => {
+    const next = phasageTemplates.map((t, idx) => idx === i ? { ...t, ...patch } : t);
+    setPhasageTemplates(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("phasage_templates", { items: next }), 600);
+  };
+  const removePhasageTpl = () => {
+    if (tplToDelete === null) return;
+    const next = phasageTemplates.filter((_, idx) => idx !== tplToDelete);
+    savePhasageTemplates(next);
+    setTplToDelete(null);
+    if (editTplIdx === tplToDelete) setEditTplIdx(null);
+  };
+  const addTplOuvrage = (i) => {
+    const tpl = phasageTemplates[i];
+    const nouveau = { id: `ouv_${Date.now()}`, libelle: "", unite: "U", heures: 0 };
+    updPhasageTpl(i, { ouvrages: [...(tpl.ouvrages || []), nouveau] });
+  };
+  const updTplOuvrage = (i, j, patch) => {
+    const tpl = phasageTemplates[i];
+    const nv = (tpl.ouvrages || []).map((o, idx) => idx === j ? { ...o, ...patch } : o);
+    updPhasageTpl(i, { ouvrages: nv });
+  };
+  const removeTplOuvrage = (i, j) => {
+    const tpl = phasageTemplates[i];
+    const nv = (tpl.ouvrages || []).filter((_, idx) => idx !== j);
+    updPhasageTpl(i, { ouvrages: nv });
   };
 
   // ─── PHASES TRAVAUX CRUD ─────────────────────────────────────────────────
@@ -926,17 +1007,19 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const isAdmin = profil?.role === "admin";
 
   const tabs = [
-    ["vue",          "Vue d'ensemble", LayoutDashboard],
-    ["ouvriers",     "Ouvriers",       HardHat],
-    ["taux",         "Taux horaires",  Euro],
-    ["chantiers",    "Chantiers",      Building2],
-    ["phases",       "Phases",         ClipboardCheck],
-    ["societe",      "Société",        Briefcase],
-    ["planning",     "Planning",       Clock],
-    ["logos",        "Logos",          ImageIcon],
-    ["phrases",      "Phrases types",  MessageSquare],
+    ["vue",          "Vue d'ensemble",  LayoutDashboard],
+    ["ouvriers",     "Ouvriers",        HardHat],
+    ["taux",         "Taux horaires",   Euro],
+    ["chantiers",    "Chantiers",       Building2],
+    ["phases",       "Phases",          ClipboardCheck],
+    ["templates",    "Templates phasage", FileText],
+    ["societe",      "Société",         Briefcase],
+    ["planning",     "Planning",        Clock],
+    ["logos",        "Logos",           ImageIcon],
+    ["phrases",      "Phrases types",   MessageSquare],
+    ["emails",       "Emails",          Mail],
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
-    ["maintenance",  "Maintenance",    Wrench],
+    ["maintenance",  "Maintenance",     Wrench],
   ];
 
   return(
@@ -1142,6 +1225,274 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   }}>
                     <Icon as={Check} size={13}/>
                     Restaurer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── EMAILS ── */}
+      {adminTab==="emails" && (
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Modèles d'emails</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18,lineHeight:1.6,maxWidth:640}}>
+            Personnalise le sujet et le message des emails automatiques envoyés par l'application.
+            Les <strong style={{color:T.text}}>variables entre accolades</strong> sont remplacées automatiquement à l'envoi.
+          </div>
+
+          {Object.entries(emailTemplates).map(([key, tpl]) => (
+            <div key={key} style={{
+              background:T.surface, border:`1px solid ${T.border}`,
+              borderRadius:RADIUS.lg, padding:18, marginBottom:14,
+            }}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                <div style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                  <Icon as={Mail} size={14} color={acc.accent}/>
+                  <span style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text}}>{tpl.nom}</span>
+                </div>
+                <button onClick={()=>resetEmailTemplate(key)} style={{
+                  display:"inline-flex",alignItems:"center",gap:5,
+                  padding:"5px 10px",borderRadius:RADIUS.sm,
+                  border:`1px solid ${T.border}`,background:"transparent",color:T.textMuted,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,cursor:"pointer",
+                }}>
+                  <Icon as={RefreshCw} size={10}/>
+                  Restaurer par défaut
+                </button>
+              </div>
+
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Sujet</label>
+                <input className="ti" value={tpl.subject||""} onChange={e=>updEmailTemplate(key,"subject",e.target.value)}
+                  placeholder="Ex : Nouvelle tâche pour {prenom}" style={{width:"100%"}}/>
+              </div>
+
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Message</label>
+                <textarea className="ti" value={tpl.body||""} onChange={e=>updEmailTemplate(key,"body",e.target.value)}
+                  rows={6} placeholder="Le corps de l'email…" style={{width:"100%",resize:"vertical",fontFamily:"inherit",lineHeight:1.5}}/>
+              </div>
+
+              {tpl.variables && tpl.variables.length > 0 && (
+                <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md}}>
+                  <Icon as={Info} size={12} color={T.textMuted} style={{marginTop:2,flexShrink:0}}/>
+                  <div style={{flex:1,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
+                    Variables disponibles :{" "}
+                    {tpl.variables.map((v,i) => (
+                      <span key={v} style={{
+                        display:"inline-block",
+                        padding:"1px 8px",borderRadius:RADIUS.sm,marginRight:4,marginBottom:4,
+                        background:acc.bg10,color:acc.accent,fontFamily:"monospace",fontSize:FONT.xs.size,fontWeight:700,
+                      }}>{v}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
+            <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
+            <span>
+              Les modifications s'appliquent aux <strong style={{color:T.text}}>prochains envois</strong>. La mise en forme HTML (en-tête de l'app, couleurs, etc.) est gérée automatiquement autour de ton message.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── TEMPLATES PHASAGE ── */}
+      {adminTab==="templates" && (
+        <div className="ac">
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Templates de phasage</div>
+              <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
+                Modèles pré-remplis (« T2 standard », « Salle de bain »…) à dupliquer rapidement pour créer un nouveau phasage.
+              </div>
+            </div>
+            <button onClick={addPhasageTpl} style={{
+              display:"inline-flex",alignItems:"center",gap:5,
+              padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+              background:acc.accent,color:acc.onAccent,
+              fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+            }}>
+              <Icon as={Plus} size={12}/>
+              Nouveau template
+            </button>
+          </div>
+
+          {phasageTemplates.length === 0 ? (
+            <div style={{
+              background:T.card, border:`1px dashed ${T.border}`,
+              borderRadius:RADIUS.xl, padding:"40px 24px", textAlign:"center", color:T.textSub,
+            }}>
+              <div style={{
+                width:48,height:48,borderRadius:RADIUS.lg,
+                background:acc.bg10,color:acc.accent,
+                display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
+              }}>
+                <Icon as={FileText} size={24} strokeWidth={1.5}/>
+              </div>
+              <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun template</div>
+              <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6,marginBottom:16}}>
+                Crée un modèle de phasage pré-rempli pour gagner du temps sur les chantiers similaires.
+              </div>
+              <button onClick={addPhasageTpl} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:acc.accent,color:acc.onAccent,border:"none",
+                borderRadius:RADIUS.md,padding:"9px 16px",cursor:"pointer",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+              }}>
+                <Icon as={Plus} size={13}/>
+                Créer mon premier template
+              </button>
+            </div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {phasageTemplates.map((tpl, i) => {
+                const isOpen = editTplIdx === i;
+                const totalH = (tpl.ouvrages||[]).reduce((s,o)=>s+(parseFloat(o.heures)||0),0);
+                return (
+                  <div key={tpl.id || i} style={{
+                    background:T.surface, border:`1px solid ${isOpen ? acc.accent : T.border}`,
+                    borderRadius:RADIUS.lg, overflow:"hidden", transition:"border .15s",
+                  }}>
+                    {/* En-tête */}
+                    <div onClick={()=>setEditTplIdx(isOpen ? null : i)} style={{
+                      display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer",
+                      borderBottom:isOpen?`1px solid ${T.sectionDivider||T.border}`:"none",
+                    }}>
+                      <div style={{
+                        width:32,height:32,borderRadius:RADIUS.md,flexShrink:0,
+                        background:acc.bg10,color:acc.accent,
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                      }}>
+                        <Icon as={FileText} size={15}/>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text}}>{tpl.nom || "Sans nom"}</div>
+                        <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:1}}>
+                          {(tpl.ouvrages||[]).length} ouvrage{(tpl.ouvrages||[]).length>1?"s":""}
+                          {totalH > 0 && ` · ${totalH.toFixed(1)}h totales`}
+                        </div>
+                      </div>
+                      <button onClick={(e)=>{e.stopPropagation();setTplToDelete(i);}} className="btn-d" style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                        <Icon as={Trash2} size={11}/>
+                      </button>
+                      <Icon as={isOpen ? ChevronUp : ChevronDown} size={14} color={T.textMuted}/>
+                    </div>
+
+                    {/* Édition */}
+                    {isOpen && (
+                      <div style={{padding:"12px 14px"}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:12}}>
+                          <div>
+                            <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Nom du template</label>
+                            <input className="ti" value={tpl.nom||""} onChange={e=>updPhasageTpl(i,{nom:e.target.value})}
+                              placeholder="Ex : T2 standard" style={{width:"100%"}}/>
+                          </div>
+                          <div>
+                            <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Description (optionnel)</label>
+                            <input className="ti" value={tpl.description||""} onChange={e=>updPhasageTpl(i,{description:e.target.value})}
+                              placeholder="Ex : Rénovation complète T2 50m²" style={{width:"100%"}}/>
+                          </div>
+                        </div>
+
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                          <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted}}>
+                            <Icon as={Hammer} size={11}/>
+                            Ouvrages du template
+                          </div>
+                          <button onClick={()=>addTplOuvrage(i)} style={{
+                            display:"inline-flex",alignItems:"center",gap:5,
+                            padding:"6px 12px",borderRadius:RADIUS.sm,
+                            background:T.card,border:`1px solid ${T.border}`,color:T.textSub,
+                            fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:600,cursor:"pointer",
+                          }}>
+                            <Icon as={Plus} size={11}/>
+                            Ajouter
+                          </button>
+                        </div>
+
+                        {(tpl.ouvrages||[]).length === 0 ? (
+                          <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,fontStyle:"italic",padding:"12px 0"}}>
+                            Aucun ouvrage. Clique sur Ajouter pour en saisir.
+                          </div>
+                        ) : (
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {(tpl.ouvrages||[]).map((o, j) => (
+                              <div key={o.id || j} style={{display:"flex",gap:6,alignItems:"center"}}>
+                                <input className="ti" value={o.libelle||""} onChange={e=>updTplOuvrage(i,j,{libelle:e.target.value})}
+                                  placeholder="Libellé (ex : Pose plaques BA13)" style={{flex:"3 1 200px",minWidth:160}}/>
+                                <input className="ti" type="number" min="0" step="0.5" value={o.heures||""} onChange={e=>updTplOuvrage(i,j,{heures:parseFloat(e.target.value)||0})}
+                                  placeholder="0" style={{width:80,textAlign:"center",fontWeight:700,color:acc.accent}}/>
+                                <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>h</span>
+                                <select value={o.unite||"U"} onChange={e=>updTplOuvrage(i,j,{unite:e.target.value})}
+                                  style={{
+                                    padding:"7px 9px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,
+                                    background:T.fieldBg||T.card,color:T.text,
+                                    fontFamily:"inherit",fontSize:FONT.xs.size+1,outline:"none",cursor:"pointer",
+                                  }}>
+                                  <option value="U">U</option>
+                                  <option value="m">m</option>
+                                  <option value="m²">m²</option>
+                                  <option value="ml">ml</option>
+                                </select>
+                                <button onClick={()=>removeTplOuvrage(i,j)} title="Supprimer" style={{
+                                  display:"inline-flex",alignItems:"center",justifyContent:"center",
+                                  background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
+                                  borderRadius:RADIUS.sm,padding:"6px 8px",color:"#e15a5a",cursor:"pointer",
+                                }}>
+                                  <Icon as={Trash2} size={11}/>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Modale suppression template */}
+          {tplToDelete !== null && (
+            <div onClick={()=>setTplToDelete(null)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={AlertTriangle} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce template&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  Le template <strong style={{color:T.text}}>« {phasageTemplates[tplToDelete]?.nom} »</strong> sera supprimé.
+                  <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les phasages déjà créés à partir de ce template ne sont pas affectés.</span>
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setTplToDelete(null)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={removePhasageTpl} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"#e15a5a",color:"#fff",border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Trash2} size={13}/>
+                    Supprimer
                   </button>
                 </div>
               </div>
