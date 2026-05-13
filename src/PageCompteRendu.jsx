@@ -621,12 +621,39 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
       <style>{`
         .cr-mobile-bar{display:none}
         @media(max-width:767px){
+          /* Sans flex-direction:column, la mobile-bar est positionnée à gauche
+             en flex-row et écrase le contenu principal à 0px. */
+          .cr-page{flex-direction:column!important}
+
           .cr-page .cr-list-panel{position:absolute;left:0;top:0;bottom:0;width:88%;max-width:320px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
           .cr-page .cr-list-panel.open{transform:translateX(0)}
           .cr-page .cr-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.5);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
           .cr-page .cr-drawer-backdrop.open{opacity:1;pointer-events:auto}
-          .cr-page .cr-mobile-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:${T.surface};border-bottom:1px solid ${T.border};flex-shrink:0}
+          .cr-page .cr-mobile-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:${T.surface};border-bottom:1px solid ${T.border};flex-shrink:0;width:100%}
           .cr-page .cr-form-grid{grid-template-columns:1fr!important;gap:10px!important}
+
+          /* Header CR : padding réduit, statut + actions sur leur ligne pleine largeur */
+          .cr-page .cr-header{padding:10px 12px!important}
+          .cr-page .cr-header-row{flex-wrap:wrap!important;gap:8px!important;margin-bottom:8px!important}
+          .cr-page .cr-header-actions{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:6px;order:10;align-items:center}
+          .cr-page .cr-header-actions select{flex:1 1 140px;min-width:0}
+          .cr-page .cr-header-actions .cr-export-btn{flex:1 1 110px;justify-content:center}
+          .cr-page .cr-header-actions .cr-send-btn{flex:1 1 110px;justify-content:center}
+          .cr-page .cr-projet-name{font-size:15px!important}
+
+          /* Onglets : scroll horizontal au lieu de wrap */
+          .cr-page .cr-tabs{flex-wrap:nowrap!important;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -12px;padding:0 12px;scrollbar-width:none}
+          .cr-page .cr-tabs::-webkit-scrollbar{display:none}
+          .cr-page .cr-tabs button{flex-shrink:0;padding:7px 11px!important;white-space:nowrap}
+
+          /* Body des onglets : padding réduit */
+          .cr-page .cr-body{padding:14px 12px!important}
+
+          /* Ligne d'observation : passe en colonne (select + textarea + bouton trop tassés) */
+          .cr-page .obs-row{flex-wrap:wrap!important}
+          .cr-page .obs-row > select{flex:1 1 calc(100% - 50px)!important;width:auto!important}
+          .cr-page .obs-row > textarea{flex:1 1 100%!important}
+          .cr-page .obs-row > button{flex:0 0 auto;align-self:flex-start}
         }
         @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
@@ -784,8 +811,8 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
       ) : (
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
           {/* En-tête CR */}
-          <div style={{padding:"14px 22px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+          <div className="cr-header" style={{padding:"14px 22px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0}}>
+            <div className="cr-header-row" style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
               <div style={{
                 width:36,height:36,borderRadius:RADIUS.md,flexShrink:0,
                 background:acc.bg10,color:acc.accent,
@@ -794,7 +821,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
                 <Icon as={FileText} size={20} strokeWidth={2}/>
               </div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                <div className="cr-projet-name" style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                   {infos.client_nom1 ? `${infos.client_nom1} ${infos.client_prenom1||""}` : "Nouveau compte rendu"}
                 </div>
                 <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,display:"flex",flexWrap:"wrap",gap:10}}>
@@ -811,51 +838,58 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
                   <span>· {infos.type_visite}</span>
                 </div>
               </div>
-              <select value={infos.statut || "brouillon"} onChange={e=>updInfo("statut",e.target.value)}
-                style={{
-                  padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${statutMeta(infos.statut).color}55`,
-                  background:statutMeta(infos.statut).color+"18",color:statutMeta(infos.statut).color,
-                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,outline:"none",cursor:"pointer",
+              {/* Statut + actions : passent sur leur propre ligne en mobile */}
+              <div className="cr-header-actions">
+                <select value={infos.statut || "brouillon"} onChange={e=>updInfo("statut",e.target.value)}
+                  style={{
+                    padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${statutMeta(infos.statut).color}55`,
+                    background:statutMeta(infos.statut).color+"18",color:statutMeta(infos.statut).color,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,outline:"none",cursor:"pointer",
+                  }}>
+                  {STATUTS_CR.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+                <button onClick={handleExportWord} disabled={exporting} title="Exporter en Word (.docx)"
+                  className="cr-export-btn"
+                  style={{
+                    display:"inline-flex",alignItems:"center",gap:5,
+                    padding:"7px 14px",borderRadius:RADIUS.md,border:"none",
+                    background:acc.accent,color:acc.onAccent,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:exporting?"not-allowed":"pointer",
+                    opacity:exporting?.6:1,
+                  }}>
+                  <Icon as={Download} size={13}/>
+                  {exporting ? "Export…" : "Word"}
+                </button>
+                <button onClick={ouvrirModalEmail} title="Envoyer au client par email"
+                  className="cr-send-btn"
+                  style={{
+                    display:"inline-flex",alignItems:"center",gap:5,
+                    padding:"7px 14px",borderRadius:RADIUS.md,
+                    border:`1px solid ${T.border}`,background:T.surface,color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,cursor:"pointer",
+                  }}>
+                  <Icon as={Send} size={13}/>
+                  Envoyer
+                </button>
+                <button onClick={genPDF} title="Générer le PDF (impression navigateur)" style={{
+                  display:"inline-flex",alignItems:"center",justifyContent:"center",
+                  padding:"7px 10px",borderRadius:RADIUS.md,
+                  border:`1px solid ${T.border}`,background:"transparent",color:T.textMuted,cursor:"pointer",
                 }}>
-                {STATUTS_CR.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-              <button onClick={handleExportWord} disabled={exporting} title="Exporter en Word (.docx)" style={{
-                display:"inline-flex",alignItems:"center",gap:5,
-                padding:"7px 14px",borderRadius:RADIUS.md,border:"none",
-                background:acc.accent,color:acc.onAccent,
-                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:exporting?"not-allowed":"pointer",
-                opacity:exporting?.6:1,
-              }}>
-                <Icon as={Download} size={13}/>
-                {exporting ? "Export…" : "Word"}
-              </button>
-              <button onClick={ouvrirModalEmail} title="Envoyer au client par email" style={{
-                display:"inline-flex",alignItems:"center",gap:5,
-                padding:"7px 14px",borderRadius:RADIUS.md,
-                border:`1px solid ${T.border}`,background:T.surface,color:T.textSub,
-                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,cursor:"pointer",
-              }}>
-                <Icon as={Send} size={13}/>
-                Envoyer
-              </button>
-              <button onClick={genPDF} title="Générer le PDF (impression navigateur)" style={{
-                display:"inline-flex",alignItems:"center",justifyContent:"center",
-                padding:"7px 10px",borderRadius:RADIUS.md,
-                border:`1px solid ${T.border}`,background:"transparent",color:T.textMuted,cursor:"pointer",
-              }}>
-                <Icon as={Download} size={13}/>
-              </button>
-              <button onClick={()=>setToDelete(crActif)} title="Supprimer" style={{
-                display:"inline-flex",alignItems:"center",justifyContent:"center",
-                background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
-                borderRadius:RADIUS.md,padding:"7px 10px",color:"#e15a5a",cursor:"pointer",
-              }}>
-                <Icon as={Trash2} size={13}/>
-              </button>
+                  <Icon as={Download} size={13}/>
+                </button>
+                <button onClick={()=>setToDelete(crActif)} title="Supprimer" style={{
+                  display:"inline-flex",alignItems:"center",justifyContent:"center",
+                  background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
+                  borderRadius:RADIUS.md,padding:"7px 10px",color:"#e15a5a",cursor:"pointer",
+                }}>
+                  <Icon as={Trash2} size={13}/>
+                </button>
+              </div>
             </div>
 
-            {/* Onglets unifiés */}
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {/* Onglets unifiés (scroll horizontal sur mobile) */}
+            <div className="cr-tabs" style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {TABS.map(t => {
                 const a = section===t.id;
                 return (
@@ -876,7 +910,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
           </div>
 
           {/* Corps onglet */}
-          <div style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg}}>
+          <div className="cr-body" style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg}}>
 
             {/* Bandeau erreur de sauvegarde */}
             {saveError && (
@@ -1009,7 +1043,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
                   Observations & points de vigilance
                 </div>
                 {obs.map(o => (
-                  <div key={o.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:8}}>
+                  <div key={o.id} className="obs-row" style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:8}}>
                     <select value={o.statut} onChange={e=>updObs(o.id,"statut",e.target.value)} style={{
                       ...inp, width:120, flexShrink:0, fontSize:FONT.xs.size+1, padding:"8px 10px",
                       color:STATUT_COLOR[o.statut]||T.text, fontWeight:700,
