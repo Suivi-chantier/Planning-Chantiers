@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, Layers, Search, IdCard, FileText, Settings,
-  ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid,
+  ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "./constants";
 import { Icon } from "./ui";
@@ -41,43 +41,179 @@ const ROLE_PAGES = {
 };
 
 // ─── NAVIGATION BAS (MOBILE) ──────────────────────────────────────────────────
+// Liste complète des pages avec icône + label court (pour bottom-nav) + label long (pour la feuille modale).
+const ALL_NAV_ITEMS = [
+  { id:"dashboard",        icon:LayoutDashboard, label:"Accueil",    longLabel:"Tableau de bord"     },
+  { id:"chantiers",        icon:HardHat,         label:"Chantiers",  longLabel:"Chantiers"           },
+  { id:"planning",         icon:Calendar,        label:"Planning",   longLabel:"Planning semaine"    },
+  { id:"notes-todo",       icon:ClipboardList,   label:"Notes",      longLabel:"Notes & To-do"       },
+  { id:"planning-mensuel", icon:CalendarDays,    label:"Mensuel",    longLabel:"Planning mensuel"    },
+  { id:"commandes",        icon:Package,         label:"Cmd.",       longLabel:"Commandes"           },
+  { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
+  { id:"plans",            icon:Ruler,           label:"Plans",      longLabel:"Plans"               },
+  { id:"phasage",          icon:ListChecks,      label:"Phasage",    longLabel:"Phasage"             },
+  { id:"bibliotheque",     icon:BookOpen,        label:"Biblio.",    longLabel:"Biblio. ouvrages"    },
+  { id:"biblio-materiaux", icon:Layers,          label:"Matériaux",  longLabel:"Biblio. matériaux"   },
+  { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
+  { id:"info-client",      icon:IdCard,          label:"Client",     longLabel:"Infos Client"        },
+  { id:"compte-rendu",     icon:FileText,        label:"CR",         longLabel:"Compte rendu client" },
+  { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
+];
+
 function BottomNav({ page, setPage, T, role = "admin", branch = "renovation" }) {
   const acc = getBranchAccent(branch);
-  const allNav = [
-    { id:"dashboard",        icon:LayoutDashboard, label:"Accueil"   },
-    { id:"chantiers",        icon:HardHat,         label:"Chantiers" },
-    { id:"planning",         icon:Calendar,        label:"Planning"  },
-    { id:"planning-mensuel", icon:CalendarDays,    label:"Mensuel"   },
-    { id:"notes-todo",       icon:ClipboardList,   label:"Notes"     },
-    { id:"admin",            icon:Settings,        label:"Réglages"  },
-  ];
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const allowed = ROLE_PAGES[role] || ROLE_PAGES.admin;
-  const nav = allNav.filter(n => allowed.includes(n.id));
+  const allowedItems = ALL_NAV_ITEMS.filter(n => allowed.includes(n.id));
+
+  // Si ≤ 5 pages au total : on les affiche toutes, pas de bouton Plus.
+  // Sinon : 4 raccourcis prioritaires + bouton Plus qui ouvre la feuille avec le reste.
+  const useSheet = allowedItems.length > 5;
+  const mainItems = useSheet ? allowedItems.slice(0, 4) : allowedItems;
+  const sheetItems = useSheet ? allowedItems.slice(4) : [];
+
+  // Si la page courante est dans la feuille, on met le bouton Plus en "actif" pour le signaler visuellement.
+  const sheetActive = useSheet && sheetItems.some(n => n.id === page);
+
+  const handleSelect = (id) => {
+    setPage(id);
+    setSheetOpen(false);
+  };
 
   return (
-    <div className="bottom-nav-mobile">
-      {nav.map(n => {
-        const active = page === n.id;
-        return (
-          <button key={n.id} onClick={() => setPage(n.id)} style={{
+    <>
+      <div className="bottom-nav-mobile">
+        {mainItems.map(n => {
+          const active = page === n.id;
+          return (
+            <button key={n.id} onClick={() => handleSelect(n.id)} style={{
+              flex:1, display:"flex", flexDirection:"column", alignItems:"center",
+              justifyContent:"center", padding:"8px 2px 6px", border:"none",
+              background: active ? acc.bg10 : "transparent",
+              cursor:"pointer", fontFamily:"inherit", transition:"all .12s",
+              borderTop: active ? `2px solid ${acc.accent}` : "2px solid transparent",
+              marginTop: -2,
+            }}>
+              <Icon as={n.icon} size={20} strokeWidth={active ? 2 : 1.75}
+                color={active ? acc.accent : "rgba(255,255,255,0.45)"} />
+              <span style={{
+                fontSize:9, fontWeight: active ? 700 : 500, marginTop:4,
+                color: active ? acc.accent : "rgba(255,255,255,0.45)",
+                letterSpacing:.3, textTransform:"uppercase",
+              }}>{n.label}</span>
+            </button>
+          );
+        })}
+        {useSheet && (
+          <button onClick={() => setSheetOpen(true)} style={{
             flex:1, display:"flex", flexDirection:"column", alignItems:"center",
             justifyContent:"center", padding:"8px 2px 6px", border:"none",
-            background: active ? acc.bg10 : "transparent",
+            background: sheetActive ? acc.bg10 : "transparent",
             cursor:"pointer", fontFamily:"inherit", transition:"all .12s",
-            borderTop: active ? `2px solid ${acc.accent}` : "2px solid transparent",
+            borderTop: sheetActive ? `2px solid ${acc.accent}` : "2px solid transparent",
             marginTop: -2,
           }}>
-            <Icon as={n.icon} size={20} strokeWidth={active ? 2 : 1.75}
-              color={active ? acc.accent : "rgba(255,255,255,0.45)"} />
+            <Icon as={Menu} size={20} strokeWidth={sheetActive ? 2 : 1.75}
+              color={sheetActive ? acc.accent : "rgba(255,255,255,0.45)"} />
             <span style={{
-              fontSize:9, fontWeight: active ? 700 : 500, marginTop:4,
-              color: active ? acc.accent : "rgba(255,255,255,0.45)",
+              fontSize:9, fontWeight: sheetActive ? 700 : 500, marginTop:4,
+              color: sheetActive ? acc.accent : "rgba(255,255,255,0.45)",
               letterSpacing:.3, textTransform:"uppercase",
-            }}>{n.label}</span>
+            }}>Plus</span>
           </button>
-        );
-      })}
+        )}
+      </div>
+
+      {sheetOpen && (
+        <MoreSheet
+          items={sheetItems}
+          currentPage={page}
+          onSelect={handleSelect}
+          onClose={() => setSheetOpen(false)}
+          T={T}
+          acc={acc}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── FEUILLE MODALE « PLUS » (MOBILE) ─────────────────────────────────────────
+function MoreSheet({ items, currentPage, onSelect, onClose, T, acc }) {
+  // Empêche le scroll du body pendant l'ouverture de la feuille
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position:"fixed", inset:0, zIndex:300,
+        background:"rgba(0,0,0,0.55)",
+        display:"flex", alignItems:"flex-end",
+        animation:"moreSheetFadeIn .15s ease-out",
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width:"100%", maxHeight:"85vh", overflowY:"auto",
+          background: T.surface, color: T.text,
+          borderRadius:"20px 20px 0 0",
+          borderTop:`2px solid ${acc.accent}`,
+          paddingBottom:"calc(env(safe-area-inset-bottom) + 12px)",
+          animation:"moreSheetSlideUp .22s ease-out",
+        }}
+      >
+        {/* Poignée */}
+        <div style={{ display:"flex", justifyContent:"center", padding:"10px 0 4px" }}>
+          <div style={{ width:40, height:4, borderRadius:2, background:T.border }}/>
+        </div>
+
+        {/* En-tête */}
+        <div style={{
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          padding:"6px 18px 12px", borderBottom:`1px solid ${T.border}`,
+        }}>
+          <span style={{ fontSize:13, fontWeight:700, letterSpacing:.5, textTransform:"uppercase", color:T.textSub }}>
+            Toutes les pages
+          </span>
+          <button onClick={onClose} aria-label="Fermer" style={{
+            background:"transparent", border:"none", cursor:"pointer",
+            color:T.textSub, padding:6, display:"flex", alignItems:"center", justifyContent:"center",
+            borderRadius:RADIUS.md,
+          }}>
+            <Icon as={X} size={20}/>
+          </button>
+        </div>
+
+        {/* Liste des pages */}
+        <div style={{ padding:"8px 10px 4px" }}>
+          {items.map(n => {
+            const active = currentPage === n.id;
+            return (
+              <button key={n.id} onClick={() => onSelect(n.id)} style={{
+                width:"100%", display:"flex", alignItems:"center", gap:14,
+                padding:"14px 14px", border:"none", borderRadius:RADIUS.md,
+                background: active ? acc.bg10 : "transparent",
+                color: active ? acc.accent : T.text,
+                cursor:"pointer", fontFamily:"inherit", fontSize:15,
+                fontWeight: active ? 700 : 500, textAlign:"left",
+                marginBottom:2,
+              }}>
+                <Icon as={n.icon} size={20} strokeWidth={active ? 2 : 1.75}
+                  color={active ? acc.accent : T.textSub}/>
+                <span style={{ flex:1 }}>{n.longLabel}</span>
+                {active && <span style={{ width:4, height:18, borderRadius:2, background:acc.accent }}/>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

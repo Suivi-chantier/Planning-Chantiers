@@ -425,6 +425,8 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     .navbtn:hover{background:${T.cardHover}}
     .dot-pulse{width:8px;height:8px;border-radius:50%;background:#50c878;display:inline-block;animation:pulse 2s infinite}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    @keyframes moreSheetFadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes moreSheetSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
     .ac{background:${T.surface};border:1px solid ${T.border};border-radius:12px;padding:22px;margin-bottom:14px}
     .ar{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid ${T.border}}
     .ar:last-child{border-bottom:none}
