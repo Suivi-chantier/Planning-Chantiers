@@ -665,7 +665,16 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
   const [desc,      setDesc]      = useState(projet?.donnees?.descriptions?.description||"");
   const [travaux,   setTravaux]   = useState(projet?.donnees?.descriptions?.travaux||"");
   const [atouts,    setAtouts]    = useState(projet?.donnees?.descriptions?.atouts||"");
+  const [adresse,   setAdresse]   = useState(projet?.donnees?.descriptions?.adresse||"");
   const [photos,    setPhotos]    = useState(projet?.donnees?.photos||[null,null,null,null]);
+  // Liaison optionnelle vers un bien du stock (table invest_biens)
+  const [bienId,    setBienId]    = useState(projet?.donnees?.bien_id||"");
+  const [biensList, setBiensList] = useState([]);
+  const [showLierBien, setShowLierBien] = useState(false);
+  useEffect(() => {
+    supabase.from("invest_biens").select("id,adresse,ville,code_postal,prix_vente,prix_travaux,cout_total,interlocuteur,agence").order("adresse")
+      .then(({ data }) => setBiensList(data || []));
+  }, []);
 
   // ── Calculs dérivés ─────────────────────────────────────────────────────────
   const fn          = prixNegocie * tauxNotaire;
@@ -719,9 +728,10 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
     selects:{gestionActive,modeDetention,tmi:tmi.toString(),selectedScenario:selectedScen},
     lots:lots.map(l=>({...l})), budgetQty:{...budgetQty}, budgetPrice:{...budgetPrice},
     customDivers:customDivers.map(c=>({...c})),
-    descriptions:{description:desc,travaux,atouts},
+    descriptions:{description:desc,travaux,atouts,adresse},
     photos:photos.slice(),
-  }),[nom,prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct,gestionActive,modeDetention,tmi,selectedScen,lots,budgetQty,budgetPrice,customDivers,desc,travaux,atouts,photos]);
+    bien_id: bienId || null,
+  }),[nom,prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct,gestionActive,modeDetention,tmi,selectedScen,lots,budgetQty,budgetPrice,customDivers,desc,travaux,atouts,adresse,photos,bienId]);
 
   const sauvegarder = useCallback(async()=>{
     setSaving(true);
@@ -779,7 +789,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
     honoraires, enedis, taxeFonciere, assurance, compta, provisions,
     apport1, apport2, taux1, taux2, duree1, duree2,
     coefEtat, imprevusPct, gestionActive, modeDetention, tmi, selectedScen,
-    desc, travaux, atouts,
+    desc, travaux, atouts, adresse, bienId,
   ]);
 
   // ── Reset ───────────────────────────────────────────────────────────────────
@@ -789,7 +799,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
     setApport1(0);setApport2(0);setTaux1(0);setTaux2(0);setDuree1(0);setDuree2(0);
     setCoefEtat(1);setImprevusPct(10);setGestionActive(false);setModeDetention("IS");setTmi(0.30);
     setLots([{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}]);
-    setDesc("");setTravaux("");setAtouts("");setPhotos([null,null,null,null]);
+    setDesc("");setTravaux("");setAtouts("");setAdresse("");setBienId("");setPhotos([null,null,null,null]);
     setCustomDivers([]);
     const b=initBudgetState([],0); setBudgetQty(b.qty); setBudgetPrice(b.price);
     setShowReset(false);
@@ -1115,6 +1125,29 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
                 <div className="inv-card">
                   <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Pencil} size={13} strokeWidth={2.2}/>Description du Projet</span></div>
                   <div className="inv-card-bd" style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {/* Adresse + bouton Lier à un bien */}
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:1.2,display:"block",marginBottom:5}}>Adresse du bien</label>
+                      <div style={{display:"flex",gap:6}}>
+                        <input className="inv-inp" value={adresse}
+                          onChange={e=>setAdresse(e.target.value)}
+                          placeholder="123 rue de la Paix, 49000 Angers"
+                          style={{flex:1, textAlign:"left"}}/>
+                        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>setShowLierBien(true)} title="Importer depuis un bien du stock">
+                          <Icon as={Building2} size={12} strokeWidth={2.2}/> Lier
+                        </button>
+                      </div>
+                      {bienId && (() => {
+                        const b = biensList.find(x => x.id === bienId);
+                        return b ? (
+                          <div style={{marginTop:6, fontSize:11, color:T.accent, display:"inline-flex", alignItems:"center", gap:5}}>
+                            <Icon as={Building2} size={11} strokeWidth={2.2}/>
+                            Lié au bien : <strong>{b.adresse}</strong>{b.ville ? ` — ${b.ville}` : ""}
+                            <button onClick={()=>setBienId("")} title="Délier" style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",padding:"0 4px"}}>×</button>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
                     {[["Description générale","Localisation, contexte…",desc,setDesc],["Travaux envisagés","Rénovation toiture, électricité…",travaux,setTravaux],["Atouts / Points de vigilance","Emplacement, potentiel, risques…",atouts,setAtouts]].map(([label,ph,val,set])=>(
                       <div key={label}>
                         <label style={{fontSize:10,fontWeight:700,color:"#9aa0b0",textTransform:"uppercase",letterSpacing:1.2,display:"block",marginBottom:5}}>{label}</label>
@@ -1153,6 +1186,30 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
                     </div>
                   </div>
                 </div>
+
+                {/* Localisation — map iframe Google Maps Embed (gratuit, sans clé API) */}
+                {adresse && (
+                  <div className="inv-card">
+                    <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MapPin} size={13} strokeWidth={2.2}/>Localisation</span></div>
+                    <div className="inv-card-bd" style={{padding:0}}>
+                      <iframe
+                        title="Carte du bien"
+                        src={`https://maps.google.com/maps?q=${encodeURIComponent(adresse)}&output=embed`}
+                        width="100%" height="280"
+                        style={{border:0, display:"block"}}
+                        loading="lazy" referrerPolicy="no-referrer-when-downgrade"
+                      />
+                      <div style={{padding:`${SPACING.sm+2}px ${SPACING.lg}px`, borderTop:`1px solid ${T.border}`, fontSize:FONT.sm.size, color:T.textSub, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm}}>
+                        <span>{adresse}</span>
+                        <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adresse)}`}
+                          target="_blank" rel="noreferrer"
+                          style={{color:T.accent, fontSize:FONT.xs.size+1, fontWeight:700, display:"inline-flex", alignItems:"center", gap:4, textDecoration:"none"}}>
+                          Ouvrir dans Maps <Icon as={ExternalLink} size={11} strokeWidth={2.2}/>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1401,6 +1458,71 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
           </div>
         )}
       </div>
+
+      {/* Modal Lier à un bien */}
+      {showLierBien && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}
+          onClick={()=>setShowLierBien(false)}>
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:`${SPACING.xl}px ${SPACING.xl+2}px`,maxWidth:560,width:"92%",maxHeight:"82vh",overflowY:"auto",boxShadow:T.shadowMd}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",alignItems:"center",gap:SPACING.md,marginBottom:SPACING.md}}>
+              <div style={{
+                width:40,height:40,borderRadius:RADIUS.lg,flexShrink:0,
+                background:T.accentBg, color:T.accent,
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}><Icon as={Building2} size={20} strokeWidth={2}/></div>
+              <div>
+                <div style={{fontSize:FONT.md.size+1,fontWeight:800,color:T.text}}>Importer depuis un bien</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textSub,marginTop:2}}>Auto-remplit adresse, prix de vente et budget travaux</div>
+              </div>
+            </div>
+            {biensList.length === 0 ? (
+              <div style={{textAlign:"center",padding:`${SPACING.lg}px 0`,color:T.textMuted,fontStyle:"italic"}}>
+                Aucun bien dans le stock. Ajoute d'abord un bien depuis « Stock de biens ».
+              </div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {biensList.map(b => (
+                  <button key={b.id}
+                    onClick={()=>{
+                      const addr = [b.adresse, b.code_postal, b.ville].filter(Boolean).join(", ");
+                      if (addr) setAdresse(addr);
+                      if (b.prix_vente) { setPrixAffiche(b.prix_vente); setPrixNegocie(b.prix_vente); }
+                      if (b.prix_travaux) setBudgetTravaux(b.prix_travaux);
+                      setBienId(b.id);
+                      setShowLierBien(false);
+                    }}
+                    style={{
+                      display:"flex",alignItems:"center",gap:SPACING.sm+2,
+                      padding:`${SPACING.sm+2}px ${SPACING.md+2}px`,
+                      background:bienId===b.id?T.accentBg:T.input,
+                      border:`1px solid ${bienId===b.id?T.accentBorder:T.border}`,
+                      borderRadius:RADIUS.md,cursor:"pointer",textAlign:"left",
+                      fontFamily:"inherit",transition:"all .12s",
+                    }}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor=T.borderHover;}}
+                    onMouseLeave={e=>{if(bienId!==b.id)e.currentTarget.style.borderColor=T.border;}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,color:T.text,fontSize:FONT.base.size,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {b.adresse || "Sans adresse"}
+                      </div>
+                      <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
+                        {b.ville && <span><Icon as={MapPin} size={10} strokeWidth={2.2}/> {b.ville}</span>}
+                        {b.prix_vente > 0 && <span>· {new Intl.NumberFormat("fr-FR").format(b.prix_vente)} €</span>}
+                        {b.agence && <span>· {b.agence}</span>}
+                      </div>
+                    </div>
+                    <Icon as={ChevronRight} size={14} color={T.accent} strokeWidth={2.2}/>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{display:"flex",justifyContent:"flex-end",marginTop:SPACING.md+2}}>
+              <button className="inv-btn inv-btn-out" onClick={()=>setShowLierBien(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Reset */}
       {showReset&&(
