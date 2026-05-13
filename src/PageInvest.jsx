@@ -911,6 +911,222 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
     win.document.close();
   };
 
+  // ── Fiche de Présentation Client ─────────────────────────────────────────────
+  // Vue commerciale séduisante destinée à être partagée avec un client investisseur.
+  // Cache les infos sensibles (prix négocié, budget travaux, marges) et met en
+  // avant les indicateurs vendeurs (rendement, cash-flow, loyers, photos, map).
+  const genererFicheClient = () => {
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) { alert("Autorisez les pop-ups."); return; }
+    const fmtN = v => Math.round(v).toLocaleString("fr-FR");
+    const esc = s => String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const client = clientId ? clientsList.find(c => c.id === clientId) : null;
+    const clientFullName = client ? `${client.prenom||""} ${client.nom||""}`.trim() : null;
+    const photoMain = photos && photos[0] ? photos[0] : null;
+    const otherPhotos = photos ? photos.slice(1).filter(Boolean) : [];
+    const hasAddr = adresse && adresse.trim();
+    const mapSrc = hasAddr ? `https://maps.google.com/maps?q=${encodeURIComponent(adresse)}&output=embed` : null;
+    const lotRows = aLots.map((l,i) => `<tr>
+      <td style="padding:10px 14px;font-weight:700;color:#1a2d4a">Logement ${i+1}</td>
+      <td style="padding:10px 14px;text-align:center;color:#4070e8;font-weight:700">${esc(l.type)}</td>
+      <td style="padding:10px 14px;text-align:center;color:#5a6070">${esc(l.niveau)||"—"}</td>
+      <td style="padding:10px 14px;text-align:right;color:#5a6070">${l.m2} m²</td>
+      <td style="padding:10px 14px;text-align:right;font-weight:700;color:#1a7a4a;font-size:14px">${l.loyer.toLocaleString("fr-FR")} €/mois</td>
+    </tr>`).join("");
+    const cfClass = cfm1 >= 0 ? "positive" : "negative";
+    win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${esc(nom)} — Profero Invest</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f5f7fa;color:#2c3040;line-height:1.5;}
+      .wrap{max-width:900px;margin:0 auto;background:white;}
+
+      /* HEADER */
+      .header{padding:24px 32px 20px;border-bottom:1px solid #eef0f5;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+      .header-brand{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#4070e8}
+      .header-brand b{display:block;font-size:22px;letter-spacing:-0.5px;color:#1a2d4a;margin-top:3px}
+      .header-meta{text-align:right;font-size:11px;color:#9aa0b0}
+      .header-meta b{display:block;color:#1a2d4a;font-size:13px;margin-bottom:2px}
+
+      /* HERO */
+      .hero{position:relative;width:100%;height:380px;background:linear-gradient(180deg,#1a2d4a,#0f1825);overflow:hidden}
+      .hero img{width:100%;height:100%;object-fit:cover;display:block}
+      .hero-overlay{position:absolute;inset:0;background:linear-gradient(to top,rgba(15,24,37,0.88) 0%,rgba(15,24,37,0.2) 50%,transparent 100%);display:flex;flex-direction:column;justify-content:flex-end;padding:32px 36px}
+      .hero-title{font-size:36px;font-weight:800;color:white;letter-spacing:-0.8px;margin-bottom:8px}
+      .hero-addr{font-size:14px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:6px}
+      .hero-placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.4);font-size:14px;font-style:italic}
+
+      /* KPIs */
+      .kpi-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:0;background:#1a2d4a;color:white}
+      .kpi-cell{padding:24px 28px;border-right:1px solid rgba(255,255,255,0.08);text-align:center}
+      .kpi-cell:last-child{border-right:none}
+      .kpi-val{font-size:32px;font-weight:800;letter-spacing:-0.8px;line-height:1}
+      .kpi-val.green{color:#7ee8a2}
+      .kpi-val.orange{color:#ffb84d}
+      .kpi-val.gold{color:#ffd54a}
+      .kpi-lbl{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-top:8px}
+
+      /* SECTIONS */
+      .section{padding:28px 36px;border-bottom:1px solid #eef0f5}
+      .section:last-child{border-bottom:none}
+      .section-title{font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;color:#4070e8;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+      .section-title::before{content:"";display:inline-block;width:24px;height:2px;background:#4070e8;border-radius:1px}
+
+      /* MAP */
+      .map-wrap{border-radius:8px;overflow:hidden;border:1px solid #eef0f5;}
+      .map-wrap iframe{width:100%;height:320px;border:0;display:block}
+      .map-cap{padding:10px 14px;background:#f8f9fb;border-top:1px solid #eef0f5;font-size:13px;color:#5a6070}
+
+      /* DESCRIPTION */
+      .descs{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+      .desc-block{background:#f8f9fb;border-radius:8px;padding:18px 20px;border-left:3px solid #4070e8}
+      .desc-block.travaux{border-left-color:#d4610a}
+      .desc-block.atouts{border-left-color:#1a7a4a}
+      .desc-lbl{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#9aa0b0;margin-bottom:8px}
+      .desc-txt{font-size:13px;color:#2c3040;line-height:1.7;white-space:pre-wrap}
+
+      /* LOTS */
+      .lots-table{width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;border:1px solid #eef0f5}
+      .lots-table th{background:#1a2d4a;color:white;padding:11px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+      .lots-table tr:nth-child(even) td{background:#fafbfd}
+      .lots-table tr:last-child td{border-bottom:none}
+      .lots-table td{border-bottom:1px solid #eef0f5}
+      .lots-total{background:linear-gradient(90deg,#1a7a4a,#208a55)!important}
+      .lots-total td{color:white!important;font-weight:800!important;font-size:14px!important;background:transparent!important}
+
+      /* GALLERY */
+      .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+      .gallery-item{aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#f0f4ff}
+      .gallery-item img{width:100%;height:100%;object-fit:cover;display:block}
+
+      /* FOOTER */
+      .footer{background:#1a2d4a;color:white;padding:24px 36px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px}
+      .footer-brand{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.5)}
+      .footer-brand b{display:block;font-size:18px;letter-spacing:-0.3px;color:white;margin-top:2px}
+      .footer-confid{font-size:11px;color:rgba(255,255,255,0.4);text-align:right;line-height:1.6}
+
+      /* CLIENT BADGE */
+      .client-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;background:rgba(64,112,232,0.10);color:#4070e8;font-size:12px;font-weight:700;margin-top:6px}
+
+      .no-print{position:fixed;top:14px;right:14px;display:flex;gap:7px;z-index:100}
+      .pbtn{padding:11px 22px;background:#4070e8;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(64,112,232,0.4)}
+      .cbtn{padding:11px 18px;background:white;color:#1a2d4a;border:1px solid #d8dce6;border-radius:8px;font-size:13px;cursor:pointer}
+      @media print{
+        .no-print{display:none!important}
+        body{background:white;padding:0}
+        .wrap{max-width:none}
+        @page{size:A4;margin:0}
+        .section{page-break-inside:avoid}
+        .hero{height:280px}
+      }
+    </style></head><body>
+      <div class="no-print">
+        <button class="cbtn" onclick="window.close()">✕ Fermer</button>
+        <button class="pbtn" onclick="window.print()">🖨️ Télécharger en PDF</button>
+      </div>
+      <div class="wrap">
+
+        <!-- HEADER -->
+        <div class="header">
+          <div class="header-brand">Profero <b>Invest</b></div>
+          <div class="header-meta">
+            ${clientFullName ? `<b>Présenté à : ${esc(clientFullName)}</b>` : "<b>Présentation Investissement</b>"}
+            <div>Édité le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
+          </div>
+        </div>
+
+        <!-- HERO PHOTO -->
+        <div class="hero">
+          ${photoMain
+            ? `<img src="${photoMain}" alt="Vue du bien"/>`
+            : `<div class="hero-placeholder">Aucune photo principale</div>`}
+          <div class="hero-overlay">
+            <div class="hero-title">${esc(nom)}</div>
+            ${hasAddr ? `<div class="hero-addr">📍 ${esc(adresse)}</div>` : ""}
+          </div>
+        </div>
+
+        <!-- KPIs COMMERCIAUX -->
+        <div class="kpi-bar">
+          <div class="kpi-cell">
+            <div class="kpi-val green">${(rn*100).toFixed(1)} %</div>
+            <div class="kpi-lbl">Rendement net</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-val ${cfm1>=0?"green":"orange"}">${cfm1>=0?"+":""}${fmtN(cfm1)} €</div>
+            <div class="kpi-lbl">Cash-flow mensuel</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-val gold">${fmtN(totLoyer)} €</div>
+            <div class="kpi-lbl">Loyers mensuels</div>
+          </div>
+        </div>
+
+        ${mapSrc ? `<div class="section">
+          <div class="section-title">🗺️ Localisation</div>
+          <div class="map-wrap">
+            <iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+            <div class="map-cap">📍 ${esc(adresse)}</div>
+          </div>
+        </div>` : ""}
+
+        ${(desc || travaux || atouts) ? `<div class="section">
+          <div class="section-title">📋 Le projet en détail</div>
+          <div class="descs">
+            ${desc ? `<div class="desc-block">
+              <div class="desc-lbl">Présentation du bien</div>
+              <div class="desc-txt">${esc(desc)}</div>
+            </div>` : ""}
+            ${travaux ? `<div class="desc-block travaux">
+              <div class="desc-lbl">Travaux prévus</div>
+              <div class="desc-txt">${esc(travaux)}</div>
+            </div>` : ""}
+            ${atouts ? `<div class="desc-block atouts" style="grid-column:1/-1">
+              <div class="desc-lbl">Atouts et points forts</div>
+              <div class="desc-txt">${esc(atouts)}</div>
+            </div>` : ""}
+          </div>
+        </div>` : ""}
+
+        <!-- LOTS -->
+        <div class="section">
+          <div class="section-title">🏘️ Composition du bien (${aLots.length} logement${aLots.length>1?"s":""})</div>
+          <table class="lots-table">
+            <thead><tr><th>Logement</th><th style="text-align:center">Type</th><th style="text-align:center">Étage</th><th style="text-align:right">Surface</th><th style="text-align:right">Loyer mensuel</th></tr></thead>
+            <tbody>
+              ${lotRows}
+              <tr class="lots-total">
+                <td colspan="3" style="padding:14px 14px">TOTAL — ${aLots.length} logement${aLots.length>1?"s":""}</td>
+                <td style="text-align:right;padding:14px 14px">${aLots.reduce((s,l)=>s+(l.m2||0),0)} m²</td>
+                <td style="text-align:right;padding:14px 14px">${fmtN(totLoyer)} €/mois</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="display:flex;gap:30px;margin-top:14px;font-size:13px;color:#5a6070">
+            <span>📅 Loyers annuels : <strong style="color:#1a7a4a">${fmtN(totLoyerAn)} €</strong></span>
+            <span>💰 Surface totale : <strong style="color:#1a2d4a">${surface} m²</strong></span>
+          </div>
+        </div>
+
+        ${otherPhotos.length > 0 ? `<div class="section">
+          <div class="section-title">📷 Galerie photos</div>
+          <div class="gallery">
+            ${otherPhotos.map(p => `<div class="gallery-item"><img src="${p}" alt="Photo"/></div>`).join("")}
+          </div>
+        </div>` : ""}
+
+        <!-- FOOTER -->
+        <div class="footer">
+          <div class="footer-brand">Profero <b>Invest</b></div>
+          <div class="footer-confid">
+            Document à caractère confidentiel<br/>
+            ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}
+          </div>
+        </div>
+      </div>
+    </body></html>`);
+    win.document.close();
+  };
+
   // ── Champ numérique : utilise NumInput (défini top-level) ──────────────────
 
   // ── Photo handlers ───────────────────────────────────────────────────────────
@@ -1007,6 +1223,9 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
           </button>
           <button className="inv-btn inv-btn-sm inv-btn-out" onClick={genererFiche}>
             <Icon as={FileText} size={12} strokeWidth={2.2}/> Fiche PDF
+          </button>
+          <button className="inv-btn inv-btn-sm inv-btn-blue" onClick={genererFicheClient} title="Fiche de présentation à partager avec le client">
+            <Icon as={Sparkles} size={12} strokeWidth={2.2}/> Fiche client
           </button>
           <button className="inv-btn inv-btn-sm inv-btn-gold" onClick={sauvegarder}>
             <Icon as={Save} size={12} strokeWidth={2.2}/> Enregistrer
