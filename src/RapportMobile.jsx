@@ -6,7 +6,7 @@ import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
   ClipboardList, AlertTriangle, MessageSquare, Zap, Users, BarChart3,
   Send, Pencil, ChevronRight, Sparkles, FileText, Coffee, Smile,
-  Hourglass, Calendar, RefreshCw, LogOut,
+  Hourglass, Calendar, RefreshCw, LogOut, ImagePlus, ListPlus,
 } from "lucide-react";
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
 
@@ -113,9 +113,10 @@ async function uploadRapportPhoto(file, pathPrefix) {
 function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Photos" }) {
   const [uploading, setUploading] = useState(0);
   const [errors, setErrors] = useState([]); // [{ name, msg }]
-  const inputRef = React.useRef(null);
+  const cameraRef = React.useRef(null); // capture="environment" → ouvre l'appareil photo
+  const galleryRef = React.useRef(null); // pas de capture → galerie / fichiers
 
-  const onFiles = async (files) => {
+  const onFiles = async (files, sourceRef) => {
     const arr = Array.from(files || []);
     if (arr.length === 0) return;
     setErrors([]);
@@ -130,7 +131,7 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
     }
     if (urls.length > 0) onChange([...(photos || []), ...urls]);
     if (newErrors.length > 0) setErrors(newErrors);
-    if (inputRef.current) inputRef.current.value = "";
+    if (sourceRef?.current) sourceRef.current.value = "";
   };
 
   const remove = (i) => onChange((photos || []).filter((_, idx) => idx !== i));
@@ -164,7 +165,7 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
             </div>
           ))}
           {errors.length > 3 && <div style={{fontSize:FONT.xs.size+1,opacity:0.8,marginTop:2}}>+ {errors.length-3} autres</div>}
-          <button onClick={()=>{setErrors([]); inputRef.current?.click();}} style={{
+          <button onClick={()=>{setErrors([]); galleryRef.current?.click();}} style={{
             marginTop:6,padding:"5px 10px",borderRadius:RADIUS.md,border:`1px solid ${T.danger}`,
             background:"transparent",color:T.danger,fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
             display:"inline-flex",alignItems:"center",gap:5,
@@ -188,15 +189,29 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
             </button>
           </div>
         ))}
+        {/* Bouton appareil photo */}
         <label style={{
           width:72,height:72,borderRadius:RADIUS.lg,border:`1.5px dashed ${color}66`,cursor:"pointer",
           display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,
-          background:`${color}0A`,color,fontSize:FONT.xs.size+1,fontWeight:600,fontFamily:"inherit",
+          background:`${color}0A`,color,fontSize:FONT.xs.size,fontWeight:600,fontFamily:"inherit",
+          textAlign:"center",lineHeight:1.1,padding:"4px",
         }}>
-          <Icon as={Plus} size={22} strokeWidth={2.2}/>
-          <span>Ajouter</span>
-          <input ref={inputRef} type="file" accept="image/*" multiple capture="environment"
-            onChange={e=>onFiles(e.target.files)} style={{display:"none"}} />
+          <Icon as={Camera} size={22} strokeWidth={2.2}/>
+          <span>Photo</span>
+          <input ref={cameraRef} type="file" accept="image/*" multiple capture="environment"
+            onChange={e=>onFiles(e.target.files, cameraRef)} style={{display:"none"}} />
+        </label>
+        {/* Bouton importer depuis le téléphone */}
+        <label style={{
+          width:72,height:72,borderRadius:RADIUS.lg,border:`1.5px dashed ${color}66`,cursor:"pointer",
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,
+          background:`${color}0A`,color,fontSize:FONT.xs.size,fontWeight:600,fontFamily:"inherit",
+          textAlign:"center",lineHeight:1.1,padding:"4px",
+        }}>
+          <Icon as={ImagePlus} size={22} strokeWidth={2.2}/>
+          <span>Importer</span>
+          <input ref={galleryRef} type="file" accept="image/*" multiple
+            onChange={e=>onFiles(e.target.files, galleryRef)} style={{display:"none"}} />
         </label>
       </div>
     </div>
@@ -426,7 +441,7 @@ function PageRapportMobile() {
 
   const S = {
     wrap:  { minHeight:"100vh", background:T.bg, fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", color:T.text },
-    header:{ background:"#16181d", padding:"16px 20px 14px", position:"sticky", top:0, zIndex:10, borderBottom:`2px solid ${T.accent}` },
+    header:{ background:"#16181d", padding:"16px 20px 14px", borderBottom:`2px solid ${T.accent}` },
     card:  { background:T.card, borderRadius:RADIUS.xl, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)", border:`1px solid ${T.border}` },
     label: { fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.8, textTransform:"uppercase", color:T.textMuted, marginBottom:8, display:"block" },
     input: { width:"100%", border:`1.5px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"14px 14px", fontSize:16, fontFamily:"inherit", outline:"none", boxSizing:"border-box", color:T.text, background:T.surface },
@@ -592,6 +607,12 @@ function PageRapportMobile() {
             <Icon as={Camera} size={16} color="#b88800" strokeWidth={2} style={{flexShrink:0,marginTop:1}}/>
             <span>
               Merci de prendre <strong>au moins une photo par tâche</strong> pour qu'on puisse suivre l'avancement.
+            </span>
+          </li>
+          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:FONT.base.size,color:T.text,lineHeight:1.45}}>
+            <Icon as={ListPlus} size={16} color="#b88800" strokeWidth={2} style={{flexShrink:0,marginTop:1}}/>
+            <span>
+              Si tu as fait une tâche qui <strong>n'apparaît pas dans la liste</strong>, ajoute-la avec le bouton « Ajouter une tâche » en bas.
             </span>
           </li>
         </ul>
