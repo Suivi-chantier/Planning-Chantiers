@@ -103,25 +103,24 @@ const initBudgetState = (lots, surface) => {
 };
 
 // ─── THÈMES INVEST ────────────────────────────────────────────────────────────
-// Aligné sur le design system Profero. Accent = bleu Invest (#4070e8) au lieu
-// du cyan #4db8ff vintage. Palette plus profonde et moderne (inspirée Linear /
-// Mercury / GitHub) tout en gardant l'esprit Profero Rénovation côté Sidebar/UI.
+// Aligné sur Profero Rénovation (THEMES.dark / THEMES.light dans constants.js)
+// pour cohérence visuelle, avec l'accent bleu Profero Invest comme différence.
 const THEMES_INV = {
   dark: {
-    // Surfaces
-    bg:        "#0f1218",
-    surface:   "#161a22",
-    card:      "#161a22",
-    cardHover: "rgba(64,112,232,0.06)",
-    cardActive:"rgba(64,112,232,0.10)",
+    // Surfaces — alignées sur THEMES.dark de constants.js
+    bg:        "#1e2128",
+    surface:   "#262a32",
+    card:      "rgba(255,255,255,0.04)",
+    cardHover: "rgba(64,112,232,0.07)",
+    cardActive:"rgba(64,112,232,0.12)",
     // Borders
     border:    "rgba(255,255,255,0.07)",
     borderHover: INVEST_ACC.border,
     rowBorder: "rgba(255,255,255,0.05)",
     // Texte
-    text:      "#e6edf3",
-    textSub:   "#a0a9b8",
-    textMuted: "#6b7280",
+    text:      "#f0f0f0",
+    textSub:   "#9aa5c0",
+    textMuted: "#5b6a8a",
     // Accent (bleu officiel Profero Invest)
     accent:       INVEST_ACC.accent,
     accentHover:  INVEST_ACC.accentLight,
@@ -129,46 +128,47 @@ const THEMES_INV = {
     accentBg20:   INVEST_ACC.bg20,
     accentBorder: INVEST_ACC.border,
     onAccent:     INVEST_ACC.onAccent,
-    // Sidebar / nav (plus sombre que le bg pour créer de la profondeur)
-    sidebar:   "#0a0d12",
-    sidebarBorder: "rgba(255,255,255,0.05)",
-    sectionHd: "rgba(255,255,255,0.025)",
-    tabNav:    "#0c1018",
+    // Sidebar / nav
+    sidebar:   "#16181d",
+    sidebarBorder: "rgba(255,255,255,0.06)",
+    sectionHd: "rgba(255,255,255,0.03)",
+    tabNav:    "#1a1d24",
     // Inputs
-    input:        "rgba(255,255,255,0.04)",
-    inputBorder:  "rgba(255,255,255,0.08)",
+    input:        "rgba(255,255,255,0.05)",
+    inputBorder:  "rgba(255,255,255,0.10)",
     inputBorderHover: INVEST_ACC.border,
-    scrollThumb: "#2a2d3a",
+    scrollThumb: "#3a4060",
     // Shadows
     shadowSm:  "0 1px 2px rgba(0,0,0,0.3)",
     shadowMd:  "0 4px 12px rgba(0,0,0,0.25)",
   },
   light: {
-    bg:        "#f5f7fa",
+    // Aligné sur THEMES.light de constants.js
+    bg:        "#f7f7f7",
     surface:   "#ffffff",
     card:      "#ffffff",
-    cardHover: "rgba(64,112,232,0.04)",
-    cardActive:"rgba(64,112,232,0.08)",
-    border:    "rgba(0,0,0,0.08)",
+    cardHover: "rgba(64,112,232,0.05)",
+    cardActive:"rgba(64,112,232,0.10)",
+    border:    "rgba(0,0,0,0.09)",
     borderHover: INVEST_ACC.border,
-    rowBorder: "rgba(0,0,0,0.05)",
-    text:      "#0f172a",
-    textSub:   "#475569",
-    textMuted: "#94a3b8",
+    rowBorder: "rgba(0,0,0,0.06)",
+    text:      "#1a1f2e",
+    textSub:   "#4a5568",
+    textMuted: "#8a9ab0",
     accent:       INVEST_ACC.accent,
     accentHover:  INVEST_ACC.accentDark,
     accentBg:     INVEST_ACC.bg10,
     accentBg20:   INVEST_ACC.bg20,
     accentBorder: INVEST_ACC.border,
     onAccent:     INVEST_ACC.onAccent,
-    sidebar:   "#0f172a",
+    sidebar:   "#1a1f2e",
     sidebarBorder: "rgba(255,255,255,0.08)",
-    sectionHd: "rgba(0,0,0,0.025)",
+    sectionHd: "rgba(0,0,0,0.03)",
     tabNav:    "#ffffff",
-    input:        "#ffffff",
+    input:        "rgba(0,0,0,0.04)",
     inputBorder:  "rgba(0,0,0,0.10)",
     inputBorderHover: INVEST_ACC.border,
-    scrollThumb: "#cbd5e1",
+    scrollThumb: "#c0c8d8",
     shadowSm:  "0 1px 2px rgba(0,0,0,0.06)",
     shadowMd:  "0 4px 12px rgba(0,0,0,0.10)",
   },
@@ -604,7 +604,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
 }
 
 // ─── SIMULATEUR ───────────────────────────────────────────────────────────────
-function Simulateur({ projet, profil, onRetour }) {
+function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
   const isNew = !projet?.id;
   const projetIdRef = useRef(projet?.id||null);
 
@@ -856,10 +856,20 @@ function Simulateur({ projet, profil, onRetour }) {
 
   const PHOTO_LABELS=["Photo principale","Vue intérieure","Vue extérieure","Autre"];
 
-  const T = THEMES_INV.dark;
+  // Thème dynamique (suit le toggle de la sidebar) — le CSS de la page parente
+  // s'applique déjà via <style>{CSS}</style>, mais on a besoin de T ici pour
+  // les inline styles de la topbar.
+  const T = THEMES_INV[theme] || THEMES_INV.dark;
+  const localCSS = getCSS(T);
+  const switchTheme = () => {
+    if (!setTheme) return;
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("invest_theme", next);
+  };
   return (
-    <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,display:"flex",flexDirection:"column"}}>
-      <style>{CSS}</style>
+    <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,display:"flex",flexDirection:"column",background:T.bg}}>
+      <style>{localCSS}</style>
 
       {/* Topbar moderne — fond sombre avec accent bleu (au lieu du navy/doré vintage) */}
       <div style={{
@@ -918,6 +928,12 @@ function Simulateur({ projet, profil, onRetour }) {
             <span style={{fontSize:FONT.xs.size+1,color:SU,display:"inline-flex",alignItems:"center",gap:4,fontWeight:700}}>
               <Icon as={Check} size={12} strokeWidth={2.5}/> Sauvegardé
             </span>
+          )}
+          {setTheme && (
+            <button onClick={switchTheme} title={theme==="dark" ? "Mode clair" : "Mode sombre"}
+              className="inv-btn inv-btn-out inv-btn-sm" style={{padding:"5px 9px"}}>
+              <Icon as={theme==="dark" ? Sun : Moon} size={13} strokeWidth={2.2}/>
+            </button>
           )}
           <button className="inv-btn inv-btn-sm inv-btn-danger" onClick={()=>setShowReset(true)}>
             <Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Reset
@@ -3006,19 +3022,13 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
 
   const W = collapsed ? 64 : 220;
 
-  const footerBtn = (onClick, icon, color, bg, border, title) => (
-    <button onClick={onClick} title={collapsed ? title : ""} style={{
-      width:"100%", background:bg, border, borderRadius:RADIUS.md,
-      padding: collapsed ? "10px 0" : `${SPACING.sm}px ${SPACING.md}px`,
-      color, fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.sm.size+1, fontWeight:700,
-      cursor:"pointer", display:"flex", alignItems:"center",
-      justifyContent: collapsed ? "center" : "flex-start",
-      gap:SPACING.sm, letterSpacing:0.5, transition:"all .15s",
-    }}>
-      <Icon as={icon} size={16} strokeWidth={2}/>
-      {!collapsed && <span>{title}</span>}
-    </button>
-  );
+  // Bouton footer icône-only 32×32 (même pattern que Profero Rénovation)
+  const sidebarBtnStyle = (color) => ({
+    display:"flex", alignItems:"center", justifyContent:"center",
+    width:32, height:32, borderRadius:RADIUS.md,
+    background:"transparent", border:"none", cursor:"pointer",
+    color, transition:"background .15s", flexShrink:0,
+  });
 
   return (
     <div style={{
@@ -3076,53 +3086,72 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
         })}
       </nav>
 
-      {/* User info (light card) */}
+      {/* Sync indicator (factice mais cohérent avec Profero Rénovation) */}
+      <div style={{
+        padding: collapsed ? `${SPACING.sm}px 0` : `${SPACING.sm+2}px ${SPACING.md+2}px`,
+        borderTop:`1px solid ${T.sidebarBorder}`,
+        display:"flex", alignItems:"center",
+        justifyContent: collapsed ? "center" : "flex-start",
+        gap: SPACING.sm, flexShrink:0,
+      }} title="En ligne">
+        <span style={{
+          width:8, height:8, borderRadius:"50%",
+          background:"#22c55e", flexShrink:0,
+          animation:"pulse 2s infinite",
+        }}/>
+        {!collapsed && (
+          <span style={{ fontSize:FONT.xs.size+1, color:T.textSub, letterSpacing:0.2 }}>
+            En ligne
+          </span>
+        )}
+      </div>
+
+      {/* User info */}
       {profil && !collapsed && (
         <div style={{
           padding:`${SPACING.sm+2}px ${SPACING.md+2}px`, borderTop:`1px solid ${T.sidebarBorder}`,
           display:"flex", flexDirection:"column", gap:1, flexShrink:0,
         }}>
-          <span style={{ fontSize:FONT.sm.size, fontWeight:700, color:"#fff", letterSpacing:0.1,
+          <span style={{ fontSize:FONT.sm.size, fontWeight:700, color:T.text, letterSpacing:0.1,
             overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
           }}>{profil?.nom || profil?.email}</span>
           <span style={{ fontSize:FONT.xs.size, letterSpacing:0.8, textTransform:"uppercase",
-            color: T.accent, opacity:0.75, fontWeight:600,
+            color: T.accent, opacity:0.85, fontWeight:600,
           }}>{profil?.role || "—"}</span>
         </div>
       )}
 
-      {/* Boutons bas */}
+      {/* Boutons bas — icône-only 32×32 (style Profero Rénovation) */}
       <div style={{
-        padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px` : `${SPACING.md-2}px ${SPACING.sm+2}px`,
+        padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px ${SPACING.md-2}px` : `${SPACING.sm+2}px ${SPACING.md}px ${SPACING.md-1}px`,
         borderTop:`1px solid ${T.sidebarBorder}`,
         display:"flex", flexDirection: collapsed ? "column" : "row",
-        gap: collapsed ? SPACING.xs : SPACING.xs+1, flexShrink:0,
+        gap: collapsed ? SPACING.xs : SPACING.xs+2, flexShrink:0,
         alignItems:"center", justifyContent: collapsed ? "center" : "space-between",
       }}>
-        {(() => {
-          const buttons = [
-            footerBtn(
-              () => { const n = theme==="dark"?"light":"dark"; setTheme(n); localStorage.setItem("invest_theme",n); },
-              theme === "dark" ? Sun : Moon,
-              T.accent, T.accentBg, `1px solid ${T.accentBorder}`,
-              theme==="dark" ? "Mode clair" : "Mode sombre"
-            ),
-            onRetourPortail && footerBtn(
-              onRetourPortail, LayoutGrid,
-              "rgba(255,194,0,0.85)", "rgba(255,194,0,0.08)", "1px solid rgba(255,194,0,0.20)",
-              "Portail"
-            ),
-            footerBtn(
-              onLogout, LogOut,
-              "#e15a5a", "rgba(225,90,90,0.08)", "1px solid rgba(225,90,90,0.25)",
-              "Déconnexion"
-            ),
-          ].filter(Boolean);
-
-          // Wrap to make collapsed buttons stack vertically full-width, row otherwise
-          return collapsed ? buttons : buttons.map((btn, i) => <div key={i} style={{ flex:1 }}>{btn}</div>);
-        })()}
+        {onRetourPortail && (
+          <button onClick={onRetourPortail} title="Retour au portail"
+            style={sidebarBtnStyle(T.accent)}
+            onMouseEnter={e => e.currentTarget.style.background = T.accentBg}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <Icon as={LayoutGrid} size={16}/>
+          </button>
+        )}
+        <button onClick={() => { const n = theme==="dark"?"light":"dark"; setTheme(n); localStorage.setItem("invest_theme",n); }}
+          title={theme==="dark" ? "Mode clair" : "Mode sombre"}
+          style={sidebarBtnStyle(T.textSub)}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <Icon as={theme==="dark" ? Sun : Moon} size={16}/>
+        </button>
+        <button onClick={onLogout} title="Se déconnecter"
+          style={sidebarBtnStyle("#e15a5a")}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(225,90,90,0.10)"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <Icon as={LogOut} size={16}/>
+        </button>
       </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
     </div>
   );
 }
@@ -3158,7 +3187,8 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     return (
       <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999 }}>
         <style>{CSS}</style>
-        <Simulateur projet={projetOuvert} profil={profil} onRetour={fermerSim} />
+        <Simulateur projet={projetOuvert} profil={profil} onRetour={fermerSim}
+          theme={theme} setTheme={setTheme}/>
       </div>
     );
   }
