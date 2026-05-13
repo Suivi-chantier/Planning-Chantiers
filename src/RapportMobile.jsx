@@ -162,6 +162,8 @@ function PageRapportMobile() {
   const [chantiers, setChantiers]   = useState([]);
   const [ouvriers, setOuvriers]     = useState(DEFAULT_OUVRIERS);
   const [taches, setTaches]         = useState([]);
+  const [trajetMatin, setTrajetMatin] = useState(""); // minutes (string pour input)
+  const [trajetSoir, setTrajetSoir]   = useState(""); // minutes (string pour input)
   const [remarque, setRemarque]     = useState("");
   const [paniers, setPaniers]       = useState({});      // { chantier_id: { articleId: {article, qty} } }
   const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
@@ -175,6 +177,8 @@ function PageRapportMobile() {
   const {year, week} = getCurrentWeek();
   const weekId   = getWeekId(year, week);
   const todayJour = getTodayJour();
+  // Cible d'heures par jour : 10h Lun-Mer, 9h Jeu-Ven (utilisé partout : UI + validation)
+  const cibleHeures = (todayJour === "Jeudi" || todayJour === "Vendredi") ? 9 : 10;
 
   // Load config + planning
   useEffect(() => {
@@ -285,10 +289,20 @@ function PageRapportMobile() {
       alert(`📊 Avancement manquant sur ${sansAvancement.length} tâche${sansAvancement.length>1?"s":""}\n${sansAvancement.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nMerci d'indiquer le pourcentage d'avancement (0% si non réalisé).`);
       return;
     }
-    // Limite 10h par jour
-    const totalHeures = tachesRemplies.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-    if (totalHeures > 10) {
-      alert(`⏱ Total des heures : ${totalHeures}h\n\nLe total ne peut pas dépasser 10h par jour. Merci de vérifier les durées saisies.`);
+    // Cible exacte : tâches + trajets = 10h Lun-Mer ou 9h Jeu-Ven
+    const totalTachesHSubmit  = tachesRemplies.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+    const trajetMin = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
+    const totalSubmit = totalTachesHSubmit + trajetMin / 60;
+    if (Math.abs(totalSubmit - cibleHeures) > 0.01) {
+      const ecart = totalSubmit - cibleHeures;
+      const fmtH = (n) => n.toFixed(2).replace(/\.?0+$/, "");
+      alert(
+        `⏱ Total : ${fmtH(totalSubmit)}h / ${cibleHeures}h attendues\n\n` +
+        `Le total (tâches + trajets) doit faire exactement ${cibleHeures}h ce ${todayJour}.\n\n` +
+        (ecart < 0
+          ? `Il manque ${fmtH(-ecart)}h — ajoute du temps de tâche ou de trajet.`
+          : `Tu dépasses de ${fmtH(ecart)}h — réduis tes heures de tâche ou de trajet.`)
+      );
       return;
     }
 
@@ -321,14 +335,22 @@ function PageRapportMobile() {
         taches: grp.taches,
         remarque,
         photos_chantier: photosCh,
+        trajet_matin_min: parseInt(trajetMatin) || 0,
+        trajet_soir_min: parseInt(trajetSoir) || 0,
       };
-      const { error: insErr } = await supabase.from("rapports").insert(rapportFull);
-      if (insErr && (insErr.code === "42703" || /photos_chantier/.test(insErr.message || ""))) {
-        // Colonne photos_chantier absente → fallback sans cette colonne
-        const { photos_chantier, ...rapportSansPhotosCh } = rapportFull;
-        await supabase.from("rapports").insert(rapportSansPhotosCh);
-        if (photosCh.length > 0) console.warn("Colonne photos_chantier manquante — photos générales du chantier non sauvegardées.");
+      // Insert avec retry : si une colonne optionnelle manque, on la drop
+      // (pattern déjà utilisé pour photos_chantier — ici on étend à trajet_*).
+      let payload = { ...rapportFull };
+      const optionalCols = ["trajet_matin_min", "trajet_soir_min", "photos_chantier"];
+      let { error: insErr } = await supabase.from("rapports").insert(payload);
+      while (insErr && insErr.code === "42703") {
+        const dropped = optionalCols.find(c => new RegExp(c).test(insErr.message || ""));
+        if (!dropped) break; // colonne manquante non gérée
+        console.warn(`Colonne ${dropped} manquante dans rapports — fallback sans elle.`);
+        delete payload[dropped];
+        ({ error: insErr } = await supabase.from("rapports").insert(payload));
       }
+      if (insErr) console.error("Insert rapport échec final:", insErr);
       const rapport = rapportFull;
       try { await sendRapportEmail(rapport, grp.chantier_nom); } catch(e) { console.error("Email:",e); }
 
@@ -420,8 +442,12 @@ function PageRapportMobile() {
   const enCours  = taches.filter(t=>t.statut==="en_cours").length;
   const nonFaite = taches.filter(t=>t.statut==="non_faite").length;
 
-  // Cible d'heures par jour : 10h Lun-Mer, 9h Jeu-Ven
-  const cibleHeures = (todayJour === "Jeudi" || todayJour === "Vendredi") ? 9 : 10;
+  // Total journée = tâches + trajet matin + trajet soir (trajets en minutes)
+  const totalTachesH = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+  const totalTrajetMin = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
+  const totalJourneeH = totalTachesH + totalTrajetMin / 60;
+  const matchCible = Math.abs(totalJourneeH - cibleHeures) < 0.01;
+  const ecartH = totalJourneeH - cibleHeures; // négatif si manque, positif si dépasse
 
   return (
     <div style={S.wrap}>
@@ -482,6 +508,79 @@ function PageRapportMobile() {
             </span>
           </li>
         </ul>
+      </div>
+
+      {/* ── Compteur total journée ── */}
+      {(() => {
+        const col = matchCible ? "#50c878" : Math.abs(ecartH) > 1 ? "#e05c5c" : "#f5a623";
+        const bg  = matchCible ? "rgba(80,200,120,0.10)" : Math.abs(ecartH) > 1 ? "rgba(224,92,92,0.08)" : "rgba(245,166,35,0.10)";
+        const bdr = matchCible ? "rgba(80,200,120,0.40)" : Math.abs(ecartH) > 1 ? "rgba(224,92,92,0.40)" : "rgba(245,166,35,0.40)";
+        const pct = Math.min(100, (totalJourneeH / cibleHeures) * 100);
+        return (
+          <div style={{
+            ...S.card, background:bg, border:`1.5px solid ${bdr}`, padding:"14px 16px",
+            position:"sticky", top:8, zIndex:10,
+          }}>
+            <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:8}}>
+              <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",color:col}}>
+                ⏱ Total de ma journée
+              </div>
+              <div style={{fontSize:24,fontWeight:800,color:col,letterSpacing:-0.5,lineHeight:1}}>
+                {totalJourneeH.toFixed(2).replace(/\.?0+$/,"")}h
+                <span style={{fontSize:14,color:"#8a9ab0",fontWeight:600,marginLeft:4}}>/ {cibleHeures}h</span>
+              </div>
+            </div>
+            <div style={{height:6,background:"rgba(0,0,0,0.06)",borderRadius:3,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:3,transition:"width .3s"}}/>
+            </div>
+            <div style={{fontSize:12,color:col,marginTop:6,fontWeight:600}}>
+              {matchCible
+                ? "✓ Tu peux soumettre ton compte rendu"
+                : ecartH < 0
+                  ? `Il manque ${(-ecartH).toFixed(2).replace(/\.?0+$/,"")}h pour atteindre la cible`
+                  : `Tu dépasses de ${ecartH.toFixed(2).replace(/\.?0+$/,"")}h — réduis tes heures de tâches ou de trajet`}
+            </div>
+            <div style={{fontSize:11,color:"#8a9ab0",marginTop:4}}>
+              {totalTachesH.toFixed(2).replace(/\.?0+$/,"")}h de tâches
+              {totalTrajetMin > 0 && ` + ${totalTrajetMin} min de trajet (${(totalTrajetMin/60).toFixed(2).replace(/\.?0+$/,"")}h)`}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Mon temps de trajet ── */}
+      <div style={{...S.card, borderLeft:"4px solid #5b8af5", padding:"14px 16px"}}>
+        <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",color:"#3060c0",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+          🚗 Mon temps de trajet
+        </div>
+        {[
+          { label:"Trajet matin (aller)", value:trajetMatin, setter:setTrajetMatin, color:"#5b8af5" },
+          { label:"Trajet soir (retour)", value:trajetSoir,  setter:setTrajetSoir,  color:"#5b8af5" },
+        ].map(({label, value, setter, color}, i) => (
+          <div key={i} style={{marginBottom: i===0 ? 10 : 0}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#1a1f2e",marginBottom:6}}>{label}</div>
+            <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+              {[15, 30, 45, 60].map(m => (
+                <button key={m} onClick={()=>setter(String(m))} style={{
+                  padding:"7px 10px",borderRadius:7,border:"1.5px solid",cursor:"pointer",
+                  fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .1s",
+                  borderColor: parseInt(value)===m ? color : "#e0e4ef",
+                  background:  parseInt(value)===m ? `${color}15` : "#fff",
+                  color:       parseInt(value)===m ? color : "#aaa",
+                }}>{m} min</button>
+              ))}
+              <input type="number" min="0" max="600" step="5"
+                value={value}
+                onChange={e=>setter(e.target.value)}
+                placeholder="Autre"
+                style={{width:64,padding:"7px 6px",border:"1.5px solid #e0e4ef",
+                  borderRadius:7,fontSize:12,fontWeight:700,fontFamily:"inherit",
+                  outline:"none",textAlign:"center",color:"#1a1f2e"}}
+              />
+              <span style={{fontSize:11,color:"#8a9ab0",fontWeight:600}}>min</span>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Tâches */}
