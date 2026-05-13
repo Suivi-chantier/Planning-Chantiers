@@ -13,6 +13,9 @@ import {
 let PHASES = [...PHASES_DEFAUT];
 loadPhases().then(p => { PHASES = p; });
 
+// Format heures : 1 décimale max, sans .0 si entier (évite "11.200000003h")
+const fmtH = (n) => +(parseFloat(n) || 0).toFixed(1);
+
 const STATUTS = {
   en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },
   termine:  { label: "Terminé",   color: "#22c55e", bg: "rgba(34,197,94,0.15)"  },
@@ -953,9 +956,9 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
                       Total chantier
                     </span>
                     <span style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -0.3 }}>
-                      {totalHeures.reelles}h
+                      {fmtH(totalHeures.reelles)}h
                       <span style={{ fontSize: FONT.sm.size, color: textMuted, fontWeight: 600, marginLeft: 4 }}>
-                        / {totalHeures.vendues}h vendues
+                        / {fmtH(totalHeures.vendues)}h vendues
                       </span>
                     </span>
                     <span style={{
@@ -982,7 +985,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
                       <span style={{ width: 10, height: 10, borderRadius: "50%", background: p.couleur, flexShrink: 0 }}/>
                       <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, flex: 1 }}>{p.label}</span>
                       <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: col, flexShrink: 0 }}>
-                        {p.reelles}h / {p.vendues}h
+                        {fmtH(p.reelles)}h / {fmtH(p.vendues)}h
                         {p.vendues > 0 && (
                           <span style={{ fontSize: FONT.xs.size, opacity: .8, marginLeft: 5, fontWeight: 700 }}>
                             ({drift.toFixed(0)}%)
@@ -1245,7 +1248,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
                       </span>
                       {totalHeures > 0 && (
                         <span style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", fontWeight: 700 }}>
-                          {totalHeures}h
+                          {fmtH(totalHeures)}h
                         </span>
                       )}
                       <div style={{ marginLeft: "auto", display: "flex", gap: 5, flexWrap: "wrap" }}>
