@@ -402,78 +402,144 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
     const k = kpi(p.donnees);
     const client = p.client_id ? clientById[p.client_id] : null;
     return (
-      <div key={p.id} className="inv-card" style={{padding:"18px 20px",cursor:"pointer",transition:"all .18s"}}
-        onClick={()=>onOuvrir(p)}
-        onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
-        onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              📄 {p.nom}
+      <div key={p.id} className="inv-card" style={{padding:`${SPACING.lg+2}px ${SPACING.lg+4}px`, cursor:"pointer", transition:"all .18s"}}
+        onClick={()=>onOuvrir(p)}>
+        <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:SPACING.sm, marginBottom:SPACING.md-2}}>
+          <div style={{flex:1, minWidth:0, display:"flex", alignItems:"flex-start", gap:SPACING.sm}}>
+            <div style={{
+              width:36, height:36, borderRadius:RADIUS.lg, flexShrink:0,
+              background:T.accentBg, color:T.accent,
+              display:"flex", alignItems:"center", justifyContent:"center",
+            }}>
+              <Icon as={FileText} size={18} strokeWidth={2}/>
             </div>
-            <div style={{fontSize:11,color:T.textMuted}}>Par {p.created_by} · {fmtDate(p.updated_at)}</div>
-            {client && (
-              <div style={{fontSize:11,color:"#4db8ff",marginTop:4,display:"inline-flex",alignItems:"center",gap:4,fontWeight:600}}>
-                👤 {client.prenom} {client.nom}
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontSize:FONT.md.size, fontWeight:700, color:T.text, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", letterSpacing:-0.2}}>
+                {p.nom}
               </div>
-            )}
+              <div style={{fontSize:FONT.xs.size, color:T.textMuted}}>
+                Par {p.created_by} · {fmtDate(p.updated_at)}
+              </div>
+              {client && (
+                <div style={{fontSize:FONT.xs.size, color:T.accent, marginTop:5, display:"inline-flex", alignItems:"center", gap:4, fontWeight:600}}>
+                  <Icon as={Users} size={11} strokeWidth={2.2}/>
+                  {client.prenom} {client.nom}
+                </div>
+              )}
+            </div>
           </div>
-          <button className="inv-rm" onClick={e=>{e.stopPropagation();setSuppId(p.id);}}>×</button>
+          <button onClick={e=>{e.stopPropagation();setSuppId(p.id);}}
+            style={{
+              background:"transparent", border:"none", cursor:"pointer", color:T.textMuted,
+              padding:SPACING.xs, borderRadius:RADIUS.md, display:"flex", alignItems:"center",
+              justifyContent:"center", transition:"all .15s",
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.background=SEMANTIC.danger.bg; e.currentTarget.style.color=DA;}}
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent"; e.currentTarget.style.color=T.textMuted;}}>
+            <Icon as={X} size={16} strokeWidth={2.2}/>
+          </button>
         </div>
-        {k&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:10}}>
-            {[{label:"Coût total",val:k.total>0?fmt(k.total):"—",color:"#4db8ff"},{label:"Loyers/mois",val:k.loyer>0?fmt(k.loyer):"—",color:"#50c878"},{label:"Lots",val:k.nbLots,color:"#FFC200"}].map(item=>(
-              <div key={item.label} style={{background:T.cardHover,borderRadius:7,padding:"7px 9px",borderLeft:`3px solid ${item.color}`}}>
-                <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{item.label}</div>
-                <div style={{fontSize:13,fontWeight:800,color:item.color}}>{item.val}</div>
+        {k && (
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:SPACING.xs+2, marginBottom:SPACING.md-2}}>
+            {[
+              {label:"Coût total", val:k.total>0?fmt(k.total):"—", color:T.accent, icon:Wallet},
+              {label:"Loyers/mois", val:k.loyer>0?fmt(k.loyer):"—", color:SU, icon:TrendingUp},
+              {label:"Lots", val:k.nbLots, color:WA, icon:Home},
+            ].map(item=>(
+              <div key={item.label} style={{
+                background:T.cardHover, borderRadius:RADIUS.md, padding:`${SPACING.xs+2}px ${SPACING.sm+1}px`,
+                borderLeft:`3px solid ${item.color}`,
+              }}>
+                <div style={{fontSize:FONT.xs.size-1, color:T.textMuted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:2, display:"inline-flex", alignItems:"center", gap:4}}>
+                  <Icon as={item.icon} size={9} strokeWidth={2}/> {item.label}
+                </div>
+                <div style={{fontSize:FONT.sm.size+1, fontWeight:800, color:item.color, fontFamily:"'DM Mono',monospace"}}>{item.val}</div>
               </div>
             ))}
           </div>
         )}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:10,background:T.cardHover,color:T.textSub,padding:"2px 8px",borderRadius:20,fontWeight:600}}>{fmtDate(p.created_at)}</span>
-          <span style={{fontSize:12,color:T.accent,fontWeight:700}}>Ouvrir →</span>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+          <span style={{
+            fontSize:FONT.xs.size-1, background:T.cardHover, color:T.textSub,
+            padding:`${SPACING.xs-2}px ${SPACING.sm}px`, borderRadius:RADIUS.pill, fontWeight:600,
+          }}>{fmtDate(p.created_at)}</span>
+          <span style={{fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:4}}>
+            Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
+          </span>
         </div>
       </div>
     );
   };
 
   const modalSuppr = () => (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
-      <div style={{background:"#111318",border:"1px solid #2a2d3a",borderRadius:14,padding:"26px 30px",maxWidth:360,width:"90%",textAlign:"center"}}>
-        <div style={{fontSize:34,marginBottom:10}}>🗑️</div>
-        <div style={{fontSize:15,fontWeight:800,color:"#e8eaf0",marginBottom:7}}>Supprimer ce projet ?</div>
-        <div style={{fontSize:13,color:"rgba(255,255,255,0.4)",marginBottom:22,lineHeight:1.6}}>Cette action est irréversible.</div>
-        <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+    <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, backdropFilter:"blur(4px)"}}>
+      <div style={{
+        background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl,
+        padding:`${SPACING.xl+2}px ${SPACING.xl+6}px`, maxWidth:380, width:"90%", textAlign:"center",
+        boxShadow:T.shadowMd,
+      }}>
+        <div style={{
+          width:56, height:56, borderRadius:"50%", margin:`0 auto ${SPACING.md}px`,
+          background:SEMANTIC.danger.bg, border:`2px solid ${SEMANTIC.danger.border}`,
+          display:"flex", alignItems:"center", justifyContent:"center", color:DA,
+        }}>
+          <Icon as={Trash2} size={26} strokeWidth={2}/>
+        </div>
+        <div style={{fontSize:FONT.md.size+1, fontWeight:800, color:T.text, marginBottom:6}}>Supprimer ce projet ?</div>
+        <div style={{fontSize:FONT.sm.size+1, color:T.textSub, marginBottom:SPACING.xl-2, lineHeight:1.55}}>
+          Cette action est <strong>irréversible</strong>.
+        </div>
+        <div style={{display:"flex", gap:SPACING.sm+2, justifyContent:"center"}}>
           <button className="inv-btn inv-btn-out" onClick={()=>setSuppId(null)}>Annuler</button>
-          <button className="inv-btn inv-btn-danger" onClick={()=>supprimer(suppId)}>Supprimer</button>
+          <button className="inv-btn inv-btn-danger" onClick={()=>supprimer(suppId)}>
+            <Icon as={Trash2} size={13} strokeWidth={2.2}/> Supprimer
+          </button>
         </div>
       </div>
     </div>
   );
 
+  const emptyState = (label, sub) => (
+    <div style={{textAlign:"center", padding:`${SPACING.xxl}px ${SPACING.lg}px`}}>
+      <div style={{
+        width:64, height:64, borderRadius:RADIUS.xl, margin:`0 auto ${SPACING.md}px`,
+        background:T.accentBg, color:T.accent,
+        display:"flex", alignItems:"center", justifyContent:"center",
+      }}>
+        <Icon as={Building2} size={32} strokeWidth={1.5}/>
+      </div>
+      <div style={{fontSize:FONT.md.size+1, fontWeight:700, color:T.text, marginBottom:6}}>{label}</div>
+      {sub && <div style={{fontSize:FONT.sm.size+1, color:T.textSub, marginBottom:SPACING.lg+2}}>{sub}</div>}
+      <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>
+        <Icon as={Plus} size={13} strokeWidth={2.2}/> Créer un projet
+      </button>
+    </div>
+  );
+
   if (inline) return (
     <div>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-        <div style={{fontSize:13,color:"rgba(255,255,255,0.35)"}}>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:SPACING.lg+2, flexWrap:"wrap", gap:SPACING.sm+2}}>
+        <div style={{fontSize:FONT.sm.size+1, color:T.textMuted}}>
           {projets.length} projet{projets.length!==1?"s":""} — partagés avec tous les associés
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Nouveau projet</button>
+        <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>
+          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau projet
+        </button>
       </div>
       {loading ? (
-        <div style={{textAlign:"center",padding:"40px 0",color:"rgba(255,255,255,0.3)"}}>Chargement…</div>
-      ) : projets.length===0 ? (
-        <div style={{textAlign:"center",padding:"60px 20px"}}>
-          <div style={{fontSize:40,marginBottom:12}}>🏢</div>
-          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:16}}>Aucun projet pour l'instant</div>
-          <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Créer un projet</button>
+        <div style={{textAlign:"center", padding:`${SPACING.xl+8}px 0`, color:T.textMuted, display:"inline-flex", alignItems:"center", justifyContent:"center", width:"100%", gap:8}}>
+          <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
+          Chargement…
         </div>
+      ) : projets.length===0 ? (
+        emptyState("Aucun projet pour l'instant", null)
       ) : (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:SPACING.md+2}}>
           {projetsFiltres.map(p=>renderCard(p))}
         </div>
       )}
       {suppId&&modalSuppr()}
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
@@ -520,16 +586,14 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
           </div>
         </div>
         {loading ? (
-          <div style={{textAlign:"center",padding:"60px 0",color:"rgba(255,255,255,0.3)"}}>Chargement…</div>
-        ) : projets.length===0 ? (
-          <div style={{textAlign:"center",padding:"80px 20px"}}>
-            <div style={{fontSize:48,marginBottom:14}}>🏢</div>
-            <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:8}}>Aucun projet pour l'instant</div>
-            <div style={{fontSize:14,color:T.textSub,marginBottom:22}}>Créez votre premier projet d'investissement</div>
-            <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Créer un projet</button>
+          <div style={{textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8}}>
+            <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
+            Chargement…
           </div>
+        ) : projets.length===0 ? (
+          emptyState("Aucun projet pour l'instant", "Créez votre premier projet d'investissement")
         ) : (
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:SPACING.md+2}}>
             {projetsFiltres.map(p=>renderCard(p))}
           </div>
         )}
@@ -1313,11 +1377,26 @@ function Simulateur({ projet, profil, onRetour }) {
 }
 
 // ─── TABLEAU DE BORD INVEST ───────────────────────────────────────────────────
-function KPICard({ label, value, color, icon }) {
+function KPICard({ label, value, color, icon: IconComp }) {
+  const c = color || "#FFC200";
   return (
-    <div className="inv-kpi" style={{ borderLeft:`3px solid ${color||"#FFC200"}` }}>
-      <div className="inv-kpi-lbl">{label}</div>
-      <div className="inv-kpi-val" style={{ color: color||"#FFC200", fontSize:26 }}>{value}</div>
+    <div className="inv-kpi" style={{
+      display:"flex", flexDirection:"row", alignItems:"center", gap:SPACING.md,
+      borderLeft:`3px solid ${c}`,
+    }}>
+      {IconComp && (
+        <div style={{
+          width:38, height:38, borderRadius:RADIUS.md, flexShrink:0,
+          background:`${c}18`, color:c,
+          display:"flex", alignItems:"center", justifyContent:"center",
+        }}>
+          <Icon as={IconComp} size={19} strokeWidth={2}/>
+        </div>
+      )}
+      <div style={{minWidth:0, flex:1}}>
+        <div className="inv-kpi-lbl">{label}</div>
+        <div className="inv-kpi-val" style={{ color:c, fontSize:FONT.xl.size+2 }}>{value}</div>
+      </div>
     </div>
   );
 }
@@ -1360,40 +1439,63 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
   const fmt = v => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
 
 
+  const sectionTitle = (icon, label) => (
+    <div style={{
+      fontSize:FONT.xs.size, fontWeight:700, color:T.textMuted, textTransform:"uppercase",
+      letterSpacing:1.8, marginBottom:SPACING.md, display:"flex", alignItems:"center", gap:SPACING.sm-2,
+    }}>
+      <Icon as={icon} size={13} strokeWidth={2}/>
+      {label}
+    </div>
+  );
+
   return (
-    <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
-      <div style={{ marginBottom:24 }}>
-        <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>Tableau de bord</div>
-        <div style={{ fontSize:14, color:T.textSub, marginTop:3 }}>Vue globale de l'activité Profero Invest</div>
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1200, margin:"0 auto" }}>
+      <div style={{ marginBottom:SPACING.xl, display:"flex", alignItems:"center", gap:SPACING.md }}>
+        <div style={{
+          width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0,
+          background:T.accentBg, color:T.accent,
+          display:"flex", alignItems:"center", justifyContent:"center",
+        }}>
+          <Icon as={LayoutDashboard} size={24} strokeWidth={2}/>
+        </div>
+        <div>
+          <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Tableau de bord</div>
+          <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>Vue globale de l'activité Profero Invest</div>
+        </div>
       </div>
 
       {loading ? (
-        <div style={{ textAlign:"center", padding:"60px 0", color:T.textMuted }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}>
+          <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
+          Chargement…
+        </div>
       ) : stats && (
         <>
-          <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>👥 Clients & Prospects</div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12, marginBottom:28 }}>
-            <KPICard icon="🔵" label="Prospects"          value={stats.prospects}       color="#4db8ff" />
-            <KPICard icon="🟢" label="Clients actifs"     value={stats.actifs}          color="#50c878" />
-            <KPICard icon="🟡" label="Clients inactifs"   value={stats.inactifs}        color="#FFC200" />
-            <KPICard icon="⚫" label="Terminés"           value={stats.termines}        color="rgba(255,255,255,0.4)" />
-            <KPICard icon="✅" label="Total signés"       value={stats.totalSignes}     color="#50c878" />
-            <KPICard icon="💰" label="Budget total signé" value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" />
-            <KPICard icon="⚠️" label="Sans prochaine action" value={stats.sansProchaineAction} color="#e05c5c" />
-            <KPICard icon="📋" label="Moy. biens / client" value={stats.moyBiensParClient} color="#c084fc" />
+          {sectionTitle(Users, "Clients & Prospects")}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xxl-2 }}>
+            <KPICard icon={Users}        label="Prospects"             value={stats.prospects}       color="#4db8ff" />
+            <KPICard icon={Check}        label="Clients actifs"        value={stats.actifs}          color={SU} />
+            <KPICard icon={Bell}         label="Clients inactifs"      value={stats.inactifs}        color={WA} />
+            <KPICard icon={Lock}         label="Terminés"              value={stats.termines}        color={T.textMuted} />
+            <KPICard icon={Handshake}    label="Total signés"          value={stats.totalSignes}     color={SU} />
+            <KPICard icon={Wallet}       label="Budget total signé"    value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" />
+            <KPICard icon={AlertTriangle} label="Sans prochaine action" value={stats.sansProchaineAction} color={DA} />
+            <KPICard icon={Briefcase}    label="Moy. biens / client"   value={stats.moyBiensParClient} color="#c084fc" />
           </div>
 
-          <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>🏠 Stock de Biens</div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
-            <KPICard icon="🏘️" label="Biens en stock"       value={stats.biensTotaux}      color="#4db8ff" />
-            <KPICard icon="🔔" label="À relancer"            value={stats.biensARelancer}   color="#e05c5c" />
-            <KPICard icon="📅" label="Visites programmées"   value={stats.visitesProg}      color="#50c878" />
-            <KPICard icon="📨" label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" />
-            <KPICard icon="🎉" label="Offres acceptées"      value={stats.offresAcceptees}  color="#50c878" />
-            <KPICard icon="🔗" label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" />
+          {sectionTitle(Building2, "Stock de Biens")}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md }}>
+            <KPICard icon={Home}         label="Biens en stock"        value={stats.biensTotaux}      color="#4db8ff" />
+            <KPICard icon={Bell}         label="À relancer"            value={stats.biensARelancer}   color={DA} />
+            <KPICard icon={Calendar}     label="Visites programmées"   value={stats.visitesProg}      color={SU} />
+            <KPICard icon={Send}         label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" />
+            <KPICard icon={Check}        label="Offres acceptées"      value={stats.offresAcceptees}  color={SU} />
+            <KPICard icon={Hammer}       label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" />
           </div>
         </>
       )}
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -1439,19 +1541,34 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
   if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} />;
 
   return (
-    <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
-        <div>
-          <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>CRM Clients / Prospects</div>
-          <div style={{ fontSize:13, color:T.textSub, marginTop:3 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1400, margin:"0 auto" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:SPACING.xl-4, flexWrap:"wrap", gap:SPACING.sm+2 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
+          <div style={{
+            width:44, height:44, borderRadius:RADIUS.lg, flexShrink:0,
+            background:T.accentBg, color:T.accent,
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}>
+            <Icon as={Users} size={22} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>CRM Clients / Prospects</div>
+            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
+          </div>
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau contact</button>
+        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>
+          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau contact
+        </button>
       </div>
 
       {/* Filtres */}
-      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
-        <input className="inv-inp" placeholder="🔍 Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
-          style={{ width:200, textAlign:"left", fontSize:13 }}/>
+      <div style={{ display:"flex", gap:SPACING.sm+2, marginBottom:SPACING.lg, flexWrap:"wrap" }}>
+        <div style={{position:"relative", width:240}}>
+          <Icon as={Search} size={13} color={T.textMuted}
+            style={{position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
+          <input className="inv-inp" placeholder="Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
+            style={{ width:"100%", textAlign:"left", paddingLeft:30, fontSize:FONT.sm.size+1 }}/>
+        </div>
         <select className="inv-sel" value={filtreStatut} onChange={e=>setFiltreStatut(e.target.value)}>
           <option value="">Tous statuts</option>
           {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
@@ -1468,36 +1585,70 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
 
       {/* Liste */}
       {loading ? (
-        <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}>
+          <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
+          Chargement…
+        </div>
       ) : (
-        <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
+        <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflow:"hidden", boxShadow:T.shadowSm }}>
+          <div style={{
+            display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px",
+            padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
+            borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
+            color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8,
+          }}>
             <div>Contact</div><div>Statut</div><div>Budget</div><div>Conseiller</div><div>Étape</div><div>Prochaine action</div><div/>
           </div>
           {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted, fontSize:14 }}>Aucun contact trouvé</div>
-          ) : filtered.map(c => (
-            <div key={c.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", cursor:"pointer", transition:"background .12s" }}
-              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
-              onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-              onClick={() => setFicheId(c.id)}>
-              <div>
-                <div style={{ fontWeight:700, color:T.text, fontSize:14 }}>{c.prenom} {c.nom}</div>
-                <div style={{ fontSize:11, color:T.textMuted }}>{c.email || c.telephone || "—"}</div>
+            <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun contact trouvé</div>
+          ) : filtered.map(c => {
+            const initials = `${c.prenom?.[0]||""}${c.nom?.[0]||""}`.toUpperCase();
+            const enRetard = c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10);
+            return (
+              <div key={c.id} style={{
+                display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px",
+                padding:`${SPACING.md+2}px ${SPACING.lg}px`,
+                borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
+                cursor:"pointer", transition:"background .12s",
+              }}
+                onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                onClick={() => setFicheId(c.id)}>
+                <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
+                  <div style={{
+                    width:34, height:34, borderRadius:"50%", flexShrink:0,
+                    background:T.accentBg, color:T.accent,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:FONT.sm.size+1, fontWeight:800,
+                  }}>{initials}</div>
+                  <div style={{minWidth:0}}>
+                    <div style={{ fontWeight:700, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.prenom} {c.nom}</div>
+                    <div style={{ fontSize:FONT.xs.size, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.email || c.telephone || "—"}</div>
+                  </div>
+                </div>
+                <div>
+                  <span style={{
+                    background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut],
+                    border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:RADIUS.pill,
+                    padding:`${SPACING.xs-2}px ${SPACING.sm+2}px`, fontSize:FONT.xs.size, fontWeight:700,
+                  }}>{c.statut}</span>
+                </div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:600, color:T.accent }}>{fmtBudget(c.budget)}</div>
+                <div style={{ fontSize:FONT.sm.size+1, color:T.textSub }}>{c.conseiller||"—"}</div>
+                <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.etape||"—"}</div>
+                <div style={{ fontSize:FONT.sm.size, color: enRetard ? DA : T.textMuted }}>
+                  {enRetard && <Icon as={AlertTriangle} size={11} strokeWidth={2.2} style={{marginRight:3, verticalAlign:-1}}/>}
+                  {fmtDate(c.date_prochaine_action)}
+                  {c.prochaine_action && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:1, opacity:0.7 }}>{c.prochaine_action.slice(0,30)}</div>}
+                </div>
+                <div style={{ textAlign:"right" }}>
+                  <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:3 }}>
+                    Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
+                  </span>
+                </div>
               </div>
-              <div><span style={{ background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut], border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:700 }}>{c.statut}</span></div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:600, color:T.accent }}>{fmtBudget(c.budget)}</div>
-              <div style={{ fontSize:13, color:T.textSub }}>{c.conseiller||"—"}</div>
-              <div style={{ fontSize:12, color:T.textSub }}>{c.etape||"—"}</div>
-              <div style={{ fontSize:12, color: c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : "rgba(255,255,255,0.45)" }}>
-                {fmtDate(c.date_prochaine_action)}
-                {c.prochaine_action && <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", marginTop:1 }}>{c.prochaine_action.slice(0,30)}</div>}
-              </div>
-              <div style={{ textAlign:"right" }}>
-                <span style={{ fontSize:12, color:T.accent, fontWeight:700 }}>Ouvrir →</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2093,22 +2244,41 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
   if (ficheId) return <FicheBien id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} />;
 
   return (
-    <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
-        <div>
-          <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5 }}>Stock de Biens</div>
-          <div style={{ fontSize:13, color:"#9aa0b0", marginTop:3 }}>
-            {filtered.length} bien{filtered.length!==1?"s":""}
-            {aRelancer > 0 && <span style={{ marginLeft:10, color:"#e05c5c", fontWeight:700 }}>· 🔔 {aRelancer} à relancer</span>}
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1400, margin:"0 auto" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:SPACING.xl-4, flexWrap:"wrap", gap:SPACING.sm+2 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
+          <div style={{
+            width:44, height:44, borderRadius:RADIUS.lg, flexShrink:0,
+            background:T.accentBg, color:T.accent,
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}>
+            <Icon as={Building2} size={22} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Stock de Biens</div>
+            <div style={{ fontSize:FONT.sm.size+1, color:T.textMuted, marginTop:2, display:"inline-flex", alignItems:"center", gap:8 }}>
+              {filtered.length} bien{filtered.length!==1?"s":""}
+              {aRelancer > 0 && (
+                <span style={{ display:"inline-flex", alignItems:"center", gap:4, color:DA, fontWeight:700 }}>
+                  · <Icon as={Bell} size={11} strokeWidth={2.2}/> {aRelancer} à relancer
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>＋ Nouveau bien</button>
+        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>
+          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau bien
+        </button>
       </div>
 
       {/* Filtres */}
-      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
-        <input className="inv-inp" placeholder="🔍 Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
-          style={{ width:200, textAlign:"left", fontSize:13 }}/>
+      <div style={{ display:"flex", gap:SPACING.sm+2, marginBottom:SPACING.lg, flexWrap:"wrap" }}>
+        <div style={{position:"relative", width:240}}>
+          <Icon as={Search} size={13} color={T.textMuted}
+            style={{position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
+          <input className="inv-inp" placeholder="Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
+            style={{ width:"100%", textAlign:"left", paddingLeft:30, fontSize:FONT.sm.size+1 }}/>
+        </div>
         <select className="inv-sel" value={filtreStatut} onChange={e=>setFiltreStatut(e.target.value)}>
           <option value="">Tous statuts</option>
           {STATUTS_BIEN.map(s=><option key={s}>{s}</option>)}
@@ -2124,47 +2294,89 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
           <option value="cout">Coût total ↓</option>
           <option value="relance">Date relance ↑</option>
         </select>
-        <button className="inv-btn inv-btn-out inv-btn-sm" style={{ color:"#c0392b", borderColor:"rgba(192,57,43,.3)" }}
+        <button className="inv-btn inv-btn-danger inv-btn-sm"
           onClick={() => { setFiltreStatut("À relancer"); setSortBy("relance"); }}>
-          🔔 Voir à relancer
+          <Icon as={Bell} size={12} strokeWidth={2.2}/> Voir à relancer
         </button>
       </div>
 
       {/* Liste */}
       {loading ? (
-        <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted }}>Chargement…</div>
+        <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}>
+          <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
+          Chargement…
+        </div>
       ) : (
-        <div style={{ background:T.card, borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"10px 16px", background:T.sectionHd, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:.6 }}>
+        <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflow:"hidden", boxShadow:T.shadowSm }}>
+          <div style={{
+            display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px",
+            padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
+            borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
+            color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8,
+          }}>
             <div>Bien</div><div>Statut</div><div>Coût total</div><div>Rendement</div><div>Cash-flow</div><div>Relance</div><div/>
           </div>
           {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted, fontSize:14 }}>Aucun bien trouvé</div>
-          ) : filtered.map(b => (
-            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px", padding:"12px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", cursor:"pointer", transition:"background .12s" }}
-              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
-              onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-              onClick={() => setFicheId(b.id)}>
-              <div>
-                <div style={{ fontWeight:700, color:T.text, fontSize:14 }}>{b.adresse||"Adresse non renseignée"}</div>
-                <div style={{ fontSize:11, color:T.textMuted }}>{b.ville||""}{b.agence ? ` · ${b.agence}` : ""}</div>
+            <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun bien trouvé</div>
+          ) : filtered.map(b => {
+            const couleurStatut = STATUT_BIEN_COLORS[b.statut] || T.textMuted;
+            const enRelance = b.date_relance && b.date_relance <= today;
+            const rendCol = b.rendement_brut >= 8 ? SU : b.rendement_brut >= 5 ? WA : T.textMuted;
+            const cfVal = b.cashflow_estime || 0;
+            const cfCol = cfVal > 0 ? SU : cfVal < 0 ? DA : T.textMuted;
+            return (
+              <div key={b.id} style={{
+                display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px",
+                padding:`${SPACING.md+2}px ${SPACING.lg}px`,
+                borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
+                cursor:"pointer", transition:"background .12s",
+              }}
+                onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                onClick={() => setFicheId(b.id)}>
+                <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
+                  <div style={{
+                    width:34, height:34, borderRadius:RADIUS.md, flexShrink:0,
+                    background:`${couleurStatut}22`, color:couleurStatut,
+                    border:`1px solid ${couleurStatut}40`,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                  }}>
+                    <Icon as={Home} size={17} strokeWidth={2}/>
+                  </div>
+                  <div style={{minWidth:0}}>
+                    <div style={{ fontWeight:700, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{b.adresse||"Adresse non renseignée"}</div>
+                    <div style={{ fontSize:FONT.xs.size, color:T.textMuted, display:"inline-flex", alignItems:"center", gap:4 }}>
+                      {b.ville && <><Icon as={MapPin} size={10}/> {b.ville}</>}
+                      {b.agence && <span> · {b.agence}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <span style={{
+                    background:`${couleurStatut}18`, color:couleurStatut,
+                    border:`1px solid ${couleurStatut}33`, borderRadius:RADIUS.pill,
+                    padding:`${SPACING.xs-2}px ${SPACING.sm+1}px`, fontSize:FONT.xs.size-1, fontWeight:700, whiteSpace:"nowrap",
+                  }}>{b.statut}</span>
+                </div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size, fontWeight:600, color:T.textSub }}>{fmtEur(b.cout_total)}</div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:700, color:rendCol }}>
+                  {b.rendement_brut > 0 ? b.rendement_brut.toFixed(1)+"%" : "—"}
+                </div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size, color:cfCol, fontWeight:cfVal !== 0 ? 600 : 400 }}>
+                  {b.cashflow_estime ? fmtEur(b.cashflow_estime)+"/mois" : "—"}
+                </div>
+                <div style={{ fontSize:FONT.sm.size, color: enRelance ? DA : T.textMuted, fontWeight: enRelance ? 700 : 400, display:"inline-flex", alignItems:"center", gap:3 }}>
+                  {enRelance && <Icon as={Bell} size={11} strokeWidth={2.2}/>}
+                  {fmtDate(b.date_relance)}
+                </div>
+                <div style={{ textAlign:"right" }}>
+                  <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:3 }}>
+                    Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
+                  </span>
+                </div>
               </div>
-              <div>
-                <span style={{ background:`${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}18`, color:STATUT_BIEN_COLORS[b.statut]||"#9aa0b0", border:`1px solid ${STATUT_BIEN_COLORS[b.statut]||"#9aa0b0"}33`, borderRadius:20, padding:"2px 8px", fontSize:10, fontWeight:700, whiteSpace:"nowrap" }}>{b.statut}</span>
-              </div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600, color:T.textSub }}>{fmtEur(b.cout_total)}</div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color: b.rendement_brut >= 8 ? "#1a7a4a" : b.rendement_brut >= 5 ? "#c9a84c" : "#9aa0b0" }}>
-                {b.rendement_brut > 0 ? b.rendement_brut.toFixed(1)+"%" : "—"}
-              </div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color: (b.cashflow_estime||0) > 0 ? "#1a7a4a" : (b.cashflow_estime||0) < 0 ? "#c0392b" : "#9aa0b0" }}>
-                {b.cashflow_estime ? fmtEur(b.cashflow_estime)+"/mois" : "—"}
-              </div>
-              <div style={{ fontSize:12, color: b.date_relance && b.date_relance <= today ? "#c0392b" : "#5a6070", fontWeight: b.date_relance && b.date_relance <= today ? 700 : 400 }}>
-                {fmtDate(b.date_relance)}
-              </div>
-              <div style={{ textAlign:"right" }}><span style={{ fontSize:12, color:"#1f4ea1", fontWeight:700 }}>Ouvrir →</span></div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
