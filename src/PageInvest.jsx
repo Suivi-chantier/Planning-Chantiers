@@ -934,8 +934,16 @@ function Simulateur({ projet, profil, onRetour }) {
 
       {/* Tabs nav */}
       <div className="inv-tab-nav">
-        {[["simulateur","📊 Simulateur"],["budget","🔨 Budget Travaux"],["fiscalite","⚖️ Fiscalité"]].map(([k,l])=>(
-          <button key={k} className={`inv-tab-btn${tab===k?" active":""}`} onClick={()=>setTab(k)}>{l}</button>
+        {[
+          ["simulateur","Simulateur", BarChart3],
+          ["budget","Budget Travaux", Hammer],
+          ["fiscalite","Fiscalité", Briefcase],
+        ].map(([k,l,IconComp])=>(
+          <button key={k} className={`inv-tab-btn${tab===k?" active":""}`} onClick={()=>setTab(k)}
+            style={{display:"inline-flex",alignItems:"center",gap:6}}>
+            <Icon as={IconComp} size={13} strokeWidth={2.2}/>
+            {l}
+          </button>
         ))}
       </div>
 
@@ -966,7 +974,7 @@ function Simulateur({ projet, profil, onRetour }) {
               <div style={{display:"flex",flexDirection:"column",gap:16}}>
                 {/* A — Acquisition */}
                 <div className="inv-card">
-                  <div className="inv-card-hd blue">🏠 A — Acquisition</div>
+                  <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>A — Acquisition</span></div>
                   <div className="inv-card-bd">
                     {[
                       ["Prix affiché (€)", prixAffiche, setPrixAffiche],
@@ -994,7 +1002,7 @@ function Simulateur({ projet, profil, onRetour }) {
 
                 {/* C — Charges */}
                 <div className="inv-card">
-                  <div className="inv-card-hd mid">📋 C — Charges d'Exploitation</div>
+                  <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13} strokeWidth={2.2}/>C — Charges d'Exploitation</span></div>
                   <div className="inv-card-bd">
                     {[["Taxe foncière (€/an)",taxeFonciere,setTaxeFonciere],["Assurance PNO (€/an)",assurance,setAssurance],["Comptabilité société (€/an)",compta,setCompta],["Provisions travaux (€/an)",provisions,setProvisions]].map(([l,v,s])=>(
                       <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><NumInput value={v} onChange={s}/></div>
@@ -1009,7 +1017,7 @@ function Simulateur({ projet, profil, onRetour }) {
               <div style={{display:"flex",flexDirection:"column",gap:16}}>
                 {/* B — Lots */}
                 <div className="inv-card">
-                  <div className="inv-card-hd">🏘️ B — Lots & Loyers</div>
+                  <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Building2} size={13} strokeWidth={2.2}/>B — Lots & Loyers</span></div>
                   <div className="inv-card-bd">
                     <div className="inv-toggle-wrap">
                       <label className="inv-toggle">
@@ -1069,7 +1077,7 @@ function Simulateur({ projet, profil, onRetour }) {
 
                 {/* Description */}
                 <div className="inv-card">
-                  <div className="inv-card-hd mid">📝 Description du Projet</div>
+                  <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Pencil} size={13} strokeWidth={2.2}/>Description du Projet</span></div>
                   <div className="inv-card-bd" style={{display:"flex",flexDirection:"column",gap:10}}>
                     {[["Description générale","Localisation, contexte…",desc,setDesc],["Travaux envisagés","Rénovation toiture, électricité…",travaux,setTravaux],["Atouts / Points de vigilance","Emplacement, potentiel, risques…",atouts,setAtouts]].map(([label,ph,val,set])=>(
                       <div key={label}>
@@ -1115,7 +1123,7 @@ function Simulateur({ projet, profil, onRetour }) {
             {/* D+E — Financement + Rentabilité */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:16}}>
               <div className="inv-card">
-                <div className="inv-card-hd mid">🏦 D — Plan de Financement</div>
+                <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Wallet} size={13} strokeWidth={2.2}/>D — Plan de Financement</span></div>
                 <div className="inv-card-bd">
                   <div className="inv-scen-hd"><div>Paramètre</div><div style={{textAlign:"right"}}>Scénario 1</div><div style={{textAlign:"right"}}>Scénario 2</div></div>
                   <div className="inv-scen-row"><div className="inv-lbl">Montant opération</div><div className="inv-s">{fmt(coutTotal)}</div><div className="inv-s">{fmt(coutTotal)}</div></div>
@@ -1142,7 +1150,7 @@ function Simulateur({ projet, profil, onRetour }) {
 
               <div style={{display:"flex",flexDirection:"column",gap:16}}>
                 <div className="inv-card">
-                  <div className="inv-card-hd gold">📈 E — Rentabilité</div>
+                  <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={TrendingUp} size={13} strokeWidth={2.2}/>E — Rentabilité</span></div>
                   <div className="inv-card-bd">
                     <div className="inv-scen-hd"><div>Indicateur</div><div style={{textAlign:"right"}}>S1</div><div style={{textAlign:"right"}}>S2</div></div>
                     <div className="inv-scen-row"><div className="inv-lbl">Loyers bruts annuels</div><div className="inv-s">{fmt(totLoyerAn)}</div><div className="inv-s"></div></div>
@@ -1153,7 +1161,7 @@ function Simulateur({ projet, profil, onRetour }) {
                   </div>
                 </div>
                 <div className="inv-card">
-                  <div className="inv-card-hd danger">⚖️ F — Point d'Équilibre</div>
+                  <div className="inv-card-hd danger"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={AlertTriangle} size={13} strokeWidth={2.2}/>F — Point d'Équilibre</span></div>
                   <div className="inv-card-bd">
                     <div className="inv-scen-hd"><div>Indicateur</div><div style={{textAlign:"right"}}>S1</div><div style={{textAlign:"right"}}>S2</div></div>
                     <div className="inv-scen-row warn"><div className="inv-lbl bold">Point d'équilibre (%)</div><div className="inv-s orange">{fmtPct(pe1)}</div><div className="inv-s orange">{fmtPct(pe2)}</div></div>
@@ -1167,7 +1175,7 @@ function Simulateur({ projet, profil, onRetour }) {
 
             {/* G — Fiscalité rapide */}
             <div className="inv-card" style={{marginTop:16}}>
-              <div className="inv-card-hd">🧾 G — Fiscalité Rapide (Scénario 1)</div>
+              <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>G — Fiscalité Rapide (Scénario 1)</span></div>
               <div className="inv-card-bd">
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                   <div>
@@ -1199,7 +1207,7 @@ function Simulateur({ projet, profil, onRetour }) {
           <div style={{padding:"18px 22px",maxWidth:1200,margin:"0 auto"}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
               <div className="inv-card">
-                <div className="inv-card-hd mid">⚙️ Paramètres</div>
+                <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Settings} size={13} strokeWidth={2.2}/>Paramètres</span></div>
                 <div className="inv-card-bd">
                   {[["Surface totale",surface+" m²"],["Logements",actLots(lots).length],["Studios",lots.filter(l=>l.type==="Studio").length],["T1",lots.filter(l=>l.type==="T1").length],["T2",lots.filter(l=>l.type==="T2").length],["T3",lots.filter(l=>l.type==="T3").length],["T4+",lots.filter(l=>["T4","T5","T6"].includes(l.type)).length]].map(([l,v])=>(
                     <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v}</span></div>
@@ -1207,7 +1215,7 @@ function Simulateur({ projet, profil, onRetour }) {
                 </div>
               </div>
               <div className="inv-card">
-                <div className="inv-card-hd mid">🏗️ Coefficient État Général</div>
+                <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Building2} size={13} strokeWidth={2.2}/>Coefficient État Général</span></div>
                 <div className="inv-card-bd">
                   {[["Bon état général","× 0,70","#1a7a4a"],["État moyen","× 1,00","#2c3040"],["Mauvais état","× 1,30","#d4610a"],["Passoire / ruine","× 1,60","#c0392b"]].map(([l,v,c])=>(
                     <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val" style={{color:c}}>{v}</span></div>
@@ -1222,7 +1230,7 @@ function Simulateur({ projet, profil, onRetour }) {
             </div>
 
             <div className="inv-card">
-              <div className="inv-card-hd">🔨 Détail par Corps de Métier</div>
+              <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Hammer} size={13} strokeWidth={2.2}/>Détail par Corps de Métier</span></div>
               <div className="inv-card-bd">
                 <div className="inv-brow hd">
                   <div>Corps de métier</div><div style={{textAlign:"center"}}>Base</div>
@@ -1309,7 +1317,7 @@ function Simulateur({ projet, profil, onRetour }) {
           <div style={{padding:"18px 22px",maxWidth:1200,margin:"0 auto"}}>
             {/* Comparatif */}
             <div className="inv-card" style={{marginBottom:16}}>
-              <div className="inv-card-hd">⚖️ Comparatif des Régimes Fiscaux</div>
+              <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Comparatif des Régimes Fiscaux</span></div>
               <div className="inv-card-bd" style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr>
@@ -1341,7 +1349,7 @@ function Simulateur({ projet, profil, onRetour }) {
               </div>
               {/* IR */}
               <div className="inv-regime">
-                <div className="inv-regime-hd ir">👤 SCI à l'IR</div>
+                <div className="inv-regime-hd ir"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>SCI à l'IR</span></div>
                 {[["Loyers bruts",fmt(totLoyerAn)],["− Charges déductibles",fmt(totCharges)],["− Intérêts emprunt ~70%",fmt(ann1*.7)],[" Revenu foncier net",fmt(rf),rf<0?"warn":""],["Impôt IR (TMI)",fmt(irImp)],["Prélèvements sociaux 17,2%",fmt(irPS)],["Total imposition",fmt(irImp+irPS)],["CF net annuel",fmt(cfIR),"hl"],["CF net mensuel",fmt(cfIR/12),"hl"]].map(([l,v,cls])=>(
                   <div key={l} className={`inv-regime-row ${cls||""}`}><div className="rl">{l}</div><div className="rv">{v}</div></div>
                 ))}
@@ -1360,14 +1368,18 @@ function Simulateur({ projet, profil, onRetour }) {
 
       {/* Modal Reset */}
       {showReset&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
-          <div style={{background:"#111318",border:"1px solid #2a2d3a",borderRadius:14,padding:"26px 30px",maxWidth:380,width:"90%",textAlign:"center"}}>
-            <div style={{fontSize:34,marginBottom:10}}>⚠️</div>
-            <div style={{fontSize:15,fontWeight:800,color:"#1a2d4a",marginBottom:7}}>Réinitialiser le simulateur ?</div>
-            <div style={{fontSize:13,color:"#5a6070",marginBottom:22,lineHeight:1.6}}>Toutes les données saisies seront effacées. Cette action est irréversible.</div>
-            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:`${SPACING.xl+2}px ${SPACING.xl+6}px`,maxWidth:380,width:"90%",textAlign:"center",boxShadow:T.shadowMd}}>
+            <div style={{
+              width:56,height:56,borderRadius:"50%",margin:`0 auto ${SPACING.md}px`,
+              background:SEMANTIC.warning.bg,border:`2px solid ${SEMANTIC.warning.border}`,
+              display:"flex",alignItems:"center",justifyContent:"center",color:WA,
+            }}><Icon as={AlertTriangle} size={26} strokeWidth={2}/></div>
+            <div style={{fontSize:FONT.md.size+1,fontWeight:800,color:T.text,marginBottom:6}}>Réinitialiser le simulateur ?</div>
+            <div style={{fontSize:FONT.sm.size+1,color:T.textSub,marginBottom:SPACING.xl-2,lineHeight:1.55}}>Toutes les données saisies seront effacées. Cette action est <strong>irréversible</strong>.</div>
+            <div style={{display:"flex",gap:SPACING.sm+2,justifyContent:"center"}}>
               <button className="inv-btn inv-btn-out" onClick={()=>setShowReset(false)}>Annuler</button>
-              <button className="inv-btn" style={{background:"#c0392b",color:"white"}} onClick={doReset}>Réinitialiser</button>
+              <button className="inv-btn inv-btn-danger" onClick={doReset}><Icon as={RefreshCw} size={13} strokeWidth={2.2}/> Réinitialiser</button>
             </div>
           </div>
         </div>
@@ -2001,21 +2013,23 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
           <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>{client.email} {client.telephone ? `· ${client.telephone}` : ""}</div>
         </div>
         <span style={{ background:`${STATUT_COLORS[client.statut]}18`, color:STATUT_COLORS[client.statut], border:`1px solid ${STATUT_COLORS[client.statut]}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{client.statut}</span>
-        <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>✏️ Modifier</button>
+        <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
+          <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
+        </button>
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ${client.prenom} ${client.nom} ? Cette action est irréversible.`)) return;
           await supabase.from("invest_notes").delete().eq("client_id", id);
           await supabase.from("invest_propositions").delete().eq("client_id", id);
           await supabase.from("invest_clients").delete().eq("id", id);
           onRetour();
-        }}>🗑️ Supprimer</button>
+        }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         {/* Infos */}
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <div className="inv-card">
-            <div className="inv-card-hd blue">👤 Informations</div>
+            <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
             <div className="inv-card-bd">
               {[["Conseiller", client.conseiller],["Source", client.source],["Budget", fmtBudget(client.budget)],["Étape", client.etape||"—"],["Date signature", fmtDate(client.date_signature)],["Avancement", client.avancement ? client.avancement+"%" : "—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
@@ -2023,7 +2037,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             </div>
           </div>
           <div className="inv-card">
-            <div className="inv-card-hd mid">📅 Prochaine Action</div>
+            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
             <div className="inv-card-bd">
               <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
               <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : T.text }}>{fmtDate(client.date_prochaine_action)}</span></div>
@@ -2033,7 +2047,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
           {/* Propositions */}
           <div className="inv-card">
             <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-              <span>🏠 Biens proposés ({props.length})</span>
+              <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Biens proposés ({props.length})</span>
               <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
             </div>
             <div className="inv-card-bd">
@@ -2046,7 +2060,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
                     {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
                     {p.commentaire && ` · ${p.commentaire}`}
                   </div>
-                  {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent }}>📄 Dossier présenté ↗</a>}
+                  {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent, display:"inline-flex", alignItems:"center", gap:3 }}><Icon as={FileText} size={10} strokeWidth={2.2}/> Dossier présenté <Icon as={ExternalLink} size={9}/></a>}
                 </div>
               ))}
             </div>
@@ -2055,7 +2069,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
           {onOuvrirSimulation && (
             <div className="inv-card">
               <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-                <span>📊 Simulations ({simulations.length})</span>
+                <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={BarChart3} size={13} strokeWidth={2.2}/>Simulations ({simulations.length})</span>
                 <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }}
                   onClick={() => onOuvrirSimulation({ client_id: id })}>
                   ＋ Nouvelle simulation
@@ -2084,7 +2098,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
                       onMouseEnter={e => e.currentTarget.style.background = "rgba(77,184,255,0.05)"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                        <div style={{ fontWeight:600, fontSize:13, color:T.text }}>📄 {s.nom}</div>
+                        <div style={{ fontWeight:600, fontSize:13, color:T.text, display:"inline-flex", alignItems:"center", gap:6 }}><Icon as={FileText} size={13} strokeWidth={2.2}/> {s.nom}</div>
                         <span style={{ fontSize:11, color:"#4db8ff", fontWeight:700 }}>Ouvrir →</span>
                       </div>
                       <div style={{ fontSize:11, color:T.textMuted, marginTop:3 }}>
@@ -2106,7 +2120,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
 
         {/* Notes */}
         <div className="inv-card">
-          <div className="inv-card-hd">📝 Historique des notes ({notes.length})</div>
+          <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique des notes ({notes.length})</span></div>
           <div className="inv-card-bd">
             {/* Ajouter une note */}
             <div style={{ marginBottom:16, padding:"12px 14px", background:"#f8f9fb", borderRadius:8, border:"1px solid #eef0f5" }}>
@@ -2529,19 +2543,21 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>{bien.ville||""}{bien.code_postal ? ` ${bien.code_postal}` : ""}{bien.agence ? ` · ${bien.agence}` : ""}</div>
         </div>
         <span style={{ background:`${couleur}18`, color:couleur, border:`1px solid ${couleur}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{bien.statut}</span>
-        <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>✏️ Modifier</button>
+        <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
+          <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
+        </button>
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ce bien (${bien.adresse||"sans adresse"}) ? Cette action est irréversible.`)) return;
           await supabase.from("invest_propositions").delete().eq("bien_id", id);
           await supabase.from("invest_biens").delete().eq("id", id);
           onRetour();
-        }}>🗑️ Supprimer</button>
+        }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <div className="inv-card">
-            <div className="inv-card-hd blue">🏠 Informations</div>
+            <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Informations</span></div>
             <div className="inv-card-bd">
               {[["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:T.accent}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
@@ -2549,22 +2565,22 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
             </div>
           </div>
           <div className="inv-card">
-            <div className="inv-card-hd gold">💰 Données Financières</div>
+            <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Wallet} size={13} strokeWidth={2.2}/>Données Financières</span></div>
             <div className="inv-card-bd">
               {[["Prix de vente", fmtEur(bien.prix_vente)],["Prix travaux", fmtEur(bien.prix_travaux)],["Coût total", fmtEur(bien.cout_total)],["Montant offre", fmtEur(bien.montant_offre)],["Rendement brut", bien.rendement_brut > 0 ? bien.rendement_brut.toFixed(1)+"%" : "—"],["Cash-flow estimé", bien.cashflow_estime ? fmtEur(bien.cashflow_estime)+"/mois" : "—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc" style={{fontFamily:"'DM Mono',monospace",fontWeight:700}}>{v}</span></div>
               ))}
               {(bien.lien_drive || bien.lien_rentabilite) && (
                 <div style={{ marginTop:12, display:"flex", gap:8, flexWrap:"wrap" }}>
-                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:`${T.accent}55`}}>📁 Dossier Drive</a>}
-                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:`${T.accent}55`}}>📊 Rentabilité</a>}
+                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:T.accentBorder}}><Icon as={FileText} size={12} strokeWidth={2.2}/> Dossier Drive <Icon as={ExternalLink} size={10}/></a>}
+                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:T.accentBorder}}><Icon as={BarChart3} size={12} strokeWidth={2.2}/> Rentabilité <Icon as={ExternalLink} size={10}/></a>}
                 </div>
               )}
             </div>
           </div>
           {bien.commentaire && (
             <div className="inv-card">
-              <div className="inv-card-hd mid">💬 Commentaire</div>
+              <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Commentaire</span></div>
               <div className="inv-card-bd" style={{ fontSize:13, color:T.textSub, lineHeight:1.7 }}>{bien.commentaire}</div>
             </div>
           )}
@@ -2576,7 +2592,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         {/* Propositions clients */}
         <div className="inv-card">
           <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-            <span>👥 Clients associés ({props.length})</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
             <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
           </div>
           <div className="inv-card-bd">
@@ -2933,7 +2949,7 @@ function OngletUtilisateursInvest({ T }) {
                   {/* Actions */}
                   <div style={{ display:"flex", gap:6, flexShrink:0, flexWrap:"wrap" }}>
                     <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>{ setEditId(u.id); setEditData({nom:u.nom,role:u.role,branches:u.branches||["renovation"]}); }}>✏️ Modifier</button>
-                    <button className="inv-btn inv-btn-sm" style={{ background:"rgba(77,184,255,0.08)", color:"#4db8ff", border:"1px solid rgba(77,184,255,0.3)" }} onClick={()=>{ setResetId(u.id); setResetEmail(u.email); }}>🔑 Réinit.</button>
+                    <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>{ setResetId(u.id); setResetEmail(u.email); }}><Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Réinit.</button>
                     <button className="inv-btn inv-btn-sm" style={{ background: u.actif?"rgba(224,92,92,0.08)":"rgba(80,200,120,0.08)", color: u.actif?"#e05c5c":"#50c878", border:`1px solid ${u.actif?"rgba(224,92,92,0.3)":"rgba(80,200,120,0.3)"}` }} onClick={()=>toggleActif(u)}>
                       {u.actif?"Désactiver":"Réactiver"}
                     </button>
@@ -2949,7 +2965,11 @@ function OngletUtilisateursInvest({ T }) {
       {resetId && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500 }}>
           <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", maxWidth:380, width:"90%", textAlign:"center" }}>
-            <div style={{ fontSize:34, marginBottom:10 }}>🔑</div>
+            <div style={{
+              width:52, height:52, borderRadius:"50%", margin:`0 auto ${SPACING.md-2}px`,
+              background:THEMES_INV.dark.accentBg, border:`2px solid ${THEMES_INV.dark.accentBorder}`,
+              display:"flex", alignItems:"center", justifyContent:"center", color:THEMES_INV.dark.accent,
+            }}><Icon as={RefreshCw} size={24} strokeWidth={2}/></div>
             <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:8 }}>Réinitialiser le mot de passe ?</div>
             <div style={{ fontSize:13, color:T.textSub, marginBottom:6, lineHeight:1.6 }}>Un email sera envoyé à</div>
             <div style={{ fontSize:14, fontWeight:700, color:T.accent, marginBottom:22 }}>{resetEmail}</div>
