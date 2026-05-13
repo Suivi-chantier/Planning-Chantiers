@@ -764,6 +764,24 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
   },[sauvegarder]);
   useEffect(()=>()=>{if(autoRef.current)clearTimeout(autoRef.current);},[]);
 
+  // Auto-déclenche scheduleAutoSave dès qu'un input change. Sans ça, le
+  // composant NumInput partagé (utilisé pour les ~20 champs numériques)
+  // modifiait le state sans armer l'autosave — résultat : les valeurs
+  // étaient perdues si l'utilisateur fermait le projet sans sauvegarder
+  // manuellement (bug provisions toujours à 1500€ rapporté par l'utilisateur).
+  const autoSaveBootRef = useRef(true);
+  useEffect(() => {
+    if (autoSaveBootRef.current) { autoSaveBootRef.current = false; return; }
+    scheduleAutoSave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    prixAffiche, prixNegocie, budgetTravaux, tauxNotaire, surface,
+    honoraires, enedis, taxeFonciere, assurance, compta, provisions,
+    apport1, apport2, taux1, taux2, duree1, duree2,
+    coefEtat, imprevusPct, gestionActive, modeDetention, tmi, selectedScen,
+    desc, travaux, atouts,
+  ]);
+
   // ── Reset ───────────────────────────────────────────────────────────────────
   const doReset = () => {
     setPrixAffiche(0);setPrixNegocie(0);setSurface(0);setBudgetTravaux(0);
