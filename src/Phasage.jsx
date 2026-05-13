@@ -937,14 +937,16 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
   
   // Adjusted grid columns to fit the new text input for avancement
+  // Sur mobile : 4 colonnes égales pour V/E/R/AV sur la même rangée.
   const gridCols = isMobile
-    ? "auto 1fr auto"
+    ? "1fr 1fr 1fr 1fr"
     : "20px 1.5fr 120px 55px 55px 70px 110px 70px 90px 26px";
 
   // Sur mobile, on stacke chaque ligne de tâche en carte avec grid-template-areas.
+  // 4 rangées au lieu de 5. Le drag handle est caché (drag-and-drop désactivé).
   // Sur desktop, gridAreas reste undefined et l'ordre naturel des enfants s'applique.
   const gridAreas = isMobile
-    ? `"drag name del" "ouv ouv ouv" "v e r" "date date av" "plan plan plan"`
+    ? `"name name name del" "v e r av" "date date ouv ouv" "plan plan plan plan"`
     : undefined;
   const ga = (areaName) => isMobile ? { gridArea: areaName } : {};
 
@@ -954,24 +956,48 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         @media (max-width: 767px) {
           .plan-travaux .plan-task-headers { display: none !important; }
           .plan-travaux .plan-task-row {
-            padding: 12px !important;
-            gap: 8px !important;
+            padding: 10px 12px !important;
+            gap: 6px !important;
             border-radius: 8px;
-            margin: 4px 0;
+            margin: 2px 0;
           }
+          .plan-travaux .plan-task-row .drag-handle { display: none !important; }
           .plan-travaux .plan-task-row .field-mini-label {
             display: block !important;
           }
           .plan-travaux .plan-task-row .planifier-btn-wrap {
             text-align: left !important;
           }
+          .plan-travaux .plan-task-row .planifier-btn-wrap button {
+            width: 100% !important;
+            justify-content: center !important;
+            padding: 8px 12px !important;
+          }
+          /* Inputs compacts dans la carte tâche (≠ inputs des formulaires "vrais"),
+             tout en gardant font-size: 16px pour éviter le zoom iOS au focus. */
           .plan-travaux .plan-task-row input[type="number"],
           .plan-travaux .plan-task-row input[type="date"],
           .plan-travaux .plan-task-row input[type="text"] {
             width: 100% !important;
+            min-height: 32px !important;
+            padding: 5px 8px !important;
+          }
+          /* L'avancement : sur mobile on étire l'input pour matcher les autres
+             champs, et le label (.field-mini-label) s'affiche au-dessus. */
+          .plan-travaux .plan-task-row .av-wrap .av-inner {
+            justify-content: flex-start !important;
+          }
+          .plan-travaux .plan-task-row .av-wrap .av-inner input {
+            width: 100% !important;
+            min-width: 0 !important;
+            flex: 1 1 auto !important;
+          }
+          /* Bouton supprimer aligné à droite dans sa cellule */
+          .plan-travaux .plan-task-row .del-btn {
+            justify-self: end !important;
           }
         }
-        .field-mini-label { display: none; font-size: 9.5px; font-weight: 700; color: ${T.textMuted}; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 3px; }
+        .field-mini-label { display: none; font-size: 8.5px; font-weight: 700; color: ${T.textMuted}; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 1px; line-height: 1; }
       `}</style>
 
       {planifierTask && (
@@ -1333,7 +1359,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                             cursor: isMobile ? "default" : "grab",
                           }}>
 
-                          <div style={{ color: T.textMuted, cursor: isMobile ? "default" : "grab", userSelect: "none", display: "flex", alignItems: "center", justifyContent: "center", ...ga("drag") }} title={isMobile ? "" : "Glisser pour réordonner"}>
+                          <div className="drag-handle" style={{ color: T.textMuted, cursor: isMobile ? "default" : "grab", userSelect: "none", display: "flex", alignItems: "center", justifyContent: "center", ...ga("drag") }} title={isMobile ? "" : "Glisser pour réordonner"}>
                             <Icon as={GripVertical} size={14}/>
                           </div>
 
@@ -1359,10 +1385,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                             <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })} onPointerDown={stopDrag} style={{ padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 11, outline: "none", width: "100%", colorScheme: "dark" }} />
                           </div>
 
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3, ...ga("av") }}>
-                            <span className="field-mini-label" style={{ marginBottom: 0, marginRight: 4 }}>Avanc.</span>
-                            <input type="number" min="0" max="100" step="1" value={av} onPointerDown={stopDrag} onChange={e => { let val = parseInt(e.target.value); if (isNaN(val)) val = 0; if (val > 100) val = 100; if (val < 0) val = 0; updateTache(phase.id, tache.id, { avancement: val }); }} style={{ width: 42, padding: "4px 2px", borderRadius: 6, border: `1.5px solid ${av === 100 ? "#50c878" : T.border}`, background: T.inputBg, color: av === 100 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 800, textAlign: "center", outline: "none" }} />
-                            <span style={{ fontSize: 11, color: T.textMuted }}>%</span>
+                          <div className="av-wrap" style={{ minWidth: 0, ...ga("av") }}>
+                            <span className="field-mini-label">Avanc.</span>
+                            <div className="av-inner" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                              <input type="number" min="0" max="100" step="1" value={av} onPointerDown={stopDrag} onChange={e => { let val = parseInt(e.target.value); if (isNaN(val)) val = 0; if (val > 100) val = 100; if (val < 0) val = 0; updateTache(phase.id, tache.id, { avancement: val }); }} style={{ width: 42, padding: "4px 2px", borderRadius: 6, border: `1.5px solid ${av === 100 ? "#50c878" : T.border}`, background: T.inputBg, color: av === 100 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 800, textAlign: "center", outline: "none" }} />
+                              <span style={{ fontSize: 11, color: T.textMuted, flexShrink: 0 }}>%</span>
+                            </div>
                           </div>
 
                           <div className="planifier-btn-wrap" style={{ textAlign: "center", ...ga("plan") }}>
@@ -1382,14 +1410,15 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           </div>
 
                           <button onClick={() => deleteTache(phase.id, tache.id)} onPointerDown={stopDrag}
+                            className="del-btn"
                             title="Supprimer la tâche"
                             style={{
                               display: "inline-flex", alignItems: "center", justifyContent: "center",
                               background: "transparent", border: "none", color: "#e15a5a",
-                              cursor: "pointer", padding: 0, lineHeight: 1,
+                              cursor: "pointer", padding: isMobile ? 6 : 0, lineHeight: 1,
                               ...ga("del"),
                             }}>
-                            <Icon as={X} size={14}/>
+                            <Icon as={X} size={isMobile ? 18 : 14}/>
                           </button>
                         </div>
                       );
