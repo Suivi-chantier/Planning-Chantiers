@@ -824,11 +824,19 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
     const win=window.open("","_blank","width=900,height=700");
     if(!win){alert("Autorisez les pop-ups.");return;}
     const fmtN=v=>Math.round(v).toLocaleString("fr-FR");
-    const lotRows=aLots.map((l,i)=>`<tr><td>Appt ${i+1}${l.comment?` — <span style="color:#888;font-size:9px">${l.comment}</span>`:""}</td><td style="text-align:center">${l.type}</td><td style="text-align:center">${l.niveau||"—"}</td><td style="text-align:right">${l.m2} m²</td><td style="text-align:right;font-weight:700;color:#1a7a4a">${l.loyer.toLocaleString("fr-FR")} €</td></tr>`).join("");
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Fiche — ${nom}</title>
+    const esc=s=>String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const lotRows=aLots.map((l,i)=>`<tr><td>Appt ${i+1}${l.comment?` — <span style="color:#888;font-size:9px">${esc(l.comment)}</span>`:""}</td><td style="text-align:center">${esc(l.type)}</td><td style="text-align:center">${esc(l.niveau)||"—"}</td><td style="text-align:right">${l.m2} m²</td><td style="text-align:right;font-weight:700;color:#1a7a4a">${l.loyer.toLocaleString("fr-FR")} €</td></tr>`).join("");
+    // Photo principale (index 0) si dispo
+    const photoMain = photos && photos[0] ? photos[0] : null;
+    // Map iframe Google Maps Embed si adresse renseignée
+    const hasAddr = adresse && adresse.trim();
+    const mapSrc = hasAddr ? `https://maps.google.com/maps?q=${encodeURIComponent(adresse)}&output=embed` : null;
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Fiche — ${esc(nom)}</title>
     <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Helvetica',sans-serif;background:white;padding:14mm;font-size:11px;color:#2c3040;}
     .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #1f4ea1;}
     .brand{font-size:16px;font-weight:800;color:#1a2d4a;}.title{font-size:18px;font-weight:800;color:#1a2d4a;}
+    .addr{font-size:11px;color:#1f4ea1;margin-top:4px;display:flex;align-items:center;gap:4px}
+    .addr svg{vertical-align:middle}
     .kpi-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px;}
     .kpi{background:#f8f9fb;border-radius:7px;padding:9px 11px;border-left:3px solid #1f4ea1;}
     .kpi.green{border-left-color:#1a7a4a;}.kpi.gold{border-left-color:#c9a84c;}
@@ -837,16 +845,35 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
     .sec-hd{background:#1a2d4a;color:white;padding:5px 9px;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border-radius:4px 4px 0 0;}
     .sec-bd{border:1px solid #eef0f5;border-top:none;border-radius:0 0 4px 4px;padding:9px 11px;}
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
+    .visu-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:12px;}
+    .photo-block,.map-block{border:1px solid #eef0f5;border-radius:5px;overflow:hidden;}
+    .photo-block img{width:100%;height:200px;object-fit:cover;display:block;}
+    .map-block iframe{width:100%;height:200px;border:0;display:block;}
+    .photo-cap,.map-cap{padding:5px 9px;font-size:9px;color:#5a6070;background:#f8f9fb;border-top:1px solid #eef0f5;text-transform:uppercase;letter-spacing:.05em;font-weight:600;}
     table{width:100%;border-collapse:collapse;font-size:10px;}th{background:#1e3a5f;color:white;padding:4px 7px;text-align:left;font-size:9px;text-transform:uppercase;}
     td{padding:4px 7px;border-bottom:1px solid #eef0f5;}tr:nth-child(even) td{background:#f8f9fb;}
     .footer{border-top:1px solid #eef0f5;padding-top:7px;margin-top:12px;text-align:center;font-size:9px;color:#9aa0b0;}
     .no-print{position:fixed;top:14px;right:14px;display:flex;gap:7px;}
     .pbtn{padding:9px 18px;background:#1f4ea1;color:white;border:none;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer;}
     .cbtn{padding:9px 14px;background:#f8f9fb;color:#1a2d4a;border:1px solid #d8dce6;border-radius:5px;font-size:12px;cursor:pointer;}
-    @media print{.no-print{display:none!important;}body{padding:0;}@page{size:A4;margin:14mm;}}
+    @media print{
+      .no-print{display:none!important;}
+      body{padding:0;}
+      @page{size:A4;margin:14mm;}
+      /* En impression, les iframes Google Maps deviennent souvent blanches —
+         on remplace par une vignette statique via screenshot fallback */
+      .map-block.print-fallback{background:#f0f4ff;display:flex;align-items:center;justify-content:center;font-size:11px;color:#1f4ea1;font-weight:700;padding:60px 20px;text-align:center;line-height:1.6}
+    }
     </style></head><body>
     <div class="no-print"><button class="cbtn" onclick="window.close()">✕ Fermer</button><button class="pbtn" onclick="window.print()">🖨️ Imprimer / PDF</button></div>
-    <div class="hd"><div class="brand">🏢 Profero Invest</div><div><div class="title">${nom}</div><div style="font-size:11px;color:#1f4ea1;margin-top:3px">Analyse de Rentabilité · ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div></div></div>
+    <div class="hd">
+      <div class="brand">🏢 Profero Invest</div>
+      <div style="text-align:right">
+        <div class="title">${esc(nom)}</div>
+        <div style="font-size:11px;color:#1f4ea1;margin-top:3px">Analyse de Rentabilité · ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
+        ${hasAddr ? `<div class="addr">📍 ${esc(adresse)}</div>` : ""}
+      </div>
+    </div>
     <div class="kpi-bar">
       <div class="kpi green"><div class="kv green">${(rb*100).toFixed(2)} %</div><div class="kl">Rendement brut</div></div>
       <div class="kpi green"><div class="kv green">${(rn*100).toFixed(2)} %</div><div class="kl">Rendement net</div></div>
@@ -854,6 +881,16 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
       <div class="kpi"><div class="kv">${fmtN(coutTotal)} €</div><div class="kl">Coût total</div></div>
       <div class="kpi gold"><div class="kv">${fmtN(totLoyer)} €/mois</div><div class="kl">Loyers mensuels</div></div>
     </div>
+    ${(photoMain || mapSrc) ? `<div class="visu-grid">
+      ${photoMain ? `<div class="photo-block">
+        <img src="${photoMain}" alt="Photo principale"/>
+        <div class="photo-cap">📷 Photo principale</div>
+      </div>` : `<div class="photo-block" style="background:#f8f9fb;display:flex;align-items:center;justify-content:center;color:#9aa0b0;font-size:10px;font-style:italic;min-height:200px">Aucune photo principale</div>`}
+      ${mapSrc ? `<div class="map-block">
+        <iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        <div class="map-cap">🗺️ ${esc(adresse)}</div>
+      </div>` : `<div class="map-block" style="background:#f8f9fb;display:flex;align-items:center;justify-content:center;color:#9aa0b0;font-size:10px;font-style:italic;min-height:200px">Adresse non renseignée</div>`}
+    </div>` : ""}
     <div class="grid-2" style="margin-bottom:12px">
       <div><div class="sec-hd">🏢 Acquisition</div><div class="sec-bd">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 10px">
@@ -862,7 +899,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
           <div><div style="font-size:9px;color:#9aa0b0;text-transform:uppercase">Surface</div><div style="font-weight:700">${surface} m²</div></div>
           <div><div style="font-size:9px;color:#9aa0b0;text-transform:uppercase">Coût total</div><div style="font-weight:700;color:#1a7a4a">${fmtN(coutTotal)} €</div></div>
         </div>
-        ${desc?`<div style="margin-top:7px;padding:5px 7px;background:#f0f4ff;border-radius:4px;border-left:3px solid #1f4ea1;font-size:10px;color:#5a6070;line-height:1.5">${desc}</div>`:""}
+        ${desc?`<div style="margin-top:7px;padding:5px 7px;background:#f0f4ff;border-radius:4px;border-left:3px solid #1f4ea1;font-size:10px;color:#5a6070;line-height:1.5">${esc(desc)}</div>`:""}
       </div></div>
       <div><div class="sec-hd">🏘️ Lots (${aLots.length})</div><div class="sec-bd" style="padding:0">
         <table><thead><tr><th>Lot</th><th>Type</th><th>Niv.</th><th>m²</th><th>Loyer</th></tr></thead>
