@@ -8,7 +8,8 @@ import {
   X, Check, Phone, Calendar, MessageSquare, FileText, Mail, Home,
   TrendingUp, Wallet, Euro, MapPin, ExternalLink, Filter, ArrowLeft,
   Lock, AlertTriangle, ChevronDown, ChevronUp, Eye, Image as ImageIcon,
-  Upload, Copy, Sparkles,
+  Upload, Copy, Sparkles, Sun, Moon, LogOut, LayoutGrid, Send, Phone as PhoneIcon,
+  Handshake, Bell, Briefcase, Hammer,
 } from "lucide-react";
 
 // Accent officiel Profero Invest (bleu)
@@ -480,14 +481,21 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
     <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,overflowY:"auto"}}>
       <style>{CSS}</style>
       {/* Header */}
-      <div style={{background:"#16181d",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${T.border}`}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,194,0,0.5)",fontFamily:"'Barlow Condensed',sans-serif"}}>Profero</span>
-          <span style={{fontSize:22,fontWeight:800,color:"white"}}>Invest</span>
-          <div style={{width:1,height:20,background:"rgba(255,255,255,0.15)"}}/>
-          <span style={{fontSize:13,color:"rgba(255,255,255,0.4)"}}>Portefeuille de projets</span>
+      <div style={{
+        background:T.sidebar, padding:`${SPACING.md+2}px ${SPACING.xl}px`,
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${T.sidebarBorder}`,
+        boxShadow:T.shadowSm,
+      }}>
+        <div style={{display:"flex", alignItems:"center", gap:SPACING.md}}>
+          <span style={{fontSize:FONT.xs.size, letterSpacing:2, textTransform:"uppercase", color:T.accent, fontWeight:700}}>Profero</span>
+          <span style={{fontSize:FONT.xl.size+2, fontWeight:800, color:T.text, letterSpacing:-0.3}}>Invest</span>
+          <div style={{width:1, height:20, background:T.border}}/>
+          <span style={{fontSize:FONT.sm.size+1, color:T.textSub}}>Portefeuille de projets</span>
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>＋ Nouveau projet</button>
+        <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>
+          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau projet
+        </button>
       </div>
       {/* Contenu */}
       <div style={{maxWidth:1100,margin:"0 auto",padding:"28px 24px"}}>
@@ -784,42 +792,81 @@ function Simulateur({ projet, profil, onRetour }) {
 
   const PHOTO_LABELS=["Photo principale","Vue intérieure","Vue extérieure","Autre"];
 
+  const T = THEMES_INV.dark;
   return (
     <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,display:"flex",flexDirection:"column"}}>
       <style>{CSS}</style>
 
-      {/* Topbar */}
-      <div style={{background:"#1a2d4a",borderBottom:"3px solid #c9a84c",padding:"8px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}
-          style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.2)",background:"rgba(255,255,255,0.06)"}}>
-          ← Projets
+      {/* Topbar moderne — fond sombre avec accent bleu (au lieu du navy/doré vintage) */}
+      <div style={{
+        background:T.sidebar,borderBottom:`1px solid ${T.sidebarBorder}`,
+        padding:`${SPACING.sm+2}px ${SPACING.xl-4}px`,
+        display:"flex",alignItems:"center",gap:SPACING.md,flexShrink:0,
+        boxShadow:T.shadowSm,
+      }}>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>
+          <Icon as={ArrowLeft} size={13} strokeWidth={2.2}/>
+          Projets
         </button>
-        <div style={{width:1,height:18,background:"rgba(255,255,255,0.15)"}}/>
-        <span style={{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(201,168,76,0.7)"}}>Profero Invest</span>
+        <div style={{width:1,height:20,background:T.border}}/>
+        <span style={{fontSize:FONT.xs.size,letterSpacing:1.8,textTransform:"uppercase",color:T.accent,fontWeight:700}}>
+          Profero Invest
+        </span>
         <input
           value={nom} onChange={e=>{setNom(e.target.value);scheduleAutoSave();}}
-          style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"5px 12px",color:"white",fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,outline:"none",minWidth:200}}
+          style={{
+            background:T.input,border:`1px solid ${T.inputBorder}`,
+            borderRadius:RADIUS.md,padding:`${SPACING.xs+1}px ${SPACING.md}px`,
+            color:T.text,fontFamily:"'Barlow Condensed',sans-serif",
+            fontSize:FONT.base.size,fontWeight:700,outline:"none",minWidth:200,
+            transition:"all .15s",
+          }}
+          onFocus={e=>{e.target.style.borderColor=T.accent; e.target.style.boxShadow=`0 0 0 3px ${T.accentBg}`;}}
+          onBlur={e=>{e.target.style.borderColor=T.inputBorder; e.target.style.boxShadow="none";}}
         />
         {/* Sélecteur client lié (optionnel) */}
-        <span style={{fontSize:11,color:"rgba(255,255,255,0.4)",letterSpacing:1,textTransform:"uppercase"}}>Client</span>
+        <span style={{fontSize:FONT.xs.size,color:T.textMuted,letterSpacing:1.2,textTransform:"uppercase",fontWeight:700}}>Client</span>
         <select
           value={clientId}
           onChange={e=>{setClientId(e.target.value); scheduleAutoSave();}}
-          style={{background:clientId?"rgba(77,184,255,0.15)":"rgba(255,255,255,0.08)",border:`1px solid ${clientId?"rgba(77,184,255,0.4)":"rgba(255,255,255,0.15)"}`,borderRadius:6,padding:"5px 12px",color:clientId?"#7ec5ff":"rgba(255,255,255,0.6)",fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,outline:"none",cursor:"pointer",minWidth:170}}
+          style={{
+            background: clientId ? T.accentBg : T.input,
+            border:`1px solid ${clientId ? T.accentBorder : T.inputBorder}`,
+            borderRadius:RADIUS.md,padding:`${SPACING.xs+1}px ${SPACING.md}px`,
+            color: clientId ? T.accent : T.textSub,
+            fontFamily:"'Barlow Condensed',sans-serif",fontSize:FONT.sm.size+1,
+            fontWeight:600,outline:"none",cursor:"pointer",minWidth:170,
+          }}
         >
           <option value="">— Aucun —</option>
           {clientsList.map(c => (
             <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
           ))}
         </select>
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
-          {saving&&<span style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>💾 Sync…</span>}
-          {saved&&!saving&&<span style={{fontSize:11,color:"#50c878"}}>✓ Sauvegardé</span>}
-          <button className="inv-btn inv-btn-sm" style={{background:"rgba(192,57,43,0.15)",color:"#e05c5c",border:"1px solid rgba(192,57,43,0.3)"}} onClick={()=>setShowReset(true)}>🔄 Reset</button>
-          <button className="inv-btn inv-btn-sm inv-btn-out" style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.2)",background:"rgba(255,255,255,0.06)"}} onClick={genererFiche}>📄 Fiche PDF</button>
-          <button className="inv-btn inv-btn-sm inv-btn-gold" onClick={sauvegarder}>💾 Enregistrer</button>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:SPACING.sm}}>
+          {saving && (
+            <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,display:"inline-flex",alignItems:"center",gap:4}}>
+              <Icon as={RefreshCw} size={11} strokeWidth={2.2} style={{animation:"spin 1s linear infinite"}}/>
+              Sync…
+            </span>
+          )}
+          {saved && !saving && (
+            <span style={{fontSize:FONT.xs.size+1,color:SU,display:"inline-flex",alignItems:"center",gap:4,fontWeight:700}}>
+              <Icon as={Check} size={12} strokeWidth={2.5}/> Sauvegardé
+            </span>
+          )}
+          <button className="inv-btn inv-btn-sm inv-btn-danger" onClick={()=>setShowReset(true)}>
+            <Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Reset
+          </button>
+          <button className="inv-btn inv-btn-sm inv-btn-out" onClick={genererFiche}>
+            <Icon as={FileText} size={12} strokeWidth={2.2}/> Fiche PDF
+          </button>
+          <button className="inv-btn inv-btn-sm inv-btn-gold" onClick={sauvegarder}>
+            <Icon as={Save} size={12} strokeWidth={2.2}/> Enregistrer
+          </button>
         </div>
       </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       {/* Tabs nav */}
       <div className="inv-tab-nav">
@@ -2708,6 +2755,7 @@ function OngletUtilisateursInvest({ T }) {
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
 function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout }) {
   const isAdmin = profil?.role === "admin";
+  const T = THEMES_INV[theme];
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
 
   const toggle = () => {
@@ -2717,79 +2765,59 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   };
 
   const NAV = [
-    { id:"dashboard",  label:"Tableau de bord", icon:(
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
-      </svg>)},
-    { id:"crm",        label:"CRM Clients", icon:(
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      </svg>)},
-    { id:"biens",      label:"Stock de biens", icon:(
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-      </svg>)},
-    { id:"simulateur", label:"Simulateur", icon:(
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-      </svg>)},
-    ...(isAdmin ? [{ id:"admin", label:"Réglages", icon:(
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>)}] : []),
+    { id:"dashboard",  label:"Tableau de bord", icon: LayoutDashboard },
+    { id:"crm",        label:"CRM Clients",     icon: Users },
+    { id:"biens",      label:"Stock de biens",  icon: Building2 },
+    { id:"simulateur", label:"Simulateur",      icon: BarChart3 },
+    ...(isAdmin ? [{ id:"admin", label:"Réglages", icon: Settings }] : []),
   ];
 
   const W = collapsed ? 64 : 220;
-  const accent = "#4db8ff";
 
-  const iconBtn = (onClick, svgPath, color, bg, border, title) => (
+  const footerBtn = (onClick, icon, color, bg, border, title) => (
     <button onClick={onClick} title={collapsed ? title : ""} style={{
-      width:"100%", background:bg, border, borderRadius:8,
-      padding: collapsed ? "10px 0" : "8px 12px",
-      color, fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700,
+      width:"100%", background:bg, border, borderRadius:RADIUS.md,
+      padding: collapsed ? "10px 0" : `${SPACING.sm}px ${SPACING.md}px`,
+      color, fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.sm.size+1, fontWeight:700,
       cursor:"pointer", display:"flex", alignItems:"center",
       justifyContent: collapsed ? "center" : "flex-start",
-      gap:8, letterSpacing:.5, transition:"all .15s",
+      gap:SPACING.sm, letterSpacing:0.5, transition:"all .15s",
     }}>
-      <span style={{ flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", width:18 }}>{svgPath}</span>
+      <Icon as={icon} size={16} strokeWidth={2}/>
       {!collapsed && <span>{title}</span>}
     </button>
   );
 
   return (
     <div style={{
-      width:W, flexShrink:0, background:"#0c0e14", borderRight:"1px solid #1e2130",
+      width:W, flexShrink:0, background:T.sidebar, borderRight:`1px solid ${T.sidebarBorder}`,
       display:"flex", flexDirection:"column", height:"100%",
       transition:"width .2s ease", overflow:"hidden",
     }}>
       {/* Header + toggle */}
       <div style={{
-        padding: collapsed ? "14px 0" : "16px 14px 12px",
-        borderBottom:"1px solid #1e2130", display:"flex", alignItems:"center",
-        justifyContent: collapsed ? "center" : "space-between", gap:8, flexShrink:0,
+        padding: collapsed ? "14px 0" : `${SPACING.lg}px ${SPACING.md+2}px ${SPACING.md}px`,
+        borderBottom:`1px solid ${T.sidebarBorder}`, display:"flex", alignItems:"center",
+        justifyContent: collapsed ? "center" : "space-between", gap:SPACING.sm, flexShrink:0,
       }}>
-        {!collapsed && (
-          <img src={LOGO_INVEST_H} alt="Profero Invest"
-            style={{ height:44, objectFit:"contain", objectPosition:"left" }}/>
-        )}
-        {collapsed && (
-          <img src={LOGO_INVEST_V} alt="P"
-            style={{ width:44, height:44, objectFit:"contain", borderRadius:4 }}/>
-        )}
+        {!collapsed
+          ? <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:44, objectFit:"contain", objectPosition:"left" }}/>
+          : <img src={LOGO_INVEST_V} alt="P" style={{ width:44, height:44, objectFit:"contain", borderRadius:RADIUS.sm }}/>
+        }
         <button onClick={toggle} title={collapsed ? "Agrandir" : "Réduire"} style={{
-          background:"rgba(255,255,255,0.06)", border:"none", borderRadius:6,
-          width:28, height:28, cursor:"pointer", color:"rgba(255,255,255,0.5)",
-          fontSize:12, display:"flex", alignItems:"center", justifyContent:"center",
-          flexShrink:0, transition:"background .15s",
+          background:"rgba(255,255,255,0.06)", border:"none", borderRadius:RADIUS.md,
+          width:28, height:28, cursor:"pointer", color:T.textMuted,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          flexShrink:0, transition:"all .15s",
         }}
-        onMouseEnter={e => e.currentTarget.style.background = "rgba(77,184,255,0.2)"}
-        onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}>
-          {collapsed ? "▶" : "◀"}
+        onMouseEnter={e => { e.currentTarget.style.background = T.accentBg; e.currentTarget.style.color = T.accent; }}
+        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = T.textMuted; }}>
+          <Icon as={collapsed ? ChevronRight : ChevronLeft} size={14}/>
         </button>
       </div>
 
       {/* Nav */}
-      <nav style={{ flex:1, padding: collapsed ? "8px 6px" : "8px 8px", overflowY:"auto" }}>
+      <nav style={{ flex:1, padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px` : `${SPACING.sm}px`, overflowY:"auto" }}>
         {NAV.map(n => {
           const active = page === n.id;
           return (
@@ -2798,47 +2826,70 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
               style={{
                 width:"100%", display:"flex", alignItems:"center",
                 justifyContent: collapsed ? "center" : "flex-start",
-                gap:10, padding: collapsed ? "12px 0" : "11px 14px",
-                borderRadius:10, border:"none", cursor:"pointer",
-                fontFamily:"'Barlow Condensed',sans-serif", fontSize:15,
-                fontWeight: active ? 700 : 500, letterSpacing:.3,
-                background: active ? "rgba(77,184,255,0.12)" : "transparent",
-                color: active ? accent : "rgba(255,255,255,0.4)",
-                marginBottom:4, transition:"all .12s", textAlign:"left", whiteSpace:"nowrap",
-              }}>
-              <span style={{ flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", width:24 }}>{n.icon}</span>
-              {!collapsed && <span>{n.label}</span>}
-              {!collapsed && active && <span style={{ marginLeft:"auto", width:4, height:18, borderRadius:2, background:accent, display:"block", flexShrink:0 }}/>}
+                gap:SPACING.md-2, padding: collapsed ? `${SPACING.md-1}px 0` : `${SPACING.md-1}px ${SPACING.md+2}px`,
+                borderRadius:RADIUS.lg, border:"none", cursor:"pointer",
+                fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.md.size,
+                fontWeight: active ? 700 : 500, letterSpacing:0.3,
+                background: active ? T.accentBg : "transparent",
+                color: active ? T.accent : T.textMuted,
+                marginBottom:SPACING.xs-1, transition:"all .12s", textAlign:"left", whiteSpace:"nowrap",
+              }}
+              onMouseEnter={e => { if (!active) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.color = T.textSub; }}}
+              onMouseLeave={e => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textMuted; }}}>
+              <Icon as={n.icon} size={18} strokeWidth={active ? 2 : 1.75}/>
+              {!collapsed && <span style={{ flex:1 }}>{n.label}</span>}
+              {!collapsed && active && <span style={{ width:4, height:18, borderRadius:2, background:T.accent, flexShrink:0 }}/>}
             </button>
           );
         })}
       </nav>
 
+      {/* User info (light card) */}
+      {profil && !collapsed && (
+        <div style={{
+          padding:`${SPACING.sm+2}px ${SPACING.md+2}px`, borderTop:`1px solid ${T.sidebarBorder}`,
+          display:"flex", flexDirection:"column", gap:1, flexShrink:0,
+        }}>
+          <span style={{ fontSize:FONT.sm.size, fontWeight:700, color:"#fff", letterSpacing:0.1,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+          }}>{profil?.nom || profil?.email}</span>
+          <span style={{ fontSize:FONT.xs.size, letterSpacing:0.8, textTransform:"uppercase",
+            color: T.accent, opacity:0.75, fontWeight:600,
+          }}>{profil?.role || "—"}</span>
+        </div>
+      )}
+
       {/* Boutons bas */}
-      <div style={{ padding: collapsed ? "8px 6px" : "12px 10px", borderTop:"1px solid #1e2130", display:"flex", flexDirection:"column", gap:6 }}>
-        {iconBtn(
-          () => { const n = theme==="dark"?"light":"dark"; setTheme(n); localStorage.setItem("invest_theme",n); },
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{theme==="dark" ? <circle cx="12" cy="12" r="5"/> : <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>}{theme==="dark" && [<line key="1" x1="12" y1="1" x2="12" y2="3"/>,<line key="2" x1="12" y1="21" x2="12" y2="23"/>,<line key="3" x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>,<line key="4" x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>,<line key="5" x1="1" y1="12" x2="3" y2="12"/>,<line key="6" x1="21" y1="12" x2="23" y2="12"/>]}</svg>,
-          "#4db8ff", "rgba(77,184,255,0.1)", "1px solid rgba(77,184,255,0.2)",
-          theme==="dark" ? "Mode clair" : "Mode sombre"
-        )}
-        {onRetourPortail && iconBtn(
-          onRetourPortail,
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>,
-          "rgba(255,194,0,0.8)", "rgba(255,194,0,0.08)", "1px solid rgba(255,194,0,0.2)",
-          "Portail"
-        )}
-        {iconBtn(
-          onLogout,
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
-          "#e05c5c", "rgba(224,92,92,0.08)", "1px solid rgba(224,92,92,0.2)",
-          "Déconnexion"
-        )}
-        {!collapsed && (
-          <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", lineHeight:1.5, fontFamily:"'Barlow Condensed',sans-serif", marginTop:4 }}>
-            {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
-          </div>
-        )}
+      <div style={{
+        padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px` : `${SPACING.md-2}px ${SPACING.sm+2}px`,
+        borderTop:`1px solid ${T.sidebarBorder}`,
+        display:"flex", flexDirection: collapsed ? "column" : "row",
+        gap: collapsed ? SPACING.xs : SPACING.xs+1, flexShrink:0,
+        alignItems:"center", justifyContent: collapsed ? "center" : "space-between",
+      }}>
+        {(() => {
+          const buttons = [
+            footerBtn(
+              () => { const n = theme==="dark"?"light":"dark"; setTheme(n); localStorage.setItem("invest_theme",n); },
+              theme === "dark" ? Sun : Moon,
+              T.accent, T.accentBg, `1px solid ${T.accentBorder}`,
+              theme==="dark" ? "Mode clair" : "Mode sombre"
+            ),
+            onRetourPortail && footerBtn(
+              onRetourPortail, LayoutGrid,
+              "rgba(255,194,0,0.85)", "rgba(255,194,0,0.08)", "1px solid rgba(255,194,0,0.20)",
+              "Portail"
+            ),
+            footerBtn(
+              onLogout, LogOut,
+              "#e15a5a", "rgba(225,90,90,0.08)", "1px solid rgba(225,90,90,0.25)",
+              "Déconnexion"
+            ),
+          ].filter(Boolean);
+
+          // Wrap to make collapsed buttons stack vertically full-width, row otherwise
+          return collapsed ? buttons : buttons.map((btn, i) => <div key={i} style={{ flex:1 }}>{btn}</div>);
+        })()}
       </div>
     </div>
   );
