@@ -4,9 +4,10 @@ import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCom
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
 
 // ─── HELPER EMAIL ─────────────────────────────────────────────────────────────
+// Passe par /api/send-email (Vercel serverless) au lieu d'appeler Resend
+// directement : permet d'utiliser le from vérifié (@groupe-profero.com via
+// RESEND_FROM env var) au lieu de onboarding@resend.dev qui finit en spam.
 async function sendRapportEmail(rapport, chantierNom) {
-  const RESEND_KEY = import.meta.env.VITE_RESEND_KEY;
-  if (!RESEND_KEY) { console.warn("VITE_RESEND_KEY non configuré"); return; }
   const tachesHtml = rapport.taches.map(t => {
     const icon = t.statut==="faite"?"✅":t.statut==="en_cours"?"🔄":"❌";
     return `<tr>
@@ -36,46 +37,62 @@ async function sendRapportEmail(rapport, chantierNom) {
       </div>`:""}
     </div>
   </div>`;
-  await fetch("https://api.resend.com/emails", {
+  const res = await fetch("/api/send-email", {
     method:"POST",
-    headers:{"Authorization":`Bearer ${RESEND_KEY}`,"Content-Type":"application/json"},
+    headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
-      from:"Planning Pro <onboarding@resend.dev>",
       to:["suivi.chantier@groupe-profero.com"],
       subject:`CR ${rapport.ouvrier} — ${chantierNom} — ${rapport.date_rapport}`,
       html,
     })
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
 }
 
 
 // ─── HELPER UPLOAD PHOTO ──────────────────────────────────────────────────────
+// Renvoie { url } en cas de succès, { error } en cas d'échec (au lieu de
+// retourner null silencieusement) — pour que l'UI puisse afficher l'erreur.
 async function uploadRapportPhoto(file, pathPrefix) {
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-  const safe = `${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
-  const path = `${pathPrefix}/${safe}`;
-  const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
-  if (error) { console.error("upload photo:", error); return null; }
-  const { data } = supabase.storage.from("photos").getPublicUrl(path);
-  return data?.publicUrl || null;
+  try {
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const safe = `${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+    const path = `${pathPrefix}/${safe}`;
+    const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+    if (error) { console.error("upload photo:", error); return { error: error.message || "Erreur upload" }; }
+    const { data } = supabase.storage.from("photos").getPublicUrl(path);
+    if (!data?.publicUrl) return { error: "URL publique introuvable" };
+    return { url: data.publicUrl };
+  } catch (e) {
+    console.error("upload photo (catch):", e);
+    return { error: e.message || "Erreur réseau" };
+  }
 }
 
 // ─── COMPOSANT PHOTOS PICKER ──────────────────────────────────────────────────
 function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Photos" }) {
   const [uploading, setUploading] = useState(0);
+  const [errors, setErrors] = useState([]); // [{ name, msg }]
   const inputRef = React.useRef(null);
 
   const onFiles = async (files) => {
     const arr = Array.from(files || []);
     if (arr.length === 0) return;
+    setErrors([]);
     setUploading(arr.length);
     const urls = [];
+    const newErrors = [];
     for (const f of arr) {
-      const url = await uploadRapportPhoto(f, pathPrefix);
-      if (url) urls.push(url);
+      const res = await uploadRapportPhoto(f, pathPrefix);
+      if (res.url) urls.push(res.url);
+      else newErrors.push({ name: f.name, msg: res.error });
       setUploading(n => n - 1);
     }
     if (urls.length > 0) onChange([...(photos || []), ...urls]);
+    if (newErrors.length > 0) setErrors(newErrors);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -83,7 +100,7 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
 
   return (
     <div>
-      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
         <span style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color}}>
           📷 {label}{(photos?.length||0) > 0 ? ` · ${photos.length}` : ""}
         </span>
@@ -91,6 +108,26 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
           <span style={{fontSize:11,color:"#f5a623",fontWeight:600}}>Upload… {uploading}</span>
         )}
       </div>
+      {errors.length > 0 && (
+        <div style={{
+          background:"rgba(224,92,92,0.10)",border:"1px solid rgba(224,92,92,0.35)",
+          borderRadius:8,padding:"8px 10px",marginBottom:8,fontSize:12,color:"#c33",
+        }}>
+          <div style={{fontWeight:700,marginBottom:4}}>
+            ⚠ {errors.length} photo{errors.length>1?"s":""} non envoyée{errors.length>1?"s":""}
+          </div>
+          {errors.slice(0,3).map((e,i) => (
+            <div key={i} style={{fontSize:11,opacity:0.85,marginTop:2}}>
+              • {e.name} — {e.msg}
+            </div>
+          ))}
+          {errors.length > 3 && <div style={{fontSize:11,opacity:0.8,marginTop:2}}>+ {errors.length-3} autres</div>}
+          <button onClick={()=>{setErrors([]); inputRef.current?.click();}} style={{
+            marginTop:6,padding:"5px 10px",borderRadius:6,border:"1px solid #c33",
+            background:"transparent",color:"#c33",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+          }}>Réessayer</button>
+        </div>
+      )}
       <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
         {(photos || []).map((url, i) => (
           <div key={i} style={{position:"relative",width:72,height:72,borderRadius:8,overflow:"hidden",
@@ -128,7 +165,6 @@ function PageRapportMobile() {
   const [remarque, setRemarque]     = useState("");
   const [paniers, setPaniers]       = useState({});      // { chantier_id: { articleId: {article, qty} } }
   const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
-  const [besoinLibre, setBesoinLibre] = useState({}); // { chantier_id: "texte libre" }
   const [photosChantier, setPhotosChantier] = useState({}); // { chantier_id: [url, ...] }
   const [submitting, setSubmitting] = useState(false);
   const [planData, setPlanData]     = useState(null);
@@ -309,21 +345,6 @@ function PageRapportMobile() {
           notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
         });
       }
-      // Besoins libres (hors bibliothèque)
-      const libreTexte = besoinLibre[grp.chantier_id];
-      if (libreTexte?.trim()) {
-        const lignes = libreTexte.split("\n").filter(l=>l.trim());
-        for (const ligne of lignes) {
-          await supabase.from("commandes_detail").insert({
-            chantier_id: grp.chantier_id,
-            article: ligne.trim(),
-            fournisseur: "",
-            quantite: "",
-            statut: "besoin_ouvrier",
-            notes: `Demande libre de ${ouvrier.trim()} — ${dateKey}`,
-          });
-        }
-      }
     } // ← fermeture du for
 
     setSubmitting(false);
@@ -399,6 +420,9 @@ function PageRapportMobile() {
   const enCours  = taches.filter(t=>t.statut==="en_cours").length;
   const nonFaite = taches.filter(t=>t.statut==="non_faite").length;
 
+  // Cible d'heures par jour : 10h Lun-Mer, 9h Jeu-Ven
+  const cibleHeures = (todayJour === "Jeudi" || todayJour === "Vendredi") ? 9 : 10;
+
   return (
     <div style={S.wrap}>
       <div style={S.header}>
@@ -425,6 +449,39 @@ function PageRapportMobile() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Bandeau règles à respecter ── */}
+      <div style={{
+        ...S.card,
+        background:"#fff8e1",
+        borderLeft:"4px solid #FFC200",
+        padding:"14px 16px",
+      }}>
+        <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",color:"#b88800",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+          📋 Avant de valider ton compte rendu
+        </div>
+        <ul style={{margin:0,padding:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>
+          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:14,color:"#1a1f2e",lineHeight:1.4}}>
+            <span style={{flexShrink:0,fontSize:16,lineHeight:1.3}}>⏱</span>
+            <span>
+              Le total de tes heures (tâches + trajets) doit faire <strong style={{color:"#b88800"}}>{cibleHeures}h</strong>
+              {" "}({todayJour === "Jeudi" || todayJour === "Vendredi" ? "le jeudi et le vendredi" : "du lundi au mercredi"}).
+            </span>
+          </li>
+          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:14,color:"#1a1f2e",lineHeight:1.4}}>
+            <span style={{flexShrink:0,fontSize:16,lineHeight:1.3}}>❌</span>
+            <span>
+              Si une tâche n'a pas été réalisée ou est en cours, <strong>explique pourquoi</strong> dans la remarque.
+            </span>
+          </li>
+          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:14,color:"#1a1f2e",lineHeight:1.4}}>
+            <span style={{flexShrink:0,fontSize:16,lineHeight:1.3}}>📷</span>
+            <span>
+              Merci de prendre <strong>au moins une photo par tâche</strong> pour qu'on puisse suivre l'avancement.
+            </span>
+          </li>
+        </ul>
       </div>
 
       {/* Tâches */}
@@ -668,20 +725,6 @@ function PageRapportMobile() {
             }}>
               {nbArticles > 0 ? "✏️ Modifier ma sélection" : "🛒 Choisir dans la bibliothèque"}
             </button>
-
-            {/* Champ libre pour besoins hors bibliothèque */}
-            <div style={{marginTop:10}}>
-              <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9040c0",marginBottom:6}}>
-                ✏️ Autres besoins (hors bibliothèque)
-              </div>
-              <textarea
-                value={besoinLibre[cId]||""}
-                onChange={e=>setBesoinLibre(b=>({...b,[cId]:e.target.value}))}
-                placeholder={"Article non référencé, précisions…\nEx: 10m gaine Ø80, colle PU..."}
-                style={{...S.input,resize:"none",minHeight:64,fontSize:14,color:"#6020a0",
-                  border:"1.5px dashed rgba(176,96,255,0.35)",background:"rgba(176,96,255,0.03)"}}
-              />
-            </div>
 
             <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
               ⚡ Sera transmis automatiquement dans l'onglet Commandes
