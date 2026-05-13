@@ -245,18 +245,35 @@ function NumInput({value,onChange,style,min,step}) {
 // ─── LISTE DES PROJETS ────────────────────────────────────────────────────────
 function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.dark }) {
   const [projets, setProjets] = useState([]);
+  const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [suppId, setSuppId]   = useState(null);
+  const [filtreClient, setFiltreClient] = useState("");
 
   const charger = async () => {
     setLoading(true);
-    const { data } = await supabase.from("invest_projets")
-      .select("id,nom,created_by,created_at,updated_at,donnees")
+    // Tente avec client_id ; si la colonne n'existe pas (42703), retry sans.
+    // Migration SQL nécessaire : ALTER TABLE invest_projets ADD COLUMN client_id UUID REFERENCES invest_clients(id) ON DELETE SET NULL;
+    let res = await supabase.from("invest_projets")
+      .select("id,nom,created_by,created_at,updated_at,donnees,client_id")
       .order("updated_at",{ascending:false});
-    setProjets(data||[]);
+    if (res.error?.code === "42703") {
+      res = await supabase.from("invest_projets")
+        .select("id,nom,created_by,created_at,updated_at,donnees")
+        .order("updated_at",{ascending:false});
+    }
+    setProjets(res.data || []);
+    // Charge la liste des clients pour afficher leur nom sur les cards et filtrer
+    const { data: cs } = await supabase.from("invest_clients").select("id,nom,prenom").order("nom");
+    setClients(cs || []);
     setLoading(false);
   };
   useEffect(()=>{charger();},[]);
+
+  const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const projetsFiltres = filtreClient
+    ? projets.filter(p => p.client_id === filtreClient)
+    : projets;
 
   const supprimer = async (id) => {
     await supabase.from("invest_projets").delete().eq("id",id);
@@ -274,6 +291,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
 
   const renderCard = (p) => {
     const k = kpi(p.donnees);
+    const client = p.client_id ? clientById[p.client_id] : null;
     return (
       <div key={p.id} className="inv-card" style={{padding:"18px 20px",cursor:"pointer",transition:"all .18s"}}
         onClick={()=>onOuvrir(p)}
@@ -285,6 +303,11 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
               📄 {p.nom}
             </div>
             <div style={{fontSize:11,color:T.textMuted}}>Par {p.created_by} · {fmtDate(p.updated_at)}</div>
+            {client && (
+              <div style={{fontSize:11,color:"#4db8ff",marginTop:4,display:"inline-flex",alignItems:"center",gap:4,fontWeight:600}}>
+                👤 {client.prenom} {client.nom}
+              </div>
+            )}
           </div>
           <button className="inv-rm" onClick={e=>{e.stopPropagation();setSuppId(p.id);}}>×</button>
         </div>
@@ -338,7 +361,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
         </div>
       ) : (
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-          {projets.map(p=>renderCard(p))}
+          {projetsFiltres.map(p=>renderCard(p))}
         </div>
       )}
       {suppId&&modalSuppr()}
@@ -360,14 +383,25 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
       </div>
       {/* Contenu */}
       <div style={{maxWidth:1100,margin:"0 auto",padding:"28px 24px"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22,flexWrap:"wrap",gap:12}}>
           <div>
             <div style={{fontSize:20,fontWeight:800,color:"#e8eaf0",letterSpacing:.3}}>Tous les projets</div>
             <div style={{fontSize:13,color:"rgba(255,255,255,0.35)",marginTop:2}}>
-              {projets.length} projet{projets.length!==1?"s":""} — partagés avec tous les associés
+              {projetsFiltres.length} projet{projetsFiltres.length!==1?"s":""}
+              {filtreClient && projetsFiltres.length !== projets.length && ` sur ${projets.length}`}
+              {" "}— partagés avec tous les associés
             </div>
           </div>
-          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={charger}>↻ Actualiser</button>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <select className="inv-sel" value={filtreClient} onChange={e=>setFiltreClient(e.target.value)} style={{minWidth:200}}>
+              <option value="">👥 Tous les clients</option>
+              <option value="" disabled>──────────</option>
+              {clients.map(c => (
+                <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
+              ))}
+            </select>
+            <button className="inv-btn inv-btn-out inv-btn-sm" onClick={charger}>↻ Actualiser</button>
+          </div>
         </div>
         {loading ? (
           <div style={{textAlign:"center",padding:"60px 0",color:"rgba(255,255,255,0.3)"}}>Chargement…</div>
@@ -380,7 +414,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
           </div>
         ) : (
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
-            {projets.map(p=>renderCard(p))}
+            {projetsFiltres.map(p=>renderCard(p))}
           </div>
         )}
       </div>
@@ -400,6 +434,13 @@ function Simulateur({ projet, profil, onRetour }) {
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [showReset, setShowReset] = useState(false);
+  // Lien client (optionnel) — ajouté au BLOC B
+  const [clientId, setClientId] = useState(projet?.client_id || "");
+  const [clientsList, setClientsList] = useState([]);
+  useEffect(() => {
+    supabase.from("invest_clients").select("id,nom,prenom").order("nom")
+      .then(({ data }) => setClientsList(data || []));
+  }, []);
 
   // ── Entrées ──────────────────────────────────────────────────────────────────
   const d0 = projet?.donnees?.inputs || {};
@@ -503,15 +544,35 @@ function Simulateur({ projet, profil, onRetour }) {
   const sauvegarder = useCallback(async()=>{
     setSaving(true);
     const state = collectState();
-    const payload = {nom, created_by:profil?.email||profil?.nom||"inconnu", updated_at:new Date().toISOString(), donnees:state};
-    if(projetIdRef.current){
-      await supabase.from("invest_projets").update(payload).eq("id",projetIdRef.current);
-    } else {
-      const {data} = await supabase.from("invest_projets").insert({...payload,created_at:new Date().toISOString()}).select("id").single();
-      if(data?.id) projetIdRef.current=data.id;
+    // Inclut client_id (peut être null si non lié). Si la colonne n'existe pas
+    // encore en base (code 42703), on retry sans pour ne pas bloquer la save.
+    const payload = {
+      nom,
+      created_by: profil?.email||profil?.nom||"inconnu",
+      updated_at: new Date().toISOString(),
+      donnees: state,
+      client_id: clientId || null,
+    };
+    const tryWrite = async (p) => {
+      if (projetIdRef.current) {
+        return await supabase.from("invest_projets").update(p).eq("id", projetIdRef.current);
+      } else {
+        return await supabase.from("invest_projets").insert({...p, created_at:new Date().toISOString()}).select("id").single();
+      }
+    };
+    let res = await tryWrite(payload);
+    if (res.error?.code === "42703") {
+      console.warn("Colonne client_id manquante sur invest_projets — fallback. Migration nécessaire.");
+      const { client_id, ...payloadSansClient } = payload;
+      res = await tryWrite(payloadSansClient);
+    }
+    if (res.error) {
+      console.error("Erreur sauvegarde projet:", res.error);
+    } else if (!projetIdRef.current && res.data?.id) {
+      projetIdRef.current = res.data.id;
     }
     setSaving(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
-  },[collectState, nom, profil]);
+  },[collectState, nom, profil, clientId]);
 
   // Autosave 30s
   const autoRef = useRef(null);
@@ -631,6 +692,18 @@ function Simulateur({ projet, profil, onRetour }) {
           value={nom} onChange={e=>{setNom(e.target.value);scheduleAutoSave();}}
           style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"5px 12px",color:"white",fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,outline:"none",minWidth:200}}
         />
+        {/* Sélecteur client lié (optionnel) */}
+        <span style={{fontSize:11,color:"rgba(255,255,255,0.4)",letterSpacing:1,textTransform:"uppercase"}}>Client</span>
+        <select
+          value={clientId}
+          onChange={e=>{setClientId(e.target.value); scheduleAutoSave();}}
+          style={{background:clientId?"rgba(77,184,255,0.15)":"rgba(255,255,255,0.08)",border:`1px solid ${clientId?"rgba(77,184,255,0.4)":"rgba(255,255,255,0.15)"}`,borderRadius:6,padding:"5px 12px",color:clientId?"#7ec5ff":"rgba(255,255,255,0.6)",fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,outline:"none",cursor:"pointer",minWidth:170}}
+        >
+          <option value="">— Aucun —</option>
+          {clientsList.map(c => (
+            <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
+          ))}
+        </select>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
           {saving&&<span style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>💾 Sync…</span>}
           {saved&&!saving&&<span style={{fontSize:11,color:"#50c878"}}>✓ Sauvegardé</span>}
@@ -1176,7 +1249,7 @@ const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
 const STATUTS_PROP    = ["proposé","intéressé","refusé","en analyse","offre en cours"];
 
-function CRM({ profil, T=THEMES_INV.dark }) {
+function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
@@ -1208,7 +1281,7 @@ function CRM({ profil, T=THEMES_INV.dark }) {
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
 
-  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} />;
+  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} />;
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1400, margin:"0 auto" }}>
@@ -1543,11 +1616,12 @@ function DocumentsSection({ folder, T = THEMES_INV.dark }) {
   );
 }
 
-function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
+function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
   const [props, setProps]     = useState([]);
   const [biens, setBiens]     = useState([]); // liste des biens du stock pour la modale "Proposer un bien"
+  const [simulations, setSimulations] = useState([]); // simulations liées à ce client
   const [showEdit, setShowEdit] = useState(false);
   const [newNote, setNewNote] = useState({ type:"commentaire", contenu:"" });
   const [savingNote, setSavingNote] = useState(false);
@@ -1563,6 +1637,18 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
       supabase.from("invest_biens").select("id,adresse,ville,statut").order("adresse"),
     ]);
     setClient(c); setNotes(n||[]); setProps(p||[]); setBiens(b||[]);
+
+    // Charge les simulations liées à ce client. Tente avec client_id ; si la
+    // colonne n'existe pas (42703), on désactive la section silencieusement.
+    const sRes = await supabase.from("invest_projets")
+      .select("id,nom,created_by,created_at,updated_at,donnees,client_id")
+      .eq("client_id", id)
+      .order("updated_at", { ascending:false });
+    if (sRes.error?.code === "42703") {
+      setSimulations([]); // colonne pas encore créée — on cache la section
+    } else {
+      setSimulations(sRes.data || []);
+    }
   };
   useEffect(() => { charger(); }, [id]);
 
@@ -1659,6 +1745,55 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
               ))}
             </div>
           </div>
+          {/* Simulations liées au client */}
+          {onOuvrirSimulation && (
+            <div className="inv-card">
+              <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+                <span>📊 Simulations ({simulations.length})</span>
+                <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }}
+                  onClick={() => onOuvrirSimulation({ client_id: id })}>
+                  ＋ Nouvelle simulation
+                </button>
+              </div>
+              <div className="inv-card-bd">
+                {simulations.length === 0 ? (
+                  <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>
+                    Aucune simulation liée
+                  </div>
+                ) : simulations.map(s => {
+                  const k = (() => {
+                    const d = s.donnees;
+                    if (!d?.inputs) return null;
+                    const pN = d.inputs.prixNegocie || 0;
+                    const fn = pN * (d.inputs.tauxNotaire || 0.08);
+                    const total = pN + fn + (d.inputs.honoraires || 0) + (d.inputs.enedis || 0);
+                    const lots = (d.lots || []).filter(l => l.type !== "Sélectionner");
+                    const loyer = lots.reduce((sum, l) => sum + (l.loyer || 0), 0);
+                    return { total, loyer, nbLots: lots.length };
+                  })();
+                  return (
+                    <div key={s.id}
+                      onClick={() => onOuvrirSimulation(s)}
+                      style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer", transition:"background .12s" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "rgba(77,184,255,0.05)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                        <div style={{ fontWeight:600, fontSize:13, color:T.text }}>📄 {s.nom}</div>
+                        <span style={{ fontSize:11, color:"#4db8ff", fontWeight:700 }}>Ouvrir →</span>
+                      </div>
+                      <div style={{ fontSize:11, color:T.textMuted, marginTop:3 }}>
+                        Mise à jour {fmtDate(s.updated_at)} · Par {s.created_by}
+                        {k && k.total > 0 && (
+                          <> · <span style={{ color:T.accent, fontWeight:600 }}>{new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(k.total)} €</span></>
+                        )}
+                        {k && k.nbLots > 0 && <> · {k.nbLots} lot{k.nbLots>1?"s":""}</>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {/* Documents */}
           <DocumentsSection folder={`clients/${id}`} T={T} />
         </div>
@@ -2609,16 +2744,30 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [page, setPage]                 = useState("dashboard");
   const [projetOuvert, setProjetOuvert] = useState(null);
   const [vueSim, setVueSim]             = useState("liste");
+  // Origine de l'ouverture du Simulateur : "liste" (depuis Simulateur) ou "crm"
+  // (depuis FicheClient). Détermine où on retombe au "← Retour".
+  const [simOrigine, setSimOrigine]     = useState("liste");
 
-  const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
-  const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
+  const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); setSimOrigine("liste"); };
+  const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); setSimOrigine("liste"); };
+  // Appelé depuis FicheClient pour ouvrir une simulation (existante ou nouvelle pour ce client)
+  const ouvrirSimulationDepuisCRM = (p) => {
+    setProjetOuvert(p);
+    setSimOrigine("crm");
+    setVueSim("simulateur");
+    setPage("simulateur"); // bascule le routeur sur la vue plein écran
+  };
+  const fermerSim = () => {
+    setVueSim("liste");
+    if (simOrigine === "crm") setPage("crm");
+  };
 
   // Simulateur plein écran — uniquement quand une fiche projet est ouverte
   if (page === "simulateur" && vueSim === "simulateur") {
     return (
       <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999 }}>
         <style>{CSS}</style>
-        <Simulateur projet={projetOuvert} profil={profil} onRetour={() => setVueSim("liste")} />
+        <Simulateur projet={projetOuvert} profil={profil} onRetour={fermerSim} />
       </div>
     );
   }
@@ -2629,7 +2778,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && <TableauBord profil={profil} T={T} />}
-        {page === "crm"        && <CRM profil={profil} T={T} />}
+        {page === "crm"        && <CRM profil={profil} T={T} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />}
         {page === "biens"      && <StockBiens profil={profil} T={T} />}
         {page === "admin"      && <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />}
         {page === "simulateur" && (
