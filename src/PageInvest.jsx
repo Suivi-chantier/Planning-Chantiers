@@ -108,9 +108,11 @@ const initBudgetState = (lots, surface) => {
 const THEMES_INV = {
   dark: {
     // Surfaces — alignées sur THEMES.dark de constants.js
+    // ATTENTION : .inv-card et .inv-kpi utilisent T.card. On met donc card=surface
+    // pour que les cards soient bien visibles (pas transparentes).
     bg:        "#1e2128",
     surface:   "#262a32",
-    card:      "rgba(255,255,255,0.04)",
+    card:      "#262a32",
     cardHover: "rgba(64,112,232,0.07)",
     cardActive:"rgba(64,112,232,0.12)",
     // Borders
