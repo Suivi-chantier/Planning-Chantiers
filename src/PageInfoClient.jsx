@@ -405,6 +405,11 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
       <style>{`
         .pic-mobile-bar{display:none}
         @media(max-width:767px){
+          /* Sans cette règle, le parent reste en flex-row : la mobile-bar avec
+             width:100% + flex-shrink:0 prend toute la largeur ET toute la hauteur
+             (align-items:stretch), et le contenu principal a 0px de large. */
+          .pic-page{flex-direction:column!important}
+
           .pic-page .pic-list-panel{position:absolute;left:0;top:0;bottom:0;width:88%;max-width:320px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
           .pic-page .pic-list-panel.open{transform:translateX(0)}
           .pic-page .pic-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.5);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
