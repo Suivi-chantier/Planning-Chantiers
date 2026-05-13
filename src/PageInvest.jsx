@@ -966,7 +966,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
       </div>
 
       {/* Contenu scrollable */}
-      <div style={{flex:1,overflowY:"auto",background:"#1e2128"}}>
+      <div style={{flex:1,overflowY:"auto",background:T.bg}}>
 
         {/* ══ TAB SIMULATEUR ══ */}
         {tab==="simulateur"&&(
