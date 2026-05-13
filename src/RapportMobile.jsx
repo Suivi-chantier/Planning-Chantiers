@@ -1,7 +1,44 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW } from "./constants";
+import { Icon } from "./ui";
+import {
+  Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
+  ClipboardList, AlertTriangle, MessageSquare, Zap, Users, BarChart3,
+  Send, Pencil, ChevronRight, Sparkles, FileText, Coffee, Smile,
+  Hourglass, Calendar, RefreshCw, LogOut,
+} from "lucide-react";
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
+
+// ─── THÈME LIGHT CHANTIER ─────────────────────────────────────────────────────
+// Palette claire (lisibilité extérieure pour les ouvriers en plein soleil)
+// alignée sur le design system Profero (jaune accent, FONT/RADIUS partagés).
+const T = {
+  bg:        "#f4f6fa",
+  surface:   "#ffffff",
+  card:      "#ffffff",
+  cardAlt:   "#fafbfd",
+  border:    "#e0e4ef",
+  borderHover:"#c0c8d8",
+  text:      "#1a1f2e",
+  textSub:   "#5a6478",
+  textMuted: "#8a9ab0",
+  accent:    PROFERO_YELLOW,
+  accentText:"#1a1f2e",
+  // sémantique (du design system SEMANTIC)
+  success:   SEMANTIC.success.color,
+  successBg: SEMANTIC.success.bg,
+  successBd: SEMANTIC.success.border,
+  warning:   SEMANTIC.warning.color,
+  warningBg: SEMANTIC.warning.bg,
+  warningBd: SEMANTIC.warning.border,
+  danger:    SEMANTIC.danger.color,
+  dangerBg:  SEMANTIC.danger.bg,
+  dangerBd:  SEMANTIC.danger.border,
+  info:      SEMANTIC.info.color,
+  infoBg:    SEMANTIC.info.bg,
+  infoBd:    SEMANTIC.info.border,
+};
 
 // ─── HELPER EMAIL ─────────────────────────────────────────────────────────────
 // Passe par /api/send-email (Vercel serverless) au lieu d'appeler Resend
@@ -101,51 +138,62 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
   return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-        <span style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color}}>
-          📷 {label}{(photos?.length||0) > 0 ? ` · ${photos.length}` : ""}
+        <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color}}>
+          <Icon as={Camera} size={12} strokeWidth={2.2}/>
+          {label}{(photos?.length||0) > 0 ? ` · ${photos.length}` : ""}
         </span>
         {uploading > 0 && (
-          <span style={{fontSize:11,color:"#f5a623",fontWeight:600}}>Upload… {uploading}</span>
+          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:FONT.sm.size,color:T.warning,fontWeight:600}}>
+            <Icon as={RotateCw} size={11} strokeWidth={2.2} style={{animation:"spin 1s linear infinite"}}/>
+            Upload… {uploading}
+          </span>
         )}
       </div>
       {errors.length > 0 && (
         <div style={{
-          background:"rgba(224,92,92,0.10)",border:"1px solid rgba(224,92,92,0.35)",
-          borderRadius:8,padding:"8px 10px",marginBottom:8,fontSize:12,color:"#c33",
+          background:T.dangerBg,border:`1px solid ${T.dangerBd}`,
+          borderRadius:RADIUS.lg,padding:"8px 10px",marginBottom:8,fontSize:FONT.sm.size,color:T.danger,
         }}>
-          <div style={{fontWeight:700,marginBottom:4}}>
-            ⚠ {errors.length} photo{errors.length>1?"s":""} non envoyée{errors.length>1?"s":""}
+          <div style={{fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:5}}>
+            <Icon as={AlertTriangle} size={12} strokeWidth={2.2}/>
+            {errors.length} photo{errors.length>1?"s":""} non envoyée{errors.length>1?"s":""}
           </div>
           {errors.slice(0,3).map((e,i) => (
-            <div key={i} style={{fontSize:11,opacity:0.85,marginTop:2}}>
+            <div key={i} style={{fontSize:FONT.xs.size+1,opacity:0.85,marginTop:2}}>
               • {e.name} — {e.msg}
             </div>
           ))}
-          {errors.length > 3 && <div style={{fontSize:11,opacity:0.8,marginTop:2}}>+ {errors.length-3} autres</div>}
+          {errors.length > 3 && <div style={{fontSize:FONT.xs.size+1,opacity:0.8,marginTop:2}}>+ {errors.length-3} autres</div>}
           <button onClick={()=>{setErrors([]); inputRef.current?.click();}} style={{
-            marginTop:6,padding:"5px 10px",borderRadius:6,border:"1px solid #c33",
-            background:"transparent",color:"#c33",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
-          }}>Réessayer</button>
+            marginTop:6,padding:"5px 10px",borderRadius:RADIUS.md,border:`1px solid ${T.danger}`,
+            background:"transparent",color:T.danger,fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+            display:"inline-flex",alignItems:"center",gap:5,
+          }}>
+            <Icon as={RotateCw} size={11} strokeWidth={2.2}/>
+            Réessayer
+          </button>
         </div>
       )}
       <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
         {(photos || []).map((url, i) => (
-          <div key={i} style={{position:"relative",width:72,height:72,borderRadius:8,overflow:"hidden",
-            border:`1.5px solid ${color}33`,background:"#f4f6fa"}}>
+          <div key={i} style={{position:"relative",width:72,height:72,borderRadius:RADIUS.lg,overflow:"hidden",
+            border:`1.5px solid ${color}33`,background:T.bg}}>
             <img src={url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
               onClick={()=>window.open(url,"_blank")} />
             <button onClick={()=>remove(i)} style={{position:"absolute",top:2,right:2,
               background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",borderRadius:"50%",
-              width:20,height:20,cursor:"pointer",fontSize:11,padding:0,
-              display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>✕</button>
+              width:22,height:22,cursor:"pointer",padding:0,
+              display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>
+              <Icon as={X} size={12} strokeWidth={2.5}/>
+            </button>
           </div>
         ))}
         <label style={{
-          width:72,height:72,borderRadius:8,border:`1.5px dashed ${color}66`,cursor:"pointer",
+          width:72,height:72,borderRadius:RADIUS.lg,border:`1.5px dashed ${color}66`,cursor:"pointer",
           display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,
-          background:`${color}0A`,color,fontSize:11,fontWeight:600,fontFamily:"inherit",
+          background:`${color}0A`,color,fontSize:FONT.xs.size+1,fontWeight:600,fontFamily:"inherit",
         }}>
-          <span style={{fontSize:20,lineHeight:1}}>＋</span>
+          <Icon as={Plus} size={22} strokeWidth={2.2}/>
           <span>Ajouter</span>
           <input ref={inputRef} type="file" accept="image/*" multiple capture="environment"
             onChange={e=>onFiles(e.target.files)} style={{display:"none"}} />
@@ -377,43 +425,47 @@ function PageRapportMobile() {
   const total    = taches.length;
 
   const S = {
-    wrap:  { minHeight:"100vh", background:"#f4f6fa", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" },
-    header:{ background:"#16181d", padding:"16px 20px 14px", position:"sticky", top:0, zIndex:10, borderBottom:"2px solid #FFC200" },
-    card:  { background:"#fff", borderRadius:14, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)" },
-    label: { fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"#8a9ab0", marginBottom:8, display:"block" },
-    input: { width:"100%", border:"1.5px solid #e0e4ef", borderRadius:10, padding:"14px 14px", fontSize:16, fontFamily:"inherit", outline:"none", boxSizing:"border-box" },
-    btn:   (color,bg) => ({ width:"100%", padding:"16px", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"inherit", background:bg, color:color, marginTop:8 }),
+    wrap:  { minHeight:"100vh", background:T.bg, fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", color:T.text },
+    header:{ background:"#16181d", padding:"16px 20px 14px", position:"sticky", top:0, zIndex:10, borderBottom:`2px solid ${T.accent}` },
+    card:  { background:T.card, borderRadius:RADIUS.xl, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)", border:`1px solid ${T.border}` },
+    label: { fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.8, textTransform:"uppercase", color:T.textMuted, marginBottom:8, display:"block" },
+    input: { width:"100%", border:`1.5px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"14px 14px", fontSize:16, fontFamily:"inherit", outline:"none", boxSizing:"border-box", color:T.text, background:T.surface },
+    btn:   (color,bg) => ({ width:"100%", padding:"16px", border:"none", borderRadius:RADIUS.xl, fontSize:FONT.md.size+1, fontWeight:800, cursor:"pointer", fontFamily:"inherit", background:bg, color:color, marginTop:8, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }),
+    sectionTitle: (color = T.textMuted) => ({ fontSize:FONT.xs.size, fontWeight:800, letterSpacing:1.5, textTransform:"uppercase", color, marginBottom:10, display:"flex", alignItems:"center", gap:6 }),
   };
 
   // ── STEP: LOGIN ──
   if (step === "login") return (
     <div style={S.wrap}>
       <div style={S.header}>
-        <div style={{fontSize:11,letterSpacing:3,textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:4}}>Planning Pro</div>
+        <div style={{fontSize:FONT.xs.size,letterSpacing:2.5,textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:4}}>Planning Pro</div>
         <img src={LOGO_RENO_H} alt="Profero Rénovation" style={{height:44,objectFit:"contain",objectPosition:"left",marginBottom:6}}/>
-        <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>Mon compte rendu</div>
-        <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",marginTop:4}}>{dateStr}</div>
+        <div style={{fontSize:FONT.h2.size-2,fontWeight:800,color:"#fff",letterSpacing:-0.3}}>Mon compte rendu</div>
+        <div style={{fontSize:FONT.base.size,color:"rgba(255,255,255,0.5)",marginTop:4}}>{dateStr}</div>
       </div>
       <div style={{...S.card, marginTop:32}}>
         <span style={S.label}>C'est qui ?</span>
         <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
           {ouvriers.map(o => (
             <button key={o} onClick={()=>setOuvrier(o)} style={{
-              padding:"10px 18px",borderRadius:10,fontSize:15,fontWeight:700,
+              padding:"10px 18px",borderRadius:RADIUS.lg,fontSize:FONT.md.size,fontWeight:700,
               cursor:"pointer",fontFamily:"inherit",border:"2px solid",transition:"all .12s",
-              background: ouvrier===o ? "#FFC200" : "#f4f6fa",
-              borderColor: ouvrier===o ? "#FFC200" : "#e0e4ef",
-              color: "#111",
+              background: ouvrier===o ? T.accent : T.bg,
+              borderColor: ouvrier===o ? T.accent : T.border,
+              color: T.text,
             }}>{o}</button>
           ))}
         </div>
-        <div style={{fontSize:13,color:"#8a9ab0",marginBottom:8}}>Ou saisis ton prénom :</div>
+        <div style={{fontSize:FONT.sm.size+1,color:T.textMuted,marginBottom:8}}>Ou saisis ton prénom :</div>
         <input style={S.input} value={ouvrier} onChange={e=>setOuvrier(e.target.value)}
           placeholder="Ton prénom…" onKeyDown={e=>e.key==="Enter"&&confirmerPrenom()}/>
         <button onClick={confirmerPrenom} disabled={!ouvrier.trim()} style={{
-          ...S.btn("#111","#FFC200"), opacity:ouvrier.trim()?1:0.4, marginTop:16,
-          boxShadow:"0 4px 16px rgba(255,194,0,0.25)"
-        }}>C'est parti →</button>
+          ...S.btn(T.accentText, T.accent), opacity:ouvrier.trim()?1:0.4, marginTop:16,
+          boxShadow:`0 4px 16px ${T.accent}40`,
+        }}>
+          C'est parti
+          <Icon as={ChevronRight} size={18} strokeWidth={2.5}/>
+        </button>
       </div>
     </div>
   );
@@ -422,15 +474,23 @@ function PageRapportMobile() {
   if (step === "done") return (
     <div style={S.wrap}>
       <div style={S.header}>
-        <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>Mon compte rendu</div>
+        <div style={{fontSize:FONT.h2.size-2,fontWeight:800,color:"#fff",letterSpacing:-0.3}}>Mon compte rendu</div>
       </div>
       <div style={{...S.card, textAlign:"center", padding:"40px 24px", marginTop:32}}>
-        <div style={{fontSize:56,marginBottom:16}}>✅</div>
-        <div style={{fontSize:22,fontWeight:800,color:"#1a1f2e",marginBottom:8}}>Compte rendu envoyé !</div>
-        <div style={{fontSize:15,color:"#8a9ab0",lineHeight:1.6,marginBottom:28}}>
+        <div style={{
+          width:80,height:80,borderRadius:"50%",margin:"0 auto 16px",
+          background:T.successBg, border:`2px solid ${T.successBd}`,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          color:T.success,
+        }}>
+          <Icon as={Check} size={42} strokeWidth={2.5}/>
+        </div>
+        <div style={{fontSize:FONT.h2.size-2,fontWeight:800,color:T.text,marginBottom:8,letterSpacing:-0.3}}>Compte rendu envoyé !</div>
+        <div style={{fontSize:FONT.md.size,color:T.textMuted,lineHeight:1.6,marginBottom:28}}>
           Merci {ouvrier}. Ton compte rendu du {dateKey} a bien été enregistré.
         </div>
-        <button onClick={()=>{setStep("rapport");setTaches([]);loadTaches(ouvrier);}} style={{...S.btn("#fff","#1a1f2e")}}>
+        <button onClick={()=>{setStep("rapport");setTaches([]);loadTaches(ouvrier);}} style={{...S.btn("#fff", T.text)}}>
+          <Icon as={RefreshCw} size={16} strokeWidth={2.2}/>
           Voir mes tâches
         </button>
       </div>
@@ -449,29 +509,55 @@ function PageRapportMobile() {
   const matchCible = Math.abs(totalJourneeH - cibleHeures) < 0.01;
   const ecartH = totalJourneeH - cibleHeures; // négatif si manque, positif si dépasse
 
+  // Helper format heures sans drift flottant
+  const fmtH = (n) => (+n.toFixed(2)).toString();
+
   return (
     <div style={S.wrap}>
       <div style={S.header}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <img src={LOGO_RENO_V} alt="Profero" style={{height:40,objectFit:"contain",objectPosition:"left",marginBottom:4}}/>
-            <div style={{fontSize:13,color:"#FFC200",fontWeight:700,marginBottom:1}}>Bonjour {ouvrier} 👋</div>
-            <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>{dateStr}</div>
+            <div style={{fontSize:FONT.sm.size+1,color:T.accent,fontWeight:700,marginBottom:1}}>Bonjour {ouvrier}</div>
+            <div style={{fontSize:FONT.lg.size+1,fontWeight:800,color:"#fff",letterSpacing:-0.2}}>{dateStr}</div>
           </div>
-          <button onClick={()=>setStep("login")} style={{background:"rgba(255,194,0,0.1)",border:"1px solid rgba(255,194,0,0.3)",
-            borderRadius:8,padding:"6px 12px",color:"#FFC200",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+          <button onClick={()=>setStep("login")} style={{
+            display:"inline-flex",alignItems:"center",gap:5,
+            background:`${T.accent}1A`,border:`1px solid ${T.accent}4D`,
+            borderRadius:RADIUS.md,padding:"6px 12px",color:T.accent,
+            fontSize:FONT.sm.size+1,cursor:"pointer",fontFamily:"inherit",fontWeight:600,
+          }}>
+            <Icon as={LogOut} size={12}/>
             Changer
           </button>
         </div>
         {total>0 && (
           <div style={{marginTop:12}}>
-            <div style={{display:"flex",gap:8,marginBottom:6}}>
-              {faites>0&&<span style={{background:"rgba(80,200,120,0.2)",color:"#7ee8a2",borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700}}>✅ {faites} faite{faites>1?"s":""}</span>}
-              {enCours>0&&<span style={{background:"rgba(245,166,35,0.2)",color:"#f5a623",borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700}}>🔄 {enCours}</span>}
-              {nonFaite>0&&<span style={{background:"rgba(224,92,92,0.2)",color:"#ff8888",borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700}}>❌ {nonFaite}</span>}
+            <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
+              {faites>0 && (
+                <span style={{display:"inline-flex",alignItems:"center",gap:4,
+                  background:"rgba(80,200,120,0.20)",color:"#7ee8a2",
+                  borderRadius:RADIUS.md,padding:"3px 9px",fontSize:FONT.sm.size+1,fontWeight:700}}>
+                  <Icon as={Check} size={12} strokeWidth={2.5}/> {faites} faite{faites>1?"s":""}
+                </span>
+              )}
+              {enCours>0 && (
+                <span style={{display:"inline-flex",alignItems:"center",gap:4,
+                  background:"rgba(245,166,35,0.20)",color:"#f5a623",
+                  borderRadius:RADIUS.md,padding:"3px 9px",fontSize:FONT.sm.size+1,fontWeight:700}}>
+                  <Icon as={RotateCw} size={12} strokeWidth={2.5}/> {enCours}
+                </span>
+              )}
+              {nonFaite>0 && (
+                <span style={{display:"inline-flex",alignItems:"center",gap:4,
+                  background:"rgba(224,92,92,0.20)",color:"#ff8888",
+                  borderRadius:RADIUS.md,padding:"3px 9px",fontSize:FONT.sm.size+1,fontWeight:700}}>
+                  <Icon as={X} size={12} strokeWidth={2.5}/> {nonFaite}
+                </span>
+              )}
             </div>
             <div style={{background:"rgba(255,255,255,0.1)",borderRadius:4,height:4}}>
-              <div style={{background:"#50c878",height:4,borderRadius:4,width:`${(progress/total)*100}%`,transition:"width .3s"}}/>
+              <div style={{background:T.success,height:4,borderRadius:4,width:`${(progress/total)*100}%`,transition:"width .3s"}}/>
             </div>
           </div>
         )}
@@ -481,28 +567,29 @@ function PageRapportMobile() {
       <div style={{
         ...S.card,
         background:"#fff8e1",
-        borderLeft:"4px solid #FFC200",
+        borderLeft:`4px solid ${T.accent}`,
         padding:"14px 16px",
       }}>
-        <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",color:"#b88800",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-          📋 Avant de valider ton compte rendu
+        <div style={{...S.sectionTitle("#b88800")}}>
+          <Icon as={ClipboardList} size={13} strokeWidth={2.2}/>
+          Avant de valider ton compte rendu
         </div>
-        <ul style={{margin:0,padding:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>
-          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:14,color:"#1a1f2e",lineHeight:1.4}}>
-            <span style={{flexShrink:0,fontSize:16,lineHeight:1.3}}>⏱</span>
+        <ul style={{margin:0,padding:0,listStyle:"none",display:"flex",flexDirection:"column",gap:10}}>
+          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:FONT.base.size,color:T.text,lineHeight:1.45}}>
+            <Icon as={Clock} size={16} color="#b88800" strokeWidth={2} style={{flexShrink:0,marginTop:1}}/>
             <span>
               Le total de tes heures (tâches + trajets) doit faire <strong style={{color:"#b88800"}}>{cibleHeures}h</strong>
               {" "}({todayJour === "Jeudi" || todayJour === "Vendredi" ? "le jeudi et le vendredi" : "du lundi au mercredi"}).
             </span>
           </li>
-          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:14,color:"#1a1f2e",lineHeight:1.4}}>
-            <span style={{flexShrink:0,fontSize:16,lineHeight:1.3}}>❌</span>
+          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:FONT.base.size,color:T.text,lineHeight:1.45}}>
+            <Icon as={MessageSquare} size={16} color="#b88800" strokeWidth={2} style={{flexShrink:0,marginTop:1}}/>
             <span>
               Si une tâche n'a pas été réalisée ou est en cours, <strong>explique pourquoi</strong> dans la remarque.
             </span>
           </li>
-          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:14,color:"#1a1f2e",lineHeight:1.4}}>
-            <span style={{flexShrink:0,fontSize:16,lineHeight:1.3}}>📷</span>
+          <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:FONT.base.size,color:T.text,lineHeight:1.45}}>
+            <Icon as={Camera} size={16} color="#b88800" strokeWidth={2} style={{flexShrink:0,marginTop:1}}/>
             <span>
               Merci de prendre <strong>au moins une photo par tâche</strong> pour qu'on puisse suivre l'avancement.
             </span>
@@ -512,9 +599,9 @@ function PageRapportMobile() {
 
       {/* ── Compteur total journée ── */}
       {(() => {
-        const col = matchCible ? "#50c878" : Math.abs(ecartH) > 1 ? "#e05c5c" : "#f5a623";
-        const bg  = matchCible ? "rgba(80,200,120,0.10)" : Math.abs(ecartH) > 1 ? "rgba(224,92,92,0.08)" : "rgba(245,166,35,0.10)";
-        const bdr = matchCible ? "rgba(80,200,120,0.40)" : Math.abs(ecartH) > 1 ? "rgba(224,92,92,0.40)" : "rgba(245,166,35,0.40)";
+        const col = matchCible ? T.success : Math.abs(ecartH) > 1 ? T.danger : T.warning;
+        const bg  = matchCible ? T.successBg : Math.abs(ecartH) > 1 ? T.dangerBg : T.warningBg;
+        const bdr = matchCible ? T.successBd : Math.abs(ecartH) > 1 ? T.dangerBd : T.warningBd;
         const pct = Math.min(100, (totalJourneeH / cibleHeures) * 100);
         return (
           <div style={{
@@ -522,62 +609,64 @@ function PageRapportMobile() {
             position:"sticky", top:8, zIndex:10,
           }}>
             <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:8}}>
-              <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",color:col}}>
-                ⏱ Total de ma journée
+              <div style={{...S.sectionTitle(col), marginBottom:0}}>
+                <Icon as={Clock} size={13} strokeWidth={2.2}/>
+                Total de ma journée
               </div>
-              <div style={{fontSize:24,fontWeight:800,color:col,letterSpacing:-0.5,lineHeight:1}}>
-                {totalJourneeH.toFixed(2).replace(/\.?0+$/,"")}h
-                <span style={{fontSize:14,color:"#8a9ab0",fontWeight:600,marginLeft:4}}>/ {cibleHeures}h</span>
+              <div style={{fontSize:FONT.h2.size,fontWeight:800,color:col,letterSpacing:-0.5,lineHeight:1}}>
+                {fmtH(totalJourneeH)}h
+                <span style={{fontSize:FONT.base.size,color:T.textMuted,fontWeight:600,marginLeft:4}}>/ {cibleHeures}h</span>
               </div>
             </div>
-            <div style={{height:6,background:"rgba(0,0,0,0.06)",borderRadius:3,overflow:"hidden"}}>
-              <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:3,transition:"width .3s"}}/>
+            <div style={{height:6,background:"rgba(0,0,0,0.06)",borderRadius:RADIUS.sm,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:RADIUS.sm,transition:"width .3s"}}/>
             </div>
-            <div style={{fontSize:12,color:col,marginTop:6,fontWeight:600}}>
+            <div style={{fontSize:FONT.sm.size+1,color:col,marginTop:6,fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
               {matchCible
-                ? "✓ Tu peux soumettre ton compte rendu"
+                ? <><Icon as={Check} size={13} strokeWidth={2.5}/> Tu peux soumettre ton compte rendu</>
                 : ecartH < 0
-                  ? `Il manque ${(-ecartH).toFixed(2).replace(/\.?0+$/,"")}h pour atteindre la cible`
-                  : `Tu dépasses de ${ecartH.toFixed(2).replace(/\.?0+$/,"")}h — réduis tes heures de tâches ou de trajet`}
+                  ? `Il manque ${fmtH(-ecartH)}h pour atteindre la cible`
+                  : `Tu dépasses de ${fmtH(ecartH)}h — réduis tes heures de tâches ou de trajet`}
             </div>
-            <div style={{fontSize:11,color:"#8a9ab0",marginTop:4}}>
-              {totalTachesH.toFixed(2).replace(/\.?0+$/,"")}h de tâches
-              {totalTrajetMin > 0 && ` + ${totalTrajetMin} min de trajet (${(totalTrajetMin/60).toFixed(2).replace(/\.?0+$/,"")}h)`}
+            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:4}}>
+              {fmtH(totalTachesH)}h de tâches
+              {totalTrajetMin > 0 && ` + ${totalTrajetMin} min de trajet (${fmtH(totalTrajetMin/60)}h)`}
             </div>
           </div>
         );
       })()}
 
       {/* ── Mon temps de trajet ── */}
-      <div style={{...S.card, borderLeft:"4px solid #5b8af5", padding:"14px 16px"}}>
-        <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",color:"#3060c0",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-          🚗 Mon temps de trajet
+      <div style={{...S.card, borderLeft:`4px solid ${T.info}`, padding:"14px 16px"}}>
+        <div style={{...S.sectionTitle(T.info)}}>
+          <Icon as={Car} size={13} strokeWidth={2.2}/>
+          Mon temps de trajet
         </div>
         {[
-          { label:"Trajet matin (aller)", value:trajetMatin, setter:setTrajetMatin, color:"#5b8af5" },
-          { label:"Trajet soir (retour)", value:trajetSoir,  setter:setTrajetSoir,  color:"#5b8af5" },
-        ].map(({label, value, setter, color}, i) => (
+          { label:"Trajet matin (aller)", value:trajetMatin, setter:setTrajetMatin },
+          { label:"Trajet soir (retour)", value:trajetSoir,  setter:setTrajetSoir  },
+        ].map(({label, value, setter}, i) => (
           <div key={i} style={{marginBottom: i===0 ? 10 : 0}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#1a1f2e",marginBottom:6}}>{label}</div>
+            <div style={{fontSize:FONT.xs.size,fontWeight:700,color:T.text,marginBottom:6,letterSpacing:0.3}}>{label}</div>
             <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
               {[15, 30, 45, 60].map(m => (
                 <button key={m} onClick={()=>setter(String(m))} style={{
-                  padding:"7px 10px",borderRadius:7,border:"1.5px solid",cursor:"pointer",
-                  fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .1s",
-                  borderColor: parseInt(value)===m ? color : "#e0e4ef",
-                  background:  parseInt(value)===m ? `${color}15` : "#fff",
-                  color:       parseInt(value)===m ? color : "#aaa",
+                  padding:"7px 10px",borderRadius:RADIUS.md,border:"1.5px solid",cursor:"pointer",
+                  fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,transition:"all .1s",
+                  borderColor: parseInt(value)===m ? T.info : T.border,
+                  background:  parseInt(value)===m ? `${T.info}15` : T.surface,
+                  color:       parseInt(value)===m ? T.info : T.textMuted,
                 }}>{m} min</button>
               ))}
               <input type="number" min="0" max="600" step="5"
                 value={value}
                 onChange={e=>setter(e.target.value)}
                 placeholder="Autre"
-                style={{width:64,padding:"7px 6px",border:"1.5px solid #e0e4ef",
-                  borderRadius:7,fontSize:12,fontWeight:700,fontFamily:"inherit",
-                  outline:"none",textAlign:"center",color:"#1a1f2e"}}
+                style={{width:64,padding:"7px 6px",border:`1.5px solid ${T.border}`,
+                  borderRadius:RADIUS.md,fontSize:FONT.sm.size,fontWeight:700,fontFamily:"inherit",
+                  outline:"none",textAlign:"center",color:T.text,background:T.surface}}
               />
-              <span style={{fontSize:11,color:"#8a9ab0",fontWeight:600}}>min</span>
+              <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,fontWeight:600}}>min</span>
             </div>
           </div>
         ))}
@@ -586,53 +675,83 @@ function PageRapportMobile() {
       {/* Tâches */}
       {taches.length===0 && (
         <div style={{...S.card, textAlign:"center", padding:"32px 24px"}}>
-          <div style={{fontSize:36,marginBottom:12}}>📋</div>
-          <div style={{fontSize:16,fontWeight:700,color:"#1a1f2e",marginBottom:6}}>Aucune tâche planifiée</div>
-          <div style={{fontSize:14,color:"#8a9ab0",marginBottom:16}}>
-            {todayJour ? `Rien n'est planifié pour toi ce ${todayJour}.` : "C'est le week-end ! 🎉"}
+          <div style={{
+            width:64,height:64,borderRadius:"50%",margin:"0 auto 12px",
+            background:T.bg, border:`1px solid ${T.border}`,
+            display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,
+          }}>
+            <Icon as={todayJour ? ClipboardList : Coffee} size={32} strokeWidth={1.5}/>
           </div>
-          <button onClick={addTacheLibre} style={S.btn("#fff","#1a1f2e")}>+ Ajouter une tâche manuellement</button>
+          <div style={{fontSize:FONT.md.size+1,fontWeight:700,color:T.text,marginBottom:6}}>Aucune tâche planifiée</div>
+          <div style={{fontSize:FONT.base.size,color:T.textMuted,marginBottom:16,lineHeight:1.5}}>
+            {todayJour ? `Rien n'est planifié pour toi ce ${todayJour}.` : "Bon week-end !"}
+          </div>
+          <button onClick={addTacheLibre} style={S.btn("#fff", T.text)}>
+            <Icon as={Plus} size={16} strokeWidth={2.2}/>
+            Ajouter une tâche manuellement
+          </button>
         </div>
       )}
 
-      {taches.map((t, idx) => (
-        <div key={idx} style={{...S.card, borderLeft:`4px solid ${t.chantier_couleur||"#5b8af5"}`}}>
+      {taches.map((t, idx) => {
+        const dureeOk    = t.statut==="non_faite" || (t.heures_reelles && parseFloat(t.heures_reelles)>0);
+        const avRenseigne = !(t.avancement===""||t.avancement===undefined||t.avancement===null);
+        const av100 = parseInt(t.avancement)===100;
+        const expliRequise = t.statut==="en_cours"||t.statut==="non_faite";
+        const explOk = !!t.remarque?.trim();
+        return (
+        <div key={idx} style={{...S.card, borderLeft:`4px solid ${t.chantier_couleur||T.info}`}}>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
             {t.chantier_nom && (
-              <div style={{display:"inline-block",background:t.chantier_couleur+"33",color:"#1a1f2e",
-                borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700,textTransform:"uppercase",
+              <div style={{display:"inline-block",background:t.chantier_couleur+"33",color:T.text,
+                borderRadius:RADIUS.sm,padding:"2px 8px",fontSize:FONT.xs.size,fontWeight:700,textTransform:"uppercase",
                 letterSpacing:1}}>{t.chantier_nom}</div>
             )}
             {t.pourTout && (
-              <div style={{display:"inline-block",background:"rgba(91,138,245,0.12)",color:"#5b8af5",
-                borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700}}>👥 Pour tous</div>
+              <span style={{display:"inline-flex",alignItems:"center",gap:4,
+                background:T.infoBg,color:T.info,
+                borderRadius:RADIUS.sm,padding:"2px 8px",fontSize:FONT.xs.size,fontWeight:700}}>
+                <Icon as={Users} size={11} strokeWidth={2.2}/> Pour tous
+              </span>
             )}
             {t.duree && (
-              <div style={{display:"inline-block",background:"rgba(245,166,35,0.12)",color:"#c07800",
-                borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:700}}>⏱ {t.duree}h estimée{t.duree>1?"s":""}</div>
+              <span style={{display:"inline-flex",alignItems:"center",gap:4,
+                background:T.warningBg,color:"#c07800",
+                borderRadius:RADIUS.sm,padding:"2px 8px",fontSize:FONT.xs.size,fontWeight:700}}>
+                <Icon as={Hourglass} size={11} strokeWidth={2.2}/> {t.duree}h estimée{t.duree>1?"s":""}
+              </span>
             )}
           </div>
           {t.libre ? (
             <textarea value={t.planifie} onChange={e=>setTachePlanifie(idx,e.target.value)}
               placeholder="Décris la tâche…"
-              style={{...S.input,resize:"none",minHeight:60,marginBottom:10,fontSize:15}}/>
+              style={{...S.input,resize:"none",minHeight:60,marginBottom:10,fontSize:FONT.md.size}}/>
           ) : (
-            <div style={{fontSize:16,fontWeight:600,color:"#1a1f2e",marginBottom:12,lineHeight:1.4}}>{t.planifie}</div>
+            <div style={{fontSize:FONT.md.size+1,fontWeight:600,color:T.text,marginBottom:12,lineHeight:1.4}}>{t.planifie}</div>
           )}
 
           {/* Boutons statut */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
-            {[["faite","✅","Faite","#50c878","rgba(80,200,120,0.12)"],
-              ["en_cours","🔄","En cours","#f5a623","rgba(245,166,35,0.12)"],
-              ["non_faite","❌","Non faite","#e05c5c","rgba(224,92,92,0.12)"]].map(([val,ic,lb,col,bg])=>(
-              <button key={val} onClick={()=>setStatut(idx,val)} style={{
-                padding:"10px 4px",borderRadius:10,border:"2px solid",cursor:"pointer",
-                fontFamily:"inherit",fontSize:13,fontWeight:700,transition:"all .12s",
-                borderColor: t.statut===val ? col : "#e0e4ef",
-                background:  t.statut===val ? bg  : "#fff",
-                color:       t.statut===val ? col : "#aaa",
-              }}>{ic}<br/><span style={{fontSize:11}}>{lb}</span></button>
-            ))}
+            {[
+              ["faite",     Check,   "Faite",     T.success, T.successBg, T.successBd],
+              ["en_cours",  RotateCw,"En cours",  T.warning, T.warningBg, T.warningBd],
+              ["non_faite", X,       "Non faite", T.danger,  T.dangerBg,  T.dangerBd ],
+            ].map(([val,IconComp,lb,col,bg,bdr])=>{
+              const active = t.statut===val;
+              return (
+                <button key={val} onClick={()=>setStatut(idx,val)} style={{
+                  padding:"10px 4px",borderRadius:RADIUS.lg,border:"2px solid",cursor:"pointer",
+                  fontFamily:"inherit",fontSize:FONT.sm.size+1,fontWeight:700,transition:"all .12s",
+                  borderColor: active ? bdr : T.border,
+                  background:  active ? bg  : T.surface,
+                  color:       active ? col : T.textMuted,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:4,
+                }}>
+                  <Icon as={IconComp} size={20} strokeWidth={2.2}/>
+                  <span style={{fontSize:FONT.xs.size}}>{lb}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Durée + Avancement */}
@@ -641,33 +760,35 @@ function PageRapportMobile() {
             {/* Durée — OBLIGATOIRE */}
             <div style={{
               flex:"1 1 200px",
-              background:(t.statut==="non_faite"||t.heures_reelles&&parseFloat(t.heures_reelles)>=0)&&(t.statut==="non_faite"||parseFloat(t.heures_reelles)>0)?"rgba(80,200,120,0.06)":"rgba(224,92,92,0.06)",
-              border:`1.5px solid ${t.statut==="non_faite"||(t.heures_reelles&&parseFloat(t.heures_reelles)>0)?"rgba(80,200,120,0.35)":"rgba(224,92,92,0.3)"}`,
-              borderRadius:10,padding:"11px 12px",
+              background: dureeOk ? T.successBg : T.dangerBg,
+              border:    `1.5px solid ${dureeOk ? T.successBd : T.dangerBd}`,
+              borderRadius:RADIUS.lg, padding:"11px 12px",
             }}>
-              <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
-                color:t.statut==="non_faite"||(t.heures_reelles&&parseFloat(t.heures_reelles)>0)?"#50c878":"#e05c5c",
-                marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
-                ⏱ Durée réelle
-                <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>
+              <div style={{...S.sectionTitle(dureeOk ? T.success : T.danger), marginBottom:8, fontSize:FONT.xs.size}}>
+                <Icon as={Clock} size={12} strokeWidth={2.2}/>
+                Durée réelle
+                <span style={{fontSize:9,background:T.danger,color:"#fff",borderRadius:RADIUS.sm,padding:"1px 5px",fontWeight:800,letterSpacing:0}}>OBLIGATOIRE</span>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-                {[0.5,1,1.5,2,3,4].map(h=>(
-                  <button key={h} onClick={()=>setTacheHeures(idx,String(h))} style={{
-                    padding:"7px 8px",borderRadius:7,border:"1.5px solid",cursor:"pointer",
-                    fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .1s",
-                    borderColor:parseFloat(t.heures_reelles)===h?"#50c878":"#e0e4ef",
-                    background:parseFloat(t.heures_reelles)===h?"rgba(80,200,120,0.15)":"#fff",
-                    color:parseFloat(t.heures_reelles)===h?"#50c878":"#aaa",
-                  }}>{h}h</button>
-                ))}
+                {[0.5,1,1.5,2,3,4].map(h=>{
+                  const sel = parseFloat(t.heures_reelles)===h;
+                  return (
+                    <button key={h} onClick={()=>setTacheHeures(idx,String(h))} style={{
+                      padding:"7px 8px",borderRadius:RADIUS.md,border:"1.5px solid",cursor:"pointer",
+                      fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,transition:"all .1s",
+                      borderColor: sel ? T.successBd : T.border,
+                      background:  sel ? T.successBg : T.surface,
+                      color:       sel ? T.success : T.textMuted,
+                    }}>{h}h</button>
+                  );
+                })}
                 <input type="number" min="0.5" max="24" step="0.5"
                   value={t.heures_reelles||""}
                   onChange={e=>setTacheHeures(idx,e.target.value)}
                   placeholder="Autre"
-                  style={{width:58,padding:"7px 6px",border:"1.5px solid #e0e4ef",
-                    borderRadius:7,fontSize:12,fontWeight:700,fontFamily:"inherit",
-                    outline:"none",textAlign:"center",color:"#1a1f2e"}}
+                  style={{width:58,padding:"7px 6px",border:`1.5px solid ${T.border}`,
+                    borderRadius:RADIUS.md,fontSize:FONT.sm.size,fontWeight:700,fontFamily:"inherit",
+                    outline:"none",textAlign:"center",color:T.text,background:T.surface}}
                 />
               </div>
             </div>
@@ -675,95 +796,112 @@ function PageRapportMobile() {
             {/* Avancement % */}
             <div style={{
               flex:"1 1 200px",
-              background:(t.avancement===""||t.avancement===undefined||t.avancement===null)?"rgba(224,92,92,0.06)":parseInt(t.avancement)===100?"rgba(80,200,120,0.06)":"rgba(139,92,246,0.06)",
-              border:`1.5px solid ${(t.avancement===""||t.avancement===undefined||t.avancement===null)?"rgba(224,92,92,0.3)":parseInt(t.avancement)===100?"rgba(80,200,120,0.35)":"rgba(139,92,246,0.3)"}`,
-              borderRadius:10,padding:"11px 12px",
+              background: !avRenseigne ? T.dangerBg : av100 ? T.successBg : "rgba(139,92,246,0.06)",
+              border:    `1.5px solid ${!avRenseigne ? T.dangerBd : av100 ? T.successBd : "rgba(139,92,246,0.30)"}`,
+              borderRadius:RADIUS.lg, padding:"11px 12px",
             }}>
-              <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
-                color:(t.avancement===""||t.avancement===undefined||t.avancement===null)?"#e05c5c":parseInt(t.avancement)===100?"#50c878":"#8b5cf6",
-                marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
-                📊 Avancement
-                {(t.avancement===""||t.avancement===undefined||t.avancement===null) && (
-                  <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>
+              <div style={{...S.sectionTitle(!avRenseigne ? T.danger : av100 ? T.success : "#8b5cf6"), marginBottom:8, fontSize:FONT.xs.size}}>
+                <Icon as={BarChart3} size={12} strokeWidth={2.2}/>
+                Avancement
+                {!avRenseigne && (
+                  <span style={{fontSize:9,background:T.danger,color:"#fff",borderRadius:RADIUS.sm,padding:"1px 5px",fontWeight:800,letterSpacing:0}}>OBLIGATOIRE</span>
                 )}
               </div>
               <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
-                {[0,25,50,75,100].map(p=>(
-                  <button key={p} onClick={()=>setTacheAvancement(idx,String(p))} style={{
-                    padding:"6px 8px",borderRadius:7,border:"1.5px solid",cursor:"pointer",
-                    fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .1s",
-                    borderColor:parseInt(t.avancement)===p?(p===100?"#50c878":"#8b5cf6"):"#e0e4ef",
-                    background:parseInt(t.avancement)===p?(p===100?"rgba(80,200,120,0.15)":"rgba(139,92,246,0.15)"):"#fff",
-                    color:parseInt(t.avancement)===p?(p===100?"#50c878":"#8b5cf6"):"#aaa",
-                  }}>{p===100?"✓ 100%":`${p}%`}</button>
-                ))}
+                {[0,25,50,75,100].map(p=>{
+                  const sel = parseInt(t.avancement)===p;
+                  const colSel = p===100 ? T.success : "#8b5cf6";
+                  const bgSel  = p===100 ? T.successBg : "rgba(139,92,246,0.15)";
+                  const bdrSel = p===100 ? T.successBd : "rgba(139,92,246,0.35)";
+                  return (
+                    <button key={p} onClick={()=>setTacheAvancement(idx,String(p))} style={{
+                      padding:"6px 8px",borderRadius:RADIUS.md,border:"1.5px solid",cursor:"pointer",
+                      fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,transition:"all .1s",
+                      borderColor: sel ? bdrSel : T.border,
+                      background:  sel ? bgSel  : T.surface,
+                      color:       sel ? colSel : T.textMuted,
+                      display:"inline-flex",alignItems:"center",gap:3,
+                    }}>
+                      {p===100 && <Icon as={Check} size={11} strokeWidth={2.5}/>}
+                      {p}%
+                    </button>
+                  );
+                })}
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <input type="range" min="0" max="100" step="5"
                   value={t.avancement||0}
                   onChange={e=>setTacheAvancement(idx,e.target.value)}
-                  style={{flex:1,accentColor:"#8b5cf6"}}
+                  style={{flex:1,accentColor:av100 ? T.success : "#8b5cf6"}}
                 />
-                <span style={{fontSize:15,fontWeight:800,color:"#8b5cf6",minWidth:36,textAlign:"right"}}>
+                <span style={{fontSize:FONT.md.size,fontWeight:800,color:av100 ? T.success : "#8b5cf6",minWidth:36,textAlign:"right"}}>
                   {t.avancement||0}%
                 </span>
               </div>
-              <div style={{height:4,background:"#e0e4ef",borderRadius:2,marginTop:6,overflow:"hidden"}}>
-                <div style={{height:"100%",borderRadius:2,transition:"width .3s",
-                  background:parseInt(t.avancement)===100?"#50c878":"#8b5cf6",
+              <div style={{height:4,background:T.border,borderRadius:RADIUS.sm,marginTop:6,overflow:"hidden"}}>
+                <div style={{height:"100%",borderRadius:RADIUS.sm,transition:"width .3s",
+                  background: av100 ? T.success : "#8b5cf6",
                   width:`${t.avancement||0}%`}}/>
               </div>
             </div>
           </div>
 
           {/* Remarque tâche */}
-          <div style={{marginBottom: t.statut==="en_cours"||t.statut==="non_faite" ? 0 : 0}}>
-            {(t.statut==="en_cours"||t.statut==="non_faite") && (
-              <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",
-                color:t.remarque?.trim()?"#50c878":"#e05c5c",marginBottom:6,display:"flex",alignItems:"center",gap:5}}>
-                💬 Explication
-                {!t.remarque?.trim() && <span style={{fontSize:9,background:"#e05c5c",color:"#fff",borderRadius:4,padding:"1px 5px",fontWeight:800}}>OBLIGATOIRE</span>}
+          <div>
+            {expliRequise && (
+              <div style={{...S.sectionTitle(explOk ? T.success : T.danger), marginBottom:6, fontSize:FONT.xs.size}}>
+                <Icon as={MessageSquare} size={12} strokeWidth={2.2}/>
+                Explication
+                {!explOk && <span style={{fontSize:9,background:T.danger,color:"#fff",borderRadius:RADIUS.sm,padding:"1px 5px",fontWeight:800,letterSpacing:0}}>OBLIGATOIRE</span>}
               </div>
             )}
             <textarea value={t.remarque} onChange={e=>setTacheRemarque(idx,e.target.value)}
               placeholder={t.statut==="en_cours"?"Qu'est-ce qui bloque ? Estimation de fin…":t.statut==="non_faite"?"Pourquoi non réalisé ?":"Remarque, précision… (optionnel)"}
-              style={{...S.input,resize:"none",minHeight:52,fontSize:14,color:"#4a5568",
-                border:(t.statut==="en_cours"||t.statut==="non_faite")&&!t.remarque?.trim()
-                  ?"1.5px solid rgba(224,92,92,0.4)":"1.5px solid #e0e4ef"}}/>
+              style={{...S.input,resize:"none",minHeight:52,fontSize:FONT.base.size,color:T.textSub,
+                border: expliRequise && !explOk ? `1.5px solid ${T.dangerBd}` : `1.5px solid ${T.border}`}}/>
           </div>
 
           {/* Photos de la tâche */}
-          <div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed #e0e4ef"}}>
+          <div style={{marginTop:12,paddingTop:12,borderTop:`1px dashed ${T.border}`}}>
             <PhotosPicker
               photos={t.photos || []}
               onChange={(arr)=>setTachePhotos(idx, arr)}
               pathPrefix={`rapports/${ouvrier}/${dateKey}/tache-${idx}`}
-              color={t.chantier_couleur || "#5b8af5"}
+              color={t.chantier_couleur || T.info}
               label="Photos de la tâche"
             />
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {/* Ajouter tâche libre */}
       <div style={{padding:"0 16px 8px"}}>
         <button onClick={addTacheLibre} style={{
-          width:"100%",padding:"12px",border:"1.5px dashed #c0c8d8",borderRadius:12,
-          fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
-          background:"transparent",color:"#8a9ab0",marginBottom:4
-        }}>+ Ajouter une tâche</button>
+          width:"100%",padding:"12px",border:`1.5px dashed ${T.borderHover}`,borderRadius:RADIUS.xl,
+          fontSize:FONT.base.size,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+          background:"transparent",color:T.textMuted,marginBottom:4,
+          display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+        }}>
+          <Icon as={Plus} size={14} strokeWidth={2.2}/>
+          Ajouter une tâche
+        </button>
       </div>
 
       {/* Photos générales du chantier */}
       {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
         const ct = taches.find(t=>t.chantier_id===cId);
+        const couleur = ct?.chantier_couleur || T.info;
         return (
-          <div key={`ph-${cId}`} style={{...S.card, border:`1.5px solid ${(ct?.chantier_couleur||"#5b8af5")}55`, background:`${(ct?.chantier_couleur||"#5b8af5")}0A`}}>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
-              <span style={{...S.label,marginBottom:0,color:"#1a1f2e"}}>📸 Photos du chantier</span>
+          <div key={`ph-${cId}`} style={{...S.card, border:`1.5px solid ${couleur}55`, background:`${couleur}0A`}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+              <span style={{...S.sectionTitle(T.text), marginBottom:0}}>
+                <Icon as={Camera} size={13} strokeWidth={2.2}/>
+                Photos du chantier
+              </span>
               {ct?.chantier_nom && (
-                <span style={{background:(ct.chantier_couleur||"#5b8af5")+"44",color:"#1a1f2e",
-                  borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>
+                <span style={{background:`${couleur}44`,color:T.text,
+                  borderRadius:RADIUS.sm,padding:"0 6px",fontSize:FONT.xs.size-1,fontWeight:700,textTransform:"uppercase"}}>
                   {ct.chantier_nom}
                 </span>
               )}
@@ -772,10 +910,10 @@ function PageRapportMobile() {
               photos={photosChantier[cId] || []}
               onChange={(arr)=>setPhotosChantier(p=>({...p,[cId]:arr}))}
               pathPrefix={`rapports/${ouvrier}/${dateKey}/chantier-${cId}`}
-              color={ct?.chantier_couleur || "#5b8af5"}
+              color={couleur}
               label="Vue globale, avancement…"
             />
-            <div style={{fontSize:11,color:"#8a9ab0",marginTop:8,fontStyle:"italic"}}>
+            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:8,fontStyle:"italic"}}>
               Visibles dans la fiche chantier et dans le bilan d'équipe.
             </div>
           </div>
@@ -785,22 +923,25 @@ function PageRapportMobile() {
       {/* Besoins en commande par chantier */}
       {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
         const ct = taches.find(t=>t.chantier_id===cId);
+        const couleur = ct?.chantier_couleur || T.info;
         const nbArticles = Object.values(paniers[cId]||{}).filter(v=>v.qty>0).length;
+        const VIOLET = "#9040c0";
         return (
           <div key={cId} style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <span style={{...S.label, marginBottom:0, color:"#9040c0"}}>
-                📦 Besoins commande
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:6}}>
+              <span style={{...S.sectionTitle(VIOLET), marginBottom:0}}>
+                <Icon as={ShoppingCart} size={13} strokeWidth={2.2}/>
+                Besoins commande
                 {ct?.chantier_nom && (
-                  <span style={{marginLeft:6,background:ct.chantier_couleur+"44",color:"#1a1f2e",
-                    borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>
+                  <span style={{marginLeft:2,background:`${couleur}44`,color:T.text,
+                    borderRadius:RADIUS.sm,padding:"0 6px",fontSize:FONT.xs.size-1,fontWeight:700,textTransform:"uppercase"}}>
                     {ct.chantier_nom}
                   </span>
                 )}
               </span>
               {nbArticles > 0 && (
-                <span style={{background:"rgba(176,96,255,0.2)",color:"#9040c0",borderRadius:20,
-                  padding:"2px 10px",fontSize:12,fontWeight:700}}>
+                <span style={{background:"rgba(176,96,255,0.2)",color:VIOLET,borderRadius:RADIUS.pill,
+                  padding:"2px 10px",fontSize:FONT.sm.size,fontWeight:700}}>
                   {nbArticles} article{nbArticles>1?"s":""}
                 </span>
               )}
@@ -809,8 +950,8 @@ function PageRapportMobile() {
             {nbArticles > 0 && (
               <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
                 {Object.values(paniers[cId]||{}).filter(v=>v.qty>0).map(({article,qty})=>(
-                  <div key={article.id} style={{background:"rgba(176,96,255,0.12)",borderRadius:8,
-                    padding:"4px 10px",fontSize:12,fontWeight:700,color:"#6020a0"}}>
+                  <div key={article.id} style={{background:"rgba(176,96,255,0.12)",borderRadius:RADIUS.lg,
+                    padding:"4px 10px",fontSize:FONT.sm.size,fontWeight:700,color:"#6020a0"}}>
                     {qty}× {article.nom}
                   </div>
                 ))}
@@ -819,14 +960,17 @@ function PageRapportMobile() {
 
             <button onClick={()=>setBesoinDrawer(cId)} style={{
               width:"100%",padding:"12px",border:"1.5px dashed rgba(176,96,255,0.4)",
-              borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer",
-              fontFamily:"inherit",background:"transparent",color:"#9040c0",
+              borderRadius:RADIUS.xl,fontSize:FONT.base.size,fontWeight:700,cursor:"pointer",
+              fontFamily:"inherit",background:"transparent",color:VIOLET,
+              display:"flex",alignItems:"center",justifyContent:"center",gap:6,
             }}>
-              {nbArticles > 0 ? "✏️ Modifier ma sélection" : "🛒 Choisir dans la bibliothèque"}
+              <Icon as={nbArticles > 0 ? Pencil : ShoppingCart} size={14} strokeWidth={2.2}/>
+              {nbArticles > 0 ? "Modifier ma sélection" : "Choisir dans la bibliothèque"}
             </button>
 
-            <div style={{fontSize:11,color:"#9040c0",marginTop:6}}>
-              ⚡ Sera transmis automatiquement dans l'onglet Commandes
+            <div style={{fontSize:FONT.xs.size+1,color:VIOLET,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+              <Icon as={Zap} size={11} strokeWidth={2.2}/>
+              Sera transmis automatiquement dans l'onglet Commandes
             </div>
           </div>
         );
@@ -851,23 +995,31 @@ function PageRapportMobile() {
 
       {/* Remarque générale */}
       <div style={{...S.card}}>
-        <span style={S.label}>Remarque générale de la journée</span>
+        <span style={{...S.sectionTitle()}}>
+          <Icon as={MessageSquare} size={13} strokeWidth={2.2}/>
+          Remarque générale de la journée
+        </span>
         <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
           placeholder="Informations utiles…"
-          style={{...S.input,resize:"none",minHeight:80,fontSize:14}}/>
+          style={{...S.input,resize:"none",minHeight:80,fontSize:FONT.base.size}}/>
       </div>
 
       {/* Bouton soumettre */}
       <div style={{padding:"8px 16px 32px"}}>
         <button onClick={soumettre} disabled={submitting} style={{
-          width:"100%",padding:"18px",border:"none",borderRadius:14,fontSize:17,
-          fontWeight:800,cursor:"pointer",fontFamily:"inherit",letterSpacing:.5,
-          background:submitting?"#c0c8d8":"#FFC200",color:"#111",
-          boxShadow:"0 4px 20px rgba(255,194,0,0.3)",
+          width:"100%",padding:"18px",border:"none",borderRadius:RADIUS.xl+2,fontSize:FONT.lg.size,
+          fontWeight:800,cursor:submitting?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:.4,
+          background: submitting ? T.borderHover : T.accent, color: T.accentText,
+          boxShadow:`0 4px 20px ${T.accent}4D`,
+          display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+          opacity: submitting ? 0.7 : 1,
         }}>
-          {submitting ? "Envoi en cours…" : "✓ Valider mon compte rendu"}
+          <Icon as={submitting ? RotateCw : Check} size={18} strokeWidth={2.5}
+            style={submitting ? {animation:"spin 1s linear infinite"} : {}}/>
+          {submitting ? "Envoi en cours…" : "Valider mon compte rendu"}
         </button>
       </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
