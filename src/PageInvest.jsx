@@ -1547,17 +1547,22 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
   const [props, setProps]     = useState([]);
+  const [biens, setBiens]     = useState([]); // liste des biens du stock pour la modale "Proposer un bien"
   const [showEdit, setShowEdit] = useState(false);
   const [newNote, setNewNote] = useState({ type:"commentaire", contenu:"" });
   const [savingNote, setSavingNote] = useState(false);
+  const [showProp, setShowProp] = useState(false);
+  const [newProp, setNewProp] = useState({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+  const [savingProp, setSavingProp] = useState(false);
 
   const charger = async () => {
-    const [{ data: c }, { data: n }, { data: p }] = await Promise.all([
+    const [{ data: c }, { data: n }, { data: p }, { data: b }] = await Promise.all([
       supabase.from("invest_clients").select("*").eq("id", id).single(),
       supabase.from("invest_notes").select("*").eq("client_id", id).order("date", { ascending: false }),
       supabase.from("invest_propositions").select("*, bien:invest_biens(adresse,ville,statut)").eq("client_id", id).order("created_at", { ascending: false }),
+      supabase.from("invest_biens").select("id,adresse,ville,statut").order("adresse"),
     ]);
-    setClient(c); setNotes(n||[]); setProps(p||[]);
+    setClient(c); setNotes(n||[]); setProps(p||[]); setBiens(b||[]);
   };
   useEffect(() => { charger(); }, [id]);
 
@@ -1569,6 +1574,24 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
     setSavingNote(false);
     charger();
   };
+
+  const ajouterProp = async () => {
+    if (!newProp.bien_id) return;
+    setSavingProp(true);
+    await supabase.from("invest_propositions").insert({
+      client_id: id,
+      ...newProp,
+      date_proposition: new Date().toISOString().slice(0,10),
+    });
+    setNewProp({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+    setSavingProp(false);
+    setShowProp(false);
+    charger();
+  };
+
+  // Biens déjà proposés à ce client : on les marque pour les retirer/distinguer dans la modale
+  const idsDejaProposes = new Set(props.map(p => p.bien?.id || p.bien_id).filter(Boolean));
+  const biensDispo = biens.filter(b => !idsDejaProposes.has(b.id));
 
   const STATUT_COLORS = { Prospect:"#4db8ff", Actif:"#50c878", Inactif:"#FFC200", Terminé:"rgba(255,255,255,0.3)" };
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" }) : "—";
@@ -1617,17 +1640,21 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
           </div>
           {/* Propositions */}
           <div className="inv-card">
-            <div className="inv-card-hd">🏠 Biens proposés ({props.length})</div>
+            <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+              <span>🏠 Biens proposés ({props.length})</span>
+              <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+            </div>
             <div className="inv-card-bd">
               {props.length === 0 ? (
-                <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic" }}>Aucun bien proposé</div>
+                <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun bien proposé</div>
               ) : props.map(p => (
-                <div key={p.id} style={{ padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+                <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
                   <div style={{ fontWeight:600, fontSize:13, color:T.text }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
                   <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
-                    {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · {p.statut}
+                    {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
                     {p.commentaire && ` · ${p.commentaire}`}
                   </div>
+                  {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent }}>📄 Dossier présenté ↗</a>}
                 </div>
               ))}
             </div>
@@ -1677,6 +1704,51 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark }) {
       </div>
 
       {showEdit && <FormulaireClient client={client} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
+
+      {showProp && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"24px 26px", width:"90%", maxWidth:440 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:16 }}>Proposer un bien à {client.prenom} {client.nom}</div>
+            <div style={{ marginBottom:12 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Bien</label>
+              <select className="inv-sel" value={newProp.bien_id} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,bien_id:e.target.value})}>
+                <option value="">Sélectionner un bien…</option>
+                {biensDispo.length === 0 && (
+                  <option value="" disabled>Tous les biens ont déjà été proposés</option>
+                )}
+                {biensDispo.map(b=>(
+                  <option key={b.id} value={b.id}>
+                    {b.adresse || "(sans adresse)"}{b.ville ? ` — ${b.ville}` : ""}{b.statut ? ` · ${b.statut}` : ""}
+                  </option>
+                ))}
+              </select>
+              {biens.length === 0 && (
+                <div style={{ fontSize:11, color:T.textMuted, marginTop:6, fontStyle:"italic" }}>
+                  Aucun bien dans le stock. Ajoute d'abord un bien depuis l'onglet « Stock de biens ».
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
+              <select className="inv-sel" value={newProp.statut} style={{ width:"100%" }} onChange={e=>setNewProp({...newProp,statut:e.target.value})}>
+                {STATUTS_PROP.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Commentaire</label>
+              <textarea className="inv-textarea" rows={2} value={newProp.commentaire} onChange={e=>setNewProp({...newProp,commentaire:e.target.value})}/>
+            </div>
+            <div style={{ marginBottom:16 }}>
+              <label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Lien dossier présenté</label>
+              <input className="inv-inp" value={newProp.lien_dossier} style={{ width:"100%", textAlign:"left" }} onChange={e=>setNewProp({...newProp,lien_dossier:e.target.value})} placeholder="https://…"/>
+            </div>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button className="inv-btn inv-btn-out" onClick={() => { setShowProp(false); setNewProp({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" }); }}>Annuler</button>
+              <button className="inv-btn inv-btn-blue" onClick={ajouterProp} disabled={savingProp||!newProp.bien_id}>{savingProp?"…":"Proposer"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
