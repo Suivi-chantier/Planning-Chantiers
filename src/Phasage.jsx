@@ -10,6 +10,7 @@ import {
   Info, Unlink, Link2, SplitSquareHorizontal, HardHat, Package, CalendarCheck,
 } from "lucide-react";
 import GanttView from "./GanttView";
+import { useIsMobile } from "./Navigation";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function normalise(str) {
@@ -806,6 +807,7 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
 function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onSavePlan }) {
   const BLEU = "#5b9cf6";
   const planAcc = getBranchAccent("renovation");
+  const isMobile = useIsMobile();
 
   const initPlan = () => {
     if (phasage.plan_travaux && Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length > 0) {
@@ -935,10 +937,42 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
   
   // Adjusted grid columns to fit the new text input for avancement
-  const gridCols = "20px 1.5fr 120px 55px 55px 70px 110px 70px 90px 26px";
+  const gridCols = isMobile
+    ? "auto 1fr auto"
+    : "20px 1.5fr 120px 55px 55px 70px 110px 70px 90px 26px";
+
+  // Sur mobile, on stacke chaque ligne de tâche en carte avec grid-template-areas.
+  // Sur desktop, gridAreas reste undefined et l'ordre naturel des enfants s'applique.
+  const gridAreas = isMobile
+    ? `"drag name del" "ouv ouv ouv" "v e r" "date date av" "plan plan plan"`
+    : undefined;
+  const ga = (areaName) => isMobile ? { gridArea: areaName } : {};
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
+    <div className="page-padding plan-travaux" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
+      <style>{`
+        @media (max-width: 767px) {
+          .plan-travaux .plan-task-headers { display: none !important; }
+          .plan-travaux .plan-task-row {
+            padding: 12px !important;
+            gap: 8px !important;
+            border-radius: 8px;
+            margin: 4px 0;
+          }
+          .plan-travaux .plan-task-row .field-mini-label {
+            display: block !important;
+          }
+          .plan-travaux .plan-task-row .planifier-btn-wrap {
+            text-align: left !important;
+          }
+          .plan-travaux .plan-task-row input[type="number"],
+          .plan-travaux .plan-task-row input[type="date"],
+          .plan-travaux .plan-task-row input[type="text"] {
+            width: 100% !important;
+          }
+        }
+        .field-mini-label { display: none; font-size: 9.5px; font-weight: 700; color: ${T.textMuted}; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 3px; }
+      `}</style>
 
       {planifierTask && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }} onClick={() => setPlanifierTask(null)}>
@@ -1264,7 +1298,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 {isExp && (
                   <div style={{ padding: "0 0 14px" }}>
                     {taches.length > 0 && (
-                      <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
+                      <div className="plan-task-headers" style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
                         {["", "Tâche", "Ouvrier(s)", "Vendu", "Estimé", "Réel", "Date", "Avanc.", "Planning", ""].map((h, i) => (
                           <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, textAlign: i > 2 ? "center" : "left" }}>{h}</div>
                         ))}
@@ -1280,36 +1314,58 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
                       return (
                         <div key={tache.id}
-                          draggable
+                          className="plan-task-row"
+                          draggable={!isMobile}
                           onDragStart={() => onDragStart(phase.id, ti)}
                           onDragEnter={() => onDragEnter(phase.id, ti)}
                           onDragEnd={onDragEnd}
                           onDragOver={e => e.preventDefault()}
-                          style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.sectionDivider}`, alignItems: "center", opacity: isDragging ? 0.35 : 1, background: isDragging ? `${phase.couleur}18` : "transparent", transition: "opacity .15s", cursor: "grab" }}>
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: gridCols,
+                            ...(gridAreas ? { gridTemplateAreas: gridAreas } : {}),
+                            gap: 8, padding: "7px 16px",
+                            borderBottom: `1px solid ${T.sectionDivider}`,
+                            alignItems: "center",
+                            opacity: isDragging ? 0.35 : 1,
+                            background: isDragging ? `${phase.couleur}18` : "transparent",
+                            transition: "opacity .15s",
+                            cursor: isMobile ? "default" : "grab",
+                          }}>
 
-                          <div style={{ color: T.textMuted, cursor: "grab", userSelect: "none", display: "flex", alignItems: "center", justifyContent: "center" }} title="Glisser pour réordonner">
+                          <div style={{ color: T.textMuted, cursor: isMobile ? "default" : "grab", userSelect: "none", display: "flex", alignItems: "center", justifyContent: "center", ...ga("drag") }} title={isMobile ? "" : "Glisser pour réordonner"}>
                             <Icon as={GripVertical} size={14}/>
                           </div>
 
-                          <div style={{ minWidth: 0 }}>
+                          <div style={{ minWidth: 0, ...ga("name") }}>
                             <input value={tache.nom} onChange={e => updateTache(phase.id, tache.id, { nom: e.target.value })} onPointerDown={stopDrag} style={{ width: "100%", padding: "4px 6px", borderRadius: 6, border: "1px solid transparent", background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none" }} onFocus={e => e.target.style.borderColor = T.border} onBlur={e => e.target.style.borderColor = "transparent"} />
                             {tache.ouvrage_libelle && <div style={{ fontSize: 10, color: T.textMuted, paddingLeft: 6, marginTop: 1 }}>↳ {tache.ouvrage_libelle}</div>}
                           </div>
 
-                          <OuvriersSelect ouvriers={ouvriers} selected={ouvriersActuels} onChange={next => updateTache(phase.id, tache.id, { ouvriers: next })} T={T} stopDrag={stopDrag} />
+                          <div style={{ minWidth: 0, ...ga("ouv") }}>
+                            <span className="field-mini-label">Ouvrier(s)</span>
+                            <OuvriersSelect ouvriers={ouvriers} selected={ouvriersActuels} onChange={next => updateTache(phase.id, tache.id, { ouvriers: next })} T={T} stopDrag={stopDrag} />
+                          </div>
 
-                          {[["heures_vendues", T.accent], ["heures_estimees", BLEU], ["heures_reelles", hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text]].map(([field, color]) => (
-                            <input key={field} type="number" min="0" step="0.5" value={tache[field] || ""} placeholder={field === "heures_estimees" ? "—" : "0"} onPointerDown={stopDrag} onChange={e => updateTache(phase.id, tache.id, { [field]: parseFloat(e.target.value) || (field === "heures_estimees" ? null : 0) })} style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          {[["heures_vendues", T.accent, "Vendu", "v"], ["heures_estimees", BLEU, "Estimé", "e"], ["heures_reelles", hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text, "Réel", "r"]].map(([field, color, miniLabel, area]) => (
+                            <div key={field} style={{ minWidth: 0, ...ga(area) }}>
+                              <span className="field-mini-label">{miniLabel}</span>
+                              <input type="number" min="0" step="0.5" value={tache[field] || ""} placeholder={field === "heures_estimees" ? "—" : "0"} onPointerDown={stopDrag} onChange={e => updateTache(phase.id, tache.id, { [field]: parseFloat(e.target.value) || (field === "heures_estimees" ? null : 0) })} style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                            </div>
                           ))}
 
-                          <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })} onPointerDown={stopDrag} style={{ padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 11, outline: "none", width: "100%", colorScheme: "dark" }} />
+                          <div style={{ minWidth: 0, ...ga("date") }}>
+                            <span className="field-mini-label">Date prévue</span>
+                            <input type="date" value={tache.date_prevue || ""} onChange={e => updateTache(phase.id, tache.id, { date_prevue: e.target.value })} onPointerDown={stopDrag} style={{ padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 11, outline: "none", width: "100%", colorScheme: "dark" }} />
+                          </div>
 
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3, ...ga("av") }}>
+                            <span className="field-mini-label" style={{ marginBottom: 0, marginRight: 4 }}>Avanc.</span>
                             <input type="number" min="0" max="100" step="1" value={av} onPointerDown={stopDrag} onChange={e => { let val = parseInt(e.target.value); if (isNaN(val)) val = 0; if (val > 100) val = 100; if (val < 0) val = 0; updateTache(phase.id, tache.id, { avancement: val }); }} style={{ width: 42, padding: "4px 2px", borderRadius: 6, border: `1.5px solid ${av === 100 ? "#50c878" : T.border}`, background: T.inputBg, color: av === 100 ? "#50c878" : T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 800, textAlign: "center", outline: "none" }} />
                             <span style={{ fontSize: 11, color: T.textMuted }}>%</span>
                           </div>
 
-                          <div style={{ textAlign: "center" }}>
+                          <div className="planifier-btn-wrap" style={{ textAlign: "center", ...ga("plan") }}>
                             <button onClick={() => { setPlanifierWeek(semainesFutures[0]); setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache: { ...tache, ouvriers: ouvriersActuels } }); }}
                               onPointerDown={stopDrag}
                               style={{
@@ -1331,6 +1387,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                               display: "inline-flex", alignItems: "center", justifyContent: "center",
                               background: "transparent", border: "none", color: "#e15a5a",
                               cursor: "pointer", padding: 0, lineHeight: 1,
+                              ...ga("del"),
                             }}>
                             <Icon as={X} size={14}/>
                           </button>

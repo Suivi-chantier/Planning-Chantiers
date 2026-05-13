@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { PHASES_DEFAUT, loadPhases } from "./constants";
+import { useIsMobile } from "./Navigation";
 
 // PHASES dynamiques : init avec les défauts, mise à jour async au mount
 let PHASES = [...PHASES_DEFAUT];
@@ -9,7 +10,8 @@ const H_PER_DAY = 7;            // heures travaillées par jour
 const SKIP_WEEKENDS = true;     // ignorer samedi/dimanche
 const DAY_PX = 28;              // largeur d'une journée à zoom 1
 const ROW_H = 32;               // hauteur d'une ligne tâche
-const LABEL_W = 280;            // largeur colonne libellés
+const LABEL_W_DESKTOP = 280;    // largeur colonne libellés (desktop)
+const LABEL_W_MOBILE  = 140;    // largeur colonne libellés (mobile)
 
 // ─── HELPERS DATES ───────────────────────────────────────────────────────────
 function parseDate(s) {
@@ -301,7 +303,9 @@ function exporterGantt(taches, chantierNom, gridStart, gridEnd, totalDays, today
 
 // ─── GANTT ───────────────────────────────────────────────────────────────────
 export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
-  const [zoom, setZoom] = useState(1); // 0.5 .. 2
+  const isMobile = useIsMobile();
+  const LABEL_W = isMobile ? LABEL_W_MOBILE : LABEL_W_DESKTOP;
+  const [zoom, setZoom] = useState(isMobile ? 0.75 : 1); // un peu compressé sur mobile
 
   const taches = useMemo(() => planifier(planTravaux), [planTravaux]);
 
@@ -368,20 +372,20 @@ export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
     }}>
       {/* HEADER */}
       <div style={{
-        padding: "14px 22px", borderBottom: `1px solid ${T.border}`, background: T.surface,
-        display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", flexShrink: 0,
+        padding: isMobile ? "10px 12px" : "14px 22px", borderBottom: `1px solid ${T.border}`, background: T.surface,
+        display: "flex", alignItems: "center", gap: isMobile ? 8 : 16, flexWrap: "wrap", flexShrink: 0,
       }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: T.accent, textTransform: "uppercase" }}>
+        <div style={{ flex: 1, minWidth: isMobile ? 0 : 200 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: T.accent, textTransform: "uppercase" }}>
             📊 Vue Gantt
           </div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: T.text, marginTop: 2 }}>
+          <div style={{ fontSize: isMobile ? 14 : 18, fontWeight: 800, color: T.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {chantierNom || "Plan de travail"}
           </div>
-          <div style={{ fontSize: 12, color: T.textMuted, marginTop: 4 }}>
-            {taches.length} tâche{taches.length > 1 ? "s" : ""} · {heuresTotal.toFixed(0)}h · {dureeJours} jour{dureeJours > 1 ? "s" : ""} ouvrés
-            · {dateStartLabel} → {dateEndLabel}
-            · {avancementMoyen}% avancement
+          <div style={{ fontSize: isMobile ? 10 : 12, color: T.textMuted, marginTop: 4, lineHeight: 1.4 }}>
+            {taches.length} tâche{taches.length > 1 ? "s" : ""} · {heuresTotal.toFixed(0)}h · {dureeJours}j ouvrés
+            {!isMobile && <> · {dateStartLabel} → {dateEndLabel}</>}
+            · {avancementMoyen}%
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -409,19 +413,24 @@ export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
 
       {/* LÉGENDE */}
       <div style={{
-        padding: "8px 22px", background: T.card, borderBottom: `1px solid ${T.border}`,
-        display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", flexShrink: 0,
+        padding: isMobile ? "6px 12px" : "8px 22px", background: T.card, borderBottom: `1px solid ${T.border}`,
+        display: "flex", gap: isMobile ? 10 : 16, alignItems: "center",
+        flexWrap: isMobile ? "nowrap" : "wrap", flexShrink: 0,
+        overflowX: isMobile ? "auto" : "visible",
+        WebkitOverflowScrolling: "touch",
       }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: 1, textTransform: "uppercase" }}>Phases :</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: 1, textTransform: "uppercase", flexShrink: 0 }}>Phases :</span>
         {PHASES.filter(ph => (planTravaux?.[ph.id] || []).length > 0).map(ph => (
-          <span key={ph.id} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: T.text }}>
+          <span key={ph.id} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: isMobile ? 11 : 12, color: T.text, flexShrink: 0, whiteSpace: "nowrap" }}>
             <span style={{ width: 12, height: 12, borderRadius: 3, background: ph.couleur, display: "inline-block" }} />
             {ph.emoji} {ph.label}
           </span>
         ))}
-        <span style={{ marginLeft: "auto", fontSize: 11, color: T.textMuted, fontStyle: "italic" }}>
-          📌 = date imposée · ⛶ = auto-planifié · {H_PER_DAY}h/jour · {SKIP_WEEKENDS ? "weekends ignorés" : "weekends inclus"}
-        </span>
+        {!isMobile && (
+          <span style={{ marginLeft: "auto", fontSize: 11, color: T.textMuted, fontStyle: "italic" }}>
+            📌 = date imposée · ⛶ = auto-planifié · {H_PER_DAY}h/jour · {SKIP_WEEKENDS ? "weekends ignorés" : "weekends inclus"}
+          </span>
+        )}
       </div>
 
       {/* TIMELINE */}
@@ -443,20 +452,20 @@ export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
             {/* Lignes */}
             {taches.map((t, i) => (
               <div key={t.id || i} style={{
-                height: ROW_H, padding: "0 12px 0 14px",
+                height: ROW_H, padding: isMobile ? "0 6px 0 8px" : "0 12px 0 14px",
                 borderBottom: `1px solid ${T.sectionDivider || T.border}`,
-                display: "flex", alignItems: "center", gap: 8, fontSize: 12,
+                display: "flex", alignItems: "center", gap: isMobile ? 5 : 8, fontSize: isMobile ? 11 : 12,
                 background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)",
               }}>
-                <span style={{ fontSize: 13, flexShrink: 0 }}>{t.phase.emoji}</span>
+                <span style={{ fontSize: isMobile ? 11 : 13, flexShrink: 0 }}>{t.phase.emoji}</span>
                 <span style={{
                   flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
                   whiteSpace: "nowrap", color: T.text, fontWeight: 600,
                 }} title={t.nom}>
                   {t.nom || "(sans nom)"}
                 </span>
-                {t.ancre && <span title="Date imposée" style={{ fontSize: 11 }}>📌</span>}
-                <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 600, flexShrink: 0 }}>
+                {t.ancre && <span title="Date imposée" style={{ fontSize: 10 }}>📌</span>}
+                <span style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, flexShrink: 0 }}>
                   {t.heures}h
                 </span>
               </div>
