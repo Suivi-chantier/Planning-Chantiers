@@ -411,6 +411,37 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
           .pic-page .pic-drawer-backdrop.open{opacity:1;pointer-events:auto}
           .pic-page .pic-mobile-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:${T.surface};border-bottom:1px solid ${T.border};flex-shrink:0;width:100%}
           .pic-page .pic-form-grid{grid-template-columns:1fr!important;gap:8px!important}
+
+          /* Header projet : padding réduit, statut + actions sur leur propre ligne */
+          .pic-page .pic-projet-header{padding:10px 12px!important}
+          .pic-page .pic-projet-header-row{flex-wrap:wrap!important;gap:8px!important;margin-bottom:8px!important}
+          .pic-page .pic-projet-actions{flex:1 1 100%;display:flex;gap:6px;order:10}
+          .pic-page .pic-projet-actions select{flex:1}
+          .pic-page .pic-projet-name{font-size:15px!important}
+
+          /* Onglets : scroll horizontal au lieu de wrap, plus compacts */
+          .pic-page .pic-tabs{flex-wrap:nowrap!important;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -12px;padding:0 12px;scrollbar-width:none}
+          .pic-page .pic-tabs::-webkit-scrollbar{display:none}
+          .pic-page .pic-tabs button{flex-shrink:0;padding:7px 11px!important;white-space:nowrap}
+
+          /* Body des onglets : padding réduit */
+          .pic-page .pic-body{padding:14px 12px!important}
+
+          /* Ligne d'édition d'ouvrage : inputs compacts (anti CSS global 42px+10/12px) */
+          .pic-page .ouvrage-edit-row{gap:5px!important}
+          .pic-page .ouvrage-edit-row input,
+          .pic-page .ouvrage-edit-row select{
+            min-height:34px!important;
+            padding:5px 8px!important;
+            font-size:14px!important;
+          }
+          .pic-page .ouvrage-edit-row .qte-input{width:64px!important;flex-shrink:0}
+          .pic-page .ouvrage-edit-row .unit-select{width:64px!important;flex-shrink:0}
+          .pic-page .ouvrage-edit-row .prix-wrap{width:96px!important;flex-shrink:0}
+          .pic-page .ouvrage-edit-row .total-badge{flex:1 1 100%;margin-left:0!important;justify-content:flex-end}
+
+          /* Cartes côtes : grille 2x2 reste lisible */
+          .pic-page .cote-card input{min-height:34px!important;padding:5px 8px!important;font-size:14px!important}
         }
       `}</style>
 
@@ -570,10 +601,10 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
       ) : (
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
           {/* En-tête projet + statut + onglets */}
-          <div style={{
+          <div className="pic-projet-header" style={{
             padding:"14px 22px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0,
           }}>
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+            <div className="pic-projet-header-row" style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
               <div style={{
                 width:36,height:36,borderRadius:RADIUS.md,flexShrink:0,
                 background:acc.bg10,color:acc.accent,
@@ -582,7 +613,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                 <Icon as={UserCircle} size={20} strokeWidth={2}/>
               </div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                <div className="pic-projet-name" style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                   {infos.client_nom ? `${infos.client_nom} ${infos.client_prenom||""}` : "Nouveau projet"}
                 </div>
                 <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,display:"flex",flexWrap:"wrap",gap:10}}>
@@ -598,33 +629,35 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                   )}
                 </div>
               </div>
-              {/* Sélecteur statut */}
-              <select value={infos.statut || "prospect"} onChange={e=>updInfo("statut",e.target.value)}
-                style={{
-                  padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${statutMeta(infos.statut).color}55`,
-                  background:statutMeta(infos.statut).color+"18",color:statutMeta(infos.statut).color,
-                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,outline:"none",cursor:"pointer",
+              {/* Statut + actions : sur mobile passent en row dédiée pleine largeur */}
+              <div className="pic-projet-actions">
+                <select value={infos.statut || "prospect"} onChange={e=>updInfo("statut",e.target.value)}
+                  style={{
+                    padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${statutMeta(infos.statut).color}55`,
+                    background:statutMeta(infos.statut).color+"18",color:statutMeta(infos.statut).color,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,outline:"none",cursor:"pointer",
+                  }}>
+                  {STATUTS_PROJET.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+                <button onClick={dupliquerProjet} title="Dupliquer ce projet" style={{
+                  display:"inline-flex",alignItems:"center",justifyContent:"center",
+                  background:"transparent",border:`1px solid ${T.border}`,
+                  borderRadius:RADIUS.md,padding:"7px 10px",color:T.textSub,cursor:"pointer",
                 }}>
-                {STATUTS_PROJET.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-              <button onClick={dupliquerProjet} title="Dupliquer ce projet" style={{
-                display:"inline-flex",alignItems:"center",justifyContent:"center",
-                background:"transparent",border:`1px solid ${T.border}`,
-                borderRadius:RADIUS.md,padding:"7px 10px",color:T.textSub,cursor:"pointer",
-              }}>
-                <Icon as={Copy} size={13}/>
-              </button>
-              <button onClick={()=>setToDelete(projetActif)} title="Supprimer ce projet" style={{
-                display:"inline-flex",alignItems:"center",justifyContent:"center",
-                background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
-                borderRadius:RADIUS.md,padding:"7px 10px",color:"#e15a5a",cursor:"pointer",
-              }}>
-                <Icon as={Trash2} size={13}/>
-              </button>
+                  <Icon as={Copy} size={13}/>
+                </button>
+                <button onClick={()=>setToDelete(projetActif)} title="Supprimer ce projet" style={{
+                  display:"inline-flex",alignItems:"center",justifyContent:"center",
+                  background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
+                  borderRadius:RADIUS.md,padding:"7px 10px",color:"#e15a5a",cursor:"pointer",
+                }}>
+                  <Icon as={Trash2} size={13}/>
+                </button>
+              </div>
             </div>
 
-            {/* Onglets unifiés */}
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {/* Onglets unifiés (scroll horizontal sur mobile) */}
+            <div className="pic-tabs" style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {[
                 { id:"client",   label:"Client & projet", icon:UserCircle },
                 { id:"ouvrages", label:"Ouvrages",        icon:Hammer },
@@ -652,7 +685,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
           </div>
 
           {/* Corps onglet */}
-          <div style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg,minWidth:0}}>
+          <div className="pic-body" style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg,minWidth:0}}>
 
             {tab==="client" && (
               <>
@@ -720,21 +753,23 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                                 const pu = parseFloat(sel.prix_unitaire) || 0;
                                 const totalLigne = q * pu;
                                 return (
-                                  <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
+                                  <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
                                     <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
+                                      className="qte-input"
                                       style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
                                     <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)}
+                                      className="unit-select"
                                       style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
                                       <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option>
                                     </select>
                                     <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
-                                    <div style={{position:"relative",width:100}}>
+                                    <div className="prix-wrap" style={{position:"relative",width:100}}>
                                       <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
                                         style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
                                       <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
                                     </div>
                                     {totalLigne > 0 && (
-                                      <span style={{
+                                      <span className="total-badge" style={{
                                         marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:4,
                                         fontSize:FONT.xs.size+1, fontWeight:800, color:"#22c55e",
                                         background:"rgba(34,197,94,0.10)", border:"1px solid rgba(34,197,94,0.25)",
@@ -916,7 +951,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                 </button>
                 {cotes.length===0 && <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,textAlign:"center",padding:14,fontStyle:"italic"}}>Aucune côte enregistrée</div>}
                 {cotes.map(c => (
-                  <div key={c.id} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:12, marginBottom:8 }}>
+                  <div key={c.id} className="cote-card" style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:12, marginBottom:8 }}>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:6 }}>
                       <input style={{...inp,fontSize:FONT.xs.size+1}} value={c.nom||""} onChange={e=>updCote(c.id,"nom",e.target.value)} placeholder="Fenêtre salon" />
                       <input style={{...inp,fontSize:FONT.xs.size+1}} value={c.localisation||""} onChange={e=>updCote(c.id,"localisation",e.target.value)} placeholder="Localisation" />
