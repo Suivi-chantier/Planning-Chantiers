@@ -944,12 +944,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches);
 
   const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
-  // Coût matériel = somme des prix HT des commandes liées au phasage (au lieu
-  // de l'ancien cout_materiel par tâche). Si commandes pas encore migrées en
-  // famille, on retombe sur le cout_materiel legacy par tâche.
-  const totalMatCommandes = commandesPhasage.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
-  const totalMatLegacy    = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
-  const totalMat = totalMatCommandes > 0 ? totalMatCommandes : totalMatLegacy;
+  // Coût matériel = somme des prix HT des commandes liées au phasage. Plus de
+  // fallback legacy sur tache.cout_materiel (donnée fossile qui restait gravée
+  // même quand les commandes étaient supprimées).
+  const totalMat = commandesPhasage.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
   const coutTotal = totalMO + totalMat;
   const pVendu = parseFloat(prixVendu) || 0;
   const marge = pVendu - coutTotal;
@@ -1304,9 +1302,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             const phCoutMO = taches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
             // Coût matériel par phase = somme commandes ayant phase_id = cette phase
             const phCmds = commandesPhasage.filter(c => c.phase_id === phase.id);
-            const phCoutMatCommandes = phCmds.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
-            const phCoutMatLegacy    = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
-            const phCoutMat = phCoutMatCommandes > 0 ? phCoutMatCommandes : phCoutMatLegacy;
+            const phCoutMat = phCmds.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
             const phCout = phCoutMO + phCoutMat;
             const phMarge = phPrixHt - phCout;
 
