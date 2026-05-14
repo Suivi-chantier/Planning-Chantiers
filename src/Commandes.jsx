@@ -1201,14 +1201,15 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   // ─── MIGRATION AUTO : tache_id → (phase_id, ouvrage_libelle) ────────────────
   // Migre les anciennes commandes liées à une tâche spécifique vers la nouvelle
   // logique de liaison à une famille (= ouvrage). One-shot par session, idempotent.
-  // Migration SQL requise au préalable (sinon les UPDATE échouent silencieusement) :
-  //   ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS phase_id TEXT;
-  //   ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS ouvrage_libelle TEXT;
+  // Tourne tant que la colonne tache_id existe encore en base. Une fois le SQL
+  // de cleanup exécuté (DROP COLUMN tache_id), `r.tache_id` sera toujours
+  // undefined → la migration ne fait simplement rien.
+  // SQL pré-requis : ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS phase_id TEXT;
+  //                  ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS ouvrage_libelle TEXT;
   const migrationRef = useRef(false);
   useEffect(() => {
     if (migrationRef.current) return;
     if (!rows.length || !phasages.length) return;
-    // Cible : commandes avec tache_id mais sans phase_id (donc non migrées)
     const aMigrer = rows.filter(r => r.tache_id && !r.phase_id);
     if (aMigrer.length === 0) { migrationRef.current = true; return; }
     migrationRef.current = true;
@@ -2028,7 +2029,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                       </div>
                     )}
                     {row.prix_ht > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: "#50c878", marginTop: 2 }}>{parseFloat(row.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € HT</div>}
-                    {(row.ouvrage_libelle || row.tache_id) && <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#5b9cf6", marginTop: 1, fontWeight: 600 }}><Icon as={Link2} size={9}/> {row.ouvrage_libelle || "Lié au plan"}</div>}
+                    {row.ouvrage_libelle && <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#5b9cf6", marginTop: 1, fontWeight: 600 }}><Icon as={Link2} size={9}/> {row.ouvrage_libelle}</div>}
                   </td>
                   <td style={{ padding: "11px 10px" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
