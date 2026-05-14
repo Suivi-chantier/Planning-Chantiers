@@ -836,6 +836,27 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const [planifierWeek, setPlanifierWeek] = useState("");
   const [planifierJour, setPlanifierJour] = useState("Lundi");
   const [isPlanningSaving, setIsPlanningSaving] = useState(false);
+  // Commandes liées à ce phasage (pour calcul coût mat par famille + modale)
+  const [commandesPhasage, setCommandesPhasage] = useState([]);
+  const [showFamilleCmds, setShowFamilleCmds] = useState(null); // {phaseId, ouvrageLibelle} ouvert dans la modale
+  useEffect(() => {
+    if (!phasage?.id) return;
+    supabase.from("commandes_detail")
+      .select("id,article,fournisseur,quantite,prix_ht,statut,phase_id,ouvrage_libelle,ouvrier_demandeur,notes")
+      .eq("phasage_id", phasage.id)
+      .then(({ data, error }) => {
+        if (error?.code === "42703") {
+          // Colonnes phase_id/ouvrage_libelle pas migrées — on ignore silencieusement
+          setCommandesPhasage([]);
+        } else {
+          setCommandesPhasage(data || []);
+        }
+      });
+  }, [phasage?.id]);
+  // Helper : commandes liées à une famille (phase + ouvrage)
+  const cmdsParFamille = (phId, ouvrageLib) => commandesPhasage.filter(
+    c => c.phase_id === phId && (c.ouvrage_libelle || "") === (ouvrageLib || "")
+  );
   const semainesFutures = [];
   const now = getCurrentWeek();
   for (let i = 0; i < 8; i++) { let w = now.week + i, y = now.year; if (w > 52) { w -= 52; y++; } semainesFutures.push(getWeekId(y, w)); }
@@ -928,7 +949,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches);
 
   const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
-  const totalMat = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+  // Coût matériel = somme des prix HT des commandes liées au phasage (au lieu
+  // de l'ancien cout_materiel par tâche). Si commandes pas encore migrées en
+  // famille, on retombe sur le cout_materiel legacy par tâche.
+  const totalMatCommandes = commandesPhasage.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
+  const totalMatLegacy    = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+  const totalMat = totalMatCommandes > 0 ? totalMatCommandes : totalMatLegacy;
   const coutTotal = totalMO + totalMat;
   const pVendu = parseFloat(prixVendu) || 0;
   const marge = pVendu - coutTotal;
@@ -1281,7 +1307,11 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
             const phPrixHt = taches.reduce((s, t) => s + (parseFloat(t.prix_ht) || 0), 0);
             const phCoutMO = taches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
-            const phCoutMat = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+            // Coût matériel par phase = somme commandes ayant phase_id = cette phase
+            const phCmds = commandesPhasage.filter(c => c.phase_id === phase.id);
+            const phCoutMatCommandes = phCmds.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
+            const phCoutMatLegacy    = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+            const phCoutMat = phCoutMatCommandes > 0 ? phCoutMatCommandes : phCoutMatLegacy;
             const phCout = phCoutMO + phCoutMat;
             const phMarge = phPrixHt - phCout;
 
@@ -1338,8 +1368,46 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                       const isDragging = dragActive && dragItem.current?.phaseId === phase.id && dragItem.current?.index === ti;
                       const ouvriersActuels = tache.ouvriers ? tache.ouvriers : (tache.ouvrier ? [tache.ouvrier] : []);
 
+                      // Header de famille au début de chaque nouveau ouvrage_libelle
+                      const ouvrageLib = (tache.ouvrage_libelle || "").trim();
+                      const previousLib = ti > 0 ? (taches[ti - 1].ouvrage_libelle || "").trim() : null;
+                      const showFamilleHeader = ouvrageLib && (ti === 0 || ouvrageLib !== previousLib);
+                      const cmdsFamille = ouvrageLib ? cmdsParFamille(phase.id, ouvrageLib) : [];
+                      const totalCmdsFamille = cmdsFamille.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
+
                       return (
-                        <div key={tache.id}
+                        <React.Fragment key={tache.id}>
+                        {showFamilleHeader && (
+                          <div style={{
+                            display:"flex", alignItems:"center", gap:8, padding:"10px 16px 6px",
+                            background: `${phase.couleur}08`, borderTop: `1px solid ${T.sectionDivider}`,
+                            marginTop: ti > 0 ? 4 : 0,
+                          }}>
+                            <Icon as={Package} size={13} color={phase.couleur} strokeWidth={2.2}/>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: T.text, letterSpacing: 0.2, flex: 1 }}>
+                              {ouvrageLib}
+                            </span>
+                            {totalCmdsFamille > 0 && (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: phase.couleur, fontFamily: "'DM Mono',monospace" }}>
+                                {Math.round(totalCmdsFamille).toLocaleString("fr-FR")} € mat.
+                              </span>
+                            )}
+                            <button onClick={() => setShowFamilleCmds({ phaseId: phase.id, ouvrageLibelle: ouvrageLib })}
+                              title={`Voir les ${cmdsFamille.length} commande${cmdsFamille.length > 1 ? "s" : ""} liée${cmdsFamille.length > 1 ? "s" : ""}`}
+                              style={{
+                                display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px",
+                                background: cmdsFamille.length > 0 ? `${phase.couleur}22` : "transparent",
+                                border: `1px solid ${phase.couleur}55`,
+                                borderRadius: RADIUS.pill, color: phase.couleur,
+                                fontFamily:"inherit", fontSize:10, fontWeight:700, cursor:"pointer",
+                                transition: "background .15s",
+                              }}>
+                              <Icon as={Package} size={10} strokeWidth={2.2}/>
+                              {cmdsFamille.length} cmd{cmdsFamille.length > 1 ? "s" : ""}
+                            </button>
+                          </div>
+                        )}
+                        <div
                           className="plan-task-row"
                           draggable={!isMobile}
                           onDragStart={() => onDragStart(phase.id, ti)}
@@ -1421,6 +1489,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                             <Icon as={X} size={isMobile ? 18 : 14}/>
                           </button>
                         </div>
+                        </React.Fragment>
                       );
                     })}
 
@@ -1484,6 +1553,74 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         </div>
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+
+      {/* Modale : commandes liées à une famille */}
+      {showFamilleCmds && (() => {
+        const cmds = cmdsParFamille(showFamilleCmds.phaseId, showFamilleCmds.ouvrageLibelle);
+        const total = cmds.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
+        const phaseLabel = (PHASES.find(p => p.id === showFamilleCmds.phaseId) || {}).label || showFamilleCmds.phaseId;
+        return (
+          <div onClick={() => setShowFamilleCmds(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", zIndex: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 720, maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}>
+              <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.sectionDivider}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: RADIUS.md, background: planAcc.bg10, color: planAcc.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon as={Package} size={16}/>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>{showFamilleCmds.ouvrageLibelle}</div>
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>{phaseLabel} · {cmds.length} commande{cmds.length > 1 ? "s" : ""} · Total {Math.round(total).toLocaleString("fr-FR")} € HT</div>
+                </div>
+                <button onClick={() => setShowFamilleCmds(null)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", padding: 6, borderRadius: RADIUS.md, display: "flex" }}>
+                  <Icon as={X} size={18}/>
+                </button>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
+                {cmds.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "32px 0", color: T.textMuted, fontStyle: "italic", fontSize: FONT.sm.size + 1 }}>
+                    Aucune commande liée à cette famille pour l'instant.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {cmds.map(c => (
+                      <div key={c.id} style={{ display: "grid", gridTemplateColumns: "1fr 140px 80px 100px 100px", gap: 10, padding: "10px 12px", background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, alignItems: "center" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.article || "—"}</div>
+                          {c.notes && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.notes}</div>}
+                        </div>
+                        <div style={{ fontSize: FONT.sm.size, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.fournisseur || "—"}</div>
+                        <div style={{ fontSize: FONT.sm.size, color: T.textSub, textAlign: "right" }}>{c.quantite || "—"}</div>
+                        <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.accent, textAlign: "right", fontFamily: "'DM Mono',monospace" }}>
+                          {c.prix_ht ? `${parseFloat(c.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €` : "—"}
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: RADIUS.pill,
+                            background: c.statut === "retire" ? "rgba(80,200,120,0.15)" : c.statut === "commande" ? "rgba(245,166,35,0.15)" : "rgba(224,92,92,0.15)",
+                            color: c.statut === "retire" ? "#22c55e" : c.statut === "commande" ? "#f5a623" : "#e15a5a",
+                          }}>
+                            {c.statut === "retire" ? "Retiré" : c.statut === "commande" ? "Commandé" : c.statut === "besoin_ouvrier" ? "Besoin" : "À cmd."}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: "12px 22px", borderTop: `1px solid ${T.sectionDivider}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
+                  Pour modifier ces commandes, ouvrir l'onglet <strong style={{ color: T.text }}>Commandes</strong> dans le menu.
+                </span>
+                <button onClick={() => setShowFamilleCmds(null)} style={{
+                  background: planAcc.accent, color: planAcc.onAccent, border: "none",
+                  borderRadius: RADIUS.md, padding: "9px 18px", fontFamily: "inherit",
+                  fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+                }}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
