@@ -927,7 +927,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimeeGlobal)
         : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches);
 
-  const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45)); }, 0);
+  const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
   const totalMat = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = totalMO + totalMat;
   const pVendu = parseFloat(prixVendu) || 0;
@@ -1280,7 +1280,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             const phVendu = phHVendu;
             const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
             const phPrixHt = taches.reduce((s, t) => s + (parseFloat(t.prix_ht) || 0), 0);
-            const phCoutMO = taches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45)); }, 0);
+            const phCoutMO = taches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
             const phCoutMat = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
             const phCout = phCoutMO + phCoutMat;
             const phMarge = phPrixHt - phCout;
@@ -1905,7 +1905,7 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
 
     const coutMO = tPlan.reduce((s, t) => {
       const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
-      return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45));
+      return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0));
     }, 0);
     const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
     const coutTotal = coutMO + coutMat;
@@ -2228,7 +2228,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
           : Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length);
     const coutMO = tPlan.reduce((s, t) => {
       const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
-      return s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires?.[pO] || 45));
+      return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0));
     }, 0);
     const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
     const coutTotal = coutMO + coutMat;

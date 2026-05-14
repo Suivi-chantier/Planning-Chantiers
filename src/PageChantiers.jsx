@@ -52,7 +52,10 @@ function ProgressBar({ value, color, height = 6 }) {
 function calcFinances(phasage, tauxHoraires = {}) {
   if (!phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0 };
   const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
-  const coutMO   = allTaches.reduce((s, t) => s + ((parseFloat(t.heures_reelles) || 0) * (tauxHoraires[(t.ouvriers || [])[0] || ""] || 45)), 0);
+  const coutMO   = allTaches.reduce((s, t) => {
+    const pO = (t.ouvriers || [])[0] || "";
+    return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires[pO] || 0) : 0));
+  }, 0);
   const coutMat  = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = coutMO + coutMat;
   const prixVendu = parseFloat(phasage.prix_vendu) || 0;
