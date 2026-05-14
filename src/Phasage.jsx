@@ -836,27 +836,22 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const [planifierWeek, setPlanifierWeek] = useState("");
   const [planifierJour, setPlanifierJour] = useState("Lundi");
   const [isPlanningSaving, setIsPlanningSaving] = useState(false);
-  // Commandes liées à ce phasage (pour calcul coût mat par famille + modale)
+  // Commandes liées à ce phasage (pour calcul coût mat par phase + modale)
   const [commandesPhasage, setCommandesPhasage] = useState([]);
-  const [showFamilleCmds, setShowFamilleCmds] = useState(null); // {phaseId, ouvrageLibelle} ouvert dans la modale
+  const [showPhaseCmds, setShowPhaseCmds] = useState(null); // ID de la phase ouverte dans la modale
   useEffect(() => {
     if (!phasage?.id) return;
     supabase.from("commandes_detail")
-      .select("id,article,fournisseur,quantite,prix_ht,statut,phase_id,ouvrage_libelle,ouvrier_demandeur,notes")
+      .select("id,article,fournisseur,quantite,prix_ht,statut,phase_id,ouvrier_demandeur,notes")
       .eq("phasage_id", phasage.id)
       .then(({ data, error }) => {
         if (error?.code === "42703") {
-          // Colonnes phase_id/ouvrage_libelle pas migrées — on ignore silencieusement
           setCommandesPhasage([]);
         } else {
           setCommandesPhasage(data || []);
         }
       });
   }, [phasage?.id]);
-  // Helper : commandes liées à une famille (phase + ouvrage)
-  const cmdsParFamille = (phId, ouvrageLib) => commandesPhasage.filter(
-    c => c.phase_id === phId && (c.ouvrage_libelle || "") === (ouvrageLib || "")
-  );
   const semainesFutures = [];
   const now = getCurrentWeek();
   for (let i = 0; i < 8; i++) { let w = now.week + i, y = now.year; if (w > 52) { w -= 52; y++; } semainesFutures.push(getWeekId(y, w)); }
@@ -1346,6 +1341,20 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                       <span style={{ fontSize: 11, fontWeight: 700, color: phAv === 100 ? "#50c878" : T.textMuted, minWidth: 28 }}>{phAv}%</span>
                     </div>
                   )}
+                  {/* Bouton "Commandes" — affiche le nb de commandes liées à cette phase */}
+                  <button onClick={(e) => { e.stopPropagation(); setShowPhaseCmds(phase.id); }}
+                    title={`Voir les ${phCmds.length} commande${phCmds.length > 1 ? "s" : ""} liée${phCmds.length > 1 ? "s" : ""}`}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "5px 10px", borderRadius: RADIUS.pill,
+                      background: phCmds.length > 0 ? `${phase.couleur}22` : "transparent",
+                      border: `1px solid ${phase.couleur}55`, color: phase.couleur,
+                      fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      flexShrink: 0,
+                    }}>
+                    <Icon as={Package} size={11} strokeWidth={2.2}/>
+                    {phCmds.length} cmd{phCmds.length > 1 ? "s" : ""}
+                  </button>
                   <span style={{ color: isExp ? phase.couleur : T.textMuted, userSelect: "none", padding: "0 4px", display: "flex", alignItems: "center" }}>
                     <Icon as={isExp ? ChevronUp : ChevronDown} size={14}/>
                   </span>
@@ -1368,46 +1377,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                       const isDragging = dragActive && dragItem.current?.phaseId === phase.id && dragItem.current?.index === ti;
                       const ouvriersActuels = tache.ouvriers ? tache.ouvriers : (tache.ouvrier ? [tache.ouvrier] : []);
 
-                      // Header de famille au début de chaque nouveau ouvrage_libelle
-                      const ouvrageLib = (tache.ouvrage_libelle || "").trim();
-                      const previousLib = ti > 0 ? (taches[ti - 1].ouvrage_libelle || "").trim() : null;
-                      const showFamilleHeader = ouvrageLib && (ti === 0 || ouvrageLib !== previousLib);
-                      const cmdsFamille = ouvrageLib ? cmdsParFamille(phase.id, ouvrageLib) : [];
-                      const totalCmdsFamille = cmdsFamille.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
-
                       return (
-                        <React.Fragment key={tache.id}>
-                        {showFamilleHeader && (
-                          <div style={{
-                            display:"flex", alignItems:"center", gap:8, padding:"10px 16px 6px",
-                            background: `${phase.couleur}08`, borderTop: `1px solid ${T.sectionDivider}`,
-                            marginTop: ti > 0 ? 4 : 0,
-                          }}>
-                            <Icon as={Package} size={13} color={phase.couleur} strokeWidth={2.2}/>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: T.text, letterSpacing: 0.2, flex: 1 }}>
-                              {ouvrageLib}
-                            </span>
-                            {totalCmdsFamille > 0 && (
-                              <span style={{ fontSize: 11, fontWeight: 700, color: phase.couleur, fontFamily: "'DM Mono',monospace" }}>
-                                {Math.round(totalCmdsFamille).toLocaleString("fr-FR")} € mat.
-                              </span>
-                            )}
-                            <button onClick={() => setShowFamilleCmds({ phaseId: phase.id, ouvrageLibelle: ouvrageLib })}
-                              title={`Voir les ${cmdsFamille.length} commande${cmdsFamille.length > 1 ? "s" : ""} liée${cmdsFamille.length > 1 ? "s" : ""}`}
-                              style={{
-                                display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px",
-                                background: cmdsFamille.length > 0 ? `${phase.couleur}22` : "transparent",
-                                border: `1px solid ${phase.couleur}55`,
-                                borderRadius: RADIUS.pill, color: phase.couleur,
-                                fontFamily:"inherit", fontSize:10, fontWeight:700, cursor:"pointer",
-                                transition: "background .15s",
-                              }}>
-                              <Icon as={Package} size={10} strokeWidth={2.2}/>
-                              {cmdsFamille.length} cmd{cmdsFamille.length > 1 ? "s" : ""}
-                            </button>
-                          </div>
-                        )}
-                        <div
+                        <div key={tache.id}
                           className="plan-task-row"
                           draggable={!isMobile}
                           onDragStart={() => onDragStart(phase.id, ti)}
@@ -1489,7 +1460,6 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                             <Icon as={X} size={isMobile ? 18 : 14}/>
                           </button>
                         </div>
-                        </React.Fragment>
                       );
                     })}
 
@@ -1554,32 +1524,33 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
-      {/* Modale : commandes liées à une famille */}
-      {showFamilleCmds && (() => {
-        const cmds = cmdsParFamille(showFamilleCmds.phaseId, showFamilleCmds.ouvrageLibelle);
+      {/* Modale : commandes liées à une phase */}
+      {showPhaseCmds && (() => {
+        const cmds = commandesPhasage.filter(c => c.phase_id === showPhaseCmds);
         const total = cmds.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
-        const phaseLabel = (PHASES.find(p => p.id === showFamilleCmds.phaseId) || {}).label || showFamilleCmds.phaseId;
+        const phaseLabel = (PHASES.find(p => p.id === showPhaseCmds) || {}).label || showPhaseCmds;
+        const phaseEmoji = (PHASES.find(p => p.id === showPhaseCmds) || {}).emoji || "📦";
         return (
-          <div onClick={() => setShowFamilleCmds(null)}
+          <div onClick={() => setShowPhaseCmds(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", zIndex: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
             <div onClick={e => e.stopPropagation()}
               style={{ background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 720, maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}>
               <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.sectionDivider}`, display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 32, height: 32, borderRadius: RADIUS.md, background: planAcc.bg10, color: planAcc.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Icon as={Package} size={16}/>
+                <div style={{ width: 36, height: 36, borderRadius: RADIUS.md, background: planAcc.bg10, color: planAcc.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
+                  {phaseEmoji}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>{showFamilleCmds.ouvrageLibelle}</div>
-                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>{phaseLabel} · {cmds.length} commande{cmds.length > 1 ? "s" : ""} · Total {Math.round(total).toLocaleString("fr-FR")} € HT</div>
+                  <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>{phaseLabel}</div>
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>{cmds.length} commande{cmds.length > 1 ? "s" : ""} · Total {Math.round(total).toLocaleString("fr-FR")} € HT</div>
                 </div>
-                <button onClick={() => setShowFamilleCmds(null)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", padding: 6, borderRadius: RADIUS.md, display: "flex" }}>
+                <button onClick={() => setShowPhaseCmds(null)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", padding: 6, borderRadius: RADIUS.md, display: "flex" }}>
                   <Icon as={X} size={18}/>
                 </button>
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
                 {cmds.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "32px 0", color: T.textMuted, fontStyle: "italic", fontSize: FONT.sm.size + 1 }}>
-                    Aucune commande liée à cette famille pour l'instant.
+                    Aucune commande liée à cette phase pour l'instant.
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1611,7 +1582,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
                   Pour modifier ces commandes, ouvrir l'onglet <strong style={{ color: T.text }}>Commandes</strong> dans le menu.
                 </span>
-                <button onClick={() => setShowFamilleCmds(null)} style={{
+                <button onClick={() => setShowPhaseCmds(null)} style={{
                   background: planAcc.accent, color: planAcc.onAccent, border: "none",
                   borderRadius: RADIUS.md, padding: "9px 18px", fontFamily: "inherit",
                   fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",

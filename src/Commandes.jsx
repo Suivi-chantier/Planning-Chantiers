@@ -140,29 +140,16 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
   );
 }
 
-// ─── SÉLECTEUR FAMILLE DEUX NIVEAUX ───────────────────────────────────────────
-// Une "famille" = regroupement de tâches partageant le même ouvrage_libelle dans
-// une phase. La valeur est encodée en string "phaseId|||ouvrageLibelle" pour le
-// <select>, parsée en 2 callbacks au moment du change.
-function FamilleSelector({ phasageId, phaseId, ouvrageLibelle, onChangePhasage, onChangeFamille, phasages, T, compact = false }) {
+// ─── SÉLECTEUR PHASE DEUX NIVEAUX ─────────────────────────────────────────────
+// Niveau 1 : chantier (phasage_id). Niveau 2 : phase (phase_id, ex: "plomberie_ro"
+// pour « Réseaux plomberie (gros œuvre) »). On liste uniquement les phases qui
+// contiennent au moins une tâche dans le plan_travaux du phasage sélectionné.
+function PhaseSelector({ phasageId, phaseId, onChangePhasage, onChangePhase, phasages, T, compact = false }) {
   const phasage = phasages.find(p => p.id === phasageId);
-  // Construit la liste des familles uniques par phase (groupe par ouvrage_libelle)
-  const familles = phasage?.plan_travaux
+  const phasesDispo = phasage?.plan_travaux
     ? Object.entries(phasage.plan_travaux)
-        .filter(([k, v]) => k !== "meta" && Array.isArray(v))
-        .flatMap(([phId, arr]) => {
-          const seen = new Set();
-          const out = [];
-          arr.forEach(t => {
-            const lib = (t.ouvrage_libelle || "").trim();
-            if (!lib) return;
-            const key = `${phId}|||${lib}`;
-            if (seen.has(key)) return;
-            seen.add(key);
-            out.push({ phId, phLabel: PHASES_LABELS[phId] || phId, ouvrageLibelle: lib });
-          });
-          return out;
-        })
+        .filter(([k, v]) => k !== "meta" && Array.isArray(v) && v.length > 0)
+        .map(([phId]) => ({ phId, phLabel: PHASES_LABELS[phId] || phId }))
     : [];
 
   const selStyle = {
@@ -172,27 +159,17 @@ function FamilleSelector({ phasageId, phaseId, ouvrageLibelle, onChangePhasage, 
     width: "100%", boxSizing: "border-box",
   };
 
-  const currentKey = phaseId && ouvrageLibelle ? `${phaseId}|||${ouvrageLibelle}` : "";
-  const onSelectFamille = (e) => {
-    const v = e.target.value;
-    if (!v) { onChangeFamille("", ""); return; }
-    const [pId, lib] = v.split("|||");
-    onChangeFamille(pId, lib);
-  };
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <select value={phasageId || ""} onChange={e => { onChangePhasage(e.target.value); onChangeFamille("", ""); }} style={selStyle}>
+      <select value={phasageId || ""} onChange={e => { onChangePhasage(e.target.value); onChangePhase(""); }} style={selStyle}>
         <option value="">— Chantier / Phasage —</option>
         {phasages.map(p => <option key={p.id} value={p.id}>{p.chantier_nom}</option>)}
       </select>
       {phasageId && (
-        <select value={currentKey} onChange={onSelectFamille} style={selStyle}>
-          <option value="">— Famille —</option>
-          {familles.map(f => (
-            <option key={`${f.phId}|||${f.ouvrageLibelle}`} value={`${f.phId}|||${f.ouvrageLibelle}`}>
-              [{f.phLabel}] {f.ouvrageLibelle}
-            </option>
+        <select value={phaseId || ""} onChange={e => onChangePhase(e.target.value)} style={selStyle}>
+          <option value="">— Phase —</option>
+          {phasesDispo.map(p => (
+            <option key={p.phId} value={p.phId}>{p.phLabel}</option>
           ))}
         </select>
       )}
@@ -210,7 +187,6 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
   const [fournisseurGlobal, setFournisseurGlobal] = useState("");
   const [phasageGlobal, setPhasageGlobal] = useState("");
   const [phaseGlobale, setPhaseGlobale] = useState("");
-  const [ouvrageGlobale, setOuvrageGlobale] = useState("");
   const [importing, setImporting] = useState(false);
   const dropRef = useRef(null);
 
@@ -313,7 +289,6 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
         materiau_id: tryMatchBiblio(l.designation, l.reference),
         phasage_id: "",
         phase_id: "",
-        ouvrage_libelle: "",
       }));
 
       setLignes(lignesInit);
@@ -324,11 +299,11 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
     }
   };
 
-  // Appliquer chantier/famille globale à toutes les lignes sélectionnées
+  // Appliquer chantier/phase globale à toutes les lignes sélectionnées
   const appliquerGlobal = () => {
     setLignes(prev => prev.map(l =>
       l.selected
-        ? { ...l, phasage_id: phasageGlobal, phase_id: phaseGlobale, ouvrage_libelle: ouvrageGlobale }
+        ? { ...l, phasage_id: phasageGlobal, phase_id: phaseGlobale }
         : l
     ));
   };
@@ -549,12 +524,11 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                     </div>
                     <div>
                       <div style={{ fontSize: 11, color: P.textMuted, marginBottom: 5, fontWeight: 600 }}>Plan de travail par défaut</div>
-                      <FamilleSelector
+                      <PhaseSelector
                         phasageId={phasageGlobal}
                         phaseId={phaseGlobale}
-                        ouvrageLibelle={ouvrageGlobale}
                         onChangePhasage={setPhasageGlobal}
-                        onChangeFamille={(p, l) => { setPhaseGlobale(p); setOuvrageGlobale(l); }}
+                        onChangePhase={setPhaseGlobale}
                         phasages={phasages}
                         T={T}
                         compact
@@ -643,12 +617,11 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                               <Icon as={ListChecks} size={11}/>
                               Plan de travail
                             </div>
-                            <FamilleSelector
+                            <PhaseSelector
                               phasageId={l.phasage_id}
                               phaseId={l.phase_id}
-                              ouvrageLibelle={l.ouvrage_libelle}
                               onChangePhasage={v => updateLigne(l._id, "phasage_id", v)}
-                              onChangeFamille={(p, lib) => { updateLigne(l._id, "phase_id", p); updateLigne(l._id, "ouvrage_libelle", lib); }}
+                              onChangePhase={v => updateLigne(l._id, "phase_id", v)}
                               phasages={phasages}
                               T={T}
                               compact
@@ -1153,12 +1126,10 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const [modaleCommande, setModaleCommande] = useState(null);
   const [phasages, setPhasages] = useState([]);
   const [modalePrix, setModalePrix] = useState("");
-  // Note : modalePhaseId est l'ID du PHASAGE (chantier), pas la phase interne.
-  // Naming legacy conservé pour minimiser le diff. modalePhaseInterne et
-  // modaleOuvrageLibelle pointent vers la famille (= ouvrage dans la phase).
+  // Note : modalePhaseId est l'ID du PHASAGE (chantier). modalePhaseInterne
+  // est l'ID de la phase (ex: "plomberie_ro") sur laquelle on rattache la cmd.
   const [modalePhaseId, setModalePhaseId] = useState("");
   const [modalePhaseInterne, setModalePhaseInterne] = useState("");
-  const [modaleOuvrageLibelle, setModaleOuvrageLibelle] = useState("");
   const [panneauOuvert, setPanneauOuvert] = useState(false);
   const [modaleImport, setModaleImport] = useState(false);
 
@@ -1198,14 +1169,10 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     return () => supabase.removeChannel(ch);
   }, []);
 
-  // ─── MIGRATION AUTO : tache_id → (phase_id, ouvrage_libelle) ────────────────
+  // ─── MIGRATION AUTO : tache_id → phase_id ───────────────────────────────────
   // Migre les anciennes commandes liées à une tâche spécifique vers la nouvelle
-  // logique de liaison à une famille (= ouvrage). One-shot par session, idempotent.
-  // Tourne tant que la colonne tache_id existe encore en base. Une fois le SQL
-  // de cleanup exécuté (DROP COLUMN tache_id), `r.tache_id` sera toujours
-  // undefined → la migration ne fait simplement rien.
+  // logique de liaison à une PHASE. One-shot par session, idempotent.
   // SQL pré-requis : ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS phase_id TEXT;
-  //                  ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS ouvrage_libelle TEXT;
   const migrationRef = useRef(false);
   useEffect(() => {
     if (migrationRef.current) return;
@@ -1218,21 +1185,20 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
       for (const cmd of aMigrer) {
         const phasage = phasages.find(p => p.id === cmd.phasage_id);
         if (!phasage?.plan_travaux) continue;
-        let phaseId = null, ouvrageLibelle = null;
+        let phaseId = null;
         for (const [pId, taches] of Object.entries(phasage.plan_travaux)) {
           if (pId === "meta" || !Array.isArray(taches)) continue;
           const tache = taches.find(t => t.id === cmd.tache_id);
-          if (tache) { phaseId = pId; ouvrageLibelle = tache.ouvrage_libelle || ""; break; }
+          if (tache) { phaseId = pId; break; }
         }
         if (!phaseId) continue;
         const { error } = await supabase.from("commandes_detail")
-          .update({ phase_id: phaseId, ouvrage_libelle: ouvrageLibelle })
+          .update({ phase_id: phaseId })
           .eq("id", cmd.id);
         if (error?.code === "42703") {
           schemaMissing = true;
-          console.warn("[Migration commandes] Colonnes phase_id/ouvrage_libelle manquantes en base. SQL requise :\n" +
-            "  ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS phase_id TEXT;\n" +
-            "  ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS ouvrage_libelle TEXT;");
+          console.warn("[Migration commandes] Colonne phase_id manquante en base. SQL requise :\n" +
+            "  ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS phase_id TEXT;");
           break;
         }
         if (error) { nbErr++; console.error("[Migration commandes] Erreur sur", cmd.id, error); }
@@ -1240,7 +1206,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
       }
       if (!schemaMissing && nbOk > 0) {
         console.log(`[Migration commandes] ${nbOk} ligne(s) migrée(s)${nbErr > 0 ? `, ${nbErr} erreur(s)` : ""}.`);
-        load(); // refresh pour récupérer les nouvelles valeurs
+        load();
       }
     })();
   }, [rows, phasages]);
@@ -1249,29 +1215,28 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const handleImportLignes = async (lignes, fournisseurGlobal) => {
     for (const l of lignes) {
       const fields = {
-        article:         l.designation.trim(),
-        fournisseur:     fournisseurGlobal.trim() || "",
-        quantite:        l.quantite || "",
-        prix_ht:         parseFloat(l.prix_total) || parseFloat(l.prix_unitaire) || null,
-        statut:          "commande",
-        priorite:        "normal",
-        materiau_id:     l.materiau_id || null,
-        phasage_id:      l.phasage_id || null,
-        phase_id:        l.phase_id || null,
-        ouvrage_libelle: l.ouvrage_libelle || null,
-        notes:           l.reference ? `Réf: ${l.reference}` : "",
+        article:     l.designation.trim(),
+        fournisseur: fournisseurGlobal.trim() || "",
+        quantite:    l.quantite || "",
+        prix_ht:     parseFloat(l.prix_total) || parseFloat(l.prix_unitaire) || null,
+        statut:      "commande",
+        priorite:    "normal",
+        materiau_id: l.materiau_id || null,
+        phasage_id:  l.phasage_id || null,
+        phase_id:    l.phase_id || null,
+        notes:       l.reference ? `Réf: ${l.reference}` : "",
       };
 
       const { error } = await supabase.from("commandes_detail").insert(fields);
       if (error) {
         // Fallback sans colonnes optionnelles si migration manquante
         if (error.code === "42703") {
-          const { materiau_id, phasage_id, phase_id, ouvrage_libelle, ...fallback } = fields;
+          const { materiau_id, phasage_id, phase_id, ...fallback } = fields;
           await supabase.from("commandes_detail").insert(fallback);
         }
       }
       // Note : on n'écrit plus cout_materiel sur les tâches. Le coût mat est
-      // désormais agrégé dynamiquement au niveau famille dans le Plan de travaux.
+      // désormais agrégé dynamiquement par phase dans le Plan de travaux.
     }
     load();
   };
@@ -1422,7 +1387,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     const next = order[(curIdx >= 0 ? curIdx + 1 : 1) % order.length];
     if (next === "commande") {
       setModalePrix(row.prix_ht || "");
-      setModalePhaseId(""); setModalePhaseInterne(""); setModaleOuvrageLibelle("");
+      setModalePhaseId(""); setModalePhaseInterne("");
       setModaleCommande({ row, next });
       return;
     }
@@ -1435,21 +1400,19 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     const { row } = modaleCommande;
     const prix = parseFloat(modalePrix) || null;
     const updates = { statut: "commande", prix_ht: prix };
-    if (modalePhaseId && modalePhaseInterne && modaleOuvrageLibelle) {
+    if (modalePhaseId && modalePhaseInterne) {
       updates.phasage_id = modalePhaseId;
       updates.phase_id = modalePhaseInterne;
-      updates.ouvrage_libelle = modaleOuvrageLibelle;
     }
     const { error } = await supabase.from("commandes_detail").update(updates).eq("id", row.id);
     if (error?.code === "42703") {
-      // Fallback : colonnes phase_id/ouvrage_libelle pas encore migrées
-      console.warn("[Commandes] Colonnes phase_id/ouvrage_libelle manquantes — sauvegarde sans liaison famille.");
-      const { phase_id, ouvrage_libelle, ...sansFamille } = updates;
-      await supabase.from("commandes_detail").update(sansFamille).eq("id", row.id);
+      console.warn("[Commandes] Colonne phase_id manquante — sauvegarde sans liaison phase.");
+      const { phase_id, ...sansPhase } = updates;
+      await supabase.from("commandes_detail").update(sansPhase).eq("id", row.id);
     }
     setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...updates } : r));
-    // Plus de mise à jour de cout_materiel sur les tâches : le coût est désormais
-    // agrégé dynamiquement au niveau famille dans le Plan de travaux.
+    // Plus de mise à jour de cout_materiel sur les tâches : agrégation dynamique
+    // dans le Plan de travaux à partir des commandes liées par phase_id.
     setModaleCommande(null);
   };
 
@@ -1464,22 +1427,11 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const counts = Object.fromEntries(STATUTS_COMMANDES.map(k => [k, commandes.filter(r => r.statut === k).length]));
   const STATUTS = STATUTS_CMD;
   const phasageModale = phasages.find(p => p.id === modalePhaseId);
-  // Liste des familles uniques (groupe par ouvrage_libelle dans chaque phase)
-  const famillesModale = phasageModale?.plan_travaux
+  // Liste des phases ayant au moins une tâche dans ce phasage
+  const phasesModale = phasageModale?.plan_travaux
     ? Object.entries(phasageModale.plan_travaux)
-        .filter(([k, v]) => k !== "meta" && Array.isArray(v))
-        .flatMap(([phId, arr]) => {
-          const seen = new Set(); const out = [];
-          arr.forEach(t => {
-            const lib = (t.ouvrage_libelle || "").trim();
-            if (!lib) return;
-            const key = `${phId}|||${lib}`;
-            if (seen.has(key)) return;
-            seen.add(key);
-            out.push({ phId, ouvrageLibelle: lib });
-          });
-          return out;
-        })
+        .filter(([k, v]) => k !== "meta" && Array.isArray(v) && v.length > 0)
+        .map(([phId]) => ({ phId }))
     : [];
 
   const renderBiblioRowEditor = (draft, setDraft) => (
@@ -1590,8 +1542,8 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                 <label style={{
                   fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase",
                   letterSpacing: 1, display: "block", marginBottom: 6,
-                }}>Lier à une famille du plan de travail</label>
-                <select value={modalePhaseId} onChange={e => { setModalePhaseId(e.target.value); setModalePhaseInterne(""); setModaleOuvrageLibelle(""); }}
+                }}>Lier à une phase du plan de travail</label>
+                <select value={modalePhaseId} onChange={e => { setModalePhaseId(e.target.value); setModalePhaseInterne(""); }}
                   style={{
                     width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`,
                     background: T.inputBg, color: modalePhaseId ? T.text : T.textMuted,
@@ -1602,29 +1554,24 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                 </select>
                 {modalePhaseId && (
                   <select
-                    value={modalePhaseInterne && modaleOuvrageLibelle ? `${modalePhaseInterne}|||${modaleOuvrageLibelle}` : ""}
-                    onChange={e => {
-                      const v = e.target.value;
-                      if (!v) { setModalePhaseInterne(""); setModaleOuvrageLibelle(""); return; }
-                      const [p, lib] = v.split("|||");
-                      setModalePhaseInterne(p); setModaleOuvrageLibelle(lib);
-                    }}
+                    value={modalePhaseInterne}
+                    onChange={e => setModalePhaseInterne(e.target.value)}
                     style={{
                       width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`,
-                      background: T.inputBg, color: (modalePhaseInterne && modaleOuvrageLibelle) ? T.text : T.textMuted,
+                      background: T.inputBg, color: modalePhaseInterne ? T.text : T.textMuted,
                       fontFamily: "inherit", fontSize: 13, outline: "none",
                     }}>
-                    <option value="">— Choisir une famille —</option>
-                    {famillesModale.map(f => (
-                      <option key={`${f.phId}|||${f.ouvrageLibelle}`} value={`${f.phId}|||${f.ouvrageLibelle}`}>
-                        [{PHASES_LABELS[f.phId] || f.phId}] {f.ouvrageLibelle}
+                    <option value="">— Choisir une phase —</option>
+                    {phasesModale.map(p => (
+                      <option key={p.phId} value={p.phId}>
+                        {PHASES_LABELS[p.phId] || p.phId}
                       </option>
                     ))}
                   </select>
                 )}
                 {!modalePhaseId && (
                   <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>
-                    Optionnel — la commande sera rattachée à une famille (ex: « Réseaux plomberie »).
+                    Optionnel — la commande sera rattachée à une phase (ex: « Réseaux plomberie (gros œuvre) »).
                   </div>
                 )}
               </div>
@@ -2029,7 +1976,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                       </div>
                     )}
                     {row.prix_ht > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: "#50c878", marginTop: 2 }}>{parseFloat(row.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € HT</div>}
-                    {row.ouvrage_libelle && <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#5b9cf6", marginTop: 1, fontWeight: 600 }}><Icon as={Link2} size={9}/> {row.ouvrage_libelle}</div>}
+                    {row.phase_id && <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#5b9cf6", marginTop: 1, fontWeight: 600 }}><Icon as={Link2} size={9}/> {PHASES_LABELS[row.phase_id] || row.phase_id}</div>}
                   </td>
                   <td style={{ padding: "11px 10px" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
