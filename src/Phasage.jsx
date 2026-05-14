@@ -944,10 +944,13 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches);
 
   const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
-  // Coût matériel = somme des prix HT des commandes liées au phasage. Plus de
-  // fallback legacy sur tache.cout_materiel (donnée fossile qui restait gravée
-  // même quand les commandes étaient supprimées).
-  const totalMat = commandesPhasage.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
+  // Coût matériel = somme des prix HT des commandes AYANT phase_id rempli.
+  // Cohérent avec phCoutMat (filtré par phase). Les commandes sans phase_id
+  // (= non attribuées) ne sont pas comptées ici → on signale leur nb plus bas.
+  const cmdsAvecPhase = commandesPhasage.filter(c => c.phase_id);
+  const cmdsSansPhase = commandesPhasage.filter(c => !c.phase_id);
+  const totalMat = cmdsAvecPhase.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
+  const totalMatNonAttribue = cmdsSansPhase.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
   const coutTotal = totalMO + totalMat;
   const pVendu = parseFloat(prixVendu) || 0;
   const marge = pVendu - coutTotal;
@@ -1280,6 +1283,26 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
           </div>
           <span style={{ fontSize: 13, fontWeight: 700, color: avgAv === 100 ? "#50c878" : T.accent, minWidth: 40 }}>{avgAv}% avancement global</span>
         </div>
+
+        {/* Avertissement : commandes non rattachées à une phase */}
+        {cmdsSansPhase.length > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 14px", marginBottom: 16,
+            background: "rgba(245,166,35,0.10)", border: "1px solid rgba(245,166,35,0.30)",
+            borderRadius: RADIUS.md, color: "#f5a623",
+          }}>
+            <Icon as={AlertTriangle} size={14}/>
+            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+              <strong>{cmdsSansPhase.length} commande{cmdsSansPhase.length > 1 ? "s" : ""}</strong>
+              {" "}({Math.round(totalMatNonAttribue).toLocaleString("fr-FR")} € HT)
+              {" "}non rattachée{cmdsSansPhase.length > 1 ? "s" : ""} à une phase. Ces montants ne sont pas inclus dans le coût matériel ci-dessus.
+            </span>
+            <span style={{ fontSize: 11, color: "#c08015", fontStyle: "italic" }}>
+              Lie-les depuis l'onglet Commandes
+            </span>
+          </div>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {PHASES.map((phase) => {
