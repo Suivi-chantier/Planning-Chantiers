@@ -322,17 +322,33 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
   }
 
   // ── Export PDF ──
-  function genPDF() {
+  async function genPDF() {
     const clients = [infos.client_prenom1+" "+infos.client_nom1, deuxiemeClient ? infos.client_prenom2+" "+infos.client_nom2 : null].filter(Boolean);
     const dateStr = infos.date_visite ? new Date(infos.date_visite).toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}) : new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
     const statusColors = { ok:"#2e7d32", info:"#1565c0", warn:"#b45309", urgent:"#c62828" };
     const statusLabels = { ok:"CONFORME", info:"INFO", warn:"ATTENTION", urgent:"URGENT" };
 
+    // Helper : escape HTML + préserve les sauts de ligne (sinon le texte
+    // multi-lignes du résumé/travaux/remarques apparaît collé sur une seule
+    // ligne dans le PDF).
+    const fmt = (txt) => (txt || "").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>");
+
     const obsHtml = obs.filter(o=>o.texte).map(o=>`
       <div style="display:flex;gap:8pt;align-items:flex-start;margin-bottom:6pt;">
         <div style="background:${statusColors[o.statut]||"#888"};color:#fff;font-size:6.5pt;font-weight:700;padding:2pt 5pt;border-radius:3pt;flex-shrink:0;margin-top:1pt;letter-spacing:.05em;">${statusLabels[o.statut]||"NOTE"}</div>
-        <div style="font-size:9pt;color:#333;line-height:1.5;">${o.texte.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
+        <div style="font-size:9pt;color:#333;line-height:1.5;">${fmt(o.texte)}</div>
       </div>`).join("");
+
+    // Préchargement des photos en base64 — sinon le navigateur du popup PDF
+    // n'a pas le temps de fetch les URLs Supabase Storage avant le print()
+    // et les photos apparaissent vides dans le PDF.
+    const photosBase64 = await Promise.all(
+      photos.map(p => fetch(p.data)
+        .then(r => r.ok ? r.blob() : null)
+        .then(b => b ? new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(b); }) : null)
+        .catch(() => null)
+      )
+    );
 
     const photosHtml = photos.length > 0 ? `
       <div style="margin-bottom:10pt;">
@@ -341,7 +357,10 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
           <span style="font-size:7.5pt;font-weight:700;color:#888;letter-spacing:.08em;">PHOTOS</span>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8pt;">
-          ${photos.map(p=>`<img src="${p.data}" style="width:120pt;height:90pt;object-fit:cover;border-radius:5pt;border:1pt solid #ddd;" />`).join("")}
+          ${photos.map((p, i) => {
+            const src = photosBase64[i] || p.data;
+            return `<img src="${src}" style="width:120pt;height:90pt;object-fit:cover;border-radius:5pt;border:1pt solid #ddd;" />`;
+          }).join("")}
         </div>
       </div>` : "";
 
@@ -398,8 +417,8 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
       </div>` : ""}
     </div>
 
-    ${section("RÉSUMÉ & ÉTAT DU CHANTIER", infos.resume?.replace(/</g,"&lt;").replace(/>/g,"&gt;"))}
-    ${infos.prochaine_etape ? `<div style="background:#fff9e6;border-left:3pt solid #f5c400;padding:8pt 12pt;border-radius:4pt;margin-bottom:10pt;font-size:9pt;color:#333;"><strong style="color:#9a7a00;">Prochaine étape :</strong> ${infos.prochaine_etape.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>` : ""}
+    ${section("RÉSUMÉ & ÉTAT DU CHANTIER", fmt(infos.resume))}
+    ${infos.prochaine_etape ? `<div style="background:#fff9e6;border-left:3pt solid #f5c400;padding:8pt 12pt;border-radius:4pt;margin-bottom:10pt;font-size:9pt;color:#333;"><strong style="color:#9a7a00;">Prochaine étape :</strong> ${fmt(infos.prochaine_etape)}</div>` : ""}
 
     ${obs.some(o=>o.texte) ? `
     <div style="margin-bottom:10pt;">
@@ -411,8 +430,8 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
       ${obsHtml}
     </div>` : ""}
 
-    ${section("TRAVAUX À VENIR / DÉCISIONS PRISES", infos.travaux?.replace(/</g,"&lt;").replace(/>/g,"&gt;"))}
-    ${section("REMARQUES COMPLÉMENTAIRES", infos.remarques?.replace(/</g,"&lt;").replace(/>/g,"&gt;"))}
+    ${section("TRAVAUX À VENIR / DÉCISIONS PRISES", fmt(infos.travaux))}
+    ${section("REMARQUES COMPLÉMENTAIRES", fmt(infos.remarques))}
     ${photosHtml}
 
     <!-- FOOTER fixe -->
