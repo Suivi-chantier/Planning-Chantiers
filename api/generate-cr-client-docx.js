@@ -181,25 +181,6 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // ─── SIGNATURES ──────────────────────────────────────────────────────────────
-  children.push(sp(400));
-  children.push(new Paragraph({
-    children: [
-      new TextRun({ text: "Responsable PROFERO", bold: true, size: 20, font: "Arial", color: DARK }),
-      new TextRun({ text: "                                          ", size: 20, font: "Arial" }),
-      new TextRun({ text: clients[0] || "Client", bold: true, size: 20, font: "Arial", color: DARK }),
-    ],
-    spacing: { before: 0, after: 60 },
-  }));
-  children.push(new Paragraph({
-    children: [
-      new TextRun({ text: "Signature :", italics: true, size: 18, font: "Arial", color: GREY }),
-      new TextRun({ text: "                                                       ", size: 18, font: "Arial" }),
-      new TextRun({ text: "Lu et approuvé, signature :", italics: true, size: 18, font: "Arial", color: GREY }),
-    ],
-    spacing: { before: 0, after: 0 },
-  }));
-
   // ─── PIED DE PAGE ────────────────────────────────────────────────────────────
   children.push(sp(400));
   children.push(new Paragraph({
