@@ -25,13 +25,22 @@ const statutMeta = (id) => STATUTS_CR.find(s => s.id === id) || STATUTS_CR[0];
 
 // ─── UPLOAD PHOTO (bucket "photos") ──────────────────────────────────────────
 async function uploadCrPhoto(file, crId) {
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-  const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const path = `cr-client/${crId}/${safe}`;
-  const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
-  if (error) { console.error("upload cr photo:", error); return null; }
-  const { data } = supabase.storage.from("photos").getPublicUrl(path);
-  return data?.publicUrl || null;
+  try {
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const path = `cr-client/${crId}/${safe}`;
+    const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+    if (error) {
+      console.error("upload cr photo:", error);
+      return { error: error.message || "Erreur upload Supabase Storage" };
+    }
+    const { data } = supabase.storage.from("photos").getPublicUrl(path);
+    if (!data?.publicUrl) return { error: "URL publique introuvable" };
+    return { url: data.publicUrl };
+  } catch (e) {
+    console.error("upload cr photo (catch):", e);
+    return { error: e.message || "Erreur réseau" };
+  }
 }
 
 export default function PageCompteRendu({ T, chantiers = [], branch = "renovation" }) {
@@ -73,6 +82,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
   const [visitesChantier, setVisitesChantier] = useState([]);
   const [importingVisite, setImportingVisite] = useState(false);
   const photoInputRef           = useRef(null);
+  const [uploadingPhotos, setUploadingPhotos] = useState(0);
   const saveTimer               = useRef(null);
 
   // ── Thème ──
@@ -221,17 +231,37 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
 
   // ── Photos (upload vers Supabase Storage, plus léger que base64 en DB) ─────
   async function ajoutPhotos(e) {
-    if (!crId) return;
+    if (!crId) {
+      alert("Crée ou ouvre d'abord un compte rendu avant d'ajouter des photos.");
+      return;
+    }
     const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setUploadingPhotos(files.length);
+    const errors = [];
     for (const f of files) {
-      const url = await uploadCrPhoto(f, crId);
-      if (!url) continue;
-      const { data } = await supabase.from("cr_photos").insert({
+      const res = await uploadCrPhoto(f, crId);
+      setUploadingPhotos(n => n - 1);
+      if (res.error) {
+        errors.push(`${f.name} : ${res.error}`);
+        continue;
+      }
+      const url = res.url;
+      const { data, error: insErr } = await supabase.from("cr_photos").insert({
         cr_id: crId, data: url, nom: f.name,
       }).select().single();
+      if (insErr) {
+        errors.push(`${f.name} (DB) : ${insErr.message}`);
+        // On garde quand même la photo en local pour ne pas la perdre
+        setPhotos(p => [...p, { id: `new_${Date.now()}_${Math.random()}`, data: url, nom: f.name }]);
+        continue;
+      }
       setPhotos(p => [...p, data || { id: `new_${Date.now()}`, data: url, nom: f.name }]);
     }
     if (photoInputRef.current) photoInputRef.current.value = "";
+    if (errors.length > 0) {
+      alert(`⚠ ${errors.length} photo(s) en erreur :\n\n${errors.join("\n")}\n\nVérifie les permissions du bucket Supabase « photos » ou la table « cr_photos ».`);
+    }
   }
 
   async function delPhoto(id) {
@@ -1129,16 +1159,26 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
                     <Icon as={Camera} size={11}/>
                     Photos
                     {photos.length>0 && <span style={{color:acc.accent}}>· {photos.length}</span>}
+                    {uploadingPhotos > 0 && (
+                      <span style={{display:"inline-flex",alignItems:"center",gap:4,color:"#f5a623",marginLeft:8,fontSize:11}}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" style={{animation:"spin 1s linear infinite"}}>
+                          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
+                        </svg>
+                        Upload {uploadingPhotos}…
+                      </span>
+                    )}
                   </div>
                   <label style={{
                     display:"inline-flex",alignItems:"center",gap:6,
-                    background:acc.accent,color:acc.onAccent,border:"none",
-                    borderRadius:RADIUS.md,padding:"9px 16px",cursor:"pointer",
+                    background: uploadingPhotos > 0 ? T.border : acc.accent,
+                    color: uploadingPhotos > 0 ? T.textMuted : acc.onAccent, border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 16px",cursor: uploadingPhotos > 0 ? "wait" : "pointer",
                     fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                    opacity: uploadingPhotos > 0 ? 0.6 : 1,
                   }}>
                     <Icon as={Camera} size={13}/>
-                    Ajouter des photos
-                    <input ref={photoInputRef} type="file" accept="image/*" multiple capture="environment" onChange={ajoutPhotos} style={{display:"none"}}/>
+                    {uploadingPhotos > 0 ? "Upload en cours…" : "Ajouter des photos"}
+                    <input ref={photoInputRef} type="file" accept="image/*" multiple onChange={ajoutPhotos} style={{display:"none"}} disabled={uploadingPhotos > 0}/>
                   </label>
                 </div>
                 {photos.length === 0 ? (
