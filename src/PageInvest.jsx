@@ -1,30 +1,3 @@
-// ══════════════════════════════════════════════════════════════════════════════
-//  PROFERO INVEST — Modifications v2
-//  Remplacer les sections correspondantes dans PageInvest.jsx
-//
-//  ⚠️  MIGRATIONS SUPABASE REQUISES (SQL Editor) :
-//
-//  -- Table planning événements (nouvelle)
-//  CREATE TABLE IF NOT EXISTS invest_events (
-//    id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-//    titre       TEXT NOT NULL,
-//    date        DATE NOT NULL,
-//    type        TEXT DEFAULT 'Autre',
-//    notes       TEXT,
-//    created_by  TEXT,
-//    created_at  TIMESTAMPTZ DEFAULT now()
-//  );
-//  ALTER TABLE invest_events ENABLE ROW LEVEL SECURITY;
-//  CREATE POLICY "auth_all" ON invest_events FOR ALL TO authenticated USING (true);
-//
-//  -- Nouveau champ clients
-//  ALTER TABLE invest_clients ADD COLUMN IF NOT EXISTS date_avant_contact DATE;
-//
-// ══════════════════════════════════════════════════════════════════════════════
-
-
-// ─── NOUVELLES CONSTANTES — ajouter avec les autres constantes en haut du fichier ──
-
 const ETAPES_CLIENT = [
   "",
   "1 — Signature contrat",
