@@ -803,6 +803,192 @@ function OuvriersSelect({ ouvriers, selected, onChange, T, stopDrag }) {
   );
 }
 
+// ─── MODALE AJOUT MATÉRIAU PRÉVISIONNEL (PAR PHASE) ──────────────────────────
+function ModaleAjoutMateriauPhase({ phaseId, materiauxBibl, fournisseursBibl, onClose, onAjouter, T, accent }) {
+  const [search, setSearch] = useState("");
+  const [selId, setSelId] = useState("");
+  const [quantite, setQuantite] = useState("1");
+  const [prixHt, setPrixHt] = useState("");
+  const [fournisseurId, setFournisseurId] = useState("");
+  const [fournisseurNom, setFournisseurNom] = useState("");
+
+  const sel = materiauxBibl.find(m => m.id === selId) || null;
+
+  // Préremplissage prix + fournisseur quand on sélectionne un matériau
+  useEffect(() => {
+    if (!sel) return;
+    setPrixHt(sel.prix_unitaire != null ? String(sel.prix_unitaire) : "");
+    if (sel.fournisseur_id) {
+      const f = fournisseursBibl.find(x => x.id === sel.fournisseur_id);
+      setFournisseurId(sel.fournisseur_id);
+      setFournisseurNom(f ? f.nom : (sel.fournisseur || ""));
+    } else {
+      setFournisseurId("");
+      setFournisseurNom(sel.fournisseur || "");
+    }
+  }, [selId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filtres = (() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return materiauxBibl.slice(0, 50);
+    return materiauxBibl.filter(m =>
+      (m.nom || "").toLowerCase().includes(q)
+      || (m.reference || "").toLowerCase().includes(q)
+      || (m.fournisseur || "").toLowerCase().includes(q)
+    ).slice(0, 50);
+  })();
+
+  const peutAjouter = sel && parseFloat(quantite) > 0;
+
+  const handleAjouter = () => {
+    if (!peutAjouter) return;
+    onAjouter({
+      id:               (crypto?.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)),
+      materiau_id:      sel.id,
+      libelle:          sel.nom,
+      unite:            sel.unite || "U",
+      prix_ht:          parseFloat(prixHt) || 0,
+      quantite:         parseFloat(quantite) || 0,
+      fournisseur_id:   fournisseurId || null,
+      fournisseur_nom:  fournisseurNom || null,
+      date_ajout:       new Date().toISOString(),
+    });
+  };
+
+  const inp = {
+    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: 8, padding: "8px 11px", color: T.text,
+    fontFamily: "inherit", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box",
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 900, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 620, maxHeight: "88vh",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+        border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+      }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.sectionDivider || T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 34, height: 34, borderRadius: RADIUS.md, background: accent + "22", color: accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon as={Package} size={16}/>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Ajouter un matériau</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 1 }}>Matériau prévisionnel pour la phase</div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", padding: 6, display: "flex" }}>
+            <Icon as={X} size={16}/>
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Rechercher un matériau</label>
+            <div style={{ position: "relative" }}>
+              <Icon as={Search} size={12} color={T.textMuted} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}/>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nom, référence, fournisseur…"
+                style={{ ...inp, paddingLeft: 30 }} autoFocus/>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Matériau</label>
+            {materiauxBibl.length === 0 ? (
+              <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic", padding: "6px 0" }}>
+                Bibliothèque matériaux vide. Ajoute des matériaux dans la page Bibliothèque pour pouvoir les sélectionner ici.
+              </div>
+            ) : (
+              <div style={{ maxHeight: 220, overflowY: "auto", border: `1px solid ${T.border}`, borderRadius: 8, background: T.card }}>
+                {filtres.length === 0 ? (
+                  <div style={{ padding: 14, fontSize: 12, color: T.textMuted, fontStyle: "italic", textAlign: "center" }}>Aucun matériau ne correspond.</div>
+                ) : filtres.map(m => {
+                  const isSel = m.id === selId;
+                  return (
+                    <button key={m.id} onClick={() => setSelId(m.id)} style={{
+                      display: "flex", alignItems: "center", gap: 10, width: "100%",
+                      padding: "8px 10px", background: isSel ? accent + "22" : "transparent",
+                      border: "none", borderBottom: `1px solid ${T.sectionDivider || T.border}`,
+                      cursor: "pointer", textAlign: "left", color: T.text, fontFamily: "inherit",
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.nom}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {m.reference && <span style={{ fontFamily: "monospace" }}>{m.reference}</span>}
+                          {m.fournisseur && <span>· {m.fournisseur}</span>}
+                          {m.unite && <span>· /{m.unite}</span>}
+                        </div>
+                      </div>
+                      {m.prix_unitaire != null && (
+                        <div style={{ fontSize: 12, fontWeight: 800, color: "#22c55e", flexShrink: 0, fontFamily: "'DM Mono',monospace" }}>
+                          {parseFloat(m.prix_unitaire).toFixed(2)} €
+                        </div>
+                      )}
+                      {isSel && <Icon as={Check} size={13} color={accent}/>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {sel && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Quantité ({sel.unite || "U"})</label>
+                <input type="number" min="0" step="0.01" value={quantite} onChange={e => setQuantite(e.target.value)} style={{ ...inp, fontWeight: 700 }}/>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Prix HT unitaire (€)</label>
+                <input type="number" min="0" step="0.01" value={prixHt} onChange={e => setPrixHt(e.target.value)} style={{ ...inp, color: "#22c55e", fontWeight: 700 }}/>
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Fournisseur</label>
+                {fournisseursBibl.length > 0 ? (
+                  <select value={fournisseurId} onChange={e => {
+                    const id = e.target.value || "";
+                    setFournisseurId(id);
+                    const f = id ? fournisseursBibl.find(x => x.id === id) : null;
+                    setFournisseurNom(f ? f.nom : (sel.fournisseur || ""));
+                  }} style={inp}>
+                    <option value="">— {fournisseurNom ? `Texte : « ${fournisseurNom} »` : "Aucun"} —</option>
+                    {fournisseursBibl.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                  </select>
+                ) : (
+                  <input value={fournisseurNom} onChange={e => setFournisseurNom(e.target.value)} placeholder="Nom du fournisseur" style={inp}/>
+                )}
+              </div>
+              <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderRadius: 8 }}>
+                <span style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Total ligne</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: T.accent, fontFamily: "'DM Mono',monospace" }}>
+                  {((parseFloat(prixHt) || 0) * (parseFloat(quantite) || 0)).toFixed(2)} € HT
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.sectionDivider || T.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{
+            background: "transparent", border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.md, padding: "9px 16px", color: T.textSub,
+            fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+          }}>Annuler</button>
+          <button onClick={handleAjouter} disabled={!peutAjouter} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: peutAjouter ? accent : T.border, color: peutAjouter ? "#fff" : T.textMuted,
+            border: "none", borderRadius: RADIUS.md, padding: "9px 18px",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+            cursor: peutAjouter ? "pointer" : "not-allowed",
+          }}>
+            <Icon as={Check} size={13}/>
+            Ajouter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── PLAN TRAVAUX ─────────────────────────────────────────────────────────────
 function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onSavePlan }) {
   const BLEU = "#5b9cf6";
@@ -852,6 +1038,97 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         }
       });
   }, [phasage?.id]);
+
+  // ─── MATÉRIAUX PRÉVISIONNELS PAR PHASE ─────────────────────────────────────
+  // Stockés à côté des tâches dans plan_travaux :
+  //   plan[phaseId + "__materiaux_prevus"] = tableau de matériaux
+  //   plan[phaseId + "__date_commande"]    = vendredi S-1 (string ISO)
+  // Aucune mutation des tableaux de tâches existants.
+  const [materiauxBibl, setMateriauxBibl] = useState([]);
+  const [fournisseursBibl, setFournisseursBibl] = useState([]);
+  const [addMatPhase, setAddMatPhase] = useState(null); // phaseId ouvert dans la modale d'ajout
+  useEffect(() => {
+    supabase.from("materiaux_bibliotheque")
+      .select("id,nom,reference,unite,prix_unitaire,fournisseur,fournisseur_id,categorie")
+      .order("nom")
+      .then(({ data }) => setMateriauxBibl(data || []));
+    supabase.from("fournisseurs")
+      .select("id,nom")
+      .order("nom")
+      .then(({ data }) => setFournisseursBibl(data || []));
+  }, []);
+
+  // Vendredi de la semaine précédant la date passée. Renvoie une chaîne ISO yyyy-mm-dd.
+  function vendrediSPrec(dateISO) {
+    if (!dateISO) return null;
+    const d = new Date(dateISO);
+    if (isNaN(d.getTime())) return null;
+    const dow = d.getDay(); // 0=Dim … 6=Sam
+    const diffToMon = dow === 0 ? -6 : 1 - dow;
+    const lundi = new Date(d);
+    lundi.setDate(d.getDate() + diffToMon);
+    const vendrediSPrec = new Date(lundi);
+    vendrediSPrec.setDate(lundi.getDate() - 3); // lundi - 3 jours = vendredi précédent
+    const y = vendrediSPrec.getFullYear();
+    const m = String(vendrediSPrec.getMonth() + 1).padStart(2, "0");
+    const j = String(vendrediSPrec.getDate()).padStart(2, "0");
+    return `${y}-${m}-${j}`;
+  }
+
+  // Première date_prevue d'une phase (date la plus ancienne), ou null.
+  function premiereDatePhase(taches) {
+    const dates = (taches || []).map(t => t.date_prevue).filter(Boolean).sort();
+    return dates[0] || null;
+  }
+
+  function getMateriauxPhase(phaseId) {
+    return plan[phaseId + "__materiaux_prevus"] || [];
+  }
+
+  // Met à jour la liste des matériaux d'une phase + recalcule et persiste la
+  // date de commande. La sauvegarde Supabase passe par l'autosave existant
+  // (déclenché par setPlan).
+  function setMateriauxPhase(phaseId, nextMateriaux) {
+    setPlan(p => {
+      const matKey  = phaseId + "__materiaux_prevus";
+      const dateKey = phaseId + "__date_commande";
+      const next = { ...p, [matKey]: nextMateriaux };
+      const premiere = premiereDatePhase(p[phaseId] || []);
+      const dateCmd  = vendrediSPrec(premiere);
+      if (dateCmd) next[dateKey] = dateCmd;
+      return next;
+    });
+  }
+
+  function ajouterMateriauPhase(phaseId, mat) {
+    const liste = getMateriauxPhase(phaseId);
+    setMateriauxPhase(phaseId, [...liste, mat]);
+  }
+
+  function supprimerMateriauPhase(phaseId, matPrevuId) {
+    const liste = getMateriauxPhase(phaseId).filter(m => m.id !== matPrevuId);
+    setMateriauxPhase(phaseId, liste);
+  }
+
+  // Si les dates des tâches changent et qu'une phase a déjà des matériaux,
+  // resynchroniser la date_commande stockée. N'écrit rien pour les phases
+  // sans matériaux (préserve les phasages legacy).
+  useEffect(() => {
+    let dirty = false;
+    const updates = {};
+    PHASES.forEach(ph => {
+      const mat = plan[ph.id + "__materiaux_prevus"];
+      if (!mat || mat.length === 0) return;
+      const cible = vendrediSPrec(premiereDatePhase(plan[ph.id] || []));
+      const courante = plan[ph.id + "__date_commande"] || null;
+      if (cible && cible !== courante) {
+        updates[ph.id + "__date_commande"] = cible;
+        dirty = true;
+      }
+    });
+    if (dirty) setPlan(p => ({ ...p, ...updates }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]);
   const semainesFutures = [];
   const now = getCurrentWeek();
   for (let i = 0; i < 8; i++) { let w = now.week + i, y = now.year; if (w > 52) { w -= 52; y++; } semainesFutures.push(getWeekId(y, w)); }
@@ -1534,6 +1811,96 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                         Ajouter une tâche
                       </button>
                     )}
+
+                    {/* ── Matériaux prévisionnels ── */}
+                    {(() => {
+                      const mats = getMateriauxPhase(phase.id);
+                      const totalHt = mats.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
+                      const premiere = premiereDatePhase(taches);
+                      const dateCmd = vendrediSPrec(premiere);
+                      const dateCmdFmt = dateCmd ? new Date(dateCmd).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : null;
+                      return (
+                        <div style={{ margin: "14px 16px 0", padding: "12px 14px", borderRadius: RADIUS.md, background: T.card, border: `1px dashed ${phase.couleur}55` }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.text, letterSpacing: 0.3 }}>
+                                <Icon as={Package} size={12} color={phase.couleur}/>
+                                Matériaux à prévoir
+                                {mats.length > 0 && <span style={{ color: T.textMuted, fontWeight: 600 }}>· {mats.length}</span>}
+                              </div>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size, color: dateCmd ? T.textSub : T.textMuted, fontStyle: dateCmd ? "normal" : "italic" }}>
+                                <Icon as={CalendarCheck} size={11}/>
+                                {dateCmd ? <>À commander avant le <strong style={{ color: T.text, fontWeight: 700 }}>{dateCmdFmt}</strong></> : "Date à définir (renseigner la date prévue d'une tâche)"}
+                              </div>
+                            </div>
+                            <button onClick={() => setAddMatPhase(phase.id)} style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              padding: "6px 12px", borderRadius: RADIUS.sm,
+                              border: `1px solid ${phase.couleur}55`, background: phase.couleur + "15", color: phase.couleur,
+                              fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer",
+                            }}>
+                              <Icon as={Plus} size={11}/>
+                              Ajouter un matériau
+                            </button>
+                          </div>
+
+                          {mats.length === 0 ? (
+                            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic", padding: "4px 0" }}>
+                              Aucun matériau prévu pour cette phase.
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 70px 80px 28px" : "2fr 1.2fr 70px 90px 90px 28px", gap: 8, padding: "3px 6px", fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                                <div>Matériau</div>
+                                {!isMobile && <div>Fournisseur</div>}
+                                <div style={{ textAlign: "center" }}>Qté</div>
+                                <div style={{ textAlign: "right" }}>PU HT</div>
+                                <div style={{ textAlign: "right" }}>Total HT</div>
+                                <div/>
+                              </div>
+                              {mats.map(m => {
+                                const sousTotal = (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0);
+                                return (
+                                  <div key={m.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 70px 80px 28px" : "2fr 1.2fr 70px 90px 90px 28px", gap: 8, padding: "6px 6px", borderRadius: 6, background: T.surface, alignItems: "center" }}>
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ fontSize: FONT.xs.size + 1, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.libelle}</div>
+                                      {isMobile && m.fournisseur_nom && <div style={{ fontSize: 10, color: T.textMuted, marginTop: 1 }}>{m.fournisseur_nom}</div>}
+                                    </div>
+                                    {!isMobile && (
+                                      <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        {m.fournisseur_nom || <span style={{ color: T.textMuted, fontStyle: "italic" }}>—</span>}
+                                      </div>
+                                    )}
+                                    <div style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.text, textAlign: "center" }}>
+                                      {m.quantite}{m.unite ? <span style={{ color: T.textMuted, fontWeight: 400 }}> {m.unite}</span> : null}
+                                    </div>
+                                    <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, textAlign: "right", fontFamily: "'DM Mono',monospace" }}>
+                                      {(parseFloat(m.prix_ht) || 0).toFixed(2)} €
+                                    </div>
+                                    <div style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.accent, textAlign: "right", fontFamily: "'DM Mono',monospace" }}>
+                                      {sousTotal.toFixed(2)} €
+                                    </div>
+                                    <button onClick={() => supprimerMateriauPhase(phase.id, m.id)} title="Supprimer" style={{
+                                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                      background: "transparent", border: "none", color: "#e15a5a",
+                                      cursor: "pointer", padding: 2, lineHeight: 1,
+                                    }}>
+                                      <Icon as={X} size={13}/>
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "6px 10px 2px", borderTop: `1px solid ${T.sectionDivider || T.border}`, marginTop: 4 }}>
+                                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Total phase</span>
+                                <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: T.accent, fontFamily: "'DM Mono',monospace" }}>
+                                  {totalHt.toFixed(2)} € HT
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -1542,6 +1909,19 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
         </div>
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+
+      {/* Modale : ajouter un matériau prévisionnel à une phase */}
+      {addMatPhase && (
+        <ModaleAjoutMateriauPhase
+          phaseId={addMatPhase}
+          materiauxBibl={materiauxBibl}
+          fournisseursBibl={fournisseursBibl}
+          onClose={() => setAddMatPhase(null)}
+          onAjouter={(mat) => { ajouterMateriauPhase(addMatPhase, mat); setAddMatPhase(null); }}
+          T={T}
+          accent={(PHASES.find(p => p.id === addMatPhase) || {}).couleur || planAcc.accent}
+        />
+      )}
 
       {/* Modale : commandes liées à une phase */}
       {showPhaseCmds && (() => {
