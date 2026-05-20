@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, Layers, Search, IdCard, FileText, Settings,
-  ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X,
+  ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "./constants";
 import { Icon } from "./ui";
@@ -23,12 +23,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu","admin"
   ],
   conducteur: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu"
   ],
@@ -49,6 +49,7 @@ const ALL_NAV_ITEMS = [
   { id:"notes-todo",       icon:ClipboardList,   label:"Notes",      longLabel:"Notes & To-do"       },
   { id:"planning-mensuel", icon:CalendarDays,    label:"Mensuel",    longLabel:"Planning mensuel"    },
   { id:"commandes",        icon:Package,         label:"Cmd.",       longLabel:"Commandes"           },
+  { id:"planning-commandes", icon:ShoppingCart,  label:"Cmd. 5S",    longLabel:"Planning commandes (5 sem.)" },
   { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
   { id:"plans",            icon:Ruler,           label:"Plans",      longLabel:"Plans"               },
   { id:"phasage",          icon:ListChecks,      label:"Phasage",    longLabel:"Phasage"             },
@@ -235,6 +236,7 @@ function Sidebar({
     { id:"planning-mensuel", icon:CalendarDays,    label:"Planning mensuel" },
     { id:"notes-todo",       icon:ClipboardList,   label:"Notes & To-do"    },
     { id:"commandes",        icon:Package,         label:"Commandes"        },
+    { id:"planning-commandes", icon:ShoppingCart,  label:"Planning commandes" },
     { id:"equipe",           icon:Users,           label:"Équipe"           },
     { id:"plans",            icon:Ruler,           label:"Plans"            },
     { id:"phasage",          icon:ListChecks,      label:"Phasage"          },

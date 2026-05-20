@@ -10,6 +10,7 @@ import PagePlanning           from "./Planning";
 import PagePlanningMensuel    from "./PlanningMensuel";
 import PageNotesEtTodo        from "./NotesEtTodo";
 import PageCommandes          from "./Commandes";
+import PagePlanningCommandes  from "./PagePlanningCommandes";
 import PageEquipe             from "./Equipe";
 import PagePlans              from "./Plans";
 import PagePhasage            from "./Phasage";
@@ -26,12 +27,12 @@ import PageChantiers          from "./PageChantiers";
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu","admin"
   ],
   conducteur: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
     "visite","info-client","compte-rendu"
   ],
@@ -580,6 +581,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="planning-mensuel" && canAccess(role,"planning-mensuel") && <PagePlanningMensuel T={T} chantiers={chantiers}/>}
           {page==="notes-todo"       && canAccess(role,"notes-todo")       && <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/>}
           {page==="commandes"        && canAccess(role,"commandes")        && <PageCommandes chantiers={chantiers} T={T}/>}
+          {page==="planning-commandes" && canAccess(role,"planning-commandes") && <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/>}
           {page==="equipe"           && canAccess(role,"equipe")           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
           {page==="plans"            && canAccess(role,"plans")            && <PagePlans T={T} chantiers={chantiers} branch={branch}/>}
           {page==="phasage"          && canAccess(role,"phasage")          && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/>}
