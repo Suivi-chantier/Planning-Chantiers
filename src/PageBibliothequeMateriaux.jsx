@@ -29,6 +29,7 @@ const emptyArticle = () => ({
   nom: "",
   reference: "",
   fournisseur: "",
+  fournisseur_id: null,
   categorie: "",
   prix_unitaire: "",
   unite: "U",
@@ -586,12 +587,20 @@ function ModaleImportSheets({ onClose, onImport, T }) {
 }
 
 // ─── MODALE ARTICLE ───────────────────────────────────────────────────────────
-function ArticleModal({ article, onClose, onSave, T, acc }) {
+function ArticleModal({ article, onClose, onSave, T, acc, fournisseurs = [] }) {
   const [draft, setDraft] = useState(article || emptyArticle());
   const [saving, setSaving] = useState(false);
   acc = acc || getBranchAccent("renovation");
 
   const set = (field, val) => setDraft(p => ({ ...p, [field]: val }));
+
+  // Si l'article n'a pas de fournisseur_id mais un texte fournisseur qui matche
+  // exactement (insensible à la casse / espaces) un fournisseur existant,
+  // on propose la liaison automatique.
+  const norm = (s) => (s || "").trim().toLowerCase();
+  const fournisseurMatch = !draft.fournisseur_id && draft.fournisseur?.trim()
+    ? fournisseurs.find(f => norm(f.nom) === norm(draft.fournisseur))
+    : null;
 
   const handleSave = async () => {
     if (!draft.nom?.trim()) return;
@@ -678,7 +687,59 @@ function ArticleModal({ article, onClose, onSave, T, acc }) {
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 6 }}>Fournisseur</label>
-                <input value={draft.fournisseur} onChange={e => set("fournisseur", e.target.value)} placeholder="ex: Point P, Leroy Merlin…" style={inp()} />
+                {fournisseurs.length > 0 ? (
+                  <select
+                    value={draft.fournisseur_id || ""}
+                    onChange={e => {
+                      const id = e.target.value || null;
+                      const f = id ? fournisseurs.find(x => x.id === id) : null;
+                      setDraft(p => ({
+                        ...p,
+                        fournisseur_id: id,
+                        // Aligne le texte sur le nom du fournisseur sélectionné,
+                        // ou laisse le texte existant si on désélectionne.
+                        fournisseur: f ? f.nom : p.fournisseur,
+                      }));
+                    }}
+                    style={sel}
+                  >
+                    <option value="">— {draft.fournisseur?.trim() ? `Texte libre : « ${draft.fournisseur} »` : "Aucun"} —</option>
+                    {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                  </select>
+                ) : (
+                  <input value={draft.fournisseur} onChange={e => set("fournisseur", e.target.value)} placeholder="ex: Point P, Leroy Merlin…" style={inp()} />
+                )}
+                {fournisseurs.length > 0 && !draft.fournisseur_id && (
+                  <input
+                    value={draft.fournisseur}
+                    onChange={e => set("fournisseur", e.target.value)}
+                    placeholder="ou texte libre (legacy)…"
+                    style={{ ...inp(), marginTop: 6, fontSize: 13, opacity: .85 }}
+                  />
+                )}
+                {fournisseurMatch && (
+                  <div style={{
+                    marginTop: 6, display: "flex", alignItems: "center", gap: 8,
+                    background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.3)",
+                    borderRadius: 8, padding: "7px 10px", fontSize: 12, color: "#22c55e",
+                  }}>
+                    <Icon as={Link2} size={12}/>
+                    <span style={{ flex: 1 }}>
+                      Un fournisseur « {fournisseurMatch.nom} » existe — proposer la liaison&nbsp;?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDraft(p => ({ ...p, fournisseur_id: fournisseurMatch.id, fournisseur: fournisseurMatch.nom }))}
+                      style={{
+                        background: "#22c55e", color: "#0a1d12", border: "none",
+                        borderRadius: 6, padding: "4px 10px", fontWeight: 800,
+                        fontFamily: "inherit", fontSize: 12, cursor: "pointer",
+                      }}
+                    >
+                      Lier
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
@@ -762,6 +823,7 @@ function ArticleModal({ article, onClose, onSave, T, acc }) {
 function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [articles, setArticles] = useState([]);
+  const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("all");
@@ -779,7 +841,13 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
     setLoading(false);
   }, []);
 
+  const loadFournisseurs = useCallback(async () => {
+    const { data } = await supabase.from("fournisseurs").select("id, nom, email").order("nom");
+    setFournisseurs(data || []);
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadFournisseurs(); }, [loadFournisseurs]);
 
   const filtered = articles.filter(a => {
     const matchCat = filterCat === "all" || a.categorie === filterCat;
@@ -816,6 +884,7 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
       nom: draft.nom?.trim(),
       reference: draft.reference?.trim() || null,
       fournisseur: draft.fournisseur?.trim() || null,
+      fournisseur_id: draft.fournisseur_id || null,
       categorie: draft.categorie || null,
       prix_unitaire: draft.prix_unitaire ? parseFloat(draft.prix_unitaire) : null,
       unite: draft.unite || "U",
@@ -855,7 +924,7 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
       `}</style>
 
       {modaleSheets && <ModaleImportSheets onClose={() => setModaleSheets(false)} onImport={load} T={T} />}
-      {modale && <ArticleModal article={modale === "new" ? null : modale} onClose={() => setModale(null)} onSave={saveArticle} T={T} acc={acc}/>}
+      {modale && <ArticleModal article={modale === "new" ? null : modale} onClose={() => setModale(null)} onSave={saveArticle} T={T} acc={acc} fournisseurs={fournisseurs}/>}
 
       {/* ── Modale confirmation suppression ── */}
       {confirmDelete && (
@@ -1108,7 +1177,17 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
               </td>
             )}
             <td style={{ padding: "10px 10px", fontSize: FONT.sm.size, color: T.textSub }}>
-              {a.fournisseur || <span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>—</span>}
+              {(() => {
+                const lie = a.fournisseur_id ? fournisseurs.find(f => f.id === a.fournisseur_id) : null;
+                const nom = lie ? lie.nom : a.fournisseur;
+                if (!nom) return <span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>—</span>;
+                return (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    {lie && <Icon as={Link2} size={11} color={acc.accent}/>}
+                    {nom}
+                  </span>
+                );
+              })()}
             </td>
             <td style={{ padding: "10px 10px", whiteSpace: "nowrap" }}>
               {a.prix_unitaire != null

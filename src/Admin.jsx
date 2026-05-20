@@ -7,7 +7,7 @@ import {
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
-  Download, ClipboardCheck, FileText, Activity, ChevronRight,
+  Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck,
 } from "lucide-react";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
@@ -483,6 +483,342 @@ function OngletUtilisateurs({ T, acc }) {
         <Icon as={Info} size={13} style={{marginTop:2, flexShrink:0}}/>
         <span>Les collaborateurs désactivés ne peuvent plus se connecter mais leurs données sont conservées. Pour supprimer définitivement un compte Auth, rendez-vous dans <strong style={{color:T.textSub}}>Supabase → Authentication → Users</strong>.</span>
       </div>
+    </div>
+  );
+}
+
+// ─── ONGLET FOURNISSEURS ──────────────────────────────────────────────────────
+const MAIL_TYPE_DEFAUT =
+  "Bonjour,\n\nDans le cadre du chantier {chantier} (phase : {phase}), nous souhaitons passer la commande suivante pour le {date_besoin} :\n\n{liste_articles}\n\nTotal HT estimé : {total_ht} €\n\nCordialement,\nProfero Rénovation";
+
+const FOURNISSEUR_VARIABLES = ["{chantier}", "{phase}", "{liste_articles}", "{date_besoin}", "{total_ht}"];
+
+function OngletFournisseurs({ T, acc }) {
+  const [fournisseurs, setFournisseurs] = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [editId, setEditId]             = useState(null);
+  const [draft, setDraft]               = useState({ nom: "", email: "", mail_type: MAIL_TYPE_DEFAUT });
+  const [showForm, setShowForm]         = useState(false);
+  const [toDelete, setToDelete]         = useState(null);
+  const [succes, setSucces]             = useState("");
+  const [erreur, setErreur]             = useState("");
+  const [saving, setSaving]             = useState(false);
+  const [search, setSearch]             = useState("");
+
+  const flash = (type, msg) => {
+    if (type === "ok") { setSucces(msg); setErreur(""); setTimeout(() => setSucces(""), 3500); }
+    else               { setErreur(msg); setSucces(""); setTimeout(() => setErreur(""), 5000); }
+  };
+
+  const charger = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("fournisseurs").select("*").order("nom");
+    if (error) flash("err", "Chargement impossible : " + error.message);
+    setFournisseurs(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { charger(); }, []);
+
+  const resetDraft = () => setDraft({ nom: "", email: "", mail_type: MAIL_TYPE_DEFAUT });
+
+  const ouvrirForm = (f = null) => {
+    if (f) {
+      setEditId(f.id);
+      setDraft({ nom: f.nom || "", email: f.email || "", mail_type: f.mail_type || MAIL_TYPE_DEFAUT });
+    } else {
+      setEditId(null);
+      resetDraft();
+    }
+    setShowForm(true);
+  };
+
+  const fermerForm = () => {
+    setShowForm(false);
+    setEditId(null);
+    resetDraft();
+  };
+
+  const enregistrer = async () => {
+    if (!draft.nom.trim()) { flash("err", "Le nom du fournisseur est obligatoire."); return; }
+    setSaving(true);
+    const payload = {
+      nom:       draft.nom.trim(),
+      email:     draft.email?.trim() || null,
+      mail_type: draft.mail_type?.trim() || null,
+    };
+    let err;
+    if (editId) {
+      ({ error: err } = await supabase.from("fournisseurs").update(payload).eq("id", editId));
+    } else {
+      ({ error: err } = await supabase.from("fournisseurs").insert(payload));
+    }
+    setSaving(false);
+    if (err) { flash("err", "Erreur : " + err.message); return; }
+    flash("ok", editId ? `✓ ${payload.nom} mis à jour.` : `✓ ${payload.nom} créé.`);
+    fermerForm();
+    charger();
+  };
+
+  const supprimer = async () => {
+    if (!toDelete) return;
+    const { error } = await supabase.from("fournisseurs").delete().eq("id", toDelete.id);
+    if (error) { flash("err", "Erreur : " + error.message); return; }
+    flash("ok", `✓ ${toDelete.nom} supprimé.`);
+    setToDelete(null);
+    charger();
+  };
+
+  const insererVariable = (v) => {
+    setDraft(p => ({ ...p, mail_type: (p.mail_type || "") + v }));
+  };
+
+  const filtres = fournisseurs.filter(f => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (f.nom || "").toLowerCase().includes(q) || (f.email || "").toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="ac">
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:4, flexWrap:"wrap", gap:10 }}>
+        <div>
+          <div style={{ fontWeight:800, fontSize:FONT.md.size, marginBottom:4, color:T.text }}>Fournisseurs</div>
+          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, lineHeight:1.6, maxWidth:560 }}>
+            Annuaire des fournisseurs et modèles d'email de commande associés. Les articles de la bibliothèque matériaux peuvent être rattachés à un fournisseur.
+          </div>
+        </div>
+        <button onClick={() => showForm ? fermerForm() : ouvrirForm()} style={{
+          display:"inline-flex", alignItems:"center", gap:6,
+          background: showForm ? "transparent" : acc.accent, color: showForm ? T.textSub : acc.onAccent,
+          border: showForm ? `1px solid ${T.border}` : "none",
+          borderRadius:RADIUS.md, padding:"9px 16px",
+          fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800, cursor:"pointer",
+        }}>
+          <Icon as={showForm ? X : Plus} size={13}/>
+          {showForm ? "Annuler" : "Nouveau fournisseur"}
+        </button>
+      </div>
+
+      {/* Recherche */}
+      {fournisseurs.length > 0 && !showForm && (
+        <div style={{
+          display:"flex", gap:8, alignItems:"center", flexWrap:"wrap",
+          marginTop:14, background:T.surface, border:`1px solid ${T.border}`,
+          borderRadius:RADIUS.lg, padding:"8px 10px",
+        }}>
+          <div style={{position:"relative", flex:"1 1 200px", maxWidth:320}}>
+            <Icon as={Search} size={12} color={T.textMuted}
+              style={{position:"absolute", left:9, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un fournisseur…"
+              style={{
+                width:"100%", background:T.fieldBg||T.card, border:`1px solid ${T.fieldBorder||T.border}`,
+                borderRadius:RADIUS.md, padding:"7px 10px 7px 28px", color:T.text,
+                fontFamily:"inherit", fontSize:FONT.xs.size+1, outline:"none",
+              }}/>
+          </div>
+          <div style={{marginLeft:"auto", fontSize:FONT.xs.size+1, color:T.textMuted, fontWeight:600}}>
+            {filtres.length} / {fournisseurs.length}
+          </div>
+        </div>
+      )}
+
+      {/* Messages */}
+      {succes && (
+        <div style={{
+          display:"flex", alignItems:"center", gap:8,
+          background:"rgba(34,197,94,0.12)", border:"1px solid rgba(34,197,94,0.3)",
+          borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.sm.size,
+          color:"#22c55e", margin:"12px 0", lineHeight:1.6,
+        }}>
+          <Icon as={Check} size={13}/>
+          <span>{succes.replace(/^✓ /, "")}</span>
+        </div>
+      )}
+      {erreur && (
+        <div style={{
+          display:"flex", alignItems:"center", gap:8,
+          background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)",
+          borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.sm.size,
+          color:"#e15a5a", margin:"12px 0",
+        }}>
+          <Icon as={AlertTriangle} size={13}/>
+          {erreur}
+        </div>
+      )}
+
+      {/* Formulaire création / édition */}
+      {showForm && (
+        <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"20px 18px", margin:"16px 0" }}>
+          <div style={{ fontWeight:700, fontSize:14, marginBottom:16, color:T.text }}>
+            {editId ? "Modifier le fournisseur" : "Nouveau fournisseur"}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Nom *</label>
+              <input className="ti" value={draft.nom} onChange={e=>setDraft(p=>({...p,nom:e.target.value}))}
+                placeholder="Ex : Point P, Leroy Merlin…" style={{ width:"100%" }}/>
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Email</label>
+              <input className="ti" type="email" value={draft.email} onChange={e=>setDraft(p=>({...p,email:e.target.value}))}
+                placeholder="commandes@fournisseur.fr" style={{ width:"100%" }}/>
+            </div>
+          </div>
+
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Modèle de mail de commande</label>
+            <textarea className="ti" value={draft.mail_type} onChange={e=>setDraft(p=>({...p,mail_type:e.target.value}))}
+              rows={10} placeholder="Corps du mail envoyé au fournisseur…"
+              style={{ width:"100%", resize:"vertical", fontFamily:"inherit", lineHeight:1.5 }}/>
+          </div>
+
+          <div style={{ display:"flex", alignItems:"flex-start", gap:8, padding:"10px 12px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, marginBottom:16 }}>
+            <Icon as={Info} size={12} color={T.textMuted} style={{marginTop:2, flexShrink:0}}/>
+            <div style={{ flex:1, fontSize:FONT.xs.size+1, color:T.textMuted, lineHeight:1.6 }}>
+              Variables disponibles (cliquer pour insérer)&nbsp;:&nbsp;
+              {FOURNISSEUR_VARIABLES.map(v => (
+                <button key={v} type="button" onClick={()=>insererVariable(v)} style={{
+                  display:"inline-block", padding:"1px 8px", borderRadius:RADIUS.sm, marginRight:4, marginBottom:4,
+                  background:acc.bg10, color:acc.accent, fontFamily:"monospace", fontSize:FONT.xs.size, fontWeight:700,
+                  border:`1px solid ${acc.accent}33`, cursor:"pointer",
+                }}>{v}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+            <button onClick={fermerForm} disabled={saving} style={{
+              background:"transparent", border:`1px solid ${T.border}`,
+              borderRadius:RADIUS.md, padding:"9px 18px", color:T.textSub,
+              fontFamily:"inherit", fontSize:FONT.sm.size, cursor:"pointer", opacity:saving?.5:1,
+            }}>Annuler</button>
+            <button onClick={enregistrer} disabled={saving || !draft.nom.trim()} style={{
+              display:"inline-flex", alignItems:"center", gap:6,
+              background: draft.nom.trim() ? acc.accent : T.border,
+              color: draft.nom.trim() ? acc.onAccent : T.textMuted,
+              border:"none", borderRadius:RADIUS.md, padding:"9px 18px",
+              fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
+              cursor: draft.nom.trim() && !saving ? "pointer" : "not-allowed",
+              opacity:saving?.6:1,
+            }}>
+              <Icon as={Check} size={13}/>
+              {saving ? "Enregistrement…" : (editId ? "Modifier" : "Créer")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Liste */}
+      {loading ? (
+        <div style={{ color:T.textSub, fontSize:FONT.sm.size, padding:"20px 0", textAlign:"center" }}>Chargement…</div>
+      ) : fournisseurs.length === 0 ? (
+        <div style={{
+          background:T.card, border:`1px dashed ${T.border}`,
+          borderRadius:RADIUS.xl, padding:"40px 24px", textAlign:"center", color:T.textSub, marginTop:16,
+        }}>
+          <div style={{
+            width:48,height:48,borderRadius:RADIUS.lg,
+            background:acc.bg10,color:acc.accent,
+            display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
+          }}>
+            <Icon as={Truck} size={24} strokeWidth={1.5}/>
+          </div>
+          <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun fournisseur</div>
+          <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6,marginBottom:16}}>
+            Créez un fournisseur pour pouvoir le rattacher aux articles de la bibliothèque matériaux.
+          </div>
+        </div>
+      ) : filtres.length === 0 ? (
+        <div style={{ color:T.textSub, fontSize:FONT.sm.size, fontStyle:"italic", padding:"20px 0" }}>Aucun fournisseur ne correspond à cette recherche.</div>
+      ) : (
+        <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:10 }}>
+          {filtres.map(f => {
+            const apercu = (f.mail_type || "").split("\n").filter(l => l.trim()).slice(0, 2).join(" · ");
+            return (
+              <div key={f.id} style={{
+                background:T.surface, border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.lg, padding:"14px 16px",
+                display:"flex", alignItems:"flex-start", gap:12, flexWrap:"wrap",
+              }}>
+                <div style={{
+                  width:38, height:38, borderRadius:RADIUS.md, flexShrink:0,
+                  background:acc.bg10, color:acc.accent,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                }}>
+                  <Icon as={Truck} size={17}/>
+                </div>
+                <div style={{ flex:1, minWidth:200 }}>
+                  <div style={{ fontWeight:700, fontSize:FONT.sm.size+1, color:T.text }}>{f.nom}</div>
+                  {f.email && (
+                    <div style={{ fontSize:FONT.xs.size+1, color:T.textMuted, marginTop:2, display:"inline-flex", alignItems:"center", gap:4 }}>
+                      <Icon as={Mail} size={10}/>
+                      {f.email}
+                    </div>
+                  )}
+                  {apercu && (
+                    <div style={{ fontSize:FONT.xs.size+1, color:T.textSub, marginTop:6, lineHeight:1.5, fontStyle:"italic", maxWidth:640, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>
+                      « {apercu} »
+                    </div>
+                  )}
+                </div>
+                <div style={{ display:"flex", gap:6, flexShrink:0, flexWrap:"wrap" }}>
+                  <button className="btn-g" style={{ fontSize:FONT.xs.size+1, padding:"5px 12px", display:"inline-flex", alignItems:"center", gap:4 }}
+                    onClick={()=>ouvrirForm(f)}>
+                    <Icon as={Pencil} size={11}/>
+                    Modifier
+                  </button>
+                  <button className="btn-d" style={{ display:"inline-flex", alignItems:"center", gap:4 }}
+                    onClick={()=>setToDelete(f)}>
+                    <Icon as={Trash2} size={11}/>
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modale suppression */}
+      {toDelete && (
+        <div onClick={()=>setToDelete(null)} style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:1000,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal||T.surface, borderRadius:RADIUS.xl, padding:24,
+            width:"100%", maxWidth:440, border:`1px solid ${T.border}`,
+          }}>
+            <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
+              <div style={{width:40, height:40, borderRadius:RADIUS.md, flexShrink:0, background:"rgba(224,92,92,0.12)", color:"#e15a5a", display:"flex", alignItems:"center", justifyContent:"center"}}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size, fontWeight:800, color:T.text}}>Supprimer ce fournisseur&nbsp;?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6, marginBottom:20}}>
+              Le fournisseur <strong style={{color:T.text}}>« {toDelete.nom} »</strong> sera supprimé.
+              <br/><span style={{color:T.textMuted, fontSize:FONT.xs.size+1}}>Les articles rattachés restent accessibles et conservent leur ancien texte fournisseur.</span>
+            </div>
+            <div style={{display:"flex", gap:10, justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDelete(null)} style={{
+                background:"transparent", border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md, padding:"9px 18px", color:T.textSub,
+                fontFamily:"inherit", fontSize:FONT.sm.size, cursor:"pointer",
+              }}>Annuler</button>
+              <button onClick={supprimer} style={{
+                display:"inline-flex", alignItems:"center", gap:6,
+                background:"#e15a5a", color:"#fff", border:"none",
+                borderRadius:RADIUS.md, padding:"9px 18px",
+                fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800, cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1018,6 +1354,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["logos",        "Logos",           ImageIcon],
     ["phrases",      "Phrases types",   MessageSquare],
     ["emails",       "Emails",          Mail],
+    ["fournisseurs", "Fournisseurs",    Truck],
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
     ["maintenance",  "Maintenance",     Wrench],
   ];
@@ -1072,6 +1409,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="utilisateurs" && isAdmin && (
         <OngletUtilisateurs T={T} acc={acc}/>
+      )}
+
+      {adminTab==="fournisseurs" && (
+        <OngletFournisseurs T={T} acc={acc}/>
       )}
 
       {/* ── PHASES DE TRAVAUX ── */}
