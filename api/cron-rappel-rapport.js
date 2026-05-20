@@ -273,6 +273,110 @@ async function checkTodosEnRetard(supabase, req, todayIso) {
   return result;
 }
 
+// ─── LOGIQUE MÉTIER EXTRAITE (réutilisable par le dispatcher) ────────────────
+// Exécute la séquence : alerte DST si décalage, rappel rapports, To-do retard.
+// Renvoie un objet de résumé prêt à être inclus dans la réponse JSON.
+async function runRappelRapport(req, supabase, t) {
+  const expectedHour = heureAttendue(t.weekday);
+  if (expectedHour === null) {
+    return { skipped: "weekend" };
+  }
+
+  // ── Détection drift DST ──
+  let dstAlert = null;
+  if (t.hour !== expectedHour) {
+    try { dstAlert = await envoyerAlerteDstSiNecessaire(supabase, req, t, expectedHour); }
+    catch (e) { console.error("DST alert error:", e); }
+  }
+
+  const weekId = currentWeekIdParis();
+  const jour   = t.weekday;
+  const dateFr = t.dateFr;
+
+  // 1. Config : ouvrier_emails + état des rappels déjà envoyés
+  const { data: cfgRows } = await supabase
+    .from("planning_config").select("key,value")
+    .in("key", ["ouvrier_emails", "rappels_rapport_state"]);
+  const cfg = {};
+  (cfgRows || []).forEach(r => { cfg[r.key] = r.value; });
+  const emails = cfg.ouvrier_emails || {};
+  const state  = cfg.rappels_rapport_state || { date: null, prenoms: [] };
+  const alreadySentToday = state.date === dateFr ? new Set(state.prenoms || []) : new Set();
+
+  // 2. Ouvriers assignés à au moins une tâche aujourd'hui
+  const { data: cells } = await supabase
+    .from("planning_cells").select("ouvriers,taches,planifie,jour")
+    .eq("week_id", weekId).eq("jour", jour);
+  const assignes = new Set();
+  (cells || []).forEach(cell => {
+    const aUneTache = (cell.taches && cell.taches.length > 0)
+      || (cell.planifie && cell.planifie.trim().length > 0);
+    if (!aUneTache) return;
+    (cell.ouvriers || []).forEach(nom => { if (nom) assignes.add(nom); });
+  });
+
+  const resultats = { envoyes: [], echecs: [], ignores: [] };
+  let rendus = new Set();
+
+  if (assignes.size > 0) {
+    // 3. Rapports déjà rendus aujourd'hui (filtrés par prénoms assignés)
+    const { data: rapports } = await supabase
+      .from("rapports").select("ouvrier")
+      .eq("date_rapport", dateFr)
+      .in("ouvrier", Array.from(assignes));
+    rendus = new Set((rapports || []).map(r => r.ouvrier));
+
+    // 4. Diff → à relancer (avec email + pas déjà notifié)
+    const aRelancer = Array.from(assignes).filter(p =>
+      !rendus.has(p) && !alreadySentToday.has(p) && emails[p]
+    );
+
+    for (const prenom of aRelancer) {
+      const to = emails[prenom];
+      const subject = `📝 Rappel : votre compte rendu du ${dateFr}`;
+      const html = buildMailHtml(prenom, dateFr);
+      try {
+        const r = await envoyerMail(req, to, subject, html);
+        if (r.ok) resultats.envoyes.push(prenom);
+        else      resultats.echecs.push({ prenom, status: r.status, data: r.data });
+      } catch (e) {
+        resultats.echecs.push({ prenom, error: e.message });
+      }
+    }
+
+    // 5. Ouvriers assignés sans rapport et sans email → ignorés silencieusement
+    Array.from(assignes).forEach(p => {
+      if (!rendus.has(p) && !emails[p]) resultats.ignores.push({ prenom: p, raison: "no_email" });
+    });
+
+    // 6. Mise à jour de l'état d'idempotence
+    if (resultats.envoyes.length > 0) {
+      const newState = {
+        date: dateFr,
+        prenoms: Array.from(new Set([...Array.from(alreadySentToday), ...resultats.envoyes])),
+      };
+      await supabase.from("planning_config")
+        .upsert({ key: "rappels_rapport_state", value: newState }, { onConflict: "key" });
+    }
+  }
+
+  // ── Vérification des tâches To-Do en retard (indépendant des rapports) ──
+  const todoResultats = await checkTodosEnRetard(supabase, req, t.dateIso);
+
+  return {
+    weekId, jour, dateFr,
+    heureParis: `${String(t.hour).padStart(2,"0")}:${String(t.minute).padStart(2,"0")}`,
+    heureAttendue: `${expectedHour}:50`,
+    dstAlert,
+    rapports: {
+      assignes: assignes.size,
+      rendus: rendus.size,
+      ...resultats,
+    },
+    todos: todoResultats,
+  };
+}
+
 module.exports = async function handler(req, res) {
   // ── Auth : Vercel envoie Authorization: Bearer ${CRON_SECRET} ──
   const expected = process.env.CRON_SECRET;
@@ -285,8 +389,7 @@ module.exports = async function handler(req, res) {
 
   // ── Vérification jour ouvré (Lun-Ven) ──
   const t = parisNow();
-  const expectedHour = heureAttendue(t.weekday);
-  if (expectedHour === null) {
+  if (heureAttendue(t.weekday) === null) {
     return res.status(200).json({ ok: true, skipped: "weekend", time: t });
   }
 
@@ -298,105 +401,17 @@ module.exports = async function handler(req, res) {
   }
   const supabase = createClient(supaUrl, supaKey, { auth: { persistSession: false } });
 
-  // ── Détection drift DST : si l'heure Paris ne correspond pas à l'heure
-  //    attendue, c'est qu'on a basculé été↔hiver. On alerte l'admin par mail
-  //    (1× / jour) mais on continue d'envoyer les rappels aux ouvriers.
-  let dstAlert = null;
-  if (t.hour !== expectedHour) {
-    try { dstAlert = await envoyerAlerteDstSiNecessaire(supabase, req, t, expectedHour); }
-    catch (e) { console.error("DST alert error:", e); }
-  }
-
   try {
-    const weekId = currentWeekIdParis();
-    const jour   = t.weekday;
-    const dateFr = t.dateFr;
-
-    // 1. Config : ouvrier_emails + état des rappels déjà envoyés
-    const { data: cfgRows } = await supabase
-      .from("planning_config").select("key,value")
-      .in("key", ["ouvrier_emails", "rappels_rapport_state"]);
-    const cfg = {};
-    (cfgRows || []).forEach(r => { cfg[r.key] = r.value; });
-    const emails = cfg.ouvrier_emails || {};
-    const state  = cfg.rappels_rapport_state || { date: null, prenoms: [] };
-    const alreadySentToday = state.date === dateFr ? new Set(state.prenoms || []) : new Set();
-
-    // 2. Ouvriers assignés à au moins une tâche aujourd'hui
-    const { data: cells } = await supabase
-      .from("planning_cells").select("ouvriers,taches,planifie,jour")
-      .eq("week_id", weekId).eq("jour", jour);
-    const assignes = new Set();
-    (cells || []).forEach(cell => {
-      const aUneTache = (cell.taches && cell.taches.length > 0)
-        || (cell.planifie && cell.planifie.trim().length > 0);
-      if (!aUneTache) return;
-      (cell.ouvriers || []).forEach(nom => { if (nom) assignes.add(nom); });
-    });
-
-    const resultats = { envoyes: [], echecs: [], ignores: [] };
-    let rendus = new Set();
-
-    if (assignes.size > 0) {
-      // 3. Rapports déjà rendus aujourd'hui (filtrés par prénoms assignés)
-      const { data: rapports } = await supabase
-        .from("rapports").select("ouvrier")
-        .eq("date_rapport", dateFr)
-        .in("ouvrier", Array.from(assignes));
-      rendus = new Set((rapports || []).map(r => r.ouvrier));
-
-      // 4. Diff → à relancer (avec email + pas déjà notifié)
-      const aRelancer = Array.from(assignes).filter(p =>
-        !rendus.has(p) && !alreadySentToday.has(p) && emails[p]
-      );
-
-      for (const prenom of aRelancer) {
-        const to = emails[prenom];
-        const subject = `📝 Rappel : votre compte rendu du ${dateFr}`;
-        const html = buildMailHtml(prenom, dateFr);
-        try {
-          const r = await envoyerMail(req, to, subject, html);
-          if (r.ok) resultats.envoyes.push(prenom);
-          else      resultats.echecs.push({ prenom, status: r.status, data: r.data });
-        } catch (e) {
-          resultats.echecs.push({ prenom, error: e.message });
-        }
-      }
-
-      // 5. Ouvriers assignés sans rapport et sans email → ignorés silencieusement
-      Array.from(assignes).forEach(p => {
-        if (!rendus.has(p) && !emails[p]) resultats.ignores.push({ prenom: p, raison: "no_email" });
-      });
-
-      // 6. Mise à jour de l'état d'idempotence
-      if (resultats.envoyes.length > 0) {
-        const newState = {
-          date: dateFr,
-          prenoms: Array.from(new Set([...Array.from(alreadySentToday), ...resultats.envoyes])),
-        };
-        await supabase.from("planning_config")
-          .upsert({ key: "rappels_rapport_state", value: newState }, { onConflict: "key" });
-      }
-    }
-
-    // ── Vérification des tâches To-Do en retard (indépendant des rapports) ──
-    const todoResultats = await checkTodosEnRetard(supabase, req, t.dateIso);
-
-    return res.status(200).json({
-      ok: true,
-      weekId, jour, dateFr,
-      heureParis: `${String(t.hour).padStart(2,"0")}:${String(t.minute).padStart(2,"0")}`,
-      heureAttendue: `${expectedHour}:50`,
-      dstAlert,
-      rapports: {
-        assignes: assignes.size,
-        rendus: rendus.size,
-        ...resultats,
-      },
-      todos: todoResultats,
-    });
+    const summary = await runRappelRapport(req, supabase, t);
+    return res.status(200).json({ ok: true, ...summary });
   } catch (e) {
     console.error("cron-rappel-rapport error:", e);
     return res.status(500).json({ error: e.message || "Erreur inconnue" });
   }
 };
+
+// Export pour réutilisation par le dispatcher (ne casse pas le handler existant).
+module.exports.runRappelRapport = runRappelRapport;
+module.exports.parisNow = parisNow;
+module.exports.heureAttendue = heureAttendue;
+module.exports.envoyerMail = envoyerMail;
