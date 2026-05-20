@@ -6,7 +6,7 @@ import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
   Wallet, Banknote, Receipt, TrendingDown, TrendingUp, Image as ImageIcon,
-  Clock, Search,
+  Clock, Search, Package, Calendar, Info,
 } from "lucide-react";
 
 // PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
@@ -542,7 +542,7 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
         .tache-row { border-bottom: 1px solid rgba(255,255,255,0.05); transition: background .12s; }
         .tache-row:hover { background: rgba(255,255,255,0.04); }
         .tache-row:last-child { border-bottom: none; }
-        @media(max-width:768px) { .ch-fin-grid { grid-template-columns: 1fr 1fr !important; } .ch-content-grid { grid-template-columns: 1fr !important; } .ch-map-grid { grid-template-columns: 1fr !important; } }
+        @media(max-width:768px) { .ch-fin-grid { grid-template-columns: 1fr 1fr !important; } .ch-content-grid { grid-template-columns: 1fr !important; } .ch-map-grid { grid-template-columns: 1fr !important; } .ch-budget-grid { grid-template-columns: 1fr !important; } .ch-budget-totaux { grid-template-columns: 1fr 1fr !important; } }
         @media(max-width:767px) {
           .pchan-detail .pchan-detail-header{padding:12px 14px!important;gap:10px!important}
           .pchan-detail .pchan-detail-header h1{font-size:18px!important}
@@ -1060,6 +1060,219 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
             )}
           </div>
         )}
+
+        {/* ── Section 2bis : Budget prévisionnel & suivi des coûts ── */}
+        {selectedPhasage && (() => {
+          const TAUX_DEFAUT = 20;
+          const allTaches   = PHASES.flatMap(ph => (selectedPhasage.plan_travaux?.[ph.id] || []));
+          // Taux moyen pondéré = Σ(heures_vendues_t × taux_t) / Σ(heures_vendues)
+          // Si pas d'ouvrier assigné → fallback 45€/h.
+          let sumPond = 0, sumPoids = 0;
+          allTaches.forEach(t => {
+            const hV = parseFloat(t.heures_vendues) || 0;
+            if (hV <= 0) return;
+            const pO = (t.ouvriers || [])[0] || "";
+            const taux = pO ? (parseFloat(tauxHoraires?.[pO]) || TAUX_DEFAUT) : TAUX_DEFAUT;
+            sumPond  += hV * taux;
+            sumPoids += hV;
+          });
+          const totalHVendues  = sumPoids;
+          const tauxMoyen      = sumPoids > 0 ? sumPond / sumPoids : 0;
+          const coutMOPrev     = totalHVendues * tauxMoyen;
+          const coutMOReel     = finances?.coutMO || 0;
+
+          // Agrégats matériaux par phase
+          const lignesPhases = PHASES.map(ph => {
+            const taches    = selectedPhasage.plan_travaux?.[ph.id] || [];
+            const matsPrev  = selectedPhasage.plan_travaux?.[ph.id + "__materiaux_prevus"] || [];
+            const coutCmd   = parseFloat(selectedPhasage.plan_travaux?.[ph.id + "__cout_commandes"]) || 0;
+            const dateCmd   = selectedPhasage.plan_travaux?.[ph.id + "__date_commande"] || null;
+            const coutPrev  = matsPrev.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
+            const coutMatTaches = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+            const coutReel  = coutMatTaches + coutCmd;
+            return {
+              id: ph.id, label: ph.label, couleur: ph.couleur, emoji: ph.emoji,
+              matsPrev, coutPrev, coutReel, coutCmd, dateCmd,
+              hasMat: matsPrev.length > 0 || coutCmd > 0 || coutMatTaches > 0,
+              statutCmd: coutCmd > 0 ? "commande" : "a_commander",
+            };
+          }).filter(l => l.hasMat);
+
+          const totalMatPrev = lignesPhases.reduce((s, l) => s + l.coutPrev, 0);
+          const totalMatReel = lignesPhases.reduce((s, l) => s + l.coutReel, 0);
+          const coutTotalPrev = coutMOPrev + totalMatPrev;
+          const coutTotalReel = coutMOReel + totalMatReel;
+          const prixVendu    = parseFloat(selectedPhasage.prix_vendu) || 0;
+          const margePrev    = prixVendu - coutTotalPrev;
+          const margeReel    = prixVendu - coutTotalReel;
+          const aucunMatPrev = lignesPhases.every(l => l.matsPrev.length === 0);
+
+          const fmtH = (n) => `${(+(parseFloat(n) || 0).toFixed(1))}h`;
+          const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : null;
+
+          return (
+            <div>
+              <div style={sectionTitle}>
+                <Icon as={TrendingUp} size={13}/> Budget prévisionnel & suivi des coûts
+              </div>
+
+              <div className="ch-budget-grid" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16 }}>
+                {/* ── SECTION 1 : Main d'œuvre ── */}
+                <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: RADIUS.lg, padding: "14px 16px" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, color: textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>
+                    <Icon as={HardHat} size={12} color="#60a5fa"/>
+                    Main d'œuvre
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Heures vendues</span>
+                      <span style={{ fontSize: FONT.md.size, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>{fmtH(totalHVendues)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+                        Taux moyen pondéré
+                        <span style={{ fontSize: 10, color: textMuted, opacity: .7, marginLeft: 5, fontStyle: "italic" }}>(défaut 20 €/h)</span>
+                      </span>
+                      <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, fontFamily: "'DM Mono',monospace" }}>{tauxMoyen.toFixed(2)} €/h</span>
+                    </div>
+                    <div style={{ height: 1, background: border, margin: "2px 0" }}/>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Coût MO prévisionnel</span>
+                      <span style={{ fontSize: FONT.md.size, fontWeight: 800, color: "#60a5fa", fontFamily: "'DM Mono',monospace" }}>{fmt(coutMOPrev)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Coût MO réel</span>
+                      <span style={{ fontSize: FONT.md.size, fontWeight: 800, color: coutMOReel > coutMOPrev && coutMOPrev > 0 ? "#e15a5a" : text, fontFamily: "'DM Mono',monospace" }}>{fmt(coutMOReel)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── SECTION 2 : Matériaux ── */}
+                <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: RADIUS.lg, padding: "14px 16px" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, color: textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>
+                    <Icon as={Package} size={12} color="#f59e0b"/>
+                    Matériaux par phase
+                  </div>
+
+                  {lignesPhases.length === 0 || aucunMatPrev ? (
+                    <div style={{
+                      padding: "20px 14px", textAlign: "center",
+                      background: card, borderRadius: RADIUS.md, border: `1px dashed ${border}`,
+                      color: textMuted,
+                    }}>
+                      <Icon as={Package} size={24} strokeWidth={1.5} style={{ opacity: .4, marginBottom: 6 }}/>
+                      <div style={{ fontSize: FONT.sm.size, color: text, fontWeight: 600, marginBottom: 3 }}>
+                        Aucun matériau prévisionnel défini
+                      </div>
+                      <div style={{ fontSize: FONT.xs.size + 1, opacity: .8, lineHeight: 1.5 }}>
+                        Ajoute des matériaux par phase depuis la page <strong style={{ color: text }}>Phasage</strong>.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="ch-budget-mat-wrap" style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${border}` }}>
+                            {[
+                              { l: "Phase",          align: "left",   w: 160 },
+                              { l: "Matériaux prévus", align: "left",  w: null },
+                              { l: "Prévu HT",       align: "right",  w: 90 },
+                              { l: "Réel HT",        align: "right",  w: 90 },
+                              { l: "Statut",         align: "center", w: 100 },
+                              { l: "À cmd. avant",   align: "center", w: 110 },
+                            ].map(h => (
+                              <th key={h.l} style={{
+                                padding: "8px 8px", fontSize: 10, fontWeight: 700, color: textMuted,
+                                textTransform: "uppercase", letterSpacing: .8, textAlign: h.align,
+                                width: h.w || undefined,
+                              }}>{h.l}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lignesPhases.map(l => (
+                            <tr key={l.id} style={{ borderBottom: `1px solid ${border}` }}>
+                              <td style={{ padding: "8px 8px" }}>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: l.couleur, flexShrink: 0 }}/>
+                                  <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: text }}>{l.emoji ? `${l.emoji} ` : ""}{l.label}</span>
+                                </span>
+                              </td>
+                              <td style={{ padding: "8px 8px", fontSize: FONT.xs.size + 1, color: textSub, lineHeight: 1.5 }}>
+                                {l.matsPrev.length === 0 ? (
+                                  <span style={{ color: textMuted, fontStyle: "italic" }}>—</span>
+                                ) : (
+                                  l.matsPrev.map((m, i) => (
+                                    <span key={m.id}>
+                                      <span style={{ color: text, fontWeight: 600 }}>{m.libelle}</span>
+                                      <span style={{ color: textMuted }}> ({m.quantite}{m.unite ? ` ${m.unite}` : ""})</span>
+                                      {i < l.matsPrev.length - 1 && <span style={{ color: textMuted }}> · </span>}
+                                    </span>
+                                  ))
+                                )}
+                              </td>
+                              <td style={{ padding: "8px 8px", textAlign: "right", fontSize: FONT.sm.size, fontWeight: 700, color: "#f59e0b", fontFamily: "'DM Mono',monospace" }}>
+                                {l.coutPrev > 0 ? fmt(l.coutPrev) : "—"}
+                              </td>
+                              <td style={{ padding: "8px 8px", textAlign: "right", fontSize: FONT.sm.size, fontWeight: 700, color: l.coutReel > l.coutPrev && l.coutPrev > 0 ? "#e15a5a" : text, fontFamily: "'DM Mono',monospace" }}>
+                                {l.coutReel > 0 ? fmt(l.coutReel) : "—"}
+                              </td>
+                              <td style={{ padding: "8px 8px", textAlign: "center" }}>
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, letterSpacing: .5,
+                                  padding: "2px 8px", borderRadius: RADIUS.pill,
+                                  textTransform: "uppercase",
+                                  background: l.statutCmd === "commande" ? "rgba(34,197,94,0.15)" : "rgba(245,166,35,0.15)",
+                                  color:      l.statutCmd === "commande" ? "#22c55e" : "#f59e0b",
+                                  border:    `1px solid ${l.statutCmd === "commande" ? "#22c55e44" : "#f59e0b44"}`,
+                                }}>
+                                  {l.statutCmd === "commande" ? "Commandé" : "À commander"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "8px 8px", textAlign: "center", fontSize: FONT.xs.size + 1, color: l.dateCmd ? textSub : textMuted, fontStyle: l.dateCmd ? "normal" : "italic" }}>
+                                {fmtDate(l.dateCmd) || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── TOTAUX ── */}
+              <div style={{ marginTop: 12, background: card, border: `1px solid ${border}`, borderRadius: RADIUS.lg, padding: "14px 16px" }}>
+                <div className="ch-budget-totaux" style={{ display: "grid", gridTemplateColumns: prixVendu > 0 ? "repeat(6,1fr)" : "repeat(4,1fr)", gap: 12 }}>
+                  {[
+                    { l: "MO prévisionnel",  v: coutMOPrev,  color: "#60a5fa" },
+                    { l: "MO réel",          v: coutMOReel,  color: coutMOReel > coutMOPrev && coutMOPrev > 0 ? "#e15a5a" : text },
+                    { l: "Matériaux prév.",  v: totalMatPrev, color: "#f59e0b" },
+                    { l: "Matériaux réel",   v: totalMatReel, color: totalMatReel > totalMatPrev && totalMatPrev > 0 ? "#e15a5a" : text },
+                    ...(prixVendu > 0 ? [
+                      { l: "Marge prévisionnelle", v: margePrev, color: margePrev >= 0 ? "#22c55e" : "#e15a5a", bold: true, sub: `Coût ${fmt(coutTotalPrev)} vs ${fmt(prixVendu)}` },
+                      { l: "Marge constatée",      v: margeReel, color: margeReel >= 0 ? "#22c55e" : "#e15a5a", bold: true, sub: `Coût ${fmt(coutTotalReel)} vs ${fmt(prixVendu)}` },
+                    ] : []),
+                  ].map(t => (
+                    <div key={t.l}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .6, marginBottom: 4 }}>{t.l}</div>
+                      <div style={{ fontSize: t.bold ? 17 : 15, fontWeight: t.bold ? 800 : 700, color: t.color, fontFamily: "'DM Mono',monospace", letterSpacing: -0.3 }}>
+                        {fmt(t.v)}
+                      </div>
+                      {t.sub && <div style={{ fontSize: 10, color: textMuted, marginTop: 3, opacity: .85 }}>{t.sub}</div>}
+                    </div>
+                  ))}
+                </div>
+                {prixVendu === 0 && (
+                  <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size + 1, color: textMuted, fontStyle: "italic" }}>
+                    <Icon as={Info} size={11}/>
+                    Prix vendu non renseigné dans le phasage — la marge n'est pas affichée.
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Section 3 : Comptes rendus ── */}
         <div>
