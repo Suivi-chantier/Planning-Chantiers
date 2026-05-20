@@ -541,6 +541,7 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
     prix_ht:         m.prix_ht || 0,
     fournisseur_id:  m.fournisseur_id || null,
     fournisseur_nom: m.fournisseur_nom || "",
+    materiau_id:     m.materiau_id || null,
   })));
 
   // ── Date de besoin : depuis __date_commande, ou éditable si absente
@@ -566,6 +567,7 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
       prix_ht:         0,
       fournisseur_id:  null,
       fournisseur_nom: "",
+      materiau_id:     null,
     }]);
   };
 
@@ -759,6 +761,45 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
       if (rows.length > 0) {
         const { error: insErr } = await supabase.from("commandes_passees").insert(rows);
         if (insErr) console.warn("Insert commandes_passees :", insErr.message);
+      }
+
+      // 4) Insert dans commandes_detail (une ligne par article) pour que
+      //    l'ancienne page Commandes affiche le suivi unifié. Statut "commande"
+      //    puisque le mail vient d'être envoyé. Fallback sans colonnes
+      //    optionnelles si migration manquante (cf. handleImportLignes).
+      const dateTag = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+      const lignesDetail = lignesCochees.map(l => {
+        // Retrouver le nom du fournisseur effectif (texte) pour cette ligne
+        let fournisseurNom = l.fournisseur_nom || "";
+        if (l.fournisseur_id) {
+          const f = fournisseurs.find(x => x.id === l.fournisseur_id);
+          if (f) fournisseurNom = f.nom;
+        }
+        return {
+          article:     l.libelle,
+          fournisseur: fournisseurNom || "",
+          quantite:    String(l.quantite || ""),
+          prix_ht:     parseFloat(l.prix_ht) || null,
+          statut:      "commande",
+          priorite:    "normal",
+          materiau_id: l.materiau_id || null,
+          phasage_id:  carte.phasageId,
+          phase_id:    carte.phaseId,
+          notes:       `Commandé via Planning des commandes le ${dateTag}${l.source === "manuel" ? " (ajout manuel)" : ""}`,
+        };
+      });
+      if (lignesDetail.length > 0) {
+        const { error: cdErr } = await supabase.from("commandes_detail").insert(lignesDetail);
+        if (cdErr) {
+          // Colonne optionnelle manquante : retenter sans les colonnes récentes
+          if (cdErr.code === "42703") {
+            const fallback = lignesDetail.map(({ materiau_id, phasage_id, phase_id, ...rest }) => rest);
+            const { error: cdErr2 } = await supabase.from("commandes_detail").insert(fallback);
+            if (cdErr2) console.warn("Insert commandes_detail (fallback) :", cdErr2.message);
+          } else {
+            console.warn("Insert commandes_detail :", cdErr.message);
+          }
+        }
       }
     } catch (e) {
       setGlobalErr(`La commande a été partiellement enregistrée : ${e.message}`);
