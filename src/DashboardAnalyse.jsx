@@ -268,7 +268,38 @@ function derniereDate(plan, phasesConfig) {
   return dates[dates.length - 1] || null;
 }
 
-function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig) {
+// ── Statut CR hebdo ──────────────────────────────────────────────────────────
+// Calcule la semaine ISO d'une date (YYYY-W##).
+function semaineISO(date) {
+  if (!date) return null;
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
+  const wD = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = wD.getUTCDay() || 7;
+  wD.setUTCDate(wD.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(wD.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil((((wD - yearStart) / 86400000) + 1) / 7);
+  return { year: wD.getUTCFullYear(), week: weekNum, label: `S${weekNum}` };
+}
+
+// Calcule un statut CR pour un chantier à partir de la date du dernier CR reçu.
+// - "valide"   : CR en semaine courante      → vert
+// - "a_valider": CR en semaine précédente    → orange
+// - "retard"   : CR > 2 semaines / aucun CR  → rouge
+function calcCRStatut(lastCRDate) {
+  if (!lastCRDate) return { status: 'retard', label: 'Aucun CR', date: null, semaine: null };
+  const semCR  = semaineISO(lastCRDate);
+  const semNow = semaineISO(new Date());
+  if (!semCR || !semNow) return { status: 'retard', label: 'Date inconnue', date: lastCRDate, semaine: null };
+  const dCR  = semCR.year * 53 + semCR.week;
+  const dNow = semNow.year * 53 + semNow.week;
+  const diff = dNow - dCR;
+  if (diff <= 0) return { status: 'valide',    label: `Validé ${semCR.label}`,   date: lastCRDate, semaine: semCR.label };
+  if (diff === 1) return { status: 'a_valider', label: `À valider`,               date: lastCRDate, semaine: semCR.label };
+  return                  { status: 'retard',   label: `En retard (${semCR.label})`, date: lastCRDate, semaine: semCR.label };
+}
+
+function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCRByChantier = {}) {
   const plan = phasage?.plan_travaux || {};
   const meta = plan.meta || {};
   const avR  = calcAvancementReel(plan, phasesConfig);
@@ -292,10 +323,12 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig) {
   const debut         = meta?.date_demarrage || premiereDate(plan, phasesConfig);
   const livraisonInit = meta?.livraison_init || derniereDate(plan, phasesConfig);
   const livraisonPrev = meta?.livraison_prev || livraisonInit;
-  // CR hebdo : V1 simple → "reçu" si phasage mis à jour cette semaine. PR3
-  // raffinera avec la vraie table rapports.
+  // CR hebdo : lecture de la table cr_comptes_rendus (lastCRByChantier).
+  // Statut calculé par semaine ISO : "Validé S{X}" / "À valider" / "En retard".
   const lastUpdated = phasage?.updated_at?.slice(0, 10) || null;
-  const cr = !!(lastUpdated && (Date.now() - new Date(lastUpdated).getTime()) < 7 * 86400000);
+  const lastCR = lastCRByChantier[phasage?.chantier_id] || null;
+  const crInfo = calcCRStatut(lastCR);
+  const cr = crInfo.status === 'valide';
   return {
     id:           phasage?.id,
     chantierId:   phasage?.chantier_id,
@@ -309,6 +342,10 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig) {
     mv, mr, prime, seuil,
     comp: extractCompagnons(plan, phasesConfig),
     cr,
+    crStatus: crInfo.status,         // 'valide' | 'a_valider' | 'retard'
+    crLabel:  crInfo.label,           // ex: "Validé S21" / "À valider" / "En retard (S19)"
+    crDate:   crInfo.date,            // date du dernier CR ou null
+    crSemaine: crInfo.semaine,        // ex: "S21" ou null
     note: meta?.note || '',
     lastUpdated,
   };
@@ -506,7 +543,7 @@ function PipelineModal({ open, item, onClose, onSave, T, acc }) {
 }
 
 // ─── ONGLET CHANTIERS ────────────────────────────────────────────────────────
-function ChantiersTab({ chantiers, archives, onRestore, loading = false, phasesLabels = PHASES_FALLBACK_LABELS, T, acc }) {
+function ChantiersTab({ chantiers, archives, onRestore, onOpenChantier, loading = false, phasesLabels = PHASES_FALLBACK_LABELS, T, acc }) {
   const [archOpen, setArchOpen] = useState(false);
   const alerts = chantiers.filter(c => gSt(c) !== 'green');
   if (loading) {
@@ -581,7 +618,11 @@ function ChantiersTab({ chantiers, archives, onRestore, loading = false, phasesL
                 const ratioC = ratioMOStatus(c);
                 const ratioIcon = ratioC === 'green' ? '✅' : ratioC === 'orange' ? '⚠️' : '🔴';
                 return (
-                  <tr key={c.id}>
+                  <tr key={c.id}
+                    onClick={() => onOpenChantier?.(c.chantierId)}
+                    title="Cliquer pour ouvrir la fiche chantier"
+                    style={{ cursor: onOpenChantier ? 'pointer' : 'default' }}
+                  >
                     <td><Dot s={gs}/></td>
                     <td>
                       <div style={{ fontSize: 12, fontWeight: 700, color: T?.text || '#f0f0f0', marginBottom: 2 }}>{c.nom}</div>
@@ -616,8 +657,35 @@ function ChantiersTab({ chantiers, archives, onRestore, loading = false, phasesL
                       <div style={{ fontSize: 9, color: T?.textMuted || '#5b6a8a' }}>Reste théorique : {fmt(moRestTheo)}</div>
                     </td>
                     <td>
-                      <Badge c={matE > 10 ? 'red' : matE > 4 ? 'orange' : 'green'}>{matE > 0 ? '+' : ''}{matE.toFixed(1)}%</Badge>
-                      <div style={{ fontSize: 9, color: T?.textMuted || '#5b6a8a', marginTop: 2 }}>{fmt(c.matC)} / {fmt(c.budMat)}</div>
+                      {/* Jauge matériaux : barre de progression colorée selon le % consommé du budget */}
+                      {(() => {
+                        const pctMat = c.budMat > 0 ? (c.matC / c.budMat) * 100 : 0;
+                        const matColor = pctMat > 100 ? '#ff625f' : pctMat >= 80 ? '#ff9a4d' : '#34d188';
+                        const reste = Math.max(0, c.budMat - c.matC);
+                        const depasse = c.matC - c.budMat;
+                        return (
+                          <div style={{ minWidth: 130 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+                              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: matColor, fontWeight: 700 }}>{pctMat.toFixed(0)}%</span>
+                              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: T?.textMuted || '#5b6a8a' }}>{fmt(c.matC)} / {fmt(c.budMat)}</span>
+                            </div>
+                            <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
+                              <div style={{
+                                height: '100%', width: `${Math.min(100, pctMat)}%`,
+                                background: matColor, borderRadius: 3, transition: 'width .4s',
+                              }}/>
+                              {pctMat > 100 && (
+                                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,98,95,.35) 4px, rgba(255,98,95,.35) 8px)' }}/>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 9, color: pctMat > 100 ? '#ff625f' : T?.textMuted || '#5b6a8a', marginTop: 3, fontWeight: pctMat > 100 ? 700 : 400 }}>
+                              {pctMat > 100
+                                ? <>Dépassement : <span style={{ fontFamily: "'DM Mono',monospace" }}>+{fmt(depasse)}</span></>
+                                : <>Reste : <span style={{ fontFamily: "'DM Mono',monospace" }}>{fmt(reste)}</span></>}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td>
                       <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 14, fontWeight: 600, color: mrColor }}>{fmtPct(c.mr)}</div>
@@ -632,7 +700,22 @@ function ChantiersTab({ chantiers, archives, onRestore, loading = false, phasesL
                       <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: T?.text || '#f0f0f0' }}>{dfr(c.livraisonPrev)}</div>
                       <div style={{ fontSize: 9, color: retardJ > 5 ? '#ff9a4d' : '#34d188' }}>{retardJ > 5 ? `+${retardJ}j glissement` : 'Dans les délais'}</div>
                     </td>
-                    <td><Badge c={c.cr ? 'green' : 'red'}>{c.cr ? '✅ Reçu' : '⏳ Manquant'}</Badge></td>
+                    <td>
+                      {(() => {
+                        const crColor = c.crStatus === 'valide' ? 'green' : c.crStatus === 'a_valider' ? 'orange' : 'red';
+                        const crIcon  = c.crStatus === 'valide' ? '✅' : c.crStatus === 'a_valider' ? '⏳' : '🔴';
+                        return (
+                          <div>
+                            <Badge c={crColor}>{crIcon} {c.crLabel}</Badge>
+                            {c.crDate && (
+                              <div style={{ fontSize: 9, color: T?.textMuted || '#5b6a8a', marginTop: 3 }}>
+                                Dernier : {dfr(c.crDate)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td><UpdBadge d={c.lastUpdated} T={T}/></td>
                   </tr>
                 );
@@ -1283,13 +1366,15 @@ const TABS = [
   { key: 'finances',       label: '💰 Trésorerie' },
 ];
 
-export default function DashboardAnalyse({ T, branch = "renovation" }) {
+export default function DashboardAnalyse({ T, branch = "renovation", onOpenChantier }) {
   const acc = getBranchAccent(branch);
   // Sources de données réelles (Supabase) chargées au mount.
   const [phasesConfig, setPhasesConfig] = useState(PHASES_DEFAUT);
   const [phasagesRaw, setPhasagesRaw] = useState([]);
   const [chantiersRaw, setChantiersRaw] = useState([]);
   const [tauxHoraires, setTauxHoraires] = useState({});
+  // Date du dernier CR (cr_comptes_rendus) par chantier_id, pour calcul statut hebdo
+  const [lastCRByChantier, setLastCRByChantier] = useState({});
   const [loading, setLoading] = useState(true);
   // Pipeline + finances restent mockés pour cette V1 (PR2 ne couvre que Chantiers).
   const [pipeline, setPipeline] = useState(INIT_PIPELINE);
@@ -1302,10 +1387,12 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [pCfg, phQ, cfgQ] = await Promise.all([
+      const [pCfg, phQ, cfgQ, crQ] = await Promise.all([
         loadPhases(),
         supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at"),
         supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
+        // CR : on prend les 200 derniers, on extrait le plus récent par chantier_id.
+        supabase.from("cr_comptes_rendus").select("chantier_id, date_visite").order("date_visite", { ascending: false }).limit(200),
       ]);
       if (cancelled) return;
       setPhasesConfig(Array.isArray(pCfg) && pCfg.length > 0 ? pCfg : PHASES_DEFAUT);
@@ -1313,6 +1400,13 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
       const cfg = {}; (cfgQ.data || []).forEach(r => { cfg[r.key] = r.value; });
       setChantiersRaw(Array.isArray(cfg.chantiers) ? cfg.chantiers : []);
       setTauxHoraires(cfg.taux_horaires || {});
+      // Map { chantier_id: date_visite_du_dernier_CR }
+      const crMap = {};
+      (crQ.data || []).forEach(r => {
+        if (!r.chantier_id || !r.date_visite) return;
+        if (!crMap[r.chantier_id] || r.date_visite > crMap[r.chantier_id]) crMap[r.chantier_id] = r.date_visite;
+      });
+      setLastCRByChantier(crMap);
       setLoading(false);
     })();
     // Channel realtime : recharger les phasages dès qu'un est mis à jour
@@ -1331,8 +1425,8 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
   const chantiers = useMemo(() => {
     if (!phasagesRaw.length) return [];
     const byChantier = Object.fromEntries(chantiersRaw.map(c => [c.id, c]));
-    return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig));
-  }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig]);
+    return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig, lastCRByChantier));
+  }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig, lastCRByChantier]);
 
   // Archives : pour l'instant on n'a pas de notion d'archivage des phasages,
   // donc on laisse vide. PR3+ : pourrait lire un flag phasage.archive.
@@ -1445,7 +1539,7 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
 
       {/* CONTENU */}
       <div style={{ padding: '24px 28px', maxWidth: 1540, margin: '0 auto' }}>
-        {activeTab === 'chantiers'      && <ChantiersTab     chantiers={chantiers} archives={archives} onRestore={restoreChantier} loading={loading} phasesLabels={phasesLabels} T={T} acc={acc}/>}
+        {activeTab === 'chantiers'      && <ChantiersTab     chantiers={chantiers} archives={archives} onRestore={restoreChantier} onOpenChantier={onOpenChantier} loading={loading} phasesLabels={phasesLabels} T={T} acc={acc}/>}
         {activeTab === 'pipeline'       && <PipelineTab      pipeline={pipeline} onAdd={() => setPipeModal({ open: true, item: null })} onEdit={item => setPipeModal({ open: true, item })} T={T} acc={acc}/>}
         {activeTab === 'analyseSociete' && <SocieteFinanceTab T={T} acc={acc}/>}
         {activeTab === 'primes'         && <PrimesTab        chantiers={chantiers} T={T} acc={acc}/>}

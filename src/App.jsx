@@ -351,6 +351,14 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const peutChangerBranche=(profil?.branches||["renovation"]).length>1;
   const branch="renovation";
 
+  // ID du chantier à pré-sélectionner dans PageChantiers — utilisé quand on
+  // clique sur une ligne du Dashboard Analyse. Reset après navigation.
+  const [chantierToOpen, setChantierToOpen] = useState(null);
+  const ouvrirFicheChantier = (chantierId) => {
+    setChantierToOpen(chantierId);
+    setPage("chantiers");
+  };
+
   // Config d'accès dynamique (rôles ↔ pages), chargée depuis planning_config.
   const [rolePages, setRolePages] = useState(ROLE_PAGES_DEFAULT_RENOVATION);
   useEffect(() => {
@@ -595,7 +603,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
-          {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} tauxHoraires={tauxHoraires} T={T}/> : <AccesRefuse T={T} page="chantiers"/>)}
+          {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} tauxHoraires={tauxHoraires} T={T} initialSelectedId={chantierToOpen} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
           {page==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
           {page==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
           {page==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
@@ -610,7 +618,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch}/> : <AccesRefuse T={T} page="visite"/>)}
           {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch}/> : <AccesRefuse T={T} page="info-client"/>)}
           {page==="compte-rendu"       && (canAccess(role,"compte-rendu")       ? <PageCompteRendu T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="compte-rendu"/>)}
-          {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
+          {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch} onOpenChantier={ouvrirFicheChantier}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
           {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
         </div>
       </div>

@@ -127,11 +127,20 @@ function trouverPhasage(phasages, chantier) {
 const fmt = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n || 0);
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, branch = "renovation" }) {
+export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
   const [loading, setLoading]           = useState(true);
-  const [selected, setSelected]         = useState(null);
+  const [selected, setSelected]         = useState(initialSelectedId);
+  // Si un nouvel ID est demandé en prop (ex : navigation depuis le dashboard),
+  // on l'applique et on signale au parent qu'il peut le reset.
+  useEffect(() => {
+    if (initialSelectedId && initialSelectedId !== selected) {
+      setSelected(initialSelectedId);
+      onSelectionConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelectedId]);
   const [photoMap, setPhotoMap]         = useState({});
   const [uploading, setUploading]       = useState(false);
   const [compteRendus, setCompteRendus] = useState([]);
