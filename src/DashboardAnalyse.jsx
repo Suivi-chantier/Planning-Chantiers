@@ -16,9 +16,13 @@
 // dans l'application existante. La structure marine/dorée d'origine a été
 // remplacée par les variables du theme T.
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
+import {
+  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip as RTooltip, Legend,
+} from "recharts";
 
 // ─── DONNÉES STATIQUES ───────────────────────────────────────────────────────
 // Labels de phase utilisés pour le PhaseTrack visuel (rétro-compatibilité).
@@ -1143,27 +1147,75 @@ function FinancesTab({ fin, setFin, T, acc }) {
 }
 
 // ─── ONGLET POINT FINANCIER ──────────────────────────────────────────────────
-const FINANCE_MONTHS = [
-  { key: 'jan', label: 'Janvier 2026' },
-  { key: 'feb', label: 'Février 2026' },
-  { key: 'mar', label: MONTH_PREV_LABEL },
-  { key: 'apr', label: MONTH_CURR_LABEL },
-  { key: 'may', label: 'Mai 2026' },
+// ─── ONGLET POINT FINANCIER ──────────────────────────────────────────────────
+// Liste initiale de mois. Les anciens "jan/feb/mar/apr/may" deviennent des keys
+// stables "YYYY-MM" (anti-collision quand on ajoute des mois). On garde la
+// rétro-compat avec INIT_CR_ROWS.prev/curr en les insérant sur 2026-03/04.
+const DEFAULT_FINANCE_MONTHS = [
+  { key: '2026-01', label: 'Janvier 2026' },
+  { key: '2026-02', label: 'Février 2026' },
+  { key: '2026-03', label: MONTH_PREV_LABEL },
+  { key: '2026-04', label: MONTH_CURR_LABEL },
+  { key: '2026-05', label: 'Mai 2026' },
 ];
-const initMonthlyRows = rows => rows.map(r => ({ ...r, monthly: { jan: 0, feb: 0, mar: nv(r.prev), apr: nv(r.curr), may: 0 } }));
+
+const initMonthlyRows = (rows, months) => rows.map(r => {
+  const monthly = {};
+  months.forEach(m => { monthly[m.key] = 0; });
+  // Bootstrap : prev → 2026-03, curr → 2026-04 (compatibilité avec INIT_CR_ROWS).
+  if ('2026-03' in monthly) monthly['2026-03'] = nv(r.prev);
+  if ('2026-04' in monthly) monthly['2026-04'] = nv(r.curr);
+  return { ...r, monthly };
+});
+
 const monthValue = (row, key) => nv(row.monthly?.[key]);
 const pctCA = (value, ca) => ca ? (value / ca) * 100 : 0;
 
+// Tri chronologique des mois par leur key "YYYY-MM".
+const sortMonths = (months) => [...months].sort((a, b) => a.key.localeCompare(b.key));
+
+// Construit le label "Mois Année" en français à partir d'une key "YYYY-MM".
+function labelFromKey(key) {
+  const [y, m] = key.split('-');
+  const names = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  return `${names[parseInt(m, 10) - 1] || m} ${y}`;
+}
+
 function SocieteFinanceTab({ T, acc }) {
-  const [crRows, setCrRows] = useState(() => initMonthlyRows(INIT_CR_ROWS));
-  const [fgRows, setFgRows] = useState(() => initMonthlyRows(INIT_FG_ROWS));
-  const [selectedMonth, setSelectedMonth] = useState('apr');
-  const selectedIdx = Math.max(FINANCE_MONTHS.findIndex(m => m.key === selectedMonth), 0);
-  const visibleMonths = FINANCE_MONTHS.slice(0, selectedIdx + 1);
-  const previousMonth = FINANCE_MONTHS[selectedIdx - 1];
-  const currentMonth = FINANCE_MONTHS[selectedIdx];
-  const updCR = (idx, key, val) => setCrRows(rows => rows.map((r, i) => i === idx ? { ...r, monthly: { ...r.monthly, [key]: val } } : r));
-  const updFG = (idx, key, val) => setFgRows(rows => rows.map((r, i) => i === idx ? { ...r, monthly: { ...r.monthly, [key]: val } } : r));
+  const [months, setMonths] = useState(DEFAULT_FINANCE_MONTHS);
+  const [crRows, setCrRows] = useState(() => initMonthlyRows(INIT_CR_ROWS, DEFAULT_FINANCE_MONTHS));
+  const [fgRows, setFgRows] = useState(() => initMonthlyRows(INIT_FG_ROWS, DEFAULT_FINANCE_MONTHS));
+  const [selectedMonth, setSelectedMonth] = useState('2026-04');
+  // État du formulaire "Ajouter un mois"
+  const [addMonthOpen, setAddMonthOpen] = useState(false);
+  const today = new Date();
+  const [newMonthYear, setNewMonthYear] = useState(today.getFullYear());
+  const [newMonthMonth, setNewMonthMonth] = useState(String(today.getMonth() + 1).padStart(2, '0'));
+
+  const selectedIdx = Math.max(months.findIndex(m => m.key === selectedMonth), 0);
+  const visibleMonths = months.slice(0, selectedIdx + 1);
+  const previousMonth = months[selectedIdx - 1];
+  const currentMonth  = months[selectedIdx] || months[0] || { key: '', label: '—' };
+
+  // updCR / updFG : on identifie les rows par index dans le tableau d'origine
+  // (pas dans le tableau filtré par section), donc on passe l'idx complet.
+  const updCR = useCallback((idx, key, val) => setCrRows(rows => rows.map((r, i) => i === idx ? { ...r, monthly: { ...r.monthly, [key]: val } } : r)), []);
+  const updFG = useCallback((idx, key, val) => setFgRows(rows => rows.map((r, i) => i === idx ? { ...r, monthly: { ...r.monthly, [key]: val } } : r)), []);
+
+  const ajouterMois = () => {
+    const key = `${newMonthYear}-${newMonthMonth}`;
+    if (months.some(m => m.key === key)) {
+      alert("Ce mois est déjà présent dans le tableau.");
+      return;
+    }
+    const next = sortMonths([...months, { key, label: labelFromKey(key) }]);
+    setMonths(next);
+    setCrRows(rows => rows.map(r => ({ ...r, monthly: { ...r.monthly, [key]: 0 } })));
+    setFgRows(rows => rows.map(r => ({ ...r, monthly: { ...r.monthly, [key]: 0 } })));
+    setAddMonthOpen(false);
+    setSelectedMonth(key); // jump direct sur le nouveau mois
+  };
+
   const sectionsCR = ['ACTIVITÉ', 'CHARGES DIRECTES VARIABLES', 'CHARGES DIRECTES FIXES', 'FRAIS GÉNÉRAUX', 'DOTATIONS'];
   const sectionsFG = [...new Set(fgRows.map(r => r.section))];
   const rowBySection = (rows, section) => rows.map((r, i) => ({ ...r, idx: i })).filter(r => r.section === section);
@@ -1182,10 +1234,10 @@ function SocieteFinanceTab({ T, acc }) {
     const materiaux = rowLabelTotal(['Matières premières directes', 'Variation de stock'], key);
     return { activite, cdv, margeVariable, cdf, margeDirecte, fg, dot, resultat, mo, materiaux };
   };
-  const ytd = visibleMonths.reduce((acc, m) => {
+  const ytd = visibleMonths.reduce((accObj, m) => {
     const t = totals(m.key);
-    Object.keys(t).forEach(k => acc[k] = (acc[k] || 0) + t[k]);
-    return acc;
+    Object.keys(t).forEach(k => accObj[k] = (accObj[k] || 0) + t[k]);
+    return accObj;
   }, {});
   const current = totals(currentMonth.key);
   const prev = previousMonth ? totals(previousMonth.key) : null;
@@ -1194,15 +1246,6 @@ function SocieteFinanceTab({ T, acc }) {
   const fgCurrentDetailed = fgRows.reduce((s, r) => s + monthValue(r, currentMonth.key), 0);
   const fgPrevDetailed = previousMonth ? fgRows.reduce((s, r) => s + monthValue(r, previousMonth.key), 0) : 0;
 
-  const SummaryCard = ({ label, value, sub, color }) => (
-    <Card T={T}>
-      <div style={{ padding: '16px 18px' }}>
-        <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.12em', color: T?.textMuted || '#5b6a8a', marginBottom: 8 }}>{label}</div>
-        <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 22, fontWeight: 700, color }}>{value}</div>
-        {sub && <div style={{ fontSize: 10, color: T?.textSub || '#9aa5c0', marginTop: 5 }}>{sub}</div>}
-      </div>
-    </Card>
-  );
   const evoText = (key, inverse = false) => {
     const d = monthDelta(key);
     const good = inverse ? d <= 0 : d >= 0;
@@ -1214,52 +1257,103 @@ function SocieteFinanceTab({ T, acc }) {
   const totalStyle = { background: 'rgba(255,194,0,0.13)', fontWeight: 900, color: T?.text || '#f0f0f0' };
   const resultStyle = { background: 'rgba(255,194,0,0.18)', fontWeight: 900 };
 
-  const TotalLine = ({ label, calc, strong, color }) => (
-    <tr style={strong ? resultStyle : totalStyle}>
-      <td style={{ fontWeight: 900 }}>{label}</td>
-      {visibleMonths.map(m => <td key={m.key} style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right', color }}>{fmt(calc(m.key), 2)}</td>)}
-      <td style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right', color, fontWeight: 900 }}>{fmt(visibleMonths.reduce((s, m) => s + calc(m.key), 0), 2)}</td>
-    </tr>
-  );
-  const PctLine = ({ label, numCalc, denomCalc }) => (
-    <tr style={totalStyle}>
-      <td>{label}</td>
-      {visibleMonths.map(m => <td key={m.key} style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right' }}>{fmtPct(pctCA(numCalc(m.key), denomCalc(m.key)), 2)}</td>)}
-      <td style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right' }}>{fmtPct(pctCA(visibleMonths.reduce((s, m) => s + numCalc(m.key), 0), visibleMonths.reduce((s, m) => s + denomCalc(m.key), 0)), 2)}</td>
-    </tr>
-  );
-  const MonthInputs = ({ row, onChange }) => visibleMonths.map(m => (
-    <td key={m.key} style={{ textAlign: 'right' }}>
-      <input type="number" value={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''} onChange={e => onChange(row.idx, m.key, nv(e.target.value))} style={{ ...edtCls(T), width: 92 }}/>
-    </td>
-  ));
-  const monthHeader = visibleMonths.map(m => <th key={m.key} style={{ textAlign: 'right' }}>{m.label}</th>);
+  // Données pour les graphiques : un point par mois visible
+  const chartData = useMemo(() => visibleMonths.map(m => {
+    const t = totals(m.key);
+    return {
+      mois:      m.label.replace(/ 20\d\d$/, ''), // raccourci sans année si possible
+      moisLong:  m.label,
+      key:       m.key,
+      CA:        +t.activite.toFixed(0),
+      FG:        +t.fg.toFixed(0),
+      MO:        +t.mo.toFixed(0),
+      Materiaux: +t.materiaux.toFixed(0),
+      Resultat:  +t.resultat.toFixed(0),
+    };
+  }), [visibleMonths, crRows]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tooltip recharts : forçage couleurs lisibles sur fond sombre
+  const tooltipStyle = {
+    background: T?.surface || '#262a32',
+    border: `1px solid ${T?.border || 'rgba(255,255,255,0.10)'}`,
+    borderRadius: 8, padding: '8px 12px', fontSize: 12,
+  };
+  const fmtEuro = (v) => `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v)} €`;
+
+  // Sélecteur mois disponibles pour le formulaire "Ajouter un mois"
+  const monthOptions = [
+    ['01','Janvier'],['02','Février'],['03','Mars'],['04','Avril'],['05','Mai'],['06','Juin'],
+    ['07','Juillet'],['08','Août'],['09','Septembre'],['10','Octobre'],['11','Novembre'],['12','Décembre'],
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* KPI YTD */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px,1fr))', gap: 14 }}>
-        <SummaryCard label="CA YTD" value={fmt(ytd.activite || 0, 2)} color={acc?.accent || '#FFC200'} sub={evoText('activite')}/>
-        <SummaryCard label="Frais généraux YTD" value={fmt(ytd.fg || 0, 2)} color="#ff9a4d" sub={evoText('fg', true)}/>
-        <SummaryCard label="MO YTD" value={fmt(ytd.mo || 0, 2)} color="#5b9cf6" sub={evoText('mo', true)}/>
-        <SummaryCard label="Matériaux YTD" value={fmt(ytd.materiaux || 0, 2)} color="#FFD740" sub={evoText('materiaux', true)}/>
-        <SummaryCard label="Résultat d'exploitation YTD" value={fmt(ytd.resultat || 0, 2)} color={(ytd.resultat || 0) >= 0 ? '#34d188' : '#ff625f'} sub={evoText('resultat')}/>
+        <SummaryCardFin T={T} label="CA YTD"                      value={fmt(ytd.activite || 0, 2)}  color={acc?.accent || '#FFC200'} sub={evoText('activite')}/>
+        <SummaryCardFin T={T} label="Frais généraux YTD"          value={fmt(ytd.fg || 0, 2)}        color="#ff9a4d"                  sub={evoText('fg', true)}/>
+        <SummaryCardFin T={T} label="MO YTD"                      value={fmt(ytd.mo || 0, 2)}        color="#5b9cf6"                  sub={evoText('mo', true)}/>
+        <SummaryCardFin T={T} label="Matériaux YTD"               value={fmt(ytd.materiaux || 0, 2)} color="#FFD740"                  sub={evoText('materiaux', true)}/>
+        <SummaryCardFin T={T} label="Résultat d'exploitation YTD" value={fmt(ytd.resultat || 0, 2)}  color={(ytd.resultat || 0) >= 0 ? '#34d188' : '#ff625f'} sub={evoText('resultat')}/>
       </div>
 
+      {/* Graphiques */}
+      <Card T={T}>
+        <CardHdr T={T} acc={acc} title="📈 Évolution mensuelle" right={<span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>{visibleMonths.length} mois affichés</span>}/>
+        <div style={{ padding: '18px 16px 8px', height: 340 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T?.border || 'rgba(255,255,255,0.08)'}/>
+              <XAxis dataKey="mois" tick={{ fill: T?.textSub || '#9aa5c0', fontSize: 11 }} stroke={T?.border || 'rgba(255,255,255,0.10)'}/>
+              <YAxis tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} tick={{ fill: T?.textSub || '#9aa5c0', fontSize: 11 }} stroke={T?.border || 'rgba(255,255,255,0.10)'}/>
+              <RTooltip
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: T?.text || '#f0f0f0' }}
+                labelStyle={{ color: T?.text || '#f0f0f0', fontWeight: 700, marginBottom: 4 }}
+                formatter={(value) => fmtEuro(value)}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }}/>
+              <Bar dataKey="CA"        fill={acc?.accent || '#FFC200'} name="CA" radius={[4,4,0,0]}/>
+              <Bar dataKey="FG"        fill="#ff9a4d"                   name="Frais généraux" radius={[4,4,0,0]}/>
+              <Bar dataKey="MO"        fill="#5b9cf6"                   name="Main d'œuvre" radius={[4,4,0,0]}/>
+              <Bar dataKey="Materiaux" fill="#FFD740"                   name="Matériaux" radius={[4,4,0,0]}/>
+              <Line type="monotone" dataKey="Resultat" stroke="#34d188" strokeWidth={2.5} name="Résultat d'exploitation" dot={{ r: 4, fill: '#34d188' }}/>
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      {/* Tableau compte de résultat */}
       <Card T={T}>
         <CardHdr T={T} acc={acc} title="📊 Point financier" right={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>Classement par mois</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>Mois actif</span>
             <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={{ ...inpCls(T), width: 160, padding: '7px 10px', cursor: 'pointer' }}>
-              {FINANCE_MONTHS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+              {months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
             </select>
+            <Btn onClick={() => setAddMonthOpen(true)} sm color="gold" T={T} acc={acc}>＋ Ajouter un mois</Btn>
           </div>
         }/>
+        {addMonthOpen && (
+          <div style={{
+            padding: '12px 16px', borderBottom: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`,
+            background: 'rgba(255,194,0,0.04)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T?.textSub || '#9aa5c0', textTransform: 'uppercase', letterSpacing: '.08em' }}>Nouveau mois</span>
+            <select value={newMonthMonth} onChange={e => setNewMonthMonth(e.target.value)} style={{ ...inpCls(T), width: 130, padding: '7px 10px', cursor: 'pointer' }}>
+              {monthOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <input type="number" value={newMonthYear} onChange={e => setNewMonthYear(parseInt(e.target.value) || today.getFullYear())} style={{ ...inpCls(T), width: 100, padding: '7px 10px' }} min="2020" max="2099"/>
+            <Btn onClick={ajouterMois} sm color="gold" T={T} acc={acc}>Confirmer</Btn>
+            <Btn onClick={() => setAddMonthOpen(false)} sm color="ghost" T={T} acc={acc}>Annuler</Btn>
+          </div>
+        )}
         <div style={{ overflowX: 'auto' }}>
           <table className="da-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
                 <th>Compte de résultat</th>
-                {monthHeader}
+                {visibleMonths.map(m => <th key={m.key} style={{ textAlign: 'right' }}>{m.label}</th>)}
                 <th style={{ textAlign: 'right' }}>Total YTD</th>
               </tr>
             </thead>
@@ -1270,34 +1364,43 @@ function SocieteFinanceTab({ T, acc }) {
                     <td colSpan={visibleMonths.length + 2}>{section}</td>
                   </tr>
                   {rowBySection(crRows, section).map(row => (
-                    <tr key={row.idx}>
+                    <tr key={`${section}::${row.label}`}>
                       <td style={{ fontSize: 12, color: T?.text || '#f0f0f0' }}>{row.label}</td>
-                      <MonthInputs row={row} onChange={updCR}/>
+                      {visibleMonths.map(m => (
+                        <td key={m.key} style={{ textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            value={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
+                            onChange={e => updCR(row.idx, m.key, nv(e.target.value))}
+                            style={{ ...edtCls(T), width: 92 }}
+                          />
+                        </td>
+                      ))}
                       <td style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right', color: T?.textSub || '#9aa5c0' }}>{fmt(ytdRowTotal(row), 2)}</td>
                     </tr>
                   ))}
-                  {section === 'ACTIVITÉ' && <TotalLine label="TOTAL ACTIVITÉ" calc={key => totals(key).activite} color={acc?.accent || '#FFC200'}/>}
+                  {section === 'ACTIVITÉ' && <FinTotalLine label="TOTAL ACTIVITÉ" calc={key => totals(key).activite} color={acc?.accent || '#FFC200'} visibleMonths={visibleMonths} style={totalStyle}/>}
                   {section === 'CHARGES DIRECTES VARIABLES' && (
                     <>
-                      <TotalLine label="TOTAL CDV" calc={key => totals(key).cdv} color="#ff9a4d"/>
-                      <TotalLine label="MARGE SUR COÛT VARIABLE" calc={key => totals(key).margeVariable} color={acc?.accent || '#FFC200'}/>
-                      <PctLine label="% DU CA" numCalc={key => totals(key).margeVariable} denomCalc={key => totals(key).activite}/>
+                      <FinTotalLine label="TOTAL CDV" calc={key => totals(key).cdv} color="#ff9a4d" visibleMonths={visibleMonths} style={totalStyle}/>
+                      <FinTotalLine label="MARGE SUR COÛT VARIABLE" calc={key => totals(key).margeVariable} color={acc?.accent || '#FFC200'} visibleMonths={visibleMonths} style={totalStyle}/>
+                      <FinPctLine label="% DU CA" numCalc={key => totals(key).margeVariable} denomCalc={key => totals(key).activite} visibleMonths={visibleMonths} style={totalStyle}/>
                     </>
                   )}
                   {section === 'CHARGES DIRECTES FIXES' && (
                     <>
-                      <TotalLine label="TOTAL CDF" calc={key => totals(key).cdf} color="#ff9a4d"/>
-                      <TotalLine label="MARGE SUR COÛT DIRECT" calc={key => totals(key).margeDirecte} color={acc?.accent || '#FFC200'}/>
-                      <PctLine label="% DU CA" numCalc={key => totals(key).margeDirecte} denomCalc={key => totals(key).activite}/>
+                      <FinTotalLine label="TOTAL CDF" calc={key => totals(key).cdf} color="#ff9a4d" visibleMonths={visibleMonths} style={totalStyle}/>
+                      <FinTotalLine label="MARGE SUR COÛT DIRECT" calc={key => totals(key).margeDirecte} color={acc?.accent || '#FFC200'} visibleMonths={visibleMonths} style={totalStyle}/>
+                      <FinPctLine label="% DU CA" numCalc={key => totals(key).margeDirecte} denomCalc={key => totals(key).activite} visibleMonths={visibleMonths} style={totalStyle}/>
                     </>
                   )}
                   {section === 'FRAIS GÉNÉRAUX' && (
                     <>
-                      <TotalLine label="TOTAL FG" calc={key => totals(key).fg} color="#ff9a4d"/>
-                      <PctLine label="% DU CA" numCalc={key => totals(key).fg} denomCalc={key => totals(key).activite}/>
+                      <FinTotalLine label="TOTAL FG" calc={key => totals(key).fg} color="#ff9a4d" visibleMonths={visibleMonths} style={totalStyle}/>
+                      <FinPctLine label="% DU CA" numCalc={key => totals(key).fg} denomCalc={key => totals(key).activite} visibleMonths={visibleMonths} style={totalStyle}/>
                     </>
                   )}
-                  {section === 'DOTATIONS' && <TotalLine label="RÉSULTAT D'EXPLOITATION" calc={key => totals(key).resultat} strong color={(ytd.resultat || 0) >= 0 ? '#34d188' : '#ff625f'}/>}
+                  {section === 'DOTATIONS' && <FinTotalLine label="RÉSULTAT D'EXPLOITATION" calc={key => totals(key).resultat} color={(ytd.resultat || 0) >= 0 ? '#34d188' : '#ff625f'} visibleMonths={visibleMonths} style={resultStyle}/>}
                 </React.Fragment>
               ))}
             </tbody>
@@ -1305,6 +1408,7 @@ function SocieteFinanceTab({ T, acc }) {
         </div>
       </Card>
 
+      {/* Tableau frais généraux détaillés */}
       <Card T={T}>
         <CardHdr T={T} acc={acc} title="📒 Frais généraux détaillés par mois" right={<span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>Lecture par comptes comptables</span>}/>
         <div style={{ overflowX: 'auto' }}>
@@ -1313,7 +1417,7 @@ function SocieteFinanceTab({ T, acc }) {
               <tr>
                 <th style={{ width: 90 }}>N°</th>
                 <th>Libellé</th>
-                {monthHeader}
+                {visibleMonths.map(m => <th key={m.key} style={{ textAlign: 'right' }}>{m.label}</th>)}
                 <th style={{ textAlign: 'right' }}>Total YTD</th>
               </tr>
             </thead>
@@ -1324,10 +1428,19 @@ function SocieteFinanceTab({ T, acc }) {
                     <td colSpan={visibleMonths.length + 3}>{section}</td>
                   </tr>
                   {fgRows.map((row, idx) => ({ ...row, idx })).filter(r => r.section === section).map(row => (
-                    <tr key={row.idx}>
+                    <tr key={`${section}::${row.code}::${row.label}`}>
                       <td style={{ fontFamily: "'DM Mono',monospace", color: T?.textMuted || '#5b6a8a' }}>{row.code}</td>
                       <td style={{ fontSize: 12, color: T?.text || '#f0f0f0' }}>{row.label}</td>
-                      <MonthInputs row={row} onChange={updFG}/>
+                      {visibleMonths.map(m => (
+                        <td key={m.key} style={{ textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            value={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
+                            onChange={e => updFG(row.idx, m.key, nv(e.target.value))}
+                            style={{ ...edtCls(T), width: 92 }}
+                          />
+                        </td>
+                      ))}
                       <td style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right', color: T?.textSub || '#9aa5c0' }}>{fmt(ytdRowTotal(row), 2)}</td>
                     </tr>
                   ))}
@@ -1349,11 +1462,45 @@ function SocieteFinanceTab({ T, acc }) {
       </Card>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px,1fr))', gap: 14 }}>
-        <SummaryCard label="Mois sélectionné" value={currentMonth.label} color={acc?.accent || '#FFC200'} sub={`Résultat mensuel : ${fmt(current.resultat, 2)}`}/>
-        <SummaryCard label="FG détaillés mois" value={fmt(fgCurrentDetailed, 2)} color="#ff9a4d" sub={`Évolution : ${fgCurrentDetailed - fgPrevDetailed > 0 ? '+' : ''}${fmt(fgCurrentDetailed - fgPrevDetailed, 2)}`}/>
-        <SummaryCard label="Poids FG / CA YTD" value={fmtPct(pctCA(ytd.fg || 0, ytd.activite || 0), 2)} color="#5b9cf6"/>
+        <SummaryCardFin T={T} label="Mois sélectionné"   value={currentMonth.label} color={acc?.accent || '#FFC200'} sub={`Résultat mensuel : ${fmt(current.resultat, 2)}`}/>
+        <SummaryCardFin T={T} label="FG détaillés mois"  value={fmt(fgCurrentDetailed, 2)} color="#ff9a4d" sub={`Évolution : ${fgCurrentDetailed - fgPrevDetailed > 0 ? '+' : ''}${fmt(fgCurrentDetailed - fgPrevDetailed, 2)}`}/>
+        <SummaryCardFin T={T} label="Poids FG / CA YTD"  value={fmtPct(pctCA(ytd.fg || 0, ytd.activite || 0), 2)} color="#5b9cf6"/>
       </div>
     </div>
+  );
+}
+
+// Composants stables (définis hors SocieteFinanceTab pour éviter le démontage
+// et la perte de focus des inputs à chaque render).
+function SummaryCardFin({ T, label, value, sub, color }) {
+  return (
+    <Card T={T}>
+      <div style={{ padding: '16px 18px' }}>
+        <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.12em', color: T?.textMuted || '#5b6a8a', marginBottom: 8 }}>{label}</div>
+        <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 22, fontWeight: 700, color }}>{value}</div>
+        {sub && <div style={{ fontSize: 10, color: T?.textSub || '#9aa5c0', marginTop: 5 }}>{sub}</div>}
+      </div>
+    </Card>
+  );
+}
+
+function FinTotalLine({ label, calc, color, visibleMonths, style }) {
+  return (
+    <tr style={style}>
+      <td style={{ fontWeight: 900 }}>{label}</td>
+      {visibleMonths.map(m => <td key={m.key} style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right', color }}>{fmt(calc(m.key), 2)}</td>)}
+      <td style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right', color, fontWeight: 900 }}>{fmt(visibleMonths.reduce((s, m) => s + calc(m.key), 0), 2)}</td>
+    </tr>
+  );
+}
+
+function FinPctLine({ label, numCalc, denomCalc, visibleMonths, style }) {
+  return (
+    <tr style={style}>
+      <td>{label}</td>
+      {visibleMonths.map(m => <td key={m.key} style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right' }}>{fmtPct(pctCA(numCalc(m.key), denomCalc(m.key)), 2)}</td>)}
+      <td style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right' }}>{fmtPct(pctCA(visibleMonths.reduce((s, m) => s + numCalc(m.key), 0), visibleMonths.reduce((s, m) => s + denomCalc(m.key), 0)), 2)}</td>
+    </tr>
   );
 }
 
