@@ -716,58 +716,158 @@ function PrimesTab({ chantiers, T, acc }) {
   );
 }
 
-// ─── ONGLET ANALYSES (TODO) ──────────────────────────────────────────────────
-function AnalysisTodoTab({ T, acc }) {
-  const storageKey = 'profero-dashboard-analyse-todo-v1';
+// ─── BULLE FLOTTANTE "ANALYSES" (FAB + DRAWER) ───────────────────────────────
+// Accessible depuis tous les onglets du dashboard. Remplace l'ancien onglet
+// "Analyses". Persistance par période : un sticker quotidien expire le
+// lendemain, un hebdo à la semaine suivante (ISO), un mensuel au mois suivant.
+function periodKeys() {
+  const d = new Date();
+  const day = d.toISOString().slice(0, 10);
+  // ISO week number
+  const wD = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = wD.getUTCDay() || 7;
+  wD.setUTCDate(wD.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(wD.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil((((wD - yearStart) / 86400000) + 1) / 7);
+  const week = `${wD.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+  const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return { daily: day, weekly: week, monthly: month };
+}
+
+function AnalysesBulle({ T, acc }) {
+  const [open, setOpen] = useState(false);
+  const periods = useMemo(periodKeys, []);
+  const storageKey = 'profero-dashboard-analyse-stickers-v2';
   const [done, setDone] = useState(() => {
     try { return JSON.parse(window.localStorage.getItem(storageKey) || '{}'); }
     catch (_e) { return {}; }
   });
   useEffect(() => { try { window.localStorage.setItem(storageKey, JSON.stringify(done)); } catch (_e) {} }, [done]);
-  const toggle = id => setDone(p => ({ ...p, [id]: !p[id] }));
-  const total = ANALYSE_TODO_GROUPS.reduce((s, g) => s + g.items.length, 0);
-  const complete = ANALYSE_TODO_GROUPS.reduce((s, g) => s + g.items.filter(i => done[i.id]).length, 0);
+
+  const periodOf = (groupKey) => periods[groupKey] || periods.daily;
+  const itemKey = (groupKey, itemId) => `${periodOf(groupKey)}::${itemId}`;
+  const isDone = (groupKey, itemId) => !!done[itemKey(groupKey, itemId)];
+  const toggle = (groupKey, itemId) => {
+    const k = itemKey(groupKey, itemId);
+    setDone(p => ({ ...p, [k]: !p[k] }));
+  };
+
+  const totalAll = ANALYSE_TODO_GROUPS.reduce((s, g) => s + g.items.length, 0);
+  const doneAll  = ANALYSE_TODO_GROUPS.reduce((s, g) => s + g.items.filter(i => isDone(g.key, i.id)).length, 0);
+  const allDone  = doneAll === totalAll;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <Card T={T}>
-        <CardHdr T={T} acc={acc} title="✅ Todo des analyses" right={<Badge c={complete === total ? 'green' : complete > 0 ? 'orange' : 'muted'}>{complete}/{total} stickés</Badge>}/>
-        <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px,1fr))', gap: 14 }}>
-          {ANALYSE_TODO_GROUPS.map(group => {
-            const groupDone = group.items.filter(i => done[i.id]).length;
-            return (
-              <div key={group.key} style={{ border: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`, borderRadius: RADIUS.lg, background: 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  <div style={{ fontWeight: 800, color: acc?.accent || '#FFC200', fontSize: 12 }}>{group.icon} {group.title}</div>
-                  <Badge c={groupDone === group.items.length ? 'green' : 'muted'}>{groupDone}/{group.items.length}</Badge>
-                </div>
-                <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {group.items.map(item => (
-                    <button key={item.id} onClick={() => toggle(item.id)} style={{
-                      cursor: 'pointer', textAlign: 'left',
-                      border: `1px solid ${done[item.id] ? 'rgba(52,209,136,.35)' : (T?.border || 'rgba(255,255,255,0.07)')}`,
-                      borderRadius: RADIUS.md, padding: '10px 11px',
-                      background: done[item.id] ? 'rgba(52,209,136,.10)' : 'rgba(255,255,255,.025)',
-                      color: done[item.id] ? (T?.text || '#f0f0f0') : (T?.textSub || '#9aa5c0'),
-                      display: 'flex', alignItems: 'flex-start', gap: 9, transition: 'all .18s', fontFamily: 'inherit',
-                    }}>
-                      <span style={{ fontSize: 15, lineHeight: 1.1 }}>{done[item.id] ? '✅' : '⬜'}</span>
-                      <span style={{ flex: 1, fontSize: 11, lineHeight: 1.35 }}>{item.label}</span>
-                      <span style={{ fontSize: 9, fontWeight: 800, color: done[item.id] ? '#34d188' : (T?.textMuted || '#5b6a8a'), whiteSpace: 'nowrap', textTransform: 'uppercase' }}>{done[item.id] ? 'Stické' : 'À faire'}</span>
-                    </button>
-                  ))}
-                </div>
+    <>
+      {/* FAB en bas à droite */}
+      <button
+        onClick={() => setOpen(true)}
+        aria-label="Ouvrir les analyses"
+        style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 900,
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '12px 18px', borderRadius: 999,
+          background: acc?.accent || '#FFC200', color: acc?.onAccent || '#1a1a1a',
+          border: 'none', fontFamily: 'inherit', fontSize: 13, fontWeight: 800,
+          boxShadow: '0 14px 32px rgba(0,0,0,0.35), 0 0 0 2px rgba(255,194,0,0.15)',
+          cursor: 'pointer', transition: 'transform .15s, box-shadow .15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; }}
+      >
+        <span style={{ fontSize: 16, lineHeight: 1 }}>✅</span>
+        Analyses
+        <span style={{
+          fontSize: 11, fontWeight: 800,
+          background: allDone ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.10)',
+          color: allDone ? '#1a1a1a' : '#1a1a1a',
+          padding: '2px 8px', borderRadius: 999,
+        }}>{doneAll}/{totalAll}</span>
+      </button>
+
+      {/* Drawer latéral droit */}
+      {open && (
+        <div onClick={() => setOpen(false)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+          zIndex: 950, display: 'flex', justifyContent: 'flex-end',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '100%', maxWidth: 460, height: '100%',
+            background: T?.surface || '#262a32',
+            borderLeft: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`,
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '-20px 0 60px rgba(0,0,0,0.45)',
+            animation: 'da-slide-in .22s ease-out',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`,
+              display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10,
+                background: (acc?.accent || '#FFC200') + '22', color: acc?.accent || '#FFC200',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+              }}>✅</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T?.text || '#f0f0f0', letterSpacing: -0.2 }}>Todo des analyses</div>
+                <div style={{ fontSize: 11, color: T?.textMuted || '#5b6a8a', marginTop: 2 }}>{doneAll}/{totalAll} stickés · les coches expirent à la période suivante</div>
               </div>
-            );
-          })}
+              <button onClick={() => setOpen(false)} style={{
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: T?.textMuted || '#5b6a8a', padding: 6, display: 'flex', fontSize: 22, lineHeight: 1,
+              }}>×</button>
+            </div>
+
+            {/* Contenu (scrollable) */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {ANALYSE_TODO_GROUPS.map(group => {
+                const groupDone = group.items.filter(i => isDone(group.key, i.id)).length;
+                const periodLabel = group.key === 'daily' ? periods.daily
+                                  : group.key === 'weekly' ? `Semaine ${periods.weekly}`
+                                  : `Mois ${periods.monthly}`;
+                return (
+                  <div key={group.key} style={{
+                    border: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`,
+                    borderRadius: RADIUS.lg, background: 'rgba(255,255,255,0.02)', overflow: 'hidden',
+                  }}>
+                    <div style={{ padding: '12px 14px', borderBottom: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 800, color: acc?.accent || '#FFC200', fontSize: 12 }}>{group.icon} {group.title}</div>
+                        <div style={{ fontSize: 9, color: T?.textMuted || '#5b6a8a', marginTop: 2, fontFamily: "'DM Mono',monospace", letterSpacing: .3 }}>{periodLabel}</div>
+                      </div>
+                      <Badge c={groupDone === group.items.length ? 'green' : groupDone > 0 ? 'orange' : 'muted'}>{groupDone}/{group.items.length}</Badge>
+                    </div>
+                    <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {group.items.map(item => {
+                        const d = isDone(group.key, item.id);
+                        return (
+                          <button key={item.id} onClick={() => toggle(group.key, item.id)} style={{
+                            cursor: 'pointer', textAlign: 'left',
+                            border: `1px solid ${d ? 'rgba(52,209,136,.40)' : (T?.border || 'rgba(255,255,255,0.07)')}`,
+                            borderRadius: RADIUS.md, padding: '10px 11px',
+                            background: d ? 'rgba(52,209,136,.10)' : 'rgba(255,255,255,.025)',
+                            color: d ? (T?.text || '#f0f0f0') : (T?.textSub || '#9aa5c0'),
+                            display: 'flex', alignItems: 'flex-start', gap: 9, transition: 'all .15s', fontFamily: 'inherit',
+                          }}>
+                            <span style={{ fontSize: 15, lineHeight: 1.1 }}>{d ? '✅' : '⬜'}</span>
+                            <span style={{ flex: 1, fontSize: 11, lineHeight: 1.35 }}>{item.label}</span>
+                            <span style={{ fontSize: 9, fontWeight: 800, color: d ? '#34d188' : (T?.textMuted || '#5b6a8a'), whiteSpace: 'nowrap', textTransform: 'uppercase' }}>{d ? 'Stické' : 'À faire'}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: 11, color: T?.textMuted || '#5b6a8a', lineHeight: 1.5, fontStyle: 'italic', padding: '0 4px' }}>
+                Les coches sont mémorisées dans le navigateur. Une analyse cochée aujourd'hui restera marquée jusqu'à la fin de sa période (jour / semaine / mois) puis sera remise à zéro automatiquement.
+              </div>
+            </div>
+          </div>
         </div>
-      </Card>
-      <Card T={T}>
-        <CardHdr T={T} acc={acc} title="🎯 Règle d'usage" right={<span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>Stickers mémorisés dans le navigateur</span>}/>
-        <div style={{ padding: 16, color: T?.textSub || '#9aa5c0', fontSize: 12, lineHeight: 1.6 }}>
-          Chaque analyse peut être stickée une fois réalisée. L'objectif est d'avoir une lecture simple : quotidien pour la maîtrise opérationnelle, hebdomadaire pour le pilotage chantier / trésorerie, mensuel pour la décision de direction.
-        </div>
-      </Card>
-    </div>
+      )}
+    </>
   );
 }
 
@@ -983,7 +1083,7 @@ function SocieteFinanceTab({ T, acc }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px,1fr))', gap: 14 }}>
-        <SummaryCard label="CA depuis début d'année" value={fmt(ytd.activite || 0, 2)} color={acc?.accent || '#FFC200'} sub={evoText('activite')}/>
+        <SummaryCard label="CA YTD" value={fmt(ytd.activite || 0, 2)} color={acc?.accent || '#FFC200'} sub={evoText('activite')}/>
         <SummaryCard label="Frais généraux YTD" value={fmt(ytd.fg || 0, 2)} color="#ff9a4d" sub={evoText('fg', true)}/>
         <SummaryCard label="MO YTD" value={fmt(ytd.mo || 0, 2)} color="#5b9cf6" sub={evoText('mo', true)}/>
         <SummaryCard label="Matériaux YTD" value={fmt(ytd.materiaux || 0, 2)} color="#FFD740" sub={evoText('materiaux', true)}/>
@@ -1096,7 +1196,7 @@ function SocieteFinanceTab({ T, acc }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px,1fr))', gap: 14 }}>
         <SummaryCard label="Mois sélectionné" value={currentMonth.label} color={acc?.accent || '#FFC200'} sub={`Résultat mensuel : ${fmt(current.resultat, 2)}`}/>
         <SummaryCard label="FG détaillés mois" value={fmt(fgCurrentDetailed, 2)} color="#ff9a4d" sub={`Évolution : ${fgCurrentDetailed - fgPrevDetailed > 0 ? '+' : ''}${fmt(fgCurrentDetailed - fgPrevDetailed, 2)}`}/>
-        <SummaryCard label="Poids FG / CA YTD" value={fmtPct(pctCA(ytd.fg || 0, ytd.activite || 0), 2)} color="#5b9cf6" sub="Lecture depuis le 1er janvier"/>
+        <SummaryCard label="Poids FG / CA YTD" value={fmtPct(pctCA(ytd.fg || 0, ytd.activite || 0), 2)} color="#5b9cf6"/>
       </div>
     </div>
   );
@@ -1108,7 +1208,6 @@ const TABS = [
   { key: 'pipeline',       label: '🔖 Pipeline' },
   { key: 'analyseSociete', label: '📊 Point financier' },
   { key: 'primes',         label: '🎯 Primes' },
-  { key: 'todoAnalyses',   label: '✅ Analyses' },
   { key: 'finances',       label: '💰 Trésorerie' },
 ];
 
@@ -1173,6 +1272,7 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
     <div style={{ flex: 1, overflowY: 'auto', background: T?.bg || '#1e2128' }}>
       <style>{`
         @keyframes da-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.45;transform:scale(.82)} }
+        @keyframes da-slide-in { from { transform: translateX(100%); } to { transform: none; } }
         .da-table thead th { padding: 10px 12px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: ${T?.textMuted || '#5b6a8a'}; background: rgba(255,255,255,0.025); border-bottom: 1px solid ${T?.border || 'rgba(255,255,255,0.07)'}; text-align: left; white-space: nowrap; }
         .da-table tbody td { padding: 11px 12px; border-bottom: 1px solid ${T?.border || 'rgba(255,255,255,0.05)'}; vertical-align: middle; }
         .da-table tbody tr:last-child td { border-bottom: none; }
@@ -1212,7 +1312,6 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
           { label: 'Marge réelle moy.',      v: fmtPct(avgMR),        c: mrColor,    sub: `vs objectif ${fmtPct(avgMV)}` },
           { label: 'Alertes actives',        v: alertCount,           c: alertColor, sub: 'chantiers à surveiller' },
           { label: 'Ratio MO global',        v: globalRatio.toFixed(2), c: ratioColor, sub: 'budget restant / reste théorique' },
-          { label: 'Pipeline CA pondéré',    v: fmt(pipeTotal),       c: acc.accent, sub: `${pipeline.length} opportunité${pipeline.length > 1 ? 's' : ''} en cours` },
         ].map(({ label, v, c, sub }) => (
           <div key={label} style={{
             padding: '18px 22px',
@@ -1252,9 +1351,11 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
         {activeTab === 'pipeline'       && <PipelineTab      pipeline={pipeline} onAdd={() => setPipeModal({ open: true, item: null })} onEdit={item => setPipeModal({ open: true, item })} T={T} acc={acc}/>}
         {activeTab === 'analyseSociete' && <SocieteFinanceTab T={T} acc={acc}/>}
         {activeTab === 'primes'         && <PrimesTab        chantiers={chantiers} T={T} acc={acc}/>}
-        {activeTab === 'todoAnalyses'   && <AnalysisTodoTab  T={T} acc={acc}/>}
         {activeTab === 'finances'       && <FinancesTab      fin={finances} setFin={setFinances} T={T} acc={acc}/>}
       </div>
+
+      {/* Bulle flottante "Analyses" (FAB + drawer) accessible depuis tous les onglets */}
+      <AnalysesBulle T={T} acc={acc}/>
     </div>
   );
 }
