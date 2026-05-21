@@ -1009,6 +1009,14 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     const totalHT = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
     return totalHT > 0 ? parseFloat(totalHT.toFixed(2)) : 0;
   });
+  // ── Suivi direction (Dashboard Analyse) : marge vendue cible, seuil prime, prime
+  //    Stockés dans plan_travaux.meta. Défauts conformes au cahier gérant.
+  const [margeVendueCible, setMargeVendueCible] = useState(() =>
+    phasage.plan_travaux?.meta?.marge_vendue_cible ?? 30);
+  const [seuilPrime, setSeuilPrime] = useState(() =>
+    phasage.plan_travaux?.meta?.seuil_prime ?? 25);
+  const [primeChantier, setPrimeChantier] = useState(() =>
+    phasage.plan_travaux?.meta?.prime ?? 300);
   const [expandedPhases, setExpandedPhases] = useState(() => PHASES.reduce((acc, p) => ({ ...acc, [p.id]: true }), {}));
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
   const autoSaveTimer = useRef(null);
@@ -1139,11 +1147,21 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus("saving");
-      await onSavePlan({ ...plan, meta: { prix_vendu: prixVendu } });
+      // Merge avec les meta existantes du plan pour ne pas écraser d'autres clés
+      // (ex: __cout_commandes, __materiaux_prevus restent dans plan, mais d'autres
+      // sous-clés meta pourraient être ajoutées plus tard).
+      const meta = {
+        ...(plan.meta || {}),
+        prix_vendu:          prixVendu,
+        marge_vendue_cible:  parseFloat(margeVendueCible) || 0,
+        seuil_prime:         parseFloat(seuilPrime) || 0,
+        prime:               parseFloat(primeChantier) || 0,
+      };
+      await onSavePlan({ ...plan, meta });
       setAutoSaveStatus("saved");
     }, 1200);
     return () => clearTimeout(autoSaveTimer.current);
-  }, [plan, prixVendu]);
+  }, [plan, prixVendu, margeVendueCible, seuilPrime, primeChantier]);
 
   function updateTache(phaseId, tacheId, updates) { setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).map(t => t.id === tacheId ? { ...t, ...updates } : t) })); }
   function deleteTache(phaseId, tacheId) { setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).filter(t => t.id !== tacheId) })); }
@@ -1549,6 +1567,40 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600, letterSpacing: .3 }}>{s.label}</div>
                 <div style={{ fontSize: FONT.xl.size - 2, fontWeight: 800, color: s.color, letterSpacing: -.5, marginTop: 2, lineHeight: 1 }}>{s.value}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Suivi direction (Dashboard Analyse) ── */}
+        <div style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg, padding: "12px 16px", marginBottom: 18,
+          display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+        }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: RADIUS.md, flexShrink: 0,
+            background: "rgba(255,194,0,0.12)", color: "#FFC200",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={TrendingUp} size={16} strokeWidth={2}/>
+          </div>
+          <div style={{ minWidth: 130 }}>
+            <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Suivi direction</div>
+            <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2, fontStyle: "italic" }}>Visible dans Dashboard Analyse</div>
+          </div>
+          {[
+            { label: "Marge vendue cible", value: margeVendueCible, set: setMargeVendueCible, suffix: "%", placeholder: "30" },
+            { label: "Seuil prime",         value: seuilPrime,       set: setSeuilPrime,       suffix: "%", placeholder: "25" },
+            { label: "Prime chantier",      value: primeChantier,    set: setPrimeChantier,    suffix: "€", placeholder: "300" },
+          ].map(f => (
+            <div key={f.label} style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 130 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, letterSpacing: .4, textTransform: "uppercase" }}>{f.label}</span>
+              <div style={{ display: "inline-flex", alignItems: "baseline", gap: 4 }}>
+                <input type="number" value={f.value ?? ""} onChange={e => f.set(e.target.value)} placeholder={f.placeholder}
+                  style={{ width: 70, padding: "5px 8px", background: "rgba(255,255,255,0.05)", border: `1px solid ${T.border}`,
+                    borderRadius: 6, color: T.text, fontFamily: "'DM Mono',monospace", fontSize: 14, fontWeight: 700, outline: "none" }}/>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.textMuted }}>{f.suffix}</span>
               </div>
             </div>
           ))}

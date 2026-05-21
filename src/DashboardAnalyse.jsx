@@ -1186,11 +1186,64 @@ function SocieteFinanceTab({ T, acc }) {
   const [crRows, setCrRows] = useState(() => initMonthlyRows(INIT_CR_ROWS, DEFAULT_FINANCE_MONTHS));
   const [fgRows, setFgRows] = useState(() => initMonthlyRows(INIT_FG_ROWS, DEFAULT_FINANCE_MONTHS));
   const [selectedMonth, setSelectedMonth] = useState('2026-04');
+  // hasLoaded : on bloque la sauvegarde auto tant que le chargement initial n'a
+  // pas eu lieu (sinon on écraserait les données Supabase avec les defaults).
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
   // État du formulaire "Ajouter un mois"
   const [addMonthOpen, setAddMonthOpen] = useState(false);
   const today = new Date();
   const [newMonthYear, setNewMonthYear] = useState(today.getFullYear());
   const [newMonthMonth, setNewMonthMonth] = useState(String(today.getMonth() + 1).padStart(2, '0'));
+
+  // ── Chargement initial depuis planning_config (1 seule fois au mount)
+  // Clés : dashboard_finance_months / dashboard_finance_cr_rows / dashboard_finance_fg_rows
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("planning_config")
+        .select("key,value")
+        .in("key", ["dashboard_finance_months", "dashboard_finance_cr_rows", "dashboard_finance_fg_rows"]);
+      if (cancelled) return;
+      const cfg = {}; (data || []).forEach(r => { cfg[r.key] = r.value; });
+      if (Array.isArray(cfg.dashboard_finance_months) && cfg.dashboard_finance_months.length > 0) {
+        setMonths(cfg.dashboard_finance_months);
+        // ajuster le mois sélectionné si nécessaire
+        if (!cfg.dashboard_finance_months.some(m => m.key === selectedMonth)) {
+          const lastWithData = [...cfg.dashboard_finance_months].reverse().find(m => true);
+          if (lastWithData) setSelectedMonth(lastWithData.key);
+        }
+      }
+      if (Array.isArray(cfg.dashboard_finance_cr_rows) && cfg.dashboard_finance_cr_rows.length > 0) {
+        setCrRows(cfg.dashboard_finance_cr_rows);
+      }
+      if (Array.isArray(cfg.dashboard_finance_fg_rows) && cfg.dashboard_finance_fg_rows.length > 0) {
+        setFgRows(cfg.dashboard_finance_fg_rows);
+      }
+      setHasLoaded(true);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Sauvegarde debouncée (1.2s après dernière modif)
+  const saveTimer = React.useRef(null);
+  useEffect(() => {
+    if (!hasLoaded) return;
+    setSaving(true);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      await Promise.all([
+        supabase.from("planning_config").upsert({ key: "dashboard_finance_months",  value: months  }, { onConflict: "key" }),
+        supabase.from("planning_config").upsert({ key: "dashboard_finance_cr_rows", value: crRows  }, { onConflict: "key" }),
+        supabase.from("planning_config").upsert({ key: "dashboard_finance_fg_rows", value: fgRows  }, { onConflict: "key" }),
+      ]);
+      setSaving(false);
+      setSavedAt(new Date());
+    }, 1200);
+    return () => clearTimeout(saveTimer.current);
+  }, [months, crRows, fgRows, hasLoaded]);
 
   const selectedIdx = Math.max(months.findIndex(m => m.key === selectedMonth), 0);
   const visibleMonths = months.slice(0, selectedIdx + 1);
@@ -1327,6 +1380,9 @@ function SocieteFinanceTab({ T, acc }) {
       <Card T={T}>
         <CardHdr T={T} acc={acc} title="📊 Point financier" right={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0', fontStyle: 'italic' }}>
+              {saving ? 'Enregistrement…' : savedAt ? `Sauvegardé ${savedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+            </span>
             <span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>Mois actif</span>
             <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={{ ...inpCls(T), width: 160, padding: '7px 10px', cursor: 'pointer' }}>
               {months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
