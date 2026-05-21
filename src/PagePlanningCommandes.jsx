@@ -50,6 +50,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [carteOpen, setCarteOpen] = useState(null); // carte en cours de commande
+  const [detailsCarte, setDetailsCarte] = useState(null); // carte affichée en détails
 
   // Chargement des phases personnalisées (Admin → Phases)
   useEffect(() => {
@@ -311,6 +312,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                   cartes={cartesParSemaine.buckets[i]}
                   urgence={urgence}
                   onPasserCommande={setCarteOpen}
+                  onOpenDetails={setDetailsCarte}
                   T={T} surface={surface} card={card} border={border}
                   text={text} textSub={textSub} textMuted={textMuted}
                 />
@@ -338,7 +340,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                 {cartesParSemaine.sansDate.map(c => (
                   <CartePhase key={c.id} carte={c} urgenceInfo={{
                     bg: card, border, accent: textMuted, label: "Sans date",
-                  }} onPasserCommande={setCarteOpen} T={T} text={text} textSub={textSub} textMuted={textMuted} compact/>
+                  }} onPasserCommande={setCarteOpen} onOpenDetails={setDetailsCarte} T={T} text={text} textSub={textSub} textMuted={textMuted} compact/>
                 ))}
               </div>
               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size + 1, color: textMuted, fontStyle: "italic" }}>
@@ -366,12 +368,23 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                 display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10,
               }}>
                 {cartesParSemaine.dansLeFutur.map(c => (
-                  <CartePhase key={c.id} carte={c} urgenceInfo={urgence(c)} onPasserCommande={setCarteOpen} T={T} text={text} textSub={textSub} textMuted={textMuted} compact/>
+                  <CartePhase key={c.id} carte={c} urgenceInfo={urgence(c)} onPasserCommande={setCarteOpen} onOpenDetails={setDetailsCarte} T={T} text={text} textSub={textSub} textMuted={textMuted} compact/>
                 ))}
               </div>
             </div>
           )}
         </>
+      )}
+
+      {/* Modale "Détails carte" */}
+      {detailsCarte && (
+        <ModaleDetailsCarte
+          carte={detailsCarte}
+          urgenceInfo={urgence(detailsCarte)}
+          onClose={() => setDetailsCarte(null)}
+          onPasserCommande={() => { setCarteOpen(detailsCarte); setDetailsCarte(null); }}
+          T={T}
+        />
       )}
 
       {/* Modale "Passer commande" */}
@@ -390,7 +403,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
 }
 
 // ─── COLONNE SEMAINE ─────────────────────────────────────────────────────────
-function ColonneSemaine({ semaine, cartes, urgence, onPasserCommande, T, surface, card, border, text, textSub, textMuted }) {
+function ColonneSemaine({ semaine, cartes, urgence, onPasserCommande, onOpenDetails, T, surface, card, border, text, textSub, textMuted }) {
   const isCurrent = semaine.index === 0;
   return (
     <div style={{
@@ -421,7 +434,7 @@ function ColonneSemaine({ semaine, cartes, urgence, onPasserCommande, T, surface
           <div className="ppc-col-empty">Aucune commande</div>
         ) : (
           cartes.map(c => (
-            <CartePhase key={c.id} carte={c} urgenceInfo={urgence(c)} onPasserCommande={onPasserCommande} T={T} text={text} textSub={textSub} textMuted={textMuted}/>
+            <CartePhase key={c.id} carte={c} urgenceInfo={urgence(c)} onPasserCommande={onPasserCommande} onOpenDetails={onOpenDetails} T={T} text={text} textSub={textSub} textMuted={textMuted}/>
           ))
         )}
       </div>
@@ -430,21 +443,29 @@ function ColonneSemaine({ semaine, cartes, urgence, onPasserCommande, T, surface
 }
 
 // ─── CARTE PHASE ─────────────────────────────────────────────────────────────
-function CartePhase({ carte, urgenceInfo, onPasserCommande, T, text, textSub, textMuted, compact = false }) {
+function CartePhase({ carte, urgenceInfo, onPasserCommande, onOpenDetails, T, text, textSub, textMuted, compact = false }) {
   const dateFmt = carte.dateObj
     ? carte.dateObj.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })
     : null;
   const dateFmtLong = carte.dateObj ? fmtDateLongue(carte.dateObj) : null;
 
   return (
-    <div style={{
-      background: urgenceInfo.bg,
-      border: `1px solid ${urgenceInfo.border}`,
-      borderRadius: RADIUS.md,
-      padding: "9px 10px",
-      borderLeft: `3px solid ${carte.chantierCouleur || urgenceInfo.accent}`,
-      display: "flex", flexDirection: "column", gap: 6,
-    }}>
+    <div
+      onClick={() => onOpenDetails?.(carte)}
+      title="Cliquer pour voir le détail de la commande"
+      style={{
+        background: urgenceInfo.bg,
+        border: `1px solid ${urgenceInfo.border}`,
+        borderRadius: RADIUS.md,
+        padding: "9px 10px",
+        borderLeft: `3px solid ${carte.chantierCouleur || urgenceInfo.accent}`,
+        display: "flex", flexDirection: "column", gap: 6,
+        cursor: "pointer",
+        transition: "transform .12s, box-shadow .12s",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.25)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}
+    >
       {/* Chantier + phase */}
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: text, fontWeight: 700, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -504,7 +525,7 @@ function CartePhase({ carte, urgenceInfo, onPasserCommande, T, text, textSub, te
 
       {/* Bouton action — ouvre la modale de passage de commande */}
       {!carte.commande && (
-        <button onClick={() => onPasserCommande?.(carte)} style={{
+        <button onClick={(e) => { e.stopPropagation(); onPasserCommande?.(carte); }} style={{
           display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
           marginTop: 2, padding: "6px 10px", borderRadius: RADIUS.sm,
           background: urgenceInfo.accent + "22", color: urgenceInfo.accent,
@@ -519,6 +540,191 @@ function CartePhase({ carte, urgenceInfo, onPasserCommande, T, text, textSub, te
           <Icon as={ArrowRight} size={11}/>
         </button>
       )}
+    </div>
+  );
+}
+
+// ─── MODALE DÉTAILS CARTE ────────────────────────────────────────────────────
+function ModaleDetailsCarte({ carte, urgenceInfo, onClose, onPasserCommande, T }) {
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+  const surface   = T?.surface   || "#262a32";
+  const card      = T?.card      || "rgba(255,255,255,0.04)";
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+  const accent    = carte.phaseCouleur || urgenceInfo.accent || "#FFC200";
+
+  const dateFmtLong = carte.dateObj ? fmtDateLongue(carte.dateObj) : null;
+
+  // Regroupement par fournisseur pour un affichage plus lisible
+  const groupesParFournisseur = (() => {
+    const buckets = new Map();
+    carte.mats.forEach(m => {
+      const key = m.fournisseur_id || m.fournisseur_nom?.trim() || "__sans__";
+      const nom = m.fournisseur_nom?.trim() || "Sans fournisseur";
+      if (!buckets.has(key)) buckets.set(key, { nom, lignes: [] });
+      buckets.get(key).lignes.push(m);
+    });
+    return Array.from(buckets.values()).map(g => ({
+      ...g,
+      total: g.lignes.reduce((s, l) => s + (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0), 0),
+    }));
+  })();
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", zIndex: 940, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T?.modal || surface, borderRadius: RADIUS.xl,
+        width: "100%", maxWidth: 760, maxHeight: "92vh",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+        border: `1px solid ${border}`, boxShadow: "0 28px 70px rgba(0,0,0,0.65)",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderLeft: `4px solid ${carte.chantierCouleur || accent}` }}>
+          <div style={{ width: 38, height: 38, borderRadius: RADIUS.md, background: accent + "22", color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18 }}>
+            {carte.phaseEmoji || <Icon as={Package} size={18}/>}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -0.2 }}>
+              <Icon as={Building2} size={14} color={carte.chantierCouleur}/>
+              {carte.chantierNom}
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 3, display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ color: carte.phaseCouleur }}>●</span>
+              {carte.phaseLabel}
+            </div>
+          </div>
+          <span style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: .5,
+            padding: "4px 10px", borderRadius: RADIUS.pill, textTransform: "uppercase",
+            background: urgenceInfo.accent + "22", color: urgenceInfo.accent,
+            border: `1px solid ${urgenceInfo.accent}55`,
+            whiteSpace: "nowrap",
+          }}>
+            {carte.commande ? "✓ Commandé" : urgenceInfo.label}
+          </span>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: textMuted, cursor: "pointer", padding: 6, display: "flex" }}>
+            <Icon as={X} size={18}/>
+          </button>
+        </div>
+
+        {/* Corps : infos + tableau matériaux */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+          {/* Bandeau date + total */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+            <div style={{ flex: "1 1 200px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+              <Icon as={Calendar} size={14} color={textMuted}/>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Date butoir</div>
+                <div style={{ fontSize: FONT.sm.size + 1, color: text, fontWeight: 700, marginTop: 2 }}>
+                  {dateFmtLong || <span style={{ color: textMuted, fontStyle: "italic", fontWeight: 500 }}>Non définie</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{ flex: "1 1 200px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+              <Icon as={Package} size={14} color={textMuted}/>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Total prévisionnel</div>
+                <div style={{ fontSize: FONT.lg.size, color: accent, fontWeight: 800, marginTop: 1, fontFamily: "'DM Mono',monospace", letterSpacing: -0.3 }}>
+                  {carte.totalHt.toFixed(2)} € HT
+                </div>
+              </div>
+            </div>
+            <div style={{ flex: "1 1 140px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+              <Icon as={ShoppingCart} size={14} color={textMuted}/>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Articles</div>
+                <div style={{ fontSize: FONT.lg.size, color: text, fontWeight: 800, marginTop: 1, letterSpacing: -0.3 }}>
+                  {carte.mats.length}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {carte.commande && carte.coutCmd > 0 && (
+            <div style={{ marginBottom: 14, padding: "10px 14px", background: "rgba(34,197,94,0.10)", border: "1px solid #22c55e55", borderRadius: RADIUS.md, color: "#22c55e", fontSize: FONT.xs.size + 1, display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon as={Check} size={12}/>
+              Une commande a déjà été passée pour cette phase : <strong>{carte.coutCmd.toFixed(2)} € HT</strong>
+            </div>
+          )}
+
+          {/* Liste matériaux groupée par fournisseur */}
+          {groupesParFournisseur.map((g, gi) => (
+            <div key={gi} style={{ marginBottom: 14 }}>
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "8px 12px", background: card, borderRadius: `${RADIUS.md}px ${RADIUS.md}px 0 0`,
+                border: `1px solid ${border}`, borderBottom: "none",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.sm.size, fontWeight: 700, color: text }}>
+                  <Icon as={Mail} size={12} color={textMuted}/>
+                  {g.nom}
+                  <span style={{ color: textMuted, fontWeight: 500 }}>· {g.lignes.length} article{g.lignes.length > 1 ? "s" : ""}</span>
+                </div>
+                <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>
+                  {g.total.toFixed(2)} € HT
+                </div>
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", background: surface, border: `1px solid ${border}`, borderRadius: `0 0 ${RADIUS.md}px ${RADIUS.md}px`, overflow: "hidden" }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${border}`, background: card }}>
+                    {[
+                      { l: "Libellé",  a: "left" },
+                      { l: "Qté",      a: "center", w: 70 },
+                      { l: "Unité",    a: "center", w: 60 },
+                      { l: "PU HT",    a: "right",  w: 90 },
+                      { l: "Total HT", a: "right",  w: 100 },
+                    ].map(h => (
+                      <th key={h.l} style={{ padding: "8px 10px", fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .8, textAlign: h.a, width: h.w || undefined }}>{h.l}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.lignes.map(m => {
+                    const qte = parseFloat(m.quantite) || 0;
+                    const pu  = parseFloat(m.prix_ht) || 0;
+                    return (
+                      <tr key={m.id} style={{ borderBottom: `1px solid ${border}` }}>
+                        <td style={{ padding: "8px 10px", fontSize: 13, color: text, fontWeight: 600 }}>{m.libelle}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 13, color: text, textAlign: "center", fontWeight: 700, fontFamily: "'DM Mono',monospace" }}>{qte}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, color: textMuted, textAlign: "center" }}>{m.unite || "U"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 13, color: "#22c55e", textAlign: "right", fontWeight: 700, fontFamily: "'DM Mono',monospace" }}>{pu.toFixed(2)} €</td>
+                        <td style={{ padding: "8px 10px", fontSize: 13, color: text, textAlign: "right", fontWeight: 800, fontFamily: "'DM Mono',monospace" }}>{(qte * pu).toFixed(2)} €</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer actions */}
+        <div style={{ padding: "12px 22px", borderTop: `1px solid ${border}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
+          <button onClick={onClose} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: "transparent", border: `1px solid ${border}`,
+            borderRadius: RADIUS.md, padding: "9px 16px", color: textSub,
+            fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+          }}>
+            <Icon as={X} size={13}/>
+            Fermer
+          </button>
+          {!carte.commande && (
+            <button onClick={onPasserCommande} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: accent, color: "#1a1a1a",
+              border: "none", borderRadius: RADIUS.md, padding: "9px 20px",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+              cursor: "pointer",
+            }}>
+              <Icon as={ShoppingCart} size={13}/>
+              Passer commande
+              <Icon as={ArrowRight} size={13}/>
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
