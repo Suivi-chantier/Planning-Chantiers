@@ -319,11 +319,27 @@ function PageRapportMobile() {
   const setTacheHeures    = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, heures_reelles:val} : x));
   const setTacheAvancement= (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, avancement:val} : x));
   const setTachePhotos    = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, photos:val} : x));
+  const setTacheChantier  = (idx, chId)   => setTaches(t => t.map((x,i) => {
+    if (i !== idx) return x;
+    const ch = chantiers.find(c => c.id === chId);
+    return {
+      ...x,
+      chantier_id: chId,
+      chantier_nom: ch?.nom || "",
+      chantier_couleur: ch?.couleur || "#c8d8f0",
+    };
+  }));
   const addTacheLibre     = ()            => setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",photos:[],libre:true}]);
 
   const soumettre = async () => {
     const tachesRemplies = taches.filter(t => t.planifie.trim());
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
+    // Chantier obligatoire pour les tâches ajoutées manuellement
+    const sansChantier = tachesRemplies.filter(t => !t.chantier_id);
+    if (sansChantier.length > 0) {
+      alert(`🏗 Chantier manquant sur ${sansChantier.length} tâche${sansChantier.length>1?"s":""}\n${sansChantier.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nMerci de sélectionner le chantier concerné pour chaque tâche ajoutée manuellement.`);
+      return;
+    }
     // Durée obligatoire sauf si tâche non_faite
     const sansDuree = tachesRemplies.filter(t =>
       t.statut !== "non_faite" && (!t.heures_reelles || parseFloat(t.heures_reelles) <= 0)
@@ -743,6 +759,41 @@ function PageRapportMobile() {
               </span>
             )}
           </div>
+          {t.libre && (
+            <div style={{
+              marginBottom:10,padding:"10px 12px",
+              background: t.chantier_id ? `${t.chantier_couleur}14` : T.dangerBg,
+              border:`1.5px solid ${t.chantier_id ? `${t.chantier_couleur}55` : T.dangerBd}`,
+              borderRadius:RADIUS.lg,
+            }}>
+              <div style={{...S.sectionTitle(t.chantier_id ? T.text : T.danger), marginBottom:8, fontSize:FONT.xs.size}}>
+                <Icon as={ClipboardList} size={12} strokeWidth={2.2}/>
+                Chantier concerné
+                {!t.chantier_id && (
+                  <span style={{fontSize:9,background:T.danger,color:"#fff",borderRadius:RADIUS.sm,padding:"1px 5px",fontWeight:800,letterSpacing:0}}>OBLIGATOIRE</span>
+                )}
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {chantiers.map(c => {
+                  const sel = t.chantier_id === c.id;
+                  return (
+                    <button key={c.id} onClick={()=>setTacheChantier(idx, c.id)} style={{
+                      padding:"7px 12px",borderRadius:RADIUS.md,border:"1.5px solid",cursor:"pointer",
+                      fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,transition:"all .1s",
+                      borderColor: sel ? c.couleur : T.border,
+                      background:  sel ? `${c.couleur}33` : T.surface,
+                      color:       T.text,
+                      display:"inline-flex",alignItems:"center",gap:5,
+                    }}>
+                      <span style={{width:10,height:10,borderRadius:"50%",background:c.couleur,
+                        border:`1.5px solid ${sel ? c.couleur : T.border}`}}/>
+                      {c.nom}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {t.libre ? (
             <textarea value={t.planifie} onChange={e=>setTachePlanifie(idx,e.target.value)}
               placeholder="Décris la tâche…"
