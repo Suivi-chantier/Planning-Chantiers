@@ -17,10 +17,14 @@
 // remplacée par les variables du theme T.
 
 import React, { useState, useMemo, useEffect } from "react";
-import { FONT, RADIUS, getBranchAccent } from "./constants";
+import { supabase } from "./supabase";
+import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
 
 // ─── DONNÉES STATIQUES ───────────────────────────────────────────────────────
-const PHASES = ['Démolition', 'Gros œuvre', 'Électricité', 'Plomberie', 'Isolation', 'Cloisons', 'Sol', 'Peinture', 'Livraison'];
+// Labels de phase utilisés pour le PhaseTrack visuel (rétro-compatibilité).
+// Le mapping vers les phases réelles de l'app se fait via phasesConfig (chargées
+// au mount depuis Admin → Phases).
+const PHASES_FALLBACK_LABELS = ['Démolition', 'Gros œuvre', 'Électricité', 'Plomberie', 'Isolation', 'Cloisons', 'Sol', 'Peinture', 'Livraison'];
 
 const PIPE_COLS = [
   { key: 'prospect', label: '🔵 Prospect' },
@@ -29,17 +33,9 @@ const PIPE_COLS = [
   { key: 'signe',    label: '🟢 Signé' },
 ];
 
-const INIT_CHANTIERS = [
-  { id: 1, nom: "Rénovation complète — M. Dupont",   debut: "2025-02-10", livraisonInit: "2025-05-20", livraisonPrev: "2025-05-25", avR: 82, avP: 85, phase: 7, budMO: 18000, moC: 15400, budMat: 22000, matC: 20100, ca: 65000,  mv: 28, mr: 27.2, prime: 300, seuil: 25, comp: ["Steven", "Samad"], cr: true,  note: "",                     lastUpdated: "2025-05-21" },
-  { id: 2, nom: "Division immeuble — SCI Leblanc",   debut: "2025-03-01", livraisonInit: "2025-06-30", livraisonPrev: "2025-07-15", avR: 45, avP: 52, phase: 3, budMO: 32000, moC: 17200, budMat: 38000, matC: 19500, ca: 112000, mv: 30, mr: 24.5, prime: 400, seuil: 27, comp: ["Mady", "Reza"],     cr: true,  note: "Retard menuiseries",   lastUpdated: "2025-05-19" },
-  { id: 3, nom: "Réhabilitation T3 — Mme Moreau",    debut: "2025-04-01", livraisonInit: "2025-06-01", livraisonPrev: "2025-06-01", avR: 68, avP: 65, phase: 5, budMO: 12000, moC: 8100,  budMat: 14000, matC: 9200,  ca: 42000,  mv: 26, mr: 28.1, prime: 250, seuil: 25, comp: ["Jean-Philippe"],    cr: false, note: "",                     lastUpdated: "2025-05-21" },
-  { id: 4, nom: "Passoire → T2 BBC — Invest49",      debut: "2025-03-15", livraisonInit: "2025-05-30", livraisonPrev: "2025-06-15", avR: 90, avP: 95, phase: 7, budMO: 9500,  moC: 9200,  budMat: 11000, matC: 11400, ca: 34000,  mv: 25, mr: 22.3, prime: 200, seuil: 23, comp: ["Steven"],           cr: true,  note: "Sol dépassé",          lastUpdated: "2025-05-16" },
-  { id: 5, nom: "Colocation 5 ch — M. Guérin",       debut: "2025-04-10", livraisonInit: "2025-07-31", livraisonPrev: "2025-07-31", avR: 28, avP: 25, phase: 2, budMO: 24000, moC: 6500,  budMat: 29000, matC: 7800,  ca: 88000,  mv: 32, mr: 31.5, prime: 350, seuil: 28, comp: ["Samad", "Mady"],    cr: true,  note: "",                     lastUpdated: null         },
-];
-
-const INIT_ARCHIVES = [
-  { id: 100, nom: "Appartement T2 — M. Petit", ca: 38000, mv: 27, mr: 29.2, seuil: 25, debut: "2024-10-01", livraisonInit: "2024-12-15", livraisonPrev: "2024-12-22", archivedAt: "2025-01-08" },
-];
+// Chantiers et archives sont désormais lus depuis Supabase (table phasages).
+// Les anciens INIT_CHANTIERS / INIT_ARCHIVES (données mockées) ont été retirés
+// dans PR2. Voir phasageToChantier() pour le mapping.
 
 const INIT_PIPELINE = [
   { id: 1, nom: "Maison — Famille Renard",     ca: 95000,  proba: 70, statut: "nego",  date: "2025-06-15", note: "Accord de principe" },
@@ -167,6 +163,156 @@ const gSt = c => {
 };
 const stCol = s => s === 'green' ? '#34d188' : s === 'orange' ? '#ff9a4d' : '#ff625f';
 
+// ─── MAPPING SUPABASE → STRUCTURE DASHBOARD ──────────────────────────────────
+// phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig) renvoie la
+// structure attendue par les composants dashboard (avancement, MO, matériaux,
+// marge, CR, etc.) calculée à partir des vraies données Supabase.
+//
+// Champs non-encore-modélisés dans le schéma (mv cible, prime, seuil prime) :
+// valeurs par défaut sensibles, à remplacer par un stockage dédié plus tard.
+const TAUX_DEFAUT = 20;
+
+function calcAvancementReel(plan, phasesConfig) {
+  const allTaches = phasesConfig.flatMap(ph => (plan?.[ph.id] || []));
+  if (allTaches.length === 0) return 0;
+  const totalHV = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+  if (totalHV > 0) {
+    return Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHV);
+  }
+  return Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / allTaches.length);
+}
+
+// Avancement théorique : combien du chantier devrait être fait à aujourd'hui,
+// en fonction des dates_prevues des tâches. Linéaire entre 1ère et dernière date.
+function calcAvancementTheorique(plan, phasesConfig) {
+  const allTaches = phasesConfig.flatMap(ph => (plan?.[ph.id] || []));
+  const dates = allTaches.map(t => t.date_prevue).filter(Boolean).sort();
+  if (dates.length < 2) return 0;
+  const debut = new Date(dates[0]).getTime();
+  const fin   = new Date(dates[dates.length - 1]).getTime();
+  const today = Date.now();
+  if (today <= debut) return 0;
+  if (today >= fin) return 100;
+  return Math.round(((today - debut) / (fin - debut)) * 100);
+}
+
+// Phase courante : la plus avancée parmi les phases qui ont des tâches avec
+// avancement > 0 et < 100. Si toutes sont à 100, retourne la dernière phase.
+function calcPhaseCourante(plan, phasesConfig) {
+  let lastWithTaches = -1;
+  let firstUnfinished = -1;
+  phasesConfig.forEach((ph, i) => {
+    const taches = plan?.[ph.id] || [];
+    if (taches.length === 0) return;
+    lastWithTaches = i;
+    const allDone = taches.every(t => (parseFloat(t.avancement) || 0) >= 100);
+    if (!allDone && firstUnfinished === -1) firstUnfinished = i;
+  });
+  return firstUnfinished !== -1 ? firstUnfinished : Math.max(0, lastWithTaches);
+}
+
+function calcBudgetMO(plan, phasesConfig, tauxHoraires = {}) {
+  const allTaches = phasesConfig.flatMap(ph => (plan?.[ph.id] || []));
+  let sumPond = 0, sumPoids = 0;
+  allTaches.forEach(t => {
+    const hV = parseFloat(t.heures_vendues) || 0;
+    if (hV <= 0) return;
+    const pO = (t.ouvriers || [])[0] || "";
+    const taux = pO ? (parseFloat(tauxHoraires?.[pO]) || TAUX_DEFAUT) : TAUX_DEFAUT;
+    sumPond  += hV * taux;
+    sumPoids += hV;
+  });
+  return sumPoids * (sumPoids > 0 ? sumPond / sumPoids : 0);
+}
+
+function calcMOConsommee(plan, phasesConfig, tauxHoraires = {}) {
+  const allTaches = phasesConfig.flatMap(ph => (plan?.[ph.id] || []));
+  return allTaches.reduce((s, t) => {
+    const pO = (t.ouvriers || [])[0] || "";
+    return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (parseFloat(tauxHoraires[pO]) || 0) : 0));
+  }, 0);
+}
+
+function calcBudgetMat(plan, phasesConfig) {
+  return phasesConfig.reduce((sTotal, ph) => {
+    const mats = plan?.[ph.id + "__materiaux_prevus"] || [];
+    return sTotal + mats.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
+  }, 0);
+}
+
+function calcMatConsomme(plan, phasesConfig) {
+  return phasesConfig.reduce((sTotal, ph) => {
+    const taches = plan?.[ph.id] || [];
+    const coutCmd = parseFloat(plan?.[ph.id + "__cout_commandes"]) || 0;
+    const coutMatTaches = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+    return sTotal + coutMatTaches + coutCmd;
+  }, 0);
+}
+
+function extractCompagnons(plan, phasesConfig) {
+  const set = new Set();
+  phasesConfig.flatMap(ph => (plan?.[ph.id] || [])).forEach(t => {
+    (t.ouvriers || []).forEach(o => o && set.add(o));
+  });
+  return Array.from(set);
+}
+
+function premiereDate(plan, phasesConfig) {
+  const dates = phasesConfig.flatMap(ph => (plan?.[ph.id] || []))
+    .map(t => t.date_prevue).filter(Boolean).sort();
+  return dates[0] || null;
+}
+function derniereDate(plan, phasesConfig) {
+  const dates = phasesConfig.flatMap(ph => (plan?.[ph.id] || []))
+    .map(t => t.date_prevue).filter(Boolean).sort();
+  return dates[dates.length - 1] || null;
+}
+
+function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig) {
+  const plan = phasage?.plan_travaux || {};
+  const meta = plan.meta || {};
+  const avR  = calcAvancementReel(plan, phasesConfig);
+  const avP  = calcAvancementTheorique(plan, phasesConfig);
+  const phase = calcPhaseCourante(plan, phasesConfig);
+  const budMO = calcBudgetMO(plan, phasesConfig, tauxHoraires);
+  const moC   = calcMOConsommee(plan, phasesConfig, tauxHoraires);
+  const budMat = calcBudgetMat(plan, phasesConfig);
+  const matC   = calcMatConsomme(plan, phasesConfig);
+  const ca = parseFloat(phasage?.prix_vendu) || parseFloat(meta?.prix_vendu) || 0;
+  // Marge réelle estimée : (ca - moC - matC) / ca × 100
+  const margeBrute = ca - moC - matC;
+  const mr = ca > 0 ? +(margeBrute / ca * 100).toFixed(1) : 0;
+  // Marge vendue cible (mv), seuil prime, prime : valeurs par défaut tant qu'on
+  // ne les stocke pas explicitement par chantier. Override possible via meta.
+  const mv     = parseFloat(meta?.marge_vendue_cible) || 30;
+  const seuil  = parseFloat(meta?.seuil_prime) || 25;
+  const prime  = parseFloat(meta?.prime) || 300;
+  // Dates depuis les tâches (1ère / dernière date_prevue), ou meta si fourni
+  const debut         = meta?.date_demarrage || premiereDate(plan, phasesConfig);
+  const livraisonInit = meta?.livraison_init || derniereDate(plan, phasesConfig);
+  const livraisonPrev = meta?.livraison_prev || livraisonInit;
+  // CR hebdo : V1 simple → "reçu" si phasage mis à jour cette semaine. PR3
+  // raffinera avec la vraie table rapports.
+  const lastUpdated = phasage?.updated_at?.slice(0, 10) || null;
+  const cr = !!(lastUpdated && (Date.now() - new Date(lastUpdated).getTime()) < 7 * 86400000);
+  return {
+    id:           phasage?.id,
+    chantierId:   phasage?.chantier_id,
+    nom:          chantier?.nom || phasage?.chantier_nom || '(sans chantier)',
+    couleur:      chantier?.couleur || '#FFC200',
+    debut, livraisonInit, livraisonPrev,
+    avR, avP, phase,
+    budMO: +budMO.toFixed(0), moC: +moC.toFixed(0),
+    budMat: +budMat.toFixed(0), matC: +matC.toFixed(0),
+    ca: +ca.toFixed(0),
+    mv, mr, prime, seuil,
+    comp: extractCompagnons(plan, phasesConfig),
+    cr,
+    note: meta?.note || '',
+    lastUpdated,
+  };
+}
+
 // ─── COMPOSANTS PRIMITIFS ────────────────────────────────────────────────────
 const BG = {
   green:  { background: 'rgba(52,209,136,.13)', color: '#34d188', border: '1px solid rgba(52,209,136,.30)' },
@@ -197,9 +343,9 @@ const UpdBadge = ({ d, T }) => {
   return <span style={{ ...stylesBase, ...BG.red }}>Il y a {days}j ⚠️</span>;
 };
 
-const PhaseTrack = ({ phase, T }) => (
+const PhaseTrack = ({ phase, phasesLabels = PHASES_FALLBACK_LABELS, T }) => (
   <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
-    {PHASES.map((p, i) => (
+    {phasesLabels.map((p, i) => (
       <div key={i} title={p} style={{
         width: 10, height: 10, borderRadius: 3, flexShrink: 0,
         ...(i < phase
@@ -322,100 +468,11 @@ const ENum = ({ v, onChange, ph = '0', T, style: es = {} }) => (
   <input type="number" value={v || ''} onChange={e => onChange(nv(e.target.value))} placeholder={ph} style={{ ...edtCls(T), ...es }}/>
 );
 
-// ─── MODALES ─────────────────────────────────────────────────────────────────
-const BLANK_CHANTIER = { nom: '', debut: '', livraisonInit: '', livraisonPrev: '', avR: 0, avP: 0, phase: 0, budMO: 0, moC: 0, budMat: 0, matC: 0, ca: 0, mv: 0, mr: 0, prime: 300, seuil: 25, comp: [], cr: false, note: '', lastUpdated: null };
-
-function NewChantierModal({ open, onClose, onSave, T, acc }) {
-  const [f, setF] = useState({ ...BLANK_CHANTIER, compStr: '' });
-  const u = k => v => setF(p => ({ ...p, [k]: v }));
-  const save = () => {
-    if (!f.nom.trim()) { alert('Nom requis'); return; }
-    onSave({ ...f, comp: f.compStr.split(',').map(s => s.trim()).filter(Boolean), lastUpdated: todayISO() });
-    setF({ ...BLANK_CHANTIER, compStr: '' });
-  };
-  return (
-    <Modal open={open} onClose={onClose} T={T} acc={acc} title="🏗️ Nouveau Chantier" footer={
-      <>
-        <Btn onClick={onClose} color="ghost" T={T} acc={acc}>Annuler</Btn>
-        <Btn onClick={save} color="gold" T={T} acc={acc}>✅ Créer le chantier</Btn>
-      </>
-    }>
-      <FG label="Nom du chantier / client" T={T}>
-        <input type="text" value={f.nom} onChange={e => setF(p => ({ ...p, nom: e.target.value }))} placeholder="Ex : Rénovation complète — M. Martin" style={inpCls(T)}/>
-      </FG>
-      <FR2>
-        <FG label="Date démarrage" T={T}><input type="date" value={f.debut} onChange={e => u('debut')(e.target.value)} style={inpCls(T)}/></FG>
-        <FG label="Date livraison" T={T}><input type="date" value={f.livraisonInit} onChange={e => setF(p => ({ ...p, livraisonInit: e.target.value, livraisonPrev: e.target.value }))} style={inpCls(T)}/></FG>
-      </FR2>
-      <FR2>
-        <FG label="CA vendu TTC (€)" T={T}><input type="number" value={f.ca || ''} onChange={e => u('ca')(nv(e.target.value))} placeholder="60000" style={inpCls(T)}/></FG>
-        <FG label="Marge vendue (%)" T={T}><input type="number" value={f.mv || ''} onChange={e => u('mv')(nv(e.target.value))} placeholder="28" style={inpCls(T)}/></FG>
-      </FR2>
-      <FR2>
-        <FG label="Budget MO prévu (€)" T={T}><input type="number" value={f.budMO || ''} onChange={e => u('budMO')(nv(e.target.value))} style={inpCls(T)}/></FG>
-        <FG label="Budget matériaux prévu (€)" T={T}><input type="number" value={f.budMat || ''} onChange={e => u('budMat')(nv(e.target.value))} style={inpCls(T)}/></FG>
-      </FR2>
-      <FR2>
-        <FG label="Prime chantier prévue (€)" T={T}><input type="number" value={f.prime || ''} onChange={e => u('prime')(nv(e.target.value))} placeholder="300" style={inpCls(T)}/></FG>
-        <FG label="Seuil prime — marge min (%)" T={T}><input type="number" value={f.seuil || ''} onChange={e => u('seuil')(nv(e.target.value))} placeholder="25" style={inpCls(T)}/></FG>
-      </FR2>
-      <FG label="Responsable / note MO chantier (facultatif)" T={T}>
-        <input type="text" value={f.compStr} onChange={e => setF(p => ({ ...p, compStr: e.target.value }))} placeholder="Ex : Loris / point MO à suivre" style={inpCls(T)}/>
-      </FG>
-    </Modal>
-  );
-}
-
-function UpdateModal({ open, chantier, onClose, onSave, onArchive, T, acc }) {
-  const [f, setF] = useState({});
-  useEffect(() => { if (chantier) setF({ ...chantier, compStr: (chantier.comp || []).join(', ') }); }, [chantier]);
-  if (!open || !chantier) return null;
-  const u = k => v => setF(p => ({ ...p, [k]: v }));
-  const save = () => { onSave({ ...f, comp: (f.compStr || '').split(',').map(s => s.trim()).filter(Boolean), lastUpdated: todayISO() }); };
-  const title = chantier.nom.split('—')[0].trim();
-  return (
-    <Modal open={open} onClose={onClose} T={T} acc={acc} title={`📝 ${title}`} footer={
-      <>
-        <Btn onClick={onClose} color="ghost" T={T} acc={acc}>Annuler</Btn>
-        <Btn onClick={() => onArchive(chantier.id)} color="green" T={T} acc={acc}>📦 Archiver</Btn>
-        <Btn onClick={save} color="gold" T={T} acc={acc}>💾 Enregistrer</Btn>
-      </>
-    }>
-      <MSec T={T}>📊 Avancement & Jalons</MSec>
-      <FR2>
-        <FG label="Avancement réel (%)" T={T}><input type="number" value={f.avR || 0} onChange={e => u('avR')(nv(e.target.value))} min="0" max="100" style={inpCls(T)}/></FG>
-        <FG label="Avancement prévu (%)" T={T}><input type="number" value={f.avP || 0} onChange={e => u('avP')(nv(e.target.value))} min="0" max="100" style={inpCls(T)}/></FG>
-      </FR2>
-      <FG label="Phase en cours" T={T}>
-        <select value={f.phase || 0} onChange={e => u('phase')(parseInt(e.target.value))} style={{ ...inpCls(T), cursor: 'pointer' }}>
-          {PHASES.map((p, i) => <option key={i} value={i}>{i} — {p}</option>)}
-        </select>
-      </FG>
-      <MSec T={T}>💰 Finances chantier</MSec>
-      <FR2>
-        <FG label="MO consommée à date (€)" T={T}><input type="number" value={f.moC || ''} onChange={e => u('moC')(nv(e.target.value))} style={inpCls(T)}/></FG>
-        <FG label="Matériaux consommés (€)" T={T}><input type="number" value={f.matC || ''} onChange={e => u('matC')(nv(e.target.value))} style={inpCls(T)}/></FG>
-      </FR2>
-      <FR2>
-        <FG label="Marge réelle estimée (%)" T={T}><input type="number" step="0.1" value={f.mr || ''} onChange={e => u('mr')(nv(e.target.value))} style={inpCls(T)}/></FG>
-        <FG label="CA vendu TTC (€)" T={T}><input type="number" value={f.ca || ''} onChange={e => u('ca')(nv(e.target.value))} style={inpCls(T)}/></FG>
-      </FR2>
-      <MSec T={T}>📅 Planning & suivi</MSec>
-      <FR2>
-        <FG label="Date livraison prévisionnelle" T={T}><input type="date" value={f.livraisonPrev || ''} onChange={e => u('livraisonPrev')(e.target.value)} style={inpCls(T)}/></FG>
-        <FG label="CR reçu ?" T={T}>
-          <select value={f.cr ? '1' : '0'} onChange={e => u('cr')(e.target.value === '1')} style={{ ...inpCls(T), cursor: 'pointer' }}>
-            <option value="1">✅ Oui — reçu</option>
-            <option value="0">⏳ Non — manquant</option>
-          </select>
-        </FG>
-      </FR2>
-      <FG label="Responsable / note MO chantier" T={T}><input type="text" value={f.compStr || ''} onChange={e => setF(p => ({ ...p, compStr: e.target.value }))} placeholder="Ex : Loris / point MO à suivre" style={inpCls(T)}/></FG>
-      <FG label="Note / observation" T={T}><input type="text" value={f.note || ''} onChange={e => u('note')(e.target.value)} placeholder="Ex : En attente livraison carrelage…" style={inpCls(T)}/></FG>
-    </Modal>
-  );
-}
-
+// ─── MODALE PIPELINE ─────────────────────────────────────────────────────────
+// Note PR2 : les modales "Nouveau chantier" et "Mise à jour chantier" ont été
+// retirées du dashboard. Les chantiers sont désormais lus en lecture seule
+// depuis Supabase (table phasages). Pour modifier un chantier, l'utilisateur
+// doit passer par la fiche chantier de l'application (page Chantiers).
 function PipelineModal({ open, item, onClose, onSave, T, acc }) {
   const blank = { nom: '', ca: 0, proba: 50, statut: 'prospect', date: '', note: '' };
   const [f, setF] = useState(blank);
@@ -448,9 +505,25 @@ function PipelineModal({ open, item, onClose, onSave, T, acc }) {
 }
 
 // ─── ONGLET CHANTIERS ────────────────────────────────────────────────────────
-function ChantiersTab({ chantiers, archives, onUpdate, onArchive, onRestore, T, acc }) {
+function ChantiersTab({ chantiers, archives, onRestore, loading = false, phasesLabels = PHASES_FALLBACK_LABELS, T, acc }) {
   const [archOpen, setArchOpen] = useState(false);
   const alerts = chantiers.filter(c => gSt(c) !== 'green');
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: 'center', color: T?.textMuted || '#5b6a8a' }}>Chargement des chantiers…</div>;
+  }
+  if (chantiers.length === 0) {
+    return (
+      <Card T={T}>
+        <div style={{ padding: 40, textAlign: 'center', color: T?.textMuted || '#5b6a8a' }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T?.text || '#f0f0f0', marginBottom: 6 }}>Aucun chantier actif</div>
+          <div style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 420, margin: '0 auto' }}>
+            Crée un chantier depuis l'onglet « Chantiers » de l'application — il apparaîtra automatiquement ici dès qu'un phasage lui sera associé.
+          </div>
+        </div>
+      </Card>
+    );
+  }
   return (
     <div>
       {alerts.length > 0 && (
@@ -488,7 +561,6 @@ function ChantiersTab({ chantiers, archives, onUpdate, onArchive, onRestore, T, 
                 <th>Livraison</th>
                 <th>CR</th>
                 <th>Dernière analyse</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -525,9 +597,9 @@ function ChantiersTab({ chantiers, archives, onUpdate, onArchive, onRestore, T, 
                         </div>
                         <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: avColor, minWidth: 30 }}>{c.avR}%</span>
                       </div>
-                      <PhaseTrack phase={c.phase || 0} T={T}/>
+                      <PhaseTrack phase={c.phase || 0} phasesLabels={phasesLabels} T={T}/>
                       <div style={{ fontSize: 9, color: T?.textMuted || '#5b6a8a', marginTop: 3 }}>
-                        Phase : {PHASES[c.phase] || '—'} <span style={{ color: avColor }}>({avD >= 0 ? '+' : ''}{avD}pts)</span>
+                        Phase : {phasesLabels[c.phase] || '—'} <span style={{ color: avColor }}>({avD >= 0 ? '+' : ''}{avD}pts)</span>
                       </div>
                     </td>
                     <td>
@@ -561,7 +633,6 @@ function ChantiersTab({ chantiers, archives, onUpdate, onArchive, onRestore, T, 
                     </td>
                     <td><Badge c={c.cr ? 'green' : 'red'}>{c.cr ? '✅ Reçu' : '⏳ Manquant'}</Badge></td>
                     <td><UpdBadge d={c.lastUpdated} T={T}/></td>
-                    <td><Btn onClick={() => onUpdate(c)} sm color="ghost" T={T} acc={acc}>📝 MAJ</Btn></td>
                   </tr>
                 );
               })}
@@ -1213,14 +1284,61 @@ const TABS = [
 
 export default function DashboardAnalyse({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
-  const [chantiers, setChantiers] = useState(INIT_CHANTIERS);
-  const [archives, setArchives] = useState(INIT_ARCHIVES);
+  // Sources de données réelles (Supabase) chargées au mount.
+  const [phasesConfig, setPhasesConfig] = useState(PHASES_DEFAUT);
+  const [phasagesRaw, setPhasagesRaw] = useState([]);
+  const [chantiersRaw, setChantiersRaw] = useState([]);
+  const [tauxHoraires, setTauxHoraires] = useState({});
+  const [loading, setLoading] = useState(true);
+  // Pipeline + finances restent mockés pour cette V1 (PR2 ne couvre que Chantiers).
   const [pipeline, setPipeline] = useState(INIT_PIPELINE);
   const [finances, setFinances] = useState(INIT_FINANCES);
   const [activeTab, setActiveTab] = useState('chantiers');
-  const [newModal, setNewModal] = useState(false);
-  const [updateModal, setUpdateModal] = useState({ open: false, chantier: null });
   const [pipeModal, setPipeModal] = useState({ open: false, item: null });
+
+  // Chargement initial : phases, phasages, chantiers, taux horaires.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const [pCfg, phQ, cfgQ] = await Promise.all([
+        loadPhases(),
+        supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, prix_vendu, updated_at"),
+        supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
+      ]);
+      if (cancelled) return;
+      setPhasesConfig(Array.isArray(pCfg) && pCfg.length > 0 ? pCfg : PHASES_DEFAUT);
+      setPhasagesRaw(phQ.data || []);
+      const cfg = {}; (cfgQ.data || []).forEach(r => { cfg[r.key] = r.value; });
+      setChantiersRaw(Array.isArray(cfg.chantiers) ? cfg.chantiers : []);
+      setTauxHoraires(cfg.taux_horaires || {});
+      setLoading(false);
+    })();
+    // Channel realtime : recharger les phasages dès qu'un est mis à jour
+    const ch = supabase.channel("dashboard-phasages")
+      .on("postgres_changes", { event: "*", schema: "public", table: "phasages" },
+          async () => {
+            const { data } = await supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, prix_vendu, updated_at");
+            if (!cancelled) setPhasagesRaw(data || []);
+          })
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+
+  // Mapping Supabase → structure dashboard. Mémoïsé pour ne pas recalculer
+  // à chaque rendu si les sources ne bougent pas.
+  const chantiers = useMemo(() => {
+    if (!phasagesRaw.length) return [];
+    const byChantier = Object.fromEntries(chantiersRaw.map(c => [c.id, c]));
+    return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig));
+  }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig]);
+
+  // Archives : pour l'instant on n'a pas de notion d'archivage des phasages,
+  // donc on laisse vide. PR3+ : pourrait lire un flag phasage.archive.
+  const archives = [];
+
+  // Labels des phases (pour PhaseTrack + colonne phase)
+  const phasesLabels = useMemo(() => phasesConfig.map(p => p.label), [phasesConfig]);
 
   const totalCA      = useMemo(() => chantiers.reduce((s, c) => s + c.ca, 0), [chantiers]);
   const avgMV        = useMemo(() => chantiers.length ? chantiers.reduce((s, c) => s + c.mv, 0) / chantiers.length : 0, [chantiers]);
@@ -1230,27 +1348,8 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
   const pipeTotal    = useMemo(() => pipeline.reduce((s, p) => s + p.ca * (p.proba / 100), 0), [pipeline]);
   const health = alertCount === 0 ? 'good' : alertCount <= 2 ? 'warn' : 'bad';
 
-  const addChantier = f => {
-    setChantiers(p => [...p, { ...f, id: Math.max(...p.map(c => c.id), 0) + 1 }]);
-    setNewModal(false);
-  };
-  const updateChantier = f => {
-    setChantiers(p => p.map(c => c.id === f.id ? f : c));
-    setUpdateModal({ open: false, chantier: null });
-  };
-  const archiveChantier = id => {
-    const c = chantiers.find(ch => ch.id === id);
-    if (!c || !window.confirm(`Archiver "${c.nom.split('—')[0].trim()}" ?`)) return;
-    setArchives(p => [{ ...c, archivedAt: todayISO() }, ...p]);
-    setChantiers(p => p.filter(ch => ch.id !== id));
-    setUpdateModal({ open: false, chantier: null });
-  };
-  const restoreChantier = id => {
-    const a = archives.find(x => x.id === id);
-    if (!a || !window.confirm(`Restaurer "${a.nom.split('—')[0].trim()}" ?`)) return;
-    setChantiers(p => [...p, { ...a, archivedAt: undefined }]);
-    setArchives(p => p.filter(x => x.id !== id));
-  };
+  // Restore chantier : pas applicable tant qu'on n'a pas d'archives en base.
+  const restoreChantier = () => {};
   const savePipeline = f => {
     if (!f.nom.trim()) return;
     setPipeline(p => f.id && p.find(x => x.id === f.id) ? p.map(x => x.id === f.id ? f : x) : [...p, { ...f, id: Date.now() }]);
@@ -1279,8 +1378,6 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
         .da-table tbody tr:hover td { background: rgba(255,194,0,0.03); }
       `}</style>
 
-      <NewChantierModal open={newModal} onClose={() => setNewModal(false)} onSave={addChantier} T={T} acc={acc}/>
-      <UpdateModal open={updateModal.open} chantier={updateModal.chantier} onClose={() => setUpdateModal({ open: false, chantier: null })} onSave={updateChantier} onArchive={archiveChantier} T={T} acc={acc}/>
       <PipelineModal open={pipeModal.open} item={pipeModal.item} onClose={() => setPipeModal({ open: false, item: null })} onSave={savePipeline} T={T} acc={acc}/>
 
       {/* HEADER */}
@@ -1299,7 +1396,7 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
           {healthStyles[health].label}
         </div>
         <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: T?.textSub || '#9aa5c0', padding: '7px 12px', border: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`, borderRadius: 999 }}>{dateLabel}</div>
-        <Btn onClick={() => setNewModal(true)} color="gold" T={T} acc={acc}>＋ Chantier</Btn>
+        {loading && <span style={{ fontSize: 11, color: T?.textMuted || '#5b6a8a', fontStyle: 'italic' }}>Chargement…</span>}
       </div>
 
       {/* KPIs */}
@@ -1347,7 +1444,7 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
 
       {/* CONTENU */}
       <div style={{ padding: '24px 28px', maxWidth: 1540, margin: '0 auto' }}>
-        {activeTab === 'chantiers'      && <ChantiersTab     chantiers={chantiers} archives={archives} onUpdate={c => setUpdateModal({ open: true, chantier: c })} onArchive={archiveChantier} onRestore={restoreChantier} T={T} acc={acc}/>}
+        {activeTab === 'chantiers'      && <ChantiersTab     chantiers={chantiers} archives={archives} onRestore={restoreChantier} loading={loading} phasesLabels={phasesLabels} T={T} acc={acc}/>}
         {activeTab === 'pipeline'       && <PipelineTab      pipeline={pipeline} onAdd={() => setPipeModal({ open: true, item: null })} onEdit={item => setPipeModal({ open: true, item })} T={T} acc={acc}/>}
         {activeTab === 'analyseSociete' && <SocieteFinanceTab T={T} acc={acc}/>}
         {activeTab === 'primes'         && <PrimesTab        chantiers={chantiers} T={T} acc={acc}/>}
