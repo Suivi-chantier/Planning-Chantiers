@@ -408,7 +408,7 @@ function ColonneSemaine({ semaine, cartes, urgence, onPasserCommande, onOpenDeta
   // Totaux semaine (TVA standard BTP matériaux : 20%)
   const totalHt  = cartes.reduce((s, c) => s + (c.totalHt || 0), 0);
   const totalTtc = totalHt * 1.20;
-  const fmt = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmt = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return (
     <div style={{
       background: surface, border: `1px solid ${isCurrent ? "#f97316aa" : border}`,
@@ -438,13 +438,13 @@ function ColonneSemaine({ semaine, cartes, urgence, onPasserCommande, onOpenDeta
           }}>
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
               <span style={{ fontSize: 9, color: textMuted, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase" }}>HT</span>
-              <span style={{ fontSize: FONT.sm.size, color: text, fontWeight: 800, fontFamily: "'DM Mono',monospace" }} title={totalHt.toFixed(2) + " € HT"}>
+              <span style={{ fontSize: FONT.sm.size, color: text, fontWeight: 800, fontFamily: "'DM Mono',monospace" }}>
                 {fmt(totalHt)} €
               </span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1, alignItems: "flex-end" }}>
               <span style={{ fontSize: 9, color: textMuted, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase" }}>TTC</span>
-              <span style={{ fontSize: FONT.sm.size, color: isCurrent ? "#f97316" : text, fontWeight: 800, fontFamily: "'DM Mono',monospace" }} title={totalTtc.toFixed(2) + " € TTC (TVA 20%)"}>
+              <span style={{ fontSize: FONT.sm.size, color: isCurrent ? "#f97316" : text, fontWeight: 800, fontFamily: "'DM Mono',monospace" }} title="TVA 20%">
                 {fmt(totalTtc)} €
               </span>
             </div>
