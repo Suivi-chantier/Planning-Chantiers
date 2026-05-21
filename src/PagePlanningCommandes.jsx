@@ -69,20 +69,9 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
 
   // Chargement des phasages
   const loadPhasages = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("phasages")
-      .select("id, chantier_id, chantier_nom, plan_travaux, statut");
-    // DEBUG temporaire pour diagnostiquer le bug d'affichage des matériaux
-    console.log("[PlanningCommandes] phasages lus:", data?.length, "rows", error || "");
-    if (data) {
-      data.forEach(p => {
-        const plan = p.plan_travaux || {};
-        const matKeys = Object.keys(plan).filter(k => k.endsWith("__materiaux_prevus"));
-        if (matKeys.length > 0) {
-          console.log("  →", p.chantier_nom, "| phaseKeys avec matériaux:", matKeys, "| nb:", matKeys.map(k => plan[k]?.length || 0));
-        }
-      });
-    }
+      .select("id, chantier_id, chantier_nom, plan_travaux");
     setPhasages(data || []);
   };
   useEffect(() => {
@@ -159,7 +148,6 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         });
       });
     });
-    console.log("[PlanningCommandes] cartes calculées:", cartes.length, "| phases connues:", phases.length, "| phasages:", phasages.length);
     return cartes;
   }, [phasages, chantiers, phases]);
 
