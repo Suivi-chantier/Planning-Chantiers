@@ -278,7 +278,8 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig) {
   const moC   = calcMOConsommee(plan, phasesConfig, tauxHoraires);
   const budMat = calcBudgetMat(plan, phasesConfig);
   const matC   = calcMatConsomme(plan, phasesConfig);
-  const ca = parseFloat(phasage?.prix_vendu) || parseFloat(meta?.prix_vendu) || 0;
+  // prix_vendu stocké dans plan_travaux.meta (pas une colonne phasages).
+  const ca = parseFloat(meta?.prix_vendu) || 0;
   // Marge réelle estimée : (ca - moC - matC) / ca × 100
   const margeBrute = ca - moC - matC;
   const mr = ca > 0 ? +(margeBrute / ca * 100).toFixed(1) : 0;
@@ -1303,7 +1304,7 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
       setLoading(true);
       const [pCfg, phQ, cfgQ] = await Promise.all([
         loadPhases(),
-        supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, prix_vendu, updated_at"),
+        supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at"),
         supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
       ]);
       if (cancelled) return;
@@ -1318,7 +1319,7 @@ export default function DashboardAnalyse({ T, branch = "renovation" }) {
     const ch = supabase.channel("dashboard-phasages")
       .on("postgres_changes", { event: "*", schema: "public", table: "phasages" },
           async () => {
-            const { data } = await supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, prix_vendu, updated_at");
+            const { data } = await supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at");
             if (!cancelled) setPhasagesRaw(data || []);
           })
       .subscribe();
