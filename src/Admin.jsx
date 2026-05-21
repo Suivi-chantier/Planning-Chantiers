@@ -2573,7 +2573,8 @@ function PhrasesEditor({ catKey, label, items, onChange, T, acc }) {
 // (label, couleur, ajout, suppression). Persistance dans planning_config via
 // access.saveAccessConfig. Changements propagés en temps réel grâce au channel
 // postgres_changes branché dans App.jsx et PageInvest.jsx.
-function OngletAcces({ T, acc }) {
+// Exporté pour être réutilisé dans les Réglages de Profero Invest.
+export function OngletAcces({ T, acc }) {
   const [branche, setBranche]   = useState("renovation");
   const [roles, setRoles]       = useState([]);
   const [rolePages, setRolePages] = useState({});

@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "./access";
+import { OngletAcces } from "./Admin";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
@@ -3084,8 +3085,8 @@ function AdminInvest({ profil, T, theme, setTheme }) {
       <div style={{ fontSize:14, color:T.textSub, marginBottom:24 }}>Administration de l'application Profero Invest.</div>
 
       {/* Onglets */}
-      <div style={{ display:"flex", gap:4, marginBottom:24, borderBottom:`1px solid ${T.border}`, paddingBottom:8 }}>
-        {[["utilisateurs","👥 Utilisateurs"],["apparence","🎨 Apparence"]].map(([k,l])=>(
+      <div style={{ display:"flex", gap:4, marginBottom:24, borderBottom:`1px solid ${T.border}`, paddingBottom:8, flexWrap:"wrap" }}>
+        {[["utilisateurs","👥 Utilisateurs"],["acces","🔒 Accès"],["apparence","🎨 Apparence"]].map(([k,l])=>(
           <button key={k}
             onClick={() => setOnglet(k)}
             style={{
@@ -3103,6 +3104,11 @@ function AdminInvest({ profil, T, theme, setTheme }) {
 
       {/* Onglet Utilisateurs — réutilise le même composant que Rénovation */}
       {onglet === "utilisateurs" && <OngletUtilisateursInvest T={T} />}
+
+      {/* Onglet Accès — composant partagé avec les Réglages Rénovation */}
+      {onglet === "acces" && (
+        <OngletAcces T={T} acc={{ accent: T.accent, onAccent: "#fff", bg10: T.accentBg }}/>
+      )}
 
       {/* Onglet Apparence */}
       {onglet === "apparence" && (
@@ -3147,19 +3153,34 @@ function OngletUtilisateursInvest({ T }) {
   const [resetEmail, setResetEmail]     = useState("");
   const [resetLoading, setResetLoading] = useState(false);
 
-  const ROLES = [
+  // Liste de rôles chargée dynamiquement (union Réno + Invest).
+  const [ROLES, setROLES] = useState([
     { value:"admin",      label:"Administrateur" },
     { value:"conducteur", label:"Conducteur de travaux" },
     { value:"commercial", label:"Commercial" },
     { value:"comptable",  label:"Comptable" },
-  ];
+  ]);
+  const [ROLE_LABELS, setRoleLabels] = useState({ admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" });
+  const [ROLE_COLORS, setRoleColors] = useState({ admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" });
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([loadAccessConfig("renovation"), loadAccessConfig("invest")]).then(([reno, inv]) => {
+      if (cancelled) return;
+      const seen = new Map();
+      for (const r of reno.roles) if (!seen.has(r.id)) seen.set(r.id, r);
+      for (const r of inv.roles)  if (!seen.has(r.id)) seen.set(r.id, r);
+      const arr = Array.from(seen.values());
+      setROLES(arr.map(r => ({ value: r.id, label: r.label })));
+      setRoleLabels(Object.fromEntries(arr.map(r => [r.id, r.label])));
+      setRoleColors(Object.fromEntries(arr.map(r => [r.id, r.color])));
+    });
+    return () => { cancelled = true; };
+  }, []);
   const BRANCHES = [
     { value:"renovation", label:"Rénovation" },
     { value:"invest",     label:"Invest" },
   ];
-  const ROLE_LABELS   = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
   const BRANCHE_LABELS = { renovation:"Rénovation", invest:"Invest" };
-  const ROLE_COLORS   = { admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" };
 
   const charger = async () => {
     setLoading(true);
@@ -3340,7 +3361,7 @@ function OngletUtilisateursInvest({ T }) {
               ) : (
                 <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
                   {/* Avatar */}
-                  <div style={{ width:38, height:38, borderRadius:10, flexShrink:0, background:`${ROLE_COLORS[u.role]}22`, border:`1.5px solid ${ROLE_COLORS[u.role]}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:ROLE_COLORS[u.role] }}>
+                  <div style={{ width:38, height:38, borderRadius:10, flexShrink:0, background:`${(ROLE_COLORS[u.role] || "#888888")}22`, border:`1.5px solid ${(ROLE_COLORS[u.role] || "#888888")}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:(ROLE_COLORS[u.role] || "#888888") }}>
                     {u.nom?.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
                   </div>
                   {/* Infos */}
@@ -3351,7 +3372,7 @@ function OngletUtilisateursInvest({ T }) {
                     </div>
                     <div style={{ fontSize:12, color:T.textMuted, marginTop:2 }}>{u.email}</div>
                     <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
-                      <span style={{ fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:700, background:`${ROLE_COLORS[u.role]}18`, color:ROLE_COLORS[u.role], border:`1px solid ${ROLE_COLORS[u.role]}33` }}>
+                      <span style={{ fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:700, background:`${(ROLE_COLORS[u.role] || "#888888")}18`, color:(ROLE_COLORS[u.role] || "#888888"), border:`1px solid ${(ROLE_COLORS[u.role] || "#888888")}33` }}>
                         {ROLE_LABELS[u.role]||u.role}
                       </span>
                       {(u.branches||["renovation"]).map(b=>(
