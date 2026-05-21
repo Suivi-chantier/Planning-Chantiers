@@ -8,9 +8,9 @@ import {
   Send, Edit3,
 } from "lucide-react";
 
-// PHASES dynamiques (même pattern que les autres pages).
-let PHASES = [...PHASES_DEFAUT];
-loadPhases().then(p => { PHASES = p; });
+// PHASES dynamiques : chargées en state pour pouvoir invalider le useMemo
+// quand la liste personnalisée arrive (sinon les phases custom dont l'ID n'est
+// pas dans PHASES_DEFAUT sont ignorées au premier rendu).
 
 // ─── HELPERS DATES ───────────────────────────────────────────────────────────
 // Lundi (00:00) de la semaine contenant `d`. ISO : lundi = début de semaine.
@@ -45,10 +45,18 @@ function numeroSemaine(d) {
 // ─── PAGE PRINCIPALE ─────────────────────────────────────────────────────────
 export default function PagePlanningCommandes({ chantiers = [], T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
+  const [phases, setPhases]       = useState(PHASES_DEFAUT);
   const [phasages, setPhasages]   = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [carteOpen, setCarteOpen] = useState(null); // carte en cours de commande
+
+  // Chargement des phases personnalisées (Admin → Phases)
+  useEffect(() => {
+    let cancelled = false;
+    loadPhases().then(p => { if (!cancelled) setPhases(p); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Couleurs harmonisées avec le reste de l'app
   const bg        = T?.bg        || "#1e2128";
@@ -115,7 +123,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
     phasages.forEach(p => {
       const plan = p.plan_travaux || {};
       const chantier = chantiers.find(c => c.id === p.chantier_id);
-      PHASES.forEach(ph => {
+      phases.forEach(ph => {
         const mats = plan[ph.id + "__materiaux_prevus"] || [];
         if (!Array.isArray(mats) || mats.length === 0) return;
         const dateISO   = plan[ph.id + "__date_commande"] || null;
@@ -141,7 +149,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       });
     });
     return cartes;
-  }, [phasages, chantiers]);
+  }, [phasages, chantiers, phases]);
 
   // ── Répartition par semaine + colonne "sans date"
   const cartesParSemaine = useMemo(() => {
