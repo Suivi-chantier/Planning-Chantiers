@@ -33,6 +33,7 @@ export const PAGES_RENOVATION = [
   { id: "visite",             label: "Visites chantier"          },
   { id: "info-client",        label: "Infos Client"              },
   { id: "compte-rendu",       label: "Compte rendu client"       },
+  { id: "dashboard-analyse",  label: "Dashboard Analyse"         },
   { id: "admin",              label: "Réglages"                  },
 ];
 
@@ -61,7 +62,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu","admin",
+    "visite","info-client","compte-rendu","dashboard-analyse","admin",
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",

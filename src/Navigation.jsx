@@ -3,6 +3,7 @@ import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
+  TrendingUp,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "./constants";
 import { Icon } from "./ui";
@@ -58,6 +59,7 @@ const ALL_NAV_ITEMS = [
   { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
   { id:"info-client",      icon:IdCard,          label:"Client",     longLabel:"Infos Client"        },
   { id:"compte-rendu",     icon:FileText,        label:"CR",         longLabel:"Compte rendu client" },
+  { id:"dashboard-analyse",icon:TrendingUp,      label:"Analyse",    longLabel:"Dashboard Analyse"   },
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
 ];
 
@@ -248,6 +250,7 @@ function Sidebar({
     { id:"visite",           icon:Search,          label:"Visites chantier" },
     { id:"info-client",      icon:IdCard,          label:"Infos Client"     },
     { id:"compte-rendu",     icon:FileText,        label:"Compte rendu client"},
+    { id:"dashboard-analyse",icon:TrendingUp,      label:"Dashboard Analyse"  },
     { id:"admin",            icon:Settings,        label:"Réglages"         },
   ];
 
