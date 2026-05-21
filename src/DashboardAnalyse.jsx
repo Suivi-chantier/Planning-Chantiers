@@ -330,7 +330,9 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCR
   // CR hebdo : lecture de la table cr_comptes_rendus (lastCRByChantier).
   // Statut calculé par semaine ISO : "Validé S{X}" / "À valider" / "En retard".
   const lastUpdated = phasage?.updated_at?.slice(0, 10) || null;
-  const lastCR = lastCRByChantier[phasage?.chantier_id] || null;
+  const lastCREntry = lastCRByChantier[phasage?.chantier_id] || null;
+  const lastCR     = lastCREntry?.date || null;
+  const crValidateur = lastCREntry?.validateur || null;
   const crInfo = calcCRStatut(lastCR);
   const cr = crInfo.status === 'valide';
   return {
@@ -350,6 +352,7 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCR
     crLabel:  crInfo.label,           // ex: "Validé S21" / "À valider" / "En retard (S19)"
     crDate:   crInfo.date,            // date du dernier CR ou null
     crSemaine: crInfo.semaine,        // ex: "S21" ou null
+    crValidateur,                     // nom de la personne qui a validé le dernier CR (peut être null)
     note: meta?.note || '',
     lastUpdated,
   };
@@ -719,6 +722,11 @@ function ChantiersTab({ chantiers, archives, onRestore, onOpenChantier, loading 
                                 Dernier : {dfr(c.crDate)}
                               </div>
                             )}
+                            {c.crValidateur && (
+                              <div style={{ fontSize: 9, color: T?.textMuted || '#5b6a8a', marginTop: 1, fontStyle: 'italic' }}>
+                                Par : {c.crValidateur}
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
@@ -900,11 +908,56 @@ function AnalysesBulle({ T, acc }) {
   const [open, setOpen] = useState(false);
   const periods = useMemo(periodKeys, []);
   const storageKey = 'profero-dashboard-analyse-stickers-v2';
+  const positionKey = 'profero-dashboard-analyse-fab-pos';
   const [done, setDone] = useState(() => {
     try { return JSON.parse(window.localStorage.getItem(storageKey) || '{}'); }
     catch (_e) { return {}; }
   });
   useEffect(() => { try { window.localStorage.setItem(storageKey, JSON.stringify(done)); } catch (_e) {} }, [done]);
+
+  // ── Bulle déplaçable : position en bas-droite par défaut, persistée en localStorage.
+  //    Coordonnées stockées en (right, bottom) — pratique pour les écrans qui changent de taille.
+  const [pos, setPos] = useState(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(positionKey) || 'null');
+      if (stored && typeof stored.right === 'number' && typeof stored.bottom === 'number') return stored;
+    } catch (_e) {}
+    return { right: 24, bottom: 24 };
+  });
+  const dragState = React.useRef({ dragging: false, moved: false, startX: 0, startY: 0, startPos: null });
+
+  const onPointerDown = (e) => {
+    // Évite le drag si on clique sur le badge interne (chiffres)
+    dragState.current = {
+      dragging: true,
+      moved: false,
+      startX: e.clientX, startY: e.clientY,
+      startPos: { ...pos },
+    };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e) => {
+    if (!dragState.current.dragging) return;
+    const dx = e.clientX - dragState.current.startX;
+    const dy = e.clientY - dragState.current.startY;
+    if (!dragState.current.moved && Math.hypot(dx, dy) > 4) dragState.current.moved = true;
+    if (!dragState.current.moved) return;
+    const right  = Math.max(8, dragState.current.startPos.right  - dx);
+    const bottom = Math.max(8, dragState.current.startPos.bottom - dy);
+    setPos({ right, bottom });
+  };
+  const onPointerUp = (e) => {
+    const wasMoved = dragState.current.moved;
+    dragState.current.dragging = false;
+    if (wasMoved) {
+      try { window.localStorage.setItem(positionKey, JSON.stringify(pos)); } catch (_e) {}
+    } else {
+      // Pas de drag → c'était un clic, on ouvre
+      setOpen(true);
+    }
+    dragState.current.moved = false;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
 
   const periodOf = (groupKey) => periods[groupKey] || periods.daily;
   const itemKey = (groupKey, itemId) => `${periodOf(groupKey)}::${itemId}`;
@@ -920,26 +973,28 @@ function AnalysesBulle({ T, acc }) {
 
   return (
     <>
-      {/* FAB en bas à droite */}
+      {/* FAB déplaçable — position persistée en localStorage */}
       <button
-        onClick={() => setOpen(true)}
-        aria-label="Ouvrir les analyses"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        aria-label="Ouvrir les analyses (déplaçable)"
+        title="Glisse pour déplacer · Clique pour ouvrir"
         style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 900,
+          position: 'fixed', bottom: pos.bottom, right: pos.right, zIndex: 900,
           display: 'inline-flex', alignItems: 'center', gap: 8,
           padding: '12px 18px', borderRadius: 999,
           background: acc?.accent || '#FFC200', color: acc?.onAccent || '#1a1a1a',
           border: 'none', fontFamily: 'inherit', fontSize: 13, fontWeight: 800,
           boxShadow: '0 14px 32px rgba(0,0,0,0.35), 0 0 0 2px rgba(255,194,0,0.15)',
-          cursor: 'pointer', transition: 'transform .15s, box-shadow .15s',
+          cursor: 'grab', userSelect: 'none', touchAction: 'none',
+          transition: 'box-shadow .15s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; }}
       >
-        <span style={{ fontSize: 16, lineHeight: 1 }}>✅</span>
-        Analyses
+        <span style={{ fontSize: 16, lineHeight: 1, pointerEvents: 'none' }}>✅</span>
+        <span style={{ pointerEvents: 'none' }}>Analyses</span>
         <span style={{
-          fontSize: 11, fontWeight: 800,
+          fontSize: 11, fontWeight: 800, pointerEvents: 'none',
           background: allDone ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.10)',
           color: allDone ? '#1a1a1a' : '#1a1a1a',
           padding: '2px 8px', borderRadius: 999,
@@ -1328,6 +1383,28 @@ function SocieteFinanceTab({ T, acc }) {
     };
   }), [visibleMonths, crRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Données cumulées (YTD) pour le graphique d'évolution cumulée
+  const chartCumulData = useMemo(() => {
+    let cumCA = 0, cumFG = 0, cumMO = 0, cumMat = 0, cumRes = 0;
+    return visibleMonths.map(m => {
+      const t = totals(m.key);
+      cumCA  += t.activite;
+      cumFG  += t.fg;
+      cumMO  += t.mo;
+      cumMat += t.materiaux;
+      cumRes += t.resultat;
+      return {
+        mois:      m.label.replace(/ 20\d\d$/, ''),
+        key:       m.key,
+        CA:        +cumCA.toFixed(0),
+        FG:        +cumFG.toFixed(0),
+        MO:        +cumMO.toFixed(0),
+        Materiaux: +cumMat.toFixed(0),
+        Resultat:  +cumRes.toFixed(0),
+      };
+    });
+  }, [visibleMonths, crRows]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Tooltip recharts : forçage couleurs lisibles sur fond sombre
   const tooltipStyle = {
     background: T?.surface || '#262a32',
@@ -1374,6 +1451,27 @@ function SocieteFinanceTab({ T, acc }) {
               <Bar dataKey="MO"        fill="#5b9cf6"                   name="Main d'œuvre" radius={[4,4,0,0]}/>
               <Bar dataKey="Materiaux" fill="#FFD740"                   name="Matériaux" radius={[4,4,0,0]}/>
               <Line type="monotone" dataKey="Resultat" stroke="#34d188" strokeWidth={2.5} name="Résultat d'exploitation" dot={{ r: 4, fill: '#34d188' }}/>
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      {/* Évolution cumulée sur l'année — recommandé par le cahier gérant */}
+      <Card T={T}>
+        <CardHdr T={T} acc={acc} title="📉 Évolution cumulée (YTD)" right={<span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>Cumul depuis le 1er janvier</span>}/>
+        <div style={{ padding: '18px 16px 8px', height: 300 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartCumulData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T?.border || 'rgba(255,255,255,0.08)'}/>
+              <XAxis dataKey="mois" tick={{ fill: T?.textSub || '#9aa5c0', fontSize: 11 }} stroke={T?.border || 'rgba(255,255,255,0.10)'}/>
+              <YAxis tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} tick={{ fill: T?.textSub || '#9aa5c0', fontSize: 11 }} stroke={T?.border || 'rgba(255,255,255,0.10)'}/>
+              <RTooltip contentStyle={tooltipStyle} itemStyle={{ color: T?.text || '#f0f0f0' }} labelStyle={{ color: T?.text || '#f0f0f0', fontWeight: 700, marginBottom: 4 }} formatter={(value) => fmtEuro(value)}/>
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }}/>
+              <Line type="monotone" dataKey="CA"        stroke={acc?.accent || '#FFC200'} strokeWidth={2.5} name="CA cumulé"            dot={{ r: 3 }}/>
+              <Line type="monotone" dataKey="FG"        stroke="#ff9a4d"                   strokeWidth={2}   name="FG cumulés"           dot={{ r: 3 }}/>
+              <Line type="monotone" dataKey="MO"        stroke="#5b9cf6"                   strokeWidth={2}   name="MO cumulée"           dot={{ r: 3 }}/>
+              <Line type="monotone" dataKey="Materiaux" stroke="#FFD740"                   strokeWidth={2}   name="Matériaux cumulés"    dot={{ r: 3 }}/>
+              <Line type="monotone" dataKey="Resultat"  stroke="#34d188"                   strokeWidth={2.5} name="Résultat cumulé"      dot={{ r: 4 }}/>
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -1637,19 +1735,29 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at"),
         supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
         // CR : on prend les 200 derniers, on extrait le plus récent par chantier_id.
-        supabase.from("cr_comptes_rendus").select("chantier_id, date_visite").order("date_visite", { ascending: false }).limit(200),
+        // On essaie d'inclure `validateur` ; si la colonne n'existe pas (42703),
+        // on retombe sur le select sans validateur (fallback gracieux).
+        supabase.from("cr_comptes_rendus").select("chantier_id, date_visite, validateur").order("date_visite", { ascending: false }).limit(200),
       ]);
       if (cancelled) return;
+      // Fallback : si la colonne validateur n'existe pas en base, on retente sans
+      let crRows = crQ.data;
+      if (crQ.error?.code === "42703") {
+        const retry = await supabase.from("cr_comptes_rendus").select("chantier_id, date_visite").order("date_visite", { ascending: false }).limit(200);
+        crRows = retry.data;
+      }
       setPhasesConfig(Array.isArray(pCfg) && pCfg.length > 0 ? pCfg : PHASES_DEFAUT);
       setPhasagesRaw(phQ.data || []);
       const cfg = {}; (cfgQ.data || []).forEach(r => { cfg[r.key] = r.value; });
       setChantiersRaw(Array.isArray(cfg.chantiers) ? cfg.chantiers : []);
       setTauxHoraires(cfg.taux_horaires || {});
-      // Map { chantier_id: date_visite_du_dernier_CR }
+      // Map { chantier_id: { date_visite, validateur } } du CR le plus récent
       const crMap = {};
-      (crQ.data || []).forEach(r => {
+      (crRows || []).forEach(r => {
         if (!r.chantier_id || !r.date_visite) return;
-        if (!crMap[r.chantier_id] || r.date_visite > crMap[r.chantier_id]) crMap[r.chantier_id] = r.date_visite;
+        if (!crMap[r.chantier_id] || r.date_visite > crMap[r.chantier_id].date) {
+          crMap[r.chantier_id] = { date: r.date_visite, validateur: r.validateur || null };
+        }
       });
       setLastCRByChantier(crMap);
       setLoading(false);

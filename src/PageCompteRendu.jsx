@@ -52,7 +52,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
   const [saving, setSaving]     = useState(false);
 
   // ── Données CR courant ──
-  const INFOS_VIDE = { client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", chantier_id:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"", statut:"brouillon" };
+  const INFOS_VIDE = { client_prenom1:"", client_nom1:"", client_prenom2:"", client_nom2:"", adresse:"", chantier_id:"", date_visite: new Date().toISOString().split("T")[0], heure_visite: `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}`, type_visite:"Visite de chantier", participants:"", resume:"", avancement:0, prochaine_etape:"", travaux:"", remarques:"", statut:"brouillon", validateur:"" };
   const [infos, setInfos]       = useState(INFOS_VIDE);
   const [obs, setObs]           = useState([]);
   const [photos, setPhotos]     = useState([]);
@@ -154,6 +154,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
         prochaine_etape:cr.prochaine_etape||"",
         travaux:cr.travaux||"", remarques:cr.remarques||"",
         statut:cr.statut||"brouillon",
+        validateur: cr.validateur || "",
       });
       setDeuxiemeClient(!!(cr.client_prenom2 || cr.client_nom2));
     }
@@ -183,8 +184,15 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
       travaux:          v.travaux          ?? "",
       remarques:        v.remarques        ?? "",
       statut:           v.statut           ?? "brouillon",
+      validateur:       v.validateur       ?? "",
     };
-    const { error } = await supabase.from("cr_comptes_rendus").update(payload).eq("id", crId);
+    let { error } = await supabase.from("cr_comptes_rendus").update(payload).eq("id", crId);
+    // Fallback : si la colonne validateur n'existe pas (42703), retente sans
+    if (error?.code === "42703" && error.message?.includes("validateur")) {
+      const { validateur: _, ...payloadSansValidateur } = payload;
+      const retry = await supabase.from("cr_comptes_rendus").update(payloadSansValidateur).eq("id", crId);
+      error = retry.error;
+    }
     if (error) {
       console.error("saveInfos CR error:", error);
       const hint = (error.message||"").toLowerCase().includes("schema") || (error.message||"").includes("column")
@@ -1043,6 +1051,10 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
                 <div style={{marginBottom:14}}>
                   <label style={lbl}>Participants</label>
                   <input style={inp} value={infos.participants} onChange={e=>updInfo("participants",e.target.value)} placeholder="Loris BESSONNEAU (PROFERO), client…" />
+                </div>
+                <div style={{marginBottom:14}}>
+                  <label style={lbl}>Validateur <span style={{ color: T.textMuted, fontWeight: 400, fontSize: 11 }}>(personne qui valide ce CR · affichée dans Dashboard Analyse)</span></label>
+                  <input style={inp} value={infos.validateur || ""} onChange={e=>updInfo("validateur",e.target.value)} placeholder="François Huet" />
                 </div>
 
                 {/* Résumé + Avancement */}
