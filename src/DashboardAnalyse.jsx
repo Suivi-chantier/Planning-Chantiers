@@ -515,7 +515,7 @@ const ENum = ({ v, onChange, ph = '0', T, style: es = {} }) => (
 // retirées du dashboard. Les chantiers sont désormais lus en lecture seule
 // depuis Supabase (table phasages). Pour modifier un chantier, l'utilisateur
 // doit passer par la fiche chantier de l'application (page Chantiers).
-function PipelineModal({ open, item, onClose, onSave, T, acc }) {
+function PipelineModal({ open, item, onClose, onSave, onDelete, T, acc }) {
   const blank = { nom: '', ca: 0, proba: 50, statut: 'prospect', date: '', note: '' };
   const [f, setF] = useState(blank);
   useEffect(() => { setF(item ? { ...item } : { ...blank }); }, [item, open]);
@@ -525,6 +525,9 @@ function PipelineModal({ open, item, onClose, onSave, T, acc }) {
     <Modal open={open} onClose={onClose} T={T} acc={acc} title={isNew ? '🔖 Nouvelle Opportunité' : `📝 ${f.nom}`} footer={
       <>
         <Btn onClick={onClose} color="ghost" T={T} acc={acc}>Annuler</Btn>
+        {!isNew && (
+          <Btn onClick={() => { if (window.confirm(`Supprimer l'opportunité "${f.nom}" ?`)) onDelete?.(item.id); }} color="red" T={T} acc={acc}>🗑 Supprimer</Btn>
+        )}
         <Btn onClick={() => onSave(f)} color="gold" T={T} acc={acc}>💾 Enregistrer</Btn>
       </>
     }>
@@ -1579,11 +1582,50 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   // Date du dernier CR (cr_comptes_rendus) par chantier_id, pour calcul statut hebdo
   const [lastCRByChantier, setLastCRByChantier] = useState({});
   const [loading, setLoading] = useState(true);
-  // Pipeline + finances restent mockés pour cette V1 (PR2 ne couvre que Chantiers).
-  const [pipeline, setPipeline] = useState(INIT_PIPELINE);
-  const [finances, setFinances] = useState(INIT_FINANCES);
+  // Pipeline et Trésorerie persistés dans planning_config (PR6).
+  const [pipeline, setPipeline]   = useState(INIT_PIPELINE);
+  const [finances, setFinances]   = useState(INIT_FINANCES);
+  const [pipeLoaded, setPipeLoaded] = useState(false);
+  const [finLoaded, setFinLoaded]   = useState(false);
   const [activeTab, setActiveTab] = useState('chantiers');
   const [pipeModal, setPipeModal] = useState({ open: false, item: null });
+
+  // Chargement initial Pipeline + Trésorerie depuis planning_config
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("planning_config")
+        .select("key,value").in("key", ["dashboard_pipeline", "dashboard_treso"]);
+      if (cancelled) return;
+      const cfg = {}; (data || []).forEach(r => { cfg[r.key] = r.value; });
+      if (Array.isArray(cfg.dashboard_pipeline)) setPipeline(cfg.dashboard_pipeline);
+      if (cfg.dashboard_treso && typeof cfg.dashboard_treso === 'object') setFinances({ ...INIT_FINANCES, ...cfg.dashboard_treso });
+      setPipeLoaded(true);
+      setFinLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Sauvegarde debouncée Pipeline / Trésorerie
+  const savePipeTimer = React.useRef(null);
+  useEffect(() => {
+    if (!pipeLoaded) return;
+    clearTimeout(savePipeTimer.current);
+    savePipeTimer.current = setTimeout(() => {
+      supabase.from("planning_config").upsert({ key: "dashboard_pipeline", value: pipeline }, { onConflict: "key" });
+    }, 1200);
+    return () => clearTimeout(savePipeTimer.current);
+  }, [pipeline, pipeLoaded]);
+
+  const saveFinTimer = React.useRef(null);
+  useEffect(() => {
+    if (!finLoaded) return;
+    clearTimeout(saveFinTimer.current);
+    saveFinTimer.current = setTimeout(() => {
+      supabase.from("planning_config").upsert({ key: "dashboard_treso", value: finances }, { onConflict: "key" });
+    }, 1200);
+    return () => clearTimeout(saveFinTimer.current);
+  }, [finances, finLoaded]);
 
   // Chargement initial : phases, phasages, chantiers, taux horaires.
   useEffect(() => {
@@ -1653,6 +1695,10 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
     setPipeline(p => f.id && p.find(x => x.id === f.id) ? p.map(x => x.id === f.id ? f : x) : [...p, { ...f, id: Date.now() }]);
     setPipeModal({ open: false, item: null });
   };
+  const deletePipelineItem = (id) => {
+    setPipeline(p => p.filter(x => x.id !== id));
+    setPipeModal({ open: false, item: null });
+  };
 
   const today = new Date();
   const dateLabel = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'][today.getDay()] + ' ' + today.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -1676,7 +1722,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         .da-table tbody tr:hover td { background: rgba(255,194,0,0.03); }
       `}</style>
 
-      <PipelineModal open={pipeModal.open} item={pipeModal.item} onClose={() => setPipeModal({ open: false, item: null })} onSave={savePipeline} T={T} acc={acc}/>
+      <PipelineModal open={pipeModal.open} item={pipeModal.item} onClose={() => setPipeModal({ open: false, item: null })} onSave={savePipeline} onDelete={deletePipelineItem} T={T} acc={acc}/>
 
       {/* HEADER */}
       <div style={{
