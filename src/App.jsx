@@ -1,8 +1,32 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent } from "./constants";
-import { LayoutGrid, Sun, Moon, LogOut } from "lucide-react";
+import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
 import { Icon } from "./ui";
+
+// ─── COMPOSANT "ACCÈS REFUSÉ" ────────────────────────────────────────────────
+function AccesRefuse({ T, page }) {
+  const t = T || {};
+  return (
+    <div style={{
+      flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+      flexDirection: "column", gap: 14, padding: 40, color: t.textMuted || "#888",
+      background: t.bg || "#1e2128", textAlign: "center",
+    }}>
+      <div style={{
+        width: 64, height: 64, borderRadius: 16,
+        background: "rgba(225,90,90,0.10)", color: "#e15a5a",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <Icon as={Lock} size={28} strokeWidth={1.5}/>
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: t.text || "#f0f0f0" }}>Accès refusé</div>
+      <div style={{ fontSize: 13, maxWidth: 400, lineHeight: 1.5 }}>
+        Vous n'avez pas accès à cette page{page ? ` (« ${page} »)` : ""}. Contactez un administrateur si vous pensez qu'il s'agit d'une erreur.
+      </div>
+    </div>
+  );
+}
 
 import { Sidebar, BottomNav } from "./Navigation";
 import PageDashboard          from "./Dashboard";
@@ -25,28 +49,8 @@ import PageCompteRendu        from "./PageCompteRendu";
 import PageChantiers          from "./PageChantiers";
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
-const ROLE_PAGES = {
-  admin: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu","admin"
-  ],
-  conducteur: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu"
-  ],
-  commercial: [
-    "dashboard","chantiers","planning","plans","visite","info-client","compte-rendu"
-  ],
-  comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage"
-  ],
-};
-
-function canAccess(role, page) {
-  return (ROLE_PAGES[role] || []).includes(page);
-}
+// Centralisé dans src/access.js. App.jsx charge la config au mount et propage.
+import { loadAccessConfig, canAccess as _canAccess, ROLE_PAGES_DEFAULT_RENOVATION } from "./access";
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== "undefined") {
@@ -346,7 +350,22 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const peutChangerBranche=(profil?.branches||["renovation"]).length>1;
   const branch="renovation";
 
-  useEffect(()=>{ if(!canAccess(role,page)) setPage("dashboard"); },[role,page]);
+  // Config d'accès dynamique (rôles ↔ pages), chargée depuis planning_config.
+  const [rolePages, setRolePages] = useState(ROLE_PAGES_DEFAULT_RENOVATION);
+  useEffect(() => {
+    let cancelled = false;
+    loadAccessConfig("renovation").then(({ rolePages: rp }) => {
+      if (!cancelled) setRolePages(rp);
+    });
+    // Realtime : recharger si la matrice d'accès change en base
+    const ch = supabase.channel("access-renovation")
+      .on("postgres_changes",
+          { event: "*", schema: "public", table: "planning_config", filter: "key=eq.access_pages_renovation" },
+          () => loadAccessConfig("renovation").then(({ rolePages: rp }) => setRolePages(rp)))
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+  const canAccess = (r, p) => _canAccess(rolePages, r, p);
 
   const loadData=useCallback(async()=>{
     setSyncing(true);
@@ -529,7 +548,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{css}</style>
       <div className="app-sidebar"><Sidebar
-        page={page} setPage={setPage} T={T} role={role} branch="renovation"
+        page={page} setPage={setPage} T={T} role={role} rolePages={rolePages} branch="renovation"
         profil={profil} theme={theme} setTheme={setTheme}
         onLogout={onLogout}
         peutChangerBranche={peutChangerBranche} onRetourPortail={onRetourPortail}
@@ -575,25 +594,25 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
-          {page==="chantiers"         && canAccess(role,"chantiers")         && <PageChantiers chantiers={chantiers} tauxHoraires={tauxHoraires} T={T}/>}
-          {page==="dashboard"        && canAccess(role,"dashboard")        && <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/>}
-          {page==="planning"         && canAccess(role,"planning")         && <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/>}
-          {page==="planning-mensuel" && canAccess(role,"planning-mensuel") && <PagePlanningMensuel T={T} chantiers={chantiers}/>}
-          {page==="notes-todo"       && canAccess(role,"notes-todo")       && <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/>}
-          {page==="commandes"        && canAccess(role,"commandes")        && <PageCommandes chantiers={chantiers} T={T}/>}
-          {page==="planning-commandes" && canAccess(role,"planning-commandes") && <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/>}
-          {page==="equipe"           && canAccess(role,"equipe")           && <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/>}
-          {page==="plans"            && canAccess(role,"plans")            && <PagePlans T={T} chantiers={chantiers} branch={branch}/>}
-          {page==="phasage"          && canAccess(role,"phasage")          && <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/>}
-          {page==="bibliotheque"     && canAccess(role,"bibliotheque")     && <PageBibliotheque T={T} branch={branch}/>}
-          {page==="biblio-materiaux" && canAccess(role,"biblio-materiaux") && <PageBibliothequeMateriaux T={T} branch={branch}/>}
-          {page==="visite"           && canAccess(role,"visite")           && <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch}/>}
-          {page==="info-client"      && canAccess(role,"info-client")      && <PageInfoClient T={T} branch={branch}/>}
-          {page==="compte-rendu"     && canAccess(role,"compte-rendu")     && <PageCompteRendu T={T} chantiers={chantiers} branch={branch}/>}
-          {page==="admin"            && canAccess(role,"admin")            && <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/>}
+          {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} tauxHoraires={tauxHoraires} T={T}/> : <AccesRefuse T={T} page="chantiers"/>)}
+          {page==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
+          {page==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
+          {page==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
+          {page==="notes-todo"         && (canAccess(role,"notes-todo")         ? <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/> : <AccesRefuse T={T} page="notes-todo"/>)}
+          {page==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
+          {page==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
+          {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/> : <AccesRefuse T={T} page="equipe"/>)}
+          {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
+          {page==="phasage"            && (canAccess(role,"phasage")            ? <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage"/>)}
+          {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
+          {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
+          {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch}/> : <AccesRefuse T={T} page="visite"/>)}
+          {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch}/> : <AccesRefuse T={T} page="info-client"/>)}
+          {page==="compte-rendu"       && (canAccess(role,"compte-rendu")       ? <PageCompteRendu T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="compte-rendu"/>)}
+          {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
         </div>
       </div>
-      <BottomNav page={page} setPage={setPage} T={T} role={role}/>
+      <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages}/>
     </div>
   );
 }

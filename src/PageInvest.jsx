@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
+import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "./access";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
@@ -3399,8 +3400,8 @@ function OngletUtilisateursInvest({ T }) {
 }
 
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
-function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout }) {
-  const isAdmin = profil?.role === "admin";
+function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null }) {
+  const role = profil?.role || "admin";
   const T = THEMES_INV[theme];
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
 
@@ -3410,13 +3411,21 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
     localStorage.setItem("invest_sidebar_collapsed", next ? "1" : "0");
   };
 
-  const NAV = [
-    { id:"dashboard",  label:"Tableau de bord", icon: LayoutDashboard },
-    { id:"crm",        label:"CRM Clients",     icon: Users },
-    { id:"biens",      label:"Stock de biens",  icon: Building2 },
-    { id:"simulateur", label:"Simulateur",      icon: BarChart3 },
-    ...(isAdmin ? [{ id:"admin", label:"Réglages", icon: Settings }] : []),
-  ];
+  // Icônes par page Invest (utilisé pour mapper la liste PAGES_INVEST)
+  const ICONS = {
+    dashboard:  LayoutDashboard,
+    crm:        Users,
+    biens:      Building2,
+    simulateur: BarChart3,
+    admin:      Settings,
+  };
+
+  // Construction de la nav depuis PAGES_INVEST, filtrée par les pages autorisées
+  // pour le rôle courant (config dynamique avec fallback ROLE_PAGES_DEFAULT_INVEST).
+  const allowed = (rolePages && rolePages[role]) || ROLE_PAGES_DEFAULT_INVEST[role] || ROLE_PAGES_DEFAULT_INVEST.admin;
+  const NAV = PAGES_INVEST
+    .filter(p => allowed.includes(p.id))
+    .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard }));
 
   const W = collapsed ? 64 : 220;
 
@@ -3554,6 +3563,28 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   );
 }
 
+// ─── ACCÈS REFUSÉ (vue interne Invest) ───────────────────────────────────────
+function AccesRefuseInvest({ T, page }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column",
+      gap: 14, padding: 40, minHeight: 400, color: T.textMuted, textAlign: "center",
+    }}>
+      <div style={{
+        width: 64, height: 64, borderRadius: 16,
+        background: "rgba(225,90,90,0.10)", color: "#e15a5a",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <Icon as={Lock} size={28} strokeWidth={1.5}/>
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>Accès refusé</div>
+      <div style={{ fontSize: 13, maxWidth: 400, lineHeight: 1.5 }}>
+        Vous n'avez pas accès à cette page{page ? ` (« ${page} »)` : ""}. Contactez un administrateur si vous pensez qu'il s'agit d'une erreur.
+      </div>
+    </div>
+  );
+}
+
 // ─── PAGE INVEST (routeur interne) ────────────────────────────────────────────
 export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("invest_theme") || "dark");
@@ -3562,6 +3593,23 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [page, setPage]                 = useState("dashboard");
   const [projetOuvert, setProjetOuvert] = useState(null);
   const [vueSim, setVueSim]             = useState("liste");
+
+  // Config d'accès Invest (chargée depuis planning_config, fallback hardcodé)
+  const role = profil?.role || "admin";
+  const [rolePages, setRolePages] = React.useState(ROLE_PAGES_DEFAULT_INVEST);
+  React.useEffect(() => {
+    let cancelled = false;
+    loadAccessConfig("invest").then(({ rolePages: rp }) => {
+      if (!cancelled) setRolePages(rp);
+    });
+    const ch = supabase.channel("access-invest")
+      .on("postgres_changes",
+          { event: "*", schema: "public", table: "planning_config", filter: "key=eq.access_pages_invest" },
+          () => loadAccessConfig("invest").then(({ rolePages: rp }) => setRolePages(rp)))
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+  const canSee = (p) => canAccessInvest(rolePages, role, p);
   // Origine de l'ouverture du Simulateur : "liste" (depuis Simulateur) ou "crm"
   // (depuis FicheClient). Détermine où on retombe au "← Retour".
   const [simOrigine, setSimOrigine]     = useState("liste");
@@ -3594,19 +3642,19 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} />
+      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
-        {page === "dashboard"  && <TableauBord profil={profil} T={T} />}
-        {page === "crm"        && <CRM profil={profil} T={T} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />}
-        {page === "biens"      && <StockBiens profil={profil} T={T} />}
-        {page === "admin"      && <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />}
-        {page === "simulateur" && (
+        {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} />                                                                                          : <AccesRefuseInvest T={T} page="dashboard"/>)}
+        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />                                                   : <AccesRefuseInvest T={T} page="crm"/>)}
+        {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} />                                                                                            : <AccesRefuseInvest T={T} page="biens"/>)}
+        {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                                         : <AccesRefuseInvest T={T} page="admin"/>)}
+        {page === "simulateur" && (canSee("simulateur") ? (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
             <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
             <div style={{ fontSize:14, color:T.textSub, marginBottom:24 }}>Créez et analysez vos projets d'investissement</div>
             <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} inline={true} T={T} />
           </div>
-        )}
+        ) : <AccesRefuseInvest T={T} page="simulateur"/>)}
       </div>
     </div>
   );

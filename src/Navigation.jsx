@@ -61,11 +61,13 @@ const ALL_NAV_ITEMS = [
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
 ];
 
-function BottomNav({ page, setPage, T, role = "admin", branch = "renovation" }) {
+function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", rolePages = null }) {
   const acc = getBranchAccent(branch);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const allowed = ROLE_PAGES[role] || ROLE_PAGES.admin;
+  // Si rolePages (config dynamique) est fourni : on l'utilise.
+  // Sinon : fallback sur la matrice par défaut hardcodée ROLE_PAGES.
+  const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
   const allowedItems = ALL_NAV_ITEMS.filter(n => allowed.includes(n.id));
 
   // Si ≤ 5 pages au total : on les affiche toutes, pas de bouton Plus.
@@ -222,6 +224,7 @@ function MoreSheet({ items, currentPage, onSelect, onClose, T, acc }) {
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
 function Sidebar({
   page, setPage, T, role = "admin", branch = "renovation",
+  rolePages = null,
   // Tout l'ancien contenu de la topbar :
   profil, theme, setTheme, onLogout, peutChangerBranche, onRetourPortail,
   syncing = false, connected = true, lastSync = null,
@@ -248,7 +251,7 @@ function Sidebar({
     { id:"admin",            icon:Settings,        label:"Réglages"         },
   ];
 
-  const allowed = ROLE_PAGES[role] || ROLE_PAGES.admin;
+  const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
   const nav = allNav.filter(n => allowed.includes(n.id));
 
   const toggle = () => {

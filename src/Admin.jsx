@@ -7,8 +7,13 @@ import {
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
-  Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck,
+  Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck, Lock,
 } from "lucide-react";
+import {
+  loadAccessConfig, saveAccessConfig, pagesForBranch,
+  ROLES_DEFAULT_RENOVATION, ROLES_DEFAULT_INVEST,
+  ROLE_PAGES_DEFAULT_RENOVATION, ROLE_PAGES_DEFAULT_INVEST,
+} from "./access";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
 const callAdminUsers = async (payload) => {
@@ -58,19 +63,36 @@ function OngletUtilisateurs({ T, acc }) {
   const [resetEmail, setResetEmail] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
 
-  const ROLES = [
+  // Liste de rôles chargée dynamiquement depuis access.js (union Réno + Invest).
+  // Si un rôle existe dans les 2 branches, on garde la déclaration Réno (libellé + couleur).
+  const [ROLES, setROLES] = useState([
     { value:"admin",      label:"Administrateur" },
     { value:"conducteur", label:"Conducteur de travaux" },
     { value:"commercial", label:"Commercial" },
     { value:"comptable",  label:"Comptable" },
-  ];
+  ]);
+  const [ROLE_LABELS, setRoleLabels] = useState({ admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" });
+  const [ROLE_COLORS, setRoleColors] = useState({ admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" });
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([loadAccessConfig("renovation"), loadAccessConfig("invest")]).then(([reno, inv]) => {
+      if (cancelled) return;
+      const seen = new Map();
+      // Réno en premier pour qu'elle gagne en cas de doublon
+      for (const r of reno.roles) if (!seen.has(r.id)) seen.set(r.id, r);
+      for (const r of inv.roles)  if (!seen.has(r.id)) seen.set(r.id, r);
+      const arr = Array.from(seen.values());
+      setROLES(arr.map(r => ({ value: r.id, label: r.label })));
+      setRoleLabels(Object.fromEntries(arr.map(r => [r.id, r.label])));
+      setRoleColors(Object.fromEntries(arr.map(r => [r.id, r.color])));
+    });
+    return () => { cancelled = true; };
+  }, []);
   const BRANCHES = [
     { value:"renovation", label:"Rénovation" },
     { value:"invest",     label:"Invest" },
   ];
-  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
   const BRANCHE_LABELS = { renovation:"Rénovation", invest:"Invest" };
-  const ROLE_COLORS = { admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" };
 
   const charger = async () => {
     setLoading(true);
@@ -357,9 +379,9 @@ function OngletUtilisateurs({ T, acc }) {
                   {/* Avatar */}
                   <div style={{
                     width:38, height:38, borderRadius:10, flexShrink:0,
-                    background:`${ROLE_COLORS[u.role]}22`, border:`1.5px solid ${ROLE_COLORS[u.role]}55`,
+                    background:`${(ROLE_COLORS[u.role] || "#888888")}22`, border:`1.5px solid ${(ROLE_COLORS[u.role] || "#888888")}55`,
                     display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:14, fontWeight:800, color:ROLE_COLORS[u.role],
+                    fontSize:14, fontWeight:800, color:(ROLE_COLORS[u.role] || "#888888"),
                   }}>
                     {u.nom?.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
                   </div>
@@ -380,8 +402,8 @@ function OngletUtilisateurs({ T, acc }) {
                     <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
                       <span style={{
                         fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:700, letterSpacing:.5,
-                        background:`${ROLE_COLORS[u.role]}18`, color:ROLE_COLORS[u.role],
-                        border:`1px solid ${ROLE_COLORS[u.role]}33`,
+                        background:`${(ROLE_COLORS[u.role] || "#888888")}18`, color:(ROLE_COLORS[u.role] || "#888888"),
+                        border:`1px solid ${(ROLE_COLORS[u.role] || "#888888")}33`,
                       }}>
                         {ROLE_LABELS[u.role] || u.role}
                       </span>
@@ -1356,6 +1378,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["emails",       "Emails",          Mail],
     ["fournisseurs", "Fournisseurs",    Truck],
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
+    ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
     ["maintenance",  "Maintenance",     Wrench],
   ];
 
@@ -1409,6 +1432,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="utilisateurs" && isAdmin && (
         <OngletUtilisateurs T={T} acc={acc}/>
+      )}
+
+      {adminTab==="acces" && isAdmin && (
+        <OngletAcces T={T} acc={acc}/>
       )}
 
       {adminTab==="fournisseurs" && (
@@ -2537,6 +2564,394 @@ function PhrasesEditor({ catKey, label, items, onChange, T, acc }) {
           Ajouter
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── ONGLET ACCÈS ─────────────────────────────────────────────────────────────
+// Édition de la matrice rôles × pages pour Réno et Invest, et CRUD des rôles
+// (label, couleur, ajout, suppression). Persistance dans planning_config via
+// access.saveAccessConfig. Changements propagés en temps réel grâce au channel
+// postgres_changes branché dans App.jsx et PageInvest.jsx.
+function OngletAcces({ T, acc }) {
+  const [branche, setBranche]   = useState("renovation");
+  const [roles, setRoles]       = useState([]);
+  const [rolePages, setRolePages] = useState({});
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [savedAt, setSavedAt]   = useState(null);
+  const [newRoleOpen, setNewRoleOpen] = useState(false);
+  const [newRoleLabel, setNewRoleLabel] = useState("");
+  const [newRoleColor, setNewRoleColor] = useState("#888888");
+  const [editRoleId, setEditRoleId] = useState(null);
+  const [editRoleLabel, setEditRoleLabel] = useState("");
+  const [editRoleColor, setEditRoleColor] = useState("");
+  const [roleToDelete, setRoleToDelete] = useState(null);
+
+  const pages = pagesForBranch(branche);
+
+  // Recharge à chaque changement de branche
+  useEffect(() => {
+    setLoading(true);
+    loadAccessConfig(branche).then(({ roles: r, rolePages: rp }) => {
+      setRoles(r);
+      setRolePages(rp);
+      setLoading(false);
+    });
+  }, [branche]);
+
+  // Sauvegarde debouncée (1.2s après dernière modif)
+  const saveTimer = React.useRef(null);
+  const planifierSauvegarde = (nextRoles, nextRolePages) => {
+    setSaving(true);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const { error } = await saveAccessConfig(branche, { roles: nextRoles, rolePages: nextRolePages });
+      setSaving(false);
+      if (!error) setSavedAt(new Date());
+      else console.error("saveAccessConfig:", error);
+    }, 1200);
+  };
+
+  // Toggle d'une page pour un rôle
+  const toggle = (roleId, pageId) => {
+    setRolePages(prev => {
+      const cur = Array.isArray(prev[roleId]) ? prev[roleId] : [];
+      const next = cur.includes(pageId) ? cur.filter(p => p !== pageId) : [...cur, pageId];
+      const nextAll = { ...prev, [roleId]: next };
+      planifierSauvegarde(roles, nextAll);
+      return nextAll;
+    });
+  };
+
+  // Cocher / décocher toutes les pages pour un rôle (header de ligne)
+  const toggleAll = (roleId) => {
+    setRolePages(prev => {
+      const cur = Array.isArray(prev[roleId]) ? prev[roleId] : [];
+      const allIds = pages.map(p => p.id);
+      const allOn = allIds.every(id => cur.includes(id));
+      const nextAll = { ...prev, [roleId]: allOn ? [] : allIds };
+      planifierSauvegarde(roles, nextAll);
+      return nextAll;
+    });
+  };
+
+  // Cocher / décocher tous les rôles pour une page (header de colonne)
+  const togglePageColumn = (pageId) => {
+    setRolePages(prev => {
+      const allOn = roles.every(r => Array.isArray(prev[r.id]) && prev[r.id].includes(pageId));
+      const next = { ...prev };
+      for (const r of roles) {
+        const cur = Array.isArray(next[r.id]) ? next[r.id] : [];
+        next[r.id] = allOn ? cur.filter(p => p !== pageId) : [...new Set([...cur, pageId])];
+      }
+      planifierSauvegarde(roles, next);
+      return next;
+    });
+  };
+
+  const ajouterRole = () => {
+    const label = newRoleLabel.trim();
+    if (!label) return;
+    const id = label.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    if (!id || roles.some(r => r.id === id)) {
+      alert("Un rôle avec ce nom existe déjà.");
+      return;
+    }
+    const nextRoles = [...roles, { id, label, color: newRoleColor }];
+    const nextRolePages = { ...rolePages, [id]: [] };
+    setRoles(nextRoles);
+    setRolePages(nextRolePages);
+    planifierSauvegarde(nextRoles, nextRolePages);
+    setNewRoleOpen(false);
+    setNewRoleLabel("");
+    setNewRoleColor("#888888");
+  };
+
+  const sauverEditRole = () => {
+    if (!editRoleId) return;
+    const label = editRoleLabel.trim() || editRoleId;
+    const nextRoles = roles.map(r => r.id === editRoleId ? { ...r, label, color: editRoleColor || r.color } : r);
+    setRoles(nextRoles);
+    planifierSauvegarde(nextRoles, rolePages);
+    setEditRoleId(null);
+  };
+
+  const supprimerRole = (roleId) => {
+    const nextRoles = roles.filter(r => r.id !== roleId);
+    const nextRolePages = { ...rolePages };
+    delete nextRolePages[roleId];
+    setRoles(nextRoles);
+    setRolePages(nextRolePages);
+    planifierSauvegarde(nextRoles, nextRolePages);
+    setRoleToDelete(null);
+  };
+
+  const resetDefaults = () => {
+    if (!confirm("Restaurer les rôles et accès par défaut pour cette branche ? Les personnalisations seront perdues.")) return;
+    const defR = branche === "invest" ? ROLES_DEFAULT_INVEST : ROLES_DEFAULT_RENOVATION;
+    const defRP = branche === "invest" ? ROLE_PAGES_DEFAULT_INVEST : ROLE_PAGES_DEFAULT_RENOVATION;
+    setRoles(defR);
+    setRolePages(defRP);
+    planifierSauvegarde(defR, defRP);
+  };
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: T.textMuted }}>Chargement…</div>;
+  }
+
+  return (
+    <div>
+      {/* Sélecteur branche + état sauvegarde */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+        <div style={{ display: "inline-flex", borderRadius: RADIUS.md, overflow: "hidden", border: `1px solid ${T.border}` }}>
+          {[
+            { id: "renovation", label: "Profero Rénovation" },
+            { id: "invest",     label: "Profero Invest"     },
+          ].map(b => {
+            const a = branche === b.id;
+            return (
+              <button key={b.id} onClick={() => setBranche(b.id)} style={{
+                padding: "8px 16px", border: "none", cursor: "pointer",
+                background: a ? acc.accent : "transparent",
+                color: a ? acc.onAccent : T.textSub,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700,
+              }}>{b.label}</button>
+            );
+          })}
+        </div>
+        <div style={{ flex: 1 }}/>
+        <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>
+          {saving ? "Enregistrement…" : savedAt ? `Enregistré à ${savedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Modifications sauvegardées automatiquement"}
+        </span>
+        <button onClick={resetDefaults} style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          padding: "7px 12px", borderRadius: RADIUS.md,
+          background: "transparent", border: `1px solid ${T.border}`, color: T.textSub,
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
+        }}>
+          <Icon as={RefreshCw} size={11}/>
+          Restaurer défauts
+        </button>
+      </div>
+
+      {/* Liste des rôles + ajout */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, letterSpacing: 1.2, textTransform: "uppercase" }}>
+            Rôles définis pour cette branche
+          </div>
+          <button onClick={() => setNewRoleOpen(true)} style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "7px 12px", borderRadius: RADIUS.md,
+            background: acc.accent, color: acc.onAccent, border: "none",
+            fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer",
+          }}>
+            <Icon as={Plus} size={11}/>
+            Nouveau rôle
+          </button>
+        </div>
+        {roles.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: T.textMuted, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
+            Aucun rôle défini. Ajoutez-en un pour configurer les accès.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {roles.map(r => (
+              <div key={r.id} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px", borderRadius: RADIUS.pill,
+                background: r.color + "22", border: `1.5px solid ${r.color}55`,
+                color: r.color, fontWeight: 700, fontSize: FONT.xs.size + 1,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: r.color }}/>
+                {r.label}
+                <button onClick={() => { setEditRoleId(r.id); setEditRoleLabel(r.label); setEditRoleColor(r.color); }}
+                  title="Modifier" style={{ background: "transparent", border: "none", cursor: "pointer", color: r.color, padding: 2, display: "flex" }}>
+                  <Icon as={Pencil} size={10}/>
+                </button>
+                <button onClick={() => setRoleToDelete(r)} title="Supprimer"
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#e15a5a", padding: 2, display: "flex" }}>
+                  <Icon as={Trash2} size={10}/>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Matrice rôles × pages */}
+      {roles.length > 0 && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${T.border}`, background: T.card }}>
+                <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, position: "sticky", left: 0, background: T.card, zIndex: 1, minWidth: 200 }}>
+                  Pages \ Rôles
+                </th>
+                {roles.map(r => (
+                  <th key={r.id} style={{ padding: "10px 8px", textAlign: "center", minWidth: 110 }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "3px 9px", borderRadius: RADIUS.pill,
+                        background: r.color + "22", color: r.color,
+                        fontSize: 10, fontWeight: 800, letterSpacing: .4,
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: r.color }}/>
+                        {r.label}
+                      </span>
+                      <button onClick={() => toggleAll(r.id)} title="Tout cocher/décocher pour ce rôle"
+                        style={{ background: "transparent", border: "none", cursor: "pointer", color: T.textMuted, fontSize: 9, padding: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>
+                        Tout
+                      </button>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pages.map((p, i) => (
+                <tr key={p.id} style={{ borderBottom: i < pages.length - 1 ? `1px solid ${T.border}` : "none", background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                  <td style={{ padding: "8px 14px", fontSize: 13, color: T.text, fontWeight: 600, position: "sticky", left: 0, background: i % 2 ? T.surface : T.surface, zIndex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ flex: 1 }}>{p.label}</span>
+                      <button onClick={() => togglePageColumn(p.id)} title="Tout cocher/décocher pour cette page"
+                        style={{ background: "transparent", border: "none", cursor: "pointer", color: T.textMuted, fontSize: 9, padding: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>
+                        Tout
+                      </button>
+                    </div>
+                  </td>
+                  {roles.map(r => {
+                    const allowed = Array.isArray(rolePages[r.id]) && rolePages[r.id].includes(p.id);
+                    return (
+                      <td key={r.id} style={{ padding: "8px 6px", textAlign: "center" }}>
+                        <button onClick={() => toggle(r.id, p.id)} title={allowed ? "Autorisé — clic pour retirer" : "Bloqué — clic pour autoriser"}
+                          style={{
+                            width: 28, height: 28, borderRadius: 8,
+                            background: allowed ? r.color + "33" : "transparent",
+                            border: `1.5px solid ${allowed ? r.color : T.border}`,
+                            color: allowed ? r.color : T.textMuted,
+                            cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            transition: "background .12s",
+                          }}>
+                          <Icon as={allowed ? Check : X} size={14} strokeWidth={2.5}/>
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Modale : nouveau rôle */}
+      {newRoleOpen && (
+        <div onClick={() => setNewRoleOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 940, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 420,
+            border: `1px solid ${T.border}`, padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+          }}>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text, marginBottom: 14 }}>Nouveau rôle</div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Libellé</label>
+              <input value={newRoleLabel} onChange={e => setNewRoleLabel(e.target.value)} placeholder="Ex: Chef de chantier"
+                autoFocus style={{
+                  width: "100%", boxSizing: "border-box",
+                  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 8, padding: "9px 11px", color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none",
+                }}/>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Couleur</label>
+              <input type="color" value={newRoleColor} onChange={e => setNewRoleColor(e.target.value)}
+                style={{ width: 60, height: 36, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}/>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setNewRoleOpen(false)} style={{
+                padding: "8px 16px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+              }}>Annuler</button>
+              <button onClick={ajouterRole} disabled={!newRoleLabel.trim()} style={{
+                padding: "8px 18px", borderRadius: RADIUS.md, border: "none",
+                background: newRoleLabel.trim() ? acc.accent : T.border,
+                color: newRoleLabel.trim() ? acc.onAccent : T.textMuted,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                cursor: newRoleLabel.trim() ? "pointer" : "not-allowed",
+              }}>Créer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale : édition rôle */}
+      {editRoleId && (
+        <div onClick={() => setEditRoleId(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 940, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 420,
+            border: `1px solid ${T.border}`, padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+          }}>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text, marginBottom: 4 }}>Modifier le rôle</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginBottom: 14, fontFamily: "'DM Mono',monospace" }}>id : {editRoleId}</div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Libellé</label>
+              <input value={editRoleLabel} onChange={e => setEditRoleLabel(e.target.value)}
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 8, padding: "9px 11px", color: T.text, fontFamily: "inherit", fontSize: 14, outline: "none",
+                }}/>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Couleur</label>
+              <input type="color" value={editRoleColor} onChange={e => setEditRoleColor(e.target.value)}
+                style={{ width: 60, height: 36, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}/>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setEditRoleId(null)} style={{
+                padding: "8px 16px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+              }}>Annuler</button>
+              <button onClick={sauverEditRole} style={{
+                padding: "8px 18px", borderRadius: RADIUS.md, border: "none",
+                background: acc.accent, color: acc.onAccent,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              }}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation suppression rôle */}
+      {roleToDelete && (
+        <div onClick={() => setRoleToDelete(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 940, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.modal || T.surface, borderRadius: RADIUS.xl, width: "100%", maxWidth: 440,
+            border: `1px solid ${T.border}`, padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Icon as={AlertTriangle} size={22} color="#e15a5a"/>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Supprimer le rôle ?</div>
+            </div>
+            <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.5, marginBottom: 18 }}>
+              Le rôle <strong style={{ color: T.text }}>{roleToDelete.label}</strong> sera retiré de la matrice. Les utilisateurs qui ont ce rôle perdront tous leurs accès jusqu'à ce qu'un nouveau rôle leur soit attribué.
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setRoleToDelete(null)} style={{
+                padding: "8px 16px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+              }}>Annuler</button>
+              <button onClick={() => supprimerRole(roleToDelete.id)} style={{
+                padding: "8px 18px", borderRadius: RADIUS.md, border: "none",
+                background: "#e15a5a", color: "#fff",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              }}>Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
