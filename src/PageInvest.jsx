@@ -2903,7 +2903,7 @@ const STATUT_BIEN_COLORS = {
 const GOOGLE_MAPS_API_KEY = (
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_GOOGLE_MAPS_API_KEY)
   || (typeof process !== "undefined" && process.env && process.env.REACT_APP_GOOGLE_MAPS_API_KEY)
-  || AIzaSyB9LLndlvqmpaxGg4zZoZzu5lzQYs4QQRg
+  || "AIzaSyB9LLndlvqmpaxGg4zZoZzu5lzQYs4QQRg"
 );
 const GOOGLE_MAPS_SCRIPT_ID = "google-maps-js-api-profero-invest";
 
