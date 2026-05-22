@@ -2899,27 +2899,119 @@ const STATUT_BIEN_COLORS = {
   "Abandonné":"#5a6070","Proposé à un client":"#1f4ea1","En cours d'acquisition":"#1a7a4a",
 };
 
-function getBienGoogleAddress(b) {
-  return [b.adresse, b.code_postal, b.ville].filter(Boolean).join(", ").trim();
+
+const GOOGLE_MAPS_API_KEY = (
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_GOOGLE_MAPS_API_KEY)
+  || (typeof process !== "undefined" && process.env && process.env.REACT_APP_GOOGLE_MAPS_API_KEY)
+  || "REMPLACER_PAR_VOTRE_CLE_API_GOOGLE_MAPS"
+);
+const GOOGLE_MAPS_SCRIPT_ID = "google-maps-js-api-profero-invest";
+
+function getGoogleMapsApiKey() {
+  return (GOOGLE_MAPS_API_KEY || "").trim();
 }
 
-function googleMapsEmbedUrl(address) {
-  return `https://maps.google.com/maps?q=${encodeURIComponent(address)}&output=embed`;
+function getBienGoogleAddress(b) {
+  return [b.adresse, b.code_postal, b.ville].filter(Boolean).join(", ").trim();
 }
 
 function googleMapsSearchUrl(address) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
 
+function isValidLatLng(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+  }[c]));
+}
+
+function loadGoogleMapsApi(apiKey) {
+  if (typeof window === "undefined") return Promise.reject(new Error("Google Maps doit être chargé côté navigateur."));
+  if (window.google?.maps) return Promise.resolve(window.google.maps);
+  if (!apiKey || apiKey === "REMPLACER_PAR_VOTRE_CLE_API_GOOGLE_MAPS") {
+    return Promise.reject(new Error("Clé API Google Maps manquante."));
+  }
+  if (window.__proferoGoogleMapsPromise) return window.__proferoGoogleMapsPromise;
+
+  window.__proferoGoogleMapsPromise = new Promise((resolve, reject) => {
+    const existing = document.getElementById(GOOGLE_MAPS_SCRIPT_ID);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.google.maps), { once:true });
+      existing.addEventListener("error", () => reject(new Error("Chargement Google Maps impossible.")), { once:true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = GOOGLE_MAPS_SCRIPT_ID;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&language=fr&region=FR`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(window.google.maps);
+    script.onerror = () => reject(new Error("Chargement Google Maps impossible. Vérifiez la clé API et les restrictions de domaine."));
+    document.head.appendChild(script);
+  });
+  return window.__proferoGoogleMapsPromise;
+}
+
+function readGeocodeCache() {
+  try { return JSON.parse(localStorage.getItem("profero_invest_geocode_cache_v1") || "{}"); }
+  catch { return {}; }
+}
+
+function writeGeocodeCache(cache) {
+  try { localStorage.setItem("profero_invest_geocode_cache_v1", JSON.stringify(cache || {})); }
+  catch {}
+}
+
+function geocodeAddress(geocoder, address) {
+  return new Promise(resolve => {
+    geocoder.geocode({ address, region:"FR" }, (results, status) => {
+      if (status === "OK" && results?.[0]?.geometry?.location) {
+        const loc = results[0].geometry.location;
+        resolve({
+          lat: loc.lat(),
+          lng: loc.lng(),
+          formatted_address: results[0].formatted_address || address,
+          status,
+        });
+      } else {
+        resolve({ error: status || "UNKNOWN_ERROR" });
+      }
+    });
+  });
+}
+
+async function saveBienCoordinatesIfPossible(bienId, lat, lng) {
+  try {
+    await supabase.from("invest_biens").update({ latitude: lat, longitude: lng }).eq("id", bienId);
+  } catch (e) {
+    // La carte continue à fonctionner même si les colonnes ou les droits d'écriture ne sont pas disponibles.
+  }
+}
+
 function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
   const [selectedId, setSelectedId] = useState(null);
+  const [points, setPoints] = useState([]);
+  const [loadingMap, setLoadingMap] = useState(false);
+  const [mapError, setMapError] = useState("");
+  const mapElRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef([]);
+  const infoWindowRef = useRef(null);
+  const geocodeCacheRef = useRef(readGeocodeCache());
+
   const biensAvecAdresse = biens.filter(b => getBienGoogleAddress(b));
-  const addressKey = biensAvecAdresse.map(b => b.id).join("|");
+  const addressKey = biensAvecAdresse.map(b => `${b.id}:${getBienGoogleAddress(b)}:${b.latitude||""}:${b.longitude||""}`).join("|");
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
+  const apiKey = getGoogleMapsApiKey();
 
   useEffect(() => {
     if (biensAvecAdresse.length === 0) {
-      if (selectedId !== null) setSelectedId(null);
+      setSelectedId(null);
+      setPoints([]);
       return;
     }
     if (!selectedId || !biensAvecAdresse.some(b => b.id === selectedId)) {
@@ -2928,8 +3020,156 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressKey, selectedId]);
 
-  const selected = biensAvecAdresse.find(b => b.id === selectedId) || biensAvecAdresse[0] || null;
-  const selectedAddress = selected ? getBienGoogleAddress(selected) : "";
+  useEffect(() => {
+    let cancelled = false;
+    const init = async () => {
+      setMapError("");
+      if (biensAvecAdresse.length === 0) { setPoints([]); return; }
+      setLoadingMap(true);
+      try {
+        const maps = await loadGoogleMapsApi(apiKey);
+        if (cancelled) return;
+        if (!mapInstanceRef.current && mapElRef.current) {
+          mapInstanceRef.current = new maps.Map(mapElRef.current, {
+            center: { lat: 47.4784, lng: -0.5632 },
+            zoom: 11,
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: true,
+          });
+          infoWindowRef.current = new maps.InfoWindow();
+        }
+
+        const geocoder = new maps.Geocoder();
+        const cache = geocodeCacheRef.current || {};
+        const resolved = [];
+
+        for (const b of biensAvecAdresse) {
+          const address = getBienGoogleAddress(b);
+          const dbLat = parseFloat(b.latitude);
+          const dbLng = parseFloat(b.longitude);
+
+          if (isValidLatLng(dbLat, dbLng)) {
+            resolved.push({ b, address, lat: dbLat, lng: dbLng, formatted_address: address, source:"database" });
+            continue;
+          }
+
+          if (cache[address] && isValidLatLng(cache[address].lat, cache[address].lng)) {
+            resolved.push({ b, address, ...cache[address], source:"cache" });
+            continue;
+          }
+
+          const geo = await geocodeAddress(geocoder, address);
+          if (cancelled) return;
+          if (geo?.lat && geo?.lng) {
+            const coords = { lat: geo.lat, lng: geo.lng, formatted_address: geo.formatted_address || address };
+            cache[address] = coords;
+            resolved.push({ b, address, ...coords, source:"google" });
+            saveBienCoordinatesIfPossible(b.id, geo.lat, geo.lng);
+          } else {
+            resolved.push({ b, address, error: geo.error || "Adresse introuvable" });
+          }
+          await new Promise(r => setTimeout(r, 120));
+        }
+
+        geocodeCacheRef.current = cache;
+        writeGeocodeCache(cache);
+        setPoints(resolved.filter(p => isValidLatLng(p.lat, p.lng)));
+
+        const failed = resolved.filter(p => p.error).length;
+        setMapError(failed > 0 ? `${failed} adresse${failed>1?"s":""} non géocodée${failed>1?"s":""}. Vérifier l'adresse dans la fiche bien.` : "");
+      } catch (e) {
+        if (!cancelled) {
+          setMapError(e?.message || "Impossible de charger Google Maps.");
+          setPoints([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingMap(false);
+      }
+    };
+    init();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressKey, apiKey]);
+
+  const openPointInfo = useCallback((point, marker) => {
+    if (!point || !infoWindowRef.current) return;
+    const b = point.b;
+    const address = point.formatted_address || point.address;
+    const html = `
+      <div style="font-family:Arial,sans-serif;min-width:230px;max-width:310px;color:#1a1f2e">
+        <div style="font-size:14px;font-weight:800;margin-bottom:4px">${escapeHtml(b.adresse || b.ville || "Bien")}</div>
+        <div style="font-size:12px;color:#4a5568;line-height:1.45;margin-bottom:8px">${escapeHtml(address)}</div>
+        <div style="font-size:12px;line-height:1.7">
+          <div><strong>Statut :</strong> ${escapeHtml(b.statut || "—")}</div>
+          <div><strong>Prix :</strong> ${escapeHtml(fmtEur(b.prix_vente))}</div>
+          <div><strong>Travaux :</strong> ${escapeHtml(fmtEur(b.prix_travaux))}</div>
+          <div><strong>Rendement :</strong> ${b.rendement_brut ? `${Number(b.rendement_brut).toFixed(1)} %` : "—"}</div>
+          <div><strong>Cash-flow :</strong> ${escapeHtml(fmtEur(b.cashflow_estime))}</div>
+        </div>
+        <a href="${googleMapsSearchUrl(point.address)}" target="_blank" rel="noreferrer" style="display:inline-block;margin-top:9px;color:#4070e8;text-decoration:none;font-weight:700;font-size:12px">Ouvrir dans Google Maps →</a>
+      </div>`;
+    infoWindowRef.current.setContent(html);
+    if (marker) infoWindowRef.current.open({ anchor: marker, map: mapInstanceRef.current });
+  }, [fmtEur]);
+
+  useEffect(() => {
+    const maps = window.google?.maps;
+    const map = mapInstanceRef.current;
+    if (!maps || !map) return;
+
+    markersRef.current.forEach(marker => marker.setMap(null));
+    markersRef.current = [];
+
+    if (points.length === 0) return;
+
+    const bounds = new maps.LatLngBounds();
+    points.forEach((point, idx) => {
+      const color = STATUT_BIEN_COLORS[point.b.statut] || "#4070e8";
+      const marker = new maps.Marker({
+        position: { lat: point.lat, lng: point.lng },
+        map,
+        title: point.address,
+        label: { text: String(idx + 1), color: "#ffffff", fontSize: "11px", fontWeight: "700" },
+        icon: {
+          path: maps.SymbolPath.CIRCLE,
+          scale: 11,
+          fillColor: color,
+          fillOpacity: 0.95,
+          strokeColor: "#ffffff",
+          strokeWeight: 2,
+        },
+      });
+      marker.addListener("click", () => {
+        setSelectedId(point.b.id);
+        openPointInfo(point, marker);
+      });
+      markersRef.current.push(marker);
+      bounds.extend({ lat: point.lat, lng: point.lng });
+    });
+
+    if (points.length === 1) {
+      map.setCenter({ lat: points[0].lat, lng: points[0].lng });
+      map.setZoom(14);
+    } else {
+      map.fitBounds(bounds, 54);
+    }
+  }, [points, openPointInfo]);
+
+  useEffect(() => {
+    const maps = window.google?.maps;
+    const map = mapInstanceRef.current;
+    if (!maps || !map || !selectedId) return;
+    const idx = points.findIndex(p => p.b.id === selectedId);
+    if (idx < 0) return;
+    const point = points[idx];
+    const marker = markersRef.current[idx];
+    map.panTo({ lat: point.lat, lng: point.lng });
+    if ((map.getZoom?.() || 0) < 12) map.setZoom(13);
+    openPointInfo(point, marker);
+  }, [selectedId, points, openPointInfo]);
+
+  const selectedPoint = points.find(p => p.b.id === selectedId) || points[0] || null;
 
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
@@ -2939,7 +3179,7 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
           Google Maps — biens en stock
         </span>
         <span style={{fontSize:FONT.xs.size, color:T.textMuted, textTransform:"none", letterSpacing:0}}>
-          {biensAvecAdresse.length} adresse{biensAvecAdresse.length>1?"s":""} exploitable{biensAvecAdresse.length>1?"s":""}
+          {points.length}/{biensAvecAdresse.length} bien{biensAvecAdresse.length>1?"s":""} positionné{points.length>1?"s":""}
         </span>
       </div>
       <div className="inv-card-bd">
@@ -2947,19 +3187,20 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
           <div style={{padding:20, textAlign:"center", color:T.textMuted, border:`1px dashed ${T.border}`, borderRadius:RADIUS.lg, background:T.input}}>
             Aucun bien avec une adresse exploitable pour Google Maps. Renseignez au minimum une adresse ou une ville dans la fiche bien.
           </div>
+        ) : !apiKey || apiKey === "REMPLACER_PAR_VOTRE_CLE_API_GOOGLE_MAPS" ? (
+          <div style={{padding:20, border:`1px dashed ${T.accentBorder}`, borderRadius:RADIUS.lg, background:T.accentBg, color:T.textSub, lineHeight:1.6}}>
+            <div style={{fontWeight:800, color:T.accent, marginBottom:6}}>Clé API Google Maps à ajouter</div>
+            Dans le fichier <strong>PageInvest.jsx</strong>, remplacez la valeur de <strong>GOOGLE_MAPS_API_KEY</strong> par votre clé Google Maps, puis activez les API <strong>Maps JavaScript API</strong> et <strong>Geocoding API</strong> dans Google Cloud.
+          </div>
         ) : (
           <div style={{display:"grid", gridTemplateColumns:"2.1fr 1fr", gap:SPACING.md, alignItems:"stretch"}}>
-            <div style={{border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, overflow:"hidden", background:T.input, minHeight:410}}>
-              <iframe
-                key={selectedAddress}
-                title={`Google Maps — ${selectedAddress}`}
-                src={googleMapsEmbedUrl(selectedAddress)}
-                width="100%"
-                height="360"
-                style={{border:0, display:"block", background:T.input}}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
+            <div style={{border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, overflow:"hidden", background:T.input, minHeight:450, position:"relative"}}>
+              <div ref={mapElRef} style={{height:390, width:"100%"}} />
+              {loadingMap && (
+                <div style={{position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", background:"rgba(0,0,0,0.28)", color:"white", fontWeight:800, gap:8}}>
+                  <Icon as={RefreshCw} size={15} style={{animation:"spin 1s linear infinite"}}/> Chargement Google Maps…
+                </div>
+              )}
               <div style={{
                 padding:`${SPACING.sm+2}px ${SPACING.lg}px`, borderTop:`1px solid ${T.border}`,
                 display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm, flexWrap:"wrap",
@@ -2967,73 +3208,80 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
               }}>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:FONT.sm.size+1, fontWeight:800, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                    {selected?.adresse || "Adresse non renseignée"}
+                    {selectedPoint?.b?.adresse || selectedPoint?.b?.ville || "Sélectionnez un bien"}
                   </div>
-                  <div style={{fontSize:FONT.xs.size+1, color:T.textSub, marginTop:2}}>
-                    {selectedAddress}
+                  <div style={{fontSize:FONT.xs.size+1, color:mapError ? DA : T.textSub, marginTop:2}}>
+                    {mapError || selectedPoint?.formatted_address || selectedPoint?.address || "Carte Google Maps"}
                   </div>
                 </div>
-                <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
-                  <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>onOpenBien?.(selected.id)}>
-                    Ouvrir la fiche
-                  </button>
-                  <a
-                    className="inv-btn inv-btn-out inv-btn-sm"
-                    href={googleMapsSearchUrl(selectedAddress)}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{textDecoration:"none"}}
-                  >
-                    Google Maps <Icon as={ExternalLink} size={11}/>
-                  </a>
-                </div>
+                {selectedPoint && (
+                  <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                    <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>onOpenBien?.(selectedPoint.b.id)}>
+                      Ouvrir la fiche
+                    </button>
+                    <a
+                      className="inv-btn inv-btn-out inv-btn-sm"
+                      href={googleMapsSearchUrl(selectedPoint.address)}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{textDecoration:"none"}}
+                    >
+                      Google Maps <Icon as={ExternalLink} size={11}/>
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
 
             <div style={{
               border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, background:T.input,
-              minHeight:410, maxHeight:410, overflowY:"auto",
+              minHeight:450, maxHeight:450, overflowY:"auto",
             }}>
               <div style={{padding:`${SPACING.sm+2}px ${SPACING.md}px`, borderBottom:`1px solid ${T.border}`, background:T.sectionHd}}>
                 <div style={{fontSize:FONT.xs.size, fontWeight:800, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2}}>
-                  Adresses des biens
+                  Biens géolocalisés
                 </div>
               </div>
               <div style={{display:"flex", flexDirection:"column", gap:6, padding:SPACING.sm}}>
-                {biensAvecAdresse.map(b => {
+                {biensAvecAdresse.map((b, idx) => {
                   const addr = getBienGoogleAddress(b);
-                  const active = selected?.id === b.id;
+                  const point = points.find(p => p.b.id === b.id);
+                  const active = selectedId === b.id;
                   const color = STATUT_BIEN_COLORS[b.statut] || T.accent;
                   return (
                     <button
                       key={b.id}
-                      onClick={() => setSelectedId(b.id)}
+                      onClick={() => point && setSelectedId(b.id)}
+                      disabled={!point}
                       style={{
-                        width:"100%", textAlign:"left", cursor:"pointer", fontFamily:"inherit",
+                        width:"100%", textAlign:"left", cursor:point ? "pointer" : "not-allowed", fontFamily:"inherit",
                         padding:`${SPACING.sm+1}px ${SPACING.md}px`, borderRadius:RADIUS.md,
                         border:`1px solid ${active ? T.accentBorder : T.border}`,
                         background: active ? T.accentBg : T.card,
-                        transition:"all .12s",
+                        transition:"all .12s", opacity:point ? 1 : .55,
                       }}
                       onMouseEnter={e=>{e.currentTarget.style.borderColor=T.borderHover;}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor=active ? T.accentBorder : T.border;}}
                     >
                       <div style={{display:"flex", alignItems:"flex-start", gap:8}}>
                         <span style={{
-                          width:10, height:10, borderRadius:"50%", background:color,
-                          marginTop:5, flexShrink:0, boxShadow:`0 0 0 3px ${color}22`,
-                        }}/>
+                          width:22, height:22, borderRadius:"50%", background:color, color:"white",
+                          flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:FONT.xs.size-1, fontWeight:800, marginTop:1,
+                          boxShadow:`0 0 0 3px ${color}22`,
+                        }}>{idx+1}</span>
                         <div style={{minWidth:0, flex:1}}>
                           <div style={{fontSize:FONT.sm.size+1, fontWeight:800, color:active ? T.accent : T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
                             {b.adresse || b.ville || "Bien sans adresse"}
                           </div>
                           <div style={{fontSize:FONT.xs.size+1, color:T.textSub, marginTop:2, lineHeight:1.35}}>
-                            {addr}
+                            {point?.formatted_address || addr}
                           </div>
                           <div style={{display:"flex", gap:6, flexWrap:"wrap", marginTop:6, fontSize:FONT.xs.size, color:T.textMuted}}>
                             {b.statut && <span style={{color, fontWeight:700}}>{b.statut}</span>}
                             {b.prix_vente > 0 && <span>· {fmtEur(b.prix_vente)}</span>}
                             {b.rendement_brut > 0 && <span>· {Number(b.rendement_brut).toFixed(1)} %</span>}
+                            {!point && <span style={{color:DA}}>· non positionné</span>}
                           </div>
                         </div>
                       </div>
