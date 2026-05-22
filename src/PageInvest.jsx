@@ -2899,74 +2899,148 @@ const STATUT_BIEN_COLORS = {
   "Abandonné":"#5a6070","Proposé à un client":"#1f4ea1","En cours d'acquisition":"#1a7a4a",
 };
 
-function projectFrancePoint(lat, lng) {
-  // Projection approximative France métropolitaine pour carte synthétique sans dépendance externe
-  const minLng = -5.8, maxLng = 9.8, minLat = 41.0, maxLat = 51.5;
-  const x = Math.min(96, Math.max(4, ((lng - minLng) / (maxLng - minLng)) * 100));
-  const y = Math.min(96, Math.max(4, ((maxLat - lat) / (maxLat - minLat)) * 100));
-  return { x, y };
+function getBienGoogleAddress(b) {
+  return [b.adresse, b.code_postal, b.ville].filter(Boolean).join(", ").trim();
+}
+
+function googleMapsEmbedUrl(address) {
+  return `https://maps.google.com/maps?q=${encodeURIComponent(address)}&output=embed`;
+}
+
+function googleMapsSearchUrl(address) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
 
 function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
-  const [selected, setSelected] = useState(null);
-  const biensGeo = biens.filter(b => Number.isFinite(Number(b.latitude)) && Number.isFinite(Number(b.longitude)));
+  const [selectedId, setSelectedId] = useState(null);
+  const biensAvecAdresse = biens.filter(b => getBienGoogleAddress(b));
+  const addressKey = biensAvecAdresse.map(b => b.id).join("|");
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
+
+  useEffect(() => {
+    if (biensAvecAdresse.length === 0) {
+      if (selectedId !== null) setSelectedId(null);
+      return;
+    }
+    if (!selectedId || !biensAvecAdresse.some(b => b.id === selectedId)) {
+      setSelectedId(biensAvecAdresse[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressKey, selectedId]);
+
+  const selected = biensAvecAdresse.find(b => b.id === selectedId) || biensAvecAdresse[0] || null;
+  const selectedAddress = selected ? getBienGoogleAddress(selected) : "";
 
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
-      <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MapPin} size={13} strokeWidth={2.2}/>Carte des biens en stock</span></div>
+      <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+          <Icon as={MapPin} size={13} strokeWidth={2.2}/>
+          Google Maps — biens en stock
+        </span>
+        <span style={{fontSize:FONT.xs.size, color:T.textMuted, textTransform:"none", letterSpacing:0}}>
+          {biensAvecAdresse.length} adresse{biensAvecAdresse.length>1?"s":""} exploitable{biensAvecAdresse.length>1?"s":""}
+        </span>
+      </div>
       <div className="inv-card-bd">
-        {biensGeo.length === 0 ? (
+        {biensAvecAdresse.length === 0 ? (
           <div style={{padding:20, textAlign:"center", color:T.textMuted, border:`1px dashed ${T.border}`, borderRadius:RADIUS.lg, background:T.input}}>
-            Aucun bien géolocalisé pour le moment. Ajoutez latitude et longitude dans les fiches biens pour afficher les points sur la carte.
+            Aucun bien avec une adresse exploitable pour Google Maps. Renseignez au minimum une adresse ou une ville dans la fiche bien.
           </div>
         ) : (
-          <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:SPACING.md, alignItems:"stretch"}}>
-            <div style={{position:"relative", minHeight:360, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.border}`, background:`linear-gradient(145deg, ${T.accentBg}, ${T.input})`}}>
-              <div style={{position:"absolute", inset:0, opacity:.14, background:"radial-gradient(circle at 30% 25%, white 0, transparent 30%), radial-gradient(circle at 70% 70%, white 0, transparent 26%)"}}/>
-              <div style={{position:"absolute", left:"50%", top:"50%", transform:"translate(-50%,-50%)", width:"58%", height:"78%", border:`2px solid ${T.accentBorder}`, borderRadius:"48% 42% 52% 38%", opacity:.55}}/>
-              {biensGeo.map(b => {
-                const { x, y } = projectFrancePoint(Number(b.latitude), Number(b.longitude));
-                const c = STATUT_BIEN_COLORS[b.statut] || T.accent;
-                return (
-                  <button key={b.id} onClick={()=>setSelected(b)} title={b.adresse || "Bien"}
-                    style={{
-                      position:"absolute", left:`${x}%`, top:`${y}%`, transform:"translate(-50%,-50%)",
-                      width:selected?.id===b.id?22:16, height:selected?.id===b.id?22:16, borderRadius:"50%",
-                      background:c, border:"3px solid white", boxShadow:"0 4px 14px rgba(0,0,0,.35)", cursor:"pointer",
-                      transition:"all .15s", zIndex:selected?.id===b.id?3:2,
-                    }}/>
-                );
-              })}
-              <div style={{position:"absolute", left:12, bottom:10, color:T.textMuted, fontSize:FONT.xs.size, background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.pill, padding:"4px 9px"}}>
-                Carte indicative France · {biensGeo.length} point{biensGeo.length>1?"s":""}
-              </div>
-            </div>
-            <div style={{border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:SPACING.md, background:T.input, minHeight:360}}>
-              {selected ? (
-                <div>
-                  <div style={{fontSize:FONT.md.size, fontWeight:800, color:T.text, marginBottom:5}}>{selected.adresse || "Adresse non renseignée"}</div>
-                  <div style={{fontSize:FONT.sm.size, color:T.textSub, marginBottom:SPACING.md}}>{selected.code_postal ? `${selected.code_postal} ` : ""}{selected.ville || ""}</div>
-                  {[
-                    ["Statut", selected.statut],
-                    ["Prix de vente", fmtEur(selected.prix_vente)],
-                    ["Travaux", fmtEur(selected.prix_travaux)],
-                    ["Coût total", fmtEur(selected.cout_total)],
-                    ["Rendement", selected.rendement_brut ? `${Number(selected.rendement_brut).toFixed(1)} %` : "—"],
-                    ["Cash-flow", selected.cashflow_estime ? `${fmtEur(selected.cashflow_estime)}/mois` : "—"],
-                  ].map(([l,v])=>(
-                    <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v || "—"}</span></div>
-                  ))}
-                  <div style={{display:"flex", gap:8, marginTop:SPACING.md, flexWrap:"wrap"}}>
-                    <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>onOpenBien?.(selected.id)}>Ouvrir la fiche</button>
-                    <a className="inv-btn inv-btn-out inv-btn-sm" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selected.adresse, selected.code_postal, selected.ville].filter(Boolean).join(" "))}`} target="_blank" rel="noreferrer" style={{textDecoration:"none"}}>Maps <Icon as={ExternalLink} size={11}/></a>
+          <div style={{display:"grid", gridTemplateColumns:"2.1fr 1fr", gap:SPACING.md, alignItems:"stretch"}}>
+            <div style={{border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, overflow:"hidden", background:T.input, minHeight:410}}>
+              <iframe
+                key={selectedAddress}
+                title={`Google Maps — ${selectedAddress}`}
+                src={googleMapsEmbedUrl(selectedAddress)}
+                width="100%"
+                height="360"
+                style={{border:0, display:"block", background:T.input}}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+              <div style={{
+                padding:`${SPACING.sm+2}px ${SPACING.lg}px`, borderTop:`1px solid ${T.border}`,
+                display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm, flexWrap:"wrap",
+                background:T.card,
+              }}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:FONT.sm.size+1, fontWeight:800, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                    {selected?.adresse || "Adresse non renseignée"}
+                  </div>
+                  <div style={{fontSize:FONT.xs.size+1, color:T.textSub, marginTop:2}}>
+                    {selectedAddress}
                   </div>
                 </div>
-              ) : (
-                <div style={{height:"100%", display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center", color:T.textMuted, fontSize:FONT.sm.size+1}}>
-                  Cliquez sur un point pour afficher les informations du bien.
+                <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                  <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>onOpenBien?.(selected.id)}>
+                    Ouvrir la fiche
+                  </button>
+                  <a
+                    className="inv-btn inv-btn-out inv-btn-sm"
+                    href={googleMapsSearchUrl(selectedAddress)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{textDecoration:"none"}}
+                  >
+                    Google Maps <Icon as={ExternalLink} size={11}/>
+                  </a>
                 </div>
-              )}
+              </div>
+            </div>
+
+            <div style={{
+              border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, background:T.input,
+              minHeight:410, maxHeight:410, overflowY:"auto",
+            }}>
+              <div style={{padding:`${SPACING.sm+2}px ${SPACING.md}px`, borderBottom:`1px solid ${T.border}`, background:T.sectionHd}}>
+                <div style={{fontSize:FONT.xs.size, fontWeight:800, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2}}>
+                  Adresses des biens
+                </div>
+              </div>
+              <div style={{display:"flex", flexDirection:"column", gap:6, padding:SPACING.sm}}>
+                {biensAvecAdresse.map(b => {
+                  const addr = getBienGoogleAddress(b);
+                  const active = selected?.id === b.id;
+                  const color = STATUT_BIEN_COLORS[b.statut] || T.accent;
+                  return (
+                    <button
+                      key={b.id}
+                      onClick={() => setSelectedId(b.id)}
+                      style={{
+                        width:"100%", textAlign:"left", cursor:"pointer", fontFamily:"inherit",
+                        padding:`${SPACING.sm+1}px ${SPACING.md}px`, borderRadius:RADIUS.md,
+                        border:`1px solid ${active ? T.accentBorder : T.border}`,
+                        background: active ? T.accentBg : T.card,
+                        transition:"all .12s",
+                      }}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.borderHover;}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=active ? T.accentBorder : T.border;}}
+                    >
+                      <div style={{display:"flex", alignItems:"flex-start", gap:8}}>
+                        <span style={{
+                          width:10, height:10, borderRadius:"50%", background:color,
+                          marginTop:5, flexShrink:0, boxShadow:`0 0 0 3px ${color}22`,
+                        }}/>
+                        <div style={{minWidth:0, flex:1}}>
+                          <div style={{fontSize:FONT.sm.size+1, fontWeight:800, color:active ? T.accent : T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                            {b.adresse || b.ville || "Bien sans adresse"}
+                          </div>
+                          <div style={{fontSize:FONT.xs.size+1, color:T.textSub, marginTop:2, lineHeight:1.35}}>
+                            {addr}
+                          </div>
+                          <div style={{display:"flex", gap:6, flexWrap:"wrap", marginTop:6, fontSize:FONT.xs.size, color:T.textMuted}}>
+                            {b.statut && <span style={{color, fontWeight:700}}>{b.statut}</span>}
+                            {b.prix_vente > 0 && <span>· {fmtEur(b.prix_vente)}</span>}
+                            {b.rendement_brut > 0 && <span>· {Number(b.rendement_brut).toFixed(1)} %</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
