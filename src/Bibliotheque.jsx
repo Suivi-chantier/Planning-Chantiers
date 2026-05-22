@@ -309,7 +309,22 @@ function PageBibliotheque({ T, branch = "renovation" }) {
 
   const categories = [...CATEGORIES_BASE, ...categoriesCustom];
 
-  useEffect(() => { loadOuvrages(); loadCategoriesCustom(); }, []);
+  useEffect(() => {
+    loadOuvrages();
+    loadCategoriesCustom();
+    // Realtime : tout changement de la bibliothèque ou des catégories custom
+    // est propagé en direct chez tous les utilisateurs connectés.
+    const chOuvr = supabase.channel("biblio-ouvrages-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "bibliotheque_ratios" },
+          () => loadOuvrages())
+      .subscribe();
+    const chCat = supabase.channel("biblio-cats-rt")
+      .on("postgres_changes",
+          { event: "*", schema: "public", table: "planning_config", filter: "key=eq.bibliotheque_categories_custom" },
+          () => loadCategoriesCustom())
+      .subscribe();
+    return () => { supabase.removeChannel(chOuvr); supabase.removeChannel(chCat); };
+  }, []);
 
   async function loadOuvrages() {
     setLoading(true);
@@ -326,16 +341,39 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     setLoading(false);
   }
 
-  function loadCategoriesCustom() {
+  // Catégories custom : stockées dans planning_config (partagées entre tous les
+  // utilisateurs). Migration douce depuis l'ancien localStorage : si Supabase
+  // n'a pas encore de données mais que localStorage en a, on les remonte.
+  async function loadCategoriesCustom() {
+    const { data } = await supabase.from("planning_config")
+      .select("value").eq("key", "bibliotheque_categories_custom").maybeSingle();
+    if (data?.value && Array.isArray(data.value.items)) {
+      setCategoriesCustom(data.value.items);
+      return;
+    }
+    // Pas en base : on tente la migration depuis localStorage si présent
     try {
       const stored = localStorage.getItem("bibliotheque_categories_custom");
-      if (stored) setCategoriesCustom(JSON.parse(stored));
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCategoriesCustom(parsed);
+          // Push vers Supabase pour partager avec l'équipe (one-shot migration)
+          await supabase.from("planning_config").upsert(
+            { key: "bibliotheque_categories_custom", value: { items: parsed } },
+            { onConflict: "key" }
+          );
+        }
+      }
     } catch (_) {}
   }
 
-  function saveCategoriesCustom(cats) {
+  async function saveCategoriesCustom(cats) {
     setCategoriesCustom(cats);
-    localStorage.setItem("bibliotheque_categories_custom", JSON.stringify(cats));
+    await supabase.from("planning_config").upsert(
+      { key: "bibliotheque_categories_custom", value: { items: cats } },
+      { onConflict: "key" }
+    );
   }
 
   function creerCategorie() {
@@ -397,18 +435,21 @@ function PageBibliotheque({ T, branch = "renovation" }) {
 
   async function saveOuvrage(ouvrage) {
     setSaving(ouvrage.id);
-    const total = (ouvrage.sous_taches || []).reduce((s, t) => s + (parseFloat(t.ratio) || 0), 0);
-    if (ouvrage.sous_taches.length > 0 && Math.abs(total - 100) > 0.5) {
-      setMsg({ type: "error", text: `La somme des ratios doit être 100% (actuellement ${total.toFixed(1)}%)` });
-      setSaving(null); return;
-    }
-    await supabase.from("bibliotheque_ratios").update({
+    // Note : la validation "somme ratios = 100 %" a été retirée avec le refactor
+    // des heures vendues (elles vivent désormais au niveau ouvrage uniquement).
+    // Conserver cette validation bloquait silencieusement la sauvegarde des
+    // sous-tâches saisies via la nouvelle UI (sans ratio).
+    const { error } = await supabase.from("bibliotheque_ratios").update({
       libelle: ouvrage.libelle, unite: ouvrage.unite,
       cadence: ouvrage.cadence ?? null,
       sous_taches: ouvrage.sous_taches,
       updated_at: new Date().toISOString(),
     }).eq("id", ouvrage.id);
-    flash("ok", "Ouvrage sauvegardé");
+    if (error) {
+      flash("error", "Erreur lors de la sauvegarde : " + error.message);
+    } else {
+      flash("ok", "Ouvrage sauvegardé");
+    }
     setSaving(null);
     setEditId(null);
   }
