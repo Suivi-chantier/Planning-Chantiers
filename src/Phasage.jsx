@@ -2542,14 +2542,14 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
                         <button onClick={() => { setAjoutSTOuvrageId(ouvrage.id); setAjoutSTNom(""); setAjoutSTPhase(""); }}
                           title="Ajouter une sous-tâche à cet ouvrage"
                           style={{
-                            display: "inline-flex", alignItems: "center", gap: 3,
-                            fontSize: 10, padding: "3px 8px", borderRadius: 4,
-                            background: "transparent", border: `1px dashed ${T.border}`,
-                            color: T.textMuted, fontFamily: "inherit", fontWeight: 600,
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+                            background: `${T.accent}18`, border: `1px dashed ${T.accent}66`,
+                            color: T.accent, fontFamily: "inherit", fontWeight: 700,
                             cursor: "pointer",
                           }}>
-                          <Icon as={Plus} size={10}/>
-                          Ajouter sous-tâche
+                          <Icon as={Plus} size={11}/>
+                          Ajouter une sous-tâche
                         </button>
                       )}
                     </div>
