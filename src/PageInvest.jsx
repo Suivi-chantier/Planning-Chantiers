@@ -1805,13 +1805,88 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
 }
 
 // ─── TABLEAU DE BORD INVEST ───────────────────────────────────────────────────
-function KPICard({ label, value, color, icon: IconComp }) {
+const ETAPES_CLIENT = [
+  "1 Signature contrat",
+  "2 Envoi des documents d'analyse",
+  "3 Définition de la stratégie d'investissement",
+  "4 Recherche du projet (visites et analyse)",
+  "5 Présentation des projets",
+  "6 Offre d'achat",
+  "7 Réalisation des devis précis",
+  "8 Signature du compromis",
+  "9 Réalisation du dossier bancaire",
+  "10 Obtention du financement",
+  "11 Réalisation des dossiers d'urbanismes",
+  "12 Validation des conditions suspensives d'achat",
+  "13 Signature Notaire",
+];
+
+const TYPES_PLANNING_INVEST = [
+  "Visite de bien",
+  "RDV client",
+  "Relance commerciale",
+  "Point interne",
+  "Signature",
+  "Autre",
+];
+
+const isoDate = (d) => d.toISOString().slice(0, 10);
+const getWeekRange = (base = new Date()) => {
+  const d = new Date(base);
+  d.setHours(12, 0, 0, 0);
+  const day = d.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { today: isoDate(d), startWeek: isoDate(monday), endWeek: isoDate(sunday) };
+};
+
+const isActionLateOrThisWeek = (item) => {
+  const { today, endWeek } = getWeekRange();
+  return !!(item?.prochaine_action && item?.date_prochaine_action && item.date_prochaine_action <= endWeek);
+};
+
+const normTxt = (v) => String(v ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+function compareValues(a, b, direction = "asc") {
+  const mult = direction === "asc" ? 1 : -1;
+  if (a === null || a === undefined || a === "") return 1;
+  if (b === null || b === undefined || b === "") return -1;
+  const na = Number(a), nb = Number(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return (na - nb) * mult;
+  return String(a).localeCompare(String(b), "fr", { numeric:true, sensitivity:"base" }) * mult;
+}
+
+function SortableHeader({ label, sortKey, sortConfig, onSort, T, align="left" }) {
+  const active = sortConfig?.key === sortKey;
+  return (
+    <button
+      onClick={() => onSort(sortKey)}
+      style={{
+        border:"none", background:"transparent", color:active ? T.accent : T.textMuted,
+        fontFamily:"inherit", fontSize:"inherit", fontWeight:800, textTransform:"uppercase",
+        letterSpacing:0.8, cursor:"pointer", textAlign:align, padding:0,
+        display:"inline-flex", alignItems:"center", gap:4, justifyContent:align === "right" ? "flex-end" : "flex-start",
+      }}
+      title={`Trier par ${label}`}
+    >
+      {label}
+      <span style={{fontSize:10, opacity:active ? 1 : .35}}>{active ? (sortConfig.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+    </button>
+  );
+}
+
+function KPICard({ label, value, color, icon: IconComp, onClick, sub }) {
   const c = color || "#FFC200";
   return (
-    <div className="inv-kpi" style={{
+    <div className="inv-kpi" onClick={onClick} style={{
       display:"flex", flexDirection:"row", alignItems:"center", gap:SPACING.md,
-      borderLeft:`3px solid ${c}`,
-    }}>
+      borderLeft:`3px solid ${c}`, cursor:onClick ? "pointer" : "default",
+    }}
+      onMouseEnter={e=>{ if(onClick) e.currentTarget.style.transform="translateY(-1px)"; }}
+      onMouseLeave={e=>{ if(onClick) e.currentTarget.style.transform="none"; }}>
       {IconComp && (
         <div style={{
           width:38, height:38, borderRadius:RADIUS.md, flexShrink:0,
@@ -1824,12 +1899,126 @@ function KPICard({ label, value, color, icon: IconComp }) {
       <div style={{minWidth:0, flex:1}}>
         <div className="inv-kpi-lbl">{label}</div>
         <div className="inv-kpi-val" style={{ color:c, fontSize:FONT.xl.size+2 }}>{value}</div>
+        {sub && <div style={{fontSize:FONT.xs.size, color:"inherit", opacity:.65, marginTop:3}}>{sub}</div>}
       </div>
     </div>
   );
 }
 
-function TableauBord({ profil, T=THEMES_INV.dark }) {
+function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
+  const { startWeek, endWeek, today } = getWeekRange();
+  const [events, setEvents] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [biens, setBiens] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    titre:"", type:"Visite de bien", date_rdv:today, heure_debut:"", heure_fin:"",
+    client_id:"", bien_id:"", lieu:"", commentaire:"",
+  });
+
+  const charger = async () => {
+    setLoading(true); setError("");
+    const [planningRes, clientsRes, biensRes] = await Promise.all([
+      supabase.from("invest_planning").select("*, client:invest_clients(id,nom,prenom), bien:invest_biens(id,adresse,ville)").gte("date_rdv", startWeek).lte("date_rdv", endWeek).order("date_rdv", { ascending:true }).order("heure_debut", { ascending:true }),
+      supabase.from("invest_clients").select("id,nom,prenom").order("nom"),
+      supabase.from("invest_biens").select("id,adresse,ville").order("adresse"),
+    ]);
+    let planningData = planningRes.data || [];
+    if (planningRes.error) {
+      const fallback = await supabase.from("invest_planning").select("*").gte("date_rdv", startWeek).lte("date_rdv", endWeek).order("date_rdv", { ascending:true }).order("heure_debut", { ascending:true });
+      if (fallback.error) {
+        setError("La table invest_planning n'existe pas encore. Lancez la migration SQL fournie avec le fichier.");
+        planningData = [];
+      } else {
+        planningData = fallback.data || [];
+      }
+    }
+    setEvents(planningData);
+    setClients(clientsRes.data || []);
+    setBiens(biensRes.data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { charger(); }, []);
+
+  const ajouter = async () => {
+    if (!form.titre.trim() || !form.date_rdv) return;
+    setSaving(true);
+    const payload = {
+      titre: form.titre.trim(), type: form.type, date_rdv: form.date_rdv,
+      heure_debut: form.heure_debut || null, heure_fin: form.heure_fin || null,
+      client_id: form.client_id || null, bien_id: form.bien_id || null,
+      lieu: form.lieu.trim() || null, commentaire: form.commentaire.trim() || null,
+      created_by: profil?.email || profil?.nom || null,
+    };
+    const { error } = await supabase.from("invest_planning").insert(payload);
+    setSaving(false);
+    if (error) { setError("Impossible d'ajouter le RDV. Vérifiez la table invest_planning."); return; }
+    setForm({ titre:"", type:"Visite de bien", date_rdv:today, heure_debut:"", heure_fin:"", client_id:"", bien_id:"", lieu:"", commentaire:"" });
+    charger();
+  };
+
+  const supprimer = async (id) => {
+    if (!window.confirm("Supprimer ce rendez-vous ?")) return;
+    await supabase.from("invest_planning").delete().eq("id", id);
+    charger();
+  };
+
+  const jours = Array.from({length:7}, (_,i)=>{
+    const d = new Date(startWeek); d.setDate(d.getDate()+i);
+    return { iso: isoDate(d), label: d.toLocaleDateString("fr-FR", { weekday:"short", day:"2-digit", month:"short" }) };
+  });
+
+  return (
+    <div className="inv-card" style={{marginTop:SPACING.xxl-2}}>
+      <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Planning commercial de la semaine</span></div>
+      <div className="inv-card-bd">
+        {error && <div style={{marginBottom:12, padding:"9px 11px", borderRadius:RADIUS.md, background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, fontSize:FONT.sm.size}}>{error}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1.2fr 150px 130px 90px 90px 1fr 1fr auto",gap:8,alignItems:"center",marginBottom:14}}>
+          <input className="inv-inp" value={form.titre} placeholder="Titre du RDV" onChange={e=>setForm({...form,titre:e.target.value})} style={{width:"100%", textAlign:"left"}}/>
+          <select className="inv-sel" value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>{TYPES_PLANNING_INVEST.map(t=><option key={t}>{t}</option>)}</select>
+          <input className="inv-inp" type="date" value={form.date_rdv} onChange={e=>setForm({...form,date_rdv:e.target.value})} style={{width:"100%"}}/>
+          <input className="inv-inp" type="time" value={form.heure_debut} onChange={e=>setForm({...form,heure_debut:e.target.value})} style={{width:"100%"}}/>
+          <input className="inv-inp" type="time" value={form.heure_fin} onChange={e=>setForm({...form,heure_fin:e.target.value})} style={{width:"100%"}}/>
+          <select className="inv-sel" value={form.client_id} onChange={e=>setForm({...form,client_id:e.target.value})}><option value="">Client lié</option>{clients.map(c=><option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>)}</select>
+          <select className="inv-sel" value={form.bien_id} onChange={e=>setForm({...form,bien_id:e.target.value})}><option value="">Bien lié</option>{biens.map(b=><option key={b.id} value={b.id}>{b.adresse}{b.ville ? ` — ${b.ville}` : ""}</option>)}</select>
+          <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={ajouter} disabled={saving || !form.titre.trim()}><Icon as={Plus} size={12} strokeWidth={2.2}/> Ajouter</button>
+        </div>
+
+        {loading ? (
+          <div style={{textAlign:"center", color:T.textMuted, padding:18}}>Chargement…</div>
+        ) : (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,overflowX:"auto"}}>
+            {jours.map(j => {
+              const evts = events.filter(e => e.date_rdv === j.iso);
+              return (
+                <div key={j.iso} style={{minWidth:145, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, overflow:"hidden", background:T.input}}>
+                  <div style={{padding:"7px 9px", background:j.iso===today?T.accentBg:T.sectionHd, color:j.iso===today?T.accent:T.textSub, fontSize:FONT.xs.size, fontWeight:800, textTransform:"uppercase", letterSpacing:.8}}>{j.label}</div>
+                  <div style={{padding:8, display:"flex", flexDirection:"column", gap:6, minHeight:92}}>
+                    {evts.length === 0 ? <div style={{fontSize:FONT.xs.size, color:T.textMuted, fontStyle:"italic"}}>Aucun RDV</div> : evts.map(e => (
+                      <div key={e.id} style={{padding:"7px 8px", borderRadius:RADIUS.sm+1, background:T.card, border:`1px solid ${T.border}`}}>
+                        <div style={{display:"flex", justifyContent:"space-between", gap:5}}>
+                          <div style={{fontSize:FONT.sm.size, fontWeight:800, color:T.text, lineHeight:1.2}}>{e.titre}</div>
+                          <button onClick={()=>supprimer(e.id)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13}}>×</button>
+                        </div>
+                        <div style={{fontSize:FONT.xs.size, color:T.accent, marginTop:3, fontWeight:700}}>{e.heure_debut ? e.heure_debut.slice(0,5) : "Horaire libre"}{e.heure_fin ? ` - ${e.heure_fin.slice(0,5)}` : ""}</div>
+                        <div style={{fontSize:FONT.xs.size, color:T.textMuted, marginTop:2}}>{e.type}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -1837,12 +2026,14 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
     const charger = async () => {
       setLoading(true);
       const [{ data: clients }, { data: biens }, { data: props }] = await Promise.all([
-        supabase.from("invest_clients").select("statut,budget,date_signature,prochaine_action"),
-        supabase.from("invest_biens").select("statut,date_relance,rendement_brut,cashflow_estime"),
+        supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,prochaine_action,date_prochaine_action"),
+        supabase.from("invest_biens").select("id,statut,date_relance,rendement_brut,cashflow_estime"),
         supabase.from("invest_propositions").select("client_id,bien_id,created_at"),
       ]);
       const c = clients || [], b = biens || [], p = props || [];
-      const today = new Date().toISOString().slice(0, 10);
+      const { today, endWeek } = getWeekRange();
+      const actionsRetard = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action < today);
+      const actionsSemaine = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action >= today && x.date_prochaine_action <= endWeek);
       setStats({
         prospects:       c.filter(x => x.statut === "Prospect").length,
         actifs:          c.filter(x => x.statut === "Actif").length,
@@ -1855,9 +2046,11 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
         visitesProg:     b.filter(x => x.statut === "Visite programmée").length,
         offreEnvoyees:   b.filter(x => x.statut === "Offre envoyée").length,
         offresAcceptees: b.filter(x => x.statut === "Offre acceptée").length,
-        sansProchaineAction: c.filter(x => !x.prochaine_action).length,
+        sansProchaineAction: c.filter(x => !x.prochaine_action && !x.date_prochaine_action).length,
         nbPropositions:  p.length,
-        moyBiensParClient: c.length > 0 ? (p.length / Math.max(c.filter(x => x.date_signature).length, 1)).toFixed(1) : "—",
+        actionsRetard:   actionsRetard.length,
+        actionsSemaine:  actionsSemaine.length,
+        actionsATraiter: actionsRetard.length + actionsSemaine.length,
       });
       setLoading(false);
     };
@@ -1865,7 +2058,7 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
   }, []);
 
   const fmt = v => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
-
+  const go = (target, filter) => { if (onNavigate) onNavigate(target, filter); };
 
   const sectionTitle = (icon, label) => (
     <div style={{
@@ -1878,7 +2071,7 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
   );
 
   return (
-    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1200, margin:"0 auto" }}>
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1300, margin:"0 auto" }}>
       <div style={{ marginBottom:SPACING.xl, display:"flex", alignItems:"center", gap:SPACING.md }}>
         <div style={{
           width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0,
@@ -1902,25 +2095,27 @@ function TableauBord({ profil, T=THEMES_INV.dark }) {
         <>
           {sectionTitle(Users, "Clients & Prospects")}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xxl-2 }}>
-            <KPICard icon={Users}        label="Prospects"             value={stats.prospects}       color="#4db8ff" />
-            <KPICard icon={Check}        label="Clients actifs"        value={stats.actifs}          color={SU} />
-            <KPICard icon={Bell}         label="Clients inactifs"      value={stats.inactifs}        color={WA} />
-            <KPICard icon={Lock}         label="Terminés"              value={stats.termines}        color={T.textMuted} />
-            <KPICard icon={Handshake}    label="Total signés"          value={stats.totalSignes}     color={SU} />
-            <KPICard icon={Wallet}       label="Budget total signé"    value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" />
-            <KPICard icon={AlertTriangle} label="Sans prochaine action" value={stats.sansProchaineAction} color={DA} />
-            <KPICard icon={Briefcase}    label="Moy. biens / client"   value={stats.moyBiensParClient} color="#c084fc" />
+            <KPICard icon={Users}        label="Prospects"             value={stats.prospects}       color="#4db8ff" onClick={()=>go("crm", { type:"statut", value:"Prospect" })}/>
+            <KPICard icon={Check}        label="Clients actifs"        value={stats.actifs}          color={SU} onClick={()=>go("crm", { type:"statut", value:"Actif" })}/>
+            <KPICard icon={Bell}         label="Clients inactifs"      value={stats.inactifs}        color={WA} onClick={()=>go("crm", { type:"statut", value:"Inactif" })}/>
+            <KPICard icon={Lock}         label="Terminés"              value={stats.termines}        color={T.textMuted} onClick={()=>go("crm", { type:"statut", value:"Terminé" })}/>
+            <KPICard icon={Handshake}    label="Total signés"          value={stats.totalSignes}     color={SU} onClick={()=>go("crm", { type:"signes" })}/>
+            <KPICard icon={Wallet}       label="Budget total signé"    value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" onClick={()=>go("crm", { type:"signes" })}/>
+            <KPICard icon={AlertTriangle} label="Sans prochaine action" value={stats.sansProchaineAction} color={DA} onClick={()=>go("crm", { type:"sans_action" })}/>
+            <KPICard icon={Calendar}     label="Actions à traiter"     value={stats.actionsATraiter} color={stats.actionsRetard > 0 ? DA : WA} sub={`${stats.actionsRetard} retard · ${stats.actionsSemaine} semaine`} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
           </div>
 
           {sectionTitle(Building2, "Stock de Biens")}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md }}>
-            <KPICard icon={Home}         label="Biens en stock"        value={stats.biensTotaux}      color="#4db8ff" />
-            <KPICard icon={Bell}         label="À relancer"            value={stats.biensARelancer}   color={DA} />
-            <KPICard icon={Calendar}     label="Visites programmées"   value={stats.visitesProg}      color={SU} />
-            <KPICard icon={Send}         label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" />
-            <KPICard icon={Check}        label="Offres acceptées"      value={stats.offresAcceptees}  color={SU} />
-            <KPICard icon={Hammer}       label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" />
+            <KPICard icon={Home}         label="Biens en stock"        value={stats.biensTotaux}      color="#4db8ff" onClick={()=>go("biens", { type:"all" })}/>
+            <KPICard icon={Bell}         label="À relancer"            value={stats.biensARelancer}   color={DA} onClick={()=>go("biens", { type:"a_relancer" })}/>
+            <KPICard icon={Calendar}     label="Visites programmées"   value={stats.visitesProg}      color={SU} onClick={()=>go("biens", { type:"statut", value:"Visite programmée" })}/>
+            <KPICard icon={Send}         label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" onClick={()=>go("biens", { type:"statut", value:"Offre envoyée" })}/>
+            <KPICard icon={Check}        label="Offres acceptées"      value={stats.offresAcceptees}  color={SU} onClick={()=>go("biens", { type:"statut", value:"Offre acceptée" })}/>
+            <KPICard icon={Hammer}       label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" onClick={()=>go("crm", { type:"with_propositions" })}/>
           </div>
+
+          <PlanningSemaine profil={profil} T={T} />
         </>
       )}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
@@ -1934,7 +2129,7 @@ const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
 const STATUTS_PROP    = ["proposé","intéressé","refusé","en analyse","offre en cours"];
 
-function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
+function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, initialFilter }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
@@ -1942,7 +2137,10 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
   const [filtreStatut, setFiltreStatut] = useState("");
   const [filtreConseiller, setFiltreConseiller] = useState("");
   const [filtreSource, setFiltreSource] = useState("");
+  const [specialFilter, setSpecialFilter] = useState("");
   const [search, setSearch]       = useState("");
+  const [columnFilters, setColumnFilters] = useState({});
+  const [sortConfig, setSortConfig] = useState({ key:"created_at", direction:"desc" });
 
   const charger = async () => {
     setLoading(true);
@@ -1952,24 +2150,50 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
   };
   useEffect(() => { charger(); }, []);
 
-  const conseillers = [...new Set(clients.map(c => c.conseiller).filter(Boolean))];
+  useEffect(() => {
+    if (!initialFilter) return;
+    setFiltreStatut(""); setFiltreConseiller(""); setFiltreSource(""); setSpecialFilter(""); setColumnFilters({}); setSearch("");
+    if (initialFilter.type === "statut") setFiltreStatut(initialFilter.value || "");
+    if (["sans_action", "actions_week_or_late", "signes", "with_propositions"].includes(initialFilter.type)) setSpecialFilter(initialFilter.type);
+  }, [initialFilter]);
 
-  const filtered = clients.filter(c => {
+  const conseillers = [...new Set(clients.map(c => c.conseiller).filter(Boolean))];
+  const today = new Date().toISOString().slice(0,10);
+
+  const updateColumnFilter = (key, value) => setColumnFilters(prev => ({ ...prev, [key]: value }));
+  const handleSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
+
+  const valueForColumn = (c, key) => {
+    if (key === "contact") return `${c.prenom||""} ${c.nom||""} ${c.email||""} ${c.telephone||""}`;
+    if (key === "action") return `${c.date_prochaine_action||""} ${c.prochaine_action||""}`;
+    return c[key];
+  };
+
+  let filtered = clients.filter(c => {
     if (filtreStatut && c.statut !== filtreStatut) return false;
     if (filtreConseiller && c.conseiller !== filtreConseiller) return false;
     if (filtreSource && c.source !== filtreSource) return false;
-    if (search && !`${c.nom} ${c.prenom} ${c.email}`.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
+    if (specialFilter === "sans_action" && (c.prochaine_action || c.date_prochaine_action)) return false;
+    if (specialFilter === "actions_week_or_late" && !isActionLateOrThisWeek(c)) return false;
+    if (specialFilter === "signes" && !c.date_signature) return false;
+    if (search && !normTxt(`${c.nom} ${c.prenom} ${c.email} ${c.telephone} ${c.conseiller} ${c.source} ${c.etape} ${c.prochaine_action}`).includes(normTxt(search))) return false;
+    return Object.entries(columnFilters).every(([key, value]) => {
+      if (!value) return true;
+      return normTxt(valueForColumn(c, key)).includes(normTxt(value));
+    });
   });
+
+  filtered = [...filtered].sort((a,b) => compareValues(valueForColumn(a, sortConfig.key), valueForColumn(b, sortConfig.key), sortConfig.direction));
 
   const STATUT_COLORS = { Prospect:"#4db8ff", Actif:"#50c878", Inactif:"#FFC200", Terminé:"rgba(255,255,255,0.3)" };
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
+  const gridCols = "1.55fr .85fr .85fr .9fr .85fr .95fr 1.35fr 1.25fr 75px";
 
   if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} />;
 
   return (
-    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1400, margin:"0 auto" }}>
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1600, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:SPACING.xl-4, flexWrap:"wrap", gap:SPACING.sm+2 }}>
         <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
           <div style={{
@@ -1989,15 +2213,15 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
         </button>
       </div>
 
-      {/* Filtres */}
+      {/* Filtres rapides */}
       <div style={{ display:"flex", gap:SPACING.sm+2, marginBottom:SPACING.lg, flexWrap:"wrap" }}>
-        <div style={{position:"relative", width:240}}>
+        <div style={{position:"relative", width:260}}>
           <Icon as={Search} size={13} color={T.textMuted}
             style={{position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
-          <input className="inv-inp" placeholder="Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
+          <input className="inv-inp" placeholder="Rechercher partout…" value={search} onChange={e=>setSearch(e.target.value)}
             style={{ width:"100%", textAlign:"left", paddingLeft:30, fontSize:FONT.sm.size+1 }}/>
         </div>
-        <select className="inv-sel" value={filtreStatut} onChange={e=>setFiltreStatut(e.target.value)}>
+        <select className="inv-sel" value={filtreStatut} onChange={e=>{setFiltreStatut(e.target.value); setSpecialFilter("");}}>
           <option value="">Tous statuts</option>
           {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
         </select>
@@ -2009,6 +2233,10 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
           <option value="">Toutes sources</option>
           {SOURCES_CLIENT.map(s=><option key={s}>{s}</option>)}
         </select>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>{setFiltreStatut("");setFiltreConseiller("");setFiltreSource("");setSpecialFilter("");setSearch("");setColumnFilters({});}}>
+          <Icon as={X} size={12} strokeWidth={2.2}/> Réinitialiser
+        </button>
+        {specialFilter && <span style={{fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center"}}>Filtre dashboard actif</span>}
       </div>
 
       {/* Liste */}
@@ -2018,65 +2246,86 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation }) {
           Chargement…
         </div>
       ) : (
-        <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflow:"hidden", boxShadow:T.shadowSm }}>
-          <div style={{
-            display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px",
-            padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
-            borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
-            color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8,
-          }}>
-            <div>Contact</div><div>Statut</div><div>Budget</div><div>Conseiller</div><div>Étape</div><div>Prochaine action</div><div/>
-          </div>
-          {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun contact trouvé</div>
-          ) : filtered.map(c => {
-            const initials = `${c.prenom?.[0]||""}${c.nom?.[0]||""}`.toUpperCase();
-            const enRetard = c.date_prochaine_action && c.date_prochaine_action < new Date().toISOString().slice(0,10);
-            return (
-              <div key={c.id} style={{
-                display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr 80px",
-                padding:`${SPACING.md+2}px ${SPACING.lg}px`,
-                borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
-                cursor:"pointer", transition:"background .12s",
-              }}
-                onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
-                onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-                onClick={() => setFicheId(c.id)}>
-                <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
-                  <div style={{
-                    width:34, height:34, borderRadius:"50%", flexShrink:0,
-                    background:T.accentBg, color:T.accent,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:FONT.sm.size+1, fontWeight:800,
-                  }}>{initials}</div>
-                  <div style={{minWidth:0}}>
-                    <div style={{ fontWeight:700, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.prenom} {c.nom}</div>
-                    <div style={{ fontSize:FONT.xs.size, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.email || c.telephone || "—"}</div>
+        <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflowX:"auto", boxShadow:T.shadowSm }}>
+          <div style={{ minWidth:1280 }}>
+            <div style={{
+              display:"grid", gridTemplateColumns:gridCols,
+              padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
+              borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
+              color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8, gap:10,
+            }}>
+              <SortableHeader label="Contact" sortKey="contact" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Date contact" sortKey="date_premier_contact" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Statut" sortKey="statut" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Source" sortKey="source" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Budget" sortKey="budget" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Conseiller" sortKey="conseiller" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Étape" sortKey="etape" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Prochaine action" sortKey="action" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <div/>
+            </div>
+            <div style={{
+              display:"grid", gridTemplateColumns:gridCols, gap:10, padding:`${SPACING.sm}px ${SPACING.lg}px`,
+              background:T.input, borderBottom:`1px solid ${T.border}`,
+            }}>
+              {["contact","date_premier_contact","statut","source","budget","conseiller","etape","action"].map(k => (
+                <input key={k} className="inv-inp" value={columnFilters[k]||""} placeholder="Filtrer…" onChange={e=>updateColumnFilter(k,e.target.value)} style={{width:"100%", textAlign:"left", fontSize:FONT.xs.size+1, padding:"5px 7px"}}/>
+              ))}
+              <div/>
+            </div>
+            {filtered.length === 0 ? (
+              <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun contact trouvé</div>
+            ) : filtered.map(c => {
+              const initials = `${c.prenom?.[0]||""}${c.nom?.[0]||""}`.toUpperCase();
+              const enRetard = c.date_prochaine_action && c.date_prochaine_action < today;
+              return (
+                <div key={c.id} style={{
+                  display:"grid", gridTemplateColumns:gridCols, gap:10,
+                  padding:`${SPACING.md+2}px ${SPACING.lg}px`,
+                  borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
+                  cursor:"pointer", transition:"background .12s",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  onClick={() => setFicheId(c.id)}>
+                  <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
+                    <div style={{
+                      width:34, height:34, borderRadius:"50%", flexShrink:0,
+                      background:T.accentBg, color:T.accent,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:FONT.sm.size+1, fontWeight:800,
+                    }}>{initials}</div>
+                    <div style={{minWidth:0}}>
+                      <div style={{ fontWeight:700, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.prenom} {c.nom}</div>
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.email || c.telephone || "—"}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{fmtDate(c.date_premier_contact)}</div>
+                  <div>
+                    <span style={{
+                      background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut],
+                      border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:RADIUS.pill,
+                      padding:`${SPACING.xs-2}px ${SPACING.sm+2}px`, fontSize:FONT.xs.size, fontWeight:700,
+                    }}>{c.statut}</span>
+                  </div>
+                  <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.source||"—"}</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:600, color:T.accent }}>{fmtBudget(c.budget)}</div>
+                  <div style={{ fontSize:FONT.sm.size+1, color:T.textSub }}>{c.conseiller||"—"}</div>
+                  <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.etape||"—"}</div>
+                  <div style={{ fontSize:FONT.sm.size, color: enRetard ? DA : T.textMuted }}>
+                    {enRetard && <Icon as={AlertTriangle} size={11} strokeWidth={2.2} style={{marginRight:3, verticalAlign:-1}}/>}
+                    {fmtDate(c.date_prochaine_action)}
+                    {c.prochaine_action && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:1, opacity:0.7 }}>{c.prochaine_action.slice(0,42)}</div>}
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:3 }}>
+                      Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
+                    </span>
                   </div>
                 </div>
-                <div>
-                  <span style={{
-                    background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut],
-                    border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:RADIUS.pill,
-                    padding:`${SPACING.xs-2}px ${SPACING.sm+2}px`, fontSize:FONT.xs.size, fontWeight:700,
-                  }}>{c.statut}</span>
-                </div>
-                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:600, color:T.accent }}>{fmtBudget(c.budget)}</div>
-                <div style={{ fontSize:FONT.sm.size+1, color:T.textSub }}>{c.conseiller||"—"}</div>
-                <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.etape||"—"}</div>
-                <div style={{ fontSize:FONT.sm.size, color: enRetard ? DA : T.textMuted }}>
-                  {enRetard && <Icon as={AlertTriangle} size={11} strokeWidth={2.2} style={{marginRight:3, verticalAlign:-1}}/>}
-                  {fmtDate(c.date_prochaine_action)}
-                  {c.prochaine_action && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:1, opacity:0.7 }}>{c.prochaine_action.slice(0,30)}</div>}
-                </div>
-                <div style={{ textAlign:"right" }}>
-                  <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:3 }}>
-                    Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -2094,6 +2343,7 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
     conseiller: client?.conseiller || profil?.nom||"",
     source: client?.source||"Autre", statut: client?.statut||"Prospect",
     budget: client?.budget||0, etape: client?.etape||"",
+    date_premier_contact: client?.date_premier_contact||"",
     prochaine_action: client?.prochaine_action||"",
     date_prochaine_action: client?.date_prochaine_action||"",
     notes_rapides: client?.notes_rapides||"",
@@ -2113,16 +2363,23 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
       source:                form.source || "Autre",
       statut:                form.statut || "Prospect",
       budget:                parseFloat(form.budget) || 0,
-      etape:                 form.etape.trim() || null,
+      etape:                 form.etape || null,
+      date_premier_contact:  form.date_premier_contact || null,
       prochaine_action:      form.prochaine_action.trim() || null,
       date_prochaine_action: form.date_prochaine_action || null,
       notes_rapides:         form.notes_rapides.trim() || null,
     };
-    // Nettoyer les null pour éviter les conflits de type
     Object.keys(payload).forEach(k => { if (payload[k] === "") payload[k] = null; });
-    const { error } = isEdit
-      ? await supabase.from("invest_clients").update(payload).eq("id", client.id)
-      : await supabase.from("invest_clients").insert(payload);
+    const write = async (p) => isEdit
+      ? await supabase.from("invest_clients").update(p).eq("id", client.id)
+      : await supabase.from("invest_clients").insert(p);
+    let { error } = await write(payload);
+    if (error && (error.code === "42703" || error.code === "PGRST204" || String(error.message||"").includes("date_premier_contact"))) {
+      const { date_premier_contact, ...fallbackPayload } = payload;
+      const retry = await write(fallbackPayload);
+      error = retry.error;
+      if (!error) console.warn("Colonne date_premier_contact absente. Lancez la migration SQL pour activer cette donnée.");
+    }
     if (error) { console.error("Erreur sauvegarde client:", error); alert("Erreur : " + error.message); }
     setSaving(false);
     if (!error) onSave();
@@ -2130,7 +2387,7 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:580, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
+      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:640, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le contact" : "Nouveau contact"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Nom *</label><input className="inv-inp" value={form.nom} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,nom:e.target.value})}/></div>
@@ -2149,7 +2406,13 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
             </select>
           </div>
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Budget (€)</label><input className="inv-inp" type="number" value={form.budget} style={{ width:"100%" }} onChange={e=>setForm({...form,budget:e.target.value})}/></div>
-          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Étape en cours</label><input className="inv-inp" value={form.etape} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,etape:e.target.value})}/></div>
+          <div style={{ marginBottom:14, gridColumn:"1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Étape en cours</label>
+            <select className="inv-sel" value={form.etape} style={{ width:"100%" }} onChange={e=>setForm({...form,etape:e.target.value})}>
+              <option value="">Sélectionner une étape…</option>
+              {ETAPES_CLIENT.map(e=><option key={e} value={e}>{e}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Date avant contact</label><input className="inv-inp" type="date" value={form.date_premier_contact} style={{ width:"100%" }} onChange={e=>setForm({...form,date_premier_contact:e.target.value})}/></div>
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Date prochaine action</label><input className="inv-inp" type="date" value={form.date_prochaine_action} style={{ width:"100%" }} onChange={e=>setForm({...form,date_prochaine_action:e.target.value})}/></div>
         </div>
         <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Prochaine action</label><input className="inv-inp" value={form.prochaine_action} style={{ width:"100%", textAlign:"left" }} onChange={e=>setForm({...form,prochaine_action:e.target.value})}/></div>
@@ -2163,8 +2426,7 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
   );
 }
 
-
-// ─── DOCUMENTS (Supabase Storage) ────────────────────────────────────────────
+// ─── DOCUMENTS// ─── DOCUMENTS (Supabase Storage) ────────────────────────────────────────────
 // Bucket requis : "invest-documents" (public: false, RLS: authenticated)
 // Chemin des fichiers : clients/{client_id}/{filename} ou biens/{bien_id}/{filename}
 
@@ -2633,15 +2895,92 @@ const STATUT_BIEN_COLORS = {
   "Abandonné":"#5a6070","Proposé à un client":"#1f4ea1","En cours d'acquisition":"#1a7a4a",
 };
 
-function StockBiens({ profil, T=THEMES_INV.dark }) {
+function projectFrancePoint(lat, lng) {
+  // Projection approximative France métropolitaine pour carte synthétique sans dépendance externe
+  const minLng = -5.8, maxLng = 9.8, minLat = 41.0, maxLat = 51.5;
+  const x = Math.min(96, Math.max(4, ((lng - minLng) / (maxLng - minLng)) * 100));
+  const y = Math.min(96, Math.max(4, ((maxLat - lat) / (maxLat - minLat)) * 100));
+  return { x, y };
+}
+
+function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
+  const [selected, setSelected] = useState(null);
+  const biensGeo = biens.filter(b => Number.isFinite(Number(b.latitude)) && Number.isFinite(Number(b.longitude)));
+  const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
+
+  return (
+    <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
+      <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MapPin} size={13} strokeWidth={2.2}/>Carte des biens en stock</span></div>
+      <div className="inv-card-bd">
+        {biensGeo.length === 0 ? (
+          <div style={{padding:20, textAlign:"center", color:T.textMuted, border:`1px dashed ${T.border}`, borderRadius:RADIUS.lg, background:T.input}}>
+            Aucun bien géolocalisé pour le moment. Ajoutez latitude et longitude dans les fiches biens pour afficher les points sur la carte.
+          </div>
+        ) : (
+          <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:SPACING.md, alignItems:"stretch"}}>
+            <div style={{position:"relative", minHeight:360, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.border}`, background:`linear-gradient(145deg, ${T.accentBg}, ${T.input})`}}>
+              <div style={{position:"absolute", inset:0, opacity:.14, background:"radial-gradient(circle at 30% 25%, white 0, transparent 30%), radial-gradient(circle at 70% 70%, white 0, transparent 26%)"}}/>
+              <div style={{position:"absolute", left:"50%", top:"50%", transform:"translate(-50%,-50%)", width:"58%", height:"78%", border:`2px solid ${T.accentBorder}`, borderRadius:"48% 42% 52% 38%", opacity:.55}}/>
+              {biensGeo.map(b => {
+                const { x, y } = projectFrancePoint(Number(b.latitude), Number(b.longitude));
+                const c = STATUT_BIEN_COLORS[b.statut] || T.accent;
+                return (
+                  <button key={b.id} onClick={()=>setSelected(b)} title={b.adresse || "Bien"}
+                    style={{
+                      position:"absolute", left:`${x}%`, top:`${y}%`, transform:"translate(-50%,-50%)",
+                      width:selected?.id===b.id?22:16, height:selected?.id===b.id?22:16, borderRadius:"50%",
+                      background:c, border:"3px solid white", boxShadow:"0 4px 14px rgba(0,0,0,.35)", cursor:"pointer",
+                      transition:"all .15s", zIndex:selected?.id===b.id?3:2,
+                    }}/>
+                );
+              })}
+              <div style={{position:"absolute", left:12, bottom:10, color:T.textMuted, fontSize:FONT.xs.size, background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.pill, padding:"4px 9px"}}>
+                Carte indicative France · {biensGeo.length} point{biensGeo.length>1?"s":""}
+              </div>
+            </div>
+            <div style={{border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:SPACING.md, background:T.input, minHeight:360}}>
+              {selected ? (
+                <div>
+                  <div style={{fontSize:FONT.md.size, fontWeight:800, color:T.text, marginBottom:5}}>{selected.adresse || "Adresse non renseignée"}</div>
+                  <div style={{fontSize:FONT.sm.size, color:T.textSub, marginBottom:SPACING.md}}>{selected.code_postal ? `${selected.code_postal} ` : ""}{selected.ville || ""}</div>
+                  {[
+                    ["Statut", selected.statut],
+                    ["Prix de vente", fmtEur(selected.prix_vente)],
+                    ["Travaux", fmtEur(selected.prix_travaux)],
+                    ["Coût total", fmtEur(selected.cout_total)],
+                    ["Rendement", selected.rendement_brut ? `${Number(selected.rendement_brut).toFixed(1)} %` : "—"],
+                    ["Cash-flow", selected.cashflow_estime ? `${fmtEur(selected.cashflow_estime)}/mois` : "—"],
+                  ].map(([l,v])=>(
+                    <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v || "—"}</span></div>
+                  ))}
+                  <div style={{display:"flex", gap:8, marginTop:SPACING.md, flexWrap:"wrap"}}>
+                    <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>onOpenBien?.(selected.id)}>Ouvrir la fiche</button>
+                    <a className="inv-btn inv-btn-out inv-btn-sm" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selected.adresse, selected.code_postal, selected.ville].filter(Boolean).join(" "))}`} target="_blank" rel="noreferrer" style={{textDecoration:"none"}}>Maps <Icon as={ExternalLink} size={11}/></a>
+                  </div>
+                </div>
+              ) : (
+                <div style={{height:"100%", display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center", color:T.textMuted, fontSize:FONT.sm.size+1}}>
+                  Cliquez sur un point pour afficher les informations du bien.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
   const [biens, setBiens]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [ficheId, setFicheId]   = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [filtreVille, setFiltreVille]   = useState("");
+  const [specialFilter, setSpecialFilter] = useState("");
   const [search, setSearch]     = useState("");
-  const [sortBy, setSortBy]     = useState("");
+  const [sortConfig, setSortConfig] = useState({ key:"created_at", direction:"desc" });
 
   const charger = async () => {
     setLoading(true);
@@ -2651,30 +2990,37 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
   };
   useEffect(() => { charger(); }, []);
 
+  useEffect(() => {
+    if (!initialFilter) return;
+    setFiltreStatut(""); setFiltreVille(""); setSpecialFilter(""); setSearch("");
+    if (initialFilter.type === "statut") setFiltreStatut(initialFilter.value || "");
+    if (initialFilter.type === "a_relancer") { setSpecialFilter("a_relancer"); setSortConfig({ key:"date_relance", direction:"asc" }); }
+    if (initialFilter.type === "all") setSortConfig({ key:"created_at", direction:"desc" });
+  }, [initialFilter]);
+
   const today = new Date().toISOString().slice(0,10);
   const villes = [...new Set(biens.map(b => b.ville).filter(Boolean))];
+  const handleSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
 
   let filtered = biens.filter(b => {
     if (filtreStatut && b.statut !== filtreStatut) return false;
     if (filtreVille && b.ville !== filtreVille) return false;
-    if (search && !`${b.adresse||""} ${b.ville||""} ${b.agence||""}`.toLowerCase().includes(search.toLowerCase())) return false;
+    if (specialFilter === "a_relancer" && !(b.date_relance && b.date_relance <= today)) return false;
+    if (search && !normTxt(`${b.adresse||""} ${b.ville||""} ${b.code_postal||""} ${b.agence||""} ${b.interlocuteur||""} ${b.statut||""}`).includes(normTxt(search))) return false;
     return true;
   });
 
-  if (sortBy === "rendement") filtered = [...filtered].sort((a,b) => (b.rendement_brut||0)-(a.rendement_brut||0));
-  if (sortBy === "cashflow")  filtered = [...filtered].sort((a,b) => (b.cashflow_estime||0)-(a.cashflow_estime||0));
-  if (sortBy === "cout")      filtered = [...filtered].sort((a,b) => (b.cout_total||0)-(a.cout_total||0));
-  if (sortBy === "relance")   filtered = [...filtered].sort((a,b) => (a.date_relance||"9999") < (b.date_relance||"9999") ? -1 : 1);
+  filtered = [...filtered].sort((a,b) => compareValues(a[sortConfig.key], b[sortConfig.key], sortConfig.direction));
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}) : "—";
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
-
   const aRelancer = biens.filter(b => b.date_relance && b.date_relance <= today).length;
+  const gridCols = ".85fr 2fr 1.15fr 1fr 1fr 1fr 1fr 80px";
 
   if (ficheId) return <FicheBien id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} />;
 
   return (
-    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1400, margin:"0 auto" }}>
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1500, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:SPACING.xl-4, flexWrap:"wrap", gap:SPACING.sm+2 }}>
         <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
           <div style={{
@@ -2701,6 +3047,8 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
         </button>
       </div>
 
+      <CarteBiens biens={filtered} T={T} onOpenBien={setFicheId} />
+
       {/* Filtres */}
       <div style={{ display:"flex", gap:SPACING.sm+2, marginBottom:SPACING.lg, flexWrap:"wrap" }}>
         <div style={{position:"relative", width:240}}>
@@ -2709,7 +3057,7 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
           <input className="inv-inp" placeholder="Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
             style={{ width:"100%", textAlign:"left", paddingLeft:30, fontSize:FONT.sm.size+1 }}/>
         </div>
-        <select className="inv-sel" value={filtreStatut} onChange={e=>setFiltreStatut(e.target.value)}>
+        <select className="inv-sel" value={filtreStatut} onChange={e=>{setFiltreStatut(e.target.value); setSpecialFilter("");}}>
           <option value="">Tous statuts</option>
           {STATUTS_BIEN.map(s=><option key={s}>{s}</option>)}
         </select>
@@ -2717,16 +3065,19 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
           <option value="">Toutes villes</option>
           {villes.map(v=><option key={v}>{v}</option>)}
         </select>
-        <select className="inv-sel" value={sortBy} onChange={e=>setSortBy(e.target.value)}>
-          <option value="">Trier par…</option>
-          <option value="rendement">Rendement brut ↓</option>
-          <option value="cashflow">Cash-flow ↓</option>
-          <option value="cout">Coût total ↓</option>
-          <option value="relance">Date relance ↑</option>
+        <select className="inv-sel" value={`${sortConfig.key}:${sortConfig.direction}`} onChange={e=>{ const [key,direction]=e.target.value.split(":"); setSortConfig({key,direction}); }}>
+          <option value="created_at:desc">Date entrée ↓</option>
+          <option value="rendement_brut:desc">Rendement brut ↓</option>
+          <option value="cashflow_estime:desc">Cash-flow ↓</option>
+          <option value="cout_total:desc">Coût total ↓</option>
+          <option value="date_relance:asc">Date relance ↑</option>
         </select>
         <button className="inv-btn inv-btn-danger inv-btn-sm"
-          onClick={() => { setFiltreStatut("À relancer"); setSortBy("relance"); }}>
+          onClick={() => { setSpecialFilter("a_relancer"); setSortConfig({key:"date_relance", direction:"asc"}); }}>
           <Icon as={Bell} size={12} strokeWidth={2.2}/> Voir à relancer
+        </button>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => { setFiltreStatut(""); setFiltreVille(""); setSpecialFilter(""); setSearch(""); setSortConfig({key:"created_at", direction:"desc"}); }}>
+          <Icon as={X} size={12} strokeWidth={2.2}/> Réinitialiser
         </button>
       </div>
 
@@ -2737,76 +3088,86 @@ function StockBiens({ profil, T=THEMES_INV.dark }) {
           Chargement…
         </div>
       ) : (
-        <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflow:"hidden", boxShadow:T.shadowSm }}>
-          <div style={{
-            display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px",
-            padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
-            borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
-            color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8,
-          }}>
-            <div>Bien</div><div>Statut</div><div>Coût total</div><div>Rendement</div><div>Cash-flow</div><div>Relance</div><div/>
-          </div>
-          {filtered.length === 0 ? (
-            <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun bien trouvé</div>
-          ) : filtered.map(b => {
-            const couleurStatut = STATUT_BIEN_COLORS[b.statut] || T.textMuted;
-            const enRelance = b.date_relance && b.date_relance <= today;
-            const rendCol = b.rendement_brut >= 8 ? SU : b.rendement_brut >= 5 ? WA : T.textMuted;
-            const cfVal = b.cashflow_estime || 0;
-            const cfCol = cfVal > 0 ? SU : cfVal < 0 ? DA : T.textMuted;
-            return (
-              <div key={b.id} style={{
-                display:"grid", gridTemplateColumns:"2fr 1.2fr 1fr 1fr 1fr 1fr 80px",
-                padding:`${SPACING.md+2}px ${SPACING.lg}px`,
-                borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
-                cursor:"pointer", transition:"background .12s",
-              }}
-                onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
-                onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-                onClick={() => setFicheId(b.id)}>
-                <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
-                  <div style={{
-                    width:34, height:34, borderRadius:RADIUS.md, flexShrink:0,
-                    background:`${couleurStatut}22`, color:couleurStatut,
-                    border:`1px solid ${couleurStatut}40`,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                  }}>
-                    <Icon as={Home} size={17} strokeWidth={2}/>
-                  </div>
-                  <div style={{minWidth:0}}>
-                    <div style={{ fontWeight:700, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{b.adresse||"Adresse non renseignée"}</div>
-                    <div style={{ fontSize:FONT.xs.size, color:T.textMuted, display:"inline-flex", alignItems:"center", gap:4 }}>
-                      {b.ville && <><Icon as={MapPin} size={10}/> {b.ville}</>}
-                      {b.agence && <span> · {b.agence}</span>}
+        <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflowX:"auto", boxShadow:T.shadowSm }}>
+          <div style={{minWidth:1180}}>
+            <div style={{
+              display:"grid", gridTemplateColumns:gridCols, gap:10,
+              padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
+              borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
+              color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8,
+            }}>
+              <SortableHeader label="Date entrée" sortKey="created_at" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Bien" sortKey="adresse" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Statut" sortKey="statut" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Coût total" sortKey="cout_total" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Rendement" sortKey="rendement_brut" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Cash-flow" sortKey="cashflow_estime" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <SortableHeader label="Relance" sortKey="date_relance" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+              <div/>
+            </div>
+            {filtered.length === 0 ? (
+              <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun bien trouvé</div>
+            ) : filtered.map(b => {
+              const couleurStatut = STATUT_BIEN_COLORS[b.statut] || T.textMuted;
+              const enRelance = b.date_relance && b.date_relance <= today;
+              const rendCol = b.rendement_brut >= 8 ? SU : b.rendement_brut >= 5 ? WA : T.textMuted;
+              const cfVal = b.cashflow_estime || 0;
+              const cfCol = cfVal > 0 ? SU : cfVal < 0 ? DA : T.textMuted;
+              return (
+                <div key={b.id} style={{
+                  display:"grid", gridTemplateColumns:gridCols, gap:10,
+                  padding:`${SPACING.md+2}px ${SPACING.lg}px`,
+                  borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
+                  cursor:"pointer", transition:"background .12s",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  onClick={() => setFicheId(b.id)}>
+                  <div style={{ fontSize:FONT.sm.size, color:T.textMuted }}>{fmtDate(b.created_at)}</div>
+                  <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
+                    <div style={{
+                      width:34, height:34, borderRadius:RADIUS.md, flexShrink:0,
+                      background:`${couleurStatut}22`, color:couleurStatut,
+                      border:`1px solid ${couleurStatut}40`,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                    }}>
+                      <Icon as={Home} size={17} strokeWidth={2}/>
+                    </div>
+                    <div style={{minWidth:0}}>
+                      <div style={{ fontWeight:700, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{b.adresse||"Adresse non renseignée"}</div>
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, display:"inline-flex", alignItems:"center", gap:4 }}>
+                        {b.ville && <><Icon as={MapPin} size={10}/> {b.ville}</>}
+                        {b.agence && <span> · {b.agence}</span>}
+                      </div>
                     </div>
                   </div>
+                  <div>
+                    <span style={{
+                      background:`${couleurStatut}18`, color:couleurStatut,
+                      border:`1px solid ${couleurStatut}33`, borderRadius:RADIUS.pill,
+                      padding:`${SPACING.xs-2}px ${SPACING.sm+1}px`, fontSize:FONT.xs.size-1, fontWeight:700, whiteSpace:"nowrap",
+                    }}>{b.statut}</span>
+                  </div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size, fontWeight:600, color:T.textSub }}>{fmtEur(b.cout_total)}</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:700, color:rendCol }}>
+                    {b.rendement_brut > 0 ? Number(b.rendement_brut).toFixed(1)+"%" : "—"}
+                  </div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size, color:cfCol, fontWeight:cfVal !== 0 ? 600 : 400 }}>
+                    {b.cashflow_estime ? fmtEur(b.cashflow_estime)+"/mois" : "—"}
+                  </div>
+                  <div style={{ fontSize:FONT.sm.size, color: enRelance ? DA : T.textMuted, fontWeight: enRelance ? 700 : 400, display:"inline-flex", alignItems:"center", gap:3 }}>
+                    {enRelance && <Icon as={Bell} size={11} strokeWidth={2.2}/>}
+                    {fmtDate(b.date_relance)}
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:3 }}>
+                      Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span style={{
-                    background:`${couleurStatut}18`, color:couleurStatut,
-                    border:`1px solid ${couleurStatut}33`, borderRadius:RADIUS.pill,
-                    padding:`${SPACING.xs-2}px ${SPACING.sm+1}px`, fontSize:FONT.xs.size-1, fontWeight:700, whiteSpace:"nowrap",
-                  }}>{b.statut}</span>
-                </div>
-                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size, fontWeight:600, color:T.textSub }}>{fmtEur(b.cout_total)}</div>
-                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:700, color:rendCol }}>
-                  {b.rendement_brut > 0 ? b.rendement_brut.toFixed(1)+"%" : "—"}
-                </div>
-                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size, color:cfCol, fontWeight:cfVal !== 0 ? 600 : 400 }}>
-                  {b.cashflow_estime ? fmtEur(b.cashflow_estime)+"/mois" : "—"}
-                </div>
-                <div style={{ fontSize:FONT.sm.size, color: enRelance ? DA : T.textMuted, fontWeight: enRelance ? 700 : 400, display:"inline-flex", alignItems:"center", gap:3 }}>
-                  {enRelance && <Icon as={Bell} size={11} strokeWidth={2.2}/>}
-                  {fmtDate(b.date_relance)}
-                </div>
-                <div style={{ textAlign:"right" }}>
-                  <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:3 }}>
-                    Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -2822,13 +3183,13 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
   const isEdit = !!bien;
   const [form, setForm] = useState({
     adresse: bien?.adresse||"", ville: bien?.ville||"", code_postal: bien?.code_postal||"",
+    latitude: bien?.latitude||"", longitude: bien?.longitude||"",
     commentaire: bien?.commentaire||"", interlocuteur: bien?.interlocuteur||"",
     telephone_interlocuteur: bien?.telephone_interlocuteur||"", agence: bien?.agence||"",
-    lien_annonce: bien?.lien_annonce||"", prix_vente: bien?.prix_vente||0,
-    prix_travaux: bien?.prix_travaux||0, cout_total: bien?.cout_total||0,
-    rendement_brut: bien?.rendement_brut||0, cashflow_estime: bien?.cashflow_estime||0,
-    lien_drive: bien?.lien_drive||"", lien_rentabilite: bien?.lien_rentabilite||"",
-    montant_offre: bien?.montant_offre||0, statut: bien?.statut||"À analyser",
+    lien_annonce: bien?.lien_annonce||"", lien_drive: bien?.lien_drive||"", lien_rentabilite: bien?.lien_rentabilite||"",
+    statut: bien?.statut||"À analyser", prix_vente: bien?.prix_vente||0, prix_travaux: bien?.prix_travaux||0,
+    cout_total: bien?.cout_total||0, rendement_brut: bien?.rendement_brut||0, cashflow_estime: bien?.cashflow_estime||0,
+    montant_offre: bien?.montant_offre||0,
     date_relance: bien?.date_relance||"", statut_relance: bien?.statut_relance||"",
     date_visite: bien?.date_visite||"",
   });
@@ -2842,12 +3203,12 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
 
   const sauvegarder = async () => {
     setSaving(true);
-    const NUM = ["prix_vente","prix_travaux","cout_total","rendement_brut","cashflow_estime","montant_offre"];
-    const DATE = ["date_relance","date_visite"];
     const payload = {
       adresse:                 form.adresse?.trim() || null,
       ville:                   form.ville?.trim() || null,
       code_postal:             form.code_postal?.trim() || null,
+      latitude:                form.latitude !== "" ? parseFloat(form.latitude) : null,
+      longitude:               form.longitude !== "" ? parseFloat(form.longitude) : null,
       commentaire:             form.commentaire?.trim() || null,
       interlocuteur:           form.interlocuteur?.trim() || null,
       telephone_interlocuteur: form.telephone_interlocuteur?.trim() || null,
@@ -2866,24 +3227,31 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
       date_relance:            form.date_relance || null,
       date_visite:             form.date_visite || null,
     };
-    const { error } = isEdit
-      ? await supabase.from("invest_biens").update(payload).eq("id", bien.id)
-      : await supabase.from("invest_biens").insert(payload);
+    const write = async (p) => isEdit
+      ? await supabase.from("invest_biens").update(p).eq("id", bien.id)
+      : await supabase.from("invest_biens").insert(p);
+    let { error } = await write(payload);
+    if (error && (error.code === "42703" || error.code === "PGRST204" || String(error.message||"").includes("latitude") || String(error.message||"").includes("longitude"))) {
+      const { latitude, longitude, ...fallbackPayload } = payload;
+      const retry = await write(fallbackPayload);
+      error = retry.error;
+      if (!error) console.warn("Colonnes latitude/longitude absentes. Lancez la migration SQL pour activer la carte.");
+    }
     if (error) { console.error("Erreur bien:", error); alert("Erreur : " + error.message); }
     setSaving(false);
     if (!error) onSave();
   };
 
-
-
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:680, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
+      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:720, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse</label><InpText value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></div>
+          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse</label><InpText value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label><InpText value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label><InpText value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Latitude</label><InpNum value={form.latitude} step="0.000001" onChange={e=>setForm({...form,latitude:e.target.value})} placeholder="47.4784"/></div>
+          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Longitude</label><InpNum value={form.longitude} step="0.000001" onChange={e=>setForm({...form,longitude:e.target.value})} placeholder="-0.5632"/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label><InpText value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label><InpText value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Agence</label><InpText value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></div>
@@ -2900,10 +3268,10 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Montant offre (€)</label><InpNum value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date visite</label><InpText type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date relance</label><InpText type="date" value={form.date_relance} onChange={e=>setForm({...form,date_relance:e.target.value})}/></div>
-          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien annonce</label><InpText value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></div>
+          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien annonce</label><InpText value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien Drive</label><InpText value={form.lien_drive} onChange={e=>setForm({...form,lien_drive:e.target.value})} placeholder="https://…"/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien dossier rentabilité</label><InpText value={form.lien_rentabilite} onChange={e=>setForm({...form,lien_rentabilite:e.target.value})} placeholder="https://…"/></div>
-          <div style={{ marginBottom:12, gridColumn: 1 / 3 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Commentaire</label><textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})}/></div>
+          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Commentaire</label><textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})}/></div>
         </div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
           <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
@@ -3614,6 +3982,8 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [page, setPage]                 = useState("dashboard");
   const [projetOuvert, setProjetOuvert] = useState(null);
   const [vueSim, setVueSim]             = useState("liste");
+  const [crmInitialFilter, setCrmInitialFilter] = useState(null);
+  const [biensInitialFilter, setBiensInitialFilter] = useState(null);
 
   // Config d'accès Invest (chargée depuis planning_config, fallback hardcodé)
   const role = profil?.role || "admin";
@@ -3649,6 +4019,23 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     if (simOrigine === "crm") setPage("crm");
   };
 
+  const naviguerDepuisDashboard = (target, filter) => {
+    if (target === "crm") {
+      setCrmInitialFilter({ ...(filter || {}), _ts: Date.now() });
+      setPage("crm");
+    }
+    if (target === "biens") {
+      setBiensInitialFilter({ ...(filter || {}), _ts: Date.now() });
+      setPage("biens");
+    }
+  };
+
+  const changerPage = (p) => {
+    setPage(p);
+    if (p !== "crm") setCrmInitialFilter(null);
+    if (p !== "biens") setBiensInitialFilter(null);
+  };
+
   // Simulateur plein écran — uniquement quand une fiche projet est ouverte
   if (page === "simulateur" && vueSim === "simulateur") {
     return (
@@ -3663,12 +4050,12 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={setPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} />
+      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
-        {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} />                                                                                          : <AccesRefuseInvest T={T} page="dashboard"/>)}
-        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />                                                   : <AccesRefuseInvest T={T} page="crm"/>)}
-        {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} />                                                                                            : <AccesRefuseInvest T={T} page="biens"/>)}
-        {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                                         : <AccesRefuseInvest T={T} page="admin"/>)}
+        {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguerDepuisDashboard} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
+        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />        : <AccesRefuseInvest T={T} page="crm"/>)}
+        {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
+        {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}
         {page === "simulateur" && (canSee("simulateur") ? (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
             <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
