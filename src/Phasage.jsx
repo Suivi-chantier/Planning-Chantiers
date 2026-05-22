@@ -2119,6 +2119,11 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const [heuresInput, setHeuresInput] = useState("");
   const [quantiteInput, setQuantiteInput] = useState("");
   const [search, setSearch] = useState("");
+  // Ajout manuel d'une sous-tâche à un ouvrage : on garde l'ID de l'ouvrage
+  // en cours d'édition + les valeurs du mini-formulaire.
+  const [ajoutSTOuvrageId, setAjoutSTOuvrageId] = useState(null);
+  const [ajoutSTNom, setAjoutSTNom] = useState("");
+  const [ajoutSTPhase, setAjoutSTPhase] = useState("");
   const ch = chantiers.find(c => c.id === phasage.chantier_id);
   const BLEU = "#5b9cf6";
   const hasPlan = phasage.plan_travaux && Object.values(phasage.plan_travaux).filter(v => Array.isArray(v)).some(arr => arr.length > 0);
@@ -2219,6 +2224,25 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   }
   function updateLibelle(id, val) {
     setOuvrages(prev => prev.map(o => o.id !== id ? o : { ...o, libelle: val }));
+  }
+
+  // CRUD sous-tâches d'un ouvrage (préparation du devis)
+  function ajouterSousTacheOuvrage(ouvrageId, nom, phaseId) {
+    if (!nom?.trim()) return;
+    const nouvelle = {
+      nom: nom.trim(),
+      phaseId: phaseId || "",
+      heures: 0,
+      heures_estimees: null,
+      prix_ht: null,
+      avancement: 0,
+      heures_reelles: [],
+      ressources: [],
+    };
+    setOuvrages(prev => prev.map(o => o.id !== ouvrageId ? o : { ...o, taches: [...(o.taches || []), nouvelle] }));
+  }
+  function supprimerSousTacheOuvrage(ouvrageId, idx) {
+    setOuvrages(prev => prev.map(o => o.id !== ouvrageId ? o : { ...o, taches: (o.taches || []).filter((_, i) => i !== idx) }));
   }
 
   if (view === "plan") {
@@ -2470,20 +2494,66 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
                       <Icon as={Trash2} size={12}/>
                     </button>
                   </div>
-                  {(ouvrage.taches || []).length > 0 && (
-                    <div style={{ padding: "6px 18px 10px", borderTop: `1px solid ${T.sectionDivider}` }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                        {(ouvrage.taches || []).map((t, i) => {
-                          const ph = PHASES.find(p => p.id === (t.phaseId || matchPhase(t.nom)));
-                          return (
-                            <span key={i} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: ph ? `${ph.couleur}18` : T.card, color: ph ? ph.couleur : T.textMuted, border: `1px solid ${ph ? ph.couleur + "33" : T.border}`, fontWeight: 600 }}>
-                              {ph?.emoji} {t.nom} · {t.heures}h
-                            </span>
-                          );
-                        })}
-                      </div>
+                  <div style={{ padding: "8px 18px 12px", borderTop: `1px solid ${T.sectionDivider}` }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
+                      {(ouvrage.taches || []).map((t, i) => {
+                        const ph = PHASES.find(p => p.id === (t.phaseId || matchPhase(t.nom)));
+                        return (
+                          <span key={i} style={{
+                            display: "inline-flex", alignItems: "center", gap: 5,
+                            fontSize: 10, padding: "3px 6px 3px 8px", borderRadius: 4,
+                            background: ph ? `${ph.couleur}18` : T.card,
+                            color: ph ? ph.couleur : T.textMuted,
+                            border: `1px solid ${ph ? ph.couleur + "33" : T.border}`,
+                            fontWeight: 600,
+                          }}>
+                            {ph?.emoji} {t.nom}
+                            <button onClick={() => supprimerSousTacheOuvrage(ouvrage.id, i)} title="Supprimer cette sous-tâche"
+                              style={{ background: "transparent", border: "none", color: "#e15a5a", cursor: "pointer", padding: 0, display: "inline-flex", lineHeight: 1, marginLeft: 2 }}>
+                              <Icon as={X} size={10}/>
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {ajoutSTOuvrageId === ouvrage.id ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: 3, background: T.card, borderRadius: 4, border: `1px solid ${T.accent}55` }}>
+                          <input
+                            autoFocus value={ajoutSTNom} onChange={e => setAjoutSTNom(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") { ajouterSousTacheOuvrage(ouvrage.id, ajoutSTNom, ajoutSTPhase); setAjoutSTOuvrageId(null); setAjoutSTNom(""); setAjoutSTPhase(""); } if (e.key === "Escape") { setAjoutSTOuvrageId(null); setAjoutSTNom(""); setAjoutSTPhase(""); } }}
+                            placeholder="Nom de la sous-tâche"
+                            style={{ padding: "3px 6px", borderRadius: 3, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 11, outline: "none", width: 160 }}
+                          />
+                          <select value={ajoutSTPhase} onChange={e => setAjoutSTPhase(e.target.value)}
+                            style={{ padding: "3px 4px", borderRadius: 3, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 10, outline: "none", cursor: "pointer" }}>
+                            <option value="">Auto…</option>
+                            {PHASES.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.label}</option>)}
+                          </select>
+                          <button onClick={() => { ajouterSousTacheOuvrage(ouvrage.id, ajoutSTNom, ajoutSTPhase); setAjoutSTOuvrageId(null); setAjoutSTNom(""); setAjoutSTPhase(""); }}
+                            disabled={!ajoutSTNom.trim()}
+                            style={{ padding: "3px 7px", borderRadius: 3, border: "none", background: ajoutSTNom.trim() ? T.accent : T.border, color: ajoutSTNom.trim() ? "#111" : T.textMuted, fontFamily: "inherit", fontSize: 10, fontWeight: 700, cursor: ajoutSTNom.trim() ? "pointer" : "default" }}>
+                            OK
+                          </button>
+                          <button onClick={() => { setAjoutSTOuvrageId(null); setAjoutSTNom(""); setAjoutSTPhase(""); }}
+                            style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", padding: 0, display: "inline-flex", lineHeight: 1 }}>
+                            <Icon as={X} size={11}/>
+                          </button>
+                        </span>
+                      ) : (
+                        <button onClick={() => { setAjoutSTOuvrageId(ouvrage.id); setAjoutSTNom(""); setAjoutSTPhase(""); }}
+                          title="Ajouter une sous-tâche à cet ouvrage"
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            fontSize: 10, padding: "3px 8px", borderRadius: 4,
+                            background: "transparent", border: `1px dashed ${T.border}`,
+                            color: T.textMuted, fontFamily: "inherit", fontWeight: 600,
+                            cursor: "pointer",
+                          }}>
+                          <Icon as={Plus} size={10}/>
+                          Ajouter sous-tâche
+                        </button>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
