@@ -1955,7 +1955,11 @@ function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
     };
     const { error } = await supabase.from("invest_planning").insert(payload);
     setSaving(false);
-    if (error) { setError("Impossible d'ajouter le RDV. Vérifiez la table invest_planning."); return; }
+    if (error) {
+      console.error("Erreur insert invest_planning:", error);
+      setError(`Impossible d'ajouter le RDV : ${error.message || "vérifiez les droits RLS et la table invest_planning."}`);
+      return;
+    }
     setForm({ titre:"", type:"Visite de bien", date_rdv:today, heure_debut:"", heure_fin:"", client_id:"", bien_id:"", lieu:"", commentaire:"" });
     charger();
   };
@@ -3513,7 +3517,7 @@ function OngletUtilisateursInvest({ T }) {
   const [invEmail, setInvEmail]         = useState("");
   const [invNom, setInvNom]             = useState("");
   const [invRole, setInvRole]           = useState("conducteur");
-  const [invBranches, setInvBranches]   = useState(["renovation"]);
+  const [invBranches, setInvBranches]   = useState(["invest"]);
   const [invLoading, setInvLoading]     = useState(false);
   const [editId, setEditId]             = useState(null);
   const [editData, setEditData]         = useState({});
@@ -3598,7 +3602,7 @@ function OngletUtilisateursInvest({ T }) {
       });
       if (dbErr) { flash("err","Profil non créé : "+dbErr.message); setInvLoading(false); return; }
       flash("ok",`✓ Invitation envoyée à ${invEmail}.`);
-      setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["renovation"]);
+      setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["invest"]);
       setShowForm(false); charger();
     } catch(e) { flash("err","Erreur : "+e.message); }
     setInvLoading(false);
@@ -3752,7 +3756,7 @@ function OngletUtilisateursInvest({ T }) {
                   </div>
                   {/* Actions */}
                   <div style={{ display:"flex", gap:6, flexShrink:0, flexWrap:"wrap" }}>
-                    <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>{ setEditId(u.id); setEditData({nom:u.nom,role:u.role,branches:u.branches||["renovation"]}); }}>✏️ Modifier</button>
+                    <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>{ setEditId(u.id); setEditData({nom:u.nom,role:u.role,branches:u.branches||["invest"]}); }}>✏️ Modifier</button>
                     <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>{ setResetId(u.id); setResetEmail(u.email); }}><Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Réinit.</button>
                     <button className="inv-btn inv-btn-sm" style={{ background: u.actif?"rgba(224,92,92,0.08)":"rgba(80,200,120,0.08)", color: u.actif?"#e05c5c":"#50c878", border:`1px solid ${u.actif?"rgba(224,92,92,0.3)":"rgba(80,200,120,0.3)"}` }} onClick={()=>toggleActif(u)}>
                       {u.actif?"Désactiver":"Réactiver"}
