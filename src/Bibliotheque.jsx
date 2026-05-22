@@ -20,11 +20,11 @@ const CATEGORIES_BASE = [
 ];
 
 // ─── SOUS-TÂCHE ROW ──────────────────────────────────────────────────────────
+// Note : le champ `ratio` n'est plus édité dans l'UI (suite au refactor où les
+// heures vendues ne vivent plus qu'au niveau ouvrage). La valeur existante en
+// base est conservée pour ne rien casser, mais n'est plus utilisée.
 function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) {
   const phase = PHASES.find(p => p.id === st.phaseId);
-  const cadenceST = editData.cadence > 0 && st.ratio
-    ? parseFloat(((editData.cadence * st.ratio) / 100).toFixed(3))
-    : null;
 
   function update(field, value) {
     const next = [...(editData.sous_taches || [])];
@@ -40,7 +40,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
   return (
     <div className="biblio-row" style={{
       display: "grid",
-      gridTemplateColumns: "1fr 180px 80px 70px 26px",
+      gridTemplateColumns: "1fr 220px 26px",
       gap: 8,
       alignItems: "center",
       padding: "8px 12px",
@@ -73,29 +73,6 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
         {PHASES.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.label}</option>)}
       </select>
 
-      {/* Ratio */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <input
-          type="number" min="0" max="100" step="1"
-          value={st.ratio || ""}
-          onChange={e => update("ratio", parseFloat(e.target.value) || 0)}
-          style={{
-            width: "100%", padding: "6px 6px", borderRadius: RADIUS.sm, textAlign: "center",
-            border: `1px solid ${T.border}`, background: T.inputBg, color: T.accent,
-            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, outline: "none",
-          }}
-        />
-        <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, flexShrink: 0 }}>%</span>
-      </div>
-
-      {/* Cadence calculée */}
-      <div style={{ textAlign: "center" }}>
-        {cadenceST !== null
-          ? <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#5b9cf6", background: "rgba(91,156,246,0.12)", padding: "3px 6px", borderRadius: RADIUS.sm, whiteSpace: "nowrap" }}>{cadenceST}h</span>
-          : <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>—</span>
-        }
-      </div>
-
       <button
         onClick={remove}
         title="Supprimer cette sous-tâche"
@@ -114,13 +91,12 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
 // ─── OUVRAGE CARD ─────────────────────────────────────────────────────────────
 function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
-  const total = (editData.sous_taches || []).reduce((s, t) => s + (parseFloat(t.ratio) || 0), 0);
-  const totalOk = editData.sous_taches?.length === 0 || Math.abs(total - 100) <= 0.5;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
 
   function addSousTache() {
-    const next = [...(editData.sous_taches || []), { nom: "", ratio: 0, phaseId: "" }];
+    // Pas de ratio dans le nouveau modèle (heures vendues uniquement au niveau ouvrage)
+    const next = [...(editData.sous_taches || []), { nom: "", phaseId: "" }];
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
@@ -160,7 +136,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
                     color: ph ? ph.couleur : T.textMuted,
                     border: `1px solid ${ph ? ph.couleur + "44" : T.border}`,
                     fontWeight: 600,
-                  }}>{st.nom || "—"} {st.ratio}%</span>
+                  }}>{st.nom || "—"}</span>
                 );
               })}
               {(ouvrage.sous_taches || []).length > 4 && (
@@ -231,11 +207,11 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
           {/* En-tête colonnes sous-tâches */}
           {(editData.sous_taches || []).length > 0 && (
             <div style={{
-              display: "grid", gridTemplateColumns: "1fr 180px 80px 70px 26px",
+              display: "grid", gridTemplateColumns: "1fr 220px 26px",
               gap: 8, padding: "0 12px 6px",
             }}>
-              {["Nom de la sous-tâche", "Phase de travail", "Ratio", "Cadence", ""].map((h, i) => (
-                <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, textAlign: i >= 2 ? "center" : "left" }}>{h}</div>
+              {["Nom de la sous-tâche", "Phase de travail", ""].map((h, i) => (
+                <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>{h}</div>
               ))}
             </div>
           )}
@@ -267,38 +243,6 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
             Ajouter une sous-tâche
           </button>
 
-          {/* Aperçu répartition si cadence définie */}
-          {editData.cadence > 0 && (editData.sous_taches || []).length > 0 && (
-            <div style={{ marginTop: 12, padding: "10px 14px",
-              background: `${acc.accent}0D`, borderRadius: RADIUS.md, border: `1px solid ${acc.accent}22` }}>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 5,
-                fontSize: FONT.xs.size, fontWeight: 700, color: acc.accent, marginBottom: 8,
-                textTransform: "uppercase", letterSpacing: 1 }}>
-                <Icon as={Clock} size={10}/>
-                Récap cadence par sous-tâche
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {(editData.sous_taches || []).filter(st => st.nom).map((st, i) => {
-                  const ph = PHASES.find(p => p.id === st.phaseId);
-                  const hPU = parseFloat(((editData.cadence * st.ratio) / 100).toFixed(3));
-                  return (
-                    <div key={i} style={{
-                      fontSize: FONT.xs.size + 1, padding: "4px 10px", borderRadius: RADIUS.sm,
-                      background: ph ? `${ph.couleur}18` : T.card,
-                      border: `1px solid ${ph ? ph.couleur + "44" : T.border}`,
-                      display: "flex", alignItems: "center", gap: 6,
-                    }}>
-                      {ph && <span style={{ fontSize: FONT.sm.size }}>{ph.emoji}</span>}
-                      <span style={{ color: T.text, fontWeight: 600 }}>{st.nom}</span>
-                      <span style={{ color: T.textMuted }}>({st.ratio}%)</span>
-                      <span style={{ color: ph?.couleur || acc.accent, fontWeight: 700 }}>→ {hPU}h/{editData.unite}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Footer */}
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -317,19 +261,6 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
                 <Icon as={Trash2} size={12}/>
                 Supprimer
               </button>
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                fontSize: FONT.sm.size, fontWeight: 700,
-                color: totalOk ? "#22c55e" : "#e15a5a",
-              }}>
-                Total : {total.toFixed(0)}%
-                {totalOk
-                  ? <Icon as={Check} size={13}/>
-                  : <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <Icon as={AlertTriangle} size={12}/>
-                      <span style={{ fontWeight: 600 }}>doit être 100%</span>
-                    </span>}
-              </div>
             </div>
             <button
               onClick={() => onSave(editData)}

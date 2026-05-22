@@ -181,18 +181,20 @@ function distribuerTaches(ouvrages) {
   ouvrages.forEach(ouvrage => {
     (ouvrage.taches || []).forEach(t => {
       const phaseId = (t.phaseId && plan[t.phaseId]) ? t.phaseId : matchPhase(t.nom);
-      const prixHtTache = (ouvrage.prix_ht && t.ratio)
-        ? parseFloat(((ouvrage.prix_ht * t.ratio) / 100).toFixed(2))
-        : (ouvrage.prix_ht && !t.ratio ? ouvrage.prix_ht : null);
+      // Nouveau modèle : les heures vendues vivent uniquement au niveau ouvrage
+      // (`ouvrage.heures_devis`). Les sous-tâches sont créées sans heures pré-
+      // calculées ; la durée sera saisie manuellement à la planification semaine.
+      // Le lien ouvrage_id permet au tooltip de remonter aux infos de l'ouvrage.
       plan[phaseId].push({
         id: Math.random().toString(36).slice(2),
         nom: t.nom,
+        ouvrage_id: ouvrage.id || null,
         ouvrage_libelle: ouvrage.libelle,
-        heures_vendues: parseFloat(t.heures) || 0,
-        heures_estimees: parseFloat(t.heures_estimees) || null,
+        heures_vendues: 0,
+        heures_estimees: null,
         heures_reelles: 0,
         cout_materiel: 0,
-        prix_ht: prixHtTache,
+        prix_ht: null,
         ouvriers: [],
         date_prevue: "",
         avancement: 0,
@@ -1029,6 +1031,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const [planifierTask, setPlanifierTask] = useState(null);
   const [planifierWeek, setPlanifierWeek] = useState("");
   const [planifierJour, setPlanifierJour] = useState("Lundi");
+  // Durée saisie manuellement au moment d'envoyer la sous-tâche dans le planning
+  // semaine. Pré-rempli avec heures_vendues si existant (compat legacy), sinon vide.
+  const [planifierDuree, setPlanifierDuree] = useState("");
   const [isPlanningSaving, setIsPlanningSaving] = useState(false);
   // Commandes liées à ce phasage (pour calcul coût mat par phase + modale)
   const [commandesPhasage, setCommandesPhasage] = useState([]);
@@ -1199,7 +1204,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       const base = ex || { planifie: "", reel: "", ouvriers: [], taches: [] };
       const ouvriersAssignes = planifierTask.tache.ouvriers || [];
       const nouveauPlanifieTexte = base.planifie ? `${base.planifie}\n${planifierTask.tache.nom}` : planifierTask.tache.nom;
-      const upd = [...(base.taches || []), { id: Math.random().toString(36).slice(2), text: planifierTask.tache.nom, duree: planifierTask.tache.heures_vendues, ouvriers: ouvriersAssignes }];
+      const dureeSaisie = parseFloat(planifierDuree) || 0;
+      const upd = [...(base.taches || []), { id: Math.random().toString(36).slice(2), text: planifierTask.tache.nom, duree: dureeSaisie, ouvriers: ouvriersAssignes }];
       await supabase.from("planning_cells").upsert({ week_id: planifierWeek, chantier_id: phasage.chantier_id, jour: planifierJour, planifie: nouveauPlanifieTexte, taches: upd, reel: base.reel, ouvriers: [...new Set([...(base.ouvriers || []), ...ouvriersAssignes])] }, { onConflict: "week_id,chantier_id,jour" });
       const exactDate = getDateFromWeekAndDay(planifierWeek, planifierJour);
       updateTache(planifierTask.phaseId, planifierTask.tache.id, { date_prevue: exactDate });
@@ -1254,22 +1260,23 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const autoLabel = autoSaveStatus === "saved" ? "✓ Sauvegardé" : autoSaveStatus === "saving" ? "Sauvegarde…" : "● Modification en cours";
   
   // Adjusted grid columns to fit the new text input for avancement
-  // Sur mobile : 4 colonnes égales pour V/E/R/AV sur la même rangée.
+  // Sur mobile : 3 colonnes égales pour E/R/AV sur la même rangée
+  // (V — heures vendues — n'est plus affiché par sous-tâche, l'info vit
+  // désormais au niveau ouvrage uniquement).
   const gridCols = isMobile
-    ? "1fr 1fr 1fr 1fr"
-    : "20px 1.5fr 120px 55px 55px 70px 110px 70px 90px 26px";
+    ? "1fr 1fr 1fr"
+    : "20px 1.5fr 120px 55px 70px 110px 70px 90px 26px";
 
   // Sur mobile, on stacke chaque ligne de tâche en carte avec grid-template-areas.
-  // 4 rangées au lieu de 5. Le drag handle est caché (drag-and-drop désactivé).
-  // Sur desktop, gridAreas reste undefined et l'ordre naturel des enfants s'applique.
   const gridAreas = isMobile
-    ? `"name name name del" "v e r av" "date date ouv ouv" "plan plan plan plan"`
+    ? `"name name name del" "e r av av" "date date ouv ouv" "plan plan plan plan"`
     : undefined;
   const ga = (areaName) => isMobile ? { gridArea: areaName } : {};
 
   return (
     <div className="page-padding plan-travaux" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg, position: "relative" }}>
       <style>{`
+        .plan-travaux .ouvrage-tooltip-wrap:hover .ouvrage-tooltip { opacity: 1 !important; }
         @media (max-width: 767px) {
           .plan-travaux .plan-task-headers { display: none !important; }
           .plan-travaux .plan-task-row {
@@ -1330,15 +1337,29 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ background: T.card, padding: "12px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}` }}>
                 <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{planifierTask.tache.nom}</div>
+                {planifierTask.tache.ouvrage_libelle && (
+                  <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>↳ {planifierTask.tache.ouvrage_libelle}</div>
+                )}
                 <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <Icon as={Clock} size={11}/>
-                    {planifierTask.tache.heures_vendues}h
-                  </span>
                   {(planifierTask.tache.ouvriers || []).length > 0
-                    ? <span>· {planifierTask.tache.ouvriers.join(", ")}</span>
-                    : <span style={{ color: "#f5a623" }}>· Aucun ouvrier assigné</span>}
+                    ? <span>{planifierTask.tache.ouvriers.join(", ")}</span>
+                    : <span style={{ color: "#f5a623" }}>Aucun ouvrier assigné</span>}
                 </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <label style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Durée prévue (heures)</label>
+                <input
+                  type="number" min="0" step="0.5" value={planifierDuree} onChange={e => setPlanifierDuree(e.target.value)}
+                  placeholder="ex: 4"
+                  style={{
+                    padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${T.fieldBorder || T.border}`,
+                    background: T.fieldBg || T.card, color: T.text, fontFamily: "'DM Mono',monospace",
+                    fontSize: FONT.md.size, fontWeight: 700, outline: "none",
+                  }}
+                />
+                <span style={{ fontSize: 10, color: T.textMuted, fontStyle: "italic" }}>
+                  Durée allouée à cette sous-tâche pour cet ouvrier — affichée dans la cellule planning.
+                </span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 <label style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Semaine</label>
@@ -1712,7 +1733,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                   <div style={{ padding: "0 0 14px" }}>
                     {taches.length > 0 && (
                       <div className="plan-task-headers" style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "7px 16px 6px", borderBottom: `1px solid ${T.sectionDivider}` }}>
-                        {["", "Tâche", "Ouvrier(s)", "Vendu", "Estimé", "Réel", "Date", "Avanc.", "Planning", ""].map((h, i) => (
+                        {["", "Tâche", "Ouvrier(s)", "Estimé", "Réel", "Date", "Avanc.", "Planning", ""].map((h, i) => (
                           <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8, textAlign: i > 2 ? "center" : "left" }}>{h}</div>
                         ))}
                       </div>
@@ -1752,7 +1773,43 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
 
                           <div style={{ minWidth: 0, ...ga("name") }}>
                             <input value={tache.nom} onChange={e => updateTache(phase.id, tache.id, { nom: e.target.value })} onPointerDown={stopDrag} style={{ width: "100%", padding: "4px 6px", borderRadius: 6, border: "1px solid transparent", background: "transparent", color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 600, outline: "none" }} onFocus={e => e.target.style.borderColor = T.border} onBlur={e => e.target.style.borderColor = "transparent"} />
-                            {tache.ouvrage_libelle && <div style={{ fontSize: 10, color: T.textMuted, paddingLeft: 6, marginTop: 1 }}>↳ {tache.ouvrage_libelle}</div>}
+                            {tache.ouvrage_libelle && (() => {
+                              // Bulle tooltip au survol : ouvrage parent + heures vendues + heures réelles cumulées
+                              // Lookup ouvrage : par ouvrage_id (nouveau modèle) sinon fallback par libellé
+                              const ouvParent = ouvrages.find(o => o.id === tache.ouvrage_id)
+                                             || ouvrages.find(o => o.libelle === tache.ouvrage_libelle);
+                              const heuresVenduesOuvrage = parseFloat(ouvParent?.heures_devis) || 0;
+                              const heuresReellesCumulees = allTaches
+                                .filter(t => {
+                                  if (ouvParent && tache.ouvrage_id) return t.ouvrage_id === tache.ouvrage_id;
+                                  return t.ouvrage_libelle === tache.ouvrage_libelle;
+                                })
+                                .reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+                              return (
+                                <div className="ouvrage-tooltip-wrap" style={{ position: "relative", display: "inline-block", marginTop: 1 }}>
+                                  <div style={{ fontSize: 10, color: T.textMuted, paddingLeft: 6, cursor: "help" }}>↳ {tache.ouvrage_libelle}</div>
+                                  <div className="ouvrage-tooltip" style={{
+                                    position: "absolute", left: 6, top: "100%", marginTop: 6, zIndex: 20,
+                                    background: T.surface, border: `1px solid ${T.border}`,
+                                    borderRadius: RADIUS.md, padding: "8px 12px",
+                                    boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                                    pointerEvents: "none", minWidth: 220,
+                                    opacity: 0, transition: "opacity .15s",
+                                  }}>
+                                    <div style={{ fontSize: 9, fontWeight: 800, color: T.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 5 }}>Ouvrage parent</div>
+                                    <div style={{ fontSize: 12, color: T.text, fontWeight: 700, marginBottom: 6 }}>{tache.ouvrage_libelle}</div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textSub, padding: "2px 0" }}>
+                                      <span>Heures vendues</span>
+                                      <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, color: T.accent }}>{heuresVenduesOuvrage.toFixed(1)} h</span>
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textSub, padding: "2px 0" }}>
+                                      <span>Heures réelles cumulées</span>
+                                      <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, color: heuresReellesCumulees > heuresVenduesOuvrage && heuresVenduesOuvrage > 0 ? "#e05c5c" : "#50c878" }}>{heuresReellesCumulees.toFixed(1)} h</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           <div style={{ minWidth: 0, ...ga("ouv") }}>
@@ -1760,7 +1817,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                             <OuvriersSelect ouvriers={ouvriers} selected={ouvriersActuels} onChange={next => updateTache(phase.id, tache.id, { ouvriers: next })} T={T} stopDrag={stopDrag} />
                           </div>
 
-                          {[["heures_vendues", T.accent, "Vendu", "v"], ["heures_estimees", BLEU, "Estimé", "e"], ["heures_reelles", hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text, "Réel", "r"]].map(([field, color, miniLabel, area]) => (
+                          {[["heures_estimees", BLEU, "Estimé", "e"], ["heures_reelles", hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text, "Réel", "r"]].map(([field, color, miniLabel, area]) => (
                             <div key={field} style={{ minWidth: 0, ...ga(area) }}>
                               <span className="field-mini-label">{miniLabel}</span>
                               <input type="number" min="0" step="0.5" value={tache[field] || ""} placeholder={field === "heures_estimees" ? "—" : "0"} onPointerDown={stopDrag} onChange={e => updateTache(phase.id, tache.id, { [field]: parseFloat(e.target.value) || (field === "heures_estimees" ? null : 0) })} style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
@@ -1781,7 +1838,13 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                           </div>
 
                           <div className="planifier-btn-wrap" style={{ textAlign: "center", ...ga("plan") }}>
-                            <button onClick={() => { setPlanifierWeek(semainesFutures[0]); setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache: { ...tache, ouvriers: ouvriersActuels } }); }}
+                            <button onClick={() => {
+                              setPlanifierWeek(semainesFutures[0]);
+                              // Pré-remplit la durée avec heures_vendues si existant (compat ancien),
+                              // sinon vide pour saisie manuelle.
+                              setPlanifierDuree((parseFloat(tache.heures_vendues) || 0) > 0 ? String(tache.heures_vendues) : "");
+                              setPlanifierTask({ phaseId: phase.id, tacheIdx: ti, tache: { ...tache, ouvriers: ouvriersActuels } });
+                            }}
                               onPointerDown={stopDrag}
                               style={{
                                 display: "inline-flex", alignItems: "center", gap: 4,
@@ -1818,8 +1881,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                     {ajoutPhase === phase.id ? (
                       <div style={{ margin: "10px 16px 0", padding: "14px", background: T.card, borderRadius: 10, border: `1px solid ${phase.couleur}55` }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: phase.couleur, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>{phase.emoji} Nouvelle tâche</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                          {[["Nom *", "nom", "text", T.text, "ex: Pose plaques"], ["H. vendues", "heures_vendues", "number", T.accent, "0h"], ["H. estimées", "heures_estimees", "number", BLEU, "—"], ["Date prévue", "date_prevue", "date", T.text, ""]].map(([label, field, type, color, ph]) => (
+                        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                          {[["Nom *", "nom", "text", T.text, "ex: Pose plaques"], ["H. estimées", "heures_estimees", "number", BLEU, "—"], ["Date prévue", "date_prevue", "date", T.text, ""]].map(([label, field, type, color, ph]) => (
                             <div key={field}>
                               <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3 }}>{label}</div>
                               <input type={type} value={ajoutForm[field] || ""} onChange={e => setAjoutForm(f => ({ ...f, [field]: e.target.value }))} placeholder={ph} style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color, fontFamily: "inherit", fontSize: 13, fontWeight: field.includes("heure") ? 700 : 400, outline: "none", colorScheme: "dark" }} />
@@ -2077,16 +2140,20 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
     return () => clearTimeout(autoSaveTimer.current);
   }, [ouvrages]);
 
-  function genererTaches(ouvrageId, heuresDevis, heuresEstimees, prixHt = null) {
+  // Génère les sous-tâches d'un ouvrage importé.
+  // Refactor : on n'applique plus de ratio — les sous-tâches sont créées sans
+  // heures pré-calculées. Les heures vendues totales de l'ouvrage sont
+  // conservées au niveau ouvrage (ouvrage.heures_devis). La durée par
+  // sous-tâche est saisie manuellement au moment de la planification semaine.
+  function genererTaches(ouvrageId) {
     const bibl = bibliotheque.find(b => b.id === ouvrageId);
     if (!bibl) return [];
     return (bibl.sous_taches || []).map(st => ({
       nom: st.nom,
-      ratio: st.ratio,
       phaseId: st.phaseId,
-      heures: parseFloat(((heuresDevis * st.ratio) / 100).toFixed(1)),
-      heures_estimees: heuresEstimees ? parseFloat(((heuresEstimees * st.ratio) / 100).toFixed(2)) : null,
-      prix_ht: prixHt ? parseFloat(((prixHt * st.ratio) / 100).toFixed(2)) : null,
+      heures: 0,
+      heures_estimees: null,
+      prix_ht: null,
       avancement: 0,
       heures_reelles: [],
       ressources: [],
@@ -2110,14 +2177,13 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
         heures_estimees: heuresEstimees,
         quantite,
         prix_ht,
-        taches: bibl ? genererTaches(bibl.id, ligne.heures, heuresEstimees, prix_ht) : [
+        taches: bibl ? genererTaches(bibl.id) : [
           {
             nom: ligne.libelle,
-            ratio: 100,
             phaseId: "",
-            heures: ligne.heures,
+            heures: 0,
             heures_estimees: null,
-            prix_ht,
+            prix_ht: null,
             avancement: 0,
             heures_reelles: [],
             ressources: [],
@@ -2135,7 +2201,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
     if (!bibl) return;
     const hD = parseFloat(heuresInput), q = parseFloat(quantiteInput) || null;
     const hE = bibl.cadence && q ? parseFloat((bibl.cadence * q).toFixed(2)) : null;
-    const newO = { id: Math.random().toString(36).slice(2), bibliotheque_id: selectedOuvrage, libelle: bibl.libelle, unite: bibl.unite, heures_devis: hD, quantite: q, heures_estimees: hE, taches: genererTaches(selectedOuvrage, hD, hE) };
+    const newO = { id: Math.random().toString(36).slice(2), bibliotheque_id: selectedOuvrage, libelle: bibl.libelle, unite: bibl.unite, heures_devis: hD, quantite: q, heures_estimees: hE, taches: genererTaches(selectedOuvrage) };
     setOuvrages(prev => [...prev, newO]);
     setShowAjout(false); setSelectedOuvrage(""); setHeuresInput(""); setQuantiteInput(""); setSearch("");
   }
@@ -2146,7 +2212,9 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
       if (o.id !== id) return o;
       const h = parseFloat(val) || 0;
       const bibl = bibliotheque.find(b => b.id === o.bibliotheque_id);
-      return { ...o, heures_devis: h, taches: bibl ? genererTaches(o.bibliotheque_id, h, o.heures_estimees) : o.taches };
+      // On ne régénère plus les sous-tâches quand heures_devis change, car
+      // celles-ci n'ont plus de heures calculées (saisie manuelle au planning).
+      return { ...o, heures_devis: h };
     }));
   }
   function updateLibelle(id, val) {
