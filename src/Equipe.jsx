@@ -178,6 +178,13 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
     return () => { cancelled = true; };
   }, [etape, chantierIdsKey]);
 
+  // Total € généré cette semaine : somme des delta € positifs des progressions.
+  // Les chantiers en régression (delta < 0) ne sont pas comptés ici (le total
+  // représente la valeur AJOUTÉE durant la semaine, pas un solde).
+  const totalGenereEuros = Object.values(progressions).reduce(
+    (s, p) => s + (p?.deltaEuros && p.deltaEuros > 0 ? p.deltaEuros : 0), 0
+  );
+
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
   const [generatingDoc, setGeneratingDoc] = useState(false);
   const [showNotes, setShowNotes]         = useState(false);
@@ -378,6 +385,11 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
         <div style="font-size:22pt;font-weight:800;color:#50c878;">${totalFaites}</div>
         <div style="font-size:9pt;color:rgba(255,255,255,.5);letter-spacing:.06em;text-transform:uppercase;">Tâches faites</div>
       </div>
+      ${totalGenereEuros > 0 ? `
+      <div>
+        <div style="font-size:22pt;font-weight:800;color:#f5c400;">+${totalGenereEuros.toLocaleString("fr-FR")} €</div>
+        <div style="font-size:9pt;color:rgba(255,255,255,.5);letter-spacing:.06em;text-transform:uppercase;">Généré semaine</div>
+      </div>` : ""}
     </div>
   </div>
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:#999;">Aucun compte rendu pour cette semaine.</div>`}
@@ -630,6 +642,12 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
               <div style={{ fontSize:28, fontWeight:800, color:"#50c878" }}>{totalFaites}</div>
               <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Tâches faites</div>
             </div>
+            {totalGenereEuros > 0 && (
+              <div style={{ textAlign:"center" }} title="Somme des progressions hebdo × prix vendu de chaque chantier">
+                <div style={{ fontSize:28, fontWeight:800, color:"#f5c400" }}>+{totalGenereEuros.toLocaleString("fr-FR")} €</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Généré semaine</div>
+              </div>
+            )}
             <button onClick={()=>setShowNotes(true)} disabled={generatingDoc}
               style={{ background: draftStatus==="ok" ? "rgba(80,200,120,0.85)" : generatingDoc ? "rgba(255,255,255,0.1)" : "rgba(91,138,245,0.85)",
                 border:"none", borderRadius:10, padding:"0 16px", height:40,
