@@ -204,6 +204,56 @@ function distribuerTaches(ouvrages) {
   return plan;
 }
 
+// Fusion : ajoute au plan existant les sous-tâches déclarées dans ouvrages
+// qui ne sont pas encore présentes, sans toucher aux tâches existantes
+// (préserve avancements, dates, heures réelles déjà saisies).
+//
+// Matching : par (ouvrage_id + nom) pour les nouvelles tâches, fallback
+// (ouvrage_libelle + nom) pour les anciennes tâches qui n'avaient pas
+// d'ouvrage_id stable. Les tâches du plan qui n'existent plus dans
+// ouvrages sont CONSERVÉES (cas user qui supprime une sous-tâche mais
+// veut garder le suivi de ce qui a déjà été fait).
+function fusionnerPlanAvecOuvrages(planExistant, ouvrages) {
+  const plan = { ...planExistant };
+  // S'assurer que chaque phase a un tableau (au moins vide)
+  PHASES.forEach(p => { if (!Array.isArray(plan[p.id])) plan[p.id] = []; });
+
+  // Index des sous-tâches déjà présentes dans le plan (toutes phases)
+  const dejaPresente = (ouvrageId, ouvrageLibelle, nom) => {
+    const nomNorm = (nom || "").trim().toLowerCase();
+    return PHASES.some(p => (plan[p.id] || []).some(t => {
+      const matchNom = (t.nom || "").trim().toLowerCase() === nomNorm;
+      if (!matchNom) return false;
+      if (ouvrageId && t.ouvrage_id) return t.ouvrage_id === ouvrageId;
+      return (t.ouvrage_libelle || "") === (ouvrageLibelle || "");
+    }));
+  };
+
+  ouvrages.forEach(ouvrage => {
+    (ouvrage.taches || []).forEach(t => {
+      if (!t.nom) return;
+      if (dejaPresente(ouvrage.id, ouvrage.libelle, t.nom)) return;
+      const phaseId = (t.phaseId && plan[t.phaseId]) ? t.phaseId : matchPhase(t.nom);
+      if (!plan[phaseId]) plan[phaseId] = [];
+      plan[phaseId].push({
+        id: Math.random().toString(36).slice(2),
+        nom: t.nom,
+        ouvrage_id: ouvrage.id || null,
+        ouvrage_libelle: ouvrage.libelle,
+        heures_vendues: 0,
+        heures_estimees: null,
+        heures_reelles: 0,
+        cout_materiel: 0,
+        prix_ht: null,
+        ouvriers: [],
+        date_prevue: "",
+        avancement: 0,
+      });
+    });
+  });
+  return plan;
+}
+
 // ─── MODALE IMPORT EXCEL ──────────────────────────────────────────────────────
 function ModaleImportExcel({ T, bibliotheque, onImporter, onFermer }) {
   const [etape, setEtape] = useState("upload");
@@ -2356,11 +2406,16 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
             </button>
             <button
               onClick={async () => {
-                if (!phasage.plan_travaux || Object.keys(phasage.plan_travaux).filter(k => k !== 'meta').length === 0) {
-                  const newPlan = distribuerTaches(ouvrages);
-                  phasage.plan_travaux = newPlan;
-                  await onSave({ ...phasage, plan_travaux: newPlan, ouvrages });
-                }
+                const planExistant = phasage.plan_travaux || {};
+                const aDejaUnPlan = Object.keys(planExistant).filter(k => k !== 'meta').length > 0;
+                // Premier passage : génération complète. Sinon : fusion qui
+                // n'ajoute que les sous-tâches manquantes (préserve avancement,
+                // dates, heures réelles des tâches existantes).
+                const nextPlan = aDejaUnPlan
+                  ? fusionnerPlanAvecOuvrages(planExistant, ouvrages)
+                  : distribuerTaches(ouvrages);
+                phasage.plan_travaux = nextPlan;
+                await onSave({ ...phasage, plan_travaux: nextPlan, ouvrages });
                 setView("plan");
               }}
               style={{
