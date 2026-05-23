@@ -120,6 +120,8 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       if (chantierIds.length === 0) return;
 
       const [phasagesQ, snapshotsQ] = await Promise.all([
+        // plan_travaux contient meta.prix_vendu (montant chantier TTC vendu).
+        // Sert au calcul "delta % → delta €" affiché à côté de la progression.
         supabase.from("phasages").select("chantier_id, plan_travaux").in("chantier_id", chantierIds),
         supabase.from("chantier_avancement_history")
           .select("chantier_id, avancement, date_snapshot")
@@ -135,10 +137,13 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
         if (!snapshotByCh[s.chantier_id]) snapshotByCh[s.chantier_id] = s;
       });
 
-      // Avancement actuel par chantier (calcul même formule que phasageToChantier)
-      const actuelByCh = {};
+      // Avancement actuel + prix vendu par chantier (mêmes formules que
+      // phasageToChantier pour rester cohérent).
+      const actuelByCh   = {};
+      const prixVenduByCh = {};
       (phasagesQ.data || []).forEach(ph => {
         const plan = ph.plan_travaux || {};
+        prixVenduByCh[ph.chantier_id] = parseFloat(plan.meta?.prix_vendu) || 0;
         const allTaches = [];
         for (const k of Object.keys(plan)) {
           if (k === "meta" || k.includes("__")) continue;
@@ -157,10 +162,14 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
         const avant     = snapshotByCh[cid]?.avancement;
         const maintenant = actuelByCh[cid];
         if (maintenant == null) return;
+        const delta = avant != null ? (maintenant - avant) : null;
+        const prixVendu = prixVenduByCh[cid] || 0;
         map[cid] = {
           avant:      avant ?? null,
           maintenant,
-          delta:      avant != null ? (maintenant - avant) : null,
+          delta,
+          deltaEuros: (delta != null && prixVendu > 0) ? Math.round(prixVendu * delta / 100) : null,
+          prixVendu,
           dateAvant:  snapshotByCh[cid]?.date_snapshot || null,
         };
       });
@@ -303,7 +312,10 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
         } else {
           const c = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : "#5b6a8a";
           const sign = p.delta > 0 ? "+" : "";
-          progBadge = `<span style="font-size:11pt;font-weight:600;color:#1a1f2e;background:${c}15;border:1pt solid ${c}55;border-radius:6pt;padding:3pt 9pt;"><span style="color:#5b6a8a;">${p.avant}% → </span><strong>${p.maintenant}%</strong> <span style="color:${c};font-weight:800;">(${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""})</span></span>`;
+          const euros = p.deltaEuros != null
+            ? ` <span style="color:${c};font-weight:800;padding-left:6pt;border-left:1pt solid ${c}33;margin-left:4pt;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
+            : "";
+          progBadge = `<span style="font-size:11pt;font-weight:600;color:#1a1f2e;background:${c}15;border:1pt solid ${c}55;border-radius:6pt;padding:3pt 9pt;"><span style="color:#5b6a8a;">${p.avant}% → </span><strong>${p.maintenant}%</strong> <span style="color:${c};font-weight:800;">(${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""})</span>${euros}</span>`;
         }
       }
       const listeTaches = (items, color, icon) => items.length === 0 ? "" : `
@@ -315,7 +327,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
           </li>`).join("")}
         </ul>`;
       return `
-        <div style="background:#fff;border-radius:8pt;border:1pt solid #e6e6e6;border-left:5pt solid ${couleur};margin-bottom:14pt;overflow:hidden;page-break-inside:avoid;">
+        <div class="chantier-card" style="background:#fff;border-radius:8pt;border:1pt solid #e6e6e6;border-left:5pt solid ${couleur};margin-bottom:14pt;overflow:hidden;page-break-inside:avoid;">
           <div style="background:${couleur}18;padding:12pt 16pt;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10pt;">
             <div style="display:flex;align-items:center;gap:10pt;flex-wrap:wrap;">
               <div style="width:12pt;height:12pt;background:${couleur};border-radius:3pt;"></div>
@@ -402,7 +414,11 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       image:       { type: "jpeg", quality: 0.95 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
       jsPDF:       { unit: "mm", format: "a4", orientation: "portrait" },
-      pagebreak:   { mode: ["avoid-all", "css", "legacy"] },
+      // mode "css" : respecte page-break-inside:avoid sur les cartes chantier
+      // (évite les coupures laides au milieu d'un chantier) mais laisse
+      // plusieurs chantiers tenir sur une même page si la place le permet.
+      // Avant : "avoid-all" forçait 1 chantier par page → trop de pages quasi vides.
+      pagebreak:   { mode: ["css", "legacy"], avoid: ".chantier-card" },
     };
     try {
       const blob = await html2pdf().set(opts).from(container.querySelector(".page") || container).outputPdf("blob");
@@ -822,12 +838,13 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                       }
                       const deltaColor = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : T.textMuted;
                       const deltaSign  = p.delta > 0 ? "+" : "";
+                      const fmtEur = (n) => `${n > 0 ? "+" : ""}${Math.abs(n).toLocaleString("fr-FR")} €`.replace("+-", "-");
                       return (
                         <div title={`Snapshot du ${p.dateAvant} → maintenant`} style={{
                           display:"inline-flex", alignItems:"center", gap:6,
                           background: deltaColor + "18", border:`1px solid ${deltaColor}55`,
                           borderRadius:8, padding:"4px 10px",
-                          fontSize:11, fontWeight:600, color:T.text,
+                          fontSize:11, fontWeight:600, color:T.text, flexWrap:"wrap",
                         }}>
                           <span style={{ color: T.textMuted }}>{p.avant}%</span>
                           <span style={{ color: T.textMuted, fontSize:10 }}>→</span>
@@ -835,6 +852,11 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                           <span style={{ color: deltaColor, fontWeight:800 }}>
                             ({deltaSign}{p.delta} pt{Math.abs(p.delta) > 1 ? "s" : ""})
                           </span>
+                          {p.deltaEuros != null && (
+                            <span style={{ color: deltaColor, fontWeight:800, paddingLeft:4, borderLeft:`1px solid ${deltaColor}33` }}>
+                              {p.deltaEuros > 0 ? "+" : ""}{p.deltaEuros.toLocaleString("fr-FR")} €
+                            </span>
+                          )}
                         </div>
                       );
                     })()}
