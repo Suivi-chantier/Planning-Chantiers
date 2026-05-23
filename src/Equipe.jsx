@@ -227,6 +227,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
         const rawEnCours   = taches.filter(t=>t.statut==="en_cours") .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
         const rawNonFaites = taches.filter(t=>t.statut==="non_faite").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
         const rawRemarques = grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque }));
+        const prog = progressions[cId] || null;
         return {
           nom: grp.nom,
           heures: hCh,
@@ -235,6 +236,14 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
           enCours:   dedupe(rawEnCours),
           nonFaites: dedupe(rawNonFaites),
           remarques: dedupeRemarques(rawRemarques),
+          // Progression hebdo : avancement avant/après et delta (peut être null
+          // si pas de snapshot antérieur à cette semaine)
+          progression: prog ? {
+            avant:      prog.avant,
+            maintenant: prog.maintenant,
+            delta:      prog.delta,
+            dateAvant:  prog.dateAvant,
+          } : null,
         };
       });
 

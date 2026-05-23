@@ -107,6 +107,23 @@ Règles :
       spacing: { before: 0, after: 200 },
     }));
 
+    // Progression de la semaine : ligne dédiée juste sous le titre du chantier
+    if (ch.progression && typeof ch.progression.maintenant === "number") {
+      const p = ch.progression;
+      let progText;
+      if (p.avant == null) {
+        progText = `Avancement actuel : ${p.maintenant}%  (1er snapshot — comparaison disponible la semaine prochaine)`;
+      } else {
+        const sign = p.delta > 0 ? "+" : "";
+        progText = `Avancement : ${p.avant}% → ${p.maintenant}%  (${sign}${p.delta} pt${Math.abs(p.delta) > 1 ? "s" : ""} cette semaine)`;
+      }
+      const progColor = p.avant == null ? GREY : (p.delta > 0 ? "2db870" : p.delta < 0 ? "e15a5a" : GREY);
+      children.push(new Paragraph({
+        children: [new TextRun({ text: progText, bold: true, size: 22, font: "Arial", color: progColor })],
+        spacing: { before: 0, after: 200 },
+      }));
+    }
+
     const addSection = (titre, couleur, items) => {
       if (!items || items.length === 0) return;
       children.push(new Paragraph({
