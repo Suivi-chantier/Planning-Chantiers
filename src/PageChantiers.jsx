@@ -1074,8 +1074,9 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
         {selectedPhasage && (() => {
           const TAUX_DEFAUT = 20;
           const allTaches   = PHASES.flatMap(ph => (selectedPhasage.plan_travaux?.[ph.id] || []));
-          // Taux moyen pondéré = Σ(heures_vendues_t × taux_t) / Σ(heures_vendues)
-          // Si pas d'ouvrier assigné → fallback 45€/h.
+          // Taux moyen pondéré : on tente d'abord par sous-tâche (ancien modèle
+          // qui avait heures_vendues pondérées par ratio). Sinon on retombe sur
+          // une moyenne arithmétique des taux des ouvriers assignés.
           let sumPond = 0, sumPoids = 0;
           allTaches.forEach(t => {
             const hV = parseFloat(t.heures_vendues) || 0;
@@ -1085,8 +1086,22 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
             sumPond  += hV * taux;
             sumPoids += hV;
           });
-          const totalHVendues  = sumPoids;
-          const tauxMoyen      = sumPoids > 0 ? sumPond / sumPoids : 0;
+          // Heures vendues : nouveau modèle = somme des heures_devis des ouvrages
+          // (source de vérité depuis le refactor). Fallback : somme par tâche.
+          const totalHVenduOuvrages = (selectedPhasage.ouvrages || []).reduce(
+            (s, o) => s + (parseFloat(o.heures_devis) || 0), 0
+          );
+          const totalHVendues = totalHVenduOuvrages > 0 ? totalHVenduOuvrages : sumPoids;
+          // Taux moyen : si pas de pondération par sous-tâche, moyenne
+          // arithmétique des taux des ouvriers assignés (fallback TAUX_DEFAUT).
+          let tauxMoyen = sumPoids > 0 ? sumPond / sumPoids : 0;
+          if (tauxMoyen === 0 && allTaches.length > 0) {
+            const tauxParTache = allTaches.map(t => {
+              const pO = (t.ouvriers || [])[0] || "";
+              return pO ? (parseFloat(tauxHoraires?.[pO]) || TAUX_DEFAUT) : TAUX_DEFAUT;
+            });
+            tauxMoyen = tauxParTache.reduce((a, b) => a + b, 0) / tauxParTache.length;
+          }
           const coutMOPrev     = totalHVendues * tauxMoyen;
           const coutMOReel     = finances?.coutMO || 0;
 

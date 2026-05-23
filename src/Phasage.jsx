@@ -1268,7 +1268,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const allTaches = PHASES.flatMap(ph => (plan[ph.id] || []).map(t => ({ ...t, _phaseId: ph.id, _phaseCouleur: ph.couleur, _phaseLabel: ph.label })));
   const nbTaches = allTaches.length;
   const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
-  const totalHVenduGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+  // Nouveau modèle : les heures vendues vivent au niveau ouvrage (heures_devis).
+  // Fallback ancien modèle : si aucun ouvrage avec heures_devis mais des tâches
+  // avec heures_vendues > 0 → on prend la somme des tâches (compat legacy).
+  const totalHVenduOuvrages = (ouvrages || []).reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
+  const totalHVenduTaches   = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+  const totalHVenduGlobal = totalHVenduOuvrages > 0 ? totalHVenduOuvrages : totalHVenduTaches;
   const totalHEstimeeGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
   const totalHReelGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
 
@@ -1491,6 +1496,12 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                 <Icon as={Hammer} size={11}/>
                 {nbTaches} tâche{nbTaches > 1 ? "s" : ""}
               </span>
+              {totalHVenduGlobal > 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="Total heures vendues (somme des heures de devis des ouvrages)">
+                  <Icon as={Clock} size={11}/>
+                  <strong style={{ color: T.accent, fontWeight: 700 }}>{totalHVenduGlobal.toFixed(1)}h</strong> vendues
+                </span>
+              )}
               {terminees > 0 && (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#22c55e", fontWeight: 700 }}>
                   <Icon as={Check} size={11}/>
