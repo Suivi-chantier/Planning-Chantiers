@@ -89,12 +89,21 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
   const totalFaites = rapports.reduce((a, r) => a + (r.taches||[]).filter(t => t.statut==="faite").length, 0);
 
+  // ── Regroupement rapports par chantier ───────────────────────────────────────
+  const parChantier = {};
+  rapports.forEach(r => {
+    const key = r.chantier_id || "__divers__";
+    if (!parChantier[key]) parChantier[key] = { rapports: [], nom: r.chantier_nom || "Divers" };
+    parChantier[key].rapports.push(r);
+  });
+
   // ── Progression hebdomadaire par chantier ───────────────────────────────────
   // Pour chaque chantier ayant un rapport cette semaine, on récupère le dernier
   // snapshot d'avancement antérieur à lundi (= "avant cette semaine") et on
   // calcule l'avancement actuel depuis plan_travaux (= "maintenant").
   // Le delta donne la progression gagnée durant la semaine.
   const [progressions, setProgressions] = useState({});
+  const chantierIdsKey = JSON.stringify(Object.keys(parChantier));
   useEffect(() => {
     if (etape !== "bilan") return;
     let cancelled = false;
@@ -106,7 +115,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       const lundi = new Date(today); lundi.setDate(today.getDate() + diff);
       const lundiIso = lundi.toISOString().slice(0,10);
 
-      const chantierIds = Object.keys(parChantier).filter(k => k !== "__divers__");
+      const chantierIds = JSON.parse(chantierIdsKey).filter(k => k !== "__divers__");
       if (chantierIds.length === 0) return;
 
       const [phasagesQ, snapshotsQ] = await Promise.all([
@@ -157,16 +166,7 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       setProgressions(map);
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etape, JSON.stringify(Object.keys(parChantier))]);
-
-  // ── Regroupement rapports par chantier ───────────────────────────────────────
-  const parChantier = {};
-  rapports.forEach(r => {
-    const key = r.chantier_id || "__divers__";
-    if (!parChantier[key]) parChantier[key] = { rapports: [], nom: r.chantier_nom || "Divers" };
-    parChantier[key].rapports.push(r);
-  });
+  }, [etape, chantierIdsKey]);
 
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
   const [generatingDoc, setGeneratingDoc] = useState(false);
