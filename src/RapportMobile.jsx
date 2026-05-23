@@ -78,7 +78,7 @@ async function sendRapportEmail(rapport, chantierNom) {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
-      to:["suivi.chantier@groupe-profero.com"],
+      to:["suivi.chantier@groupe-profero.com", "loris.bessonneau@groupe-profero.com"],
       subject:`CR ${rapport.ouvrier} — ${chantierNom} — ${rapport.date_rapport}`,
       html,
     })
