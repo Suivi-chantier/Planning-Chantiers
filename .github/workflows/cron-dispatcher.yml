@@ -1,0 +1,43 @@
+name: Cron dispatcher (récap commandes + rappel rapport)
+
+# Déclenche le endpoint /api/cron-dispatcher de l'app Vercel à 2 créneaux :
+#   - Vendredi 06h UTC (= 08h Paris été / 07h hiver)  →  récap commandes
+#   - Lun-Ven 14h50 UTC (= 16h50 Paris été / 15h50 hiver) →  rappel rapport
+#
+# Remplace les crons Vercel natifs, désactivés sur le plan Hobby depuis fin 2024.
+# Le dispatcher route ensuite vers la bonne fonction métier selon l'heure/jour Paris.
+#
+# Secret requis dans GitHub :
+#   CRON_SECRET = la même valeur que la variable d'env Vercel CRON_SECRET
+#   (Settings → Secrets and variables → Actions → New repository secret)
+
+on:
+  schedule:
+    - cron: '0 6 * * 5'        # Vendredi 06h UTC → récap commandes vendredi matin
+    - cron: '50 14 * * 1-5'    # Lun-Ven 14h50 UTC → rappel rapport fin de journée
+  workflow_dispatch:           # Bouton "Run workflow" dans l'UI GitHub pour tester
+
+jobs:
+  ping-dispatcher:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant — l'ajouter dans Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "Appel du dispatcher Vercel…"
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://planning-chantiers.vercel.app/api/cron-dispatcher)
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
