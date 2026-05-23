@@ -1,0 +1,53 @@
+name: Snapshot hebdomadaire de l'avancement chantiers
+
+# Prend une "photo" de l'avancement de chaque chantier actif chaque vendredi
+# 18h Paris (= 16h UTC été / 17h UTC hiver — on accepte le décalage de 1h en
+# hiver, sans impact métier).
+#
+# Sert au calcul de la progression hebdomadaire affichée dans
+# Équipe → Bilan semaine.
+#
+# Secret requis : CRON_SECRET (déjà ajouté pour cron-dispatcher.yml).
+
+on:
+  schedule:
+    - cron: '0 16 * * 5'        # Vendredi 16h UTC → 18h Paris (été), 17h (hiver)
+  workflow_dispatch:            # Bouton "Run workflow" dans GitHub pour seed initial + tests
+    inputs:
+      initial:
+        description: 'Seed initial (snapshot uniquement les chantiers sans historique)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-snapshot-avancement
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INITIAL:     ${{ github.event.inputs.initial || 'false' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          url="https://planning-chantiers.vercel.app/api/cron-snapshot-avancement"
+          if [ "$INITIAL" = "true" ]; then
+            url="$url?initial=true"
+            echo "Mode SEED INITIAL"
+          fi
+          echo "Appel : $url"
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$url")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Snapshot endpoint a renvoyé un statut non-200"
+            exit 1
+          fi

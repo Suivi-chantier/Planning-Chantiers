@@ -89,6 +89,77 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
   const totalFaites = rapports.reduce((a, r) => a + (r.taches||[]).filter(t => t.statut==="faite").length, 0);
 
+  // ── Progression hebdomadaire par chantier ───────────────────────────────────
+  // Pour chaque chantier ayant un rapport cette semaine, on récupère le dernier
+  // snapshot d'avancement antérieur à lundi (= "avant cette semaine") et on
+  // calcule l'avancement actuel depuis plan_travaux (= "maintenant").
+  // Le delta donne la progression gagnée durant la semaine.
+  const [progressions, setProgressions] = useState({});
+  useEffect(() => {
+    if (etape !== "bilan") return;
+    let cancelled = false;
+    (async () => {
+      // Lundi 00:00 de la semaine en cours
+      const today = new Date(); today.setHours(0,0,0,0);
+      const dow = today.getDay();
+      const diff = dow === 0 ? -6 : 1 - dow;
+      const lundi = new Date(today); lundi.setDate(today.getDate() + diff);
+      const lundiIso = lundi.toISOString().slice(0,10);
+
+      const chantierIds = Object.keys(parChantier).filter(k => k !== "__divers__");
+      if (chantierIds.length === 0) return;
+
+      const [phasagesQ, snapshotsQ] = await Promise.all([
+        supabase.from("phasages").select("chantier_id, plan_travaux").in("chantier_id", chantierIds),
+        supabase.from("chantier_avancement_history")
+          .select("chantier_id, avancement, date_snapshot")
+          .in("chantier_id", chantierIds)
+          .lt("date_snapshot", lundiIso)
+          .order("date_snapshot", { ascending: false }),
+      ]);
+      if (cancelled) return;
+
+      // Snapshot le plus récent par chantier avant lundi
+      const snapshotByCh = {};
+      (snapshotsQ.data || []).forEach(s => {
+        if (!snapshotByCh[s.chantier_id]) snapshotByCh[s.chantier_id] = s;
+      });
+
+      // Avancement actuel par chantier (calcul même formule que phasageToChantier)
+      const actuelByCh = {};
+      (phasagesQ.data || []).forEach(ph => {
+        const plan = ph.plan_travaux || {};
+        const allTaches = [];
+        for (const k of Object.keys(plan)) {
+          if (k === "meta" || k.includes("__")) continue;
+          if (Array.isArray(plan[k])) allTaches.push(...plan[k]);
+        }
+        if (allTaches.length === 0) { actuelByCh[ph.chantier_id] = 0; return; }
+        const totalHV = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+        const av = totalHV > 0
+          ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHV)
+          : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / allTaches.length);
+        actuelByCh[ph.chantier_id] = av;
+      });
+
+      const map = {};
+      chantierIds.forEach(cid => {
+        const avant     = snapshotByCh[cid]?.avancement;
+        const maintenant = actuelByCh[cid];
+        if (maintenant == null) return;
+        map[cid] = {
+          avant:      avant ?? null,
+          maintenant,
+          delta:      avant != null ? (maintenant - avant) : null,
+          dateAvant:  snapshotByCh[cid]?.date_snapshot || null,
+        };
+      });
+      setProgressions(map);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etape, JSON.stringify(Object.keys(parChantier))]);
+
   // ── Regroupement rapports par chantier ───────────────────────────────────────
   const parChantier = {};
   rapports.forEach(r => {
@@ -447,9 +518,42 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                 <div style={{ padding:"16px 20px", display:"flex", alignItems:"center",
                   justifyContent:"space-between", flexWrap:"wrap", gap:12,
                   background: ch ? ch.couleur+"18" : T.card }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
                     {ch && <div style={{ width:14, height:14, borderRadius:4, background:ch.couleur, flexShrink:0 }}/>}
                     <div style={{ fontSize:18, fontWeight:800, color:T.text }}>{grp.nom}</div>
+                    {progressions[cId] && (() => {
+                      const p = progressions[cId];
+                      // Si pas de snapshot avant → on n'a pas de point de comparaison
+                      if (p.avant == null) {
+                        return (
+                          <div title="Pas encore d'historique : 1er snapshot pris le prochain vendredi" style={{
+                            display:"inline-flex", alignItems:"center", gap:6,
+                            background: T.card, border:`1px solid ${T.border}`,
+                            borderRadius:8, padding:"4px 10px",
+                            fontSize:11, color:T.textMuted, fontWeight:600,
+                          }}>
+                            Avancement : <strong style={{ color:T.text }}>{p.maintenant}%</strong>
+                          </div>
+                        );
+                      }
+                      const deltaColor = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : T.textMuted;
+                      const deltaSign  = p.delta > 0 ? "+" : "";
+                      return (
+                        <div title={`Snapshot du ${p.dateAvant} → maintenant`} style={{
+                          display:"inline-flex", alignItems:"center", gap:6,
+                          background: deltaColor + "18", border:`1px solid ${deltaColor}55`,
+                          borderRadius:8, padding:"4px 10px",
+                          fontSize:11, fontWeight:600, color:T.text,
+                        }}>
+                          <span style={{ color: T.textMuted }}>{p.avant}%</span>
+                          <span style={{ color: T.textMuted, fontSize:10 }}>→</span>
+                          <strong style={{ color: T.text }}>{p.maintenant}%</strong>
+                          <span style={{ color: deltaColor, fontWeight:800 }}>
+                            ({deltaSign}{p.delta} pt{Math.abs(p.delta) > 1 ? "s" : ""})
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                   {heures > 0 && (
                     <div style={{ background:T.accent+"22", border:`1.5px solid ${T.accent}55`,
