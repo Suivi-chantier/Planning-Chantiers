@@ -484,15 +484,46 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
     w.onload = () => setTimeout(()=>{ w.focus(); w.print(); }, 300);
   }
 
+  // ── Progression de la semaine de la visite ──────────────────────────────
+  // Avancement avant cette semaine (dernier snapshot antérieur au lundi de la
+  // semaine de la visite) vs avancement renseigné dans le CR.
+  async function calculerProgression() {
+    if (!infos.chantier_id || !infos.date_visite) return null;
+    const d = new Date(infos.date_visite);
+    if (isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    const dow = d.getDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    const lundi = new Date(d); lundi.setDate(d.getDate() + diff);
+    const lundiIso = lundi.toISOString().slice(0, 10);
+    const { data } = await supabase
+      .from("chantier_avancement_history")
+      .select("avancement, date_snapshot")
+      .eq("chantier_id", infos.chantier_id)
+      .lt("date_snapshot", lundiIso)
+      .order("date_snapshot", { ascending: false })
+      .limit(1);
+    const avant      = data?.[0]?.avancement ?? null;
+    const maintenant = parseInt(infos.avancement) || 0;
+    if (maintenant === 0 && avant == null) return null;
+    return {
+      avant,
+      maintenant,
+      delta:     avant != null ? maintenant - avant : null,
+      dateAvant: data?.[0]?.date_snapshot || null,
+    };
+  }
+
   // ── EXPORT WORD ──────────────────────────────────────────────────────────
   async function handleExportWord() {
     if (!crId || exporting) return;
     setExporting(true);
     try {
+      const progression = await calculerProgression();
       const res = await fetch("/api/generate-cr-client-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ infos, obs: obs.filter(o => o.texte), photos, societe }),
+        body: JSON.stringify({ infos, obs: obs.filter(o => o.texte), photos, societe, progression }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Erreur serveur" }));
@@ -585,10 +616,11 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
     setSending(true); setEmailStatus(null);
     try {
       // 1) Générer le docx
+      const progression = await calculerProgression();
       const docxRes = await fetch("/api/generate-cr-client-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ infos, obs: obs.filter(o => o.texte), photos, societe }),
+        body: JSON.stringify({ infos, obs: obs.filter(o => o.texte), photos, societe, progression }),
       });
       if (!docxRes.ok) throw new Error("Génération docx échouée");
       const blob = await docxRes.blob();

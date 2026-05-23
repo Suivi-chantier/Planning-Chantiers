@@ -39,7 +39,7 @@ async function fetchImage(url) {
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  const { infos = {}, obs = [], photos = [], societe = {} } = req.body || {};
+  const { infos = {}, obs = [], photos = [], societe = {}, progression = null } = req.body || {};
 
   const clients = [
     `${infos.client_prenom1 || ""} ${infos.client_nom1 || ""}`.trim(),
@@ -76,6 +76,26 @@ module.exports = async function handler(req, res) {
   if (infos.participants) line("Participants", infos.participants);
   if (typeof infos.avancement === "number" && infos.avancement > 0) {
     line("Avancement global", `${infos.avancement} %`);
+  }
+  // Progression cette semaine (snapshot avant la semaine de la visite → CR)
+  if (progression && typeof progression.maintenant === "number") {
+    const p = progression;
+    let progText;
+    let progColor = GREY;
+    if (p.avant == null) {
+      progText = `${p.maintenant} % (1er snapshot — pas encore de point de comparaison)`;
+    } else {
+      const sign = p.delta > 0 ? "+" : "";
+      progText = `${p.avant} % → ${p.maintenant} % (${sign}${p.delta} pt${Math.abs(p.delta) > 1 ? "s" : ""} cette semaine)`;
+      progColor = p.delta > 0 ? "2db870" : p.delta < 0 ? "e15a5a" : GREY;
+    }
+    children.push(new Paragraph({
+      children: [
+        new TextRun({ text: "Progression de la semaine : ", size: 22, font: "Arial", color: GREY }),
+        new TextRun({ text: progText, bold: true, size: 22, font: "Arial", color: progColor }),
+      ],
+      spacing: { before: 0, after: 60 },
+    }));
   }
   children.push(sp(200));
 
