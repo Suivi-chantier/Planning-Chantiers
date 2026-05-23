@@ -523,7 +523,8 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
             const remarques = grp.rapports.filter(r => r.remarque?.trim());
             return (
               <div key={cId} style={{ background:T.surface, border:`1px solid ${T.border}`,
-                borderRadius:14, overflow:"hidden", borderLeft:`5px solid ${ch?.couleur||"#5b8af5"}` }}>
+                borderRadius:14, overflow:"hidden", borderLeft:`5px solid ${ch?.couleur||"#5b8af5"}`,
+                flexShrink: 0 }}>
                 <div style={{ padding:"16px 20px", display:"flex", alignItems:"center",
                   justifyContent:"space-between", flexWrap:"wrap", gap:12,
                   background: ch ? ch.couleur+"18" : T.card }}>
