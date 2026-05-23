@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import html2pdf from "html2pdf.js";
 import { supabase } from "./supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "./constants";
 import { Icon } from "./ui";
@@ -372,22 +373,80 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
 </div></body></html>`;
   };
 
-  // ── Export PDF (via aperçu d'impression du navigateur) ────────────────────
-  const genPDFBilan = () => {
+  // ── Génère le PDF côté client (Blob) à partir du HTML stylisé ─────────────
+  // html2pdf utilise html2canvas + jsPDF en interne : rendu fidèle de la mise
+  // en page (couleurs, badges, sections) avec pagination automatique A4.
+  const generatePDFBlob = async () => {
     const html = buildBilanHTML();
-    const w = window.open("", "_blank", "width=900,height=1000");
-    if (!w) { alert("Le navigateur a bloqué la fenêtre d'impression. Autorise les pop-ups pour cette page."); return; }
-    w.document.write(html);
-    w.document.close();
-    // Petit délai pour laisser charger le logo avant d'imprimer
-    setTimeout(() => { w.focus(); w.print(); }, 600);
+    // On crée un conteneur off-screen plutôt que d'ouvrir une nouvelle fenêtre
+    // (html2pdf rend depuis un DOM existant).
+    const container = document.createElement("div");
+    container.style.position = "absolute";
+    container.style.left = "-99999px";
+    container.style.top = "0";
+    container.style.width = "794px"; // largeur A4 en px (à 96 dpi)
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    // Attendre le chargement du logo
+    const img = container.querySelector("img");
+    if (img && !img.complete) {
+      await new Promise(resolve => {
+        img.onload = resolve;
+        img.onerror = resolve;
+        setTimeout(resolve, 2000); // safety timeout
+      });
+    }
+    const opts = {
+      margin:      [10, 10, 10, 10],
+      filename:    `Bilan-semaine-${weekId}.pdf`,
+      image:       { type: "jpeg", quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      jsPDF:       { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak:   { mode: ["avoid-all", "css", "legacy"] },
+    };
+    try {
+      const blob = await html2pdf().set(opts).from(container.querySelector(".page") || container).outputPdf("blob");
+      return blob;
+    } finally {
+      document.body.removeChild(container);
+    }
   };
 
-  // ── Envoi par mail ────────────────────────────────────────────────────────
+  // ── Export PDF : génère + télécharge directement ──────────────────────────
+  const [generatingPDF, setGeneratingPDF] = useState(false);
+  const genPDFBilan = async () => {
+    setGeneratingPDF(true);
+    try {
+      const blob = await generatePDFBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Bilan-semaine-${weekId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Erreur génération PDF : " + (e.message || e));
+    }
+    setGeneratingPDF(false);
+  };
+
+  // ── Envoi par mail avec PDF en pièce jointe ───────────────────────────────
   const [showEmail, setShowEmail]   = useState(false);
   const [emailTo, setEmailTo]       = useState("suivi.chantier@groupe-profero.com, loris.bessonneau@groupe-profero.com");
   const [emailSending, setEmailSending] = useState(false);
   const [emailStatus, setEmailStatus]   = useState(null);
+
+  // Convertit un Blob en base64 (sans le préfixe "data:...;base64,")
+  const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onloadend = () => {
+      const result = r.result || "";
+      const idx = String(result).indexOf("base64,");
+      resolve(idx >= 0 ? String(result).slice(idx + 7) : String(result));
+    };
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
 
   const sendBilanEmail = async () => {
     const destinataires = emailTo.split(",").map(s => s.trim()).filter(Boolean);
@@ -395,20 +454,33 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
     setEmailSending(true);
     setEmailStatus(null);
     try {
-      const html = buildBilanHTML();
+      const blob = await generatePDFBlob();
+      const base64 = await blobToBase64(blob);
+      const filename = `Bilan-semaine-${weekId}.pdf`;
+      // Corps du mail léger qui annonce la pj
+      const intro = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#1a1f2e;">
+        <h2 style="color:#1a1f2e;margin-bottom:8px;">Bilan de la semaine ${weekId}</h2>
+        <p style="color:#555;font-size:14px;line-height:1.5;margin-bottom:14px;">
+          Bonjour,<br><br>
+          Veuillez trouver ci-joint le bilan détaillé de la semaine au format PDF.
+          Le document contient le récap par chantier, les progressions hebdo, et les heures cumulées.
+        </p>
+        <p style="color:#888;font-size:12px;margin-top:18px;">Profero Rénovation · Envoyé automatiquement depuis Profero Planning</p>
+      </div>`;
       const res = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: destinataires,
           subject: `Bilan de la semaine ${weekId} — Profero Rénovation`,
-          html,
+          html: intro,
+          attachments: [{ filename, content: base64 }],
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setEmailStatus({ ok: true, msg: `Envoyé à ${destinataires.length} destinataire${destinataires.length > 1 ? "s" : ""}.` });
-      setTimeout(() => { setShowEmail(false); setEmailStatus(null); }, 2000);
+      setEmailStatus({ ok: true, msg: `Envoyé à ${destinataires.length} destinataire${destinataires.length > 1 ? "s" : ""} avec le PDF en pièce jointe.` });
+      setTimeout(() => { setShowEmail(false); setEmailStatus(null); }, 2200);
     } catch (e) {
       setEmailStatus({ ok: false, msg: e.message || "Erreur d'envoi" });
     }
@@ -566,11 +638,13 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                 </>
               )}
             </button>
-            <button onClick={genPDFBilan} title="Aperçu d'impression PDF" className="cr-export-btn"
-              style={{ background:"rgba(245,196,0,0.92)", border:"none", borderRadius:10, padding:"0 16px", height:40,
-                cursor:"pointer", fontSize:13, fontWeight:700, color:"#1a1a1a",
+            <button onClick={genPDFBilan} disabled={generatingPDF} title="Télécharger le PDF" className="cr-export-btn"
+              style={{ background: generatingPDF ? "rgba(255,255,255,0.1)" : "rgba(245,196,0,0.92)",
+                border:"none", borderRadius:10, padding:"0 16px", height:40,
+                cursor: generatingPDF ? "wait" : "pointer", fontSize:13, fontWeight:700,
+                color: generatingPDF ? "#fff" : "#1a1a1a",
                 display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
-              <Icon as={FileDown} size={14}/> PDF
+              {generatingPDF ? <><Icon as={RefreshCw} size={13}/> Génération…</> : <><Icon as={FileDown} size={14}/> PDF</>}
             </button>
             <button onClick={() => { setShowEmail(true); setEmailStatus(null); }} title="Envoyer le bilan par mail"
               style={{ background:"rgba(91,138,245,0.92)", border:"none", borderRadius:10, padding:"0 16px", height:40,
