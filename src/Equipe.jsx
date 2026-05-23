@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "./constants";
 import { Icon } from "./ui";
 import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
@@ -274,6 +274,147 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
     setGeneratingDoc(false);
   };
 
+  // ── HTML stylisé du bilan (utilisé par PDF et envoi mail) ─────────────────
+  const buildBilanHTML = () => {
+    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+    const fmt = (txt) => esc(txt).replace(/\n/g, "<br>");
+    const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
+
+    const chantierBlocs = Object.entries(parChantier).map(([cId, grp]) => {
+      const ch = chantiers.find(c => c.id === cId);
+      const couleur = ch?.couleur || "#5b8af5";
+      const heures = heuresParChantier[cId] || 0;
+      const taches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
+      const faites    = taches.filter(t => t.statut === "faite");
+      const enCours   = taches.filter(t => t.statut === "en_cours");
+      const nonFaites = taches.filter(t => t.statut === "non_faite");
+      const remarques = grp.rapports.filter(r => r.remarque?.trim());
+      const presences = [];
+      Object.keys(HEURES_PAR_JOUR).forEach(jour => {
+        const cell = cells[`${cId}_${jour}`];
+        if (cell && (cell.ouvriers||[]).length) presences.push({ jour, ouvriers: cell.ouvriers });
+      });
+      const p = progressions[cId];
+      let progBadge = "";
+      if (p) {
+        if (p.avant == null) {
+          progBadge = `<span style="font-size:11pt;font-weight:600;color:#5b6a8a;background:#f0f3f8;border-radius:6pt;padding:3pt 9pt;">Avancement : <strong style="color:#1a1f2e;">${p.maintenant}%</strong></span>`;
+        } else {
+          const c = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : "#5b6a8a";
+          const sign = p.delta > 0 ? "+" : "";
+          progBadge = `<span style="font-size:11pt;font-weight:600;color:#1a1f2e;background:${c}15;border:1pt solid ${c}55;border-radius:6pt;padding:3pt 9pt;"><span style="color:#5b6a8a;">${p.avant}% → </span><strong>${p.maintenant}%</strong> <span style="color:${c};font-weight:800;">(${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""})</span></span>`;
+        }
+      }
+      const listeTaches = (items, color, icon) => items.length === 0 ? "" : `
+        <ul style="margin:6pt 0 10pt;padding:0;list-style:none;">
+          ${items.map(t => `<li style="font-size:10pt;color:#333;margin-bottom:4pt;padding-left:16pt;position:relative;">
+            <span style="position:absolute;left:0;color:${color};font-weight:700;">${icon}</span>
+            ${esc(t.planifie||t.text||"")}${t.remarque ? ` <span style="color:#777;">— ${esc(t.remarque)}</span>` : ""}
+            <span style="color:#999;font-size:9pt;"> (${esc(t.ouvrier||"")})</span>
+          </li>`).join("")}
+        </ul>`;
+      return `
+        <div style="background:#fff;border-radius:8pt;border:1pt solid #e6e6e6;border-left:5pt solid ${couleur};margin-bottom:14pt;overflow:hidden;page-break-inside:avoid;">
+          <div style="background:${couleur}18;padding:12pt 16pt;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10pt;">
+            <div style="display:flex;align-items:center;gap:10pt;flex-wrap:wrap;">
+              <div style="width:12pt;height:12pt;background:${couleur};border-radius:3pt;"></div>
+              <div style="font-size:15pt;font-weight:800;color:#1a1f2e;">${esc(grp.nom)}</div>
+              ${progBadge}
+            </div>
+            ${heures > 0 ? `<div style="background:#fff8c8;border:1pt solid #f5c40044;border-radius:6pt;padding:4pt 12pt;font-weight:800;color:#9a7a00;font-size:13pt;">${heures.toFixed(1)}h</div>` : ""}
+          </div>
+          <div style="padding:12pt 16pt;">
+            ${presences.length > 0 ? `
+              <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Présences</div>
+              <div style="margin-bottom:10pt;font-size:10pt;color:#333;">
+                ${presences.map(p => `<div style="margin-bottom:3pt;"><strong>${esc(p.jour)} :</strong> ${esc(p.ouvriers.join(", "))}</div>`).join("")}
+              </div>` : ""}
+            ${faites.length > 0 ? `<div style="font-size:9pt;font-weight:700;color:#22c55e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✓ Réalisé</div>${listeTaches(faites, "#22c55e", "✓")}` : ""}
+            ${enCours.length > 0 ? `<div style="font-size:9pt;font-weight:700;color:#f5a623;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">↻ En cours</div>${listeTaches(enCours, "#f5a623", "↻")}` : ""}
+            ${nonFaites.length > 0 ? `<div style="font-size:9pt;font-weight:700;color:#e15a5a;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✗ Non faites</div>${listeTaches(nonFaites, "#e15a5a", "✗")}` : ""}
+            ${remarques.length > 0 ? `
+              <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:8pt;margin-bottom:4pt;">Remarques</div>
+              ${remarques.map(r => `<div style="font-size:10pt;color:#333;margin-bottom:4pt;background:#f9f9f9;padding:6pt 10pt;border-radius:4pt;border-left:2pt solid #5b8af5;"><strong>${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}` : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bilan ${esc(weekId)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;background:#f7f7f7;color:#1a1f2e;font-size:11pt;line-height:1.5;padding:0;}
+  .page{max-width:780pt;margin:0 auto;padding:20pt;background:#f7f7f7;}
+  @page{margin:14mm 16mm;size:A4;}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}.page{padding:0;}}
+</style></head><body><div class="page">
+  <div style="background:#0a0a0a;padding:18pt 24pt;display:flex;justify-content:space-between;align-items:center;border-radius:8pt;margin-bottom:18pt;">
+    <div style="display:flex;align-items:center;gap:14pt;">
+      <img src="${logoUrl}" alt="Profero" style="height:42pt;object-fit:contain;" />
+      <div>
+        <div style="color:#f5c400;font-size:9pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">Bilan de la semaine</div>
+        <div style="color:#fff;font-size:22pt;font-weight:800;margin-top:2pt;">${esc(weekId)}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:18pt;text-align:center;">
+      <div>
+        <div style="font-size:22pt;font-weight:800;color:#f5c400;">${totalHeures.toFixed(1)}h</div>
+        <div style="font-size:9pt;color:rgba(255,255,255,.5);letter-spacing:.06em;text-transform:uppercase;">Heures réelles</div>
+      </div>
+      <div>
+        <div style="font-size:22pt;font-weight:800;color:#50c878;">${totalFaites}</div>
+        <div style="font-size:9pt;color:rgba(255,255,255,.5);letter-spacing:.06em;text-transform:uppercase;">Tâches faites</div>
+      </div>
+    </div>
+  </div>
+  ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:#999;">Aucun compte rendu pour cette semaine.</div>`}
+  <div style="text-align:center;margin-top:20pt;font-size:9pt;color:#999;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
+</div></body></html>`;
+  };
+
+  // ── Export PDF (via aperçu d'impression du navigateur) ────────────────────
+  const genPDFBilan = () => {
+    const html = buildBilanHTML();
+    const w = window.open("", "_blank", "width=900,height=1000");
+    if (!w) { alert("Le navigateur a bloqué la fenêtre d'impression. Autorise les pop-ups pour cette page."); return; }
+    w.document.write(html);
+    w.document.close();
+    // Petit délai pour laisser charger le logo avant d'imprimer
+    setTimeout(() => { w.focus(); w.print(); }, 600);
+  };
+
+  // ── Envoi par mail ────────────────────────────────────────────────────────
+  const [showEmail, setShowEmail]   = useState(false);
+  const [emailTo, setEmailTo]       = useState("suivi.chantier@groupe-profero.com, loris.bessonneau@groupe-profero.com");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailStatus, setEmailStatus]   = useState(null);
+
+  const sendBilanEmail = async () => {
+    const destinataires = emailTo.split(",").map(s => s.trim()).filter(Boolean);
+    if (destinataires.length === 0) { setEmailStatus({ ok: false, msg: "Renseigne au moins un destinataire." }); return; }
+    setEmailSending(true);
+    setEmailStatus(null);
+    try {
+      const html = buildBilanHTML();
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: destinataires,
+          subject: `Bilan de la semaine ${weekId} — Profero Rénovation`,
+          html,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setEmailStatus({ ok: true, msg: `Envoyé à ${destinataires.length} destinataire${destinataires.length > 1 ? "s" : ""}.` });
+      setTimeout(() => { setShowEmail(false); setEmailStatus(null); }, 2000);
+    } catch (e) {
+      setEmailStatus({ ok: false, msg: e.message || "Erreur d'envoi" });
+    }
+    setEmailSending(false);
+  };
+
   // ── Écran saisie heures (étape 1) ────────────────────────────────────────────
   if (etape === "saisie") {
     return (
@@ -421,9 +562,21 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
                 </>
               ) : (
                 <>
-                  <Icon as={FileDown} size={14}/> Compte rendu .docx
+                  <Icon as={FileDown} size={14}/> Word
                 </>
               )}
+            </button>
+            <button onClick={genPDFBilan} title="Aperçu d'impression PDF" className="cr-export-btn"
+              style={{ background:"rgba(245,196,0,0.92)", border:"none", borderRadius:10, padding:"0 16px", height:40,
+                cursor:"pointer", fontSize:13, fontWeight:700, color:"#1a1a1a",
+                display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
+              <Icon as={FileDown} size={14}/> PDF
+            </button>
+            <button onClick={() => { setShowEmail(true); setEmailStatus(null); }} title="Envoyer le bilan par mail"
+              style={{ background:"rgba(91,138,245,0.92)", border:"none", borderRadius:10, padding:"0 16px", height:40,
+                cursor:"pointer", fontSize:13, fontWeight:700, color:"#fff",
+                display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
+              ✉ Mail
             </button>
             <button onClick={onClose} style={{
               background: "rgba(255,255,255,0.08)", border: "none",
@@ -434,6 +587,53 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
             </button>
           </div>
         </div>
+
+        {/* Modale envoi mail */}
+        {showEmail && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:700,
+            display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={() => setShowEmail(false)}>
+            <div style={{ background:"#1e2336", borderRadius:16, width:"100%", maxWidth:520,
+              border:"1px solid rgba(255,255,255,0.12)", boxShadow:"0 24px 60px rgba(0,0,0,0.6)",
+              display:"flex", flexDirection:"column", overflow:"hidden" }} onClick={e => e.stopPropagation()}>
+              <div style={{ padding:"20px 24px", borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ fontSize:18, fontWeight:800, color:"#e8eaf0", marginBottom:6 }}>✉️ Envoyer le bilan par mail</div>
+                <div style={{ fontSize:13, color:"#5b6a8a", lineHeight:1.5 }}>
+                  Le bilan stylisé est envoyé directement dans le corps du mail (pas de pièce jointe à ouvrir).
+                  Compatible avec tous les clients mail et mobiles.
+                </div>
+              </div>
+              <div style={{ padding:"20px 24px" }}>
+                <label style={{ fontSize:11, fontWeight:700, color:"#9aa5c0", textTransform:"uppercase", letterSpacing:1, marginBottom:6, display:"block" }}>Destinataires (séparés par virgule)</label>
+                <input value={emailTo} onChange={e => setEmailTo(e.target.value)} disabled={emailSending}
+                  placeholder="nom@exemple.com, autre@exemple.com"
+                  style={{ width:"100%", background:"rgba(255,255,255,0.05)", border:"1.5px solid rgba(255,255,255,0.12)",
+                    borderRadius:10, padding:"11px 14px", color:"#e8eaf0", fontFamily:"inherit",
+                    fontSize:13, outline:"none", boxSizing:"border-box" }}/>
+                {emailStatus && (
+                  <div style={{ marginTop:12, padding:"10px 14px", borderRadius:8,
+                    background: emailStatus.ok ? "rgba(80,200,120,0.15)" : "rgba(225,90,90,0.15)",
+                    border: `1px solid ${emailStatus.ok ? "rgba(80,200,120,0.4)" : "rgba(225,90,90,0.4)"}`,
+                    color: emailStatus.ok ? "#50c878" : "#e15a5a", fontSize:13, fontWeight:600 }}>
+                    {emailStatus.ok ? "✓ " : "⚠ "}{emailStatus.msg}
+                  </div>
+                )}
+              </div>
+              <div style={{ padding:"16px 24px", borderTop:"1px solid rgba(255,255,255,0.08)",
+                display:"flex", gap:10, justifyContent:"flex-end" }}>
+                <button onClick={() => setShowEmail(false)} disabled={emailSending} style={{
+                  background:"transparent", border:"1px solid rgba(255,255,255,0.15)",
+                  borderRadius:10, padding:"10px 20px", color:"#9aa5c0",
+                  fontFamily:"inherit", fontSize:14, cursor:"pointer"
+                }}>Annuler</button>
+                <button onClick={sendBilanEmail} disabled={emailSending} style={{
+                  background: emailSending ? "rgba(255,255,255,0.1)" : "rgba(91,138,245,0.9)",
+                  border:"none", borderRadius:10, padding:"10px 24px", color:"#fff",
+                  fontFamily:"inherit", fontSize:14, fontWeight:800, cursor: emailSending ? "wait" : "pointer"
+                }}>{emailSending ? "Envoi…" : "✉ Envoyer"}</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modale notes libres */}
         {showNotes&&(
