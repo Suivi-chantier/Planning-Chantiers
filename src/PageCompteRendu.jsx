@@ -365,6 +365,7 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
     const dateStr = infos.date_visite ? new Date(infos.date_visite).toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}) : new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
     const statusColors = { ok:"#2e7d32", info:"#1565c0", warn:"#b45309", urgent:"#c62828" };
     const statusLabels = { ok:"CONFORME", info:"INFO", warn:"ATTENTION", urgent:"URGENT" };
+    const progression = await calculerProgression();
 
     // Helper : escape HTML + préserve les sauts de ligne (sinon le texte
     // multi-lignes du résumé/travaux/remarques apparaît collé sur une seule
@@ -452,6 +453,20 @@ export default function PageCompteRendu({ T, chantiers = [], branch = "renovatio
       <div style="width:90pt;background:#0a0a0a;border-radius:5pt;padding:10pt 12pt;text-align:center;">
         <div style="font-size:7pt;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Avancement</div>
         <div style="font-size:22pt;font-weight:700;color:#f5c400;">${infos.avancement}%</div>
+        ${progression && typeof progression.maintenant === "number" ? (() => {
+          if (progression.avant == null) {
+            return `<div style="font-size:6.5pt;color:rgba(255,255,255,.45);margin-top:4pt;letter-spacing:.03em;">1er snapshot</div>`;
+          }
+          const sign = progression.delta > 0 ? "+" : "";
+          const color = progression.delta > 0 ? "#34d188" : progression.delta < 0 ? "#ff625f" : "rgba(255,255,255,.55)";
+          return `
+            <div style="font-size:7pt;color:rgba(255,255,255,.55);margin-top:5pt;letter-spacing:.04em;">
+              ${progression.avant}% → ${progression.maintenant}%
+            </div>
+            <div style="font-size:8pt;color:${color};font-weight:700;margin-top:2pt;">
+              ${sign}${progression.delta} pt${Math.abs(progression.delta) > 1 ? "s" : ""} cette semaine
+            </div>`;
+        })() : ""}
       </div>` : ""}
     </div>
 
