@@ -608,9 +608,10 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
 }
 
 // ─── SIMULATEUR ───────────────────────────────────────────────────────────────
-function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
+function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded=false, bienId=null, bienSource=null, onBienSaved }) {
   const isNew = !projet?.id;
   const projetIdRef = useRef(projet?.id||null);
+  const isEmbedded = !!embedded;
 
   // ── État principal ──────────────────────────────────────────────────────────
   const [nom,    setNom]    = useState(projet?.donnees?.projectName || projet?.nom || "Nouveau projet");
@@ -738,6 +739,38 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
   const sauvegarder = useCallback(async()=>{
     setSaving(true);
     const state = collectState();
+
+    if (isEmbedded && bienId) {
+      const existingVisiteData = (bienSource && bienSource.visite_data) || {};
+      const updatedVisiteData = {
+        ...existingVisiteData,
+        simulateur: state,
+        simulateur_updated_at: new Date().toISOString(),
+      };
+
+      const payloadBien = {
+        visite_data: updatedVisiteData,
+        prix_vente: parseFloat(prixAffiche) || 0,
+        prix_travaux: parseFloat(budgetTravaux) || 0,
+        cout_total: parseFloat(coutTotal) || 0,
+        rendement_brut: rb > 0 ? rb * 100 : 0,
+        cashflow_estime: parseFloat(cfSel) || 0,
+        montant_offre: parseFloat(prixNegocie) || 0,
+      };
+
+      const { error } = await supabase.from("invest_biens").update(payloadBien).eq("id", bienId);
+      if (error) {
+        console.error("Erreur sauvegarde simulateur bien:", error);
+        alert("Erreur sauvegarde simulateur : " + error.message);
+      } else {
+        if (typeof onBienSaved === "function") onBienSaved();
+        setSaved(true);
+        setTimeout(()=>setSaved(false),2500);
+      }
+      setSaving(false);
+      return;
+    }
+
     // Inclut client_id (peut être null si non lié). Si la colonne n'existe pas
     // encore en base (code 42703), on retry sans pour ne pas bloquer la save.
     const payload = {
@@ -766,7 +799,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
       projetIdRef.current = res.data.id;
     }
     setSaving(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
-  },[collectState, nom, profil, clientId]);
+  },[collectState, nom, profil, clientId, isEmbedded, bienId, bienSource, prixAffiche, prixNegocie, budgetTravaux, coutTotal, rb, cfSel, onBienSaved]);
 
   // Autosave 30s
   const autoRef = useRef(null);
@@ -1153,7 +1186,10 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
     localStorage.setItem("invest_theme", next);
   };
   return (
-    <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,display:"flex",flexDirection:"column",background:T.bg}}>
+    <div className="inv" style={isEmbedded
+      ? {display:"flex",flexDirection:"column",background:T.bg,borderRadius:RADIUS.xl,overflow:"hidden",minHeight:760}
+      : {position:"fixed",inset:0,zIndex:9999,display:"flex",flexDirection:"column",background:T.bg}
+    }>
       <style>{localCSS}</style>
 
       {/* Topbar moderne — fond sombre avec accent bleu (au lieu du navy/doré vintage) */}
@@ -1163,11 +1199,15 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme }) {
         display:"flex",alignItems:"center",gap:SPACING.md,flexShrink:0,
         boxShadow:T.shadowSm,
       }}>
-        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>
-          <Icon as={ArrowLeft} size={13} strokeWidth={2.2}/>
-          Projets
-        </button>
-        <div style={{width:1,height:20,background:T.border}}/>
+        {!isEmbedded && (
+          <>
+            <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>
+              <Icon as={ArrowLeft} size={13} strokeWidth={2.2}/>
+              Projets
+            </button>
+            <div style={{width:1,height:20,background:T.border}}/>
+          </>
+        )}
         <span style={{fontSize:FONT.xs.size,letterSpacing:1.8,textTransform:"uppercase",color:T.accent,fontWeight:700}}>
           Profero Invest
         </span>
@@ -2730,7 +2770,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
           <div className="inv-card">
             <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
               <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Biens proposés ({props.length})</span>
-              <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+              <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"black", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
             </div>
             <div className="inv-card-bd">
               {props.length === 0 ? (
@@ -4182,6 +4222,68 @@ function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved }) {
 
 
 
+function buildSimulateurProjectFromBien(bien = {}) {
+  const visite = bien.visite_data || {};
+  if (visite.simulateur) {
+    return {
+      id: null,
+      nom: `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
+      donnees: visite.simulateur,
+      client_id: "",
+    };
+  }
+
+  const finance = visite.finance || {};
+  const general = visite.general || {};
+  const configuration = visite.configuration || {};
+  const lotsCibles = Array.isArray(configuration.lots) ? configuration.lots : [];
+  const lots = lotsCibles
+    .filter(l => l && (l.type || l.surface || l.loyer))
+    .slice(0, MAX_LOTS)
+    .map((l, idx) => ({
+      type: l.type || "T2",
+      m2: parseFloat(l.surface) || 0,
+      loyer: parseFloat(l.loyer) || 0,
+      niveau: "RDC",
+      comment: l.numero ? `Lot ${l.numero}` : `Lot ${idx + 1}`,
+    }));
+
+  const prixAffiche = parseFloat(general.prix_affiche || bien.prix_vente) || 0;
+  const prixNegocie = parseFloat(finance.prix_acquisition_negocie || bien.montant_offre || bien.prix_vente) || prixAffiche || 0;
+  const budgetTravaux = parseFloat(finance.budget_travaux_ttc || bien.prix_travaux) || 0;
+  const surface = parseFloat(general.surface_totale || bien.surface_totale) || lots.reduce((s,l)=>s+(l.m2||0),0) || 0;
+
+  return {
+    id: null,
+    nom: `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
+    client_id: "",
+    donnees: {
+      version:4,
+      savedAt: bien.updated_at || new Date().toISOString(),
+      projectName: `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
+      inputs: {
+        prixAffiche, prixNegocie, budgetTravaux, tauxNotaire:0.08, surface,
+        honoraires: parseFloat(finance.frais_profero) || 0,
+        enedis:0,
+        taxeFonciere:0, assurance:0, compta:0, provisions:0,
+        apport1:0, apport2:0, taux1:4.20, taux2:4.20, duree1:20, duree2:25,
+        coefEtat:1.0, imprevusPct:10,
+      },
+      selects: { gestionActive:false, modeDetention:"IS", tmi:"0.30", selectedScenario:1 },
+      lots: lots.length ? lots : [{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}],
+      budgetQty:{}, budgetPrice:{}, customDivers:[],
+      descriptions: {
+        description: bien.commentaire || "",
+        travaux: visite.dpe?.travaux_energetiques || "",
+        atouts: visite.marche?.points_forts || "",
+        adresse: [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", "),
+      },
+      photos:[null,null,null,null],
+      bien_id: bien.id || null,
+    },
+  };
+}
+
 function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [bien, setBien]       = useState(null);
   const [props, setProps]     = useState([]);
@@ -4192,6 +4294,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [savingProp, setSavingProp] = useState(false);
   const [geolocatingBien, setGeolocatingBien] = useState(false);
   const [geoMessageBien, setGeoMessageBien] = useState("");
+  const [ficheTab, setFicheTab] = useState("fiche");
 
   const charger = async () => {
     const [{ data: b }, { data: p }, { data: c }] = await Promise.all([
@@ -4280,6 +4383,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
+  const currentTheme = T?.bg === THEMES_INV.light.bg ? "light" : "dark";
+  const simulateurProjetBien = buildSimulateurProjectFromBien(bien);
 
   const ClientsAssociesCard = () => (
     <div className="inv-card">
@@ -4348,6 +4453,39 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         </div>
       )}
 
+      <div style={{ display:"flex", gap:4, marginBottom:18, borderBottom:`1px solid ${T.border}`, paddingBottom:8, flexWrap:"wrap" }}>
+        {[
+          ["fiche", "Fiche visite", FileText],
+          ["simulateur", "Simulateur", BarChart3],
+        ].map(([key,label,IconComp]) => (
+          <button key={key}
+            onClick={() => setFicheTab(key)}
+            style={{
+              padding:"8px 18px", border:"none", borderRadius:6, cursor:"pointer",
+              fontFamily:"'Barlow Condensed',sans-serif", fontSize:14, fontWeight:800,
+              letterSpacing:.6, textTransform:"uppercase", display:"inline-flex", alignItems:"center", gap:7,
+              background: ficheTab===key ? T.accent : "transparent",
+              color: ficheTab===key ? T.onAccent : T.textSub,
+              transition:"all .15s",
+            }}>
+            <Icon as={IconComp} size={13} strokeWidth={2.2}/> {label}
+          </button>
+        ))}
+      </div>
+
+      {ficheTab === "simulateur" ? (
+        <Simulateur
+          projet={simulateurProjetBien}
+          profil={profil}
+          embedded={true}
+          bienId={id}
+          bienSource={bien}
+          onBienSaved={charger}
+          onRetour={() => setFicheTab("fiche")}
+          theme={currentTheme}
+          setTheme={null}
+        />
+      ) : (
       <div style={{ display:"grid", gridTemplateColumns:"0.82fr 1.18fr", gap:16, alignItems:"start" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <ClientsAssociesCard />
@@ -4387,6 +4525,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
 
         <FicheVisiteBien bien={bien} profil={profil} T={T} onSaved={charger} />
       </div>
+      )}
 
       {showEdit && <FormulaireBien bien={bien} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
 
