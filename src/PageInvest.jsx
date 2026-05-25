@@ -3994,14 +3994,12 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [visitStep, setVisitStep] = useState(0);
 
-  useEffect(() => { setData(normaliseVisiteData(bien)); }, [bien?.id]);
+  useEffect(() => { setData(normaliseVisiteData(bien)); setVisitStep(0); }, [bien?.id]);
   useEffect(() => { if (onSaveStateChange) onSaveStateChange({ saving, saved }); }, [saving, saved, onSaveStateChange]);
-  useImperativeHandle(ref, () => ({ sauvegarder }));
 
   const upd = (section, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
-  const updNested = (section, sub, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [sub]: { ...prev[section]?.[sub], [key]: value } } }));
-  const updAudit = (section, key, field, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [key]: { ...prev[section]?.[key], [field]: value } } }));
   const updControl = (section, key, field, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], controles: { ...prev[section]?.controles, [key]: { ...prev[section]?.controles?.[key], [field]: value } } } }));
   const updLot = (idx, key, value) => setData(prev => {
     const lots = [...(prev.configuration?.lots || emptyLotsCibles())];
@@ -4021,6 +4019,25 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const loyersNetsCharges = loyersNetsVacance - numVal(fin.charges_annuelles);
   const rendementBrut = coutOperation > 0 ? (totalLoyersAnnuels / coutOperation) * 100 : 0;
   const rendementNet = coutOperation > 0 ? (loyersNetsCharges / coutOperation) * 100 : 0;
+
+  const filled = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+  const countValues = (obj, keys) => keys.reduce((s,k)=>s+(filled(obj?.[k])?1:0),0);
+  const countAuditStatuses = (values, items) => items.reduce((s,[key])=>s+(filled(values?.[key]?.statut)?1:0),0);
+  const countLots = (lots || []).reduce((s,l)=>s+(filled(l.type)||filled(l.surface)||filled(l.loyer)?1:0),0);
+  const allTechniqueItems = TECHNIQUE_VISITE_GROUPS.flatMap(g => g.items);
+  const stepScores = [
+    { done: countValues(data.identification, ["adresse","ville","code_postal","conseiller_profero","date_visite","source"]) + countValues(data.general, ["type_bien","surface_totale","prix_affiche","lots_actuels","lots_cibles"]), total: 11 },
+    { done: countValues(data.configuration, ["escaliers_interieurs","acces_independants","compteurs_eau","compteurs_gaz","compteurs_electricite"]) + Math.min(countLots, 6), total: 11 },
+    { done: countAuditStatuses(data.technique, allTechniqueItems), total: allTechniqueItems.length },
+    { done: countValues(data.dpe, ["dpe_actuel","ges_actuel","dpe_cible","audit_disponible","travaux_energetiques"]) + countAuditStatuses(data.urbanisme?.controles, URBANISME_VISITE_ITEMS) + countValues(data.urbanisme, ["contact_mairie","duree_chantier","complexite"]), total: 5 + URBANISME_VISITE_ITEMS.length + 3 },
+    { done: countValues(data.finance, ["prix_acquisition_negocie","frais_notaire","frais_agence","frais_profero","budget_travaux_ttc","charges_annuelles","cashflow_mensuel"]), total: 7 },
+    { done: countValues(data.marche, ["tension_locative","delai_relocation","loyer_moyen_m2","colocation_possible","meuble_pertinente","profil_locataires","points_forts"]) + countAuditStatuses(data.risques?.controles, RISQUES_VISITE_ITEMS), total: 7 + RISQUES_VISITE_ITEMS.length },
+    { done: countValues(data.conclusion, ["note_globale","recommandation","prix_offre_recommande","strategie_locative","fiscalite_recommandee","prochaine_etape","commentaire_conseiller"]), total: 7 },
+  ];
+  const pct = (i) => Math.min(100, Math.round((stepScores[i].done / Math.max(stepScores[i].total, 1)) * 100));
+  const globalDone = stepScores.reduce((s,x)=>s+x.done,0);
+  const globalTotal = stepScores.reduce((s,x)=>s+x.total,0);
+  const globalPct = Math.min(100, Math.round((globalDone / Math.max(globalTotal,1)) * 100));
 
   const sauvegarder = async () => {
     setSaving(true); setError("");
@@ -4069,19 +4086,244 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
     if (error) {
       console.error("Erreur sauvegarde fiche visite:", error);
       setError(`Erreur sauvegarde : ${error.message}. Vérifiez que la migration SQL fiche visite a bien été exécutée.`);
-      return;
+      return false;
     }
     setSaved(true);
     setTimeout(()=>setSaved(false), 2200);
     if (onSaved) onSaved();
+    return true;
+  };
+  useImperativeHandle(ref, () => ({ sauvegarder }));
+
+  const grid2 = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))", gap:"0 12px" };
+  const grid3 = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:"0 12px" };
+  const stepDefs = [
+    { key:"essentiel", label:"Essentiel", icon:MapPin, help:"Adresse, source, vendeur et caractéristiques principales" },
+    { key:"decoupe", label:"Découpe & loyers", icon:Home, help:"Configuration actuelle et loyers cibles par lot" },
+    { key:"technique", label:"Technique", icon:Hammer, help:"Contrôle rapide du bâti par corps d'état" },
+    { key:"energie", label:"Énergie & urbanisme", icon:AlertTriangle, help:"DPE, PLU, copropriété, autorisations" },
+    { key:"finance", label:"Financier", icon:Wallet, help:"Coût global, loyers, rendement et cash-flow" },
+    { key:"marche", label:"Marché & risques", icon:TrendingUp, help:"Tension locative, risques et négociation" },
+    { key:"conclusion", label:"Conclusion", icon:Check, help:"Décision, prix d'offre et prochaine étape" },
+  ];
+
+  const stepButton = (s, i) => {
+    const IconComp = s.icon;
+    const active = visitStep === i;
+    const complete = pct(i) >= 80;
+    return (
+      <button key={s.key} onClick={()=>setVisitStep(i)} style={{
+        width:"100%", textAlign:"left", border:`1px solid ${active ? T.accentBorder : T.border}`,
+        background:active ? T.accentBg : T.card, color:active ? T.accent : T.text,
+        borderRadius:RADIUS.lg, padding:`${SPACING.sm+1}px ${SPACING.md}px`, cursor:"pointer",
+        display:"grid", gridTemplateColumns:"28px 1fr auto", alignItems:"center", gap:8,
+        fontFamily:"inherit", transition:"all .15s",
+      }}>
+        <span style={{width:28,height:28,borderRadius:RADIUS.md,background:active?T.accent:T.input,color:active?T.onAccent:T.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={IconComp} size={14} strokeWidth={2.2}/></span>
+        <span style={{minWidth:0}}>
+          <span style={{fontSize:FONT.sm.size+1,fontWeight:900,display:"block",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{i+1}. {s.label}</span>
+          <span style={{fontSize:FONT.xs.size,color:T.textMuted,display:"block",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.help}</span>
+        </span>
+        <span style={{fontFamily:"'DM Mono',monospace",fontSize:FONT.xs.size,fontWeight:900,color:complete?SU:(active?T.accent:T.textMuted)}}>{pct(i)}%</span>
+      </button>
+    );
   };
 
-  const grid2 = { display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 12px" };
+  const renderStepContent = () => {
+    switch (visitStep) {
+      case 0:
+        return (
+          <>
+            <VisitSection title="1. Identification rapide" icon={MapPin} T={T}>
+              <div style={grid2}>
+                <MiniField label="Référence interne Profero" value={bien.reference_interne || data.identification.reference_interne || "Générée automatiquement"} readOnly onChange={()=>{}} T={T}/>
+                <MiniField label="Conseiller Profero en charge" value={data.identification.conseiller_profero} onChange={v=>upd("identification","conseiller_profero",v)} T={T}/>
+                <MiniField label="Adresse complète" value={data.identification.adresse} onChange={v=>upd("identification","adresse",v)} T={T}/>
+                <MiniField label="Ville" value={data.identification.ville} onChange={v=>upd("identification","ville",v)} T={T}/>
+                <MiniField label="Code postal" value={data.identification.code_postal} onChange={v=>upd("identification","code_postal",v)} T={T}/>
+                <MiniField label="Date de la visite" type="date" value={data.identification.date_visite} onChange={v=>upd("identification","date_visite",v)} T={T}/>
+                <MiniField label="Source" value={data.identification.source} options={SOURCES_BIEN_VISITE} onChange={v=>upd("identification","source",v)} T={T}/>
+                <MiniField label="Géolocalisation" value={data.identification.geocoding_status || (data.identification.latitude && data.identification.longitude ? "Coordonnées enregistrées" : "Automatique à l'enregistrement")} readOnly onChange={()=>{}} T={T}/>
+              </div>
+            </VisitSection>
+            <VisitSection title="2. Données générales utiles à la décision" icon={Building2} T={T}>
+              <div style={grid3}>
+                <MiniField label="Type de bien" value={data.general.type_bien} onChange={v=>upd("general","type_bien",v)} T={T}/>
+                <MiniField label="Année de construction" type="number" value={data.general.annee_construction} onChange={v=>upd("general","annee_construction",v)} T={T}/>
+                <MiniField label="Surface totale (m²)" type="number" value={data.general.surface_totale} onChange={v=>upd("general","surface_totale",v)} T={T}/>
+                <MiniField label="Nombre de niveaux" type="number" value={data.general.nombre_niveaux} onChange={v=>upd("general","nombre_niveaux",v)} T={T}/>
+                <MiniField label="Lots actuels" type="number" value={data.general.lots_actuels} onChange={v=>upd("general","lots_actuels",v)} T={T}/>
+                <MiniField label="Lots cibles" type="number" value={data.general.lots_cibles} onChange={v=>upd("general","lots_cibles",v)} T={T}/>
+                <MiniField label="Prix affiché (€)" type="number" value={data.general.prix_affiche} onChange={v=>upd("general","prix_affiche",v)} T={T}/>
+                <MiniField label="Prix/m² affiché" value={numVal(data.general.surface_totale)>0 ? Math.round(numVal(data.general.prix_affiche)/numVal(data.general.surface_totale))+" €/m²" : "—"} readOnly onChange={()=>{}} T={T}/>
+                <MiniField label="Mandat" value={data.general.mandat} options={MANDATS_VISITE} onChange={v=>upd("general","mandat",v)} T={T}/>
+                <MiniField label="Agence / vendeur" value={data.general.agence_vendeur} onChange={v=>upd("general","agence_vendeur",v)} T={T}/>
+                <MiniField label="Délai de vente estimé" value={data.general.delai_vente_estime} onChange={v=>upd("general","delai_vente_estime",v)} T={T}/>
+                <MiniField label="Durée d'exposition de l'annonce" value={data.general.duree_exposition_annonce} onChange={v=>upd("general","duree_exposition_annonce",v)} T={T}/>
+              </div>
+            </VisitSection>
+          </>
+        );
+      case 1:
+        return (
+          <VisitSection title="Configuration cible et loyers" icon={Home} T={T}>
+            <div style={grid3}>
+              <MiniField label="Escaliers intérieurs" value={data.configuration.escaliers_interieurs} options={YES_NO} onChange={v=>upd("configuration","escaliers_interieurs",v)} T={T}/>
+              <MiniField label="Accès indépendants existants" value={data.configuration.acces_independants} options={YES_NO} onChange={v=>upd("configuration","acces_independants",v)} T={T}/>
+              <MiniField label="Compteurs eau" type="number" value={data.configuration.compteurs_eau} onChange={v=>upd("configuration","compteurs_eau",v)} T={T}/>
+              <MiniField label="Compteurs gaz" type="number" value={data.configuration.compteurs_gaz} onChange={v=>upd("configuration","compteurs_gaz",v)} T={T}/>
+              <MiniField label="Compteurs électricité" type="number" value={data.configuration.compteurs_electricite} onChange={v=>upd("configuration","compteurs_electricite",v)} T={T}/>
+            </div>
+            <div style={{overflowX:"auto", marginTop:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:10, background:T.card}}>
+              <div style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6}}>
+                <div>Lot</div><div>Type</div><div>Surface</div><div>Loyer cible</div><div>Meublé</div><div>Stationnement</div>
+              </div>
+              {lots.map((lot,idx)=>(
+                <div key={idx} style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, marginBottom:6}}>
+                  <input className="inv-inp" value={lot.numero} onChange={e=>updLot(idx,"numero",e.target.value)} style={{width:"100%"}}/>
+                  <select className="inv-sel" value={lot.type || ""} onChange={e=>updLot(idx,"type",e.target.value)}>{TYPES_LOT_VISITE.map(x=><option key={x}>{x}</option>)}</select>
+                  <input className="inv-inp" type="number" value={lot.surface || ""} onChange={e=>updLot(idx,"surface",e.target.value)} style={{width:"100%"}}/>
+                  <input className="inv-inp" type="number" value={lot.loyer || ""} onChange={e=>updLot(idx,"loyer",e.target.value)} style={{width:"100%"}}/>
+                  <select className="inv-sel" value={lot.meuble || ""} onChange={e=>updLot(idx,"meuble",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
+                  <select className="inv-sel" value={lot.stationnement || ""} onChange={e=>updLot(idx,"stationnement",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:10, marginTop:12}}>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Loyers mensuels cibles</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersMensuels)}</div></div>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Loyers annuels cibles</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersAnnuels)}</div></div>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Lots renseignés</div><div className="inv-kpi-val accent" style={{fontSize:18}}>{countLots}/6</div></div>
+            </div>
+          </VisitSection>
+        );
+      case 2:
+        return (
+          <>
+            <div style={{padding:"10px 12px", marginBottom:12, borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}`, color:T.textSub, fontSize:FONT.sm.size+1}}>
+              Renseignez d'abord le statut de chaque point. Ajoutez un commentaire uniquement quand il y a un risque, un doute ou une précision utile.
+            </div>
+            {TECHNIQUE_VISITE_GROUPS.map(g => (
+              <VisitSection key={g.key} title={`Technique — ${g.title}`} icon={Hammer} T={T}>
+                <AuditRows items={g.items} values={data.technique} onChange={(key,field,value)=>upd("technique",key,{...(data.technique?.[key]||{}),[field]:value})} T={T}/>
+              </VisitSection>
+            ))}
+          </>
+        );
+      case 3:
+        return (
+          <>
+            <VisitSection title="Performance énergétique & DPE" icon={Sparkles} T={T}>
+              <div style={grid3}>
+                <MiniField label="DPE actuel" value={data.dpe.dpe_actuel} options={LETTRES_DPE} onChange={v=>upd("dpe","dpe_actuel",v)} T={T}/>
+                <MiniField label="GES actuel" value={data.dpe.ges_actuel} options={LETTRES_DPE} onChange={v=>upd("dpe","ges_actuel",v)} T={T}/>
+                <MiniField label="Consommation énergie" type="number" value={data.dpe.conso_energie} onChange={v=>upd("dpe","conso_energie",v)} T={T}/>
+                <MiniField label="Émissions CO2" type="number" value={data.dpe.emissions_co2} onChange={v=>upd("dpe","emissions_co2",v)} T={T}/>
+                <MiniField label="DPE cible" value={data.dpe.dpe_cible} options={LETTRES_DPE} onChange={v=>upd("dpe","dpe_cible",v)} T={T}/>
+                <MiniField label="Audit énergétique disponible" value={data.dpe.audit_disponible} options={YES_NO} onChange={v=>upd("dpe","audit_disponible",v)} T={T}/>
+              </div>
+              <MiniField label="Principales passoires identifiées" textarea value={data.dpe.passoires_identifiees} onChange={v=>upd("dpe","passoires_identifiees",v)} T={T}/>
+              <MiniField label="Travaux d'amélioration énergétique envisagés" textarea value={data.dpe.travaux_energetiques} onChange={v=>upd("dpe","travaux_energetiques",v)} T={T}/>
+            </VisitSection>
+            <VisitSection title="Urbanisme, réglementation & faisabilité" icon={AlertTriangle} T={T}>
+              <AuditRows items={URBANISME_VISITE_ITEMS} values={data.urbanisme.controles} onChange={(key,field,value)=>updControl("urbanisme",key,field,value)} T={T}/>
+              <div style={{...grid3, marginTop:12}}>
+                <MiniField label="Contact mairie / urbanisme consulté" value={data.urbanisme.contact_mairie} onChange={v=>upd("urbanisme","contact_mairie",v)} T={T}/>
+                <MiniField label="Durée prévisionnelle du chantier" value={data.urbanisme.duree_chantier} onChange={v=>upd("urbanisme","duree_chantier",v)} T={T}/>
+                <MiniField label="Complexité estimée" value={data.urbanisme.complexite} options={COMPLEXITE_VISITE} onChange={v=>upd("urbanisme","complexite",v)} T={T}/>
+              </div>
+              <MiniField label="Observations / risques réglementaires" textarea value={data.urbanisme.observations} onChange={v=>upd("urbanisme","observations",v)} T={T}/>
+              <MiniField label="Autorisations préalables à prévoir" textarea value={data.urbanisme.autorisations} onChange={v=>upd("urbanisme","autorisations",v)} T={T}/>
+              <MiniField label="Points de vigilance travaux spécifiques" textarea value={data.urbanisme.vigilance_travaux} onChange={v=>upd("urbanisme","vigilance_travaux",v)} T={T}/>
+            </VisitSection>
+          </>
+        );
+      case 4:
+        return (
+          <>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:10, marginBottom:12}}>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Coût total opération</div><div className="inv-kpi-val" style={{fontSize:18}}>{fmt(coutOperation)}</div></div>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Loyers annuels</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersAnnuels)}</div></div>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Rendement brut</div><div className="inv-kpi-val accent" style={{fontSize:18}}>{rendementBrut ? rendementBrut.toFixed(2)+" %" : "—"}</div></div>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Rendement net</div><div className="inv-kpi-val green" style={{fontSize:18}}>{rendementNet ? rendementNet.toFixed(2)+" %" : "—"}</div></div>
+            </div>
+            <VisitSection title="Coût total de l'opération" icon={Wallet} T={T}>
+              <div style={grid3}>
+                <MiniField label="Prix acquisition négocié (€)" type="number" value={fin.prix_acquisition_negocie} onChange={v=>upd("finance","prix_acquisition_negocie",v)} T={T}/>
+                <MiniField label="Frais de notaire estimés (€)" type="number" value={fin.frais_notaire} onChange={v=>upd("finance","frais_notaire",v)} T={T}/>
+                <MiniField label="Frais d'agence (€)" type="number" value={fin.frais_agence} onChange={v=>upd("finance","frais_agence",v)} T={T}/>
+                <MiniField label="Frais Profero Invest (€)" type="number" value={fin.frais_profero} onChange={v=>upd("finance","frais_profero",v)} T={T}/>
+                <MiniField label="Budget travaux TTC (€)" type="number" value={fin.budget_travaux_ttc} onChange={v=>upd("finance","budget_travaux_ttc",v)} T={T}/>
+                <MiniField label="Mobilier si meublé (€)" type="number" value={fin.mobilier} onChange={v=>upd("finance","mobilier",v)} T={T}/>
+                <MiniField label="Frais financement / garantie (€)" type="number" value={fin.frais_financement} onChange={v=>upd("finance","frais_financement",v)} T={T}/>
+                <MiniField label="Divers / fonds de roulement (€)" type="number" value={fin.divers_fonds_roulement} onChange={v=>upd("finance","divers_fonds_roulement",v)} T={T}/>
+              </div>
+            </VisitSection>
+            <VisitSection title="Rentabilité locative" icon={TrendingUp} T={T}>
+              <div style={grid3}>
+                <MiniField label="Loyers bruts mensuels" value={fmt(totalLoyersMensuels)} readOnly onChange={()=>{}} T={T}/>
+                <MiniField label="Loyers bruts annuels" value={fmt(totalLoyersAnnuels)} readOnly onChange={()=>{}} T={T}/>
+                <MiniField label="Taux de vacance estimé (%)" type="number" value={fin.taux_vacance} onChange={v=>upd("finance","taux_vacance",v)} T={T}/>
+                <MiniField label="Loyers nets de vacance" value={fmt(loyersNetsVacance)} readOnly onChange={()=>{}} T={T}/>
+                <MiniField label="Charges annuelles" type="number" value={fin.charges_annuelles} onChange={v=>upd("finance","charges_annuelles",v)} T={T}/>
+                <MiniField label="Loyers nets de charges" value={fmt(loyersNetsCharges)} readOnly onChange={()=>{}} T={T}/>
+                <MiniField label="Cash-flow mensuel estimé (€)" type="number" value={fin.cashflow_mensuel} onChange={v=>upd("finance","cashflow_mensuel",v)} T={T}/>
+                <MiniField label="Durée de remboursement" value={fin.duree_remboursement} onChange={v=>upd("finance","duree_remboursement",v)} T={T}/>
+                <MiniField label="Plus-value potentielle à terme (€)" type="number" value={fin.plus_value_potentielle} onChange={v=>upd("finance","plus_value_potentielle",v)} T={T}/>
+              </div>
+            </VisitSection>
+          </>
+        );
+      case 5:
+        return (
+          <>
+            <VisitSection title="Marché locatif local" icon={TrendingUp} T={T}>
+              <div style={grid3}>
+                <MiniField label="Tension locative" value={data.marche.tension_locative} options={TENSION_LOCATIVE} onChange={v=>upd("marche","tension_locative",v)} T={T}/>
+                <MiniField label="Délai de relocation moyen" value={data.marche.delai_relocation} onChange={v=>upd("marche","delai_relocation",v)} T={T}/>
+                <MiniField label="Loyer moyen secteur (€/m²)" type="number" value={data.marche.loyer_moyen_m2} onChange={v=>upd("marche","loyer_moyen_m2",v)} T={T}/>
+                <MiniField label="Colocation possible ?" value={data.marche.colocation_possible} options={YES_NO} onChange={v=>upd("marche","colocation_possible",v)} T={T}/>
+                <MiniField label="Location meublée pertinente ?" value={data.marche.meuble_pertinente} options={YES_NO} onChange={v=>upd("marche","meuble_pertinente",v)} T={T}/>
+                <MiniField label="Location nue pertinente ?" value={data.marche.nue_pertinente} options={YES_NO} onChange={v=>upd("marche","nue_pertinente",v)} T={T}/>
+                <MiniField label="Régime fiscal adapté" value={data.marche.regime_fiscal} onChange={v=>upd("marche","regime_fiscal",v)} T={T}/>
+                <MiniField label="Durée moyenne de vacance" value={data.marche.vacance_moyenne} onChange={v=>upd("marche","vacance_moyenne",v)} T={T}/>
+              </div>
+              <MiniField label="Profil des locataires cibles" textarea value={data.marche.profil_locataires} onChange={v=>upd("marche","profil_locataires",v)} T={T}/>
+              <MiniField label="Concurrence directe" textarea value={data.marche.concurrence} onChange={v=>upd("marche","concurrence",v)} T={T}/>
+              <MiniField label="Points forts du secteur" textarea value={data.marche.points_forts} onChange={v=>upd("marche","points_forts",v)} T={T}/>
+              <MiniField label="Points faibles ou risques du secteur" textarea value={data.marche.points_faibles} onChange={v=>upd("marche","points_faibles",v)} T={T}/>
+            </VisitSection>
+            <VisitSection title="Points de vigilance & risques" icon={AlertTriangle} T={T}>
+              <AuditRows items={RISQUES_VISITE_ITEMS} values={data.risques.controles} onChange={(key,field,value)=>updControl("risques",key,field,value)} T={T}/>
+              <div style={{...grid3, marginTop:12}}>
+                <MiniField label="Marge de négociation estimée" value={data.risques.marge_negociation} onChange={v=>upd("risques","marge_negociation",v)} T={T}/>
+              </div>
+              <MiniField label="Points de négociation identifiés" textarea value={data.risques.points_negociation} onChange={v=>upd("risques","points_negociation",v)} T={T}/>
+              <MiniField label="Conditions suspensives à prévoir" textarea value={data.risques.conditions_suspensives} onChange={v=>upd("risques","conditions_suspensives",v)} T={T}/>
+              <MiniField label="Observations libres" textarea value={data.risques.observations_libres} onChange={v=>upd("risques","observations_libres",v)} T={T}/>
+            </VisitSection>
+          </>
+        );
+      default:
+        return (
+          <VisitSection title="Conclusion & recommandation Profero" icon={Check} T={T}>
+            <div style={grid3}>
+              <MiniField label="Note globale du dossier /10" type="number" value={data.conclusion.note_globale} onChange={v=>upd("conclusion","note_globale",v)} T={T}/>
+              <MiniField label="Recommandation" value={data.conclusion.recommandation} options={RECO_VISITE} onChange={v=>upd("conclusion","recommandation",v)} T={T}/>
+              <MiniField label="Prix d'offre recommandé (€)" type="number" value={data.conclusion.prix_offre_recommande} onChange={v=>upd("conclusion","prix_offre_recommande",v)} T={T}/>
+              <MiniField label="Stratégie locative recommandée" value={data.conclusion.strategie_locative} onChange={v=>upd("conclusion","strategie_locative",v)} T={T}/>
+              <MiniField label="Fiscalité recommandée" value={data.conclusion.fiscalite_recommandee} onChange={v=>upd("conclusion","fiscalite_recommandee",v)} T={T}/>
+              <MiniField label="Prochaine étape à engager" value={data.conclusion.prochaine_etape} onChange={v=>upd("conclusion","prochaine_etape",v)} T={T}/>
+            </div>
+            <MiniField label="Commentaire libre du conseiller Profero" textarea value={data.conclusion.commentaire_conseiller} onChange={v=>upd("conclusion","commentaire_conseiller",v)} T={T}/>
+          </VisitSection>
+        );
+    }
+  };
 
   return (
-    <div className="inv-card">
-      <div className="inv-card-hd blue" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13} strokeWidth={2.2}/>Fiche visite du bien</span>
+    <div className="inv-card" style={{overflow:"visible"}}>
+      <div className="inv-card-hd blue" style={{ justifyContent:"space-between", position:"sticky", top:0, zIndex:3 }}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13} strokeWidth={2.2}/>Fiche visite guidée</span>
         <span style={{
           fontSize:FONT.xs.size+1,
           color: saving ? WA : saved ? SU : T.textMuted,
@@ -4091,7 +4333,7 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
           gap:5,
         }}>
           {saving && <Icon as={RefreshCw} size={11} strokeWidth={2.2} style={{animation:"spin 1s linear infinite"}}/>}
-          {saving ? "Sauvegarde en cours…" : saved ? "Sauvegardé" : "Enregistrement via le bouton en haut"}
+          {saving ? "Sauvegarde en cours…" : saved ? "Sauvegardé" : "Complétion progressive"}
         </span>
       </div>
       <div className="inv-card-bd">
@@ -4099,8 +4341,9 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
 
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:8, marginBottom:14}}>
           <div style={{padding:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.cardHover}}>
-            <div className="inv-kpi-lbl">Référence</div>
-            <div style={{fontSize:FONT.md.size, fontWeight:900, color:T.accent}}>{bien.reference_interne || data.identification.reference_interne || "À générer"}</div>
+            <div className="inv-kpi-lbl">Avancement fiche</div>
+            <div style={{fontSize:FONT.md.size, fontWeight:900, color:T.accent}}>{globalPct}%</div>
+            <div style={{height:5, borderRadius:5, background:T.input, overflow:"hidden", marginTop:6}}><div style={{width:`${globalPct}%`, height:"100%", background:T.accent}}/></div>
           </div>
           <div style={{padding:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.cardHover}}>
             <div className="inv-kpi-lbl">Recommandation</div>
@@ -4116,163 +4359,40 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
           </div>
         </div>
 
-        <VisitSection title="0. Identification du bien" icon={MapPin} T={T}>
-          <div style={grid2}>
-            <MiniField label="Référence interne Profero" value={bien.reference_interne || data.identification.reference_interne || "Générée automatiquement"} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Conseiller Profero en charge" value={data.identification.conseiller_profero} onChange={v=>upd("identification","conseiller_profero",v)} T={T}/>
-            <MiniField label="Adresse complète" value={data.identification.adresse} onChange={v=>upd("identification","adresse",v)} T={T}/>
-            <MiniField label="Ville" value={data.identification.ville} onChange={v=>upd("identification","ville",v)} T={T}/>
-            <MiniField label="Code postal" value={data.identification.code_postal} onChange={v=>upd("identification","code_postal",v)} T={T}/>
-            <MiniField label="Date de la visite" type="date" value={data.identification.date_visite} onChange={v=>upd("identification","date_visite",v)} T={T}/>
-            <MiniField label="Source" value={data.identification.source} options={SOURCES_BIEN_VISITE} onChange={v=>upd("identification","source",v)} T={T}/>
-            <MiniField label="Géolocalisation" value={data.identification.geocoding_status || (data.identification.latitude && data.identification.longitude ? "Coordonnées enregistrées" : "Automatique à l'enregistrement")} readOnly onChange={()=>{}} T={T}/>
-          </div>
-        </VisitSection>
-
-        <VisitSection title="1. Données générales du bien" icon={Building2} T={T}>
-          <div style={grid2}>
-            <MiniField label="Type de bien" value={data.general.type_bien} onChange={v=>upd("general","type_bien",v)} T={T}/>
-            <MiniField label="Année de construction" type="number" value={data.general.annee_construction} onChange={v=>upd("general","annee_construction",v)} T={T}/>
-            <MiniField label="Surface totale (m²)" type="number" value={data.general.surface_totale} onChange={v=>upd("general","surface_totale",v)} T={T}/>
-            <MiniField label="Nombre de niveaux" type="number" value={data.general.nombre_niveaux} onChange={v=>upd("general","nombre_niveaux",v)} T={T}/>
-            <MiniField label="Nombre de lots actuels" type="number" value={data.general.lots_actuels} onChange={v=>upd("general","lots_actuels",v)} T={T}/>
-            <MiniField label="Nombre de lots cibles" type="number" value={data.general.lots_cibles} onChange={v=>upd("general","lots_cibles",v)} T={T}/>
-            <MiniField label="Prix affiché (€)" type="number" value={data.general.prix_affiche} onChange={v=>upd("general","prix_affiche",v)} T={T}/>
-            <MiniField label="Prix/m² affiché" value={numVal(data.general.surface_totale)>0 ? Math.round(numVal(data.general.prix_affiche)/numVal(data.general.surface_totale))+" €/m²" : "—"} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Mandat" value={data.general.mandat} options={MANDATS_VISITE} onChange={v=>upd("general","mandat",v)} T={T}/>
-            <MiniField label="Nom de l'agence / vendeur" value={data.general.agence_vendeur} onChange={v=>upd("general","agence_vendeur",v)} T={T}/>
-            <MiniField label="Délai de vente estimé" value={data.general.delai_vente_estime} onChange={v=>upd("general","delai_vente_estime",v)} T={T}/>
-            <MiniField label="Durée d'exposition de l'annonce" value={data.general.duree_exposition_annonce} onChange={v=>upd("general","duree_exposition_annonce",v)} T={T}/>
-          </div>
-        </VisitSection>
-
-        <VisitSection title="2. Potentiel de découpe & configuration cible" icon={Home} T={T}>
-          <div style={grid2}>
-            <MiniField label="Présence d'escaliers intérieurs" value={data.configuration.escaliers_interieurs} options={YES_NO} onChange={v=>upd("configuration","escaliers_interieurs",v)} T={T}/>
-            <MiniField label="Accès indépendants existants" value={data.configuration.acces_independants} options={YES_NO} onChange={v=>upd("configuration","acces_independants",v)} T={T}/>
-            <MiniField label="Nombre de compteurs eau" type="number" value={data.configuration.compteurs_eau} onChange={v=>upd("configuration","compteurs_eau",v)} T={T}/>
-            <MiniField label="Nombre de compteurs gaz" type="number" value={data.configuration.compteurs_gaz} onChange={v=>upd("configuration","compteurs_gaz",v)} T={T}/>
-            <MiniField label="Nombre de compteurs électricité" type="number" value={data.configuration.compteurs_electricite} onChange={v=>upd("configuration","compteurs_electricite",v)} T={T}/>
-          </div>
-          <div style={{overflowX:"auto", marginTop:8}}>
-            <div style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6}}>
-              <div>Lot</div><div>Type</div><div>Surface</div><div>Loyer cible</div><div>Meublé</div><div>Stationnement</div>
+        <div style={{display:"grid", gridTemplateColumns:"300px 1fr", gap:16, alignItems:"start"}}>
+          <div style={{position:"sticky", top:56, display:"flex", flexDirection:"column", gap:8}}>
+            {stepDefs.map((s,i)=>stepButton(s,i))}
+            <div style={{padding:12, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.input, color:T.textMuted, fontSize:FONT.xs.size+1, lineHeight:1.55}}>
+              <strong style={{color:T.accent}}>Méthode de saisie :</strong><br/>
+              1. compléter l’essentiel<br/>
+              2. valider la configuration cible<br/>
+              3. traiter les risques uniquement si nécessaire<br/>
+              4. finir par la recommandation
             </div>
-            {lots.map((lot,idx)=>(
-              <div key={idx} style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, marginBottom:6}}>
-                <input className="inv-inp" value={lot.numero} onChange={e=>updLot(idx,"numero",e.target.value)} style={{width:"100%"}}/>
-                <select className="inv-sel" value={lot.type || ""} onChange={e=>updLot(idx,"type",e.target.value)}>{TYPES_LOT_VISITE.map(x=><option key={x}>{x}</option>)}</select>
-                <input className="inv-inp" type="number" value={lot.surface || ""} onChange={e=>updLot(idx,"surface",e.target.value)} style={{width:"100%"}}/>
-                <input className="inv-inp" type="number" value={lot.loyer || ""} onChange={e=>updLot(idx,"loyer",e.target.value)} style={{width:"100%"}}/>
-                <select className="inv-sel" value={lot.meuble || ""} onChange={e=>updLot(idx,"meuble",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
-                <select className="inv-sel" value={lot.stationnement || ""} onChange={e=>updLot(idx,"stationnement",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
+          </div>
+
+          <div>
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:12, padding:"10px 12px", border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.input}}>
+              <div>
+                <div style={{fontSize:FONT.md.size, fontWeight:900, color:T.text}}>{stepDefs[visitStep].label}</div>
+                <div style={{fontSize:FONT.sm.size, color:T.textSub, marginTop:2}}>{stepDefs[visitStep].help}</div>
               </div>
-            ))}
-          </div>
-          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10}}>
-            <div className="inv-kpi" style={{padding:10}}><div className="inv-kpi-lbl">Total loyers mensuels</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersMensuels)}</div></div>
-            <div className="inv-kpi" style={{padding:10}}><div className="inv-kpi-lbl">Total loyers annuels</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersAnnuels)}</div></div>
-          </div>
-        </VisitSection>
-
-        <VisitSection title="3. Analyse technique du bâti" icon={Hammer} T={T}>
-          {TECHNIQUE_VISITE_GROUPS.map(g => (
-            <div key={g.key} style={{marginBottom:14}}>
-              <div style={{fontSize:FONT.xs.size, color:T.accent, textTransform:"uppercase", fontWeight:900, letterSpacing:1, marginBottom:8}}>{g.title}</div>
-              <AuditRows items={g.items} values={data.technique} onChange={(key,field,value)=>updAudit("technique",key,field,value)} T={T}/>
+              <div style={{fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:900}}>{pct(visitStep)}%</div>
             </div>
-          ))}
-        </VisitSection>
 
-        <VisitSection title="4. Performance énergétique & DPE" icon={BarChart3} T={T}>
-          <div style={grid2}>
-            <MiniField label="DPE actuel" value={data.dpe.dpe_actuel} options={LETTRES_DPE} onChange={v=>upd("dpe","dpe_actuel",v)} T={T}/>
-            <MiniField label="GES actuel" value={data.dpe.ges_actuel} options={LETTRES_DPE} onChange={v=>upd("dpe","ges_actuel",v)} T={T}/>
-            <MiniField label="Consommation énergie (kWh/m²/an)" type="number" value={data.dpe.conso_energie} onChange={v=>upd("dpe","conso_energie",v)} T={T}/>
-            <MiniField label="Émissions CO2 (kg CO2/m²/an)" type="number" value={data.dpe.emissions_co2} onChange={v=>upd("dpe","emissions_co2",v)} T={T}/>
-            <MiniField label="DPE cible après travaux" value={data.dpe.dpe_cible} options={LETTRES_DPE} onChange={v=>upd("dpe","dpe_cible",v)} T={T}/>
-            <MiniField label="Audit énergétique disponible" value={data.dpe.audit_disponible} options={YES_NO} onChange={v=>upd("dpe","audit_disponible",v)} T={T}/>
+            {renderStepContent()}
+
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginTop:14, paddingTop:12, borderTop:`1px solid ${T.border}`}}>
+              <button className="inv-btn inv-btn-out" onClick={()=>setVisitStep(Math.max(0, visitStep-1))} disabled={visitStep===0}>
+                <Icon as={ChevronLeft} size={13} strokeWidth={2.2}/> Précédent
+              </button>
+              <div style={{fontSize:FONT.xs.size+1, color:T.textMuted}}>Étape {visitStep+1} sur {stepDefs.length}</div>
+              <button className="inv-btn inv-btn-blue" onClick={()=>setVisitStep(Math.min(stepDefs.length-1, visitStep+1))} disabled={visitStep===stepDefs.length-1}>
+                Suivant <Icon as={ChevronRight} size={13} strokeWidth={2.2}/>
+              </button>
+            </div>
           </div>
-          <MiniField label="Principales passoires identifiées" textarea value={data.dpe.passoires_identifiees} onChange={v=>upd("dpe","passoires_identifiees",v)} T={T}/>
-          <MiniField label="Travaux d'amélioration énergétique envisagés" textarea value={data.dpe.travaux_energetiques} onChange={v=>upd("dpe","travaux_energetiques",v)} T={T}/>
-        </VisitSection>
-
-        <VisitSection title="5. Urbanisme, réglementation & faisabilité" icon={FileText} T={T}>
-          <AuditRows items={URBANISME_VISITE_ITEMS} values={data.urbanisme.controles} onChange={(key,field,value)=>updControl("urbanisme",key,field,value)} T={T}/>
-          <div style={{...grid2, marginTop:12}}>
-            <MiniField label="Contact mairie / urbanisme consulté" value={data.urbanisme.contact_mairie} onChange={v=>upd("urbanisme","contact_mairie",v)} T={T}/>
-            <MiniField label="Durée prévisionnelle du chantier" value={data.urbanisme.duree_chantier} onChange={v=>upd("urbanisme","duree_chantier",v)} T={T}/>
-            <MiniField label="Complexité estimée" value={data.urbanisme.complexite} options={COMPLEXITE_VISITE} onChange={v=>upd("urbanisme","complexite",v)} T={T}/>
-          </div>
-          <MiniField label="Observations / risques réglementaires" textarea value={data.urbanisme.observations} onChange={v=>upd("urbanisme","observations",v)} T={T}/>
-          <MiniField label="Autorisations préalables à prévoir" textarea value={data.urbanisme.autorisations} onChange={v=>upd("urbanisme","autorisations",v)} T={T}/>
-          <MiniField label="Points de vigilance travaux spécifiques" textarea value={data.urbanisme.vigilance_travaux} onChange={v=>upd("urbanisme","vigilance_travaux",v)} T={T}/>
-        </VisitSection>
-
-        <VisitSection title="7. Analyse financière & rentabilité" icon={Wallet} T={T}>
-          <div style={grid2}>
-            <MiniField label="Prix d'acquisition négocié (€)" type="number" value={fin.prix_acquisition_negocie} onChange={v=>upd("finance","prix_acquisition_negocie",v)} T={T}/>
-            <MiniField label="Frais de notaire estimés (€)" type="number" value={fin.frais_notaire} onChange={v=>upd("finance","frais_notaire",v)} T={T}/>
-            <MiniField label="Frais d'agence (€)" type="number" value={fin.frais_agence} onChange={v=>upd("finance","frais_agence",v)} T={T}/>
-            <MiniField label="Frais Profero Invest (€)" type="number" value={fin.frais_profero} onChange={v=>upd("finance","frais_profero",v)} T={T}/>
-            <MiniField label="Budget travaux TTC (€)" type="number" value={fin.budget_travaux_ttc} onChange={v=>upd("finance","budget_travaux_ttc",v)} T={T}/>
-            <MiniField label="Mobilier si meublé (€)" type="number" value={fin.mobilier} onChange={v=>upd("finance","mobilier",v)} T={T}/>
-            <MiniField label="Frais financement / garantie (€)" type="number" value={fin.frais_financement} onChange={v=>upd("finance","frais_financement",v)} T={T}/>
-            <MiniField label="Divers / fonds de roulement (€)" type="number" value={fin.divers_fonds_roulement} onChange={v=>upd("finance","divers_fonds_roulement",v)} T={T}/>
-            <MiniField label="Coût total de l'opération" value={fmt(coutOperation)} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Loyers bruts mensuels" value={fmt(totalLoyersMensuels)} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Loyers bruts annuels" value={fmt(totalLoyersAnnuels)} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Taux de vacance estimé (%)" type="number" value={fin.taux_vacance} onChange={v=>upd("finance","taux_vacance",v)} T={T}/>
-            <MiniField label="Loyers nets de vacance" value={fmt(loyersNetsVacance)} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Charges annuelles" type="number" value={fin.charges_annuelles} onChange={v=>upd("finance","charges_annuelles",v)} T={T}/>
-            <MiniField label="Loyers nets de charges" value={fmt(loyersNetsCharges)} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Rendement brut (%)" value={rendementBrut ? rendementBrut.toFixed(2)+" %" : "—"} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Rendement net (%)" value={rendementNet ? rendementNet.toFixed(2)+" %" : "—"} readOnly onChange={()=>{}} T={T}/>
-            <MiniField label="Cash-flow mensuel estimé (€)" type="number" value={fin.cashflow_mensuel} onChange={v=>upd("finance","cashflow_mensuel",v)} T={T}/>
-            <MiniField label="Durée de remboursement" value={fin.duree_remboursement} onChange={v=>upd("finance","duree_remboursement",v)} T={T}/>
-            <MiniField label="Plus-value potentielle à terme (€)" type="number" value={fin.plus_value_potentielle} onChange={v=>upd("finance","plus_value_potentielle",v)} T={T}/>
-          </div>
-        </VisitSection>
-
-        <VisitSection title="8. Marché locatif local" icon={TrendingUp} T={T}>
-          <div style={grid2}>
-            <MiniField label="Tension locative" value={data.marche.tension_locative} options={TENSION_LOCATIVE} onChange={v=>upd("marche","tension_locative",v)} T={T}/>
-            <MiniField label="Délai de relocation moyen" value={data.marche.delai_relocation} onChange={v=>upd("marche","delai_relocation",v)} T={T}/>
-            <MiniField label="Loyer moyen secteur (€/m²)" type="number" value={data.marche.loyer_moyen_m2} onChange={v=>upd("marche","loyer_moyen_m2",v)} T={T}/>
-            <MiniField label="Colocation possible ?" value={data.marche.colocation_possible} options={YES_NO} onChange={v=>upd("marche","colocation_possible",v)} T={T}/>
-            <MiniField label="Location meublée pertinente ?" value={data.marche.meuble_pertinente} options={YES_NO} onChange={v=>upd("marche","meuble_pertinente",v)} T={T}/>
-            <MiniField label="Location nue pertinente ?" value={data.marche.nue_pertinente} options={YES_NO} onChange={v=>upd("marche","nue_pertinente",v)} T={T}/>
-            <MiniField label="Régime fiscal adapté" value={data.marche.regime_fiscal} onChange={v=>upd("marche","regime_fiscal",v)} T={T}/>
-            <MiniField label="Durée moyenne de vacance" value={data.marche.vacance_moyenne} onChange={v=>upd("marche","vacance_moyenne",v)} T={T}/>
-          </div>
-          <MiniField label="Profil des locataires cibles" textarea value={data.marche.profil_locataires} onChange={v=>upd("marche","profil_locataires",v)} T={T}/>
-          <MiniField label="Concurrence directe dans le secteur" textarea value={data.marche.concurrence} onChange={v=>upd("marche","concurrence",v)} T={T}/>
-          <MiniField label="Points forts du secteur" textarea value={data.marche.points_forts} onChange={v=>upd("marche","points_forts",v)} T={T}/>
-          <MiniField label="Points faibles ou risques du secteur" textarea value={data.marche.points_faibles} onChange={v=>upd("marche","points_faibles",v)} T={T}/>
-        </VisitSection>
-
-        <VisitSection title="9. Points de vigilance & risques" icon={AlertTriangle} T={T}>
-          <AuditRows items={RISQUES_VISITE_ITEMS} values={data.risques.controles} onChange={(key,field,value)=>updControl("risques",key,field,value)} T={T}/>
-          <div style={{...grid2, marginTop:12}}>
-            <MiniField label="Marge de négociation estimée" value={data.risques.marge_negociation} onChange={v=>upd("risques","marge_negociation",v)} T={T}/>
-          </div>
-          <MiniField label="Points de négociation identifiés" textarea value={data.risques.points_negociation} onChange={v=>upd("risques","points_negociation",v)} T={T}/>
-          <MiniField label="Conditions suspensives à prévoir" textarea value={data.risques.conditions_suspensives} onChange={v=>upd("risques","conditions_suspensives",v)} T={T}/>
-          <MiniField label="Risques non listés / observations libres" textarea value={data.risques.observations_libres} onChange={v=>upd("risques","observations_libres",v)} T={T}/>
-        </VisitSection>
-
-        <VisitSection title="10. Conclusion & recommandation Profero" icon={Check} T={T}>
-          <div style={grid2}>
-            <MiniField label="Note globale du dossier /10" type="number" value={data.conclusion.note_globale} onChange={v=>upd("conclusion","note_globale",v)} T={T}/>
-            <MiniField label="Recommandation" value={data.conclusion.recommandation} options={RECO_VISITE} onChange={v=>upd("conclusion","recommandation",v)} T={T}/>
-            <MiniField label="Prix d'offre recommandé (€)" type="number" value={data.conclusion.prix_offre_recommande} onChange={v=>upd("conclusion","prix_offre_recommande",v)} T={T}/>
-            <MiniField label="Stratégie locative recommandée" value={data.conclusion.strategie_locative} onChange={v=>upd("conclusion","strategie_locative",v)} T={T}/>
-            <MiniField label="Fiscalité recommandée" value={data.conclusion.fiscalite_recommandee} onChange={v=>upd("conclusion","fiscalite_recommandee",v)} T={T}/>
-            <MiniField label="Prochaine étape à engager" value={data.conclusion.prochaine_etape} onChange={v=>upd("conclusion","prochaine_etape",v)} T={T}/>
-          </div>
-          <MiniField label="Commentaire libre du conseiller Profero" textarea value={data.conclusion.commentaire_conseiller} onChange={v=>upd("conclusion","commentaire_conseiller",v)} T={T}/>
-        </VisitSection>
-
+        </div>
       </div>
     </div>
   );
