@@ -3878,9 +3878,10 @@ const makeAuditDefaults = (groupsOrItems) => {
   return entries.reduce((acc, [key]) => ({ ...acc, [key]: { statut:"", commentaire:"" } }), {});
 };
 
-const emptyLotsCibles = () => Array.from({length:6}, (_,i)=>({
-  numero: String(i+1), type:"", surface:"", loyer:"", meuble:"", stationnement:"",
-}));
+const emptyLotCible = (i = 0) => ({
+  numero: String(i + 1), type:"", surface:"", loyer:"", meuble:"", stationnement:"",
+});
+const emptyLotsCibles = (count = 1) => Array.from({length:Math.max(1, Math.min(6, count))}, (_,i)=>emptyLotCible(i));
 
 const deepMergeVisite = (base, extra) => {
   if (Array.isArray(base)) return Array.isArray(extra) ? extra : base;
@@ -3906,7 +3907,7 @@ const buildDefaultVisiteData = (bien = {}) => ({
   },
   configuration: {
     escaliers_interieurs:"", acces_independants:"", compteurs_eau:"", compteurs_gaz:"", compteurs_electricite:"",
-    lots: emptyLotsCibles(),
+    lots: emptyLotsCibles(1),
   },
   technique: makeAuditDefaults(TECHNIQUE_VISITE_GROUPS),
   dpe: {
@@ -3941,11 +3942,15 @@ const buildDefaultVisiteData = (bien = {}) => ({
 
 const normaliseVisiteData = (bien = {}) => {
   const merged = deepMergeVisite(buildDefaultVisiteData(bien), bien.visite_data || {});
-  merged.configuration.lots = Array.from({length:6}, (_,i) => ({
-    ...emptyLotsCibles()[i],
-    ...(merged.configuration.lots?.[i] || {}),
-    numero: merged.configuration.lots?.[i]?.numero || String(i+1),
+  const existingLots = Array.isArray(merged.configuration?.lots) ? merged.configuration.lots : [];
+  const countFromGeneral = parseInt(merged.general?.lots_cibles, 10);
+  const baseCount = existingLots.length || (Number.isFinite(countFromGeneral) && countFromGeneral > 0 ? countFromGeneral : 1);
+  merged.configuration.lots = emptyLotsCibles(baseCount).map((baseLot, i) => ({
+    ...baseLot,
+    ...(existingLots[i] || {}),
+    numero: existingLots[i]?.numero || String(i + 1),
   }));
+  if (!merged.general.lots_cibles) merged.general.lots_cibles = String(merged.configuration.lots.length);
   return merged;
 };
 
@@ -3966,7 +3971,7 @@ function MiniField({ label, value, onChange, type="text", options, textarea=fals
   return (
     <div style={{ marginBottom:10 }}>
       <label style={{ fontSize:10, fontWeight:800, color:isMissing ? WA : T.textMuted, textTransform:"uppercase", letterSpacing:1, display:"block", marginBottom:5 }}>
-        {label}{required && !readOnly ? <span style={{color:WA}}> *</span> : null}
+        {label}{required && !readOnly ? <span style={{color:WA}}> •</span> : null}
       </label>
       {textarea ? (
         <textarea className="inv-textarea" rows={3} value={value || ""} readOnly={readOnly} onChange={e=>onChange(e.target.value)} style={commonStyle} />
@@ -3979,7 +3984,7 @@ function MiniField({ label, value, onChange, type="text", options, textarea=fals
       )}
       {(helper || isMissing) && (
         <div style={{fontSize:FONT.xs.size, color:isMissing ? WA : T.textMuted, marginTop:4, lineHeight:1.35}}>
-          {isMissing ? "Réponse obligatoire pour passer à l’étape suivante" : helper}
+          {isMissing ? "Réponse à compléter pour une fiche complète" : helper}
         </div>
       )}
     </div>
@@ -4009,13 +4014,13 @@ function AuditRows({ items, values, onChange, T=THEMES_INV.dark }) {
         const missingComment = commentRequired && !String(row.commentaire || "").trim();
         return (
           <div key={key} style={{ display:"grid", gridTemplateColumns:"1.15fr 120px 1.45fr", gap:8, alignItems:"start", padding:missingStatus || missingComment ? "6px" : 0, borderRadius:RADIUS.md, background:missingStatus || missingComment ? SEMANTIC.warning.bg : "transparent", border:missingStatus || missingComment ? `1px solid ${SEMANTIC.warning.border}` : "1px solid transparent" }}>
-            <div style={{ fontSize:FONT.sm.size, color:T.textSub, fontWeight:700, paddingTop:6 }}>{label} <span style={{color:WA}}>*</span></div>
+            <div style={{ fontSize:FONT.sm.size, color:T.textSub, fontWeight:700, paddingTop:6 }}>{label} <span style={{color:WA}}>•</span></div>
             <select className="inv-sel" value={row.statut || ""} onChange={e=>onChange(key, "statut", e.target.value)} style={{ width:"100%", fontSize:FONT.xs.size+1, padding:"5px 7px" }}>
               {VISITE_STATUS.map(s => <option key={s} value={s}>{s || "Sélectionner"}</option>)}
             </select>
             <div>
-              <input className="inv-inp" value={row.commentaire || ""} placeholder={commentRequired ? "Commentaire obligatoire…" : "Commentaire utile si besoin…"} onChange={e=>onChange(key, "commentaire", e.target.value)} style={{ width:"100%", textAlign:"left", fontSize:FONT.xs.size+1, padding:"5px 7px", borderColor:missingComment ? SEMANTIC.warning.border : undefined, background:missingComment ? SEMANTIC.warning.bg : undefined }}/>
-              {missingComment && <div style={{fontSize:FONT.xs.size, color:WA, marginTop:3}}>Précise le point à vérifier ou le problème identifié</div>}
+              <input className="inv-inp" value={row.commentaire || ""} placeholder={commentRequired ? "Commentaire à compléter…" : "Commentaire utile si besoin…"} onChange={e=>onChange(key, "commentaire", e.target.value)} style={{ width:"100%", textAlign:"left", fontSize:FONT.xs.size+1, padding:"5px 7px", borderColor:missingComment ? SEMANTIC.warning.border : undefined, background:missingComment ? SEMANTIC.warning.bg : undefined }}/>
+              {missingComment && <div style={{fontSize:FONT.xs.size, color:WA, marginTop:3}}>Commentaire conseillé pour préciser le point à vérifier ou le problème identifié</div>}
             </div>
           </div>
         );
@@ -4032,21 +4037,48 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const [visitStep, setVisitStep] = useState(0);
   const autoSaveTimerRef = useRef(null);
   const autoSaveBootRef = useRef(true);
+  const dirtyRef = useRef(false);
+  const latestDataRef = useRef(data);
 
   useEffect(() => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveBootRef.current = true;
-    setData(normaliseVisiteData(bien));
+    const nextData = normaliseVisiteData(bien);
+    latestDataRef.current = nextData;
+    dirtyRef.current = false;
+    setData(nextData);
     setVisitStep(0);
   }, [bien?.id]);
+  useEffect(() => { latestDataRef.current = data; }, [data]);
   useEffect(() => { if (onSaveStateChange) onSaveStateChange({ saving, saved }); }, [saving, saved, onSaveStateChange]);
 
-  const upd = (section, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
-  const updControl = (section, key, field, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], controles: { ...prev[section]?.controles, [key]: { ...prev[section]?.controles?.[key], [field]: value } } } }));
+  const markDirtyData = (next) => { latestDataRef.current = next; dirtyRef.current = true; return next; };
+  const upd = (section, key, value) => setData(prev => markDirtyData({ ...prev, [section]: { ...prev[section], [key]: value } }));
+  const updControl = (section, key, field, value) => setData(prev => markDirtyData({ ...prev, [section]: { ...prev[section], controles: { ...prev[section]?.controles, [key]: { ...prev[section]?.controles?.[key], [field]: value } } } }));
   const updLot = (idx, key, value) => setData(prev => {
-    const lots = [...(prev.configuration?.lots || emptyLotsCibles())];
-    lots[idx] = { ...lots[idx], [key]: value };
-    return { ...prev, configuration: { ...prev.configuration, lots } };
+    const lots = [...(prev.configuration?.lots || emptyLotsCibles(1))];
+    lots[idx] = { ...emptyLotCible(idx), ...lots[idx], [key]: value };
+    return markDirtyData({ ...prev, configuration: { ...prev.configuration, lots } });
+  });
+  const addLotVisite = () => setData(prev => {
+    const currentLots = prev.configuration?.lots || emptyLotsCibles(1);
+    if (currentLots.length >= 6) return prev;
+    const lots = [...currentLots, emptyLotCible(currentLots.length)];
+    return markDirtyData({
+      ...prev,
+      general: { ...prev.general, lots_cibles: String(lots.length) },
+      configuration: { ...prev.configuration, lots },
+    });
+  });
+  const removeLotVisite = (idx) => setData(prev => {
+    const currentLots = prev.configuration?.lots || emptyLotsCibles(1);
+    if (currentLots.length <= 1) return prev;
+    const lots = currentLots.filter((_, i) => i !== idx).map((lot, i) => ({ ...lot, numero: String(i + 1) }));
+    return markDirtyData({
+      ...prev,
+      general: { ...prev.general, lots_cibles: String(lots.length) },
+      configuration: { ...prev.configuration, lots },
+    });
   });
 
   const lots = data.configuration?.lots || [];
@@ -4065,7 +4097,7 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const filled = (v) => v !== null && v !== undefined && String(v).trim() !== "";
   const allTechniqueItems = TECHNIQUE_VISITE_GROUPS.flatMap(g => g.items);
   const issueStatuses = ["À vérifier", "Problème"];
-  const targetLotsCount = Math.max(1, Math.min(6, numVal(data.general?.lots_cibles) || 1));
+  const targetLotsCount = Math.max(1, Math.min(6, (lots || []).length || numVal(data.general?.lots_cibles) || 1));
   const isLotComplete = (lot) => filled(lot?.type) && filled(lot?.surface) && filled(lot?.loyer) && filled(lot?.meuble) && filled(lot?.stationnement);
   const countLots = (lots || []).filter(isLotComplete).length;
   const item = (label, done) => ({ label, done: !!done });
@@ -4198,62 +4230,78 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const stepCompleted = (i) => getStepChecklist(i).every(x => x.done);
   const currentMissing = getStepChecklist(visitStep).filter(x => !x.done).map(x => x.label);
   const currentStepComplete = currentMissing.length === 0;
-  const canReachStep = (idx) => idx <= visitStep || Array.from({length:idx}, (_,i)=>i).every(stepCompleted);
+  const canReachStep = () => true;
 
 
   const sauvegarder = async (options = {}) => {
-    const { refresh = true } = options;
+    const { refresh = true, dataOverride = null, silent = false } = options;
+    const dataToSave = dataOverride || latestDataRef.current || data;
     if (!bien?.id) return false;
-    setSaving(true); setError("");
-    const fullAddress = [data.identification?.adresse, data.identification?.code_postal, data.identification?.ville].filter(Boolean).join(", ").trim();
+    if (!silent) { setSaving(true); setError(""); }
+    const fullAddress = [dataToSave.identification?.adresse, dataToSave.identification?.code_postal, dataToSave.identification?.ville].filter(Boolean).join(", ").trim();
+    const lotsToSave = dataToSave.configuration?.lots || [];
+    const totalLoyersMensuelsSave = lotsToSave.reduce((s,l)=>s+numVal(l.loyer),0);
+    const totalLoyersAnnuelsSave = totalLoyersMensuelsSave * 12;
+    const finToSave = dataToSave.finance || {};
+    const coutOperationSave =
+      numVal(finToSave.prix_acquisition_negocie) + numVal(finToSave.frais_notaire) + numVal(finToSave.frais_agence) +
+      numVal(finToSave.frais_profero) + numVal(finToSave.budget_travaux_ttc) + numVal(finToSave.mobilier) +
+      numVal(finToSave.frais_financement) + numVal(finToSave.divers_fonds_roulement);
+    const loyersNetsVacanceSave = totalLoyersAnnuelsSave * (1 - (numVal(finToSave.taux_vacance) / 100));
+    const loyersNetsChargesSave = loyersNetsVacanceSave - numVal(finToSave.charges_annuelles);
+    const rendementBrutSave = coutOperationSave > 0 ? (totalLoyersAnnuelsSave / coutOperationSave) * 100 : 0;
+    const rendementNetSave = coutOperationSave > 0 ? (loyersNetsChargesSave / coutOperationSave) * 100 : 0;
     const previousAddress = getBienGoogleAddress(bien || {});
     const geocoded = fullAddress ? await getCoordinatesFromAddress(fullAddress) : null;
     const coords = resolveCoordinatesFromGeocode(geocoded, bien, fullAddress, previousAddress);
 
     const visiteData = {
-      ...data,
+      ...dataToSave,
       identification: {
-        ...data.identification,
+        ...dataToSave.identification,
         latitude: coords.lat ?? "",
         longitude: coords.lng ?? "",
         geocoded_address: geocoded?.formatted_address || fullAddress || "",
         geocoding_status: geocoded?.error ? `Erreur : ${geocoded.error}` : (fullAddress ? "Adresse géolocalisée" : "Adresse non renseignée"),
-        reference_interne: bien.reference_interne || data.identification?.reference_interne || "",
-        total_loyers_mensuels_cibles: totalLoyersMensuels,
-        total_loyers_annuels_cibles: totalLoyersAnnuels,
+        reference_interne: bien.reference_interne || dataToSave.identification?.reference_interne || "",
+        total_loyers_mensuels_cibles: totalLoyersMensuelsSave,
+        total_loyers_annuels_cibles: totalLoyersAnnuelsSave,
       },
       finance: {
-        ...data.finance,
-        cout_total_operation_calcule: coutOperation,
-        loyers_bruts_mensuels: totalLoyersMensuels,
-        loyers_bruts_annuels: totalLoyersAnnuels,
-        loyers_nets_vacance_calcule: Math.round(loyersNetsVacance),
-        loyers_nets_charges_calcule: Math.round(loyersNetsCharges),
-        rendement_brut_calcule: Number(rendementBrut.toFixed(2)),
-        rendement_net_calcule: Number(rendementNet.toFixed(2)),
+        ...dataToSave.finance,
+        cout_total_operation_calcule: coutOperationSave,
+        loyers_bruts_mensuels: totalLoyersMensuelsSave,
+        loyers_bruts_annuels: totalLoyersAnnuelsSave,
+        loyers_nets_vacance_calcule: Math.round(loyersNetsVacanceSave),
+        loyers_nets_charges_calcule: Math.round(loyersNetsChargesSave),
+        rendement_brut_calcule: Number(rendementBrutSave.toFixed(2)),
+        rendement_net_calcule: Number(rendementNetSave.toFixed(2)),
       },
     };
     const payload = {
-      adresse: data.identification?.adresse?.trim() || null,
-      ville: data.identification?.ville?.trim() || null,
-      code_postal: data.identification?.code_postal?.trim() || null,
+      adresse: dataToSave.identification?.adresse?.trim() || null,
+      ville: dataToSave.identification?.ville?.trim() || null,
+      code_postal: dataToSave.identification?.code_postal?.trim() || null,
       latitude: coords.lat,
       longitude: coords.lng,
-      date_visite: data.identification?.date_visite || null,
-      conseiller_profero: data.identification?.conseiller_profero?.trim() || profil?.nom || null,
-      source_bien: data.identification?.source || null,
+      date_visite: dataToSave.identification?.date_visite || null,
+      conseiller_profero: dataToSave.identification?.conseiller_profero?.trim() || profil?.nom || null,
+      source_bien: dataToSave.identification?.source || null,
       visite_data: visiteData,
     };
 
     const { error } = await supabase.from("invest_biens").update(payload).eq("id", bien.id);
-    setSaving(false);
+    if (!silent) setSaving(false);
     if (error) {
       console.error("Erreur sauvegarde fiche visite:", error);
-      setError(`Erreur sauvegarde : ${error.message}. Vérifiez que la migration SQL fiche visite a bien été exécutée.`);
+      if (!silent) setError(`Erreur sauvegarde : ${error.message}. Vérifiez que la migration SQL fiche visite a bien été exécutée.`);
       return false;
     }
-    setSaved(true);
-    setTimeout(()=>setSaved(false), 2200);
+    dirtyRef.current = false;
+    if (!silent) {
+      setSaved(true);
+      setTimeout(()=>setSaved(false), 2200);
+    }
     if (refresh && onSaved) onSaved();
     return true;
   };
@@ -4270,13 +4318,23 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
     }
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => {
-      sauvegarder({ refresh:false });
-    }, 1400);
+      sauvegarder({ refresh:false, dataOverride: latestDataRef.current });
+    }, 700);
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      if (dirtyRef.current && bien?.id) {
+        sauvegarder({ refresh:false, dataOverride: latestDataRef.current, silent:true });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bien?.id]);
 
   const grid2 = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))", gap:"0 12px" };
   const grid3 = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:"0 12px" };
@@ -4306,7 +4364,7 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
         <span style={{width:28,height:28,borderRadius:RADIUS.md,background:complete?SU:(active?T.accent:T.input),color:complete?"white":(active?T.onAccent:T.accent),display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={complete ? Check : IconComp} size={14} strokeWidth={2.2}/></span>
         <span style={{minWidth:0}}>
           <span style={{fontSize:FONT.sm.size+1,fontWeight:900,display:"block",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{i+1}. {s.label}</span>
-          <span style={{fontSize:FONT.xs.size,color:T.textMuted,display:"block",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{reachable ? s.help : "Compléter l’étape précédente"}</span>
+          <span style={{fontSize:FONT.xs.size,color:T.textMuted,display:"block",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.help}</span>
         </span>
         <span style={{fontFamily:"'DM Mono',monospace",fontSize:FONT.xs.size,fontWeight:900,color:complete?SU:(active?T.accent:T.textMuted)}}>{pct(i)}%</span>
       </button>
@@ -4359,24 +4417,31 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
               <MiniField label="Compteurs électricité" value={data.configuration.compteurs_electricite} options={COMPTEUR_NOMBRE_VISITE} onChange={v=>upd("configuration","compteurs_electricite",v)} required T={T}/>
             </div>
             <div style={{overflowX:"auto", marginTop:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:10, background:T.card}}>
-              <div style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6}}>
-                <div>Lot</div><div>Type</div><div>Surface</div><div>Loyer cible</div><div>Meublé</div><div>Stationnement</div>
+              <div style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px 38px", gap:6, minWidth:610, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6}}>
+                <div>Lot</div><div>Type</div><div>Surface</div><div>Loyer cible</div><div>Meublé</div><div>Stationnement</div><div/>
               </div>
               {lots.map((lot,idx)=>(
-                <div key={idx} style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, marginBottom:6}}>
+                <div key={idx} style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px 38px", gap:6, minWidth:610, marginBottom:6}}>
                   <input className="inv-inp" value={lot.numero} onChange={e=>updLot(idx,"numero",e.target.value)} style={{width:"100%"}}/>
                   <select className="inv-sel" value={lot.type || ""} onChange={e=>updLot(idx,"type",e.target.value)}>{TYPES_LOT_VISITE.map(x=><option key={x}>{x}</option>)}</select>
                   <input className="inv-inp" type="number" value={lot.surface || ""} onChange={e=>updLot(idx,"surface",e.target.value)} style={{width:"100%"}}/>
                   <input className="inv-inp" type="number" value={lot.loyer || ""} onChange={e=>updLot(idx,"loyer",e.target.value)} style={{width:"100%"}}/>
                   <select className="inv-sel" value={lot.meuble || ""} onChange={e=>updLot(idx,"meuble",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
                   <select className="inv-sel" value={lot.stationnement || ""} onChange={e=>updLot(idx,"stationnement",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
+                  <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={()=>removeLotVisite(idx)} disabled={lots.length <= 1} title="Supprimer ce lot" style={{padding:"5px 7px", justifyContent:"center"}}>×</button>
                 </div>
               ))}
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginTop:10, flexWrap:"wrap"}}>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addLotVisite} disabled={lots.length >= 6}>
+                  <Icon as={Plus} size={12} strokeWidth={2.2}/> Ajouter un lot
+                </button>
+                <span style={{fontSize:FONT.xs.size+1, color:T.textMuted}}>Jusqu’à 6 lots cibles · la fiche se sauvegarde automatiquement</span>
+              </div>
             </div>
             <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:10, marginTop:12}}>
               <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Loyers mensuels cibles</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersMensuels)}</div></div>
               <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Loyers annuels cibles</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersAnnuels)}</div></div>
-              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Lots renseignés</div><div className="inv-kpi-val accent" style={{fontSize:18}}>{countLots}/6</div></div>
+              <div className="inv-kpi" style={{padding:12}}><div className="inv-kpi-lbl">Lots renseignés</div><div className="inv-kpi-val accent" style={{fontSize:18}}>{countLots}/{lots.length}</div></div>
             </div>
           </VisitSection>
         );
@@ -4550,8 +4615,8 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
               <strong style={{color:T.accent}}>Méthode de saisie :</strong><br/>
               1. compléter l’essentiel<br/>
               2. valider la configuration cible<br/>
-              3. chaque question doit être répondue<br/>
-              4. commentaire obligatoire si “À vérifier” ou “Problème”
+              3. les réponses manquantes restent visibles<br/>
+              4. commentaire conseillé si “À vérifier” ou “Problème”
             </div>
           </div>
 
@@ -4568,7 +4633,7 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
 
             {!currentStepComplete && (
               <div style={{marginTop:14, padding:"10px 12px", borderRadius:RADIUS.md, background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:T.textSub, fontSize:FONT.sm.size, lineHeight:1.5}}>
-                <strong style={{color:WA}}>Réponses à compléter avant de passer à la suite :</strong>
+                <strong style={{color:WA}}>Réponses manquantes / à compléter :</strong>
                 <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:"2px 12px", marginTop:6}}>
                   {currentMissing.slice(0, 12).map(m => <span key={m}>• {m}</span>)}
                   {currentMissing.length > 12 && <span>• +{currentMissing.length - 12} autre(s) point(s)</span>}
@@ -4583,7 +4648,7 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
               <div style={{fontSize:FONT.xs.size+1, color:currentStepComplete ? SU : WA, fontWeight:800}}>
                 {currentStepComplete ? "Étape complète" : `${currentMissing.length} réponse(s) manquante(s)`} · étape {visitStep+1}/{stepDefs.length}
               </div>
-              <button className="inv-btn inv-btn-blue" onClick={()=>setVisitStep(Math.min(stepDefs.length-1, visitStep+1))} disabled={visitStep===stepDefs.length-1 || !currentStepComplete} title={!currentStepComplete ? "Complète toutes les questions de l’étape avant de continuer" : "Étape suivante"}>
+              <button className="inv-btn inv-btn-blue" onClick={()=>setVisitStep(Math.min(stepDefs.length-1, visitStep+1))} disabled={visitStep===stepDefs.length-1} title={currentStepComplete ? "Étape suivante" : "Étape suivante — réponses à compléter visibles ci-dessus"}>
                 Suivant <Icon as={ChevronRight} size={13} strokeWidth={2.2}/>
               </button>
             </div>
@@ -4773,6 +4838,21 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Fiche bien ${esc(bien.reference_interne||bien.adresse)}</title><style>body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#1a1f2e}.wrap{max-width:900px;margin:0 auto;background:white;min-height:100vh}.hd{background:#1a2d4a;color:white;padding:28px 34px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 34px}.kpi{border-left:4px solid #4070e8;background:#f8f9fb;padding:12px;border-radius:8px}.k{font-size:20px;font-weight:800}.l{font-size:10px;text-transform:uppercase;color:#7b8496}.sec{padding:16px 34px;border-top:1px solid #eef0f5}.title{font-size:12px;font-weight:800;text-transform:uppercase;color:#4070e8;letter-spacing:1.6px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #eef0f5;padding:6px 0;font-size:13px}.row b{color:#1a2d4a}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a2d4a;color:white;text-align:left;padding:8px}td{padding:8px;border-bottom:1px solid #eef0f5}.no-print{position:fixed;right:18px;top:18px}.btn{background:#4070e8;color:white;border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer}@media print{.no-print{display:none}.wrap{max-width:none}}</style></head><body><div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div><div class="wrap"><div class="hd"><div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7">Profero Invest</div><h1>${esc(bien.reference_interne||"Fiche bien")}</h1><div>${esc([bien.adresse,bien.code_postal,bien.ville].filter(Boolean).join(" "))}</div></div><div class="kpis"><div class="kpi"><div class="k">${esc(concl.note_globale||"—")}/10</div><div class="l">Note</div></div><div class="kpi"><div class="k">${esc(concl.recommandation||"—")}</div><div class="l">Recommandation</div></div><div class="kpi"><div class="k">${esc(fmtEur(bien.montant_offre||concl.prix_offre_recommande))}</div><div class="l">Offre</div></div><div class="kpi"><div class="k">${bien.rendement_brut?Number(bien.rendement_brut).toFixed(1)+" %":"—"}</div><div class="l">Rendement</div></div></div><div class="sec"><div class="title">Informations essentielles</div><div class="grid"><div class="row"><span>Type</span><b>${esc(gen.type_bien||"—")}</b></div><div class="row"><span>Surface</span><b>${esc(gen.surface_totale||"—")} m²</b></div><div class="row"><span>Prix affiché</span><b>${esc(fmtEur(bien.prix_vente))}</b></div><div class="row"><span>Travaux</span><b>${esc(fmtEur(bien.prix_travaux))}</b></div><div class="row"><span>Coût total</span><b>${esc(fmtEur(bien.cout_total))}</b></div><div class="row"><span>Cash-flow</span><b>${esc(fmtEur(bien.cashflow_estime))}/mois</b></div></div></div><div class="sec"><div class="title">Configuration cible</div><table><thead><tr><th>Lot</th><th>Type</th><th>Surface</th><th>Loyer</th><th>Location</th></tr></thead><tbody>${lotRows||"<tr><td colspan='5'>Aucun lot renseigné</td></tr>"}</tbody></table></div><div class="sec"><div class="title">Conclusion Profero</div><p><b>Stratégie locative :</b> ${esc(concl.strategie_locative||"—")}</p><p><b>Fiscalité recommandée :</b> ${esc(concl.fiscalite_recommandee||"—")}</p><p><b>Prochaine étape :</b> ${esc(concl.prochaine_etape||"—")}</p><p>${esc(concl.commentaire_conseiller||"")}</p></div></div></body></html>`); win.document.close();
   };
 
+  const quitterFicheBien = async () => {
+    if (ficheTab === "fiche" && ficheVisiteRef.current?.sauvegarder) {
+      await ficheVisiteRef.current.sauvegarder({ refresh:false });
+    }
+    onRetour();
+  };
+
+  const changerOngletFiche = async (key) => {
+    if (ficheTab === "fiche" && key !== "fiche" && ficheVisiteRef.current?.sauvegarder) {
+      await ficheVisiteRef.current.sauvegarder({ refresh:false });
+      await charger();
+    }
+    setFicheTab(key);
+  };
+
   const ClientsAssociesCard = () => (
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
@@ -4799,7 +4879,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   return (
     <div style={{ padding:"24px 28px", maxWidth:1420, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
-        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← Stock de biens</button>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={quitterFicheBien}>← Stock de biens</button>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:22, fontWeight:800, color:T.text }}>{bien.adresse||"Bien sans adresse"}</div>
           <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>
@@ -4860,7 +4940,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           ["simulateur", "Simulateur", BarChart3],
         ].map(([key,label,IconComp]) => (
           <button key={key}
-            onClick={() => setFicheTab(key)}
+            onClick={() => changerOngletFiche(key)}
             style={{
               padding:"8px 18px", border:"none", borderRadius:6, cursor:"pointer",
               fontFamily:"'Barlow Condensed',sans-serif", fontSize:14, fontWeight:800,
@@ -4912,6 +4992,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
 
       {ficheTab === "simulateur" ? (
         <Simulateur
+          key={`${id}-${bien.visite_data?.simulateur_updated_at || bien.updated_at || "sim"}`}
           projet={simulateurProjetBien}
           profil={profil}
           embedded={true}
