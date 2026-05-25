@@ -4284,7 +4284,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
-        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"black", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
       </div>
       <div className="inv-card-bd">
         {props.length === 0 ? (
