@@ -1945,6 +1945,135 @@ function KPICard({ label, value, color, icon: IconComp, onClick, sub }) {
   );
 }
 
+
+const DASH_CLIENT_STATUS_CONFIG = [
+  { statut:"Prospect", label:"Prospects", color:"#4db8ff", icon:Users },
+  { statut:"Actif", label:"Clients actifs", color:SU, icon:Check },
+  { statut:"Inactif", label:"Clients inactifs", color:WA, icon:Bell },
+  { statut:"Terminé", label:"Terminés", color:"rgba(255,255,255,0.38)", icon:Lock },
+];
+const DASH_STAT_KEY = { Prospect:"prospects", Actif:"actifs", Inactif:"inactifs", Terminé:"termines" };
+
+function ClientsStatutsBoard({ clients=[], T=THEMES_INV.dark, movingClientId, onMoveClient, onOpenStatus }) {
+  const [dragOverStatut, setDragOverStatut] = useState("");
+  const fmtBudgetClient = (v) => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v) + " €" : "—";
+  const fmtDateShort = (d) => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
+  const clientsParStatut = DASH_CLIENT_STATUS_CONFIG.reduce((acc, cfg) => {
+    acc[cfg.statut] = clients.filter(c => (c.statut || "Prospect") === cfg.statut)
+      .sort((a,b) => String(a.nom || "").localeCompare(String(b.nom || ""), "fr", { sensitivity:"base" }));
+    return acc;
+  }, {});
+
+  return (
+    <div className="inv-card" style={{ marginBottom:SPACING.xxl-2 }}>
+      <div className="inv-card-hd blue" style={{ alignItems:"center" }}>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
+          <Icon as={LayoutGrid} size={13} strokeWidth={2.2}/>
+          Statuts clients — pilotage rapide
+        </span>
+        <span style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"none", letterSpacing:0, fontWeight:600 }}>
+          Glisser-déposer un client pour changer son statut
+        </span>
+      </div>
+      <div className="inv-card-bd">
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(230px,1fr))", gap:SPACING.md, overflowX:"auto", paddingBottom:2 }}>
+          {DASH_CLIENT_STATUS_CONFIG.map(cfg => {
+            const list = clientsParStatut[cfg.statut] || [];
+            const isOver = dragOverStatut === cfg.statut;
+            const IconComp = cfg.icon;
+            return (
+              <div key={cfg.statut}
+                onDragOver={e=>{ e.preventDefault(); setDragOverStatut(cfg.statut); }}
+                onDragLeave={()=>setDragOverStatut("")}
+                onDrop={e=>{
+                  e.preventDefault();
+                  const clientId = e.dataTransfer.getData("text/plain");
+                  setDragOverStatut("");
+                  if (clientId) onMoveClient?.(clientId, cfg.statut);
+                }}
+                style={{
+                  minHeight:150, borderRadius:RADIUS.lg,
+                  border:`1.5px solid ${isOver ? cfg.color : T.border}`,
+                  background:isOver ? `${cfg.color}12` : T.input,
+                  padding:SPACING.sm+2,
+                  transition:"all .15s",
+                }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:SPACING.sm+2 }}>
+                  <button type="button" onClick={()=>onOpenStatus?.(cfg.statut)}
+                    style={{
+                      border:"none", background:"transparent", padding:0, cursor:"pointer",
+                      display:"inline-flex", alignItems:"center", gap:7, color:cfg.color,
+                      fontFamily:"inherit", fontSize:FONT.sm.size+1, fontWeight:800,
+                    }}
+                    title={`Voir les ${cfg.label.toLowerCase()} dans le CRM`}>
+                    <span style={{
+                      width:24, height:24, borderRadius:RADIUS.sm+1,
+                      display:"inline-flex", alignItems:"center", justifyContent:"center",
+                      background:`${cfg.color}18`, color:cfg.color,
+                    }}><Icon as={IconComp} size={13} strokeWidth={2.2}/></span>
+                    {cfg.label}
+                  </button>
+                  <span style={{
+                    minWidth:24, height:24, borderRadius:RADIUS.pill,
+                    background:`${cfg.color}18`, color:cfg.color, border:`1px solid ${cfg.color}33`,
+                    display:"inline-flex", alignItems:"center", justifyContent:"center",
+                    fontSize:FONT.xs.size, fontWeight:800, fontFamily:"'DM Mono',monospace",
+                  }}>{list.length}</span>
+                </div>
+
+                <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                  {list.length === 0 ? (
+                    <div style={{
+                      border:`1px dashed ${T.border}`, borderRadius:RADIUS.md,
+                      padding:`${SPACING.md}px ${SPACING.sm}px`, textAlign:"center",
+                      color:T.textMuted, fontSize:FONT.xs.size+1, fontStyle:"italic",
+                    }}>
+                      Glisser un client ici
+                    </div>
+                  ) : list.map(c => {
+                    const isMoving = movingClientId === c.id;
+                    return (
+                      <div key={c.id}
+                        draggable
+                        onDragStart={e=>{
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", c.id);
+                        }}
+                        onDragEnd={()=>setDragOverStatut("")}
+                        style={{
+                          padding:`${SPACING.sm}px ${SPACING.sm+2}px`,
+                          borderRadius:RADIUS.md, background:T.card, border:`1px solid ${T.border}`,
+                          cursor:isMoving ? "wait" : "grab", opacity:isMoving ? .55 : 1,
+                          boxShadow:T.shadowSm, transition:"all .12s",
+                        }}
+                        onMouseEnter={e=>{e.currentTarget.style.borderColor=cfg.color; e.currentTarget.style.transform="translateY(-1px)";}}
+                        onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border; e.currentTarget.style.transform="none";}}
+                        title="Glisser vers une autre colonne pour modifier le statut">
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:FONT.sm.size+1, fontWeight:800, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                              {c.prenom} {c.nom}
+                            </div>
+                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, display:"flex", gap:6, flexWrap:"wrap" }}>
+                              <span>{fmtBudgetClient(c.budget)}</span>
+                              {c.date_prochaine_action && <span>· Action {fmtDateShort(c.date_prochaine_action)}</span>}
+                            </div>
+                          </div>
+                          <span style={{ color:T.textMuted, fontSize:15, lineHeight:1 }}>↔</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
   const { startWeek, endWeek, today } = getWeekRange();
   const [events, setEvents] = useState([]);
@@ -2064,17 +2193,22 @@ function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
 
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [stats, setStats] = useState(null);
+  const [clientsDash, setClientsDash] = useState([]);
+  const [movingClientId, setMovingClientId] = useState(null);
+  const [dashboardError, setDashboardError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const charger = async () => {
       setLoading(true);
+      setDashboardError("");
       const [{ data: clients }, { data: biens }, { data: props }] = await Promise.all([
-        supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,prochaine_action,date_prochaine_action"),
+        supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,prochaine_action,date_prochaine_action,created_at"),
         supabase.from("invest_biens").select("id,statut,date_relance,rendement_brut,cashflow_estime"),
         supabase.from("invest_propositions").select("client_id,bien_id,created_at"),
       ]);
       const c = clients || [], b = biens || [], p = props || [];
+      setClientsDash(c);
       const { today, endWeek } = getWeekRange();
       const actionsRetard = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action < today);
       const actionsSemaine = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action >= today && x.date_prochaine_action <= endWeek);
@@ -2103,6 +2237,42 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
 
   const fmt = v => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
   const go = (target, filter) => { if (onNavigate) onNavigate(target, filter); };
+
+  const changerStatutClient = async (clientId, nouveauStatut) => {
+    const client = clientsDash.find(c => c.id === clientId);
+    if (!client || !nouveauStatut || client.statut === nouveauStatut) return;
+    const ancienStatut = client.statut || "Prospect";
+    setMovingClientId(clientId);
+    setDashboardError("");
+
+    setClientsDash(prev => prev.map(c => c.id === clientId ? { ...c, statut:nouveauStatut } : c));
+    setStats(prev => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      const oldKey = DASH_STAT_KEY[ancienStatut];
+      const newKey = DASH_STAT_KEY[nouveauStatut];
+      if (oldKey) next[oldKey] = Math.max(0, (next[oldKey] || 0) - 1);
+      if (newKey) next[newKey] = (next[newKey] || 0) + 1;
+      return next;
+    });
+
+    const { error } = await supabase.from("invest_clients").update({ statut:nouveauStatut }).eq("id", clientId);
+    setMovingClientId(null);
+    if (error) {
+      console.error("Erreur changement statut client:", error);
+      setClientsDash(prev => prev.map(c => c.id === clientId ? { ...c, statut:ancienStatut } : c));
+      setStats(prev => {
+        if (!prev) return prev;
+        const next = { ...prev };
+        const oldKey = DASH_STAT_KEY[ancienStatut];
+        const newKey = DASH_STAT_KEY[nouveauStatut];
+        if (newKey) next[newKey] = Math.max(0, (next[newKey] || 0) - 1);
+        if (oldKey) next[oldKey] = (next[oldKey] || 0) + 1;
+        return next;
+      });
+      setDashboardError(`Impossible de modifier le statut de ${client.prenom || ""} ${client.nom || ""} : ${error.message || "erreur Supabase"}`);
+    }
+  };
 
   const sectionTitle = (icon, label) => (
     <div style={{
@@ -2148,6 +2318,20 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
             <KPICard icon={AlertTriangle} label="Sans prochaine action" value={stats.sansProchaineAction} color={DA} onClick={()=>go("crm", { type:"sans_action" })}/>
             <KPICard icon={Calendar}     label="Actions à traiter"     value={stats.actionsATraiter} color={stats.actionsRetard > 0 ? DA : WA} sub={`${stats.actionsRetard} retard · ${stats.actionsSemaine} semaine`} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
           </div>
+
+          {dashboardError && (
+            <div style={{ marginBottom:SPACING.md, padding:`${SPACING.sm+2}px ${SPACING.md}px`, borderRadius:RADIUS.md, background:SEMANTIC.danger.bg, border:`1px solid ${SEMANTIC.danger.border}`, color:DA, fontSize:FONT.sm.size+1 }}>
+              {dashboardError}
+            </div>
+          )}
+
+          <ClientsStatutsBoard
+            clients={clientsDash}
+            T={T}
+            movingClientId={movingClientId}
+            onMoveClient={changerStatutClient}
+            onOpenStatus={(statut)=>go("crm", { type:"statut", value:statut })}
+          />
 
           {sectionTitle(Building2, "Stock de Biens")}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md }}>
