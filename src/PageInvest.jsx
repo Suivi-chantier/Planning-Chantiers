@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle } from "react";
 import { supabase } from "./supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
@@ -2738,6 +2738,14 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
           <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
         </button>
+        {ficheTab === "fiche" && (
+          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>ficheVisiteRef.current?.sauvegarder()} disabled={visiteSaveState.saving}>
+            <Icon as={Save} size={12} strokeWidth={2.2}/> {visiteSaveState.saving ? "Sauvegarde…" : visiteSaveState.saved ? "Sauvegardé" : "Enregistrer"}
+          </button>
+        )}
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={genererFicheBienPDF}>
+          <Icon as={FileText} size={12} strokeWidth={2.2}/> Fiche bien PDF
+        </button>
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ${client.prenom} ${client.nom} ? Cette action est irréversible.`)) return;
           await supabase.from("invest_notes").delete().eq("client_id", id);
@@ -3957,13 +3965,15 @@ function AuditRows({ items, values, onChange, T=THEMES_INV.dark }) {
   );
 }
 
-function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved }) {
+const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved, onSaveStateChange }, ref) {
   const [data, setData] = useState(() => normaliseVisiteData(bien));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => { setData(normaliseVisiteData(bien)); }, [bien?.id]);
+  useEffect(() => { if (onSaveStateChange) onSaveStateChange({ saving, saved }); }, [saving, saved, onSaveStateChange]);
+  useImperativeHandle(ref, () => ({ sauvegarder }));
 
   const upd = (section, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
   const updNested = (section, sub, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [sub]: { ...prev[section]?.[sub], [key]: value } } }));
@@ -4212,13 +4222,10 @@ function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved }) {
           <MiniField label="Commentaire libre du conseiller Profero" textarea value={data.conclusion.commentaire_conseiller} onChange={v=>upd("conclusion","commentaire_conseiller",v)} T={T}/>
         </VisitSection>
 
-        <button className="inv-btn inv-btn-gold" onClick={sauvegarder} disabled={saving} style={{width:"100%", justifyContent:"center"}}>
-          <Icon as={Save} size={13} strokeWidth={2.2}/> {saving ? "Sauvegarde en cours…" : "Enregistrer la fiche visite"}
-        </button>
       </div>
     </div>
   );
-}
+});
 
 
 
@@ -4295,6 +4302,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [geolocatingBien, setGeolocatingBien] = useState(false);
   const [geoMessageBien, setGeoMessageBien] = useState("");
   const [ficheTab, setFicheTab] = useState("fiche");
+  const ficheVisiteRef = useRef(null);
+  const [visiteSaveState, setVisiteSaveState] = useState({ saving:false, saved:false });
 
   const charger = async () => {
     const [{ data: b }, { data: p }, { data: c }] = await Promise.all([
@@ -4385,6 +4394,13 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
   const currentTheme = T?.bg === THEMES_INV.light.bg ? "light" : "dark";
   const simulateurProjetBien = buildSimulateurProjectFromBien(bien);
+  const genererFicheBienPDF = () => {
+    const v = bien.visite_data || {}; const idf = v.identification || {}; const gen = v.general || {}; const fin = v.finance || {}; const concl = v.conclusion || {}; const lots = v.configuration?.lots || [];
+    const esc = x => String(x ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const win = window.open("", "_blank", "width=900,height=720"); if(!win){ alert("Autorisez les pop-ups."); return; }
+    const lotRows = lots.filter(l=>l && (l.type||l.surface||l.loyer)).map(l=>`<tr><td>${esc(l.numero)}</td><td>${esc(l.type)}</td><td>${esc(l.surface)} m²</td><td>${esc(l.loyer)} €/mois</td><td>${esc(l.meuble)}</td></tr>`).join("");
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Fiche bien ${esc(bien.reference_interne||bien.adresse)}</title><style>body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#1a1f2e}.wrap{max-width:900px;margin:0 auto;background:white;min-height:100vh}.hd{background:#1a2d4a;color:white;padding:28px 34px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 34px}.kpi{border-left:4px solid #4070e8;background:#f8f9fb;padding:12px;border-radius:8px}.k{font-size:20px;font-weight:800}.l{font-size:10px;text-transform:uppercase;color:#7b8496}.sec{padding:16px 34px;border-top:1px solid #eef0f5}.title{font-size:12px;font-weight:800;text-transform:uppercase;color:#4070e8;letter-spacing:1.6px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #eef0f5;padding:6px 0;font-size:13px}.row b{color:#1a2d4a}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a2d4a;color:white;text-align:left;padding:8px}td{padding:8px;border-bottom:1px solid #eef0f5}.no-print{position:fixed;right:18px;top:18px}.btn{background:#4070e8;color:white;border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer}@media print{.no-print{display:none}.wrap{max-width:none}}</style></head><body><div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div><div class="wrap"><div class="hd"><div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7">Profero Invest</div><h1>${esc(bien.reference_interne||"Fiche bien")}</h1><div>${esc([bien.adresse,bien.code_postal,bien.ville].filter(Boolean).join(" "))}</div></div><div class="kpis"><div class="kpi"><div class="k">${esc(concl.note_globale||"—")}/10</div><div class="l">Note</div></div><div class="kpi"><div class="k">${esc(concl.recommandation||"—")}</div><div class="l">Recommandation</div></div><div class="kpi"><div class="k">${esc(fmtEur(bien.montant_offre||concl.prix_offre_recommande))}</div><div class="l">Offre</div></div><div class="kpi"><div class="k">${bien.rendement_brut?Number(bien.rendement_brut).toFixed(1)+" %":"—"}</div><div class="l">Rendement</div></div></div><div class="sec"><div class="title">Informations essentielles</div><div class="grid"><div class="row"><span>Type</span><b>${esc(gen.type_bien||"—")}</b></div><div class="row"><span>Surface</span><b>${esc(gen.surface_totale||"—")} m²</b></div><div class="row"><span>Prix affiché</span><b>${esc(fmtEur(bien.prix_vente))}</b></div><div class="row"><span>Travaux</span><b>${esc(fmtEur(bien.prix_travaux))}</b></div><div class="row"><span>Coût total</span><b>${esc(fmtEur(bien.cout_total))}</b></div><div class="row"><span>Cash-flow</span><b>${esc(fmtEur(bien.cashflow_estime))}/mois</b></div></div></div><div class="sec"><div class="title">Configuration cible</div><table><thead><tr><th>Lot</th><th>Type</th><th>Surface</th><th>Loyer</th><th>Location</th></tr></thead><tbody>${lotRows||"<tr><td colspan='5'>Aucun lot renseigné</td></tr>"}</tbody></table></div><div class="sec"><div class="title">Conclusion Profero</div><p><b>Stratégie locative :</b> ${esc(concl.strategie_locative||"—")}</p><p><b>Fiscalité recommandée :</b> ${esc(concl.fiscalite_recommandee||"—")}</p><p><b>Prochaine étape :</b> ${esc(concl.prochaine_etape||"—")}</p><p>${esc(concl.commentaire_conseiller||"")}</p></div></div></body></html>`); win.document.close();
+  };
 
   const ClientsAssociesCard = () => (
     <div className="inv-card">
@@ -4520,10 +4536,10 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
             </div>
           )}
 
-          <DocumentsSection folder={`biens/${id}`} T={T} />
+          <DocumentsSection folder={`biens/${id}`} T={T} categories={DOCUMENT_CATEGORIES_BIEN} />
         </div>
 
-        <FicheVisiteBien bien={bien} profil={profil} T={T} onSaved={charger} />
+        <FicheVisiteBien ref={ficheVisiteRef} bien={bien} profil={profil} T={T} onSaved={charger} onSaveStateChange={setVisiteSaveState} />
       </div>
       )}
 
