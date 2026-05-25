@@ -2145,7 +2145,7 @@ function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
   });
 
   return (
-    <div className="inv-card" style={{marginTop:SPACING.xxl-2}}>
+    <div className="inv-card" style={{marginBottom:SPACING.xxl-2}}>
       <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Planning commercial de la semaine</span></div>
       <div className="inv-card-bd">
         {error && <div style={{marginBottom:12, padding:"9px 11px", borderRadius:RADIUS.md, background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, fontSize:FONT.sm.size}}>{error}</div>}
@@ -2307,6 +2307,8 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
         </div>
       ) : stats && (
         <>
+          <PlanningSemaine profil={profil} T={T} />
+
           {sectionTitle(Users, "Clients & Prospects")}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xxl-2 }}>
             <KPICard icon={Users}        label="Prospects"             value={stats.prospects}       color="#4db8ff" onClick={()=>go("crm", { type:"statut", value:"Prospect" })}/>
@@ -2317,6 +2319,16 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
             <KPICard icon={Wallet}       label="Budget total signé"    value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" onClick={()=>go("crm", { type:"signes" })}/>
             <KPICard icon={AlertTriangle} label="Sans prochaine action" value={stats.sansProchaineAction} color={DA} onClick={()=>go("crm", { type:"sans_action" })}/>
             <KPICard icon={Calendar}     label="Actions à traiter"     value={stats.actionsATraiter} color={stats.actionsRetard > 0 ? DA : WA} sub={`${stats.actionsRetard} retard · ${stats.actionsSemaine} semaine`} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
+          </div>
+
+          {sectionTitle(Building2, "Stock de Biens")}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xxl-2 }}>
+            <KPICard icon={Home}         label="Biens en stock"        value={stats.biensTotaux}      color="#4db8ff" onClick={()=>go("biens", { type:"all" })}/>
+            <KPICard icon={Bell}         label="À relancer"            value={stats.biensARelancer}   color={DA} onClick={()=>go("biens", { type:"a_relancer" })}/>
+            <KPICard icon={Calendar}     label="Visites programmées"   value={stats.visitesProg}      color={SU} onClick={()=>go("biens", { type:"statut", value:"Visite programmée" })}/>
+            <KPICard icon={Send}         label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" onClick={()=>go("biens", { type:"statut", value:"Offre envoyée" })}/>
+            <KPICard icon={Check}        label="Offres acceptées"      value={stats.offresAcceptees}  color={SU} onClick={()=>go("biens", { type:"statut", value:"Offre acceptée" })}/>
+            <KPICard icon={Hammer}       label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" onClick={()=>go("crm", { type:"with_propositions" })}/>
           </div>
 
           {dashboardError && (
@@ -2332,18 +2344,6 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
             onMoveClient={changerStatutClient}
             onOpenStatus={(statut)=>go("crm", { type:"statut", value:statut })}
           />
-
-          {sectionTitle(Building2, "Stock de Biens")}
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md }}>
-            <KPICard icon={Home}         label="Biens en stock"        value={stats.biensTotaux}      color="#4db8ff" onClick={()=>go("biens", { type:"all" })}/>
-            <KPICard icon={Bell}         label="À relancer"            value={stats.biensARelancer}   color={DA} onClick={()=>go("biens", { type:"a_relancer" })}/>
-            <KPICard icon={Calendar}     label="Visites programmées"   value={stats.visitesProg}      color={SU} onClick={()=>go("biens", { type:"statut", value:"Visite programmée" })}/>
-            <KPICard icon={Send}         label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" onClick={()=>go("biens", { type:"statut", value:"Offre envoyée" })}/>
-            <KPICard icon={Check}        label="Offres acceptées"      value={stats.offresAcceptees}  color={SU} onClick={()=>go("biens", { type:"statut", value:"Offre acceptée" })}/>
-            <KPICard icon={Hammer}       label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" onClick={()=>go("crm", { type:"with_propositions" })}/>
-          </div>
-
-          <PlanningSemaine profil={profil} T={T} />
         </>
       )}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
