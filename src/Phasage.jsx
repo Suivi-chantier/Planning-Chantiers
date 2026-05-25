@@ -1159,6 +1159,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       const premiere = premiereDatePhase(p[phaseId] || []);
       const dateCmd  = vendrediSPrec(premiere);
       if (dateCmd) next[dateKey] = dateCmd;
+      // Save immédiat (sans debounce) : les matériaux à prévoir sont une
+      // donnée critique, on ne veut pas qu'une actualisation entre la
+      // saisie et l'autosave les perde.
+      saveImmediat(next);
       return next;
     });
   }
@@ -1196,27 +1200,62 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const now = getCurrentWeek();
   for (let i = 0; i < 8; i++) { let w = now.week + i, y = now.year; if (w > 52) { w -= 52; y++; } semainesFutures.push(getWeekId(y, w)); }
 
+  // Helper : construit le meta avec les champs Direction (utilisé par
+  // l'autosave et le save immédiat des matériaux).
+  const buildMeta = (planSrc) => ({
+    ...(planSrc.meta || {}),
+    prix_vendu:          prixVendu,
+    marge_vendue_cible:  parseFloat(margeVendueCible) || 0,
+    seuil_prime:         parseFloat(seuilPrime) || 0,
+    prime:               parseFloat(primeChantier) || 0,
+  });
+
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     setAutoSaveStatus("pending");
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus("saving");
-      // Merge avec les meta existantes du plan pour ne pas écraser d'autres clés
-      // (ex: __cout_commandes, __materiaux_prevus restent dans plan, mais d'autres
-      // sous-clés meta pourraient être ajoutées plus tard).
-      const meta = {
-        ...(plan.meta || {}),
-        prix_vendu:          prixVendu,
-        marge_vendue_cible:  parseFloat(margeVendueCible) || 0,
-        seuil_prime:         parseFloat(seuilPrime) || 0,
-        prime:               parseFloat(primeChantier) || 0,
-      };
-      await onSavePlan({ ...plan, meta });
-      setAutoSaveStatus("saved");
+      try {
+        await onSavePlan({ ...plan, meta: buildMeta(plan) });
+        setAutoSaveStatus("saved");
+      } catch (e) {
+        console.error("Autosave échouée :", e);
+        setAutoSaveStatus("error");
+      }
     }, 1200);
     return () => clearTimeout(autoSaveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, prixVendu, margeVendueCible, seuilPrime, primeChantier]);
+
+  // Save immédiat (sans debounce) pour les opérations critiques où la
+  // perte de données serait grave (ajout/suppression de matériaux à prévoir,
+  // d'ouvrages, etc.). Utilisé par setMateriauxPhase ci-dessous.
+  const saveImmediat = async (planToSave) => {
+    clearTimeout(autoSaveTimer.current);
+    setAutoSaveStatus("saving");
+    try {
+      await onSavePlan({ ...planToSave, meta: buildMeta(planToSave) });
+      setAutoSaveStatus("saved");
+    } catch (e) {
+      console.error("Save immédiat échoué :", e);
+      setAutoSaveStatus("error");
+    }
+  };
+
+  // Warning si l'utilisateur tente de fermer/recharger la page pendant
+  // qu'un autosave est en attente (pending) ou en cours (saving).
+  useEffect(() => {
+    const handler = (e) => {
+      if (autoSaveStatus === "pending" || autoSaveStatus === "saving") {
+        e.preventDefault();
+        e.returnValue = "Sauvegarde en cours, attends un instant avant de quitter.";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [autoSaveStatus]);
 
   function updateTache(phaseId, tacheId, updates) { setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).map(t => t.id === tacheId ? { ...t, ...updates } : t) })); }
   function deleteTache(phaseId, tacheId) { setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).filter(t => t.id !== tacheId) })); }
