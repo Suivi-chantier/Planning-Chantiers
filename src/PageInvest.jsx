@@ -4062,7 +4062,6 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   });
   const addLotVisite = () => setData(prev => {
     const currentLots = prev.configuration?.lots || emptyLotsCibles(1);
-    if (currentLots.length >= 6) return prev;
     const lots = [...currentLots, emptyLotCible(currentLots.length)];
     return markDirtyData({
       ...prev,
@@ -4432,10 +4431,10 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
                 </div>
               ))}
               <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginTop:10, flexWrap:"wrap"}}>
-                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addLotVisite} disabled={lots.length >= 6}>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addLotVisite}>
                   <Icon as={Plus} size={12} strokeWidth={2.2}/> Ajouter un lot
                 </button>
-                <span style={{fontSize:FONT.xs.size+1, color:T.textMuted}}>Jusqu’à 6 lots cibles · la fiche se sauvegarde automatiquement</span>
+                <span style={{fontSize:FONT.xs.size+1, color:T.textMuted}}>Nombre de lots libre · la fiche se sauvegarde automatiquement</span>
               </div>
             </div>
             <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:10, marginTop:12}}>
@@ -4678,7 +4677,6 @@ function buildSimulateurProjectFromBien(bien = {}) {
   const lotsCibles = Array.isArray(configuration.lots) ? configuration.lots : [];
   const lots = lotsCibles
     .filter(l => l && (l.type || l.surface || l.loyer))
-    .slice(0, MAX_LOTS)
     .map((l, idx) => ({
       type: l.type || "T2",
       m2: parseFloat(l.surface) || 0,
