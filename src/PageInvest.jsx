@@ -2598,6 +2598,320 @@ function ModeVisiteTerrainCard({ bien, T=THEMES_INV.dark, onSaved }) {
   );
 }
 
+
+
+const VISITE_TERRAIN_STATUS_OPTIONS = ["", "OK", "À vérifier", "Problème", "Non vu", "Non applicable"];
+const VISITE_TERRAIN_DECISIONS = ["", "À creuser", "Offre possible", "Contre-visite", "Abandonner"];
+const VISITE_TERRAIN_INTERETS = ["", "Très intéressant", "Intéressant", "Moyen", "Faible", "Non pertinent"];
+const VISITE_TERRAIN_POTENTIELS = ["", "Oui", "Non", "À vérifier"];
+const VISITE_TERRAIN_POINTS = [
+  { group:"Extérieur & structure", items:[
+    ["toiture", "Toiture"], ["charpente", "Charpente"], ["facade", "Façade / ravalement"], ["fissures", "Fissures structurelles"], ["humidite", "Humidité / moisissures"],
+  ]},
+  { group:"Réseaux & équipements", items:[
+    ["electricite", "Électricité"], ["plomberie", "Plomberie"], ["chauffage", "Chauffage"], ["vmc", "VMC / ventilation"], ["compteurs", "Compteurs individuels"],
+  ]},
+  { group:"Découpe & exploitation", items:[
+    ["acces", "Accès indépendants"], ["escaliers", "Escaliers / circulation"], ["stationnement", "Stationnement"], ["configuration", "Configuration des lots"], ["marche_locatif", "Marché locatif perçu"],
+  ]},
+  { group:"Réglementaire", items:[
+    ["copro", "Copropriété / règlement"], ["urbanisme", "Urbanisme / division"], ["dpe", "DPE / énergie"], ["documents", "Documents disponibles"],
+  ]},
+];
+const VISITE_TERRAIN_DOCS = [
+  ["photos", "Photos prises"], ["diagnostics", "Diagnostics / DDT"], ["plans", "Plans"], ["taxe_fonciere", "Taxe foncière"], ["devis", "Devis travaux"], ["copro", "Docs copropriété"], ["baux", "Baux existants"],
+];
+
+function normaliseModeVisiteTerrain(bien = {}) {
+  const raw = bien?.visite_data?.mode_visite_terrain || {};
+  const points = { ...(raw.points || {}) };
+  VISITE_TERRAIN_POINTS.flatMap(g => g.items).forEach(([key]) => {
+    points[key] = { statut:"", commentaire:"", ...(points[key] || {}) };
+  });
+  const docs = { ...(raw.docs || {}) };
+  VISITE_TERRAIN_DOCS.forEach(([key]) => { if (docs[key] === undefined) docs[key] = false; });
+  return {
+    date_visite: raw.date_visite || bien.date_visite || new Date().toISOString().slice(0,10),
+    conseiller: raw.conseiller || bien.conseiller_profero || "",
+    temps_visite: raw.temps_visite || "",
+    interet: raw.interet || "",
+    conclusion: raw.conclusion || "",
+    potentiel_decoupe: raw.potentiel_decoupe || "",
+    offre_possible: raw.offre_possible || "",
+    nombre_lots_possible: raw.nombre_lots_possible || "",
+    budget_travaux_ressenti: raw.budget_travaux_ressenti || "",
+    points,
+    docs,
+    photos_commentaire: raw.photos_commentaire || "",
+    points_forts: raw.points_forts || "",
+    points_blocants: raw.points_blocants || "",
+    questions_agent: raw.questions_agent || "",
+    prochaine_action: raw.prochaine_action || "",
+    prochaine_action_date: raw.prochaine_action_date || bien.date_relance || "",
+    commentaire: raw.commentaire || "",
+    updated_at: raw.updated_at || null,
+  };
+}
+
+function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
+  const [data, setData] = useState(() => normaliseModeVisiteTerrain(bien));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [msg, setMsg] = useState("");
+  const autoSaveRef = useRef(null);
+  const bootRef = useRef(true);
+  const latestRef = useRef(data);
+
+  useEffect(() => {
+    const next = normaliseModeVisiteTerrain(bien);
+    setData(next);
+    latestRef.current = next;
+    bootRef.current = true;
+  }, [bien?.id]);
+
+  const updateData = (patch) => {
+    setData(prev => {
+      const next = { ...prev, ...patch };
+      latestRef.current = next;
+      return next;
+    });
+  };
+  const updatePoint = (key, patch) => {
+    setData(prev => {
+      const next = { ...prev, points:{ ...prev.points, [key]:{ ...(prev.points?.[key] || {}), ...patch } } };
+      latestRef.current = next;
+      return next;
+    });
+  };
+  const updateDoc = (key, value) => {
+    setData(prev => {
+      const next = { ...prev, docs:{ ...prev.docs, [key]: value } };
+      latestRef.current = next;
+      return next;
+    });
+  };
+
+  const pointLabels = VISITE_TERRAIN_POINTS.flatMap(g => g.items);
+  const statusDone = pointLabels.filter(([key]) => !!latestRef.current.points?.[key]?.statut).length;
+  const decisionDone = ["date_visite", "interet", "conclusion", "potentiel_decoupe", "prochaine_action"].filter(k => String(latestRef.current[k] || "").trim()).length;
+  const total = pointLabels.length + 5;
+  const done = statusDone + decisionDone;
+  const pct = Math.min(100, Math.round((done / Math.max(total, 1)) * 100));
+  const missing = [
+    ...(!data.date_visite ? ["Date de visite"] : []),
+    ...(!data.interet ? ["Intérêt du bien"] : []),
+    ...(!data.conclusion ? ["Décision rapide"] : []),
+    ...(!data.potentiel_decoupe ? ["Potentiel de découpe"] : []),
+    ...(!data.prochaine_action ? ["Prochaine action"] : []),
+    ...pointLabels.filter(([key]) => !data.points?.[key]?.statut).map(([,label]) => label),
+  ];
+  const problemes = pointLabels.filter(([key]) => data.points?.[key]?.statut === "Problème").map(([,label]) => label);
+  const aVerifier = pointLabels.filter(([key]) => data.points?.[key]?.statut === "À vérifier").map(([,label]) => label);
+
+  const getSuggestedStatut = (d) => {
+    if (d.conclusion === "Offre possible") return "Offre à faire";
+    if (d.conclusion === "Abandonner") return "Abandonné";
+    if (d.conclusion === "Contre-visite") return "À relancer";
+    if (d.conclusion === "À creuser") return "Visité";
+    return bien.statut || "Visité";
+  };
+
+  const save = async ({ silent=false } = {}) => {
+    if (!bien?.id) return;
+    const d = latestRef.current;
+    setSaving(true);
+    setMsg("");
+    const mode_visite_terrain = {
+      ...d,
+      conseiller: d.conseiller || profil?.nom || bien.conseiller_profero || "",
+      completion_pct: pct,
+      updated_at: new Date().toISOString(),
+    };
+    const visite_data = {
+      ...(bien.visite_data || {}),
+      mode_visite_terrain,
+      conclusion: {
+        ...(bien.visite_data?.conclusion || {}),
+        recommandation: d.conclusion === "Offre possible" ? "Passer à l'offre" : d.conclusion === "Abandonner" ? "Abandonner" : (bien.visite_data?.conclusion?.recommandation || ""),
+        prochaine_etape: d.prochaine_action || bien.visite_data?.conclusion?.prochaine_etape || "",
+        commentaire_conseiller: d.commentaire || bien.visite_data?.conclusion?.commentaire_conseiller || "",
+      },
+    };
+    const payload = {
+      visite_data,
+      date_visite: d.date_visite || bien.date_visite || null,
+      date_relance: d.prochaine_action_date || bien.date_relance || null,
+      statut: getSuggestedStatut(d),
+      statut_relance: d.prochaine_action || bien.statut_relance || null,
+    };
+    const { error } = await supabase.from("invest_biens").update(payload).eq("id", bien.id);
+    setSaving(false);
+    if (error) {
+      setMsg(`Erreur sauvegarde : ${error.message}`);
+      if (!silent) alert("Erreur sauvegarde visite terrain : " + error.message);
+      return;
+    }
+    setSaved(true);
+    if (!silent) setMsg("Visite terrain sauvegardée");
+    setTimeout(() => { setSaved(false); if (!silent) setMsg(""); }, 2200);
+    onSaved?.();
+  };
+
+  useEffect(() => {
+    if (bootRef.current) { bootRef.current = false; return; }
+    if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+    autoSaveRef.current = setTimeout(() => save({ silent:true }), 900);
+    return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const statusColor = (st) => st === "OK" ? SU : st === "À vérifier" ? WA : st === "Problème" ? DA : T.textMuted;
+  const DecisionButton = ({ value }) => {
+    const active = data.conclusion === value;
+    return (
+      <button
+        className="inv-btn inv-btn-sm"
+        onClick={() => updateData({ conclusion:value })}
+        style={{
+          background: active ? (value === "Offre possible" ? SEMANTIC.success.bg : value === "Abandonner" ? SEMANTIC.danger.bg : T.accentBg) : T.input,
+          border:`1px solid ${active ? (value === "Offre possible" ? SEMANTIC.success.border : value === "Abandonner" ? SEMANTIC.danger.border : T.accentBorder) : T.border}`,
+          color: active ? (value === "Offre possible" ? SU : value === "Abandonner" ? DA : T.accent) : T.textSub,
+          justifyContent:"center",
+        }}
+      >{value}</button>
+    );
+  };
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"300px 1fr",gap:16,alignItems:"start"}}>
+      <div style={{position:"sticky",top:14,display:"flex",flexDirection:"column",gap:12}}>
+        <div className="inv-card">
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={PhoneIcon} size={13}/>Visite terrain</span></div>
+          <div className="inv-card-bd">
+            {msg && <div style={{fontSize:FONT.xs.size+1,color:msg.startsWith("Erreur")?DA:SU,fontWeight:800,marginBottom:8}}>{msg}</div>}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:8}}>
+              <div>
+                <div className="inv-kpi-lbl">Complétion terrain</div>
+                <div style={{fontSize:FONT.h2.size,fontWeight:900,color:T.text,lineHeight:1}}>{pct}%</div>
+              </div>
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted,textAlign:"right"}}>{done}/{total}<br/>réponses</div>
+            </div>
+            <div style={{height:8,borderRadius:RADIUS.pill,background:T.input,overflow:"hidden",border:`1px solid ${T.border}`}}>
+              <div style={{height:"100%",width:`${pct}%`,background:pct>=80?SU:pct>=45?WA:DA,transition:"width .2s"}}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
+              <div style={{padding:8,borderRadius:RADIUS.md,background:SEMANTIC.danger.bg,border:`1px solid ${SEMANTIC.danger.border}`,color:DA,fontWeight:800,fontSize:FONT.sm.size}}>⚠ {problemes.length} problème{problemes.length>1?"s":""}</div>
+              <div style={{padding:8,borderRadius:RADIUS.md,background:SEMANTIC.warning.bg,border:`1px solid ${SEMANTIC.warning.border}`,color:WA,fontWeight:800,fontSize:FONT.sm.size}}>⏳ {aVerifier.length} à vérifier</div>
+            </div>
+            <button className="inv-btn inv-btn-blue" onClick={() => save({ silent:false })} disabled={saving} style={{width:"100%",justifyContent:"center",marginTop:12}}>
+              <Icon as={saving ? RefreshCw : Save} size={13} style={saving ? {animation:"spin 1s linear infinite"} : undefined}/>
+              {saving ? "Sauvegarde…" : saved ? "Sauvegardé" : "Enregistrer la visite"}
+            </button>
+            <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:8,lineHeight:1.45}}>Autosave actif après chaque saisie. Le statut du bien est ajusté selon la décision rapide.</div>
+          </div>
+        </div>
+
+        <div className="inv-card">
+          <div className="inv-card-hd"><span>À compléter</span></div>
+          <div className="inv-card-bd" style={{maxHeight:260,overflowY:"auto"}}>
+            {missing.length === 0 ? (
+              <div style={{fontSize:FONT.sm.size,color:SU,fontWeight:800}}>Toutes les réponses terrain sont complétées.</div>
+            ) : missing.slice(0,18).map(m => (
+              <div key={m} style={{fontSize:FONT.xs.size+1,color:T.textSub,padding:"4px 0",borderBottom:`1px solid ${T.rowBorder}`}}>• {m}</div>
+            ))}
+            {missing.length > 18 && <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:6}}>+ {missing.length-18} autres éléments</div>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div className="inv-card">
+          <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Décision rapide en fin de visite</span></div>
+          <div className="inv-card-bd">
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+              {VISITE_TERRAIN_DECISIONS.filter(Boolean).map(v => <DecisionButton key={v} value={v}/>)}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              <div><label className="inv-kpi-lbl">Intérêt du bien</label><select className="inv-sel" value={data.interet} onChange={e=>updateData({interet:e.target.value})} style={{width:"100%"}}>{VISITE_TERRAIN_INTERETS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select></div>
+              <div><label className="inv-kpi-lbl">Potentiel découpe</label><select className="inv-sel" value={data.potentiel_decoupe} onChange={e=>updateData({potentiel_decoupe:e.target.value})} style={{width:"100%"}}>{VISITE_TERRAIN_POTENTIELS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select></div>
+              <div><label className="inv-kpi-lbl">Offre possible</label><select className="inv-sel" value={data.offre_possible} onChange={e=>updateData({offre_possible:e.target.value})} style={{width:"100%"}}>{VISITE_TERRAIN_POTENTIELS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select></div>
+              <div><label className="inv-kpi-lbl">Date visite</label><input className="inv-inp" type="date" value={data.date_visite} onChange={e=>updateData({date_visite:e.target.value})} style={{width:"100%"}}/></div>
+              <div><label className="inv-kpi-lbl">Conseiller</label><input className="inv-inp" value={data.conseiller} onChange={e=>updateData({conseiller:e.target.value})} style={{width:"100%",textAlign:"left"}} placeholder={profil?.nom||"Conseiller"}/></div>
+              <div><label className="inv-kpi-lbl">Temps de visite</label><input className="inv-inp" value={data.temps_visite} onChange={e=>updateData({temps_visite:e.target.value})} style={{width:"100%",textAlign:"left"}} placeholder="Ex : 25 min"/></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="inv-card">
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Check} size={13}/>Checklist terrain rapide</span></div>
+          <div className="inv-card-bd" style={{display:"flex",flexDirection:"column",gap:14}}>
+            {VISITE_TERRAIN_POINTS.map(group => (
+              <div key={group.group}>
+                <div style={{fontSize:FONT.xs.size,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8}}>{group.group}</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8}}>
+                  {group.items.map(([key,label]) => {
+                    const row = data.points?.[key] || {};
+                    return (
+                      <div key={key} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.md,background:T.input,padding:10}}>
+                        <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:7}}>
+                          <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text}}>{label}</div>
+                          <select className="inv-sel" value={row.statut || ""} onChange={e=>updatePoint(key,{statut:e.target.value})} style={{width:118,color:statusColor(row.statut),fontWeight:800}}>{VISITE_TERRAIN_STATUS_OPTIONS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select>
+                        </div>
+                        <input className="inv-inp" value={row.commentaire || ""} onChange={e=>updatePoint(key,{commentaire:e.target.value})} style={{width:"100%",textAlign:"left",fontSize:FONT.xs.size+1}} placeholder="Commentaire rapide…"/>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <div className="inv-card">
+            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Building2} size={13}/>Découpe & chiffrage ressenti</span></div>
+            <div className="inv-card-bd" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div><label className="inv-kpi-lbl">Nombre de lots possible</label><input className="inv-inp" value={data.nombre_lots_possible} onChange={e=>updateData({nombre_lots_possible:e.target.value})} style={{width:"100%"}} placeholder="Ex : 4"/></div>
+              <div><label className="inv-kpi-lbl">Budget travaux ressenti</label><input className="inv-inp" value={data.budget_travaux_ressenti} onChange={e=>updateData({budget_travaux_ressenti:e.target.value})} style={{width:"100%"}} placeholder="Ex : 140 000"/></div>
+              <div style={{gridColumn:"1 / -1"}}><label className="inv-kpi-lbl">Points forts</label><textarea className="inv-textarea" rows={2} value={data.points_forts} onChange={e=>updateData({points_forts:e.target.value})} placeholder="Emplacement, volumes, accès, luminosité, demande locative…"/></div>
+              <div style={{gridColumn:"1 / -1"}}><label className="inv-kpi-lbl">Points bloquants</label><textarea className="inv-textarea" rows={2} value={data.points_blocants} onChange={e=>updateData({points_blocants:e.target.value})} placeholder="Structure, humidité, copropriété, stationnement, DPE, enveloppe travaux…"/></div>
+            </div>
+          </div>
+
+          <div className="inv-card">
+            <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13}/>Documents & photos à chaud</span></div>
+            <div className="inv-card-bd">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                {VISITE_TERRAIN_DOCS.map(([key,label]) => (
+                  <label key={key} style={{display:"flex",alignItems:"center",gap:8,fontSize:FONT.sm.size+1,color:T.textSub,fontWeight:700,background:T.input,border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"8px 9px",cursor:"pointer"}}>
+                    <input type="checkbox" checked={!!data.docs?.[key]} onChange={e=>updateDoc(key,e.target.checked)}/>
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <label className="inv-kpi-lbl">Commentaire photos / documents</label>
+              <textarea className="inv-textarea" rows={3} value={data.photos_commentaire} onChange={e=>updateData({photos_commentaire:e.target.value})} placeholder="Photos manquantes, documents à demander à l’agent, pièces bloquantes…"/>
+            </div>
+          </div>
+        </div>
+
+        <div className="inv-card">
+          <div className="inv-card-hd danger"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={AlertTriangle} size={13}/>Suite à donner</span></div>
+          <div className="inv-card-bd">
+            <div style={{display:"grid",gridTemplateColumns:"1fr 160px",gap:10,marginBottom:10}}>
+              <div><label className="inv-kpi-lbl">Prochaine action</label><input className="inv-inp" value={data.prochaine_action} onChange={e=>updateData({prochaine_action:e.target.value})} style={{width:"100%",textAlign:"left"}} placeholder="Ex : faire offre, demander DDT, programmer contre-visite…"/></div>
+              <div><label className="inv-kpi-lbl">Date relance</label><input className="inv-inp" type="date" value={data.prochaine_action_date} onChange={e=>updateData({prochaine_action_date:e.target.value})} style={{width:"100%"}}/></div>
+            </div>
+            <label className="inv-kpi-lbl">Questions à poser / notes libres</label>
+            <textarea className="inv-textarea" rows={3} value={data.questions_agent} onChange={e=>updateData({questions_agent:e.target.value})} placeholder="Questions à l’agent, points à vérifier en mairie, éléments à transmettre à Profero Rénovation…"/>
+            <label className="inv-kpi-lbl" style={{marginTop:10,display:"block"}}>Commentaire final terrain</label>
+            <textarea className="inv-textarea" rows={3} value={data.commentaire} onChange={e=>updateData({commentaire:e.target.value})} placeholder="Conclusion terrain rapide : pourquoi on poursuit ou pourquoi on abandonne…"/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function DossiersRelanceDashboard({ clients=[], biens=[], propositions=[], T=THEMES_INV.dark, onNavigate }) {
   const today = isoDate(new Date());
   const items = [];
@@ -6045,6 +6359,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
       <div style={{ display:"flex", gap:4, marginBottom:18, borderBottom:`1px solid ${T.border}`, paddingBottom:8, flexWrap:"wrap" }}>
         {[
           ["fiche", "Fiche visite", FileText],
+          ["terrain", "Visite terrain", PhoneIcon],
           ["simulateur", "Simulateur", BarChart3],
         ].map(([key,label,IconComp]) => (
           <button key={key}
@@ -6111,13 +6426,21 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           theme={currentTheme}
           setTheme={null}
         />
+      ) : ficheTab === "terrain" ? (
+        <ModeVisiteTerrainOnglet bien={bien} profil={profil} T={T} onSaved={charger} />
       ) : (
       <div style={{ display:"grid", gridTemplateColumns:"0.82fr 1.18fr", gap:16, alignItems:"start" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <ClientsAssociesCard />
           <AutoScoreBienCard bien={bien} T={T} />
           <AnalyseRapideBienCard bien={bien} T={T} onSaved={charger} />
-          <ModeVisiteTerrainCard bien={bien} T={T} onSaved={charger} />
+          <div className="inv-card">
+            <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={PhoneIcon} size={13}/>Visite terrain</span></div>
+            <div className="inv-card-bd">
+              <div style={{fontSize:FONT.sm.size+1,color:T.textSub,lineHeight:1.55,marginBottom:10}}>Ouvrez l’onglet dédié pour remplir rapidement la visite sur mobile, avec checklist et décision immédiate.</div>
+              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setFicheTab("terrain")} style={{width:"100%",justifyContent:"center"}}>Ouvrir la visite terrain</button>
+            </div>
+          </div>
           <MatchingClientsBienCard bien={bien} clients={clients} propositions={props} T={T} onAssociate={associerClientMatching} />
 
           <div className="inv-card">
