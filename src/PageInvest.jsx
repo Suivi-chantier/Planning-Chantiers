@@ -608,7 +608,7 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
 }
 
 // ─── SIMULATEUR ───────────────────────────────────────────────────────────────
-function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded=false, bienId=null, bienSource=null, onBienSaved }) {
+function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded=false, bienId: embeddedBienId=null, bienSource=null, onBienSaved }) {
   const isNew = !projet?.id;
   const projetIdRef = useRef(projet?.id||null);
   const isEmbedded = !!embedded;
@@ -740,7 +740,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     setSaving(true);
     const state = collectState();
 
-    if (isEmbedded && bienId) {
+    if (isEmbedded && embeddedBienId) {
       const existingVisiteData = (bienSource && bienSource.visite_data) || {};
       const updatedVisiteData = {
         ...existingVisiteData,
@@ -758,7 +758,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
         montant_offre: parseFloat(prixNegocie) || 0,
       };
 
-      const { error } = await supabase.from("invest_biens").update(payloadBien).eq("id", bienId);
+      const { error } = await supabase.from("invest_biens").update(payloadBien).eq("id", embeddedBienId);
       if (error) {
         console.error("Erreur sauvegarde simulateur bien:", error);
         alert("Erreur sauvegarde simulateur : " + error.message);
@@ -799,7 +799,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
       projetIdRef.current = res.data.id;
     }
     setSaving(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
-  },[collectState, nom, profil, clientId, isEmbedded, bienId, bienSource, prixAffiche, prixNegocie, budgetTravaux, coutTotal, rb, cfSel, onBienSaved]);
+  },[collectState, nom, profil, clientId, isEmbedded, embeddedBienId, bienSource, prixAffiche, prixNegocie, budgetTravaux, coutTotal, rb, cfSel, onBienSaved]);
 
   // Autosave 30s
   const autoRef = useRef(null);
