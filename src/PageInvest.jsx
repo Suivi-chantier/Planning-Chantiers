@@ -2480,6 +2480,13 @@ const FILE_ICONS = {
   zip: "🗜️", rar: "🗜️", mp4: "🎥", mp3: "🎵", txt: "📃",
 };
 
+const DOCUMENT_CATEGORIES_BIEN = [
+  { id:"photos", label:"Photos", icon:"🖼️" },
+  { id:"devis", label:"Devis", icon:"📄" },
+  { id:"plans", label:"Plans", icon:"📐" },
+  { id:"autres", label:"Autres", icon:"📎" },
+];
+
 function getFileIcon(name) {
   const ext = (name || "").split(".").pop().toLowerCase();
   return FILE_ICONS[ext] || "📎";
@@ -2492,7 +2499,7 @@ function fmtSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
 }
 
-function DocumentsSection({ folder, T = THEMES_INV.dark }) {
+function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
   // folder = "clients/uuid" ou "biens/uuid"
   const [fichiers, setFichiers]     = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -2501,19 +2508,22 @@ function DocumentsSection({ folder, T = THEMES_INV.dark }) {
   const [erreur, setErreur]         = useState("");
   const [dragOver, setDragOver]     = useState(false);
   const fileRef                     = useRef();
+  const hasCategories              = Array.isArray(categories) && categories.length > 0;
+  const [activeCategory, setActiveCategory] = useState(hasCategories ? categories[0].id : "");
+  const currentFolder              = hasCategories && activeCategory ? `${folder}/${activeCategory}` : folder;
 
   const BUCKET = "invest-documents";
 
   const charger = async () => {
     setLoading(true);
-    const { data, error } = await supabase.storage.from(BUCKET).list(folder, { sortBy: { column: "created_at", order: "desc" } });
+    const { data, error } = await supabase.storage.from(BUCKET).list(currentFolder, { sortBy: { column: "created_at", order: "desc" } });
     if (error) { setErreur("Bucket introuvable. Voir instructions ci-dessous."); setLoading(false); return; }
     setFichiers(data || []);
     setLoading(false);
     setErreur("");
   };
 
-  useEffect(() => { charger(); }, [folder]);
+  useEffect(() => { charger(); }, [currentFolder]);
 
   const uploader = async (files) => {
     if (!files || files.length === 0) return;
@@ -2525,7 +2535,7 @@ function DocumentsSection({ folder, T = THEMES_INV.dark }) {
       const ext   = file.name.split(".").pop();
       const base  = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_\-]/g, "_").slice(0, 40);
       const uname = `${base}_${Date.now()}.${ext}`;
-      const path  = `${folder}/${uname}`;
+      const path  = `${currentFolder}/${uname}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
       if (error) setErreur(`Erreur upload : ${error.message}`);
     }
@@ -2534,14 +2544,14 @@ function DocumentsSection({ folder, T = THEMES_INV.dark }) {
   };
 
   const telecharger = async (nom) => {
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(`${folder}/${nom}`, 300);
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(`${currentFolder}/${nom}`, 300);
     if (error || !data?.signedUrl) { alert("Impossible de générer le lien."); return; }
     window.open(data.signedUrl, "_blank");
   };
 
   const supprimer = async (nom) => {
     if (!window.confirm(`Supprimer "${nom}" ?`)) return;
-    await supabase.storage.from(BUCKET).remove([`${folder}/${nom}`]);
+    await supabase.storage.from(BUCKET).remove([`${currentFolder}/${nom}`]);
     charger();
   };
 
@@ -2569,6 +2579,28 @@ function DocumentsSection({ folder, T = THEMES_INV.dark }) {
         />
       </div>
       <div className="inv-card-bd">
+        {hasCategories && (
+          <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:12}}>
+            {categories.map(cat => {
+              const active = activeCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className="inv-btn inv-btn-sm"
+                  onClick={() => setActiveCategory(cat.id)}
+                  style={{
+                    background: active ? T.accentBg : T.input,
+                    color: active ? T.accent : T.textSub,
+                    border: `1px solid ${active ? T.accentBorder : T.border}`,
+                  }}
+                >
+                  <span>{cat.icon}</span> {cat.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Zone drag & drop */}
         <div
