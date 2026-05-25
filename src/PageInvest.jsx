@@ -3518,6 +3518,7 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
     montant_offre: bien?.montant_offre||0,
     date_relance: bien?.date_relance||"", statut_relance: bien?.statut_relance||"",
     date_visite: bien?.date_visite||"",
+    reference_interne: bien?.reference_interne||"", conseiller_profero: bien?.conseiller_profero||"", source_bien: bien?.source_bien||"",
   });
   const [saving, setSaving] = useState(false);
 
@@ -3552,6 +3553,9 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
       montant_offre:           parseFloat(form.montant_offre) || 0,
       date_relance:            form.date_relance || null,
       date_visite:             form.date_visite || null,
+      reference_interne:       form.reference_interne?.trim() || null,
+      conseiller_profero:      form.conseiller_profero?.trim() || null,
+      source_bien:             form.source_bien || null,
     };
     const write = async (p) => isEdit
       ? await supabase.from("invest_biens").update(p).eq("id", bien.id)
@@ -3608,6 +3612,455 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
   );
 }
 
+
+// ─── FICHE VISITE BIEN ────────────────────────────────────────────────────────
+const VISITE_STATUS = ["", "OK", "À vérifier", "Problème"];
+const YES_NO = ["", "Oui", "Non"];
+const COMPLEXITE_VISITE = ["", "Simple", "Moyenne", "Complexe"];
+const RECO_VISITE = ["", "Passer à l'offre", "Approfondir", "Abandonner"];
+const SOURCES_BIEN_VISITE = ["", "LBC", "Agent", "Réseau", "Autre"];
+const MANDATS_VISITE = ["", "Exclusif", "Simple"];
+const TENSION_LOCATIVE = ["", "Faible", "Moyenne", "Forte"];
+const LETTRES_DPE = ["", "A", "B", "C", "D", "E", "F", "G"];
+const TYPES_LOT_VISITE = ["", "Studio", "T1", "T2", "T3", "T4", "T5", "T6", "Commerce"];
+
+const TECHNIQUE_VISITE_GROUPS = [
+  { title:"Gros œuvre", key:"gros_oeuvre", items:[
+    ["toiture","État de la toiture"],["charpente","État de la charpente"],["facades","État des façades / ravalement"],
+    ["murs_porteurs","État des murs porteurs"],["humidite","Présence d'humidité / moisissures"],
+    ["amiante_plomb","Présence d'amiante / plomb (DDT)"],["planchers_dalles","État des planchers / dalles"],
+    ["fondations","État des fondations"],["fissures_structurelles","Présence de fissures structurelles"],
+  ]},
+  { title:"Menuiseries & Isolation", key:"menuiseries_isolation", items:[
+    ["type_vitrage","Type de vitrage"],["fenetres_portes_fenetres","État des fenêtres et portes-fenêtres"],
+    ["volets","État des volets"],["isolation_combles","Isolation des combles"],["isolation_murs","Isolation des murs"],
+    ["isolation_sol","Isolation du sol"],["porte_entree","Type de porte d'entrée"],
+  ]},
+  { title:"Électricité", key:"electricite", items:[
+    ["tableau_electrique","Tableau électrique"],["terre","Mise à la terre"],["differentiels","Disjoncteurs différentiels"],
+    ["cablage","Type de câblage"],["compteurs_individuels","Présence de compteurs individuels"],
+    ["puissance_kva","Puissance disponible (kVA)"],["vmc","Présence de VMC"],["interphonie","Système d'interphonie"],
+  ]},
+  { title:"Plomberie & Eau", key:"plomberie_eau", items:[
+    ["canalisations","Type de canalisations"],["plomberie_generale","État de la plomberie générale"],
+    ["compteurs_lots","Compteurs individuels par lot"],["chauffe_eau","Chauffe-eau"],
+    ["colonnes_montantes","Présence de colonnes montantes"],["evacuations","État des évacuations"],
+    ["wc_sdb_par_lot","Présence WC / SDB possible par lot"],
+  ]},
+  { title:"Chauffage", key:"chauffage", items:[
+    ["type_chauffage","Type de chauffage"],["chaudiere","Chaudière collective ou individuelle"],
+    ["age_systeme","État et âge du système de chauffage"],["chauffage_individuel","Possibilité de chauffage individuel par lot"],
+    ["radiateurs","Radiateurs"],["plancher_chauffant","Plancher chauffant"],
+  ]},
+];
+
+const URBANISME_VISITE_ITEMS = [
+  ["zone_plu","Zone PLU"],["zone_abf","Bien en zone ABF"],["permis_requis","Permis de construire requis pour la découpe"],
+  ["dp_suffisante","Déclaration préalable suffisante"],["stationnement","Règles de stationnement"],
+  ["division_logement","Règles locales de division de logement"],["servitudes","Servitudes existantes"],
+  ["risques_naturels","Risques naturels"],["cadastre","Cadastre / plan de masse disponible"],
+  ["copropriete","Régime de copropriété"],["reglement_copro","Règlement de copropriété autorisant la division"],
+  ["syndic_charges","Syndic / charges de copropriété"],
+];
+
+const RISQUES_VISITE_ITEMS = [
+  ["structurel","Risque structurel"],["amiante_plomb","Risque amiante / plomb non traité"],["refus_bancaire","Risque de refus bancaire"],
+  ["refus_urbanisme","Risque de refus permis / déclaration"],["depassement_travaux","Risque de dépassement budget travaux"],
+  ["delai_chantier","Risque de délai chantier"],["vacance","Risque de vacance locative élevée"],
+  ["fiscal","Risque fiscal"],["contentieux_copro","Risque de contentieux copropriété"],
+  ["voisinage","Risque de voisinage / nuisances"],["motivation_vendeur","Motivation vendeur"],
+  ["titre_propriete","Qualité du titre de propriété"],
+];
+
+const makeAuditDefaults = (groupsOrItems) => {
+  const entries = Array.isArray(groupsOrItems?.[0])
+    ? groupsOrItems
+    : groupsOrItems.flatMap(g => g.items);
+  return entries.reduce((acc, [key]) => ({ ...acc, [key]: { statut:"", commentaire:"" } }), {});
+};
+
+const emptyLotsCibles = () => Array.from({length:6}, (_,i)=>({
+  numero: String(i+1), type:"", surface:"", loyer:"", meuble:"", stationnement:"",
+}));
+
+const deepMergeVisite = (base, extra) => {
+  if (Array.isArray(base)) return Array.isArray(extra) ? extra : base;
+  if (!base || typeof base !== "object") return extra !== undefined && extra !== null ? extra : base;
+  const out = { ...base };
+  Object.keys(extra || {}).forEach(k => {
+    out[k] = deepMergeVisite(base[k], extra[k]);
+  });
+  return out;
+};
+
+const buildDefaultVisiteData = (bien = {}) => ({
+  identification: {
+    adresse: bien.adresse || "", ville: bien.ville || "", code_postal: bien.code_postal || "",
+    latitude: bien.latitude ?? "", longitude: bien.longitude ?? "",
+    conseiller_profero: bien.conseiller_profero || "", date_visite: bien.date_visite || "",
+    source: bien.source_bien || "", reference_interne: bien.reference_interne || "",
+  },
+  general: {
+    type_bien:"", annee_construction:"", surface_totale:"", nombre_niveaux:"",
+    lots_actuels:"", lots_cibles:"", prix_affiche: bien.prix_vente || "",
+    mandat:"", agence_vendeur: bien.agence || "", delai_vente_estime:"", duree_exposition_annonce:"",
+  },
+  configuration: {
+    escaliers_interieurs:"", acces_independants:"", compteurs_eau:"", compteurs_gaz:"", compteurs_electricite:"",
+    lots: emptyLotsCibles(),
+  },
+  technique: makeAuditDefaults(TECHNIQUE_VISITE_GROUPS),
+  dpe: {
+    dpe_actuel:"", ges_actuel:"", conso_energie:"", emissions_co2:"", dpe_cible:"",
+    audit_disponible:"", passoires_identifiees:"", travaux_energetiques:"",
+  },
+  urbanisme: {
+    controles: makeAuditDefaults(URBANISME_VISITE_ITEMS),
+    contact_mairie:"", observations:"", autorisations:"", duree_chantier:"",
+    complexite:"", vigilance_travaux:"",
+  },
+  finance: {
+    prix_acquisition_negocie:"", frais_notaire:"", frais_agence:"", frais_profero:"", budget_travaux_ttc:"",
+    mobilier:"", frais_financement:"", divers_fonds_roulement:"",
+    taux_vacance:"", loyers_nets_vacance:"", charges_annuelles:"", loyers_nets_charges:"",
+    rendement_brut:"", rendement_net:"", cashflow_mensuel:"", duree_remboursement:"", plus_value_potentielle:"",
+  },
+  marche: {
+    tension_locative:"", delai_relocation:"", loyer_moyen_m2:"", colocation_possible:"",
+    meuble_pertinente:"", nue_pertinente:"", regime_fiscal:"", vacance_moyenne:"",
+    profil_locataires:"", concurrence:"", points_forts:"", points_faibles:"",
+  },
+  risques: {
+    controles: makeAuditDefaults(RISQUES_VISITE_ITEMS),
+    points_negociation:"", marge_negociation:"", conditions_suspensives:"", observations_libres:"",
+  },
+  conclusion: {
+    note_globale:"", recommandation:"", prix_offre_recommande:"", strategie_locative:"",
+    fiscalite_recommandee:"", prochaine_etape:"", commentaire_conseiller:"",
+  },
+});
+
+const normaliseVisiteData = (bien = {}) => {
+  const merged = deepMergeVisite(buildDefaultVisiteData(bien), bien.visite_data || {});
+  merged.configuration.lots = Array.from({length:6}, (_,i) => ({
+    ...emptyLotsCibles()[i],
+    ...(merged.configuration.lots?.[i] || {}),
+    numero: merged.configuration.lots?.[i]?.numero || String(i+1),
+  }));
+  return merged;
+};
+
+const numVal = (v) => {
+  const n = parseFloat(String(v ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+};
+
+function MiniField({ label, value, onChange, type="text", options, textarea=false, readOnly=false, T=THEMES_INV.dark }) {
+  const commonStyle = { width:"100%", textAlign:type==="number" ? "right" : "left", opacity:readOnly ? .8 : 1 };
+  return (
+    <div style={{ marginBottom:10 }}>
+      <label style={{ fontSize:10, fontWeight:800, color:T.textMuted, textTransform:"uppercase", letterSpacing:1, display:"block", marginBottom:5 }}>{label}</label>
+      {textarea ? (
+        <textarea className="inv-textarea" rows={3} value={value || ""} readOnly={readOnly} onChange={e=>onChange(e.target.value)} />
+      ) : options ? (
+        <select className="inv-sel" value={value || ""} disabled={readOnly} onChange={e=>onChange(e.target.value)} style={{ width:"100%" }}>
+          {options.map(o => <option key={o} value={o}>{o || "—"}</option>)}
+        </select>
+      ) : (
+        <input className="inv-inp" type={type} value={value ?? ""} readOnly={readOnly} onChange={e=>onChange(e.target.value)} style={commonStyle} />
+      )}
+    </div>
+  );
+}
+
+function VisitSection({ title, icon, children, T=THEMES_INV.dark }) {
+  return (
+    <div style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", marginBottom:14, background:T.input }}>
+      <div style={{ padding:`${SPACING.sm}px ${SPACING.md}px`, background:T.sectionHd, color:T.accent, fontSize:FONT.xs.size, fontWeight:900, textTransform:"uppercase", letterSpacing:1.3, display:"flex", alignItems:"center", gap:6 }}>
+        {icon && <Icon as={icon} size={13} strokeWidth={2.2}/>}
+        {title}
+      </div>
+      <div style={{ padding:SPACING.md }}>{children}</div>
+    </div>
+  );
+}
+
+function AuditRows({ items, values, onChange, T=THEMES_INV.dark }) {
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+      {items.map(([key,label]) => {
+        const row = values?.[key] || { statut:"", commentaire:"" };
+        return (
+          <div key={key} style={{ display:"grid", gridTemplateColumns:"1.15fr 120px 1.45fr", gap:8, alignItems:"center" }}>
+            <div style={{ fontSize:FONT.sm.size, color:T.textSub, fontWeight:700 }}>{label}</div>
+            <select className="inv-sel" value={row.statut || ""} onChange={e=>onChange(key, "statut", e.target.value)} style={{ width:"100%", fontSize:FONT.xs.size+1, padding:"5px 7px" }}>
+              {VISITE_STATUS.map(s => <option key={s} value={s}>{s || "—"}</option>)}
+            </select>
+            <input className="inv-inp" value={row.commentaire || ""} placeholder="Commentaires…" onChange={e=>onChange(key, "commentaire", e.target.value)} style={{ width:"100%", textAlign:"left", fontSize:FONT.xs.size+1, padding:"5px 7px" }}/>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved }) {
+  const [data, setData] = useState(() => normaliseVisiteData(bien));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => { setData(normaliseVisiteData(bien)); }, [bien?.id]);
+
+  const upd = (section, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
+  const updNested = (section, sub, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [sub]: { ...prev[section]?.[sub], [key]: value } } }));
+  const updAudit = (section, key, field, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [key]: { ...prev[section]?.[key], [field]: value } } }));
+  const updControl = (section, key, field, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], controles: { ...prev[section]?.controles, [key]: { ...prev[section]?.controles?.[key], [field]: value } } } }));
+  const updLot = (idx, key, value) => setData(prev => {
+    const lots = [...(prev.configuration?.lots || emptyLotsCibles())];
+    lots[idx] = { ...lots[idx], [key]: value };
+    return { ...prev, configuration: { ...prev.configuration, lots } };
+  });
+
+  const lots = data.configuration?.lots || [];
+  const totalLoyersMensuels = lots.reduce((s,l)=>s+numVal(l.loyer),0);
+  const totalLoyersAnnuels = totalLoyersMensuels * 12;
+  const fin = data.finance || {};
+  const coutOperation =
+    numVal(fin.prix_acquisition_negocie) + numVal(fin.frais_notaire) + numVal(fin.frais_agence) +
+    numVal(fin.frais_profero) + numVal(fin.budget_travaux_ttc) + numVal(fin.mobilier) +
+    numVal(fin.frais_financement) + numVal(fin.divers_fonds_roulement);
+  const loyersNetsVacance = totalLoyersAnnuels * (1 - (numVal(fin.taux_vacance) / 100));
+  const loyersNetsCharges = loyersNetsVacance - numVal(fin.charges_annuelles);
+  const rendementBrut = coutOperation > 0 ? (totalLoyersAnnuels / coutOperation) * 100 : 0;
+  const rendementNet = coutOperation > 0 ? (loyersNetsCharges / coutOperation) * 100 : 0;
+
+  const sauvegarder = async () => {
+    setSaving(true); setError("");
+    const visiteData = {
+      ...data,
+      identification: {
+        ...data.identification,
+        reference_interne: bien.reference_interne || data.identification?.reference_interne || "",
+        total_loyers_mensuels_cibles: totalLoyersMensuels,
+        total_loyers_annuels_cibles: totalLoyersAnnuels,
+      },
+      finance: {
+        ...data.finance,
+        cout_total_operation_calcule: coutOperation,
+        loyers_bruts_mensuels: totalLoyersMensuels,
+        loyers_bruts_annuels: totalLoyersAnnuels,
+        loyers_nets_vacance_calcule: Math.round(loyersNetsVacance),
+        loyers_nets_charges_calcule: Math.round(loyersNetsCharges),
+        rendement_brut_calcule: Number(rendementBrut.toFixed(2)),
+        rendement_net_calcule: Number(rendementNet.toFixed(2)),
+      },
+    };
+    const payload = {
+      adresse: data.identification?.adresse?.trim() || null,
+      ville: data.identification?.ville?.trim() || null,
+      code_postal: data.identification?.code_postal?.trim() || null,
+      latitude: data.identification?.latitude !== "" ? parseFloat(data.identification.latitude) : null,
+      longitude: data.identification?.longitude !== "" ? parseFloat(data.identification.longitude) : null,
+      date_visite: data.identification?.date_visite || null,
+      conseiller_profero: data.identification?.conseiller_profero?.trim() || profil?.nom || null,
+      source_bien: data.identification?.source || null,
+      visite_data: visiteData,
+    };
+
+    const { error } = await supabase.from("invest_biens").update(payload).eq("id", bien.id);
+    setSaving(false);
+    if (error) {
+      console.error("Erreur sauvegarde fiche visite:", error);
+      setError(`Erreur sauvegarde : ${error.message}. Vérifiez que la migration SQL fiche visite a bien été exécutée.`);
+      return;
+    }
+    setSaved(true);
+    setTimeout(()=>setSaved(false), 2200);
+    if (onSaved) onSaved();
+  };
+
+  const grid2 = { display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 12px" };
+
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd blue" style={{ justifyContent:"space-between" }}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13} strokeWidth={2.2}/>Fiche visite du bien</span>
+        <button className="inv-btn inv-btn-sm inv-btn-gold" onClick={sauvegarder} disabled={saving}>
+          <Icon as={Save} size={12} strokeWidth={2.2}/> {saving ? "Sauvegarde…" : saved ? "Sauvegardé" : "Enregistrer"}
+        </button>
+      </div>
+      <div className="inv-card-bd">
+        {error && <div style={{marginBottom:12, padding:"9px 11px", borderRadius:RADIUS.md, background:SEMANTIC.danger.bg, border:`1px solid ${SEMANTIC.danger.border}`, color:DA, fontSize:FONT.sm.size}}>{error}</div>}
+
+        <VisitSection title="0. Identification du bien" icon={MapPin} T={T}>
+          <div style={grid2}>
+            <MiniField label="Référence interne Profero" value={bien.reference_interne || data.identification.reference_interne || "Générée automatiquement"} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Conseiller Profero en charge" value={data.identification.conseiller_profero} onChange={v=>upd("identification","conseiller_profero",v)} T={T}/>
+            <MiniField label="Adresse complète" value={data.identification.adresse} onChange={v=>upd("identification","adresse",v)} T={T}/>
+            <MiniField label="Ville" value={data.identification.ville} onChange={v=>upd("identification","ville",v)} T={T}/>
+            <MiniField label="Code postal" value={data.identification.code_postal} onChange={v=>upd("identification","code_postal",v)} T={T}/>
+            <MiniField label="Date de la visite" type="date" value={data.identification.date_visite} onChange={v=>upd("identification","date_visite",v)} T={T}/>
+            <MiniField label="Source" value={data.identification.source} options={SOURCES_BIEN_VISITE} onChange={v=>upd("identification","source",v)} T={T}/>
+            <MiniField label="Latitude" type="number" value={data.identification.latitude} onChange={v=>upd("identification","latitude",v)} T={T}/>
+            <MiniField label="Longitude" type="number" value={data.identification.longitude} onChange={v=>upd("identification","longitude",v)} T={T}/>
+          </div>
+        </VisitSection>
+
+        <VisitSection title="1. Données générales du bien" icon={Building2} T={T}>
+          <div style={grid2}>
+            <MiniField label="Type de bien" value={data.general.type_bien} onChange={v=>upd("general","type_bien",v)} T={T}/>
+            <MiniField label="Année de construction" type="number" value={data.general.annee_construction} onChange={v=>upd("general","annee_construction",v)} T={T}/>
+            <MiniField label="Surface totale (m²)" type="number" value={data.general.surface_totale} onChange={v=>upd("general","surface_totale",v)} T={T}/>
+            <MiniField label="Nombre de niveaux" type="number" value={data.general.nombre_niveaux} onChange={v=>upd("general","nombre_niveaux",v)} T={T}/>
+            <MiniField label="Nombre de lots actuels" type="number" value={data.general.lots_actuels} onChange={v=>upd("general","lots_actuels",v)} T={T}/>
+            <MiniField label="Nombre de lots cibles" type="number" value={data.general.lots_cibles} onChange={v=>upd("general","lots_cibles",v)} T={T}/>
+            <MiniField label="Prix affiché (€)" type="number" value={data.general.prix_affiche} onChange={v=>upd("general","prix_affiche",v)} T={T}/>
+            <MiniField label="Prix/m² affiché" value={numVal(data.general.surface_totale)>0 ? Math.round(numVal(data.general.prix_affiche)/numVal(data.general.surface_totale))+" €/m²" : "—"} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Mandat" value={data.general.mandat} options={MANDATS_VISITE} onChange={v=>upd("general","mandat",v)} T={T}/>
+            <MiniField label="Nom de l'agence / vendeur" value={data.general.agence_vendeur} onChange={v=>upd("general","agence_vendeur",v)} T={T}/>
+            <MiniField label="Délai de vente estimé" value={data.general.delai_vente_estime} onChange={v=>upd("general","delai_vente_estime",v)} T={T}/>
+            <MiniField label="Durée d'exposition de l'annonce" value={data.general.duree_exposition_annonce} onChange={v=>upd("general","duree_exposition_annonce",v)} T={T}/>
+          </div>
+        </VisitSection>
+
+        <VisitSection title="2. Potentiel de découpe & configuration cible" icon={Home} T={T}>
+          <div style={grid2}>
+            <MiniField label="Présence d'escaliers intérieurs" value={data.configuration.escaliers_interieurs} options={YES_NO} onChange={v=>upd("configuration","escaliers_interieurs",v)} T={T}/>
+            <MiniField label="Accès indépendants existants" value={data.configuration.acces_independants} options={YES_NO} onChange={v=>upd("configuration","acces_independants",v)} T={T}/>
+            <MiniField label="Nombre de compteurs eau" type="number" value={data.configuration.compteurs_eau} onChange={v=>upd("configuration","compteurs_eau",v)} T={T}/>
+            <MiniField label="Nombre de compteurs gaz" type="number" value={data.configuration.compteurs_gaz} onChange={v=>upd("configuration","compteurs_gaz",v)} T={T}/>
+            <MiniField label="Nombre de compteurs électricité" type="number" value={data.configuration.compteurs_electricite} onChange={v=>upd("configuration","compteurs_electricite",v)} T={T}/>
+          </div>
+          <div style={{overflowX:"auto", marginTop:8}}>
+            <div style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6}}>
+              <div>Lot</div><div>Type</div><div>Surface</div><div>Loyer cible</div><div>Meublé</div><div>Stationnement</div>
+            </div>
+            {lots.map((lot,idx)=>(
+              <div key={idx} style={{display:"grid", gridTemplateColumns:"60px 90px 90px 110px 90px 120px", gap:6, minWidth:560, marginBottom:6}}>
+                <input className="inv-inp" value={lot.numero} onChange={e=>updLot(idx,"numero",e.target.value)} style={{width:"100%"}}/>
+                <select className="inv-sel" value={lot.type || ""} onChange={e=>updLot(idx,"type",e.target.value)}>{TYPES_LOT_VISITE.map(x=><option key={x}>{x}</option>)}</select>
+                <input className="inv-inp" type="number" value={lot.surface || ""} onChange={e=>updLot(idx,"surface",e.target.value)} style={{width:"100%"}}/>
+                <input className="inv-inp" type="number" value={lot.loyer || ""} onChange={e=>updLot(idx,"loyer",e.target.value)} style={{width:"100%"}}/>
+                <select className="inv-sel" value={lot.meuble || ""} onChange={e=>updLot(idx,"meuble",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
+                <select className="inv-sel" value={lot.stationnement || ""} onChange={e=>updLot(idx,"stationnement",e.target.value)}>{YES_NO.map(x=><option key={x}>{x || "—"}</option>)}</select>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10}}>
+            <div className="inv-kpi" style={{padding:10}}><div className="inv-kpi-lbl">Total loyers mensuels</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersMensuels)}</div></div>
+            <div className="inv-kpi" style={{padding:10}}><div className="inv-kpi-lbl">Total loyers annuels</div><div className="inv-kpi-val green" style={{fontSize:18}}>{fmt(totalLoyersAnnuels)}</div></div>
+          </div>
+        </VisitSection>
+
+        <VisitSection title="3. Analyse technique du bâti" icon={Hammer} T={T}>
+          {TECHNIQUE_VISITE_GROUPS.map(g => (
+            <div key={g.key} style={{marginBottom:14}}>
+              <div style={{fontSize:FONT.xs.size, color:T.accent, textTransform:"uppercase", fontWeight:900, letterSpacing:1, marginBottom:8}}>{g.title}</div>
+              <AuditRows items={g.items} values={data.technique} onChange={(key,field,value)=>updAudit("technique",key,field,value)} T={T}/>
+            </div>
+          ))}
+        </VisitSection>
+
+        <VisitSection title="4. Performance énergétique & DPE" icon={BarChart3} T={T}>
+          <div style={grid2}>
+            <MiniField label="DPE actuel" value={data.dpe.dpe_actuel} options={LETTRES_DPE} onChange={v=>upd("dpe","dpe_actuel",v)} T={T}/>
+            <MiniField label="GES actuel" value={data.dpe.ges_actuel} options={LETTRES_DPE} onChange={v=>upd("dpe","ges_actuel",v)} T={T}/>
+            <MiniField label="Consommation énergie (kWh/m²/an)" type="number" value={data.dpe.conso_energie} onChange={v=>upd("dpe","conso_energie",v)} T={T}/>
+            <MiniField label="Émissions CO2 (kg CO2/m²/an)" type="number" value={data.dpe.emissions_co2} onChange={v=>upd("dpe","emissions_co2",v)} T={T}/>
+            <MiniField label="DPE cible après travaux" value={data.dpe.dpe_cible} options={LETTRES_DPE} onChange={v=>upd("dpe","dpe_cible",v)} T={T}/>
+            <MiniField label="Audit énergétique disponible" value={data.dpe.audit_disponible} options={YES_NO} onChange={v=>upd("dpe","audit_disponible",v)} T={T}/>
+          </div>
+          <MiniField label="Principales passoires identifiées" textarea value={data.dpe.passoires_identifiees} onChange={v=>upd("dpe","passoires_identifiees",v)} T={T}/>
+          <MiniField label="Travaux d'amélioration énergétique envisagés" textarea value={data.dpe.travaux_energetiques} onChange={v=>upd("dpe","travaux_energetiques",v)} T={T}/>
+        </VisitSection>
+
+        <VisitSection title="5. Urbanisme, réglementation & faisabilité" icon={FileText} T={T}>
+          <AuditRows items={URBANISME_VISITE_ITEMS} values={data.urbanisme.controles} onChange={(key,field,value)=>updControl("urbanisme",key,field,value)} T={T}/>
+          <div style={{...grid2, marginTop:12}}>
+            <MiniField label="Contact mairie / urbanisme consulté" value={data.urbanisme.contact_mairie} onChange={v=>upd("urbanisme","contact_mairie",v)} T={T}/>
+            <MiniField label="Durée prévisionnelle du chantier" value={data.urbanisme.duree_chantier} onChange={v=>upd("urbanisme","duree_chantier",v)} T={T}/>
+            <MiniField label="Complexité estimée" value={data.urbanisme.complexite} options={COMPLEXITE_VISITE} onChange={v=>upd("urbanisme","complexite",v)} T={T}/>
+          </div>
+          <MiniField label="Observations / risques réglementaires" textarea value={data.urbanisme.observations} onChange={v=>upd("urbanisme","observations",v)} T={T}/>
+          <MiniField label="Autorisations préalables à prévoir" textarea value={data.urbanisme.autorisations} onChange={v=>upd("urbanisme","autorisations",v)} T={T}/>
+          <MiniField label="Points de vigilance travaux spécifiques" textarea value={data.urbanisme.vigilance_travaux} onChange={v=>upd("urbanisme","vigilance_travaux",v)} T={T}/>
+        </VisitSection>
+
+        <VisitSection title="7. Analyse financière & rentabilité" icon={Wallet} T={T}>
+          <div style={grid2}>
+            <MiniField label="Prix d'acquisition négocié (€)" type="number" value={fin.prix_acquisition_negocie} onChange={v=>upd("finance","prix_acquisition_negocie",v)} T={T}/>
+            <MiniField label="Frais de notaire estimés (€)" type="number" value={fin.frais_notaire} onChange={v=>upd("finance","frais_notaire",v)} T={T}/>
+            <MiniField label="Frais d'agence (€)" type="number" value={fin.frais_agence} onChange={v=>upd("finance","frais_agence",v)} T={T}/>
+            <MiniField label="Frais Profero Invest (€)" type="number" value={fin.frais_profero} onChange={v=>upd("finance","frais_profero",v)} T={T}/>
+            <MiniField label="Budget travaux TTC (€)" type="number" value={fin.budget_travaux_ttc} onChange={v=>upd("finance","budget_travaux_ttc",v)} T={T}/>
+            <MiniField label="Mobilier si meublé (€)" type="number" value={fin.mobilier} onChange={v=>upd("finance","mobilier",v)} T={T}/>
+            <MiniField label="Frais financement / garantie (€)" type="number" value={fin.frais_financement} onChange={v=>upd("finance","frais_financement",v)} T={T}/>
+            <MiniField label="Divers / fonds de roulement (€)" type="number" value={fin.divers_fonds_roulement} onChange={v=>upd("finance","divers_fonds_roulement",v)} T={T}/>
+            <MiniField label="Coût total de l'opération" value={fmt(coutOperation)} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Loyers bruts mensuels" value={fmt(totalLoyersMensuels)} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Loyers bruts annuels" value={fmt(totalLoyersAnnuels)} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Taux de vacance estimé (%)" type="number" value={fin.taux_vacance} onChange={v=>upd("finance","taux_vacance",v)} T={T}/>
+            <MiniField label="Loyers nets de vacance" value={fmt(loyersNetsVacance)} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Charges annuelles" type="number" value={fin.charges_annuelles} onChange={v=>upd("finance","charges_annuelles",v)} T={T}/>
+            <MiniField label="Loyers nets de charges" value={fmt(loyersNetsCharges)} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Rendement brut (%)" value={rendementBrut ? rendementBrut.toFixed(2)+" %" : "—"} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Rendement net (%)" value={rendementNet ? rendementNet.toFixed(2)+" %" : "—"} readOnly onChange={()=>{}} T={T}/>
+            <MiniField label="Cash-flow mensuel estimé (€)" type="number" value={fin.cashflow_mensuel} onChange={v=>upd("finance","cashflow_mensuel",v)} T={T}/>
+            <MiniField label="Durée de remboursement" value={fin.duree_remboursement} onChange={v=>upd("finance","duree_remboursement",v)} T={T}/>
+            <MiniField label="Plus-value potentielle à terme (€)" type="number" value={fin.plus_value_potentielle} onChange={v=>upd("finance","plus_value_potentielle",v)} T={T}/>
+          </div>
+        </VisitSection>
+
+        <VisitSection title="8. Marché locatif local" icon={TrendingUp} T={T}>
+          <div style={grid2}>
+            <MiniField label="Tension locative" value={data.marche.tension_locative} options={TENSION_LOCATIVE} onChange={v=>upd("marche","tension_locative",v)} T={T}/>
+            <MiniField label="Délai de relocation moyen" value={data.marche.delai_relocation} onChange={v=>upd("marche","delai_relocation",v)} T={T}/>
+            <MiniField label="Loyer moyen secteur (€/m²)" type="number" value={data.marche.loyer_moyen_m2} onChange={v=>upd("marche","loyer_moyen_m2",v)} T={T}/>
+            <MiniField label="Colocation possible ?" value={data.marche.colocation_possible} options={YES_NO} onChange={v=>upd("marche","colocation_possible",v)} T={T}/>
+            <MiniField label="Location meublée pertinente ?" value={data.marche.meuble_pertinente} options={YES_NO} onChange={v=>upd("marche","meuble_pertinente",v)} T={T}/>
+            <MiniField label="Location nue pertinente ?" value={data.marche.nue_pertinente} options={YES_NO} onChange={v=>upd("marche","nue_pertinente",v)} T={T}/>
+            <MiniField label="Régime fiscal adapté" value={data.marche.regime_fiscal} onChange={v=>upd("marche","regime_fiscal",v)} T={T}/>
+            <MiniField label="Durée moyenne de vacance" value={data.marche.vacance_moyenne} onChange={v=>upd("marche","vacance_moyenne",v)} T={T}/>
+          </div>
+          <MiniField label="Profil des locataires cibles" textarea value={data.marche.profil_locataires} onChange={v=>upd("marche","profil_locataires",v)} T={T}/>
+          <MiniField label="Concurrence directe dans le secteur" textarea value={data.marche.concurrence} onChange={v=>upd("marche","concurrence",v)} T={T}/>
+          <MiniField label="Points forts du secteur" textarea value={data.marche.points_forts} onChange={v=>upd("marche","points_forts",v)} T={T}/>
+          <MiniField label="Points faibles ou risques du secteur" textarea value={data.marche.points_faibles} onChange={v=>upd("marche","points_faibles",v)} T={T}/>
+        </VisitSection>
+
+        <VisitSection title="9. Points de vigilance & risques" icon={AlertTriangle} T={T}>
+          <AuditRows items={RISQUES_VISITE_ITEMS} values={data.risques.controles} onChange={(key,field,value)=>updControl("risques",key,field,value)} T={T}/>
+          <div style={{...grid2, marginTop:12}}>
+            <MiniField label="Marge de négociation estimée" value={data.risques.marge_negociation} onChange={v=>upd("risques","marge_negociation",v)} T={T}/>
+          </div>
+          <MiniField label="Points de négociation identifiés" textarea value={data.risques.points_negociation} onChange={v=>upd("risques","points_negociation",v)} T={T}/>
+          <MiniField label="Conditions suspensives à prévoir" textarea value={data.risques.conditions_suspensives} onChange={v=>upd("risques","conditions_suspensives",v)} T={T}/>
+          <MiniField label="Risques non listés / observations libres" textarea value={data.risques.observations_libres} onChange={v=>upd("risques","observations_libres",v)} T={T}/>
+        </VisitSection>
+
+        <VisitSection title="10. Conclusion & recommandation Profero" icon={Check} T={T}>
+          <div style={grid2}>
+            <MiniField label="Note globale du dossier /10" type="number" value={data.conclusion.note_globale} onChange={v=>upd("conclusion","note_globale",v)} T={T}/>
+            <MiniField label="Recommandation" value={data.conclusion.recommandation} options={RECO_VISITE} onChange={v=>upd("conclusion","recommandation",v)} T={T}/>
+            <MiniField label="Prix d'offre recommandé (€)" type="number" value={data.conclusion.prix_offre_recommande} onChange={v=>upd("conclusion","prix_offre_recommande",v)} T={T}/>
+            <MiniField label="Stratégie locative recommandée" value={data.conclusion.strategie_locative} onChange={v=>upd("conclusion","strategie_locative",v)} T={T}/>
+            <MiniField label="Fiscalité recommandée" value={data.conclusion.fiscalite_recommandee} onChange={v=>upd("conclusion","fiscalite_recommandee",v)} T={T}/>
+            <MiniField label="Prochaine étape à engager" value={data.conclusion.prochaine_etape} onChange={v=>upd("conclusion","prochaine_etape",v)} T={T}/>
+          </div>
+          <MiniField label="Commentaire libre du conseiller Profero" textarea value={data.conclusion.commentaire_conseiller} onChange={v=>upd("conclusion","commentaire_conseiller",v)} T={T}/>
+        </VisitSection>
+
+        <button className="inv-btn inv-btn-gold" onClick={sauvegarder} disabled={saving} style={{width:"100%", justifyContent:"center"}}>
+          <Icon as={Save} size={13} strokeWidth={2.2}/> {saving ? "Sauvegarde en cours…" : "Enregistrer la fiche visite"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+
 function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [bien, setBien]       = useState(null);
   const [props, setProps]     = useState([]);
@@ -3644,13 +4097,39 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
 
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
 
+  const ClientsAssociesCard = () => (
+    <div className="inv-card">
+      <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
+        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+      </div>
+      <div className="inv-card-bd">
+        {props.length === 0 ? (
+          <div style={{ fontSize:13, color:T.textMuted, fontStyle:"italic", textAlign:"center", padding:"16px 0" }}>Aucun client associé</div>
+        ) : props.map(p => (
+          <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
+            <div style={{ fontWeight:700, fontSize:13, color:T.text }}>{p.client?.prenom} {p.client?.nom}</div>
+            <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
+              {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
+              {p.commentaire && ` · ${p.commentaire}`}
+            </div>
+            {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent }}>📄 Dossier présenté ↗</a>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{ padding:"24px 28px", maxWidth:1100, margin:"0 auto" }}>
+    <div style={{ padding:"24px 28px", maxWidth:1420, margin:"0 auto" }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← Stock de biens</button>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:22, fontWeight:800, color:T.text }}>{bien.adresse||"Bien sans adresse"}</div>
-          <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>{bien.ville||""}{bien.code_postal ? ` ${bien.code_postal}` : ""}{bien.agence ? ` · ${bien.agence}` : ""}</div>
+          <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>
+            {bien.reference_interne ? <span style={{color:T.accent,fontWeight:800,marginRight:8}}>{bien.reference_interne}</span> : null}
+            {bien.ville||""}{bien.code_postal ? ` ${bien.code_postal}` : ""}{bien.agence ? ` · ${bien.agence}` : ""}
+          </div>
         </div>
         <span style={{ background:`${couleur}18`, color:couleur, border:`1px solid ${couleur}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{bien.statut}</span>
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
@@ -3664,16 +4143,19 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"0.82fr 1.18fr", gap:16, alignItems:"start" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <ClientsAssociesCard />
+
           <div className="inv-card">
             <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Informations</span></div>
             <div className="inv-card-bd">
-              {[["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:T.accent}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
+              {[["Référence Profero", bien.reference_interne || "—"],["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Source", bien.source_bien || bien.visite_data?.identification?.source],["Conseiller", bien.conseiller_profero || bien.visite_data?.identification?.conseiller_profero],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:T.accent}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
               ))}
             </div>
           </div>
+
           <div className="inv-card">
             <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Wallet} size={13} strokeWidth={2.2}/>Données Financières</span></div>
             <div className="inv-card-bd">
@@ -3695,31 +4177,10 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
             </div>
           )}
 
-          {/* Documents */}
           <DocumentsSection folder={`biens/${id}`} T={T} />
         </div>
 
-        {/* Propositions clients */}
-        <div className="inv-card">
-          <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-            <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
-            <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
-          </div>
-          <div className="inv-card-bd">
-            {props.length === 0 ? (
-              <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun client associé</div>
-            ) : props.map(p => (
-              <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
-                <div style={{ fontWeight:700, fontSize:13, color:T.text }}>{p.client?.prenom} {p.client?.nom}</div>
-                <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
-                  {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
-                  {p.commentaire && ` · ${p.commentaire}`}
-                </div>
-                {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent }}>📄 Dossier présenté ↗</a>}
-              </div>
-            ))}
-          </div>
-        </div>
+        <FicheVisiteBien bien={bien} profil={profil} T={T} onSaved={charger} />
       </div>
 
       {showEdit && <FormulaireBien bien={bien} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
@@ -3759,6 +4220,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     </div>
   );
 }
+
 
 // ─── ADMIN INVEST ─────────────────────────────────────────────────────────────
 function AdminInvest({ profil, T, theme, setTheme }) {
