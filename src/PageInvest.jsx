@@ -2116,6 +2116,333 @@ const isBienFicheComplete = (b) => {
 const hasSimulateurBien = (b) => !!(b?.visite_data?.simulateur || b?.visite_data?.simulateur_updated_at);
 const isGeolocBien = (b) => Number.isFinite(parseFloat(b?.latitude)) && Number.isFinite(parseFloat(b?.longitude));
 
+
+// ─── MODULES D’AIDE À LA DÉCISION — CLIENTS / BIENS ─────────────────────────
+const CLIENT_STRATEGIES_INVEST = ["", "Cash-flow", "Patrimoine", "Fiscalité", "Revente à terme", "Diversification", "Premier investissement"];
+const CLIENT_TRAVAUX_ACCEPTES = ["", "Léger", "Moyen", "Lourd", "Création de lots", "À éviter", "À préciser"];
+const CLIENT_URGENCE_INVEST = ["", "Immédiate", "1 à 3 mois", "3 à 6 mois", "6 à 12 mois", "Veille opportuniste"];
+const CLIENT_FISCALITES_INVEST = ["", "LMNP réel", "SCI IS", "SCI IR", "Location nue", "À arbitrer", "Non défini"];
+const OFFRE_STATUTS_INVEST = ["", "À préparer", "À envoyer", "Envoyée", "Relance à faire", "Acceptée", "Refusée", "Abandonnée"];
+
+const CLIENT_DOCUMENT_CHECKLIST = [
+  ["identite", "Pièce d’identité"],
+  ["solvabilite", "Dossier de solvabilité / banque"],
+  ["strategie", "Stratégie d’investissement validée"],
+  ["accord_mandat", "Contrat / mandat Profero signé"],
+  ["simulation", "Simulation bancaire ou enveloppe validée"],
+];
+const BIEN_DOCUMENT_CHECKLIST = [
+  ["diagnostics", "Diagnostics / DDT"],
+  ["taxe_fonciere", "Taxe foncière"],
+  ["plans", "Plans / croquis"],
+  ["devis", "Devis travaux"],
+  ["pv_ag", "PV d’AG / règlement copropriété"],
+  ["urbanisme", "Documents urbanisme / PLU"],
+  ["photos", "Photos du bien"],
+  ["titre_baux", "Titre de propriété / baux existants"],
+];
+
+const emptyClientStrategy = (client = {}) => ({
+  objectif: "", budget_max: client.budget || "", apport: "", zones: "", rendement_min: "", strategie: "",
+  travaux_acceptes: "", urgence: "", fiscalite: "", remarques: "", documents_checklist: {},
+});
+const clientStrategy = (client = {}) => ({ ...emptyClientStrategy(client), ...(client?.strategie_data || {}) });
+const checklistPct = (checklist = {}, items = []) => {
+  if (!items.length) return 0;
+  const done = items.filter(([k]) => checklist?.[k] === "recu" || checklist?.[k] === true).length;
+  return Math.round((done / items.length) * 100);
+};
+const getNumberLoose = (v) => {
+  const n = parseFloat(String(v ?? "").replace(/[^0-9,.-]/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+};
+const bienTotalCost = (b = {}) => getNumberLoose(b.cout_total) || (getNumberLoose(b.prix_vente) + getNumberLoose(b.prix_travaux));
+const bienLotsCount = (b = {}) => Array.isArray(b?.visite_data?.configuration?.lots) ? b.visite_data.configuration.lots.filter(l => l && (l.type || l.surface || l.loyer)).length : 0;
+const computeAutoBienScore = (b = {}) => {
+  const v = b.visite_data || {};
+  const rendement = getNumberLoose(b.rendement_brut || v.finance?.rendement_brut || v.finance?.rendement_brut_calcule);
+  const cashflow = getNumberLoose(b.cashflow_estime || v.finance?.cashflow_mensuel || v.finance?.cashflow_mensuel_estime);
+  const note = getNumberLoose(v.conclusion?.note_globale);
+  const reco = v.conclusion?.recommandation || "";
+  const completion = isBienFicheComplete(b) ? 100 : 45;
+  const riskItems = Object.values(v.risques?.controles || {});
+  const problems = riskItems.filter(x => x?.statut === "Problème").length;
+  const checks = riskItems.filter(x => x?.statut === "À vérifier").length;
+  let score = 0;
+  score += Math.min(30, rendement * 2.1);
+  score += cashflow > 0 ? Math.min(20, cashflow / 25) : Math.max(-10, cashflow / 50);
+  score += note > 0 ? Math.min(20, note * 2) : 0;
+  score += completion >= 100 ? 10 : 3;
+  score += reco === "Passer à l'offre" ? 12 : reco === "Approfondir" ? 6 : reco === "Abandonner" ? -18 : 0;
+  score -= problems * 7 + checks * 2;
+  return Math.max(0, Math.min(100, Math.round(score)));
+};
+const computeClientBienMatch = (client = {}, bien = {}) => {
+  const strat = clientStrategy(client);
+  const budget = getNumberLoose(strat.budget_max || client.budget);
+  const total = bienTotalCost(bien);
+  const rendement = getNumberLoose(bien.rendement_brut || bien.visite_data?.finance?.rendement_brut || bien.visite_data?.finance?.rendement_brut_calcule);
+  const rendMin = getNumberLoose(strat.rendement_min);
+  const zones = normTxt(strat.zones || "");
+  const loc = normTxt(`${bien.ville || ""} ${bien.code_postal || ""} ${bien.adresse || ""}`);
+  const travaux = getNumberLoose(bien.prix_travaux || bien.visite_data?.finance?.budget_travaux_ttc);
+  const reasons = [];
+  let score = 35;
+  if (budget > 0 && total > 0) {
+    const ratio = total / budget;
+    if (ratio <= 1) { score += 25; reasons.push("budget compatible"); }
+    else if (ratio <= 1.10) { score += 12; reasons.push("budget proche"); }
+    else { score -= 22; reasons.push("hors budget"); }
+  }
+  if (rendMin > 0 && rendement > 0) {
+    if (rendement >= rendMin) { score += 20; reasons.push("rendement cible atteint"); }
+    else { score -= 10; reasons.push("rendement sous cible"); }
+  } else if (rendement >= 8) { score += 10; reasons.push("rendement attractif"); }
+  if (zones && loc && zones.split(/[;,]/).some(z => z.trim() && loc.includes(z.trim()))) { score += 15; reasons.push("zone recherchée"); }
+  if (strat.travaux_acceptes === "Léger" && travaux > 60000) { score -= 10; reasons.push("travaux importants"); }
+  if (strat.travaux_acceptes === "Lourd" && travaux > 0) { score += 6; reasons.push("travaux acceptés"); }
+  if (strat.strategie && normTxt(strat.strategie).includes("cash") && getNumberLoose(bien.cashflow_estime) > 0) { score += 10; reasons.push("cash-flow positif"); }
+  return { score: Math.max(0, Math.min(100, Math.round(score))), reasons };
+};
+
+function CompletionBar({ label, value, color, T=THEMES_INV.dark }) {
+  const pct = Math.max(0, Math.min(100, Number(value || 0)));
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{display:"flex", justifyContent:"space-between", gap:8, marginBottom:4, fontSize:FONT.xs.size+1, color:T.textSub, fontWeight:700}}>
+        <span>{label}</span><span style={{color}}>{pct}%</span>
+      </div>
+      <div style={{height:7, borderRadius:RADIUS.pill, background:T.input, border:`1px solid ${T.border}`, overflow:"hidden"}}>
+        <div style={{height:"100%", width:`${pct}%`, background:color, borderRadius:RADIUS.pill}} />
+      </div>
+    </div>
+  );
+}
+
+function ClientStrategyCard({ client, T=THEMES_INV.dark, onSaved }) {
+  const [data, setData] = useState(() => clientStrategy(client));
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => { setData(clientStrategy(client)); }, [client?.id]);
+  const update = (k, v) => setData(prev => ({...prev, [k]:v}));
+  const save = async () => {
+    setSaving(true); setMsg("");
+    const payload = { strategie_data:data, budget:getNumberLoose(data.budget_max || client.budget) };
+    const { error } = await supabase.from("invest_clients").update(payload).eq("id", client.id);
+    setSaving(false);
+    if (error) setMsg(`Erreur sauvegarde stratégie : ${error.message}`);
+    else { setMsg("Stratégie sauvegardée"); onSaved?.(); setTimeout(()=>setMsg(""),2200); }
+  };
+  const field = (label, key, options, type="text") => (
+    <div>
+      <label style={{fontSize:FONT.xs.size, fontWeight:800, color:T.textMuted, textTransform:"uppercase", letterSpacing:.8, display:"block", marginBottom:4}}>{label}</label>
+      {options ? (
+        <select className="inv-sel" value={data[key] || ""} onChange={e=>update(key,e.target.value)} style={{width:"100%"}}>{options.map(o=><option key={o} value={o}>{o || "—"}</option>)}</select>
+      ) : (
+        <input className="inv-inp" type={type} value={data[key] || ""} onChange={e=>update(key,e.target.value)} style={{width:"100%", textAlign:type==="number"?"right":"left"}} />
+      )}
+    </div>
+  );
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13} strokeWidth={2.2}/>Dossier investisseur</span>
+        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={save} disabled={saving}><Icon as={Save} size={12}/> {saving?"Sync…":"Sauvegarder"}</button>
+      </div>
+      <div className="inv-card-bd">
+        {msg && <div style={{fontSize:FONT.xs.size+1, color:msg.startsWith("Erreur")?DA:SU, marginBottom:8, fontWeight:800}}>{msg}</div>}
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+          {field("Objectif", "objectif", CLIENT_STRATEGIES_INVEST)}
+          {field("Budget max (€)", "budget_max", null, "number")}
+          {field("Apport disponible (€)", "apport", null, "number")}
+          {field("Rendement min (%)", "rendement_min", null, "number")}
+          {field("Zones recherchées", "zones")}
+          {field("Travaux acceptés", "travaux_acceptes", CLIENT_TRAVAUX_ACCEPTES)}
+          {field("Urgence", "urgence", CLIENT_URGENCE_INVEST)}
+          {field("Fiscalité cible", "fiscalite", CLIENT_FISCALITES_INVEST)}
+        </div>
+        <div style={{marginTop:10}}>
+          <label style={{fontSize:FONT.xs.size, fontWeight:800, color:T.textMuted, textTransform:"uppercase", letterSpacing:.8, display:"block", marginBottom:4}}>Freins / remarques</label>
+          <textarea className="inv-textarea" rows={3} value={data.remarques || ""} onChange={e=>update("remarques", e.target.value)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MatchingBiensClientCard({ client, biens=[], propositions=[], T=THEMES_INV.dark, onProposer }) {
+  const proposed = new Set((propositions || []).map(p => p.bien_id || p.bien?.id).filter(Boolean));
+  const ranked = biens.map(b => ({ b, ...computeClientBienMatch(client, b) })).filter(x => !proposed.has(x.b.id)).sort((a,b)=>b.score-a.score).slice(0,6);
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Handshake} size={13} strokeWidth={2.2}/>Matching biens compatibles</span></div>
+      <div className="inv-card-bd">
+        {ranked.length === 0 ? <div style={{fontSize:13,color:T.textMuted,fontStyle:"italic",textAlign:"center",padding:"16px 0"}}>Aucun bien compatible non proposé</div> : ranked.map(({b, score, reasons}) => (
+          <div key={b.id} style={{padding:"10px 0", borderBottom:`1px solid ${T.border}`}}>
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:8}}>
+              <div style={{fontWeight:800, color:T.text, fontSize:FONT.sm.size+1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{b.adresse || b.ville || "Bien sans adresse"}</div>
+              <span style={{fontFamily:"'DM Mono',monospace", color:score>=75?SU:score>=55?WA:DA, fontWeight:900}}>{score}%</span>
+            </div>
+            <div style={{fontSize:FONT.xs.size+1, color:T.textMuted, marginTop:3}}>{fmtDashboardEur(bienTotalCost(b))} · {b.rendement_brut ? fmtDashboardPct(b.rendement_brut) : "rendement —"} · {reasons.slice(0,2).join(" · ") || "matching général"}</div>
+            {onProposer && <button className="inv-btn inv-btn-blue inv-btn-sm" style={{marginTop:8}} onClick={()=>onProposer(b.id)}>Proposer à ce client</button>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChecklistDocumentsClientCard({ client, T=THEMES_INV.dark, onSaved }) {
+  const [data, setData] = useState(() => clientStrategy(client));
+  useEffect(() => { setData(clientStrategy(client)); }, [client?.id]);
+  const setStatus = async (key, status) => {
+    const next = { ...data, documents_checklist:{ ...(data.documents_checklist || {}), [key]:status } };
+    setData(next);
+    const { error } = await supabase.from("invest_clients").update({ strategie_data:next }).eq("id", client.id);
+    if (!error) onSaved?.();
+  };
+  const pct = checklistPct(data.documents_checklist, CLIENT_DOCUMENT_CHECKLIST);
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13}/>Documents manquants client</span><span style={{fontFamily:"'DM Mono',monospace", color:T.accent}}>{pct}%</span></div>
+      <div className="inv-card-bd">
+        <CompletionBar label="Complétude documentaire" value={pct} color={pct>=80?SU:WA} T={T}/>
+        {CLIENT_DOCUMENT_CHECKLIST.map(([k,label]) => (
+          <div key={k} className="inv-row"><span className="inv-lbl">{label}</span><select className="inv-sel" value={data.documents_checklist?.[k] || ""} onChange={e=>setStatus(k,e.target.value)}><option value="">À demander</option><option value="recu">Reçu</option><option value="na">Non applicable</option></select></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AutoScoreBienCard({ bien, T=THEMES_INV.dark }) {
+  const score = computeAutoBienScore(bien);
+  const v = bien.visite_data || {};
+  const rendement = getNumberLoose(bien.rendement_brut || v.finance?.rendement_brut_calcule || v.finance?.rendement_brut);
+  const cash = getNumberLoose(bien.cashflow_estime || v.finance?.cashflow_mensuel || v.finance?.cashflow_mensuel_estime);
+  const docs = checklistPct(v.documents_checklist || {}, BIEN_DOCUMENT_CHECKLIST);
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Score Profero automatique</span></div>
+      <div className="inv-card-bd">
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12}}>
+          <div style={{width:72,height:72,borderRadius:"50%",border:`5px solid ${score>=75?SU:score>=50?WA:DA}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Mono',monospace",fontWeight:900,color:score>=75?SU:score>=50?WA:DA,fontSize:18}}>{score}</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:FONT.md.size,fontWeight:900,color:T.text}}>{score>=75?"Très intéressant":score>=50?"À approfondir":"Risque / à challenger"}</div>
+            <div style={{fontSize:FONT.sm.size,color:T.textMuted,marginTop:3}}>Score basé sur rentabilité, cash-flow, conclusion, complétude et risques renseignés</div>
+          </div>
+        </div>
+        <CompletionBar label="Rendement" value={Math.min(100, rendement*8)} color={SU} T={T}/>
+        <CompletionBar label="Cash-flow" value={cash>0?Math.min(100, cash/4):20} color={cash>0?SU:WA} T={T}/>
+        <CompletionBar label="Documents" value={docs} color={T.accent} T={T}/>
+      </div>
+    </div>
+  );
+}
+
+function MatchingClientsBienCard({ bien, clients=[], propositions=[], T=THEMES_INV.dark, onAssociate }) {
+  const associated = new Set((propositions||[]).map(p => p.client_id).filter(Boolean));
+  const ranked = clients.map(c => ({ c, ...computeClientBienMatch(c, bien) })).sort((a,b)=>b.score-a.score).slice(0,8);
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Handshake} size={13}/>Matching clients ↔ bien</span></div>
+      <div className="inv-card-bd">
+        {ranked.length===0 ? <div style={{fontSize:13,color:T.textMuted,fontStyle:"italic",textAlign:"center",padding:"16px 0"}}>Aucun client à matcher</div> : ranked.map(({c, score, reasons}) => (
+          <div key={c.id} style={{padding:"9px 0",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div style={{fontSize:FONT.sm.size+1,fontWeight:900,color:T.text}}>{getClientName(c)}</div>
+              <span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,color:score>=75?SU:score>=55?WA:DA}}>{score}%</span>
+            </div>
+            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:3}}>{fmtDashboardEur(c.budget || c.strategie_data?.budget_max)} · {c.strategie_data?.strategie || "stratégie à compléter"} · {reasons.slice(0,2).join(" · ") || "compatibilité générale"}</div>
+            {onAssociate && !associated.has(c.id) && <button className="inv-btn inv-btn-blue inv-btn-sm" style={{marginTop:7}} onClick={()=>onAssociate(c.id)}>Associer / proposer</button>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OffreAchatBienCard({ bien, T=THEMES_INV.dark, onSaved }) {
+  const initial = bien?.visite_data?.offre_achat || {};
+  const [data, setData] = useState({ prix_recommande:bien.montant_offre || initial.prix_recommande || "", marge_negociation:initial.marge_negociation || "", statut:initial.statut || "À préparer", arguments:initial.arguments || "", conditions:initial.conditions || "", date_relance:initial.date_relance || bien.date_relance || "" });
+  const [msg, setMsg] = useState("");
+  useEffect(()=>{ const i=bien?.visite_data?.offre_achat || {}; setData({ prix_recommande:bien.montant_offre || i.prix_recommande || "", marge_negociation:i.marge_negociation || "", statut:i.statut || "À préparer", arguments:i.arguments || "", conditions:i.conditions || "", date_relance:i.date_relance || bien.date_relance || "" }); }, [bien?.id]);
+  const upd = (k,v)=>setData(prev=>({...prev,[k]:v}));
+  const save = async () => {
+    const visite_data = { ...(bien.visite_data || {}), offre_achat:data };
+    const payload = { visite_data, montant_offre:getNumberLoose(data.prix_recommande) || null, date_relance:data.date_relance || null };
+    const { error } = await supabase.from("invest_biens").update(payload).eq("id", bien.id);
+    if (error) setMsg(`Erreur : ${error.message}`); else { setMsg("Offre sauvegardée"); onSaved?.(); setTimeout(()=>setMsg(""),2200); }
+  };
+  const genMail = () => {
+    const body = `Bonjour,\n\nSuite à l’analyse du bien situé ${[bien.adresse,bien.code_postal,bien.ville].filter(Boolean).join(" ")}, nous souhaiterions transmettre une offre à ${fmtDashboardEur(data.prix_recommande)}.\n\nArguments principaux :\n${data.arguments || "- À compléter"}\n\nConditions souhaitées :\n${data.conditions || "- À compléter"}\n\nBien cordialement,\nProfero Invest`;
+    navigator.clipboard?.writeText(body); setMsg("Texte d’offre copié"); setTimeout(()=>setMsg(""),2200);
+  };
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Send} size={13}/>Module offre d’achat</span></div>
+      <div className="inv-card-bd">
+        {msg && <div style={{fontSize:FONT.xs.size+1,color:msg.startsWith("Erreur")?DA:SU,fontWeight:800,marginBottom:8}}>{msg}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div><label className="inv-kpi-lbl">Prix d’offre recommandé</label><input className="inv-inp" type="number" value={data.prix_recommande} onChange={e=>upd("prix_recommande",e.target.value)} style={{width:"100%"}}/></div>
+          <div><label className="inv-kpi-lbl">Marge de négociation</label><input className="inv-inp" value={data.marge_negociation} onChange={e=>upd("marge_negociation",e.target.value)} style={{width:"100%",textAlign:"left"}}/></div>
+          <div><label className="inv-kpi-lbl">Statut offre</label><select className="inv-sel" value={data.statut} onChange={e=>upd("statut",e.target.value)} style={{width:"100%"}}>{OFFRE_STATUTS_INVEST.map(o=><option key={o}>{o}</option>)}</select></div>
+          <div><label className="inv-kpi-lbl">Date de relance</label><input className="inv-inp" type="date" value={data.date_relance} onChange={e=>upd("date_relance",e.target.value)} style={{width:"100%"}}/></div>
+        </div>
+        <div style={{marginTop:10}}><label className="inv-kpi-lbl">Arguments de négociation</label><textarea className="inv-textarea" rows={3} value={data.arguments} onChange={e=>upd("arguments",e.target.value)} /></div>
+        <div style={{marginTop:10}}><label className="inv-kpi-lbl">Conditions suspensives à prévoir</label><textarea className="inv-textarea" rows={2} value={data.conditions} onChange={e=>upd("conditions",e.target.value)} /></div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={genMail}>Copier texte offre</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={save}><Icon as={Save} size={12}/> Enregistrer offre</button></div>
+      </div>
+    </div>
+  );
+}
+
+function ChecklistDocumentsBienCard({ bien, T=THEMES_INV.dark, onSaved }) {
+  const [checklist, setChecklist] = useState(() => bien?.visite_data?.documents_checklist || {});
+  useEffect(()=>setChecklist(bien?.visite_data?.documents_checklist || {}), [bien?.id]);
+  const setStatus = async (key, status) => {
+    const next = { ...checklist, [key]:status };
+    setChecklist(next);
+    const visite_data = { ...(bien.visite_data || {}), documents_checklist:next };
+    const { error } = await supabase.from("invest_biens").update({ visite_data }).eq("id", bien.id);
+    if (!error) onSaved?.();
+  };
+  const pct = checklistPct(checklist, BIEN_DOCUMENT_CHECKLIST);
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13}/>Checklist documents du bien</span><span style={{fontFamily:"'DM Mono',monospace",color:T.accent}}>{pct}%</span></div>
+      <div className="inv-card-bd">
+        <CompletionBar label="Documents reçus" value={pct} color={pct>=80?SU:WA} T={T}/>
+        {BIEN_DOCUMENT_CHECKLIST.map(([k,label]) => (
+          <div key={k} className="inv-row"><span className="inv-lbl">{label}</span><select className="inv-sel" value={checklist?.[k] || ""} onChange={e=>setStatus(k,e.target.value)}><option value="">À demander</option><option value="recu">Reçu</option><option value="na">Non applicable</option><option value="verifier">À vérifier</option></select></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HistoriqueBienCard({ bien, propositions=[], T=THEMES_INV.dark }) {
+  const events = [];
+  if (bien.created_at) events.push([bien.created_at, "Création du bien", bien.created_by || "Stock de biens"]);
+  if (bien.updated_at) events.push([bien.updated_at, "Dernière mise à jour", bien.statut || "Fiche bien"]);
+  if (bien.date_visite) events.push([bien.date_visite, "Visite du bien", bien.conseiller_profero || "Conseiller"]);
+  if (bien.visite_data?.simulateur_updated_at) events.push([bien.visite_data.simulateur_updated_at, "Simulation mise à jour", "Simulateur intégré"]);
+  propositions.forEach(p => events.push([p.created_at || p.date_proposition, `Bien proposé à ${p.client?.prenom || ""} ${p.client?.nom || ""}`.trim(), p.statut || "proposé"]));
+  events.sort((a,b)=>new Date(b[0])-new Date(a[0]));
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13}/>Historique activité</span></div>
+      <div className="inv-card-bd">
+        {events.length===0 ? <div style={{fontSize:13,color:T.textMuted,fontStyle:"italic",textAlign:"center",padding:"14px 0"}}>Aucun historique</div> : events.slice(0,8).map((e,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"86px 1fr",gap:10,padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>{safeDate(e[0])}</div><div><div style={{fontWeight:800,color:T.text,fontSize:FONT.sm.size+1}}>{e[1]}</div><div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2}}>{e[2]}</div></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DashboardPanel({ title, icon: IconComp, subtitle, children, T=THEMES_INV.dark, action }) {
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.xxl-2 }}>
@@ -3252,7 +3579,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       supabase.from("invest_clients").select("*").eq("id", id).single(),
       supabase.from("invest_notes").select("*").eq("client_id", id).order("date", { ascending: false }),
       supabase.from("invest_propositions").select("*, bien:invest_biens(adresse,ville,statut)").eq("client_id", id).order("created_at", { ascending: false }),
-      supabase.from("invest_biens").select("id,adresse,ville,statut").order("adresse"),
+      supabase.from("invest_biens").select("id,adresse,ville,code_postal,statut,prix_vente,prix_travaux,cout_total,montant_offre,rendement_brut,cashflow_estime,visite_data").order("adresse"),
     ]);
     setClient(c); setNotes(n||[]); setProps(p||[]); setBiens(b||[]);
 
@@ -3291,6 +3618,20 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
     setSavingProp(false);
     setShowProp(false);
     charger();
+  };
+
+  const proposerBienDirect = async (bienId) => {
+    if (!bienId) return;
+    const { error } = await supabase.from("invest_propositions").insert({
+      client_id: id,
+      bien_id: bienId,
+      statut: "proposé",
+      commentaire: "Proposé depuis le matching automatique",
+      lien_dossier: "",
+      date_proposition: new Date().toISOString().slice(0,10),
+    });
+    if (error) alert("Impossible de proposer ce bien : " + error.message);
+    else charger();
   };
 
   // Biens déjà proposés à ce client : on les marque pour les retirer/distinguer dans la modale
@@ -3336,6 +3677,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               ))}
             </div>
           </div>
+          <ClientStrategyCard client={client} T={T} onSaved={charger} />
+          <ChecklistDocumentsClientCard client={client} T={T} onSaved={charger} />
+          <MatchingBiensClientCard client={client} biens={biens} propositions={props} T={T} onProposer={proposerBienDirect} />
           <div className="inv-card">
             <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
             <div className="inv-card-bd">
@@ -5285,7 +5629,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     const [{ data: b }, { data: p }, { data: c }] = await Promise.all([
       supabase.from("invest_biens").select("*").eq("id", id).single(),
       supabase.from("invest_propositions").select("*, client:invest_clients(nom,prenom)").eq("bien_id", id).order("created_at",{ascending:false}),
-      supabase.from("invest_clients").select("id,nom,prenom").order("nom"),
+      supabase.from("invest_clients").select("id,nom,prenom,budget,statut,etape,strategie_data").order("nom"),
     ]);
     setBien(b); setProps(p||[]); setClients(c||[]);
   };
@@ -5299,6 +5643,20 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     setSavingProp(false);
     setShowProp(false);
     charger();
+  };
+
+  const associerClientMatching = async (clientId) => {
+    if (!clientId) return;
+    const { error } = await supabase.from("invest_propositions").insert({
+      bien_id: id,
+      client_id: clientId,
+      statut: "proposé",
+      commentaire: "Proposé depuis le matching automatique",
+      lien_dossier: "",
+      date_proposition: new Date().toISOString().slice(0,10),
+    });
+    if (error) alert("Impossible d'associer ce client : " + error.message);
+    else charger();
   };
 
   const validerGeolocalisationBien = async () => {
@@ -5551,6 +5909,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
       <div style={{ display:"grid", gridTemplateColumns:"0.82fr 1.18fr", gap:16, alignItems:"start" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <ClientsAssociesCard />
+          <AutoScoreBienCard bien={bien} T={T} />
+          <MatchingClientsBienCard bien={bien} clients={clients} propositions={props} T={T} onAssociate={associerClientMatching} />
 
           <div className="inv-card">
             <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Informations</span></div>
@@ -5582,7 +5942,10 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
             </div>
           )}
 
+          <OffreAchatBienCard bien={bien} T={T} onSaved={charger} />
+          <ChecklistDocumentsBienCard bien={bien} T={T} onSaved={charger} />
           <DocumentsSection folder={`biens/${id}`} T={T} categories={DOCUMENT_CATEGORIES_BIEN} />
+          <HistoriqueBienCard bien={bien} propositions={props} T={T} />
         </div>
 
         <FicheVisiteBien ref={ficheVisiteRef} bien={bien} profil={profil} T={T} onSaved={charger} onSaveStateChange={setVisiteSaveState} />
