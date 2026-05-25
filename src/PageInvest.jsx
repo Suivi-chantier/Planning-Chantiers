@@ -3995,8 +3995,15 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [visitStep, setVisitStep] = useState(0);
+  const autoSaveTimerRef = useRef(null);
+  const autoSaveBootRef = useRef(true);
 
-  useEffect(() => { setData(normaliseVisiteData(bien)); setVisitStep(0); }, [bien?.id]);
+  useEffect(() => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveBootRef.current = true;
+    setData(normaliseVisiteData(bien));
+    setVisitStep(0);
+  }, [bien?.id]);
   useEffect(() => { if (onSaveStateChange) onSaveStateChange({ saving, saved }); }, [saving, saved, onSaveStateChange]);
 
   const upd = (section, key, value) => setData(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
@@ -4039,7 +4046,9 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const globalTotal = stepScores.reduce((s,x)=>s+x.total,0);
   const globalPct = Math.min(100, Math.round((globalDone / Math.max(globalTotal,1)) * 100));
 
-  const sauvegarder = async () => {
+  const sauvegarder = async (options = {}) => {
+    const { refresh = true } = options;
+    if (!bien?.id) return false;
     setSaving(true); setError("");
     const fullAddress = [data.identification?.adresse, data.identification?.code_postal, data.identification?.ville].filter(Boolean).join(", ").trim();
     const previousAddress = getBienGoogleAddress(bien || {});
@@ -4090,10 +4099,29 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
     }
     setSaved(true);
     setTimeout(()=>setSaved(false), 2200);
-    if (onSaved) onSaved();
+    if (refresh && onSaved) onSaved();
     return true;
   };
   useImperativeHandle(ref, () => ({ sauvegarder }));
+
+  // Sauvegarde automatique de la fiche visite :
+  // dès qu'une donnée est modifiée, on attend une courte pause de saisie,
+  // puis on enregistre dans Supabase sans recharger toute la fiche.
+  useEffect(() => {
+    if (!bien?.id) return;
+    if (autoSaveBootRef.current) {
+      autoSaveBootRef.current = false;
+      return;
+    }
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      sauvegarder({ refresh:false });
+    }, 1400);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const grid2 = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))", gap:"0 12px" };
   const grid3 = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:"0 12px" };
