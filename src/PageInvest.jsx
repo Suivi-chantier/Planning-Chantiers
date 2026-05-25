@@ -2074,6 +2074,294 @@ function ClientsStatutsBoard({ clients=[], T=THEMES_INV.dark, movingClientId, on
   );
 }
 
+const DASH_STAGE_COLORS = ["#4db8ff", "#50c878", "#FFC200", "#c084fc", "#fb7185", "#38bdf8", "#f97316", "#a3e635", "#facc15", "#22c55e", "#60a5fa", "#e879f9", "#94a3b8"];
+
+const fmtDashboardEur = (v) => Number(v || 0) > 0
+  ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(Number(v || 0)) + " €"
+  : "—";
+const fmtDashboardPct = (v) => Number.isFinite(Number(v)) ? Number(v).toFixed(1).replace(".", ",") + " %" : "—";
+const safeDate = (d) => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
+const daysBetween = (from, to = new Date()) => {
+  if (!from) return null;
+  const a = new Date(from); a.setHours(12,0,0,0);
+  const b = new Date(to); b.setHours(12,0,0,0);
+  return Math.round((b - a) / 86400000);
+};
+const isFilledDash = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+const getClientName = (c) => `${c?.prenom || ""} ${c?.nom || ""}`.trim() || c?.nom || "Client";
+const getBienLabel = (b) => [b?.reference_interne, b?.adresse, b?.ville].filter(Boolean).join(" · ") || "Bien sans adresse";
+const getBienScore = (b) => {
+  const v = b?.visite_data || {};
+  const note = parseFloat(v?.conclusion?.note_globale || 0);
+  const rendement = parseFloat(b?.rendement_brut || v?.finance?.rendement_brut || 0);
+  const cashflow = parseFloat(b?.cashflow_estime || v?.finance?.cashflow_mensuel_estime || 0);
+  let score = 0;
+  if (note > 0) score += Math.min(10, note) * 10;
+  if (rendement > 0) score += Math.min(15, rendement) * 3;
+  if (cashflow > 0) score += Math.min(500, cashflow) / 20;
+  if (["Offre à faire", "Visité", "À analyser", "A analyser"].includes(b?.statut)) score += 12;
+  if (["Offre envoyée", "Offre acceptée"].includes(b?.statut)) score += 18;
+  return Math.round(score);
+};
+const isBienFicheComplete = (b) => {
+  const v = b?.visite_data || {};
+  return !!(
+    isFilledDash(b?.adresse) &&
+    isFilledDash(b?.ville) &&
+    isFilledDash(v?.conclusion?.recommandation) &&
+    isFilledDash(v?.finance?.budget_travaux_ttc || b?.prix_travaux) &&
+    Array.isArray(v?.configuration?.lots) && v.configuration.lots.length > 0
+  );
+};
+const hasSimulateurBien = (b) => !!(b?.visite_data?.simulateur || b?.visite_data?.simulateur_updated_at);
+const isGeolocBien = (b) => Number.isFinite(parseFloat(b?.latitude)) && Number.isFinite(parseFloat(b?.longitude));
+
+function DashboardPanel({ title, icon: IconComp, subtitle, children, T=THEMES_INV.dark, action }) {
+  return (
+    <div className="inv-card" style={{ marginBottom:SPACING.xxl-2 }}>
+      <div className="inv-card-hd blue" style={{ alignItems:"center" }}>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
+          {IconComp && <Icon as={IconComp} size={13} strokeWidth={2.2}/>}
+          {title}
+        </span>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {subtitle && <span style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"none", letterSpacing:0, fontWeight:600 }}>{subtitle}</span>}
+          {action}
+        </div>
+      </div>
+      <div className="inv-card-bd">{children}</div>
+    </div>
+  );
+}
+
+function DashboardAlertList({ items=[], T=THEMES_INV.dark, empty="Aucune alerte" }) {
+  return (
+    <div style={{display:"flex", flexDirection:"column", gap:8}}>
+      {items.length === 0 ? (
+        <div style={{padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center", fontSize:FONT.sm.size+1, fontStyle:"italic"}}>{empty}</div>
+      ) : items.map((it, idx) => (
+        <button key={idx} type="button" onClick={it.onClick}
+          style={{
+            display:"flex", alignItems:"center", gap:SPACING.sm+2, textAlign:"left",
+            background:T.input, border:`1px solid ${it.color || T.border}`, borderRadius:RADIUS.md,
+            padding:`${SPACING.sm+2}px ${SPACING.md}px`, cursor:it.onClick ? "pointer" : "default",
+            fontFamily:"inherit", transition:"all .12s",
+          }}
+          onMouseEnter={e=>{ if(it.onClick){ e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.background=T.cardHover; } }}
+          onMouseLeave={e=>{ e.currentTarget.style.transform="none"; e.currentTarget.style.background=T.input; }}>
+          <span style={{width:28,height:28,borderRadius:RADIUS.sm+1,background:`${it.color || T.accent}18`,color:it.color || T.accent,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon as={it.icon || AlertTriangle} size={14} strokeWidth={2.2}/>
+          </span>
+          <span style={{minWidth:0, flex:1}}>
+            <span style={{display:"block",fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</span>
+            <span style={{display:"block",fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,lineHeight:1.35}}>{it.sub}</span>
+          </span>
+          {it.badge && <span style={{fontSize:FONT.xs.size,fontWeight:800,color:it.color || T.accent,background:`${it.color || T.accent}14`,border:`1px solid ${(it.color || T.accent)}33`,borderRadius:RADIUS.pill,padding:"3px 8px",whiteSpace:"nowrap"}}>{it.badge}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ActionsPrioritairesDashboard({ clients=[], biens=[], planning=[], T=THEMES_INV.dark, onNavigate }) {
+  const { today, endWeek } = getWeekRange();
+  const items = [];
+  clients.filter(c => c.prochaine_action && c.date_prochaine_action && c.date_prochaine_action < today)
+    .sort((a,b)=>String(a.date_prochaine_action).localeCompare(String(b.date_prochaine_action))).slice(0,4)
+    .forEach(c => items.push({
+      title:`${getClientName(c)} — action en retard`, sub:`${safeDate(c.date_prochaine_action)} · ${c.prochaine_action}`, badge:"Retard", color:DA, icon:AlertTriangle,
+      onClick:()=>onNavigate?.("crm", { type:"actions_week_or_late" })
+    }));
+  biens.filter(b => b.date_relance && b.date_relance <= today)
+    .sort((a,b)=>String(a.date_relance).localeCompare(String(b.date_relance))).slice(0,3)
+    .forEach(b => items.push({
+      title:`Relancer le bien — ${b.adresse || b.ville || "sans adresse"}`, sub:`Relance prévue le ${safeDate(b.date_relance)} · ${b.statut || "statut non renseigné"}`, badge:"Bien", color:WA, icon:Bell,
+      onClick:()=>onNavigate?.("biens", { type:"a_relancer" })
+    }));
+  planning.filter(e => e.date_rdv === today).slice(0,3).forEach(e => items.push({
+    title:`Aujourd'hui — ${e.titre}`, sub:`${e.heure_debut ? e.heure_debut.slice(0,5) : "Horaire libre"} · ${e.type || "RDV"}`, badge:"Aujourd'hui", color:SU, icon:Calendar,
+  }));
+  clients.filter(c => c.prochaine_action && c.date_prochaine_action && c.date_prochaine_action >= today && c.date_prochaine_action <= endWeek)
+    .sort((a,b)=>String(a.date_prochaine_action).localeCompare(String(b.date_prochaine_action))).slice(0,3)
+    .forEach(c => items.push({
+      title:`${getClientName(c)} — action cette semaine`, sub:`${safeDate(c.date_prochaine_action)} · ${c.prochaine_action}`, badge:"Semaine", color:T.accent, icon:Calendar,
+      onClick:()=>onNavigate?.("crm", { type:"actions_week_or_late" })
+    }));
+  return (
+    <DashboardPanel title="À faire en priorité" icon={AlertTriangle} subtitle="Actions, relances et RDV les plus urgents" T={T}>
+      <DashboardAlertList items={items.slice(0,10)} T={T} empty="Aucune action prioritaire cette semaine" />
+    </DashboardPanel>
+  );
+}
+
+function OpportunitesChaudesDashboard({ biens=[], T=THEMES_INV.dark, onNavigate }) {
+  const hot = [...biens]
+    .map(b => ({ ...b, _score:getBienScore(b) }))
+    .filter(b => b._score > 0 || ["Visite programmée", "Visité", "À analyser", "A analyser", "Offre à faire", "Offre envoyée", "Offre acceptée"].includes(b.statut))
+    .sort((a,b)=>b._score-a._score)
+    .slice(0,6);
+  return (
+    <DashboardPanel title="Opportunités chaudes" icon={Sparkles} subtitle="Biens qui méritent une décision rapide" T={T}>
+      {hot.length === 0 ? (
+        <div style={{padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center", fontSize:FONT.sm.size+1, fontStyle:"italic"}}>Aucune opportunité chaude détectée</div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:SPACING.md}}>
+          {hot.map(b => {
+            const v = b.visite_data || {};
+            const recom = v?.conclusion?.recommandation || b.statut || "À analyser";
+            return (
+              <button key={b.id} type="button" onClick={()=>onNavigate?.("biens", { type:"all" })}
+                style={{background:T.input,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:SPACING.md,textAlign:"left",fontFamily:"inherit",cursor:"pointer",transition:"all .12s"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.transform="translateY(-1px)";}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border; e.currentTarget.style.transform="none";}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:8}}>
+                  <div style={{fontSize:FONT.sm.size+1,fontWeight:900,color:T.text,lineHeight:1.25,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{getBienLabel(b)}</div>
+                  <span style={{fontFamily:"'DM Mono',monospace",fontSize:FONT.xs.size,fontWeight:900,color:T.accent,background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:RADIUS.pill,padding:"3px 7px"}}>Score {b._score}</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>Rendement<br/><strong style={{fontSize:FONT.sm.size+1,color:SU}}>{b.rendement_brut ? fmtDashboardPct(b.rendement_brut) : "—"}</strong></div>
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>Cash-flow<br/><strong style={{fontSize:FONT.sm.size+1,color:Number(b.cashflow_estime)>0?SU:WA}}>{fmtDashboardEur(b.cashflow_estime)}</strong></div>
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>Offre<br/><strong style={{fontSize:FONT.sm.size+1,color:T.accent}}>{fmtDashboardEur(b.montant_offre)}</strong></div>
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>Travaux<br/><strong style={{fontSize:FONT.sm.size+1,color:T.textSub}}>{fmtDashboardEur(b.prix_travaux)}</strong></div>
+                </div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textSub,display:"flex",justifyContent:"space-between",gap:8}}>
+                  <span>{recom}</span><span>{b.statut || "—"}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </DashboardPanel>
+  );
+}
+
+function StockPilotageDashboard({ stats, T=THEMES_INV.dark, onNavigate }) {
+  if (!stats) return null;
+  return (
+    <>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.lg }}>
+        <KPICard icon={Home} label="Biens en stock" value={stats.biensTotaux} color="#4db8ff" onClick={()=>onNavigate?.("biens", { type:"all" })}/>
+        <KPICard icon={Sparkles} label="Top opportunités" value={stats.topOpportunites} color="#c084fc" sub="Score Profero élevé" onClick={()=>onNavigate?.("biens", { type:"all" })}/>
+        <KPICard icon={Bell} label="À relancer" value={stats.biensARelancer} color={DA} onClick={()=>onNavigate?.("biens", { type:"a_relancer" })}/>
+        <KPICard icon={Send} label="Offres envoyées" value={stats.offreEnvoyees} color="#FFC200" onClick={()=>onNavigate?.("biens", { type:"statut", value:"Offre envoyée" })}/>
+        <KPICard icon={Check} label="Offres acceptées" value={stats.offresAcceptees} color={SU} onClick={()=>onNavigate?.("biens", { type:"statut", value:"Offre acceptée" })}/>
+        <KPICard icon={AlertTriangle} label="Fiches incomplètes" value={stats.biensIncomplets} color={WA} sub={`${stats.tauxFichesCompletes}% complètes`}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:SPACING.md,marginBottom:SPACING.xxl-2}}>
+        {[
+          ["Fiches complètes", stats.tauxFichesCompletes, SU],
+          ["Biens géolocalisés", stats.tauxGeoloc, T.accent],
+          ["Simulateurs remplis", stats.tauxSimulateur, "#c084fc"],
+          ["Offres / stock", stats.tauxOffresStock, "#FFC200"],
+        ].map(([label,pct,color]) => (
+          <div key={label} className="inv-card" style={{padding:SPACING.md,borderLeft:`3px solid ${color}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div className="inv-kpi-lbl">{label}</div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontWeight:900,color}}>{pct}%</div>
+            </div>
+            <div style={{height:7,background:T.input,borderRadius:RADIUS.pill,overflow:"hidden",border:`1px solid ${T.border}`}}>
+              <div style={{height:"100%",width:`${Math.max(0,Math.min(100,pct))}%`,background:color,borderRadius:RADIUS.pill}}/>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function PipelineEtapesBoard({ clients=[], T=THEMES_INV.dark, movingClientId, onMoveClient, onOpenEtape }) {
+  const [dragOverEtape, setDragOverEtape] = useState("");
+  const clientsByEtape = ETAPES_CLIENT.reduce((acc, etape) => {
+    acc[etape] = clients.filter(c => (c.etape || "") === etape)
+      .sort((a,b)=>String(a.nom||"").localeCompare(String(b.nom||""), "fr", { sensitivity:"base" }));
+    return acc;
+  }, {});
+  const noStage = clients.filter(c => !c.etape);
+  const columns = [{etape:"", label:"Étape non définie", color:DA, list:noStage}, ...ETAPES_CLIENT.map((etape,i)=>({ etape, label:etape, color:DASH_STAGE_COLORS[i % DASH_STAGE_COLORS.length], list:clientsByEtape[etape] || [] }))];
+  return (
+    <DashboardPanel title="Pipeline clients par étape" icon={TrendingUp} subtitle="Glisser-déposer pour changer l’étape du client" T={T}>
+      <div style={{display:"flex",gap:SPACING.md,overflowX:"auto",paddingBottom:4}}>
+        {columns.map(col => {
+          const isOver = dragOverEtape === col.etape;
+          const budget = col.list.reduce((s,c)=>s+(Number(c.budget)||0),0);
+          return (
+            <div key={col.label}
+              onDragOver={e=>{e.preventDefault();setDragOverEtape(col.etape);}}
+              onDragLeave={()=>setDragOverEtape("")}
+              onDrop={e=>{e.preventDefault(); const clientId=e.dataTransfer.getData("text/plain"); setDragOverEtape(""); if(clientId) onMoveClient?.(clientId, col.etape);}}
+              style={{minWidth:235,maxWidth:250,background:isOver?`${col.color}12`:T.input,border:`1.5px solid ${isOver?col.color:T.border}`,borderRadius:RADIUS.lg,padding:SPACING.sm+2,transition:"all .15s"}}>
+              <button type="button" onClick={()=>onOpenEtape?.(col.etape)} style={{border:"none",background:"transparent",padding:0,cursor:"pointer",fontFamily:"inherit",textAlign:"left",width:"100%"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:5}}>
+                  <div style={{fontSize:FONT.xs.size+1,fontWeight:900,color:col.color,lineHeight:1.2,textTransform:"uppercase",letterSpacing:.6}}>{col.label}</div>
+                  <span style={{fontFamily:"'DM Mono',monospace",fontSize:FONT.xs.size,fontWeight:900,color:col.color,background:`${col.color}18`,border:`1px solid ${col.color}33`,borderRadius:RADIUS.pill,padding:"2px 7px"}}>{col.list.length}</span>
+                </div>
+                <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginBottom:9}}>Budget cumulé : <strong style={{color:T.textSub}}>{fmtDashboardEur(budget)}</strong></div>
+              </button>
+              <div style={{display:"flex",flexDirection:"column",gap:7,minHeight:72}}>
+                {col.list.length === 0 ? <div style={{border:`1px dashed ${T.border}`,borderRadius:RADIUS.md,padding:SPACING.sm,textAlign:"center",fontSize:FONT.xs.size,color:T.textMuted,fontStyle:"italic"}}>Déposer ici</div> : col.list.slice(0,8).map(c => (
+                  <div key={c.id} draggable onDragStart={e=>{e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",c.id);}}
+                    style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:`${SPACING.sm-1}px ${SPACING.sm}px`,cursor:movingClientId===c.id?"wait":"grab",opacity:movingClientId===c.id ? .55 : 1}}>
+                    <div style={{fontSize:FONT.sm.size,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{getClientName(c)}</div>
+                    <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2,display:"flex",justifyContent:"space-between",gap:8}}><span>{fmtDashboardEur(c.budget)}</span><span>{safeDate(c.date_prochaine_action)}</span></div>
+                  </div>
+                ))}
+                {col.list.length > 8 && <div style={{fontSize:FONT.xs.size,color:T.textMuted,textAlign:"center"}}>+ {col.list.length - 8} autre{col.list.length - 8 > 1 ? "s" : ""}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </DashboardPanel>
+  );
+}
+
+function ClientsARisqueDashboard({ clients=[], propositions=[], T=THEMES_INV.dark, onNavigate }) {
+  const propByClient = propositions.reduce((acc,p)=>{ if(p.client_id) acc[p.client_id]=(acc[p.client_id]||0)+1; return acc; }, {});
+  const risks = [];
+  clients.forEach(c => {
+    if (!c.prochaine_action && !c.date_prochaine_action) risks.push({title:`${getClientName(c)} — aucune prochaine action`, sub:`Statut : ${c.statut || "—"} · Étape : ${c.etape || "non définie"}`, color:DA, icon:AlertTriangle, onClick:()=>onNavigate?.("crm", { type:"sans_action" })});
+    if ((c.statut === "Actif" || c.date_signature) && !propByClient[c.id]) risks.push({title:`${getClientName(c)} — aucun bien proposé`, sub:`Budget : ${fmtDashboardEur(c.budget)} · Contrat signé`, color:WA, icon:Home, onClick:()=>onNavigate?.("crm", { type:"signes" })});
+    if (!c.etape) risks.push({title:`${getClientName(c)} — étape non définie`, sub:`Le parcours client n’est pas pilotable`, color:"#c084fc", icon:TrendingUp, onClick:()=>onNavigate?.("crm", { type:"all" })});
+  });
+  return (
+    <DashboardPanel title="Clients à risque" icon={AlertTriangle} subtitle="Situations qui peuvent créer une perte de suivi" T={T}>
+      <DashboardAlertList items={risks.slice(0,8)} T={T} empty="Aucun client à risque détecté" />
+    </DashboardPanel>
+  );
+}
+
+function PerformanceCommercialeDashboard({ stats, T=THEMES_INV.dark }) {
+  if (!stats) return null;
+  const cards = [
+    ["Transformation prospect → client", `${stats.tauxTransformation}%`, "Clients signés / contacts", SU, Handshake],
+    ["Biens proposés / client actif", stats.biensParClientActif.toFixed(1).replace(".", ","), "Moyenne sur clients actifs", T.accent, Building2],
+    ["Offres acceptées / envoyées", `${stats.tauxAcceptationOffres}%`, "Qualité de négociation", "#FFC200", Check],
+    ["Délai moyen signature", stats.delaiMoyenSignature ? `${stats.delaiMoyenSignature} j` : "—", "Premier contact → signature", "#c084fc", Calendar],
+  ];
+  return (
+    <DashboardPanel title="Performance commerciale" icon={BarChart3} subtitle="Ratios de conversion et rythme commercial" T={T}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:SPACING.md}}>
+        {cards.map(([label,value,sub,color,IconComp]) => <KPICard key={label} label={label} value={value} sub={sub} color={color} icon={IconComp}/>) }
+      </div>
+    </DashboardPanel>
+  );
+}
+
+function ValeurBusinessDashboard({ stats, T=THEMES_INV.dark }) {
+  if (!stats) return null;
+  return (
+    <DashboardPanel title="Valeur business potentielle" icon={Wallet} subtitle="Vision financière du pipeline" T={T}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:SPACING.md}}>
+        <KPICard icon={Wallet} label="Budget clients actifs" value={fmtDashboardEur(stats.budgetClientsActifs)} color={T.accent}/>
+        <KPICard icon={Send} label="Montant offres en cours" value={fmtDashboardEur(stats.montantOffresCours)} color="#FFC200"/>
+        <KPICard icon={Handshake} label="Base honoraires signés" value={fmtDashboardEur(stats.baseHonorairesSignes)} color={SU} sub="Base 1 500 € / contrat"/>
+        <KPICard icon={TrendingUp} label="Base honoraires pipeline" value={fmtDashboardEur(stats.baseHonorairesPipeline)} color="#c084fc" sub="Clients actifs + prospects"/>
+      </div>
+    </DashboardPanel>
+  );
+}
+
 function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
   const { startWeek, endWeek, today } = getWeekRange();
   const [events, setEvents] = useState([]);
@@ -2194,46 +2482,88 @@ function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [stats, setStats] = useState(null);
   const [clientsDash, setClientsDash] = useState([]);
+  const [biensDash, setBiensDash] = useState([]);
+  const [propsDash, setPropsDash] = useState([]);
+  const [planningDash, setPlanningDash] = useState([]);
   const [movingClientId, setMovingClientId] = useState(null);
+  const [movingEtapeClientId, setMovingEtapeClientId] = useState(null);
   const [dashboardError, setDashboardError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const charger = async () => {
-      setLoading(true);
-      setDashboardError("");
-      const [{ data: clients }, { data: biens }, { data: props }] = await Promise.all([
-        supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,prochaine_action,date_prochaine_action,created_at"),
-        supabase.from("invest_biens").select("id,statut,date_relance,rendement_brut,cashflow_estime"),
-        supabase.from("invest_propositions").select("client_id,bien_id,created_at"),
-      ]);
-      const c = clients || [], b = biens || [], p = props || [];
-      setClientsDash(c);
-      const { today, endWeek } = getWeekRange();
-      const actionsRetard = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action < today);
-      const actionsSemaine = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action >= today && x.date_prochaine_action <= endWeek);
-      setStats({
-        prospects:       c.filter(x => x.statut === "Prospect").length,
-        actifs:          c.filter(x => x.statut === "Actif").length,
-        inactifs:        c.filter(x => x.statut === "Inactif").length,
-        termines:        c.filter(x => x.statut === "Terminé").length,
-        totalSignes:     c.filter(x => x.date_signature).length,
-        sommeBudgets:    c.filter(x => x.date_signature).reduce((s, x) => s + (x.budget || 0), 0),
-        biensTotaux:     b.length,
-        biensARelancer:  b.filter(x => x.date_relance && x.date_relance <= today).length,
-        visitesProg:     b.filter(x => x.statut === "Visite programmée").length,
-        offreEnvoyees:   b.filter(x => x.statut === "Offre envoyée").length,
-        offresAcceptees: b.filter(x => x.statut === "Offre acceptée").length,
-        sansProchaineAction: c.filter(x => !x.prochaine_action && !x.date_prochaine_action).length,
-        nbPropositions:  p.length,
-        actionsRetard:   actionsRetard.length,
-        actionsSemaine:  actionsSemaine.length,
-        actionsATraiter: actionsRetard.length + actionsSemaine.length,
-      });
-      setLoading(false);
-    };
-    charger();
+  const chargerDashboard = useCallback(async () => {
+    setLoading(true);
+    setDashboardError("");
+    const { today, startWeek, endWeek } = getWeekRange();
+    const [clientsRes, biensRes, propsRes, planningRes] = await Promise.all([
+      supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,date_premier_contact,prochaine_action,date_prochaine_action,created_at,etape,source,conseiller"),
+      supabase.from("invest_biens").select("id,adresse,ville,statut,date_relance,date_visite,rendement_brut,cashflow_estime,prix_vente,prix_travaux,cout_total,montant_offre,visite_data,latitude,longitude,reference_interne,conseiller_profero,created_at"),
+      supabase.from("invest_propositions").select("client_id,bien_id,statut,created_at,date_proposition"),
+      supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire").gte("date_rdv", startWeek).lte("date_rdv", endWeek).order("date_rdv", { ascending:true }).order("heure_debut", { ascending:true }),
+    ]);
+
+    const c = clientsRes.data || [];
+    const b = biensRes.data || [];
+    const p = propsRes.data || [];
+    const planning = planningRes.error ? [] : (planningRes.data || []);
+    setClientsDash(c);
+    setBiensDash(b);
+    setPropsDash(p);
+    setPlanningDash(planning);
+
+    const actionsRetard = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action < today);
+    const actionsSemaine = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action >= today && x.date_prochaine_action <= endWeek);
+    const clientsSignes = c.filter(x => x.date_signature);
+    const clientsActifs = c.filter(x => x.statut === "Actif");
+    const prospects = c.filter(x => x.statut === "Prospect");
+    const offresEnv = b.filter(x => x.statut === "Offre envoyée");
+    const offresAcc = b.filter(x => x.statut === "Offre acceptée");
+    const delaisSignature = clientsSignes
+      .map(x => daysBetween(x.date_premier_contact || x.created_at, new Date(x.date_signature)))
+      .filter(v => Number.isFinite(v) && v >= 0);
+    const fichesCompletes = b.filter(isBienFicheComplete).length;
+    const geoloc = b.filter(isGeolocBien).length;
+    const simulateurs = b.filter(hasSimulateurBien).length;
+    const topOpps = b.filter(x => getBienScore(x) >= 45).length;
+    const offresStock = b.filter(x => Number(x.montant_offre) > 0 || ["Offre envoyée", "Offre acceptée"].includes(x.statut)).length;
+
+    setStats({
+      prospects:       prospects.length,
+      actifs:          clientsActifs.length,
+      inactifs:        c.filter(x => x.statut === "Inactif").length,
+      termines:        c.filter(x => x.statut === "Terminé").length,
+      totalSignes:     clientsSignes.length,
+      sommeBudgets:    clientsSignes.reduce((s, x) => s + (x.budget || 0), 0),
+      biensTotaux:     b.length,
+      biensARelancer:  b.filter(x => x.date_relance && x.date_relance <= today).length,
+      visitesProg:     b.filter(x => x.statut === "Visite programmée").length,
+      offreEnvoyees:   offresEnv.length,
+      offresAcceptees: offresAcc.length,
+      sansProchaineAction: c.filter(x => !x.prochaine_action && !x.date_prochaine_action).length,
+      nbPropositions:  p.length,
+      actionsRetard:   actionsRetard.length,
+      actionsSemaine:  actionsSemaine.length,
+      actionsATraiter: actionsRetard.length + actionsSemaine.length,
+      rdvSemaine:      planning.length,
+      visitesSemaine:  planning.filter(e => e.type === "Visite de bien").length,
+      topOpportunites: topOpps,
+      biensIncomplets: Math.max(0, b.length - fichesCompletes),
+      tauxFichesCompletes: b.length ? Math.round((fichesCompletes / b.length) * 100) : 0,
+      tauxGeoloc: b.length ? Math.round((geoloc / b.length) * 100) : 0,
+      tauxSimulateur: b.length ? Math.round((simulateurs / b.length) * 100) : 0,
+      tauxOffresStock: b.length ? Math.round((offresStock / b.length) * 100) : 0,
+      tauxTransformation: c.length ? Math.round((clientsSignes.length / c.length) * 100) : 0,
+      biensParClientActif: clientsActifs.length ? p.length / clientsActifs.length : 0,
+      tauxAcceptationOffres: offresEnv.length + offresAcc.length ? Math.round((offresAcc.length / (offresEnv.length + offresAcc.length)) * 100) : 0,
+      delaiMoyenSignature: delaisSignature.length ? Math.round(delaisSignature.reduce((s,x)=>s+x,0) / delaisSignature.length) : null,
+      budgetClientsActifs: clientsActifs.reduce((s,x)=>s+(Number(x.budget)||0),0),
+      montantOffresCours: offresEnv.reduce((s,x)=>s+(Number(x.montant_offre)||0),0),
+      baseHonorairesSignes: clientsSignes.length * 1500,
+      baseHonorairesPipeline: (clientsActifs.length + prospects.length) * 1500,
+    });
+    setLoading(false);
   }, []);
+
+  useEffect(() => { chargerDashboard(); }, [chargerDashboard]);
 
   const fmt = v => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
   const go = (target, filter) => { if (onNavigate) onNavigate(target, filter); };
@@ -2274,30 +2604,51 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     }
   };
 
-  const sectionTitle = (icon, label) => (
+  const changerEtapeClient = async (clientId, nouvelleEtape) => {
+    const client = clientsDash.find(c => c.id === clientId);
+    if (!client || (client.etape || "") === (nouvelleEtape || "")) return;
+    const ancienneEtape = client.etape || "";
+    setMovingEtapeClientId(clientId);
+    setDashboardError("");
+    setClientsDash(prev => prev.map(c => c.id === clientId ? { ...c, etape:nouvelleEtape || null } : c));
+    const { error } = await supabase.from("invest_clients").update({ etape:nouvelleEtape || null }).eq("id", clientId);
+    setMovingEtapeClientId(null);
+    if (error) {
+      console.error("Erreur changement étape client:", error);
+      setClientsDash(prev => prev.map(c => c.id === clientId ? { ...c, etape:ancienneEtape || null } : c));
+      setDashboardError(`Impossible de modifier l'étape de ${getClientName(client)} : ${error.message || "erreur Supabase"}`);
+    }
+  };
+
+  const sectionTitle = (icon, label, sub) => (
     <div style={{
       fontSize:FONT.xs.size, fontWeight:700, color:T.textMuted, textTransform:"uppercase",
-      letterSpacing:1.8, marginBottom:SPACING.md, display:"flex", alignItems:"center", gap:SPACING.sm-2,
+      letterSpacing:1.8, marginBottom:SPACING.md, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm-2,
     }}>
-      <Icon as={icon} size={13} strokeWidth={2}/>
-      {label}
+      <span style={{display:"inline-flex",alignItems:"center",gap:SPACING.sm-2}}><Icon as={icon} size={13} strokeWidth={2}/>{label}</span>
+      {sub && <span style={{textTransform:"none",letterSpacing:0,fontWeight:600,color:T.textMuted}}>{sub}</span>}
     </div>
   );
 
   return (
-    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1300, margin:"0 auto" }}>
-      <div style={{ marginBottom:SPACING.xl, display:"flex", alignItems:"center", gap:SPACING.md }}>
-        <div style={{
-          width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0,
-          background:T.accentBg, color:T.accent,
-          display:"flex", alignItems:"center", justifyContent:"center",
-        }}>
-          <Icon as={LayoutDashboard} size={24} strokeWidth={2}/>
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1380, margin:"0 auto" }}>
+      <div style={{ marginBottom:SPACING.xl, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
+          <div style={{
+            width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0,
+            background:T.accentBg, color:T.accent,
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}>
+            <Icon as={LayoutDashboard} size={24} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Tableau de bord</div>
+            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>Cockpit de pilotage quotidien Profero Invest</div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Tableau de bord</div>
-          <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>Vue globale de l'activité Profero Invest</div>
-        </div>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={chargerDashboard}>
+          <Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Actualiser
+        </button>
       </div>
 
       {loading ? (
@@ -2309,27 +2660,21 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
         <>
           <PlanningSemaine profil={profil} T={T} />
 
-          {sectionTitle(Users, "Clients & Prospects")}
+          {sectionTitle(AlertTriangle, "Pilotage immédiat", `${stats.actionsRetard} retard · ${stats.actionsSemaine} cette semaine · ${stats.visitesSemaine} visites`)}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xxl-2 }}>
-            <KPICard icon={Users}        label="Prospects"             value={stats.prospects}       color="#4db8ff" onClick={()=>go("crm", { type:"statut", value:"Prospect" })}/>
-            <KPICard icon={Check}        label="Clients actifs"        value={stats.actifs}          color={SU} onClick={()=>go("crm", { type:"statut", value:"Actif" })}/>
-            <KPICard icon={Bell}         label="Clients inactifs"      value={stats.inactifs}        color={WA} onClick={()=>go("crm", { type:"statut", value:"Inactif" })}/>
-            <KPICard icon={Lock}         label="Terminés"              value={stats.termines}        color={T.textMuted} onClick={()=>go("crm", { type:"statut", value:"Terminé" })}/>
-            <KPICard icon={Handshake}    label="Total signés"          value={stats.totalSignes}     color={SU} onClick={()=>go("crm", { type:"signes" })}/>
-            <KPICard icon={Wallet}       label="Budget total signé"    value={stats.sommeBudgets > 0 ? fmt(stats.sommeBudgets)+" €" : "—"} color="#FFC200" onClick={()=>go("crm", { type:"signes" })}/>
-            <KPICard icon={AlertTriangle} label="Sans prochaine action" value={stats.sansProchaineAction} color={DA} onClick={()=>go("crm", { type:"sans_action" })}/>
-            <KPICard icon={Calendar}     label="Actions à traiter"     value={stats.actionsATraiter} color={stats.actionsRetard > 0 ? DA : WA} sub={`${stats.actionsRetard} retard · ${stats.actionsSemaine} semaine`} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
+            <KPICard icon={AlertTriangle} label="Actions en retard" value={stats.actionsRetard} color={stats.actionsRetard > 0 ? DA : SU} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
+            <KPICard icon={Calendar} label="Actions cette semaine" value={stats.actionsSemaine} color={WA} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
+            <KPICard icon={Home} label="Visites prévues" value={stats.visitesSemaine} color={T.accent}/>
+            <KPICard icon={Users} label="Clients sans action" value={stats.sansProchaineAction} color={DA} onClick={()=>go("crm", { type:"sans_action" })}/>
+            <KPICard icon={Sparkles} label="Top opportunités" value={stats.topOpportunites} color="#c084fc" onClick={()=>go("biens", { type:"all" })}/>
+            <KPICard icon={Wallet} label="CA potentiel pipeline" value={fmtDashboardEur(stats.baseHonorairesPipeline)} color="#FFC200" sub="Base 1 500 €"/>
           </div>
 
-          {sectionTitle(Building2, "Stock de Biens")}
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xxl-2 }}>
-            <KPICard icon={Home}         label="Biens en stock"        value={stats.biensTotaux}      color="#4db8ff" onClick={()=>go("biens", { type:"all" })}/>
-            <KPICard icon={Bell}         label="À relancer"            value={stats.biensARelancer}   color={DA} onClick={()=>go("biens", { type:"a_relancer" })}/>
-            <KPICard icon={Calendar}     label="Visites programmées"   value={stats.visitesProg}      color={SU} onClick={()=>go("biens", { type:"statut", value:"Visite programmée" })}/>
-            <KPICard icon={Send}         label="Offres envoyées"       value={stats.offreEnvoyees}    color="#FFC200" onClick={()=>go("biens", { type:"statut", value:"Offre envoyée" })}/>
-            <KPICard icon={Check}        label="Offres acceptées"      value={stats.offresAcceptees}  color={SU} onClick={()=>go("biens", { type:"statut", value:"Offre acceptée" })}/>
-            <KPICard icon={Hammer}       label="Propositions totales"  value={stats.nbPropositions}   color="#c084fc" onClick={()=>go("crm", { type:"with_propositions" })}/>
-          </div>
+          <ActionsPrioritairesDashboard clients={clientsDash} biens={biensDash} planning={planningDash} T={T} onNavigate={go} />
+          <OpportunitesChaudesDashboard biens={biensDash} T={T} onNavigate={go} />
+
+          {sectionTitle(Building2, "Stock de biens", "Opportunités, relances et qualité des fiches")}
+          <StockPilotageDashboard stats={stats} T={T} onNavigate={go} />
 
           {dashboardError && (
             <div style={{ marginBottom:SPACING.md, padding:`${SPACING.sm+2}px ${SPACING.md}px`, borderRadius:RADIUS.md, background:SEMANTIC.danger.bg, border:`1px solid ${SEMANTIC.danger.border}`, color:DA, fontSize:FONT.sm.size+1 }}>
@@ -2344,6 +2689,22 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
             onMoveClient={changerStatutClient}
             onOpenStatus={(statut)=>go("crm", { type:"statut", value:statut })}
           />
+
+          <PipelineEtapesBoard
+            clients={clientsDash}
+            T={T}
+            movingClientId={movingEtapeClientId}
+            onMoveClient={changerEtapeClient}
+            onOpenEtape={(etape)=>go("crm", etape ? { type:"etape", value:etape } : { type:"all" })}
+          />
+
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.05fr) minmax(0,.95fr)",gap:SPACING.md,alignItems:"start"}}>
+            <ClientsARisqueDashboard clients={clientsDash} propositions={propsDash} T={T} onNavigate={go} />
+            <div>
+              <PerformanceCommercialeDashboard stats={stats} T={T} />
+              <ValeurBusinessDashboard stats={stats} T={T} />
+            </div>
+          </div>
         </>
       )}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
@@ -2382,6 +2743,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, initialFilter }) {
     if (!initialFilter) return;
     setFiltreStatut(""); setFiltreConseiller(""); setFiltreSource(""); setSpecialFilter(""); setColumnFilters({}); setSearch("");
     if (initialFilter.type === "statut") setFiltreStatut(initialFilter.value || "");
+    if (initialFilter.type === "etape") setColumnFilters({ etape: initialFilter.value || "" });
     if (["sans_action", "actions_week_or_late", "signes", "with_propositions"].includes(initialFilter.type)) setSpecialFilter(initialFilter.type);
   }, [initialFilter]);
 
@@ -4065,7 +4427,7 @@ const makeAuditDefaults = (groupsOrItems) => {
 const emptyLotCible = (i = 0) => ({
   numero: String(i + 1), type:"", surface:"", loyer:"", meuble:"", stationnement:"",
 });
-const emptyLotsCibles = (count = 1) => Array.from({length:Math.max(1, Math.min(6, count))}, (_,i)=>emptyLotCible(i));
+const emptyLotsCibles = (count = 1) => Array.from({length:Math.max(1, count)}, (_,i)=>emptyLotCible(i));
 
 const deepMergeVisite = (base, extra) => {
   if (Array.isArray(base)) return Array.isArray(extra) ? extra : base;
@@ -4280,7 +4642,7 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
   const filled = (v) => v !== null && v !== undefined && String(v).trim() !== "";
   const allTechniqueItems = TECHNIQUE_VISITE_GROUPS.flatMap(g => g.items);
   const issueStatuses = ["À vérifier", "Problème"];
-  const targetLotsCount = Math.max(1, Math.min(6, (lots || []).length || numVal(data.general?.lots_cibles) || 1));
+  const targetLotsCount = Math.max(1, (lots || []).length || numVal(data.general?.lots_cibles) || 1);
   const isLotComplete = (lot) => filled(lot?.type) && filled(lot?.surface) && filled(lot?.loyer) && filled(lot?.meuble) && filled(lot?.stationnement);
   const countLots = (lots || []).filter(isLotComplete).length;
   const item = (label, done) => ({ label, done: !!done });
