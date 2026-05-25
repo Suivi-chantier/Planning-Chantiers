@@ -2992,6 +2992,48 @@ async function saveBienCoordinatesIfPossible(bienId, lat, lng) {
   }
 }
 
+async function getCoordinatesFromAddress(address) {
+  const cleanAddress = String(address || "").trim();
+  if (!cleanAddress) return { lat:null, lng:null, error:"Adresse manquante" };
+
+  try {
+    const cache = readGeocodeCache();
+    if (cache[cleanAddress] && isValidLatLng(cache[cleanAddress].lat, cache[cleanAddress].lng)) {
+      return { ...cache[cleanAddress], source:"cache" };
+    }
+
+    const maps = await loadGoogleMapsApi(getGoogleMapsApiKey());
+    const geocoder = new maps.Geocoder();
+    const geo = await geocodeAddress(geocoder, cleanAddress);
+
+    if (geo?.lat && geo?.lng && isValidLatLng(geo.lat, geo.lng)) {
+      const coords = { lat: geo.lat, lng: geo.lng, formatted_address: geo.formatted_address || cleanAddress };
+      cache[cleanAddress] = coords;
+      writeGeocodeCache(cache);
+      return { ...coords, source:"google" };
+    }
+
+    return { lat:null, lng:null, error: geo?.error || "Adresse introuvable" };
+  } catch (e) {
+    return { lat:null, lng:null, error: e?.message || "Géocodage impossible" };
+  }
+}
+
+function resolveCoordinatesFromGeocode(geocoded, fallbackBien, address, previousAddress) {
+  if (geocoded && isValidLatLng(parseFloat(geocoded.lat), parseFloat(geocoded.lng))) {
+    return { lat: parseFloat(geocoded.lat), lng: parseFloat(geocoded.lng) };
+  }
+
+  const oldLat = parseFloat(fallbackBien?.latitude);
+  const oldLng = parseFloat(fallbackBien?.longitude);
+  const sameAddress = String(address || "").trim() === String(previousAddress || "").trim();
+  if (sameAddress && isValidLatLng(oldLat, oldLng)) {
+    return { lat: oldLat, lng: oldLng };
+  }
+
+  return { lat:null, lng:null };
+}
+
 function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
   const [selectedId, setSelectedId] = useState(null);
   const [points, setPoints] = useState([]);
@@ -3530,12 +3572,17 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
 
   const sauvegarder = async () => {
     setSaving(true);
+    const fullAddress = [form.adresse, form.code_postal, form.ville].filter(Boolean).join(", ").trim();
+    const previousAddress = getBienGoogleAddress(bien || {});
+    const geocoded = fullAddress ? await getCoordinatesFromAddress(fullAddress) : null;
+    const coords = resolveCoordinatesFromGeocode(geocoded, bien, fullAddress, previousAddress);
+
     const payload = {
       adresse:                 form.adresse?.trim() || null,
       ville:                   form.ville?.trim() || null,
       code_postal:             form.code_postal?.trim() || null,
-      latitude:                form.latitude !== "" ? parseFloat(form.latitude) : null,
-      longitude:               form.longitude !== "" ? parseFloat(form.longitude) : null,
+      latitude:                coords.lat,
+      longitude:               coords.lng,
       commentaire:             form.commentaire?.trim() || null,
       interlocuteur:           form.interlocuteur?.trim() || null,
       telephone_interlocuteur: form.telephone_interlocuteur?.trim() || null,
@@ -3580,8 +3627,9 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
           <div style={{ marginBottom:12, gridColumn: "1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse</label><InpText value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label><InpText value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label><InpText value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Latitude</label><InpNum value={form.latitude} step="0.000001" onChange={e=>setForm({...form,latitude:e.target.value})} placeholder="47.4784"/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Longitude</label><InpNum value={form.longitude} step="0.000001" onChange={e=>setForm({...form,longitude:e.target.value})} placeholder="-0.5632"/></div>
+          <div style={{ marginBottom:12, gridColumn:"1 / 3", padding:"9px 11px", borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}`, color:T.accent, fontSize:FONT.sm.size }}>
+            📍 La latitude et la longitude seront calculées automatiquement à partir de l'adresse lors de l'enregistrement.
+          </div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label><InpText value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label><InpText value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Agence</label><InpText value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></div>
@@ -3837,10 +3885,19 @@ function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved }) {
 
   const sauvegarder = async () => {
     setSaving(true); setError("");
+    const fullAddress = [data.identification?.adresse, data.identification?.code_postal, data.identification?.ville].filter(Boolean).join(", ").trim();
+    const previousAddress = getBienGoogleAddress(bien || {});
+    const geocoded = fullAddress ? await getCoordinatesFromAddress(fullAddress) : null;
+    const coords = resolveCoordinatesFromGeocode(geocoded, bien, fullAddress, previousAddress);
+
     const visiteData = {
       ...data,
       identification: {
         ...data.identification,
+        latitude: coords.lat ?? "",
+        longitude: coords.lng ?? "",
+        geocoded_address: geocoded?.formatted_address || fullAddress || "",
+        geocoding_status: geocoded?.error ? `Erreur : ${geocoded.error}` : (fullAddress ? "Adresse géolocalisée" : "Adresse non renseignée"),
         reference_interne: bien.reference_interne || data.identification?.reference_interne || "",
         total_loyers_mensuels_cibles: totalLoyersMensuels,
         total_loyers_annuels_cibles: totalLoyersAnnuels,
@@ -3860,8 +3917,8 @@ function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved }) {
       adresse: data.identification?.adresse?.trim() || null,
       ville: data.identification?.ville?.trim() || null,
       code_postal: data.identification?.code_postal?.trim() || null,
-      latitude: data.identification?.latitude !== "" ? parseFloat(data.identification.latitude) : null,
-      longitude: data.identification?.longitude !== "" ? parseFloat(data.identification.longitude) : null,
+      latitude: coords.lat,
+      longitude: coords.lng,
       date_visite: data.identification?.date_visite || null,
       conseiller_profero: data.identification?.conseiller_profero?.trim() || profil?.nom || null,
       source_bien: data.identification?.source || null,
@@ -3902,8 +3959,7 @@ function FicheVisiteBien({ bien, profil, T=THEMES_INV.dark, onSaved }) {
             <MiniField label="Code postal" value={data.identification.code_postal} onChange={v=>upd("identification","code_postal",v)} T={T}/>
             <MiniField label="Date de la visite" type="date" value={data.identification.date_visite} onChange={v=>upd("identification","date_visite",v)} T={T}/>
             <MiniField label="Source" value={data.identification.source} options={SOURCES_BIEN_VISITE} onChange={v=>upd("identification","source",v)} T={T}/>
-            <MiniField label="Latitude" type="number" value={data.identification.latitude} onChange={v=>upd("identification","latitude",v)} T={T}/>
-            <MiniField label="Longitude" type="number" value={data.identification.longitude} onChange={v=>upd("identification","longitude",v)} T={T}/>
+            <MiniField label="Géolocalisation" value={data.identification.geocoding_status || (data.identification.latitude && data.identification.longitude ? "Coordonnées enregistrées" : "Automatique à l'enregistrement")} readOnly onChange={()=>{}} T={T}/>
           </div>
         </VisitSection>
 
@@ -4101,7 +4157,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
-        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"black", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
       </div>
       <div className="inv-card-bd">
         {props.length === 0 ? (
