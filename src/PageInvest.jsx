@@ -2443,6 +2443,196 @@ function HistoriqueBienCard({ bien, propositions=[], T=THEMES_INV.dark }) {
   );
 }
 
+
+function computeClientPriorityScore(client = {}, propositions = [], biens = []) {
+  const strat = clientStrategy(client);
+  const proposed = propositions.filter(p => p.client_id === client.id);
+  const budget = getNumberLoose(strat.budget_max || client.budget);
+  let score = 30;
+  const reasons = [];
+  if (client.statut === "Actif") { score += 18; reasons.push("client actif"); }
+  if (client.date_signature) { score += 14; reasons.push("contrat signé"); }
+  if (budget > 0) { score += 12; reasons.push("budget renseigné"); }
+  if (strat.strategie) { score += 10; reasons.push("stratégie définie"); }
+  if (strat.zones) { score += 8; reasons.push("zone ciblée"); }
+  if (strat.urgence === "Immédiate" || strat.urgence === "1 à 3 mois") { score += 10; reasons.push("urgence forte"); }
+  if (proposed.length > 0) { score += Math.min(12, proposed.length * 4); reasons.push(`${proposed.length} bien${proposed.length>1?"s":""} proposé${proposed.length>1?"s":""}`); }
+  if (!client.prochaine_action && client.statut !== "Terminé") { score -= 16; reasons.push("prochaine action manquante"); }
+  const days = daysBetween(client.date_prochaine_action || client.updated_at || client.created_at);
+  if (days !== null && days > 14 && client.statut !== "Terminé") { score -= 10; reasons.push("suivi à relancer"); }
+  const bestMatch = biens.map(b => computeClientBienMatch(client, b).score).sort((a,b)=>b-a)[0] || 0;
+  if (bestMatch >= 75) { score += 10; reasons.push("bien compatible disponible"); }
+  return { score: Math.max(0, Math.min(100, Math.round(score))), reasons, bestMatch };
+}
+
+function ClientScoreCard({ client, propositions=[], biens=[], T=THEMES_INV.dark }) {
+  const { score, reasons, bestMatch } = computeClientPriorityScore(client, propositions, biens);
+  const color = score >= 75 ? SU : score >= 50 ? WA : DA;
+  const strat = clientStrategy(client);
+  const docs = checklistPct(strat.documents_checklist, CLIENT_DOCUMENT_CHECKLIST);
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Score maturité client</span></div>
+      <div className="inv-card-bd">
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12}}>
+          <div style={{width:72,height:72,borderRadius:"50%",border:`5px solid ${color}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Mono',monospace",fontWeight:900,color,fontSize:18}}>{score}</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:FONT.md.size,fontWeight:900,color:T.text}}>{score>=75?"Client prioritaire":score>=50?"Client à faire avancer":"Client à qualifier"}</div>
+            <div style={{fontSize:FONT.sm.size,color:T.textMuted,marginTop:3}}>Budget, stratégie, urgence, suivi et compatibilité avec le stock</div>
+          </div>
+        </div>
+        <CompletionBar label="Dossier investisseur" value={(strat.strategie?25:0)+(strat.budget_max||client.budget?25:0)+(strat.zones?20:0)+(strat.urgence?15:0)+(strat.fiscalite?15:0)} color={T.accent} T={T}/>
+        <CompletionBar label="Documents client" value={docs} color={docs>=80?SU:WA} T={T}/>
+        <CompletionBar label="Meilleur matching disponible" value={bestMatch} color={bestMatch>=75?SU:bestMatch>=50?WA:DA} T={T}/>
+        <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:8,lineHeight:1.5}}>{reasons.slice(0,4).join(" · ") || "Compléter la stratégie pour fiabiliser le score"}</div>
+      </div>
+    </div>
+  );
+}
+
+function buildQuickBienAnalysis(bien = {}) {
+  const v = bien.visite_data || {};
+  const surface = getNumberLoose(v.general?.surface_totale || bien.surface || v.finance?.surface_totale);
+  const prix = getNumberLoose(bien.prix_vente || v.general?.prix_affiche);
+  const travaux = getNumberLoose(bien.prix_travaux || v.finance?.budget_travaux_ttc);
+  const offre = getNumberLoose(bien.montant_offre || v.conclusion?.prix_offre_recommande || v.finance?.prix_acquisition_negocie);
+  const total = getNumberLoose(bien.cout_total) || (offre || prix) + travaux;
+  const loyers = getNumberLoose(v.configuration?.total_loyers_mensuels || v.finance?.loyers_bruts_mensuels);
+  const rendement = getNumberLoose(bien.rendement_brut) || (total > 0 && loyers > 0 ? (loyers*12/total)*100 : 0);
+  const cash = getNumberLoose(bien.cashflow_estime || v.finance?.cashflow_mensuel_estime);
+  const prixM2 = surface > 0 && prix > 0 ? prix / surface : 0;
+  const totalM2 = surface > 0 && total > 0 ? total / surface : 0;
+  const score = computeAutoBienScore(bien);
+  const recommendation = score >= 75 || rendement >= 10 ? "À prioriser" : score >= 50 || rendement >= 8 ? "À approfondir" : "À challenger";
+  const alerts = [];
+  if (!surface) alerts.push("surface manquante");
+  if (!loyers) alerts.push("loyers cibles manquants");
+  if (!travaux) alerts.push("travaux à estimer");
+  if (!offre) alerts.push("offre à définir");
+  return { surface, prix, travaux, offre, total, loyers, rendement, cash, prixM2, totalM2, score, recommendation, alerts };
+}
+
+function AnalyseRapideBienCard({ bien, T=THEMES_INV.dark, onSaved }) {
+  const a = buildQuickBienAnalysis(bien);
+  const [msg, setMsg] = useState("");
+  const save = async () => {
+    const visite_data = { ...(bien.visite_data || {}), analyse_rapide:{ ...a, saved_at:new Date().toISOString() } };
+    const payload = { visite_data };
+    if (a.total > 0) payload.cout_total = Math.round(a.total);
+    if (a.rendement > 0) payload.rendement_brut = Number(a.rendement.toFixed(2));
+    if (Number.isFinite(a.cash) && a.cash !== 0) payload.cashflow_estime = Math.round(a.cash);
+    const { error } = await supabase.from("invest_biens").update(payload).eq("id", bien.id);
+    if (error) setMsg(`Erreur : ${error.message}`); else { setMsg("Analyse rapide sauvegardée"); onSaved?.(); setTimeout(()=>setMsg(""),2200); }
+  };
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={TrendingUp} size={13}/>Analyse rapide du bien</span></div>
+      <div className="inv-card-bd">
+        {msg && <div style={{fontSize:FONT.xs.size+1,color:msg.startsWith("Erreur")?DA:SU,fontWeight:800,marginBottom:8}}>{msg}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {[["Prix / m²", a.prixM2 ? `${Math.round(a.prixM2).toLocaleString("fr-FR")} €/m²` : "—"],["Coût total / m²", a.totalM2 ? `${Math.round(a.totalM2).toLocaleString("fr-FR")} €/m²` : "—"],["Coût total", fmtDashboardEur(a.total)],["Loyers mensuels", fmtDashboardEur(a.loyers)],["Rendement brut", a.rendement ? fmtDashboardPct(a.rendement) : "—"],["Cash-flow", a.cash ? `${fmtDashboardEur(a.cash)}/mois` : "—"]].map(([l,v])=>(
+            <div key={l} style={{background:T.input,border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 10px"}}>
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted,textTransform:"uppercase",fontWeight:800,letterSpacing:.7}}>{l}</div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:FONT.sm.size+1,fontWeight:900,color:T.text,marginTop:3}}>{v}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:10,padding:"10px 12px",borderRadius:RADIUS.md,background:a.recommendation==="À prioriser"?SEMANTIC.success.bg:a.recommendation==="À approfondir"?SEMANTIC.warning.bg:SEMANTIC.danger.bg,border:`1px solid ${a.recommendation==="À prioriser"?SEMANTIC.success.border:a.recommendation==="À approfondir"?SEMANTIC.warning.border:SEMANTIC.danger.border}`,color:a.recommendation==="À prioriser"?SU:a.recommendation==="À approfondir"?WA:DA,fontWeight:900,fontSize:FONT.sm.size+1}}>
+          Décision rapide : {a.recommendation}
+        </div>
+        {a.alerts.length > 0 && <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:8}}>À compléter : {a.alerts.join(" · ")}</div>}
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={save}><Icon as={Save} size={12}/> Sauvegarder l’analyse</button></div>
+      </div>
+    </div>
+  );
+}
+
+const MODE_VISITE_TERRAIN_OPTIONS = ["", "OK", "À vérifier", "Problème", "Non vu"];
+const MODE_VISITE_CONCLUSIONS = ["", "À creuser", "Offre possible", "Contre-visite", "Abandonner"];
+function ModeVisiteTerrainCard({ bien, T=THEMES_INV.dark, onSaved }) {
+  const initial = bien?.visite_data?.mode_visite_terrain || {};
+  const [data, setData] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(()=>setData(bien?.visite_data?.mode_visite_terrain || {}), [bien?.id]);
+  const upd = (k,v)=>setData(prev=>({...prev,[k]:v}));
+  const save = async () => {
+    setSaving(true); setMsg("");
+    const visite_data = { ...(bien.visite_data || {}), mode_visite_terrain:{ ...data, updated_at:new Date().toISOString(), conseiller:data.conseiller || bien.conseiller_profero || "" } };
+    const payload = { visite_data };
+    if (data.date_visite) payload.date_visite = data.date_visite;
+    if (data.prochaine_action_date) payload.date_relance = data.prochaine_action_date;
+    const { error } = await supabase.from("invest_biens").update(payload).eq("id", bien.id);
+    setSaving(false);
+    if (error) setMsg(`Erreur : ${error.message}`); else { setMsg("Mode visite sauvegardé"); onSaved?.(); setTimeout(()=>setMsg(""),2200); }
+  };
+  const quickField = (label, key) => (
+    <div>
+      <label className="inv-kpi-lbl">{label}</label>
+      <select className="inv-sel" value={data[key] || ""} onChange={e=>upd(key,e.target.value)} style={{width:"100%"}}>{MODE_VISITE_TERRAIN_OPTIONS.map(o=><option key={o} value={o}>{o || "—"}</option>)}</select>
+    </div>
+  );
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={PhoneIcon} size={13}/>Mode visite terrain</span></div>
+      <div className="inv-card-bd">
+        {msg && <div style={{fontSize:FONT.xs.size+1,color:msg.startsWith("Erreur")?DA:SU,fontWeight:800,marginBottom:8}}>{msg}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div><label className="inv-kpi-lbl">Date de visite</label><input className="inv-inp" type="date" value={data.date_visite || bien.date_visite || ""} onChange={e=>upd("date_visite",e.target.value)} style={{width:"100%"}}/></div>
+          <div><label className="inv-kpi-lbl">Conclusion rapide</label><select className="inv-sel" value={data.conclusion || ""} onChange={e=>upd("conclusion",e.target.value)} style={{width:"100%"}}>{MODE_VISITE_CONCLUSIONS.map(o=><option key={o} value={o}>{o || "—"}</option>)}</select></div>
+          {quickField("État général", "etat_general")}
+          {quickField("Toiture / façade", "toiture_facade")}
+          {quickField("Humidité", "humidite")}
+          {quickField("Électricité", "electricite")}
+          {quickField("Plomberie", "plomberie")}
+          {quickField("Découpe possible", "decoupe")}
+        </div>
+        <div style={{marginTop:10}}><label className="inv-kpi-lbl">Risques immédiats / notes terrain</label><textarea className="inv-textarea" rows={3} value={data.commentaire || ""} onChange={e=>upd("commentaire", e.target.value)} placeholder="Dictée vocale possible sur mobile : toiture, humidité, réseaux, accès, potentiel…"/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 140px",gap:10,marginTop:10}}>
+          <div><label className="inv-kpi-lbl">Prochaine action</label><input className="inv-inp" value={data.prochaine_action || ""} onChange={e=>upd("prochaine_action", e.target.value)} style={{width:"100%",textAlign:"left"}} placeholder="Ex : demander DDT, rappeler agent, faire offre…"/></div>
+          <div><label className="inv-kpi-lbl">Date relance</label><input className="inv-inp" type="date" value={data.prochaine_action_date || bien.date_relance || ""} onChange={e=>upd("prochaine_action_date", e.target.value)} style={{width:"100%"}}/></div>
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}><button className="inv-btn inv-btn-blue inv-btn-sm" onClick={save} disabled={saving}><Icon as={Save} size={12}/> {saving?"Sync…":"Enregistrer visite"}</button></div>
+      </div>
+    </div>
+  );
+}
+
+function DossiersRelanceDashboard({ clients=[], biens=[], propositions=[], T=THEMES_INV.dark, onNavigate }) {
+  const today = isoDate(new Date());
+  const items = [];
+  clients.filter(c => c.statut !== "Terminé" && !c.prochaine_action).slice(0,4).forEach(c => items.push({title:`${getClientName(c)} — aucune prochaine action`, sub:`${c.etape || c.statut || "À qualifier"}`, badge:"Client", color:DA, icon:Users, onClick:()=>onNavigate?.("crm", { type:"sans_action" })}));
+  biens.filter(b => b.date_relance && b.date_relance <= today).slice(0,4).forEach(b => items.push({title:`${b.adresse || b.ville || "Bien"} — relance à faire`, sub:`${safeDate(b.date_relance)} · ${b.statut || "statut non renseigné"}`, badge:"Bien", color:WA, icon:Bell, onClick:()=>onNavigate?.("biens", { type:"a_relancer" })}));
+  biens.filter(b => ["Offre envoyée"].includes(b.statut) && !(b.date_relance && b.date_relance > today)).slice(0,3).forEach(b => items.push({title:`Offre sans relance — ${b.adresse || b.ville || "Bien"}`, sub:`Offre ${fmtDashboardEur(b.montant_offre)} · programmer une relance`, badge:"Offre", color:T.accent, icon:Send, onClick:()=>onNavigate?.("biens", { type:"statut", value:"Offre envoyée" })}));
+  propositions.filter(p => p.statut === "proposé" || p.statut === "en analyse").slice(0,3).forEach(p => items.push({title:`Proposition à suivre`, sub:`Client / bien à relancer · ${safeDate(p.date_proposition || p.created_at)}`, badge:"Prop.", color:"#c084fc", icon:Handshake}));
+  return <DashboardPanel title="Dossiers à relancer" icon={Bell} subtitle="Clients, biens, offres et propositions à ne pas laisser dormir" T={T}><DashboardAlertList items={items.slice(0,10)} T={T} empty="Aucun dossier à relancer" /></DashboardPanel>;
+}
+
+function DirectionPilotageDashboard({ stats, T=THEMES_INV.dark }) {
+  if (!stats) return null;
+  const items = [
+    ["CA signé estimé", fmtDashboardEur(stats.baseHonorairesSignes), SU, "Base contrats signés"],
+    ["CA potentiel pipeline", fmtDashboardEur(stats.baseHonorairesPipeline), "#FFC200", "Base prospects + actifs"],
+    ["Taux transformation", `${stats.tauxTransformation || 0}%`, T.accent, "Prospects → clients signés"],
+    ["Acceptation offres", `${stats.tauxAcceptationOffres || 0}%`, SU, "Offres acceptées / envoyées"],
+    ["Délai signature", stats.delaiMoyenSignature !== null ? `${stats.delaiMoyenSignature} j` : "—", WA, "Premier contact → signature"],
+    ["Qualité stock", `${stats.tauxFichesCompletes || 0}%`, T.accent, "Fiches biens complètes"],
+  ];
+  return (
+    <DashboardPanel title="Direction / pilotage" icon={BarChart3} subtitle="Vision dirigeant : CA, conversion, délai et qualité du stock" T={T}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+        {items.map(([label,value,color,sub])=>(
+          <div key={label} className="inv-kpi" style={{padding:12,borderLeft:`3px solid ${color}`}}>
+            <div className="inv-kpi-lbl">{label}</div>
+            <div className="inv-kpi-val" style={{fontSize:FONT.xl.size,color}}>{value}</div>
+            <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:3}}>{sub}</div>
+          </div>
+        ))}
+      </div>
+    </DashboardPanel>
+  );
+}
+
 function DashboardPanel({ title, icon: IconComp, subtitle, children, T=THEMES_INV.dark, action }) {
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.xxl-2 }}>
@@ -2999,6 +3189,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
 
           <ActionsPrioritairesDashboard clients={clientsDash} biens={biensDash} planning={planningDash} T={T} onNavigate={go} />
           <OpportunitesChaudesDashboard biens={biensDash} T={T} onNavigate={go} />
+          <DossiersRelanceDashboard clients={clientsDash} biens={biensDash} propositions={propsDash} T={T} onNavigate={go} />
 
           {sectionTitle(Building2, "Stock de biens", "Opportunités, relances et qualité des fiches")}
           <StockPilotageDashboard stats={stats} T={T} onNavigate={go} />
@@ -3030,6 +3221,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
             <div>
               <PerformanceCommercialeDashboard stats={stats} T={T} />
               <ValeurBusinessDashboard stats={stats} T={T} />
+              <DirectionPilotageDashboard stats={stats} T={T} />
             </div>
           </div>
         </>
@@ -3669,6 +3861,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         {/* Infos */}
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <ClientScoreCard client={client} propositions={props} biens={biens} T={T} />
           <div className="inv-card">
             <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
             <div className="inv-card-bd">
@@ -5740,6 +5933,16 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Fiche bien ${esc(bien.reference_interne||bien.adresse)}</title><style>body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#1a1f2e}.wrap{max-width:900px;margin:0 auto;background:white;min-height:100vh}.hd{background:#1a2d4a;color:white;padding:28px 34px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 34px}.kpi{border-left:4px solid #4070e8;background:#f8f9fb;padding:12px;border-radius:8px}.k{font-size:20px;font-weight:800}.l{font-size:10px;text-transform:uppercase;color:#7b8496}.sec{padding:16px 34px;border-top:1px solid #eef0f5}.title{font-size:12px;font-weight:800;text-transform:uppercase;color:#4070e8;letter-spacing:1.6px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #eef0f5;padding:6px 0;font-size:13px}.row b{color:#1a2d4a}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a2d4a;color:white;text-align:left;padding:8px}td{padding:8px;border-bottom:1px solid #eef0f5}.no-print{position:fixed;right:18px;top:18px}.btn{background:#4070e8;color:white;border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer}@media print{.no-print{display:none}.wrap{max-width:none}}</style></head><body><div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div><div class="wrap"><div class="hd"><div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7">Profero Invest</div><h1>${esc(bien.reference_interne||"Fiche bien")}</h1><div>${esc([bien.adresse,bien.code_postal,bien.ville].filter(Boolean).join(" "))}</div></div><div class="kpis"><div class="kpi"><div class="k">${esc(concl.note_globale||"—")}/10</div><div class="l">Note</div></div><div class="kpi"><div class="k">${esc(concl.recommandation||"—")}</div><div class="l">Recommandation</div></div><div class="kpi"><div class="k">${esc(fmtEur(bien.montant_offre||concl.prix_offre_recommande))}</div><div class="l">Offre</div></div><div class="kpi"><div class="k">${bien.rendement_brut?Number(bien.rendement_brut).toFixed(1)+" %":"—"}</div><div class="l">Rendement</div></div></div><div class="sec"><div class="title">Informations essentielles</div><div class="grid"><div class="row"><span>Type</span><b>${esc(gen.type_bien||"—")}</b></div><div class="row"><span>Surface</span><b>${esc(gen.surface_totale||"—")} m²</b></div><div class="row"><span>Prix affiché</span><b>${esc(fmtEur(bien.prix_vente))}</b></div><div class="row"><span>Travaux</span><b>${esc(fmtEur(bien.prix_travaux))}</b></div><div class="row"><span>Coût total</span><b>${esc(fmtEur(bien.cout_total))}</b></div><div class="row"><span>Cash-flow</span><b>${esc(fmtEur(bien.cashflow_estime))}/mois</b></div></div></div><div class="sec"><div class="title">Configuration cible</div><table><thead><tr><th>Lot</th><th>Type</th><th>Surface</th><th>Loyer</th><th>Location</th></tr></thead><tbody>${lotRows||"<tr><td colspan='5'>Aucun lot renseigné</td></tr>"}</tbody></table></div><div class="sec"><div class="title">Conclusion Profero</div><p><b>Stratégie locative :</b> ${esc(concl.strategie_locative||"—")}</p><p><b>Fiscalité recommandée :</b> ${esc(concl.fiscalite_recommandee||"—")}</p><p><b>Prochaine étape :</b> ${esc(concl.prochaine_etape||"—")}</p><p>${esc(concl.commentaire_conseiller||"")}</p></div></div></body></html>`); win.document.close();
   };
 
+
+  const genererPresentationClientPDF = () => {
+    const v = bien.visite_data || {}; const gen = v.general || {}; const fin = v.finance || {}; const concl = v.conclusion || {}; const cfg = v.configuration || {}; const lots = cfg.lots || [];
+    const a = buildQuickBienAnalysis(bien);
+    const esc = x => String(x ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const win = window.open("", "_blank", "width=900,height=720"); if(!win){ alert("Autorisez les pop-ups."); return; }
+    const lotRows = lots.filter(l=>l && (l.type||l.surface||l.loyer)).map((l,i)=>`<tr><td>Lot ${esc(l.numero || i+1)}</td><td>${esc(l.type || "—")}</td><td>${esc(l.surface || "—")} m²</td><td>${esc(l.loyer || "—")} €/mois</td><td>${esc(l.meuble || "—")}</td></tr>`).join("");
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Présentation client — ${esc(bien.adresse||"Bien")}</title><style>body{margin:0;background:#eef2f7;font-family:Arial,sans-serif;color:#1a1f2e}.wrap{max-width:900px;margin:0 auto;background:white;min-height:100vh}.hero{background:linear-gradient(135deg,#1a2d4a,#4070e8);color:white;padding:34px}.brand{font-size:12px;text-transform:uppercase;letter-spacing:3px;opacity:.75}.hero h1{margin:8px 0 6px;font-size:30px}.addr{opacity:.88}.kpis{display:grid;grid-template-columns:repeat(3,1fr);background:#1a2d4a;color:white}.kpi{padding:22px;text-align:center;border-right:1px solid rgba(255,255,255,.1)}.kpi:last-child{border-right:0}.v{font-size:28px;font-weight:900}.l{font-size:10px;text-transform:uppercase;letter-spacing:1.6px;opacity:.55;margin-top:6px}.sec{padding:24px 34px;border-top:1px solid #eef0f5}.title{font-size:12px;text-transform:uppercase;letter-spacing:2px;color:#4070e8;font-weight:900;margin-bottom:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px}.box{background:#f8f9fb;border-left:3px solid #4070e8;border-radius:8px;padding:14px}.box b{display:block;color:#1a2d4a;margin-bottom:5px}table{width:100%;border-collapse:collapse;font-size:13px;border-radius:8px;overflow:hidden}th{background:#1a2d4a;color:white;text-align:left;padding:10px}td{padding:10px;border-bottom:1px solid #eef0f5}.footer{background:#1a2d4a;color:rgba(255,255,255,.6);padding:22px 34px;font-size:11px}.no-print{position:fixed;right:18px;top:18px}.btn{background:#4070e8;color:white;border:0;border-radius:8px;padding:10px 16px;font-weight:800;cursor:pointer}@media print{.no-print{display:none}.wrap{max-width:none}}</style></head><body><div class="no-print"><button class="btn" onclick="window.print()">Télécharger en PDF</button></div><div class="wrap"><div class="hero"><div class="brand">Profero Invest</div><h1>${esc(bien.adresse || "Opportunité immobilière")}</h1><div class="addr">${esc([bien.code_postal,bien.ville].filter(Boolean).join(" "))}</div></div><div class="kpis"><div class="kpi"><div class="v">${a.rendement?Number(a.rendement).toFixed(1).replace(".",",")+" %":"—"}</div><div class="l">Rendement brut cible</div></div><div class="kpi"><div class="v">${a.cash?fmtDashboardEur(a.cash):"—"}</div><div class="l">Cash-flow mensuel estimé</div></div><div class="kpi"><div class="v">${a.loyers?fmtDashboardEur(a.loyers):"—"}</div><div class="l">Loyers mensuels cibles</div></div></div><div class="sec"><div class="title">Le projet</div><div class="grid"><div class="box"><b>Type de bien</b>${esc(gen.type_bien || bien.statut || "À préciser")}</div><div class="box"><b>Surface</b>${esc(gen.surface_totale || a.surface || "—")} m²</div><div class="box"><b>Budget global indicatif</b>${esc(fmtDashboardEur(a.total))}</div><div class="box"><b>Travaux estimés</b>${esc(fmtDashboardEur(a.travaux))}</div></div></div><div class="sec"><div class="title">Configuration cible</div><table><thead><tr><th>Lot</th><th>Type</th><th>Surface</th><th>Loyer cible</th><th>Location</th></tr></thead><tbody>${lotRows || "<tr><td colspan='5'>Configuration à confirmer</td></tr>"}</tbody></table></div><div class="sec"><div class="title">Lecture Profero</div><p><b>Stratégie recommandée :</b> ${esc(concl.strategie_locative || "À confirmer après analyse")}</p><p><b>Points forts :</b> ${esc(v.marche?.points_forts || concl.commentaire_conseiller || "Potentiel à approfondir")}</p><p><b>Points de vigilance :</b> ${esc(v.risques?.observations_libres || "À valider selon diagnostics, urbanisme et devis travaux")}</p><p><b>Prochaine étape :</b> ${esc(concl.prochaine_etape || "Valider la faisabilité et préparer l'offre")}</p></div><div class="footer">Document de présentation client · Profero Invest · Données indicatives sous réserve de validation technique, financière et juridique</div></div></body></html>`); win.document.close();
+  };
+
   const quitterFicheBien = async () => {
     if (ficheTab === "fiche" && ficheVisiteRef.current?.sauvegarder) {
       await ficheVisiteRef.current.sauvegarder({ refresh:false });
@@ -5803,6 +6006,9 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         )}
         <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={genererFicheBienPDF} title="Générer une fiche bien présentable en PDF">
           <Icon as={FileText} size={12} strokeWidth={2.2}/> Fiche bien PDF
+        </button>
+        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={genererPresentationClientPDF} title="Générer une présentation client premium sans les notes internes sensibles">
+          <Icon as={Sparkles} size={12} strokeWidth={2.2}/> Présentation client
         </button>
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
           <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
@@ -5910,6 +6116,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <ClientsAssociesCard />
           <AutoScoreBienCard bien={bien} T={T} />
+          <AnalyseRapideBienCard bien={bien} T={T} onSaved={charger} />
+          <ModeVisiteTerrainCard bien={bien} T={T} onSaved={charger} />
           <MatchingClientsBienCard bien={bien} clients={clients} propositions={props} T={T} onAssociate={associerClientMatching} />
 
           <div className="inv-card">
