@@ -3209,6 +3209,7 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
         <div style="font-size:12px;line-height:1.7">
           <div><strong>Statut :</strong> ${escapeHtml(b.statut || "—")}</div>
           <div><strong>Prix :</strong> ${escapeHtml(fmtEur(b.prix_vente))}</div>
+          <div><strong>Offre :</strong> ${escapeHtml(fmtEur(b.montant_offre))}</div>
           <div><strong>Travaux :</strong> ${escapeHtml(fmtEur(b.prix_travaux))}</div>
           <div><strong>Rendement :</strong> ${b.rendement_brut ? `${Number(b.rendement_brut).toFixed(1)} %` : "—"}</div>
           <div><strong>Cash-flow :</strong> ${escapeHtml(fmtEur(b.cashflow_estime))}</div>
