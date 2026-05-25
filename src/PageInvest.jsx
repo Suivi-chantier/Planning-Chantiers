@@ -2966,9 +2966,43 @@ function writeGeocodeCache(cache) {
   catch {}
 }
 
+async function geocodeAddressWithApiAdresse(address) {
+  const cleanAddress = String(address || "").trim();
+  if (!cleanAddress) return { error:"Adresse manquante" };
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6500);
+    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(cleanAddress)}&limit=1`;
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (!response.ok) return { error:`API Adresse indisponible (${response.status})` };
+
+    const json = await response.json();
+    const feature = json?.features?.[0];
+    const coords = feature?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return { error:"Adresse introuvable" };
+
+    const lng = parseFloat(coords[0]);
+    const lat = parseFloat(coords[1]);
+    if (!isValidLatLng(lat, lng)) return { error:"Coordonnées invalides" };
+
+    return {
+      lat,
+      lng,
+      formatted_address: feature?.properties?.label || cleanAddress,
+      status:"OK",
+      source:"api-adresse",
+    };
+  } catch (e) {
+    return { error: e?.name === "AbortError" ? "API Adresse trop lente" : (e?.message || "Géocodage API Adresse impossible") };
+  }
+}
+
 function geocodeAddress(geocoder, address) {
   return new Promise(resolve => {
-    geocoder.geocode({ address, region:"FR" }, (results, status) => {
+    geocoder.geocode({ address, region:"FR" }, async (results, status) => {
       if (status === "OK" && results?.[0]?.geometry?.location) {
         const loc = results[0].geometry.location;
         resolve({
@@ -2976,9 +3010,18 @@ function geocodeAddress(geocoder, address) {
           lng: loc.lng(),
           formatted_address: results[0].formatted_address || address,
           status,
+          source:"google",
         });
+        return;
+      }
+
+      // Fallback France : si Google refuse le géocodage (REQUEST_DENIED) ou ne trouve pas,
+      // on utilise l'API Adresse nationale pour créer latitude/longitude à partir de l'adresse.
+      const fallback = await geocodeAddressWithApiAdresse(address);
+      if (fallback?.lat && fallback?.lng && isValidLatLng(fallback.lat, fallback.lng)) {
+        resolve({ ...fallback, google_status: status || "UNKNOWN_ERROR" });
       } else {
-        resolve({ error: status || "UNKNOWN_ERROR" });
+        resolve({ error: status || fallback?.error || "UNKNOWN_ERROR" });
       }
     });
   });
@@ -2996,26 +3039,47 @@ async function getCoordinatesFromAddress(address) {
   const cleanAddress = String(address || "").trim();
   if (!cleanAddress) return { lat:null, lng:null, error:"Adresse manquante" };
 
-  try {
-    const cache = readGeocodeCache();
-    if (cache[cleanAddress] && isValidLatLng(cache[cleanAddress].lat, cache[cleanAddress].lng)) {
-      return { ...cache[cleanAddress], source:"cache" };
-    }
+  const cache = readGeocodeCache();
+  if (cache[cleanAddress] && isValidLatLng(cache[cleanAddress].lat, cache[cleanAddress].lng)) {
+    return { ...cache[cleanAddress], source:"cache" };
+  }
 
+  // 1) Priorité à l'adresse française : génère latitude/longitude sans dépendre
+  // du statut REQUEST_DENIED de Google Geocoding.
+  const adresseNationale = await geocodeAddressWithApiAdresse(cleanAddress);
+  if (adresseNationale?.lat && adresseNationale?.lng && isValidLatLng(adresseNationale.lat, adresseNationale.lng)) {
+    const coords = {
+      lat: adresseNationale.lat,
+      lng: adresseNationale.lng,
+      formatted_address: adresseNationale.formatted_address || cleanAddress,
+      source:"api-adresse",
+    };
+    cache[cleanAddress] = coords;
+    writeGeocodeCache(cache);
+    return coords;
+  }
+
+  // 2) Fallback Google si l'adresse n'est pas reconnue par l'API Adresse.
+  try {
     const maps = await loadGoogleMapsApi(getGoogleMapsApiKey());
     const geocoder = new maps.Geocoder();
     const geo = await geocodeAddress(geocoder, cleanAddress);
 
     if (geo?.lat && geo?.lng && isValidLatLng(geo.lat, geo.lng)) {
-      const coords = { lat: geo.lat, lng: geo.lng, formatted_address: geo.formatted_address || cleanAddress };
+      const coords = {
+        lat: geo.lat,
+        lng: geo.lng,
+        formatted_address: geo.formatted_address || cleanAddress,
+        source: geo.source || "google",
+      };
       cache[cleanAddress] = coords;
       writeGeocodeCache(cache);
-      return { ...coords, source:"google" };
+      return coords;
     }
 
-    return { lat:null, lng:null, error: geo?.error || "Adresse introuvable" };
+    return { lat:null, lng:null, error: geo?.error || adresseNationale?.error || "Adresse introuvable" };
   } catch (e) {
-    return { lat:null, lng:null, error: e?.message || "Géocodage impossible" };
+    return { lat:null, lng:null, error: adresseNationale?.error || e?.message || "Géocodage impossible" };
   }
 }
 
@@ -3104,9 +3168,9 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
           const geo = await geocodeAddress(geocoder, address);
           if (cancelled) return;
           if (geo?.lat && geo?.lng) {
-            const coords = { lat: geo.lat, lng: geo.lng, formatted_address: geo.formatted_address || address };
+            const coords = { lat: geo.lat, lng: geo.lng, formatted_address: geo.formatted_address || address, source: geo.source || "google" };
             cache[address] = coords;
-            resolved.push({ b, address, ...coords, source:"google" });
+            resolved.push({ b, address, ...coords, source: coords.source });
             saveBienCoordinatesIfPossible(b.id, geo.lat, geo.lng);
           } else {
             resolved.push({ b, address, error: geo.error || "Adresse introuvable" });
@@ -3628,7 +3692,7 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label><InpText value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label><InpText value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></div>
           <div style={{ marginBottom:12, gridColumn:"1 / 3", padding:"9px 11px", borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}`, color:T.accent, fontSize:FONT.sm.size }}>
-            📍 La latitude et la longitude seront calculées automatiquement à partir de l'adresse lors de l'enregistrement.
+            📍 La latitude et la longitude seront calculées automatiquement à partir de l'adresse lors de l'enregistrement, puis le bien apparaîtra sur la Maps.
           </div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label><InpText value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></div>
           <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label><InpText value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></div>
@@ -4220,7 +4284,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
-        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"black", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
       </div>
       <div className="inv-card-bd">
         {props.length === 0 ? (
