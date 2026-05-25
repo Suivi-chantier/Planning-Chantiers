@@ -2770,14 +2770,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
           <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
         </button>
-        {ficheTab === "fiche" && (
-          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>ficheVisiteRef.current?.sauvegarder()} disabled={visiteSaveState.saving}>
-            <Icon as={Save} size={12} strokeWidth={2.2}/> {visiteSaveState.saving ? "Sauvegarde…" : visiteSaveState.saved ? "Sauvegardé" : "Enregistrer"}
-          </button>
-        )}
-        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={genererFicheBienPDF}>
-          <Icon as={FileText} size={12} strokeWidth={2.2}/> Fiche bien PDF
-        </button>
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ${client.prenom} ${client.nom} ? Cette action est irréversible.`)) return;
           await supabase.from("invest_notes").delete().eq("client_id", id);
@@ -4090,12 +4082,39 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
     <div className="inv-card">
       <div className="inv-card-hd blue" style={{ justifyContent:"space-between" }}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13} strokeWidth={2.2}/>Fiche visite du bien</span>
-        <button className="inv-btn inv-btn-sm inv-btn-gold" onClick={sauvegarder} disabled={saving}>
-          <Icon as={Save} size={12} strokeWidth={2.2}/> {saving ? "Sauvegarde…" : saved ? "Sauvegardé" : "Enregistrer"}
-        </button>
+        <span style={{
+          fontSize:FONT.xs.size+1,
+          color: saving ? WA : saved ? SU : T.textMuted,
+          fontWeight:800,
+          display:"inline-flex",
+          alignItems:"center",
+          gap:5,
+        }}>
+          {saving && <Icon as={RefreshCw} size={11} strokeWidth={2.2} style={{animation:"spin 1s linear infinite"}}/>}
+          {saving ? "Sauvegarde en cours…" : saved ? "Sauvegardé" : "Enregistrement via le bouton en haut"}
+        </span>
       </div>
       <div className="inv-card-bd">
         {error && <div style={{marginBottom:12, padding:"9px 11px", borderRadius:RADIUS.md, background:SEMANTIC.danger.bg, border:`1px solid ${SEMANTIC.danger.border}`, color:DA, fontSize:FONT.sm.size}}>{error}</div>}
+
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:8, marginBottom:14}}>
+          <div style={{padding:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.cardHover}}>
+            <div className="inv-kpi-lbl">Référence</div>
+            <div style={{fontSize:FONT.md.size, fontWeight:900, color:T.accent}}>{bien.reference_interne || data.identification.reference_interne || "À générer"}</div>
+          </div>
+          <div style={{padding:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.cardHover}}>
+            <div className="inv-kpi-lbl">Recommandation</div>
+            <div style={{fontSize:FONT.md.size, fontWeight:900, color:data.conclusion?.recommandation === "Abandonner" ? DA : SU}}>{data.conclusion?.recommandation || "À compléter"}</div>
+          </div>
+          <div style={{padding:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.cardHover}}>
+            <div className="inv-kpi-lbl">Coût total</div>
+            <div style={{fontSize:FONT.md.size, fontWeight:900, color:T.text}}>{fmt(coutOperation)}</div>
+          </div>
+          <div style={{padding:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.cardHover}}>
+            <div className="inv-kpi-lbl">Rendement brut</div>
+            <div style={{fontSize:FONT.md.size, fontWeight:900, color:T.accent}}>{rendementBrut ? rendementBrut.toFixed(2)+" %" : "—"}</div>
+          </div>
+        </div>
 
         <VisitSection title="0. Identification du bien" icon={MapPin} T={T}>
           <div style={grid2}>
@@ -4426,6 +4445,10 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
   const currentTheme = T?.bg === THEMES_INV.light.bg ? "light" : "dark";
   const simulateurProjetBien = buildSimulateurProjectFromBien(bien);
+  const visiteDataBien = bien.visite_data || {};
+  const conclusionBien = visiteDataBien.conclusion || {};
+  const generalBien = visiteDataBien.general || {};
+  const financeBien = visiteDataBien.finance || {};
   const genererFicheBienPDF = () => {
     const v = bien.visite_data || {}; const idf = v.identification || {}; const gen = v.general || {}; const fin = v.finance || {}; const concl = v.conclusion || {}; const lots = v.configuration?.lots || [];
     const esc = x => String(x ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -4469,6 +4492,20 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           </div>
         </div>
         <span style={{ background:`${couleur}18`, color:couleur, border:`1px solid ${couleur}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{bien.statut}</span>
+        {ficheTab === "fiche" && (
+          <button
+            className="inv-btn inv-btn-gold inv-btn-sm"
+            onClick={() => ficheVisiteRef.current?.sauvegarder?.()}
+            disabled={visiteSaveState.saving}
+            title="Enregistrer la fiche visite"
+          >
+            <Icon as={Save} size={12} strokeWidth={2.2}/>
+            {visiteSaveState.saving ? "Sauvegarde…" : visiteSaveState.saved ? "Sauvegardé" : "Enregistrer"}
+          </button>
+        )}
+        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={genererFicheBienPDF} title="Générer une fiche bien présentable en PDF">
+          <Icon as={FileText} size={12} strokeWidth={2.2}/> Fiche bien PDF
+        </button>
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
           <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
         </button>
@@ -4520,6 +4557,42 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           </button>
         ))}
       </div>
+
+      {ficheTab === "fiche" && (
+        <div className="inv-card" style={{marginBottom:16}}>
+          <div className="inv-card-hd blue">
+            <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13} strokeWidth={2.2}/>Synthèse rapide du bien</span>
+          </div>
+          <div className="inv-card-bd">
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10}}>
+              <div className="inv-kpi" style={{padding:12}}>
+                <div className="inv-kpi-lbl">Référence</div>
+                <div className="inv-kpi-val accent" style={{fontSize:18}}>{bien.reference_interne || "—"}</div>
+              </div>
+              <div className="inv-kpi" style={{padding:12}}>
+                <div className="inv-kpi-lbl">Prix affiché</div>
+                <div className="inv-kpi-val" style={{fontSize:18}}>{fmtEur(bien.prix_vente || generalBien.prix_affiche)}</div>
+              </div>
+              <div className="inv-kpi" style={{padding:12}}>
+                <div className="inv-kpi-lbl">Offre / prix cible</div>
+                <div className="inv-kpi-val orange" style={{fontSize:18}}>{fmtEur(bien.montant_offre || conclusionBien.prix_offre_recommande || financeBien.prix_acquisition_negocie)}</div>
+              </div>
+              <div className="inv-kpi" style={{padding:12}}>
+                <div className="inv-kpi-lbl">Rendement brut</div>
+                <div className="inv-kpi-val green" style={{fontSize:18}}>{bien.rendement_brut ? Number(bien.rendement_brut).toFixed(1)+" %" : (financeBien.rendement_brut_calcule ? Number(financeBien.rendement_brut_calcule).toFixed(1)+" %" : "—")}</div>
+              </div>
+              <div className="inv-kpi" style={{padding:12}}>
+                <div className="inv-kpi-lbl">Recommandation</div>
+                <div className={`inv-kpi-val ${conclusionBien.recommandation === "Abandonner" ? "red" : "green"}`} style={{fontSize:18}}>{conclusionBien.recommandation || "À compléter"}</div>
+              </div>
+              <div className="inv-kpi" style={{padding:12}}>
+                <div className="inv-kpi-lbl">Note dossier</div>
+                <div className="inv-kpi-val accent" style={{fontSize:18}}>{conclusionBien.note_globale ? `${conclusionBien.note_globale}/10` : "—"}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {ficheTab === "simulateur" ? (
         <Simulateur
