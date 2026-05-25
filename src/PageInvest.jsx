@@ -4125,6 +4125,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [showProp, setShowProp] = useState(false);
   const [newProp, setNewProp] = useState({ client_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
   const [savingProp, setSavingProp] = useState(false);
+  const [geolocatingBien, setGeolocatingBien] = useState(false);
+  const [geoMessageBien, setGeoMessageBien] = useState("");
 
   const charger = async () => {
     const [{ data: b }, { data: p }, { data: c }] = await Promise.all([
@@ -4146,6 +4148,67 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     charger();
   };
 
+  const validerGeolocalisationBien = async () => {
+    const adresseComplete = getBienGoogleAddress(bien || {});
+    if (!adresseComplete) {
+      setGeoMessageBien("Adresse manquante : renseignez au minimum l'adresse, le code postal ou la ville.");
+      return;
+    }
+
+    setGeolocatingBien(true);
+    setGeoMessageBien("");
+
+    try {
+      const geo = await getCoordinatesFromAddress(adresseComplete);
+      if (!geo || !isValidLatLng(parseFloat(geo.lat), parseFloat(geo.lng))) {
+        setGeoMessageBien(`Adresse introuvable par Google Maps : ${geo?.error || "vérifiez l'adresse"}`);
+        setGeolocatingBien(false);
+        return;
+      }
+
+      const lat = parseFloat(geo.lat);
+      const lng = parseFloat(geo.lng);
+      const updatedVisiteData = {
+        ...(bien.visite_data || {}),
+        identification: {
+          ...(bien.visite_data?.identification || {}),
+          latitude: lat,
+          longitude: lng,
+          geocoding_status: `Géolocalisation validée le ${new Date().toLocaleDateString("fr-FR")}`,
+          adresse_google: geo.formatted_address || adresseComplete,
+        },
+      };
+
+      const { error } = await supabase
+        .from("invest_biens")
+        .update({
+          latitude: lat,
+          longitude: lng,
+          visite_data: updatedVisiteData,
+        })
+        .eq("id", id);
+
+      if (error) {
+        console.error("Erreur géolocalisation bien:", error);
+        setGeoMessageBien(`Erreur Supabase : ${error.message}`);
+      } else {
+        setBien(prev => ({
+          ...prev,
+          latitude: lat,
+          longitude: lng,
+          visite_data: updatedVisiteData,
+        }));
+        setGeoMessageBien(`Géolocalisation validée : ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        charger();
+      }
+    } catch (e) {
+      console.error("Erreur géolocalisation:", e);
+      setGeoMessageBien(e?.message || "Géolocalisation impossible.");
+    } finally {
+      setGeolocatingBien(false);
+    }
+  };
+
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"}) : "—";
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
 
@@ -4157,7 +4220,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
-        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"black", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
       </div>
       <div className="inv-card-bd">
         {props.length === 0 ? (
@@ -4191,6 +4254,15 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
           <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
         </button>
+        <button
+          className="inv-btn inv-btn-blue inv-btn-sm"
+          onClick={validerGeolocalisationBien}
+          disabled={geolocatingBien}
+          title="Valider et enregistrer les coordonnées Google Maps à partir de l'adresse"
+        >
+          <Icon as={geolocatingBien ? RefreshCw : MapPin} size={12} strokeWidth={2.2} style={geolocatingBien ? {animation:"spin 1s linear infinite"} : undefined}/>
+          {geolocatingBien ? "Géoloc…" : "Valider géoloc."}
+        </button>
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ce bien (${bien.adresse||"sans adresse"}) ? Cette action est irréversible.`)) return;
           await supabase.from("invest_propositions").delete().eq("bien_id", id);
@@ -4199,6 +4271,18 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>
 
+      {geoMessageBien && (
+        <div style={{
+          marginBottom:16, padding:"10px 13px", borderRadius:RADIUS.md,
+          background: geoMessageBien.startsWith("Géolocalisation validée") ? SEMANTIC.success.bg : SEMANTIC.warning.bg,
+          border:`1px solid ${geoMessageBien.startsWith("Géolocalisation validée") ? SEMANTIC.success.border : SEMANTIC.warning.border}`,
+          color: geoMessageBien.startsWith("Géolocalisation validée") ? SU : WA,
+          fontSize:FONT.sm.size+1, fontWeight:700,
+        }}>
+          {geoMessageBien}
+        </div>
+      )}
+
       <div style={{ display:"grid", gridTemplateColumns:"0.82fr 1.18fr", gap:16, alignItems:"start" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <ClientsAssociesCard />
@@ -4206,7 +4290,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           <div className="inv-card">
             <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Informations</span></div>
             <div className="inv-card-bd">
-              {[["Référence Profero", bien.reference_interne || "—"],["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Source", bien.source_bien || bien.visite_data?.identification?.source],["Conseiller", bien.conseiller_profero || bien.visite_data?.identification?.conseiller_profero],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:T.accent}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
+              {[["Référence Profero", bien.reference_interne || "—"],["Géolocalisation", (isValidLatLng(parseFloat(bien.latitude), parseFloat(bien.longitude)) ? `${parseFloat(bien.latitude).toFixed(6)}, ${parseFloat(bien.longitude).toFixed(6)}` : "À valider")],["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Source", bien.source_bien || bien.visite_data?.identification?.source],["Conseiller", bien.conseiller_profero || bien.visite_data?.identification?.conseiller_profero],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:T.accent}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
               ))}
             </div>
