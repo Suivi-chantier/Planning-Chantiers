@@ -196,14 +196,21 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         setPhasages([]);
       } else if (data) {
         setPhasages(data);
+        // photoMap est indexé par chantier.id. Comme un phasage peut être lié par
+        // nom (et pas par chantier_id exact), on passe par trouverPhasage pour
+        // chaque chantier afin de retrouver la photo correspondante.
         const pm = {};
-        data.forEach(p => { if (p.photo_batiment) pm[p.chantier_id] = p.photo_batiment; });
+        chantiers.forEach(c => {
+          const ph = trouverPhasage(data, c);
+          if (ph?.photo_batiment) pm[c.id] = ph.photo_batiment;
+        });
         setPhotoMap(pm);
       }
       setLoading(false);
     };
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chantiers]);
 
   // ── Chargement adresses des chantiers (planning_config) ──
   useEffect(() => {
@@ -380,20 +387,34 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     setUploading(true);
     try {
       const ext  = file.name.split(".").pop();
+      // Cache-buster pour forcer le rafraîchissement de l'image après upsert
       const path = `chantiers/${chantierId}/batiment.${ext}`;
       const { error: upErr } = await supabase.storage.from("photos").upload(path, file, { upsert: true });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from("photos").getPublicUrl(path);
       const url = urlData?.publicUrl;
-      const phasage = phasages.find(p => p.chantier_id === chantierId);
+      // Recherche du phasage : par chantier_id exact, sinon par fuzzy match
+      // (un phasage peut être lié par nom plutôt qu'id).
+      const chantier = chantiers.find(c => c.id === chantierId);
+      const phasage  = trouverPhasage(phasages, chantier);
       if (phasage) {
-        await supabase.from("phasages").update({ photo_batiment: url }).eq("id", phasage.id);
-        setPhasages(prev => prev.map(p => p.chantier_id === chantierId ? { ...p, photo_batiment: url } : p));
+        const { error: updErr } = await supabase.from("phasages")
+          .update({ photo_batiment: url }).eq("id", phasage.id);
+        if (updErr) throw updErr;
+        setPhasages(prev => prev.map(p => p.id === phasage.id ? { ...p, photo_batiment: url } : p));
+      } else {
+        // Pas de phasage → on en crée un minimal pour persister la photo.
+        const { data: newPh, error: insErr } = await supabase.from("phasages")
+          .insert({ chantier_id: chantierId, chantier_nom: chantier?.nom, ouvrages: [], photo_batiment: url })
+          .select().single();
+        if (insErr) throw insErr;
+        if (newPh) setPhasages(prev => [...prev, newPh]);
       }
       setPhotoMap(prev => ({ ...prev, [chantierId]: url }));
     } catch (err) {
       console.error("Erreur upload photo:", err);
-      alert("Erreur upload photo. Vérifiez que le bucket 'photos' existe dans Supabase Storage.");
+      const msg = err?.message || err?.error || String(err);
+      alert(`Erreur upload photo : ${msg}\n\nVérifiez que le bucket 'photos' existe et que les politiques RLS autorisent l'upload sur le chemin 'chantiers/*'.`);
     }
     setUploading(false);
   };
