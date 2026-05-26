@@ -8801,6 +8801,56 @@ const finNum = (v) => {
 };
 const finSum = (arr) => (arr || []).reduce((s, v) => s + finNum(v), 0);
 const finVec = () => SUIVI_FIN_MONTHS.map(() => 0);
+const finEmptyVec = () => SUIVI_FIN_MONTHS.map(() => "");
+const finIsZeroLike = (v) => v === 0 || v === "0" || v === "0.0" || v === "0.00";
+const FIN_START_YEAR = 2025;
+const FIN_START_MONTH = 11; // Décembre 2025, mois JS 0-11
+const finMonthIndexFromDate = (value) => {
+  if (!value) return -1;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return -1;
+  const idx = (d.getFullYear() - FIN_START_YEAR) * 12 + d.getMonth() - FIN_START_MONTH;
+  return idx >= 0 && idx < SUIVI_FIN_MONTHS.length ? idx : -1;
+};
+const finClientName = (c) => `${c?.prenom || ""} ${c?.nom || ""}`.trim() || c?.email || "Client sans nom";
+const finMergeSignedClients = (source, clients = []) => {
+  const next = JSON.parse(JSON.stringify(source || cloneSuiviFinancier()));
+  next.commercial = next.commercial || {};
+  next.commercial.pipeline = next.commercial.pipeline || [];
+  next.commercial.forfaits = next.commercial.forfaits || [];
+  const forfait = finNum(next.params?.forfaitFixeHT ?? 1583.33);
+  const signedClients = (clients || []).filter(c => !!c.date_signature);
+  const existingByClientId = new Set(next.commercial.forfaits.map(r => r.auto_client_id).filter(Boolean));
+  const normalizeName = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const existingNames = new Set(next.commercial.forfaits.map(r => normalizeName(r.label)).filter(Boolean));
+  signedClients.forEach(c => {
+    const clientLabel = finClientName(c);
+    const clientKey = normalizeName(clientLabel);
+    if (existingByClientId.has(c.id) || existingNames.has(clientKey)) return;
+    const mi = finMonthIndexFromDate(c.date_signature);
+    if (mi < 0) return;
+    const values = finEmptyVec();
+    values[mi] = forfait;
+    next.commercial.forfaits.push({
+      id: `auto_client_${c.id}`,
+      auto_client_id: c.id,
+      label: clientLabel,
+      values,
+      payment_status: ""
+    });
+    existingByClientId.add(c.id);
+    existingNames.add(clientKey);
+  });
+  const counts = finVec();
+  signedClients.forEach(c => { const mi = finMonthIndexFromDate(c.date_signature); if (mi >= 0) counts[mi] += 1; });
+  let sigRow = next.commercial.pipeline.find(r => String(r.label || "").toLowerCase().includes("signature"));
+  if (!sigRow) {
+    sigRow = { id:`auto_signatures_${Date.now()}`, label:"Signatures contrats", values:finVec() };
+    next.commercial.pipeline.push(sigRow);
+  }
+  sigRow.values = SUIVI_FIN_MONTHS.map((_, i) => Math.max(finNum(sigRow.values?.[i]), counts[i]));
+  return next;
+};
 const finRowsSum = (rows) => SUIVI_FIN_MONTHS.map((_, i) => (rows || []).reduce((s, r) => s + finNum(r.values?.[i]), 0));
 const finAddVec = (...vectors) => SUIVI_FIN_MONTHS.map((_, i) => vectors.reduce((s, v) => s + finNum(v?.[i]), 0));
 const finSubVec = (a, b) => SUIVI_FIN_MONTHS.map((_, i) => finNum(a?.[i]) - finNum(b?.[i]));
@@ -8871,14 +8921,14 @@ const finIsFormulaValue = (v) => {
   return /[+*/()]/.test(cleaned) || /\d-\d/.test(cleaned);
 };
 
-function SuiviFinanceCell({ value, onChange, T, money=true }) {
+function SuiviFinanceCell({ value, onChange, T, money=true, highlight=false }) {
   const [editing, setEditing] = useState(false);
   const raw = value ?? "";
   const hasFormula = finIsFormulaValue(raw);
-  const displayValue = editing
-    ? raw
-    : raw === ""
-      ? ""
+  const displayValue = (raw === "" || finIsZeroLike(raw))
+    ? ""
+    : editing
+      ? raw
       : money
         ? finEur(raw)
         : new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(finNum(raw));
@@ -8892,12 +8942,12 @@ function SuiviFinanceCell({ value, onChange, T, money=true }) {
       onFocus={e => { setEditing(true); setTimeout(() => e.target.select?.(), 0); }}
       onBlur={() => setEditing(false)}
       onChange={e => onChange(e.target.value)}
-      style={{ width:"100%", border:"none", borderLeft:`1px solid ${T.rowBorder}`, borderRadius:0, background:hasFormula && !editing ? T.accentBg : "transparent", color:hasFormula && !editing ? T.accent : T.textSub, padding:"7px 5px", fontSize:FONT.xs.size, textAlign:"right" }}
+      style={{ width:"100%", border:"none", borderLeft:`1px solid ${T.rowBorder}`, borderRadius:0, background:hasFormula && !editing ? T.accentBg : (highlight ? "rgba(34,197,94,0.08)" : "transparent"), color:hasFormula && !editing ? T.accent : T.textSub, padding:"7px 5px", fontSize:FONT.xs.size, textAlign:"right" }}
     />
   );
 }
 
-function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSave, T, canAdd=true, money=true }) {
+function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSave, T, canAdd=true, money=true, showPaymentStatus=false, validatedMonths=null }) {
   const updateLabel = (idx, value) => {
     const next = JSON.parse(JSON.stringify(data));
     const [a,b] = sectionPath.split(".");
@@ -8907,14 +8957,20 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
   const updateValue = (idx, monthIdx, value) => {
     const next = JSON.parse(JSON.stringify(data));
     const [a,b] = sectionPath.split(".");
-    if (!next[a][b][idx].values) next[a][b][idx].values = finVec();
+    if (!next[a][b][idx].values) next[a][b][idx].values = finEmptyVec();
     next[a][b][idx].values[monthIdx] = value;
+    setData(next); scheduleSave(next);
+  };
+  const updatePaymentStatus = (idx, value) => {
+    const next = JSON.parse(JSON.stringify(data));
+    const [a,b] = sectionPath.split(".");
+    next[a][b][idx].payment_status = value;
     setData(next); scheduleSave(next);
   };
   const addRow = () => {
     const next = JSON.parse(JSON.stringify(data));
     const [a,b] = sectionPath.split(".");
-    next[a][b].push({ id:`custom_${Date.now()}`, label:"Nouvelle ligne", values:finVec() });
+    next[a][b].push({ id:`custom_${Date.now()}`, label:"Nouvelle ligne", values:finEmptyVec(), ...(showPaymentStatus ? { payment_status:"" } : {}) });
     setData(next); scheduleSave(next);
   };
   const removeRow = (idx) => {
@@ -8924,6 +8980,14 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
     setData(next); scheduleSave(next);
   };
   const totals = finRowsSum(rows);
+  const gridCols = `minmax(145px,1.35fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(38px,.65fr)) minmax(62px,.75fr) ${showPaymentStatus ? "minmax(82px,.75fr)" : ""} 26px`;
+  const paymentBg = (r) => {
+    if (!showPaymentStatus || finSum(r.values) <= 0) return "transparent";
+    if (r.payment_status === "regle") return "rgba(34,197,94,0.10)";
+    if (r.payment_status === "non_regle") return "rgba(239,68,68,0.08)";
+    if (r.payment_status === "partiel") return "rgba(245,158,11,0.08)";
+    return "transparent";
+  };
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
@@ -8931,16 +8995,17 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
         {canAdd && <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addRow}><Icon as={Plus} size={12}/> Ajouter</button>}
       </div>
       <div className="inv-card-bd" style={{ padding:0, overflowX:"auto" }}>
-        <div style={{ width:"100%", minWidth:1080 }}>
-          <div style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.45fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(48px,.78fr)) minmax(72px,.85fr) 30px`, gap:0, background:T.sectionHd, borderBottom:`1px solid ${T.border}` }}>
-            <div style={{ padding:"9px 10px", fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.8 }}>Poste</div>
-            {SUIVI_FIN_MONTHS.map(m => <div key={m} style={{ padding:"9px 4px", fontSize:FONT.xs.size-1, color:T.textMuted, fontWeight:800, textAlign:"right" }}>{m}</div>)}
-            <div style={{ padding:"9px 6px", fontSize:FONT.xs.size, color:T.accent, fontWeight:800, textAlign:"right" }}>Total</div>
+        <div style={{ width:"100%", minWidth:920 }}>
+          <div style={{ display:"grid", gridTemplateColumns:gridCols, gap:0, background:T.sectionHd, borderBottom:`1px solid ${T.border}` }}>
+            <div style={{ padding:"8px 8px", fontSize:FONT.xs.size-1, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.8 }}>Poste</div>
+            {SUIVI_FIN_MONTHS.map(m => <div key={m} style={{ padding:"8px 3px", fontSize:FONT.xs.size-2, color:T.textMuted, fontWeight:800, textAlign:"right" }}>{m}</div>)}
+            <div style={{ padding:"8px 4px", fontSize:FONT.xs.size-1, color:T.accent, fontWeight:800, textAlign:"right" }}>Total</div>
+            {showPaymentStatus && <div style={{ padding:"8px 4px", fontSize:FONT.xs.size-2, color:T.textMuted, fontWeight:800, textAlign:"center" }}>Paiement</div>}
             <div />
           </div>
           {(rows || []).map((r, ri) => (
-            <div key={r.id || ri} style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.45fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(48px,.78fr)) minmax(72px,.85fr) 30px`, borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center" }}>
-              <input className="inv-inp" value={r.label || ""} onChange={e=>updateLabel(ri,e.target.value)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", color:T.text, fontFamily:"inherit", fontWeight:600 }}/>
+            <div key={r.id || ri} style={{ display:"grid", gridTemplateColumns:gridCols, borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center", background:paymentBg(r) }}>
+              <input className="inv-inp" value={r.label || ""} onChange={e=>updateLabel(ri,e.target.value)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", color:T.text, fontFamily:"inherit", fontWeight:600, fontSize:FONT.xs.size+1, padding:"7px 8px" }}/>
               {SUIVI_FIN_MONTHS.map((m, mi) => (
                 <SuiviFinanceCell
                   key={m}
@@ -8948,16 +9013,28 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
                   onChange={value => updateValue(ri, mi, value)}
                   T={T}
                   money={money}
+                  highlight={!!validatedMonths?.[mi]}
                 />
               ))}
-              <div style={{ padding:"7px 6px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size+1, color:T.accent, fontWeight:700, borderLeft:`1px solid ${T.rowBorder}` }}>{money ? finEur(finSum(r.values)) : finSum(r.values)}</div>
-              <button title="Supprimer" onClick={()=>removeRow(ri)} style={{ background:"transparent", border:"none", color:T.textMuted, cursor:"pointer", padding:4 }}><Icon as={Trash2} size={13}/></button>
+              <div style={{ padding:"7px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size, color:T.accent, fontWeight:700, borderLeft:`1px solid ${T.rowBorder}` }}>{money ? finEur(finSum(r.values)) : finSum(r.values)}</div>
+              {showPaymentStatus && (
+                <div style={{ padding:"3px 4px", borderLeft:`1px solid ${T.rowBorder}` }}>
+                  <select className="inv-sel" value={r.payment_status || ""} onChange={e=>updatePaymentStatus(ri,e.target.value)} style={{ width:"100%", padding:"4px 5px", fontSize:FONT.xs.size-1 }}>
+                    <option value="">—</option>
+                    <option value="regle">Réglé</option>
+                    <option value="non_regle">Non réglé</option>
+                    <option value="partiel">Partiel</option>
+                  </select>
+                </div>
+              )}
+              <button title="Supprimer" onClick={()=>removeRow(ri)} style={{ background:"transparent", border:"none", color:T.textMuted, cursor:"pointer", padding:3 }}><Icon as={Trash2} size={12}/></button>
             </div>
           ))}
-          <div style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.45fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(48px,.78fr)) minmax(72px,.85fr) 30px`, background:T.accentBg, borderTop:`1px solid ${T.accentBorder}`, alignItems:"center" }}>
-            <div style={{ padding:"9px 10px", color:T.accent, fontWeight:800, fontSize:FONT.sm.size }}>TOTAL</div>
-            {totals.map((v, i) => <div key={i} style={{ padding:"9px 5px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:700, fontSize:FONT.xs.size+1 }}>{money ? finEur(v) : v}</div>)}
-            <div style={{ padding:"9px 6px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size+1 }}>{money ? finEur(finSum(totals)) : finSum(totals)}</div>
+          <div style={{ display:"grid", gridTemplateColumns:gridCols, background:T.accentBg, borderTop:`1px solid ${T.accentBorder}`, alignItems:"center" }}>
+            <div style={{ padding:"8px 8px", color:T.accent, fontWeight:800, fontSize:FONT.xs.size+1 }}>TOTAL</div>
+            {totals.map((v, i) => <div key={i} style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:700, fontSize:FONT.xs.size }}>{money ? finEur(v) : v}</div>)}
+            <div style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size }}>{money ? finEur(finSum(totals)) : finSum(totals)}</div>
+            {showPaymentStatus && <div />}
             <div />
           </div>
         </div>
@@ -8966,28 +9043,28 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
   );
 }
 
-function SuiviTvaAutoTable({ rows, T }) {
+function SuiviTvaAutoTable({ rows, T, validatedMonths=null }) {
   const totals = finRowsSum(rows);
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
       <div className="inv-card-hd blue"><span>TVA déductible automatique</span></div>
       <div className="inv-card-bd" style={{ padding:0, overflowX:"auto" }}>
-        <div style={{ width:"100%", minWidth:1080 }}>
-          <div style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.45fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(48px,.78fr)) minmax(72px,.85fr) 30px`, background:T.sectionHd }}>
+        <div style={{ width:"100%", minWidth:920 }}>
+          <div style={{ display:"grid", gridTemplateColumns:`minmax(145px,1.35fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(38px,.65fr)) minmax(62px,.75fr) 26px`, background:T.sectionHd }}>
             <div style={{ padding:"8px", color:T.textMuted, fontWeight:800, fontSize:FONT.xs.size }}>Poste / taux</div>
             {SUIVI_FIN_MONTHS.map(m => <div key={m} style={{ padding:"8px 3px", textAlign:"right", color:T.textMuted, fontWeight:800, fontSize:FONT.xs.size-2 }}>{m}</div>)}
             <div style={{ padding:"8px 5px", textAlign:"right", color:T.accent, fontWeight:800, fontSize:FONT.xs.size }}>Total</div><div/>
           </div>
           {(rows || []).filter(r => finSum(r.values) !== 0).map((r, idx) => (
-            <div key={r.id || idx} style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.45fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(48px,.78fr)) minmax(72px,.85fr) 30px`, borderBottom:`1px solid ${T.rowBorder}` }}>
+            <div key={r.id || idx} style={{ display:"grid", gridTemplateColumns:`minmax(145px,1.35fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(38px,.65fr)) minmax(62px,.75fr) 26px`, borderBottom:`1px solid ${T.rowBorder}` }}>
               <div style={{ padding:"7px 8px", color:T.textSub, fontWeight:700, fontSize:FONT.xs.size+1 }}>{r.label} <span style={{color:T.accent}}>· {r.rate}%</span></div>
-              {SUIVI_FIN_MONTHS.map((m, mi) => <div key={m} style={{ padding:"7px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size, color:T.textSub }}>{finEur(r.values?.[mi])}</div>)}
+              {SUIVI_FIN_MONTHS.map((m, mi) => <div key={m} style={{ padding:"7px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size, color:T.textSub, background:validatedMonths?.[mi] ? "rgba(34,197,94,0.08)" : "transparent" }}>{finEur(r.values?.[mi])}</div>)}
               <div style={{ padding:"7px 5px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size }}>{finEur(finSum(r.values))}</div><div/>
             </div>
           ))}
-          <div style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.45fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(48px,.78fr)) minmax(72px,.85fr) 30px`, background:T.accentBg }}>
+          <div style={{ display:"grid", gridTemplateColumns:`minmax(145px,1.35fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(38px,.65fr)) minmax(62px,.75fr) 26px`, background:T.accentBg }}>
             <div style={{ padding:"8px", color:T.accent, fontWeight:800 }}>TOTAL TVA DÉDUCTIBLE</div>
-            {totals.map((v,i)=><div key={i} style={{padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:700, fontSize:FONT.xs.size}}>{finEur(v)}</div>)}
+            {totals.map((v,i)=><div key={i} style={{padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:700, fontSize:FONT.xs.size, background:validatedMonths?.[i] ? "rgba(34,197,94,0.08)" : "transparent"}}>{finEur(v)}</div>)}
             <div style={{padding:"8px 5px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size}}>{finEur(finSum(totals))}</div><div/>
           </div>
         </div>
@@ -9009,16 +9086,30 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
 
   const loadData = useCallback(async () => {
     setLoading(true); setError("");
-    const { data: row, error } = await supabase.from("invest_suivi_financier").select("data").eq("id", "global").maybeSingle();
+    const [suiviRes, clientsRes] = await Promise.all([
+      supabase.from("invest_suivi_financier").select("data").eq("id", "global").maybeSingle(),
+      supabase.from("invest_clients").select("id,nom,prenom,email,statut,date_signature,created_at")
+    ]);
+    const { data: row, error } = suiviRes;
     if (error) {
       console.warn("Suivi financier non chargé:", error);
       setError("La table invest_suivi_financier n'est pas encore disponible. Lance la migration SQL fournie, puis recharge la page.");
-    } else if (row?.data) {
-      const merged = { ...cloneSuiviFinancier(), ...row.data, params: { ...cloneSuiviFinancier().params, ...(row.data.params || {}) } };
-      setData(merged);
+    }
+    const base = row?.data
+      ? { ...cloneSuiviFinancier(), ...row.data, params: { ...cloneSuiviFinancier().params, ...(row.data.params || {}) } }
+      : cloneSuiviFinancier();
+    const merged = finMergeSignedClients(base, clientsRes.data || []);
+    setData(merged);
+    if (JSON.stringify(merged) !== JSON.stringify(base)) {
+      await supabase.from("invest_suivi_financier").upsert({
+        id:"global",
+        data: merged,
+        updated_at: new Date().toISOString(),
+        updated_by: profil?.email || profil?.nom || null,
+      });
     }
     setLoading(false);
-  }, []);
+  }, [profil]);
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => () => { if (saveRef.current) clearTimeout(saveRef.current); }, []);
@@ -9051,6 +9142,34 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
     setData(next); scheduleSave(next);
   };
 
+  const toggleDecaissementValidation = (monthIdx) => {
+    const next = JSON.parse(JSON.stringify(data));
+    next.finance = next.finance || {};
+    next.finance.validatedMonths = Array.isArray(next.finance.validatedMonths) ? next.finance.validatedMonths : SUIVI_FIN_MONTHS.map(() => false);
+    next.finance.validatedMonths[monthIdx] = !next.finance.validatedMonths[monthIdx];
+    setData(next); scheduleSave(next);
+  };
+
+  const DecaissementsValidationBar = () => {
+    const validated = data.finance?.validatedMonths || [];
+    return (
+      <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
+        <div className="inv-card-hd green"><span>Validation des décaissements</span></div>
+        <div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(76px,1fr))", gap:6 }}>
+          {SUIVI_FIN_MONTHS.map((m, i) => {
+            const ok = !!validated[i];
+            return (
+              <button key={m} className="inv-btn inv-btn-sm" onClick={() => toggleDecaissementValidation(i)}
+                style={{ justifyContent:"center", background:ok ? "rgba(34,197,94,0.14)" : T.input, color:ok ? SU : T.textSub, border:`1px solid ${ok ? "rgba(34,197,94,0.35)" : T.border}` }}>
+                {ok ? "✓ " : ""}{m}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const exportCsv = () => {
     const lines = [["Indicateur", ...SUIVI_FIN_MONTHS, "Total"]];
     const add = (label, arr) => lines.push([label, ...arr.map(v => finNum(v).toFixed(2)), finSum(arr).toFixed(2)]);
@@ -9074,7 +9193,7 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
     <div className="inv-card">
       <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={BarChart3} size={13}/>Synthèse mensuelle calculée</span></div>
       <div className="inv-card-bd" style={{ padding:0, overflowX:"auto" }}>
-        <div style={{ width:"100%", minWidth:1120 }}>
+        <div style={{ width:"100%", minWidth:980 }}>
           <div style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.5fr) repeat(4,minmax(52px,.75fr)) minmax(78px,.9fr) repeat(${SUIVI_FIN_MONTHS.length-4},minmax(52px,.75fr)) minmax(82px,.95fr)`, background:T.sectionHd, borderBottom:`1px solid ${T.border}` }}>
             <div style={{ padding:"8px 9px", color:T.textMuted, fontWeight:800, fontSize:FONT.xs.size, textTransform:"uppercase" }}>Indicateur</div>
             {SUIVI_FIN_MONTHS.flatMap((m,i)=> i===SUIVI_FIN_BILAN1_END_INDEX ? [<div key={m} style={{padding:"8px 3px", textAlign:"right", color:T.textMuted, fontWeight:800, fontSize:FONT.xs.size-2}}>{m}</div>, <div key="bilan_header" style={{padding:"8px 4px", textAlign:"right", color:T.accent, background:T.accentBg, fontWeight:900, fontSize:FONT.xs.size-2}}>Bilan N°1</div>] : [<div key={m} style={{padding:"8px 3px", textAlign:"right", color:T.textMuted, fontWeight:800, fontSize:FONT.xs.size-2}}>{m}</div>])}
@@ -9144,14 +9263,15 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
       {tab === "synthese" && <SummaryTable />}
       {tab === "commercial" && <>
         <SuiviFinanceTable title="Pipeline commercial" rows={data.commercial?.pipeline || []} sectionPath="commercial.pipeline" data={data} setData={setData} scheduleSave={scheduleSave} T={T} canAdd={false} money={false} />
-        <SuiviFinanceTable title="Encaissements — Forfaits clients HT" rows={data.commercial?.forfaits || []} sectionPath="commercial.forfaits" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
-        <SuiviFinanceTable title="Encaissements — Honoraires négociation HT" rows={data.commercial?.negociation || []} sectionPath="commercial.negociation" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
-        <SuiviFinanceTable title="Autres encaissements HT" rows={data.commercial?.autres || []} sectionPath="commercial.autres" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
+        <SuiviFinanceTable title="Encaissements — Forfaits clients HT" rows={data.commercial?.forfaits || []} sectionPath="commercial.forfaits" data={data} setData={setData} scheduleSave={scheduleSave} T={T} showPaymentStatus />
+        <SuiviFinanceTable title="Encaissements — Honoraires négociation HT" rows={data.commercial?.negociation || []} sectionPath="commercial.negociation" data={data} setData={setData} scheduleSave={scheduleSave} T={T} showPaymentStatus />
+        <SuiviFinanceTable title="Autres encaissements HT" rows={data.commercial?.autres || []} sectionPath="commercial.autres" data={data} setData={setData} scheduleSave={scheduleSave} T={T} showPaymentStatus />
       </>}
       {tab === "decaissements" && <>
-        <SuiviFinanceTable title="Charges fixes récurrentes" rows={data.finance?.chargesFixes || []} sectionPath="finance.chargesFixes" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
-        <SuiviFinanceTable title="Charges variables opérationnelles" rows={data.finance?.chargesVariables || []} sectionPath="finance.chargesVariables" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
-        <SuiviTvaAutoTable rows={calc.tvaDeductibleRows || []} T={T} />
+        <DecaissementsValidationBar />
+        <SuiviFinanceTable title="Charges fixes récurrentes" rows={data.finance?.chargesFixes || []} sectionPath="finance.chargesFixes" data={data} setData={setData} scheduleSave={scheduleSave} T={T} validatedMonths={data.finance?.validatedMonths || []} />
+        <SuiviFinanceTable title="Charges variables opérationnelles" rows={data.finance?.chargesVariables || []} sectionPath="finance.chargesVariables" data={data} setData={setData} scheduleSave={scheduleSave} T={T} validatedMonths={data.finance?.validatedMonths || []} />
+        <SuiviTvaAutoTable rows={calc.tvaDeductibleRows || []} T={T} validatedMonths={data.finance?.validatedMonths || []} />
       </>}
       {tab === "params" && (
         <div className="inv-card">
