@@ -40,6 +40,27 @@ Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
 });
 
 
+
+if (Array.isArray(PAGES_INVEST) && !PAGES_INVEST.some(p => p.id === "suivi_financier")) {
+  const financeIndex = PAGES_INVEST.findIndex(p => p.id === "finance");
+  const adminIndex = PAGES_INVEST.findIndex(p => p.id === "admin");
+  const suiviPage = { id: "suivi_financier", label: "Suivi Financier" };
+  if (financeIndex >= 0) PAGES_INVEST.splice(financeIndex + 1, 0, suiviPage);
+  else if (adminIndex >= 0) PAGES_INVEST.splice(adminIndex, 0, suiviPage);
+  else PAGES_INVEST.push(suiviPage);
+}
+Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
+  const pages = ROLE_PAGES_DEFAULT_INVEST[roleKey];
+  if (!Array.isArray(pages) || pages.includes("suivi_financier")) return;
+  if (pages.includes("admin") || pages.includes("finance") || pages.includes("dashboard")) {
+    const financeIndex = pages.indexOf("finance");
+    const adminIndex = pages.indexOf("admin");
+    if (financeIndex >= 0) pages.splice(financeIndex + 1, 0, "suivi_financier");
+    else if (adminIndex >= 0) pages.splice(adminIndex, 0, "suivi_financier");
+    else pages.push("suivi_financier");
+  }
+});
+
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const LOT_TYPES  = ["Sélectionner","Studio","T1","T2","T3","T4","T5","T6","Commerce"];
 const NIVEAUX    = ["RDC","R+1","R+2","R+3","R+4","Autre"];
@@ -7583,6 +7604,1481 @@ function OngletUtilisateursInvest({ T }) {
   );
 }
 
+
+// ─── SUIVI FINANCIER PROFERO INVEST ──────────────────────────────────────────
+const SUIVI_FIN_MONTHS = ["Déc. 25","Jan. 26","Fév. 26","Mar. 26","Avr. 26","Mai 26","Juin 26","Juil. 26","Août 26","Sep. 26","Oct. 26","Nov. 26","Dec. 26","Janv. 27","Fev. 27","Mars 27"];
+const SUIVI_FIN_DEFAULT = {
+  "version": 1,
+  "params": {
+    "tauxIS": 15,
+    "tvaCollecteePct": 20,
+    "tresoDepart": 3200,
+    "objectifTreso": 30000,
+    "objectifCA": 100000,
+    "forfaitFixeHT": 1583.33,
+    "commissionPctGain": 50
+  },
+  "commercial": {
+    "pipeline": [
+      {
+        "id": "r7",
+        "label": "Prospects contactés",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r8",
+        "label": "1ers RDV réalisés",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r9",
+        "label": "Signatures contrats",
+        "values": [
+          4.0,
+          4.0,
+          1.0,
+          1.0,
+          4.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ],
+    "forfaits": [
+      {
+        "id": "r11",
+        "label": "Tom & Camille",
+        "values": [
+          1250.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r12",
+        "label": "Artur F.",
+        "values": [
+          1250.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r13",
+        "label": "Louison",
+        "values": [
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r14",
+        "label": "Alex & Delphine",
+        "values": [
+          1250.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r15",
+        "label": "Thibault Martin",
+        "values": [
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r16",
+        "label": "Pierre Poilvilain",
+        "values": [
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r17",
+        "label": "Thomas Legault",
+        "values": [
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r18",
+        "label": "Jules Landais",
+        "values": [
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r19",
+        "label": "Raphael Sanyas",
+        "values": [
+          0,
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r20",
+        "label": "Fabien Norniella",
+        "values": [
+          0,
+          0,
+          0,
+          1583.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r21",
+        "label": "Marius Chaillou (SARL CHAIL'HOME)",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r22",
+        "label": "William Anitei",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r23",
+        "label": "Léo/Léa",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          1583.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r24",
+        "label": "Mathieu Rabineau",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r25",
+        "label": "Maelys et lukas",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          1583.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r26",
+        "label": "Prévisions futures (€)",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "negociation": [
+      {
+        "id": "r29",
+        "label": "Tom & Camille",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          10833.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r30",
+        "label": "Artur F.",
+        "values": [
+          0,
+          3125.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r31",
+        "label": "Louison",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3932.5,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r32",
+        "label": "Alex & Delphine",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r33",
+        "label": "Thibault Martin",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r34",
+        "label": "Pierre Poilvilain",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r35",
+        "label": "Thomas Legault",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r36",
+        "label": "Jules Landais",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r37",
+        "label": "Raphael Sanyas",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          10416.67,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r38",
+        "label": "Fabien Norniella",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r39",
+        "label": "Marius Chaillou (SARL CHAIL'HOME)",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r40",
+        "label": "William Anitei",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r41",
+        "label": "Léo/Léa",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r42",
+        "label": "Mathieu Rabineau",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r43",
+        "label": "Maelys et Lukas",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r44",
+        "label": "Prévisions futures (€)",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "autres": [
+      {
+        "id": "r47",
+        "label": "Autres recettes (à définir)",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r48",
+        "label": "Prévisions futures",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "finance": {
+    "chargesFixes": [
+      {
+        "id": "r6",
+        "label": "Alimentaire / repas",
+        "values": [
+          438.6,
+          666.31,
+          636.22,
+          530.05,
+          794.65,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r7",
+        "label": "Quote-part Loyer",
+        "values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r8",
+        "label": "Expert-comptable",
+        "values": [
+          0,
+          0,
+          382.8,
+          382.8,
+          382.8,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r9",
+        "label": "Rémunération TOM",
+        "values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          500.0,
+          1258.33,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r10",
+        "label": "Rémunération MF",
+        "values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r11",
+        "label": "Autres charges fixes",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "chargesVariables": [
+      {
+        "id": "r14",
+        "label": "Prospection FLUIDIFY",
+        "values": [
+          1692.0,
+          1692.0,
+          1692.0,
+          1692.0,
+          1692.0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r15",
+        "label": "Licences Fluidify",
+        "values": [
+          339.5,
+          339.5,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r16",
+        "label": "Sales Navigator",
+        "values": [
+          99.99,
+          99.99,
+          99.99,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r17",
+        "label": "LEMLIST (emailing)",
+        "values": [
+          435.18,
+          48.6,
+          352.98,
+          48.6,
+          48.6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r18",
+        "label": "Carburant / déplacements",
+        "values": [
+          342.86,
+          264.33,
+          196.17,
+          223.79,
+          353.11,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r20",
+        "label": "Frais bureau / logiciels",
+        "values": [
+          240.06,
+          27.6,
+          164.19,
+          108.2,
+          437.66,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r21",
+        "label": "Depenses exceptionnelles",
+        "values": [
+          276.2,
+          37.0,
+          0,
+          3795.79,
+          49.86,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "r24",
+        "label": "Autres dépenses variables",
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "tvaDeductible": [
+      {
+        "id": "r47",
+        "label": "TVA déductible (sur achats TTC)",
+        "values": [
+          772.88,
+          635.07,
+          704.87,
+          1356.25,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  }
+};
+
+const cloneSuiviFinancier = () => JSON.parse(JSON.stringify(SUIVI_FIN_DEFAULT));
+const finNum = (v) => {
+  if (v === null || v === undefined || v === "") return 0;
+  const n = parseFloat(String(v).replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+};
+const finSum = (arr) => (arr || []).reduce((s, v) => s + finNum(v), 0);
+const finVec = () => SUIVI_FIN_MONTHS.map(() => 0);
+const finRowsSum = (rows) => SUIVI_FIN_MONTHS.map((_, i) => (rows || []).reduce((s, r) => s + finNum(r.values?.[i]), 0));
+const finAddVec = (...vectors) => SUIVI_FIN_MONTHS.map((_, i) => vectors.reduce((s, v) => s + finNum(v?.[i]), 0));
+const finSubVec = (a, b) => SUIVI_FIN_MONTHS.map((_, i) => finNum(a?.[i]) - finNum(b?.[i]));
+const finMulVec = (a, pct) => SUIVI_FIN_MONTHS.map((_, i) => finNum(a?.[i]) * finNum(pct) / 100);
+const finPct = (num, den) => finNum(den) ? finNum(num) / finNum(den) : 0;
+const finLastNonZero = (arr) => {
+  for (let i = (arr || []).length - 1; i >= 0; i--) if (Math.abs(finNum(arr[i])) > 0.0001) return finNum(arr[i]);
+  return 0;
+};
+const finEur = (v) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(finNum(v)) + " €";
+const finPctFmt = (v) => Number.isFinite(v) ? (v * 100).toFixed(1).replace(".", ",") + " %" : "—";
+
+function calcSuiviFinancier(data) {
+  const d = data || cloneSuiviFinancier();
+  const p = d.params || {};
+  const forfaits = finRowsSum(d.commercial?.forfaits);
+  const negociation = finRowsSum(d.commercial?.negociation);
+  const autres = finRowsSum(d.commercial?.autres);
+  const ca = finAddVec(forfaits, negociation, autres);
+  const chargesFixes = finRowsSum(d.finance?.chargesFixes);
+  const chargesVariables = finRowsSum(d.finance?.chargesVariables);
+  const decaissements = finAddVec(chargesFixes, chargesVariables);
+  const margeBrute = finSubVec(ca, chargesVariables);
+  const tauxMarge = SUIVI_FIN_MONTHS.map((_, i) => finPct(margeBrute[i], ca[i]));
+  const rnAvantIS = finSubVec(margeBrute, chargesFixes);
+  const impotIS = rnAvantIS.map(v => Math.max(0, finNum(v)) * finNum(p.tauxIS ?? 15) / 100);
+  const rnApresIS = finSubVec(rnAvantIS, impotIS);
+  const tauxRentabiliteNette = SUIVI_FIN_MONTHS.map((_, i) => finPct(rnApresIS[i], ca[i]));
+  const tvaCollectee = finMulVec(ca, p.tvaCollecteePct ?? 20);
+  const tvaDeductible = finRowsSum(d.finance?.tvaDeductible);
+  const tvaNette = finSubVec(tvaCollectee, tvaDeductible);
+  const treso = [];
+  let current = finNum(p.tresoDepart ?? 0);
+  rnAvantIS.forEach(v => { current += finNum(v); treso.push(current); });
+  const signatures = (d.commercial?.pipeline || []).find(r => String(r.label || "").toLowerCase().includes("signature"))?.values || finVec();
+  const prospects = (d.commercial?.pipeline || []).find(r => String(r.label || "").toLowerCase().includes("prospect"))?.values || finVec();
+  const rdv = (d.commercial?.pipeline || []).find(r => String(r.label || "").toLowerCase().includes("rdv"))?.values || finVec();
+  return { forfaits, negociation, autres, ca, chargesFixes, chargesVariables, decaissements, margeBrute, tauxMarge, rnAvantIS, impotIS, rnApresIS, tauxRentabiliteNette, tvaCollectee, tvaDeductible, tvaNette, treso, signatures, prospects, rdv };
+}
+
+function FinKPI({ label, value, sub, color, icon: IconComp, T }) {
+  const c = color || T.accent;
+  return (
+    <div className="inv-kpi" style={{ display:"flex", flexDirection:"row", alignItems:"center", gap:SPACING.md, borderLeft:`3px solid ${c}` }}>
+      {IconComp && <div style={{ width:38, height:38, borderRadius:RADIUS.md, flexShrink:0, background:`${c}18`, color:c, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={IconComp} size={18} strokeWidth={2}/></div>}
+      <div style={{ minWidth:0, flex:1 }}>
+        <div className="inv-kpi-lbl">{label}</div>
+        <div className="inv-kpi-val" style={{ color:c, fontSize:FONT.xl.size+2 }}>{value}</div>
+        {sub && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3 }}>{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSave, T, canAdd=true, money=true }) {
+  const updateLabel = (idx, value) => {
+    const next = JSON.parse(JSON.stringify(data));
+    const [a,b] = sectionPath.split(".");
+    next[a][b][idx].label = value;
+    setData(next); scheduleSave(next);
+  };
+  const updateValue = (idx, monthIdx, value) => {
+    const next = JSON.parse(JSON.stringify(data));
+    const [a,b] = sectionPath.split(".");
+    if (!next[a][b][idx].values) next[a][b][idx].values = finVec();
+    next[a][b][idx].values[monthIdx] = value === "" ? 0 : finNum(value);
+    setData(next); scheduleSave(next);
+  };
+  const addRow = () => {
+    const next = JSON.parse(JSON.stringify(data));
+    const [a,b] = sectionPath.split(".");
+    next[a][b].push({ id:`custom_${Date.now()}`, label:"Nouvelle ligne", values:finVec() });
+    setData(next); scheduleSave(next);
+  };
+  const removeRow = (idx) => {
+    const next = JSON.parse(JSON.stringify(data));
+    const [a,b] = sectionPath.split(".");
+    next[a][b].splice(idx, 1);
+    setData(next); scheduleSave(next);
+  };
+  const totals = finRowsSum(rows);
+  return (
+    <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
+      <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+        <span>{title}</span>
+        {canAdd && <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addRow}><Icon as={Plus} size={12}/> Ajouter</button>}
+      </div>
+      <div className="inv-card-bd" style={{ padding:0, overflowX:"auto" }}>
+        <div style={{ minWidth:1320 }}>
+          <div style={{ display:"grid", gridTemplateColumns:`260px repeat(${SUIVI_FIN_MONTHS.length}, 74px) 90px 34px`, gap:0, background:T.sectionHd, borderBottom:`1px solid ${T.border}` }}>
+            <div style={{ padding:"9px 10px", fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800, textTransform:"uppercase", letterSpacing:.8 }}>Poste</div>
+            {SUIVI_FIN_MONTHS.map(m => <div key={m} style={{ padding:"9px 4px", fontSize:FONT.xs.size-1, color:T.textMuted, fontWeight:800, textAlign:"right" }}>{m}</div>)}
+            <div style={{ padding:"9px 6px", fontSize:FONT.xs.size, color:T.accent, fontWeight:800, textAlign:"right" }}>Total</div>
+            <div />
+          </div>
+          {(rows || []).map((r, ri) => (
+            <div key={r.id || ri} style={{ display:"grid", gridTemplateColumns:`260px repeat(${SUIVI_FIN_MONTHS.length}, 74px) 90px 34px`, borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center" }}>
+              <input className="inv-inp" value={r.label || ""} onChange={e=>updateLabel(ri,e.target.value)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", color:T.text, fontFamily:"inherit", fontWeight:600 }}/>
+              {SUIVI_FIN_MONTHS.map((m, mi) => (
+                <input key={m} className="inv-inp" type="number" value={r.values?.[mi] || ""} onChange={e=>updateValue(ri, mi, e.target.value)} style={{ width:"100%", border:"none", borderLeft:`1px solid ${T.rowBorder}`, borderRadius:0, background:"transparent", color:T.textSub, padding:"7px 5px", fontSize:FONT.xs.size+1 }}/>
+              ))}
+              <div style={{ padding:"7px 6px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size+1, color:T.accent, fontWeight:700, borderLeft:`1px solid ${T.rowBorder}` }}>{money ? finEur(finSum(r.values)) : finSum(r.values)}</div>
+              <button title="Supprimer" onClick={()=>removeRow(ri)} style={{ background:"transparent", border:"none", color:T.textMuted, cursor:"pointer", padding:4 }}><Icon as={Trash2} size={13}/></button>
+            </div>
+          ))}
+          <div style={{ display:"grid", gridTemplateColumns:`260px repeat(${SUIVI_FIN_MONTHS.length}, 74px) 90px 34px`, background:T.accentBg, borderTop:`1px solid ${T.accentBorder}`, alignItems:"center" }}>
+            <div style={{ padding:"9px 10px", color:T.accent, fontWeight:800, fontSize:FONT.sm.size }}>TOTAL</div>
+            {totals.map((v, i) => <div key={i} style={{ padding:"9px 5px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:700, fontSize:FONT.xs.size+1 }}>{money ? finEur(v) : v}</div>)}
+            <div style={{ padding:"9px 6px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size+1 }}>{money ? finEur(finSum(totals)) : finSum(totals)}</div>
+            <div />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
+  const [data, setData] = useState(() => cloneSuiviFinancier());
+  const [tab, setTab] = useState("synthese");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const saveRef = useRef(null);
+  const calc = calcSuiviFinancier(data);
+  const params = data.params || {};
+
+  const loadData = useCallback(async () => {
+    setLoading(true); setError("");
+    const { data: row, error } = await supabase.from("invest_suivi_financier").select("data").eq("id", "global").maybeSingle();
+    if (error) {
+      console.warn("Suivi financier non chargé:", error);
+      setError("La table invest_suivi_financier n'est pas encore disponible. Lance la migration SQL fournie, puis recharge la page.");
+    } else if (row?.data) {
+      const merged = { ...cloneSuiviFinancier(), ...row.data, params: { ...cloneSuiviFinancier().params, ...(row.data.params || {}) } };
+      setData(merged);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => () => { if (saveRef.current) clearTimeout(saveRef.current); }, []);
+
+  const sauvegarder = useCallback(async (payload = data, silent=false) => {
+    setSaving(true); setError("");
+    const { error } = await supabase.from("invest_suivi_financier").upsert({
+      id:"global",
+      data: payload,
+      updated_at: new Date().toISOString(),
+      updated_by: profil?.email || profil?.nom || null,
+    });
+    setSaving(false);
+    if (error) {
+      console.error("Erreur sauvegarde suivi financier", error);
+      setError("Impossible d'enregistrer le suivi financier : " + (error.message || "erreur Supabase"));
+      return;
+    }
+    if (!silent) { setSaved(true); setTimeout(()=>setSaved(false), 1800); }
+  }, [data, profil]);
+
+  const scheduleSave = useCallback((next) => {
+    if (saveRef.current) clearTimeout(saveRef.current);
+    saveRef.current = setTimeout(() => sauvegarder(next, true), 900);
+  }, [sauvegarder]);
+
+  const updateParam = (key, value) => {
+    const next = JSON.parse(JSON.stringify(data));
+    next.params = { ...(next.params || {}), [key]: finNum(value) };
+    setData(next); scheduleSave(next);
+  };
+
+  const exportCsv = () => {
+    const lines = [["Indicateur", ...SUIVI_FIN_MONTHS, "Total"]];
+    const add = (label, arr) => lines.push([label, ...arr.map(v => finNum(v).toFixed(2)), finSum(arr).toFixed(2)]);
+    add("CA HT", calc.ca); add("Charges fixes", calc.chargesFixes); add("Charges variables", calc.chargesVariables); add("Décaissements TTC", calc.decaissements); add("Marge brute", calc.margeBrute); add("Résultat avant IS", calc.rnAvantIS); add("Résultat après IS", calc.rnApresIS); add("TVA nette", calc.tvaNette); add("Trésorerie fin de mois", calc.treso);
+    const csv = lines.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
+    const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
+    a.href = url; a.download = "suivi-financier-profero-invest.csv"; a.click(); URL.revokeObjectURL(url);
+  };
+
+  const totalCA = finSum(calc.ca);
+  const totalDec = finSum(calc.decaissements);
+  const totalRN = finSum(calc.rnApresIS);
+  const tauxMargeAnnuel = finPct(finSum(calc.margeBrute), totalCA);
+  const tauxRNAnnuel = finPct(totalRN, totalCA);
+  const tresoActuelle = finLastNonZero(calc.treso);
+  const objectifCA = finNum(params.objectifCA || 100000);
+  const objectifTreso = finNum(params.objectifTreso || 30000);
+
+  const SummaryTable = () => (
+    <div className="inv-card">
+      <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={BarChart3} size={13}/>Synthèse mensuelle calculée</span></div>
+      <div className="inv-card-bd" style={{ padding:0, overflowX:"auto" }}>
+        <div style={{ minWidth:1250 }}>
+          {[
+            ["CA HT", calc.ca, "green"],
+            ["Charges fixes", calc.chargesFixes, ""],
+            ["Charges variables", calc.chargesVariables, ""],
+            ["Décaissements TTC", calc.decaissements, "orange"],
+            ["Marge brute", calc.margeBrute, "green"],
+            ["Taux marge brute", calc.tauxMarge, "pct"],
+            ["Résultat avant IS", calc.rnAvantIS, "green"],
+            ["IS estimé", calc.impotIS, "orange"],
+            ["Résultat après IS", calc.rnApresIS, "green"],
+            ["Trésorerie fin de mois", calc.treso, "accent"],
+            ["TVA nette à payer", calc.tvaNette, "orange"],
+          ].map((row, ri) => (
+            <div key={row[0]} style={{ display:"grid", gridTemplateColumns:`210px repeat(${SUIVI_FIN_MONTHS.length}, 74px) 95px`, borderBottom:`1px solid ${T.rowBorder}`, background:ri===0?T.accentBg:"transparent" }}>
+              <div style={{ padding:"9px 12px", color:ri===0?T.accent:T.textSub, fontWeight:800, fontSize:FONT.sm.size }}>{row[0]}</div>
+              {row[1].map((v, i) => <div key={i} style={{ padding:"9px 5px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size+1, color:row[2]==="orange"?WA:row[2]==="green"?SU:row[2]==="accent"?T.accent:T.textSub }}>{row[2]==="pct" ? finPctFmt(v) : finEur(v)}</div>)}
+              <div style={{ padding:"9px 7px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontWeight:800, color:T.accent, fontSize:FONT.xs.size+1 }}>{row[2]==="pct" ? finPctFmt(finPct(finSum(calc.margeBrute), totalCA)) : finEur(finSum(row[1]))}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  if (loading) return <div style={{ padding:40, color:T.textMuted }}>Chargement du suivi financier…</div>;
+
+  return (
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1600, margin:"0 auto" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:SPACING.md, marginBottom:SPACING.xl, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
+          <div style={{ width:48, height:48, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={Euro} size={24}/></div>
+          <div>
+            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Suivi financier</div>
+            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>Reprise du fichier Excel : suivi commercial, encaissements, décaissements, trésorerie, TVA et résultat</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:SPACING.sm, alignItems:"center", flexWrap:"wrap" }}>
+          {saving && <span style={{ fontSize:FONT.xs.size, color:T.textMuted }}>Sync…</span>}
+          {saved && <span style={{ fontSize:FONT.xs.size, color:SU, fontWeight:700 }}>Sauvegardé</span>}
+          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={exportCsv}><Icon as={Download} size={12}/> Export CSV</button>
+          <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={()=>sauvegarder(data)}><Icon as={Save} size={12}/> Enregistrer</button>
+        </div>
+      </div>
+
+      {error && <div style={{ marginBottom:SPACING.md, padding:"10px 12px", borderRadius:RADIUS.md, border:`1px solid ${SEMANTIC.warning.border}`, background:SEMANTIC.warning.bg, color:WA, fontSize:FONT.sm.size+1 }}>{error}</div>}
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:SPACING.md, marginBottom:SPACING.xl }}>
+        <FinKPI T={T} icon={Euro} label="CA HT total" value={finEur(totalCA)} sub={`Objectif : ${finEur(objectifCA)} · ${finPctFmt(finPct(totalCA, objectifCA))}`} color={SU} />
+        <FinKPI T={T} icon={Wallet} label="Décaissements" value={finEur(totalDec)} sub="Charges fixes + variables" color={WA} />
+        <FinKPI T={T} icon={TrendingUp} label="Résultat après IS" value={finEur(totalRN)} sub={`Taux net : ${finPctFmt(tauxRNAnnuel)}`} color={totalRN >= 0 ? SU : DA} />
+        <FinKPI T={T} icon={BarChart3} label="Marge brute" value={finPctFmt(tauxMargeAnnuel)} sub={finEur(finSum(calc.margeBrute))} color={T.accent} />
+        <FinKPI T={T} icon={Wallet} label="Trésorerie actuelle" value={finEur(tresoActuelle)} sub={`Objectif : ${finEur(objectifTreso)}`} color={tresoActuelle >= objectifTreso ? SU : "#4db8ff"} />
+        <FinKPI T={T} icon={FileText} label="TVA nette" value={finEur(finSum(calc.tvaNette))} sub="Collectée - déductible" color="#c084fc" />
+      </div>
+
+      <div className="inv-tab-nav" style={{ marginBottom:SPACING.lg, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.border}` }}>
+        {[["synthese","Synthèse"],["commercial","Commercial & encaissements"],["decaissements","Décaissements"],["treso","Trésorerie & TVA"],["params","Paramètres"]].map(([k,l]) => (
+          <button key={k} className={`inv-tab-btn${tab===k?" active":""}`} onClick={()=>setTab(k)}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "synthese" && <SummaryTable />}
+      {tab === "commercial" && <>
+        <SuiviFinanceTable title="Pipeline commercial" rows={data.commercial?.pipeline || []} sectionPath="commercial.pipeline" data={data} setData={setData} scheduleSave={scheduleSave} T={T} canAdd={false} money={false} />
+        <SuiviFinanceTable title="Encaissements — Forfaits clients HT" rows={data.commercial?.forfaits || []} sectionPath="commercial.forfaits" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
+        <SuiviFinanceTable title="Encaissements — Honoraires négociation HT" rows={data.commercial?.negociation || []} sectionPath="commercial.negociation" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
+        <SuiviFinanceTable title="Autres encaissements HT" rows={data.commercial?.autres || []} sectionPath="commercial.autres" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
+      </>}
+      {tab === "decaissements" && <>
+        <SuiviFinanceTable title="Charges fixes récurrentes" rows={data.finance?.chargesFixes || []} sectionPath="finance.chargesFixes" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
+        <SuiviFinanceTable title="Charges variables opérationnelles" rows={data.finance?.chargesVariables || []} sectionPath="finance.chargesVariables" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
+      </>}
+      {tab === "treso" && <>
+        <SummaryTable />
+        <SuiviFinanceTable title="TVA déductible à saisir" rows={data.finance?.tvaDeductible || []} sectionPath="finance.tvaDeductible" data={data} setData={setData} scheduleSave={scheduleSave} T={T} />
+      </>}
+      {tab === "params" && (
+        <div className="inv-card">
+          <div className="inv-card-hd blue"><span>Paramètres de pilotage</span></div>
+          <div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))", gap:SPACING.md }}>
+            {[["tauxIS","Taux IS (%)"],["tvaCollecteePct","TVA collectée (%)"],["tresoDepart","Trésorerie de départ"],["objectifTreso","Objectif trésorerie"],["objectifCA","Objectif CA HT"],["forfaitFixeHT","Forfait fixe HT / client"],["commissionPctGain","Commission sur gain négo (%)"]].map(([key,label]) => (
+              <div key={key}>
+                <label style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, fontWeight:800, display:"block", marginBottom:5 }}>{label}</label>
+                <input className="inv-inp" type="number" value={params[key] ?? ""} onChange={e=>updateParam(key,e.target.value)} style={{ width:"100%" }}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
 function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null }) {
   const role = profil?.role || "admin";
@@ -7602,6 +9098,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
     biens:      Building2,
     simulateur: BarChart3,
     finance:    Wallet,
+    suivi_financier: Euro,
     admin:      Settings,
   };
 
@@ -7852,6 +9349,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
         {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />        : <AccesRefuseInvest T={T} page="crm"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
         {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
+        {page === "suivi_financier" && (canSee("suivi_financier") ? <SuiviFinancier profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="suivi_financier"/>)}
         {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}
         {page === "simulateur" && (canSee("simulateur") ? (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
