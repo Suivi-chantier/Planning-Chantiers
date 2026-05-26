@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { supabase } from "./supabase";
+import { supabase, photoTransform } from "./supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases } from "./constants";
 import { Icon } from "./ui";
 import {
@@ -1728,7 +1728,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     position:"relative", aspectRatio:"1/1", borderRadius:RADIUS.lg, overflow:"hidden",
                     border:`1px solid ${border}`, cursor:"pointer", background:"#0a0c10",
                   }}>
-                  <img src={ph.url} alt="" loading="lazy"
+                  <img src={photoTransform(ph.url,{width:256,height:256})} alt="" loading="lazy"
                     style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
                   <div style={{position:"absolute",bottom:0,left:0,right:0,
                     background:"linear-gradient(transparent, rgba(0,0,0,0.78))",
@@ -1752,7 +1752,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20,flexDirection:"column",gap:14
         }}>
-          <img src={lightboxGal.urls[lightboxGal.idx]} alt="" style={{
+          <img src={photoTransform(lightboxGal.urls[lightboxGal.idx],{width:1600,resize:null,quality:80})} alt="" style={{
             maxWidth:"100%",maxHeight:"calc(100vh - 140px)",objectFit:"contain",borderRadius:RADIUS.md
           }} onClick={e=>e.stopPropagation()}/>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",justifyContent:"center"}} onClick={e=>e.stopPropagation()}>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import html2pdf from "html2pdf.js";
-import { supabase } from "./supabase";
+import { supabase, photoTransform } from "./supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "./constants";
 import { Icon } from "./ui";
 import {
@@ -1109,7 +1109,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
           position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20,flexDirection:"column",gap:14
         }}>
-          <img src={lightbox.urls[lightbox.idx]} alt="" style={{
+          <img src={photoTransform(lightbox.urls[lightbox.idx],{width:1600,resize:null,quality:80})} alt="" style={{
             maxWidth:"100%",maxHeight:"calc(100vh - 120px)",objectFit:"contain",borderRadius:8
           }} onClick={e=>e.stopPropagation()}/>
           <div style={{display:"flex",gap:12,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
@@ -1617,7 +1617,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
                                     {(t.photos||[]).length>0 && (
                                       <div style={{flexBasis:"100%",display:"flex",flexWrap:"wrap",gap:5,marginTop:4}}>
                                         {t.photos.map((url,pi)=>(
-                                          <img key={pi} src={url} alt="" loading="lazy"
+                                          <img key={pi} src={photoTransform(url,{width:128,height:128})} alt="" loading="lazy"
                                             onClick={()=>setLightbox({urls:t.photos,idx:pi})}
                                             style={{width:54,height:54,objectFit:"cover",borderRadius:6,
                                               border:`1px solid ${border}`,cursor:"pointer",display:"block"}}/>
@@ -1665,7 +1665,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
                             </div>
                             <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                               {r.photos_chantier.map((url,pi)=>(
-                                <img key={pi} src={url} alt="" loading="lazy"
+                                <img key={pi} src={photoTransform(url,{width:192,height:192})} alt="" loading="lazy"
                                   onClick={()=>setLightbox({urls:r.photos_chantier,idx:pi})}
                                   style={{width:72,height:72,objectFit:"cover",borderRadius:8,
                                     border:`1px solid ${T.border}`,cursor:"pointer",display:"block"}}/>

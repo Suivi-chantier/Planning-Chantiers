@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { supabase } from "./supabase";
+import { supabase, photoTransform } from "./supabase";
 import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie } from "./constants";
 
 function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,onClose,T,weekId,year,week}){
@@ -283,7 +283,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                           {(t.photos||[]).length>0 && (
                             <div style={{display:"flex",flexWrap:"wrap",gap:5,paddingLeft:23,marginTop:4}}>
                               {t.photos.map((url,pi)=>(
-                                <img key={pi} src={url} alt="" loading="lazy"
+                                <img key={pi} src={photoTransform(url,{width:128,height:128})} alt="" loading="lazy"
                                   onClick={()=>setLightbox({urls:t.photos,idx:pi})}
                                   style={{width:54,height:54,objectFit:"cover",borderRadius:6,
                                     border:`1px solid ${T.fieldBorder}`,cursor:"pointer",display:"block"}}/>
@@ -302,7 +302,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                         </div>
                         <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                           {rapport.photos_chantier.map((url,pi)=>(
-                            <img key={pi} src={url} alt="" loading="lazy"
+                            <img key={pi} src={photoTransform(url,{width:160,height:160})} alt="" loading="lazy"
                               onClick={()=>setLightbox({urls:rapport.photos_chantier,idx:pi})}
                               style={{width:64,height:64,objectFit:"cover",borderRadius:8,
                                 border:`1px solid ${T.fieldBorder}`,cursor:"pointer",display:"block"}}/>
@@ -418,7 +418,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
               }}>{lightbox.idx + 1} / {lightbox.urls.length}</div>
             </>
           )}
-          <img src={lightbox.urls[lightbox.idx]} alt=""
+          <img src={photoTransform(lightbox.urls[lightbox.idx],{width:1600,resize:null,quality:80})} alt=""
             onClick={(e)=>e.stopPropagation()}
             style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",borderRadius:6,cursor:"default"}}/>
         </div>
