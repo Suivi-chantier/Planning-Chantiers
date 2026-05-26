@@ -1330,10 +1330,13 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     return hV > 0 && hR > hV;
   });
 
-  // ── Avancement global : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
+  // ── Avancement global : pondéré par h. vendues (au niveau tâche), sinon h. estimées,
+  // sinon moyenne simple. On gate par totalHVenduTaches (pas totalHVenduGlobal) car
+  // le numérateur ne sait calculer qu'avec t.heures_vendues — si les heures vendues
+  // ne sont qu'au niveau ouvrage (heures_devis), on tombe dans le fallback estimées.
   const avgAv = nbTaches === 0 ? 0
-    : totalHVenduGlobal > 0
-      ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVenduGlobal)
+    : totalHVenduTaches > 0
+      ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVenduTaches)
       : totalHEstimeeGlobal > 0
         ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimeeGlobal)
         : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches);
