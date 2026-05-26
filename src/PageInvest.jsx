@@ -640,7 +640,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   const [taxeFonciere,  setTaxeFonciere]  = useState(d0.taxeFonciere||1000);
   const [assurance,     setAssurance]     = useState(d0.assurance||600);
   const [compta,        setCompta]        = useState(d0.compta||800);
-  const [provisions,    setProvisions]    = useState(d0.provisions||1500);
+  const [provisions,    setProvisions]    = useState(d0.provisions ?? 0);
   const [apport1,       setApport1]       = useState(d0.apport1||20000);
   const [apport2,       setApport2]       = useState(d0.apport2||20000);
   const [taux1,         setTaux1]         = useState(d0.taux1||4.32);
@@ -5674,6 +5674,9 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
         rendement_net_calcule: Number(rendementNetSave.toFixed(2)),
       },
     };
+    visiteData.simulateur = syncSimulateurFromVisiteData(visiteData, bien);
+    visiteData.simulateur_updated_at = new Date().toISOString();
+
     const payload = {
       adresse: dataToSave.identification?.adresse?.trim() || null,
       ville: dataToSave.identification?.ville?.trim() || null,
@@ -6057,13 +6060,113 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
 
 
 
+
+function mapVisiteLotsToSimulateurLots(visiteData = {}) {
+  const lotsCibles = Array.isArray(visiteData?.configuration?.lots) ? visiteData.configuration.lots : [];
+  return lotsCibles
+    .filter(l => l && (l.type || l.surface || l.loyer || l.meuble || l.stationnement))
+    .map((l, idx) => {
+      const lotNumber = l.numero || String(idx + 1);
+      const comments = [
+        `Lot ${lotNumber}`,
+        l.meuble ? `Location : ${l.meuble}` : "",
+        l.stationnement ? `Stationnement : ${l.stationnement}` : "",
+      ].filter(Boolean).join(" · ");
+      return {
+        type: l.type || "T2",
+        m2: numVal(l.surface),
+        loyer: numVal(l.loyer),
+        niveau: l.niveau || "RDC",
+        comment: comments,
+      };
+    });
+}
+
+function syncSimulateurFromVisiteData(visiteData = {}, bien = {}) {
+  const existingSim = visiteData?.simulateur || {};
+  const existingInputs = existingSim.inputs || {};
+  const existingSelects = existingSim.selects || {};
+  const existingDescriptions = existingSim.descriptions || {};
+  const finance = visiteData.finance || {};
+  const general = visiteData.general || {};
+  const dpe = visiteData.dpe || {};
+  const marche = visiteData.marche || {};
+  const lots = mapVisiteLotsToSimulateurLots(visiteData);
+  const surfaceFromLots = lots.reduce((s,l)=>s+(l.m2||0),0);
+  const pickPositive = (...vals) => {
+    for (const v of vals) {
+      const n = numVal(v);
+      if (n > 0) return n;
+    }
+    return 0;
+  };
+  const prixAffiche = pickPositive(general.prix_affiche, bien.prix_vente, existingInputs.prixAffiche);
+  const prixNegocie = pickPositive(finance.prix_acquisition_negocie, bien.montant_offre, existingInputs.prixNegocie, prixAffiche);
+  const budgetTravaux = pickPositive(finance.budget_travaux_ttc, bien.prix_travaux, existingInputs.budgetTravaux);
+  const surface = pickPositive(general.surface_totale, bien.surface_totale, existingInputs.surface, surfaceFromLots);
+  const adresse = [
+    visiteData.identification?.adresse || bien.adresse,
+    visiteData.identification?.code_postal || bien.code_postal,
+    visiteData.identification?.ville || bien.ville,
+  ].filter(Boolean).join(", ");
+
+  return {
+    ...existingSim,
+    version: existingSim.version || 4,
+    savedAt: new Date().toISOString(),
+    projectName: existingSim.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
+    inputs: {
+      tauxNotaire: 0.08,
+      enedis: 0,
+      taxeFonciere: 0,
+      assurance: 0,
+      compta: 0,
+      provisions: 0,
+      apport1: 0,
+      apport2: 0,
+      taux1: 4.20,
+      taux2: 4.20,
+      duree1: 20,
+      duree2: 25,
+      coefEtat: 1.0,
+      imprevusPct: 10,
+      ...existingInputs,
+      prixAffiche,
+      prixNegocie,
+      budgetTravaux,
+      surface,
+      honoraires: pickPositive(finance.frais_profero, existingInputs.honoraires),
+    },
+    selects: {
+      gestionActive: false,
+      modeDetention: "IS",
+      tmi: "0.30",
+      selectedScenario: 1,
+      ...existingSelects,
+    },
+    lots: lots.length ? lots : (Array.isArray(existingSim.lots) && existingSim.lots.length ? existingSim.lots : [{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}]),
+    budgetQty: existingSim.budgetQty || {},
+    budgetPrice: existingSim.budgetPrice || {},
+    customDivers: Array.isArray(existingSim.customDivers) ? existingSim.customDivers : [],
+    descriptions: {
+      description: bien.commentaire || existingDescriptions.description || "",
+      travaux: dpe.travaux_energetiques || existingDescriptions.travaux || "",
+      atouts: marche.points_forts || existingDescriptions.atouts || "",
+      adresse: adresse || existingDescriptions.adresse || "",
+    },
+    photos: Array.isArray(existingSim.photos) ? existingSim.photos : [null,null,null,null],
+    bien_id: bien.id || existingSim.bien_id || null,
+    synced_from_fiche_bien_at: new Date().toISOString(),
+  };
+}
+
 function buildSimulateurProjectFromBien(bien = {}) {
   const visite = bien.visite_data || {};
   if (visite.simulateur) {
     return {
       id: null,
       nom: `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
-      donnees: visite.simulateur,
+      donnees: syncSimulateurFromVisiteData(visite, bien),
       client_id: "",
     };
   }
@@ -6071,16 +6174,7 @@ function buildSimulateurProjectFromBien(bien = {}) {
   const finance = visite.finance || {};
   const general = visite.general || {};
   const configuration = visite.configuration || {};
-  const lotsCibles = Array.isArray(configuration.lots) ? configuration.lots : [];
-  const lots = lotsCibles
-    .filter(l => l && (l.type || l.surface || l.loyer))
-    .map((l, idx) => ({
-      type: l.type || "T2",
-      m2: parseFloat(l.surface) || 0,
-      loyer: parseFloat(l.loyer) || 0,
-      niveau: "RDC",
-      comment: l.numero ? `Lot ${l.numero}` : `Lot ${idx + 1}`,
-    }));
+  const lots = mapVisiteLotsToSimulateurLots(visite);
 
   const prixAffiche = parseFloat(general.prix_affiche || bien.prix_vente) || 0;
   const prixNegocie = parseFloat(finance.prix_acquisition_negocie || bien.montant_offre || bien.prix_vente) || prixAffiche || 0;
