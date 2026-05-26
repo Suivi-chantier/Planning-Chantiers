@@ -2959,11 +2959,29 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Retrouve le chantier correspondant à un phasage : id exact d'abord,
+  // sinon match par nom (un phasage peut être lié par nom seulement).
+  const trouverChantierPourPhasage = (phasage) => {
+    if (!phasage) return null;
+    const exact = chantiers.find(c => c.id === phasage.chantier_id);
+    if (exact) return exact;
+    const nomP = normalise(phasage.chantier_nom || "");
+    if (!nomP) return null;
+    return chantiers.find(c => {
+      const nomC = normalise(c.nom || "");
+      if (!nomC) return false;
+      if (nomC === nomP || nomC.includes(nomP) || nomP.includes(nomC)) return true;
+      const motsC = nomC.split(" ").filter(m => m.length > 2);
+      const motsP = nomP.split(" ").filter(m => m.length > 2);
+      return motsC.some(m => motsP.includes(m));
+    }) || null;
+  };
+
   // Statut effectif d'un phasage. Source de vérité = chantier.statut
   // (modifiable depuis la page Chantiers). Fallbacks : phasage.statut, puis
   // déduction depuis l'avancement.
   const getStatutPhasage = (phasage, avgAv, hasPlan) => {
-    const chantier = chantiers.find(c => c.id === phasage.chantier_id);
+    const chantier = trouverChantierPourPhasage(phasage);
     if (chantier?.statut) return chantier.statut;
     if (phasage?.statut)  return phasage.statut;
     if (!hasPlan)         return "planifie";
@@ -3384,9 +3402,15 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
             : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {calcsFiltres.map(({ p, tPlan, avgAv, coutTotal, prixVendu, marge, totalHReel }) => {
-                  const ch = chantiers.find(c => c.id === p.chantier_id);
+                  const ch = trouverChantierPourPhasage(p);
                   const accentColor = ch ? ch.couleur : acc.accent;
-                  const isTermine = avgAv === 100 && tPlan.length > 0;
+                  const statut = getStatutPhasage(p, avgAv, tPlan.length > 0);
+                  const STATUT_DEF = {
+                    planifie: { label: "Planifié", color: "#3b82f6", bg: "rgba(59,130,246,0.12)", border: "rgba(59,130,246,0.3)" },
+                    en_cours: { label: "En cours", color: "#FFC300", bg: "rgba(255,195,0,0.12)",  border: "rgba(255,195,0,0.3)" },
+                    en_pause: { label: "En pause", color: "#f97316", bg: "rgba(249,115,22,0.12)", border: "rgba(249,115,22,0.3)" },
+                    termine:  { label: "Terminé",  color: "#22c55e", bg: "rgba(34,197,94,0.12)",  border: "rgba(34,197,94,0.3)"  },
+                  }[statut] || null;
                   return (
                     <div key={p.id} className="phase-row" style={{
                       background: T.surface, border: `1px solid ${T.border}`,
@@ -3409,13 +3433,13 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <div style={{ fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text, letterSpacing: -0.2 }}>{p.chantier_nom}</div>
-                          {isTermine && (
+                          {STATUT_DEF && (
                             <span style={{
                               display: "inline-flex", alignItems: "center", gap: 3,
-                              fontSize: FONT.xs.size, fontWeight: 700, color: "#22c55e",
-                              background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)",
+                              fontSize: FONT.xs.size, fontWeight: 700, color: STATUT_DEF.color,
+                              background: STATUT_DEF.bg, border: `1px solid ${STATUT_DEF.border}`,
                               borderRadius: RADIUS.pill, padding: "2px 8px",
-                            }}>Terminé</span>
+                            }}>{STATUT_DEF.label}</span>
                           )}
                         </div>
                         <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 10 }}>
