@@ -603,7 +603,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
-          {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} tauxHoraires={tauxHoraires} T={T} initialSelectedId={chantierToOpen} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
+          {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} T={T} initialSelectedId={chantierToOpen} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
           {page==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
           {page==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
           {page==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}

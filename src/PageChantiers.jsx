@@ -127,11 +127,27 @@ function trouverPhasage(phasages, chantier) {
 const fmt = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n || 0);
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
+export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
   const [loading, setLoading]           = useState(true);
   const [selected, setSelected]         = useState(initialSelectedId);
+  const [statutFilter, setStatutFilter] = useState("tous");
+  const [statutMenuOpen, setStatutMenuOpen] = useState(false);
+
+  // Statut effectif d'un chantier : chantier.statut (source de vérité) ; fallback
+  // sur phasage.statut pour compat avec l'existant ; défaut "en_cours" si phasage
+  // présent, "planifie" sinon.
+  const getStatut = (chantier, phasage) =>
+    chantier?.statut || phasage?.statut || (phasage ? "en_cours" : "planifie");
+
+  // Met à jour le statut d'un chantier dans la config globale.
+  const updateChantierStatut = (chantierId, nouveauStatut) => {
+    if (!setChantiers || !saveConfig) return;
+    const u = chantiers.map(c => c.id === chantierId ? { ...c, statut: nouveauStatut } : c);
+    setChantiers(u);
+    saveConfig("chantiers", u);
+  };
   // Si un nouvel ID est demandé en prop (ex : navigation depuis le dashboard),
   // on l'applique et on signale au parent qu'il peut le reset.
   useEffect(() => {
@@ -443,29 +459,94 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
           </div>
         </div>
 
-        {loading ? (
-          <div style={{ textAlign: "center", color: textMuted, padding: 80, fontSize: FONT.base.size }}>Chargement…</div>
-        ) : chantiers.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 60, color: textMuted }}>
-            <div style={{
-              width: 64, height: 64, borderRadius: RADIUS.xl,
-              background: acc.bg10, color: acc.accent,
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              marginBottom: 16,
-            }}>
-              <Icon as={HardHat} size={28}/>
+        {/* ── Filtres par statut ── */}
+        {(() => {
+          const counts = chantiers.reduce((acc, c) => {
+            const ph = trouverPhasage(phasages, c);
+            const s = getStatut(c, ph);
+            acc[s] = (acc[s] || 0) + 1;
+            return acc;
+          }, {});
+          const filters = [
+            { key: "tous",     label: "Tous",      count: chantiers.length, color: textSub },
+            { key: "planifie", label: "Planifié",  count: counts.planifie || 0, color: STATUTS.planifie.color, bg: STATUTS.planifie.bg },
+            { key: "en_cours", label: "En cours",  count: counts.en_cours || 0, color: STATUTS.en_cours.color, bg: STATUTS.en_cours.bg },
+            { key: "termine",  label: "Terminé",   count: counts.termine  || 0, color: STATUTS.termine.color,  bg: STATUTS.termine.bg  },
+          ];
+          return (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+              {filters.map(f => {
+                const active = statutFilter === f.key;
+                return (
+                  <button key={f.key} onClick={() => setStatutFilter(f.key)} style={{
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                    padding: "7px 14px", borderRadius: RADIUS.pill,
+                    border: `1px solid ${active ? (f.color || acc.accent) : border}`,
+                    background: active ? (f.bg || acc.bg10) : "transparent",
+                    color: active ? (f.color || acc.accent) : textSub,
+                    fontSize: FONT.sm.size, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                    transition: "all .15s",
+                  }}>
+                    {f.label}
+                    <span style={{
+                      fontSize: FONT.xs.size, fontWeight: 700,
+                      padding: "1px 7px", borderRadius: RADIUS.pill,
+                      background: active ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
+                      color: active ? (f.color || acc.accent) : textMuted,
+                    }}>{f.count}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div style={{ fontSize: FONT.base.size, color: text, fontWeight: 600 }}>Aucun chantier</div>
-            <div style={{ fontSize: FONT.sm.size, opacity: .7, marginTop: 4 }}>Ajoutez-en dans les réglages.</div>
-          </div>
-        ) : (
+          );
+        })()}
+
+        {(() => {
+          const chantiersFiltres = chantiers.filter(chantier => {
+            if (statutFilter === "tous") return true;
+            return getStatut(chantier, trouverPhasage(phasages, chantier)) === statutFilter;
+          });
+          if (loading) {
+            return <div style={{ textAlign: "center", color: textMuted, padding: 80, fontSize: FONT.base.size }}>Chargement…</div>;
+          }
+          if (chantiers.length === 0) {
+            return (
+              <div style={{ textAlign: "center", padding: 60, color: textMuted }}>
+                <div style={{
+                  width: 64, height: 64, borderRadius: RADIUS.xl,
+                  background: acc.bg10, color: acc.accent,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  marginBottom: 16,
+                }}>
+                  <Icon as={HardHat} size={28}/>
+                </div>
+                <div style={{ fontSize: FONT.base.size, color: text, fontWeight: 600 }}>Aucun chantier</div>
+                <div style={{ fontSize: FONT.sm.size, opacity: .7, marginTop: 4 }}>Ajoutez-en dans les réglages.</div>
+              </div>
+            );
+          }
+          if (chantiersFiltres.length === 0) {
+            return (
+              <div style={{ textAlign: "center", padding: 60, color: textMuted }}>
+                <div style={{ fontSize: FONT.base.size, color: text, fontWeight: 600 }}>Aucun chantier avec ce statut</div>
+                <button onClick={() => setStatutFilter("tous")} style={{
+                  marginTop: 12, padding: "7px 14px", borderRadius: RADIUS.md,
+                  border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+                  fontSize: FONT.sm.size, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit",
+                }}>Voir tous les chantiers</button>
+              </div>
+            );
+          }
+          return (
           <div className="chantiers-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
-            {chantiers.map(chantier => {
+            {chantiersFiltres.map(chantier => {
               const phasage = trouverPhasage(phasages, chantier);
               const av      = phasage ? calcAvancement(phasage) : null;
               const fin     = phasage ? calcFinances(phasage, tauxHoraires) : null;
               const photo   = photoMap[chantier.id];
-              const statut  = phasage?.statut || (phasage ? "en_cours" : null);
+              const statut  = getStatut(chantier, phasage);
 
               return (
                 <div key={chantier.id} className="chantier-card"
@@ -537,7 +618,8 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </div>
     );
   }
@@ -584,9 +666,62 @@ export default function PageChantiers({ chantiers = [], tauxHoraires = {}, T, br
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: FONT.xl.size, fontWeight: 800, color: text, margin: 0, letterSpacing: -0.3 }}>{selectedChantier?.nom || "Chantier"}</h1>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+            {/* Sélecteur de statut — toujours présent (même sans phasage) */}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setStatutMenuOpen(o => !o)}
+                title="Changer le statut"
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  background: "transparent", border: "none", padding: 0,
+                  cursor: setChantiers ? "pointer" : "default",
+                  fontFamily: "inherit",
+                }}>
+                <StatutBadge statut={getStatut(selectedChantier, selectedPhasage)}/>
+                {setChantiers && (
+                  <Icon as={ChevronLeft} size={11} color={textMuted} style={{ transform: "rotate(-90deg)" }}/>
+                )}
+              </button>
+              {statutMenuOpen && setChantiers && (
+                <>
+                  <div onClick={() => setStatutMenuOpen(false)}
+                    style={{ position: "fixed", inset: 0, zIndex: 100 }}/>
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 101,
+                    background: surface, border: `1px solid ${border}`,
+                    borderRadius: RADIUS.md, boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+                    padding: 6, minWidth: 160,
+                    display: "flex", flexDirection: "column", gap: 2,
+                  }}>
+                    {["planifie", "en_cours", "en_pause", "termine"].map(s => {
+                      const def = STATUTS[s];
+                      const isCur = getStatut(selectedChantier, selectedPhasage) === s;
+                      return (
+                        <button key={s} onClick={() => {
+                          updateChantierStatut(selectedChantier.id, s);
+                          setStatutMenuOpen(false);
+                        }} style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          padding: "7px 10px", borderRadius: RADIUS.sm, border: "none",
+                          background: isCur ? def.bg : "transparent",
+                          color: isCur ? def.color : text,
+                          fontSize: FONT.sm.size, fontWeight: 600, textAlign: "left",
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}
+                          onMouseEnter={e => { if (!isCur) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                          onMouseLeave={e => { if (!isCur) e.currentTarget.style.background = "transparent"; }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: def.color, flexShrink: 0 }}/>
+                          {def.label}
+                          {isCur && <Icon as={Check} size={12} style={{ marginLeft: "auto" }}/>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
             {selectedPhasage ? (
               <>
-                <StatutBadge statut={selectedPhasage.statut || "en_cours"}/>
                 <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>{selectedPhasage.chantier_nom}</span>
                 {selectedPhasage.updated_at && (
                   <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, opacity: .6 }}>
