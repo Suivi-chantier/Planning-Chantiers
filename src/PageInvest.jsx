@@ -8864,6 +8864,39 @@ function FinKPI({ label, value, sub, color, icon: IconComp, T }) {
   );
 }
 
+const finIsFormulaValue = (v) => {
+  const raw = String(v ?? "").trim();
+  if (!raw) return false;
+  const cleaned = raw.replace(/^=/, "").replace(/€/g, "").replace(/\s/g, "").replace(/,/g, ".");
+  return /[+*/()]/.test(cleaned) || /\d-\d/.test(cleaned);
+};
+
+function SuiviFinanceCell({ value, onChange, T, money=true }) {
+  const [editing, setEditing] = useState(false);
+  const raw = value ?? "";
+  const hasFormula = finIsFormulaValue(raw);
+  const displayValue = editing
+    ? raw
+    : raw === ""
+      ? ""
+      : money
+        ? finEur(raw)
+        : new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(finNum(raw));
+  return (
+    <input
+      className="inv-inp"
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      title={hasFormula ? `Calcul : ${raw} = ${money ? finEur(raw) : finNum(raw)}` : "Cliquez pour saisir un montant ou un calcul, ex : 100+200"}
+      onFocus={e => { setEditing(true); setTimeout(() => e.target.select?.(), 0); }}
+      onBlur={() => setEditing(false)}
+      onChange={e => onChange(e.target.value)}
+      style={{ width:"100%", border:"none", borderLeft:`1px solid ${T.rowBorder}`, borderRadius:0, background:hasFormula && !editing ? T.accentBg : "transparent", color:hasFormula && !editing ? T.accent : T.textSub, padding:"7px 5px", fontSize:FONT.xs.size, textAlign:"right" }}
+    />
+  );
+}
+
 function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSave, T, canAdd=true, money=true }) {
   const updateLabel = (idx, value) => {
     const next = JSON.parse(JSON.stringify(data));
@@ -8909,7 +8942,13 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
             <div key={r.id || ri} style={{ display:"grid", gridTemplateColumns:`minmax(170px,1.45fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(48px,.78fr)) minmax(72px,.85fr) 30px`, borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center" }}>
               <input className="inv-inp" value={r.label || ""} onChange={e=>updateLabel(ri,e.target.value)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", color:T.text, fontFamily:"inherit", fontWeight:600 }}/>
               {SUIVI_FIN_MONTHS.map((m, mi) => (
-                <input key={m} className="inv-inp" type="text" inputMode="decimal" value={r.values?.[mi] ?? ""} onChange={e=>updateValue(ri, mi, e.target.value)} style={{ width:"100%", border:"none", borderLeft:`1px solid ${T.rowBorder}`, borderRadius:0, background:"transparent", color:T.textSub, padding:"7px 5px", fontSize:FONT.xs.size, textAlign:"right" }}/>
+                <SuiviFinanceCell
+                  key={m}
+                  value={r.values?.[mi] ?? ""}
+                  onChange={value => updateValue(ri, mi, value)}
+                  T={T}
+                  money={money}
+                />
               ))}
               <div style={{ padding:"7px 6px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size+1, color:T.accent, fontWeight:700, borderLeft:`1px solid ${T.rowBorder}` }}>{money ? finEur(finSum(r.values)) : finSum(r.values)}</div>
               <button title="Supprimer" onClick={()=>removeRow(ri)} style={{ background:"transparent", border:"none", color:T.textMuted, cursor:"pointer", padding:4 }}><Icon as={Trash2} size={13}/></button>
