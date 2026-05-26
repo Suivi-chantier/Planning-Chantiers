@@ -7,6 +7,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
 
   const [rapports, setRapports] = useState([]);
   const [loadingRapports, setLoadingRapports] = useState(true);
+  // Lightbox plein écran pour les photos du compte rendu
+  const [lightbox, setLightbox] = useState(null); // { urls: string[], idx: number }
 
   // Calculer la date réelle du jour sélectionné
   const getDateDuJour = () => {
@@ -277,9 +279,37 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                               ↳ {t.remarque}
                             </div>
                           )}
+                          {/* Photos liées à la tâche */}
+                          {(t.photos||[]).length>0 && (
+                            <div style={{display:"flex",flexWrap:"wrap",gap:5,paddingLeft:23,marginTop:4}}>
+                              {t.photos.map((url,pi)=>(
+                                <img key={pi} src={url} alt="" loading="lazy"
+                                  onClick={()=>setLightbox({urls:t.photos,idx:pi})}
+                                  style={{width:54,height:54,objectFit:"cover",borderRadius:6,
+                                    border:`1px solid ${T.fieldBorder}`,cursor:"pointer",display:"block"}}/>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
+
+                    {/* Photos générales du chantier sur ce rapport */}
+                    {(rapport.photos_chantier||[]).length>0 && (
+                      <div style={{padding:"10px 14px",borderTop:`1px solid ${T.fieldBorder}`,background:"rgba(255,255,255,0.02)"}}>
+                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+                          📷 Photos du chantier · {rapport.photos_chantier.length}
+                        </div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                          {rapport.photos_chantier.map((url,pi)=>(
+                            <img key={pi} src={url} alt="" loading="lazy"
+                              onClick={()=>setLightbox({urls:rapport.photos_chantier,idx:pi})}
+                              style={{width:64,height:64,objectFit:"cover",borderRadius:8,
+                                border:`1px solid ${T.fieldBorder}`,cursor:"pointer",display:"block"}}/>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
@@ -355,6 +385,44 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
           </div>
         </div>
       </div>
+
+      {/* ── Lightbox plein écran (photos compte rendu) ── */}
+      {lightbox && (
+        <div onClick={(e)=>{ e.stopPropagation(); setLightbox(null); }} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+        }}>
+          <button onClick={(e)=>{ e.stopPropagation(); setLightbox(null); }} style={{
+            position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.1)",border:"none",
+            borderRadius:10,width:42,height:42,color:"#fff",fontSize:22,fontWeight:700,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",
+          }}>✕</button>
+          {lightbox.urls.length > 1 && (
+            <>
+              <button onClick={(e)=>{ e.stopPropagation(); setLightbox(lb=>({...lb,idx:(lb.idx-1+lb.urls.length)%lb.urls.length})); }} style={{
+                position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",
+                background:"rgba(255,255,255,0.1)",border:"none",borderRadius:10,
+                width:48,height:48,color:"#fff",fontSize:24,cursor:"pointer",
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>‹</button>
+              <button onClick={(e)=>{ e.stopPropagation(); setLightbox(lb=>({...lb,idx:(lb.idx+1)%lb.urls.length})); }} style={{
+                position:"absolute",right:16,top:"50%",transform:"translateY(-50%)",
+                background:"rgba(255,255,255,0.1)",border:"none",borderRadius:10,
+                width:48,height:48,color:"#fff",fontSize:24,cursor:"pointer",
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>›</button>
+              <div style={{
+                position:"absolute",bottom:16,left:"50%",transform:"translateX(-50%)",
+                color:"rgba(255,255,255,0.75)",fontSize:13,fontWeight:600,
+                background:"rgba(0,0,0,0.5)",padding:"4px 10px",borderRadius:12,
+              }}>{lightbox.idx + 1} / {lightbox.urls.length}</div>
+            </>
+          )}
+          <img src={lightbox.urls[lightbox.idx]} alt=""
+            onClick={(e)=>e.stopPropagation()}
+            style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",borderRadius:6,cursor:"default"}}/>
+        </div>
+      )}
     </div>
   );
 }
