@@ -736,7 +736,8 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     bien_id: bienId || null,
   }),[nom,prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct,gestionActive,modeDetention,tmi,selectedScen,lots,budgetQty,budgetPrice,customDivers,desc,travaux,atouts,adresse,photos,bienId]);
 
-  const sauvegarder = useCallback(async()=>{
+  const sauvegarder = useCallback(async(options = {})=>{
+    const silent = !!options?.silent;
     setSaving(true);
     const state = collectState();
 
@@ -761,9 +762,9 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
       const { error } = await supabase.from("invest_biens").update(payloadBien).eq("id", embeddedBienId);
       if (error) {
         console.error("Erreur sauvegarde simulateur bien:", error);
-        alert("Erreur sauvegarde simulateur : " + error.message);
+        if (!silent) alert("Erreur sauvegarde simulateur : " + error.message);
       } else {
-        if (typeof onBienSaved === "function") onBienSaved();
+        if (!silent && typeof onBienSaved === "function") onBienSaved();
         setSaved(true);
         setTimeout(()=>setSaved(false),2500);
       }
@@ -795,36 +796,44 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     }
     if (res.error) {
       console.error("Erreur sauvegarde projet:", res.error);
+      if (!silent) alert("Erreur sauvegarde simulateur : " + res.error.message);
     } else if (!projetIdRef.current && res.data?.id) {
       projetIdRef.current = res.data.id;
     }
     setSaving(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
   },[collectState, nom, profil, clientId, isEmbedded, embeddedBienId, bienSource, prixAffiche, prixNegocie, budgetTravaux, coutTotal, rb, cfSel, onBienSaved]);
 
-  // Autosave 30s
+  // Autosave rapide du simulateur
   const autoRef = useRef(null);
+  const saveRef = useRef(null);
+  useEffect(() => { saveRef.current = sauvegarder; }, [sauvegarder]);
+
   const scheduleAutoSave = useCallback(()=>{
     if(autoRef.current) clearTimeout(autoRef.current);
-    autoRef.current = setTimeout(()=>sauvegarder(), 30000);
-  },[sauvegarder]);
-  useEffect(()=>()=>{if(autoRef.current)clearTimeout(autoRef.current);},[]);
+    autoRef.current = setTimeout(()=>{
+      saveRef.current?.({ silent:true });
+    }, 900);
+  },[]);
 
-  // Auto-déclenche scheduleAutoSave dès qu'un input change. Sans ça, le
-  // composant NumInput partagé (utilisé pour les ~20 champs numériques)
-  // modifiait le state sans armer l'autosave — résultat : les valeurs
-  // étaient perdues si l'utilisateur fermait le projet sans sauvegarder
-  // manuellement (bug provisions toujours à 1500€ rapporté par l'utilisateur).
+  // Sauvegarde avant fermeture/changement d'onglet pour ne pas perdre les dernières saisies.
+  useEffect(()=>()=>{
+    if(autoRef.current) { clearTimeout(autoRef.current); autoRef.current = null; }
+    saveRef.current?.({ silent:true });
+  },[]);
+
+  // Auto-déclenche scheduleAutoSave dès qu'une donnée du simulateur change.
   const autoSaveBootRef = useRef(true);
   useEffect(() => {
     if (autoSaveBootRef.current) { autoSaveBootRef.current = false; return; }
     scheduleAutoSave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    prixAffiche, prixNegocie, budgetTravaux, tauxNotaire, surface,
+    nom, clientId, prixAffiche, prixNegocie, budgetTravaux, tauxNotaire, surface,
     honoraires, enedis, taxeFonciere, assurance, compta, provisions,
     apport1, apport2, taux1, taux2, duree1, duree2,
     coefEtat, imprevusPct, gestionActive, modeDetention, tmi, selectedScen,
-    desc, travaux, atouts, adresse, bienId,
+    lots, budgetQty, budgetPrice, customDivers,
+    desc, travaux, atouts, adresse, photos, bienId,
   ]);
 
   // ── Reset ───────────────────────────────────────────────────────────────────
