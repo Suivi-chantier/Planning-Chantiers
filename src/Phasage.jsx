@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
-import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
+import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
 import { Icon } from "./ui";
 import {
   ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
@@ -1330,16 +1330,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     return hV > 0 && hR > hV;
   });
 
-  // ── Avancement global : pondéré par h. vendues (au niveau tâche), sinon h. estimées,
-  // sinon moyenne simple. On gate par totalHVenduTaches (pas totalHVenduGlobal) car
-  // le numérateur ne sait calculer qu'avec t.heures_vendues — si les heures vendues
-  // ne sont qu'au niveau ouvrage (heures_devis), on tombe dans le fallback estimées.
-  const avgAv = nbTaches === 0 ? 0
-    : totalHVenduTaches > 0
-      ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVenduTaches)
-      : totalHEstimeeGlobal > 0
-        ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimeeGlobal)
-        : Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / nbTaches);
+  // ── Avancement global : pondéré par valeur facturable (prix HT au niveau ouvrage),
+  // avec cascade de fallbacks. Voir calcAvancementPondere() dans constants.js.
+  const avgAv = calcAvancementPondere(ouvrages, allTaches);
 
   const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
   // Coût matériel = somme des prix HT des commandes AYANT phase_id rempli.
@@ -1764,13 +1757,8 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             const phHVendu = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
             const phHEstimee = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
 
-            // ── Avancement par phase : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
-            const phAv = taches.length === 0 ? 0
-              : phHVendu > 0
-                ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / phHVendu)
-                : phHEstimee > 0
-                  ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / phHEstimee)
-                  : Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
+            // Avancement par phase : pondéré par prix HT ouvrage (cf. calcAvancementPondere)
+            const phAv = calcAvancementPondere(ouvrages, taches);
 
             const phVendu = phHVendu;
             const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
@@ -2700,13 +2688,8 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
     const totalHVendu = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
     const totalHEstimee = tPlan.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
 
-    // ── Avancement : pondéré par h. vendues, sinon h. estimées, sinon moyenne simple
-    const avgAv = tPlan.length === 0 ? 0
-      : totalHVendu > 0
-        ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
-        : totalHEstimee > 0
-          ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimee)
-          : Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length);
+    // Avancement pondéré par prix HT au niveau ouvrage (cf. calcAvancementPondere)
+    const avgAv = calcAvancementPondere(p.ouvrages || [], tPlan);
 
     const coutMO = tPlan.reduce((s, t) => {
       const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
@@ -3057,12 +3040,8 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
     const totalHVendu   = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
     const totalHEstimee = tPlan.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
     const totalHReel    = tPlan.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-    const avgAv = tPlan.length === 0 ? 0
-      : totalHVendu > 0
-        ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHVendu)
-        : totalHEstimee > 0
-          ? Math.round(tPlan.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHEstimee)
-          : Math.round(tPlan.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / tPlan.length);
+    // Avancement pondéré par prix HT au niveau ouvrage (cf. calcAvancementPondere)
+    const avgAv = calcAvancementPondere(p.ouvrages || [], tPlan);
     const coutMO = tPlan.reduce((s, t) => {
       const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
       return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0));

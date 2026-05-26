@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "./supabase";
-import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases } from "./constants";
+import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
 import { Icon } from "./ui";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
@@ -67,12 +67,7 @@ function calcFinances(phasage, tauxHoraires = {}) {
 function calcAvancement(phasage) {
   if (!phasage?.plan_travaux) return 0;
   const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
-  if (allTaches.length === 0) return 0;
-  const totalHV = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-  const totalHE = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-  if (totalHV > 0) return Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_vendues) || 0)), 0) / totalHV);
-  if (totalHE > 0) return Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHE);
-  return Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / allTaches.length);
+  return calcAvancementPondere(phasage.ouvrages || [], allTaches);
 }
 
 function getLastTaches(phasage, n = 5) {
