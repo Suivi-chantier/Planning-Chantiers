@@ -2955,8 +2955,22 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
   const [showRapport, setShowRapport] = useState(false);
   const [ganttPhasage, setGanttPhasage] = useState(null);
   const [search, setSearch] = useState("");
+  const [statutFilter, setStatutFilter] = useState("tous");
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Statut effectif d'un phasage. Source de vérité = chantier.statut
+  // (modifiable depuis la page Chantiers). Fallbacks : phasage.statut, puis
+  // déduction depuis l'avancement.
+  const getStatutPhasage = (phasage, avgAv, hasPlan) => {
+    const chantier = chantiers.find(c => c.id === phasage.chantier_id);
+    if (chantier?.statut) return chantier.statut;
+    if (phasage?.statut)  return phasage.statut;
+    if (!hasPlan)         return "planifie";
+    if (avgAv >= 100)     return "termine";
+    if (avgAv > 0)        return "en_cours";
+    return "planifie";
+  };
 
   useEffect(() => { loadAll(); }, []);
   async function loadAll() {
@@ -3047,12 +3061,24 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
     margeTotale: calcsByPhasage.reduce((s, x) => s + x.marge, 0),
   };
 
-  // ── Filtrage par recherche ──────────────────────────────────────────────────
-  const calcsFiltres = calcsByPhasage.filter(({ p }) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return p.chantier_nom?.toLowerCase().includes(q);
+  // ── Filtrage : recherche + statut ───────────────────────────────────────────
+  const calcsFiltres = calcsByPhasage.filter(({ p, avgAv, tPlan }) => {
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (!p.chantier_nom?.toLowerCase().includes(q)) return false;
+    }
+    if (statutFilter !== "tous") {
+      if (getStatutPhasage(p, avgAv, tPlan.length > 0) !== statutFilter) return false;
+    }
+    return true;
   });
+
+  // Comptes par statut (pour les pastilles)
+  const statutCounts = calcsByPhasage.reduce((acc, { p, avgAv, tPlan }) => {
+    const s = getStatutPhasage(p, avgAv, tPlan.length > 0);
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {});
 
   return (
     <div className="page-padding phase-list" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
@@ -3149,7 +3175,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
           </div>
         )}
 
-        {/* ── Recherche ── */}
+        {/* ── Recherche + filtre par statut ── */}
         {!loading && phasages.length > 0 && (
           <div style={{
             display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14,
@@ -3164,6 +3190,38 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
                   borderRadius: RADIUS.md, padding: "8px 10px 8px 30px", color: T.text,
                   fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none" }}/>
             </div>
+            {/* Filtres par statut */}
+            {(() => {
+              const filters = [
+                { key: "tous",     label: "Tous",     count: phasages.length,            color: T.textSub },
+                { key: "planifie", label: "Planifié", count: statutCounts.planifie || 0, color: "#3b82f6", bg: "rgba(59,130,246,0.15)" },
+                { key: "en_cours", label: "En cours", count: statutCounts.en_cours || 0, color: "#FFC300", bg: "rgba(255,195,0,0.15)" },
+                { key: "termine",  label: "Terminé",  count: statutCounts.termine  || 0, color: "#22c55e", bg: "rgba(34,197,94,0.15)" },
+              ];
+              return filters.map(f => {
+                const active = statutFilter === f.key;
+                return (
+                  <button key={f.key} onClick={() => setStatutFilter(f.key)} style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "6px 12px", borderRadius: RADIUS.pill,
+                    border: `1px solid ${active ? (f.color || acc.accent) : T.border}`,
+                    background: active ? (f.bg || acc.bg10) : "transparent",
+                    color: active ? (f.color || acc.accent) : T.textSub,
+                    fontSize: FONT.xs.size + 1, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                    transition: "all .15s",
+                  }}>
+                    {f.label}
+                    <span style={{
+                      fontSize: FONT.xs.size, fontWeight: 700,
+                      padding: "1px 6px", borderRadius: RADIUS.pill,
+                      background: active ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
+                      color: active ? (f.color || acc.accent) : T.textMuted,
+                    }}>{f.count}</span>
+                  </button>
+                );
+              });
+            })()}
             <div style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600 }}>
               {calcsFiltres.length} / {phasages.length}
             </div>
