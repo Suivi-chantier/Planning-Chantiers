@@ -1752,7 +1752,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20,flexDirection:"column",gap:14
         }}>
-          <img src={photoTransform(lightboxGal.urls[lightboxGal.idx],{width:1600,resize:null,quality:80})} alt="" style={{
+          <img src={photoTransform(lightboxGal.urls[lightboxGal.idx],{width:1920,height:1920,resize:"contain",quality:80})} alt="" style={{
             maxWidth:"100%",maxHeight:"calc(100vh - 140px)",objectFit:"contain",borderRadius:RADIUS.md
           }} onClick={e=>e.stopPropagation()}/>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",justifyContent:"center"}} onClick={e=>e.stopPropagation()}>

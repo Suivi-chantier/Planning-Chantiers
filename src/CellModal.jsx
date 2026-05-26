@@ -418,7 +418,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
               }}>{lightbox.idx + 1} / {lightbox.urls.length}</div>
             </>
           )}
-          <img src={photoTransform(lightbox.urls[lightbox.idx],{width:1600,resize:null,quality:80})} alt=""
+          <img src={photoTransform(lightbox.urls[lightbox.idx],{width:1920,height:1920,resize:"contain",quality:80})} alt=""
             onClick={(e)=>e.stopPropagation()}
             style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",borderRadius:6,cursor:"default"}}/>
         </div>

@@ -1109,7 +1109,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
           position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20,flexDirection:"column",gap:14
         }}>
-          <img src={photoTransform(lightbox.urls[lightbox.idx],{width:1600,resize:null,quality:80})} alt="" style={{
+          <img src={photoTransform(lightbox.urls[lightbox.idx],{width:1920,height:1920,resize:"contain",quality:80})} alt="" style={{
             maxWidth:"100%",maxHeight:"calc(100vh - 120px)",objectFit:"contain",borderRadius:8
           }} onClick={e=>e.stopPropagation()}/>
           <div style={{display:"flex",gap:12,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
