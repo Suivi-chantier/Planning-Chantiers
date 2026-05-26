@@ -2931,12 +2931,16 @@ function DossiersRelanceDashboard({ clients=[], biens=[], propositions=[], T=THE
   return <DashboardPanel title="Dossiers à relancer" icon={Bell} subtitle="Clients, biens, offres et propositions à ne pas laisser dormir" T={T}><DashboardAlertList items={items.slice(0,10)} T={T} empty="Aucun dossier à relancer" /></DashboardPanel>;
 }
 
+const HONORAIRE_BASE_CONTRAT_HT = 1583;
+const HONORAIRE_CONSEIL_MOYEN_HT = 7500;
+
 function DirectionPilotageDashboard({ stats, T=THEMES_INV.dark }) {
   if (!stats) return null;
   const items = [
-    ["CA signé estimé", fmtDashboardEur(stats.baseHonorairesSignes), SU, "Base contrats signés"],
-    ["CA potentiel pipeline", fmtDashboardEur(stats.baseHonorairesPipeline), "#FFC200", "Base prospects + actifs"],
-    ["Taux transformation", `${stats.tauxTransformation || 0}%`, T.accent, "Prospects → clients signés"],
+    ["Honoraires signés", fmtDashboardEur(stats.baseHonorairesSignes), SU, "Base 1 583 € HT / client signé"],
+    ["Honoraires pipeline", fmtDashboardEur(stats.baseHonorairesPipeline), "#FFC200", "Clients en cours + prospects"],
+    ["Conseil estimé", fmtDashboardEur(stats.estimationHonoraireConseil), "#c084fc", "Moy. 7 500 € HT / offre active"],
+    ["Taux transformation", `${stats.tauxTransformation || 0}%`, T.accent, "Clients réels / contacts"],
     ["Acceptation offres", `${stats.tauxAcceptationOffres || 0}%`, SU, "Offres acceptées / envoyées"],
     ["Délai signature", stats.delaiMoyenSignature !== null ? `${stats.delaiMoyenSignature} j` : "—", WA, "Premier contact → signature"],
     ["Qualité stock", `${stats.tauxFichesCompletes || 0}%`, T.accent, "Fiches biens complètes"],
@@ -3159,7 +3163,7 @@ function PipelineEtapesBoard({ clients=[], T=THEMES_INV.dark, movingClientId, on
 function ClientsARisqueDashboard({ clients=[], propositions=[], T=THEMES_INV.dark, onNavigate }) {
   const propByClient = propositions.reduce((acc,p)=>{ if(p.client_id) acc[p.client_id]=(acc[p.client_id]||0)+1; return acc; }, {});
   const risks = [];
-  clients.forEach(c => {
+  clients.filter(c => c.statut !== "Prospect").forEach(c => {
     if (!c.prochaine_action && !c.date_prochaine_action) risks.push({title:`${getClientName(c)} — aucune prochaine action`, sub:`Statut : ${c.statut || "—"} · Étape : ${c.etape || "non définie"}`, color:DA, icon:AlertTriangle, onClick:()=>onNavigate?.("crm", { type:"sans_action" })});
     if ((c.statut === "Actif" || c.date_signature) && !propByClient[c.id]) risks.push({title:`${getClientName(c)} — aucun bien proposé`, sub:`Budget : ${fmtDashboardEur(c.budget)} · Contrat signé`, color:WA, icon:Home, onClick:()=>onNavigate?.("crm", { type:"signes" })});
     if (!c.etape) risks.push({title:`${getClientName(c)} — étape non définie`, sub:`Le parcours client n’est pas pilotable`, color:"#c084fc", icon:TrendingUp, onClick:()=>onNavigate?.("crm", { type:"all" })});
@@ -3174,9 +3178,9 @@ function ClientsARisqueDashboard({ clients=[], propositions=[], T=THEMES_INV.dar
 function PerformanceCommercialeDashboard({ stats, T=THEMES_INV.dark }) {
   if (!stats) return null;
   const cards = [
-    ["Transformation prospect → client", `${stats.tauxTransformation}%`, "Clients signés / contacts", SU, Handshake],
-    ["Biens proposés / client actif", stats.biensParClientActif.toFixed(1).replace(".", ","), "Moyenne sur clients actifs", T.accent, Building2],
-    ["Offres acceptées / envoyées", `${stats.tauxAcceptationOffres}%`, "Qualité de négociation", "#FFC200", Check],
+    ["Transformation contacts → clients", `${stats.tauxTransformation}%`, "Clients hors prospects / total contacts", SU, Handshake],
+    ["Biens proposés / client actif", stats.biensParClientActif.toFixed(1).replace(".", ","), "Propositions / clients actifs", T.accent, Building2],
+    ["Offres acceptées / envoyées", `${stats.tauxAcceptationOffres}%`, "Offres acceptées / offres actives", "#FFC200", Check],
     ["Délai moyen signature", stats.delaiMoyenSignature ? `${stats.delaiMoyenSignature} j` : "—", "Premier contact → signature", "#c084fc", Calendar],
   ];
   return (
@@ -3193,10 +3197,11 @@ function ValeurBusinessDashboard({ stats, T=THEMES_INV.dark }) {
   return (
     <DashboardPanel title="Valeur business potentielle" icon={Wallet} subtitle="Vision financière du pipeline" T={T}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:SPACING.md}}>
-        <KPICard icon={Wallet} label="Budget clients actifs" value={fmtDashboardEur(stats.budgetClientsActifs)} color={T.accent}/>
-        <KPICard icon={Send} label="Montant offres en cours" value={fmtDashboardEur(stats.montantOffresCours)} color="#FFC200"/>
-        <KPICard icon={Handshake} label="Base honoraires signés" value={fmtDashboardEur(stats.baseHonorairesSignes)} color={SU} sub="Base 1 500 € / contrat"/>
-        <KPICard icon={TrendingUp} label="Base honoraires pipeline" value={fmtDashboardEur(stats.baseHonorairesPipeline)} color="#c084fc" sub="Clients actifs + prospects"/>
+        <KPICard icon={Wallet} label="Budget clients actifs" value={fmtDashboardEur(stats.budgetClientsActifs)} color={T.accent} sub="Prospects exclus"/>
+        <KPICard icon={Send} label="Montant offres en cours" value={fmtDashboardEur(stats.montantOffresCours)} color="#FFC200" sub="Offres renseignées sur les biens/projets"/>
+        <KPICard icon={Handshake} label="Base honoraires signés" value={fmtDashboardEur(stats.baseHonorairesSignes)} color={SU} sub="1 583 € HT / client signé"/>
+        <KPICard icon={TrendingUp} label="Base honoraires pipeline" value={fmtDashboardEur(stats.baseHonorairesPipeline)} color="#c084fc" sub="Clients en cours + prospects"/>
+        <KPICard icon={Briefcase} label="Estimation honoraire conseil" value={fmtDashboardEur(stats.estimationHonoraireConseil)} color="#4db8ff" sub="7 500 € HT / offre active"/>
       </div>
     </DashboardPanel>
   );
@@ -3337,7 +3342,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     const [clientsRes, biensRes, propsRes, planningRes] = await Promise.all([
       supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,date_premier_contact,prochaine_action,date_prochaine_action,created_at,etape,source,conseiller"),
       supabase.from("invest_biens").select("id,adresse,ville,statut,date_relance,date_visite,rendement_brut,cashflow_estime,prix_vente,prix_travaux,cout_total,montant_offre,visite_data,latitude,longitude,reference_interne,conseiller_profero,created_at"),
-      supabase.from("invest_propositions").select("client_id,bien_id,statut,created_at,date_proposition"),
+      supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)"),
       supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire").gte("date_rdv", startWeek).lte("date_rdv", endWeek).order("date_rdv", { ascending:true }).order("heure_debut", { ascending:true }),
     ]);
 
@@ -3352,19 +3357,40 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
 
     const actionsRetard = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action < today);
     const actionsSemaine = c.filter(x => x.prochaine_action && x.date_prochaine_action && x.date_prochaine_action >= today && x.date_prochaine_action <= endWeek);
-    const clientsSignes = c.filter(x => x.date_signature);
-    const clientsActifs = c.filter(x => x.statut === "Actif");
     const prospects = c.filter(x => x.statut === "Prospect");
+    const clientsReels = c.filter(x => x.statut !== "Prospect");
+    const clientsPipeline = c.filter(x => x.statut !== "Terminé");
+    const clientsSignes = clientsReels.filter(x => x.date_signature);
+    const clientsActifs = c.filter(x => x.statut === "Actif");
+    const clientsSansAction = clientsReels.filter(x => !x.prochaine_action && !x.date_prochaine_action);
     const offresEnv = b.filter(x => x.statut === "Offre envoyée");
     const offresAcc = b.filter(x => x.statut === "Offre acceptée");
+    const offresActivesMap = new Map();
+    const addOffreActive = (key, amount) => {
+      const n = Number(amount) || 0;
+      if (!key || n <= 0) return;
+      offresActivesMap.set(key, n);
+    };
+    b.forEach(x => {
+      const statut = x.statut || "";
+      const hasOffre = Number(x.montant_offre) > 0;
+      if (hasOffre && !["Abandonné", "Offre refusée"].includes(statut)) addOffreActive(`bien-${x.id}`, x.montant_offre);
+    });
+    p.forEach(prop => {
+      if (!["offre en cours", "proposé", "intéressé", "en analyse"].includes(prop.statut)) return;
+      addOffreActive(`prop-${prop.bien_id || prop.id}`, prop.bien?.montant_offre || prop.bien?.prix_vente);
+    });
+    const montantOffresCours = Array.from(offresActivesMap.values()).reduce((s,x)=>s+x,0);
+    const nbOffresActives = offresActivesMap.size;
     const delaisSignature = clientsSignes
+      .filter(x => x.date_signature)
       .map(x => daysBetween(x.date_premier_contact || x.created_at, new Date(x.date_signature)))
       .filter(v => Number.isFinite(v) && v >= 0);
     const fichesCompletes = b.filter(isBienFicheComplete).length;
     const geoloc = b.filter(isGeolocBien).length;
     const simulateurs = b.filter(hasSimulateurBien).length;
     const topOpps = b.filter(x => getBienScore(x) >= 45).length;
-    const offresStock = b.filter(x => Number(x.montant_offre) > 0 || ["Offre envoyée", "Offre acceptée"].includes(x.statut)).length;
+    const offresStock = nbOffresActives;
 
     setStats({
       prospects:       prospects.length,
@@ -3378,7 +3404,8 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       visitesProg:     b.filter(x => x.statut === "Visite programmée").length,
       offreEnvoyees:   offresEnv.length,
       offresAcceptees: offresAcc.length,
-      sansProchaineAction: c.filter(x => !x.prochaine_action && !x.date_prochaine_action).length,
+      sansProchaineAction: clientsSansAction.length,
+      prospectsSansAction: prospects.filter(x => !x.prochaine_action && !x.date_prochaine_action).length,
       nbPropositions:  p.length,
       actionsRetard:   actionsRetard.length,
       actionsSemaine:  actionsSemaine.length,
@@ -3391,14 +3418,16 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       tauxGeoloc: b.length ? Math.round((geoloc / b.length) * 100) : 0,
       tauxSimulateur: b.length ? Math.round((simulateurs / b.length) * 100) : 0,
       tauxOffresStock: b.length ? Math.round((offresStock / b.length) * 100) : 0,
-      tauxTransformation: c.length ? Math.round((clientsSignes.length / c.length) * 100) : 0,
+      tauxTransformation: c.length ? Math.round((clientsReels.length / c.length) * 100) : 0,
       biensParClientActif: clientsActifs.length ? p.length / clientsActifs.length : 0,
       tauxAcceptationOffres: offresEnv.length + offresAcc.length ? Math.round((offresAcc.length / (offresEnv.length + offresAcc.length)) * 100) : 0,
       delaiMoyenSignature: delaisSignature.length ? Math.round(delaisSignature.reduce((s,x)=>s+x,0) / delaisSignature.length) : null,
       budgetClientsActifs: clientsActifs.reduce((s,x)=>s+(Number(x.budget)||0),0),
-      montantOffresCours: offresEnv.reduce((s,x)=>s+(Number(x.montant_offre)||0),0),
-      baseHonorairesSignes: clientsSignes.length * 1500,
-      baseHonorairesPipeline: (clientsActifs.length + prospects.length) * 1500,
+      montantOffresCours,
+      nbOffresActives,
+      baseHonorairesSignes: clientsSignes.length * HONORAIRE_BASE_CONTRAT_HT,
+      baseHonorairesPipeline: clientsPipeline.length * HONORAIRE_BASE_CONTRAT_HT,
+      estimationHonoraireConseil: nbOffresActives * HONORAIRE_CONSEIL_MOYEN_HT,
     });
     setLoading(false);
   }, []);
@@ -3505,9 +3534,9 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
             <KPICard icon={AlertTriangle} label="Actions en retard" value={stats.actionsRetard} color={stats.actionsRetard > 0 ? DA : SU} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
             <KPICard icon={Calendar} label="Actions cette semaine" value={stats.actionsSemaine} color={WA} onClick={()=>go("crm", { type:"actions_week_or_late" })}/>
             <KPICard icon={Home} label="Visites prévues" value={stats.visitesSemaine} color={T.accent}/>
-            <KPICard icon={Users} label="Clients sans action" value={stats.sansProchaineAction} color={DA} onClick={()=>go("crm", { type:"sans_action" })}/>
+            <KPICard icon={Users} label="Clients sans action" value={stats.sansProchaineAction} color={DA} sub="Prospects exclus" onClick={()=>go("crm", { type:"sans_action" })}/>
             <KPICard icon={Sparkles} label="Top opportunités" value={stats.topOpportunites} color="#c084fc" onClick={()=>go("biens", { type:"all" })}/>
-            <KPICard icon={Wallet} label="CA potentiel pipeline" value={fmtDashboardEur(stats.baseHonorairesPipeline)} color="#FFC200" sub="Base 1 500 €"/>
+            <KPICard icon={Wallet} label="Honoraires pipeline" value={fmtDashboardEur(stats.baseHonorairesPipeline)} color="#FFC200" sub="Base 1 583 € HT"/>
           </div>
 
           <ActionsPrioritairesDashboard clients={clientsDash} biens={biensDash} planning={planningDash} T={T} onNavigate={go} />
