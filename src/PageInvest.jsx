@@ -17,6 +17,28 @@ import {
 // Accent officiel Profero Invest (bleu)
 const INVEST_ACC = getBranchAccent("invest");
 
+// Page ajoutée au contrôle d'accès Invest.
+// On étend les constantes importées depuis ./access pour que la page
+// “Dashboard Financier” apparaisse dans l'admin des accès et puisse être
+// cochée/décochée par rôle comme les autres pages.
+if (Array.isArray(PAGES_INVEST) && !PAGES_INVEST.some(p => p.id === "finance")) {
+  const adminIndex = PAGES_INVEST.findIndex(p => p.id === "admin");
+  const financePage = { id: "finance", label: "Dashboard Financier" };
+  if (adminIndex >= 0) PAGES_INVEST.splice(adminIndex, 0, financePage);
+  else PAGES_INVEST.push(financePage);
+}
+Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
+  const pages = ROLE_PAGES_DEFAULT_INVEST[roleKey];
+  if (!Array.isArray(pages) || pages.includes("finance")) return;
+  // Par défaut, on donne l'accès finance aux rôles qui avaient déjà accès
+  // au pilotage global ou au simulateur. Ensuite l'admin peut l'ajuster.
+  if (pages.includes("admin") || pages.includes("dashboard") || pages.includes("simulateur")) {
+    const adminIndex = pages.indexOf("admin");
+    if (adminIndex >= 0) pages.splice(adminIndex, 0, "finance");
+    else pages.push("finance");
+  }
+});
+
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const LOT_TYPES  = ["Sélectionner","Studio","T1","T2","T3","T4","T5","T6","Commerce"];
@@ -7341,16 +7363,9 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   // Construction de la nav depuis PAGES_INVEST, filtrée par les pages autorisées
   // pour le rôle courant (config dynamique avec fallback ROLE_PAGES_DEFAULT_INVEST).
   const allowed = (rolePages && rolePages[role]) || ROLE_PAGES_DEFAULT_INVEST[role] || ROLE_PAGES_DEFAULT_INVEST.admin;
-  const baseNav = PAGES_INVEST
+  const NAV = PAGES_INVEST
     .filter(p => allowed.includes(p.id))
     .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard }));
-  const NAV = baseNav.reduce((acc, n) => {
-    acc.push(n);
-    if (n.id === "simulateur" && !acc.some(x => x.id === "finance") && (allowed.includes("simulateur") || allowed.includes("dashboard") || allowed.includes("admin"))) {
-      acc.push({ id:"finance", label:"Dashboard Financier", icon:Wallet });
-    }
-    return acc;
-  }, []);
 
   const W = collapsed ? 64 : 220;
 
@@ -7591,7 +7606,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguerDepuisDashboard} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />        : <AccesRefuseInvest T={T} page="crm"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
-        {page === "finance"    && ((canSee("dashboard") || canSee("simulateur")) ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
+        {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
         {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}
         {page === "simulateur" && (canSee("simulateur") ? (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
