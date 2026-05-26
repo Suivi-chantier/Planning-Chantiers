@@ -1003,211 +1003,217 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   // Cache les infos sensibles (prix négocié, budget travaux, marges) et met en
   // avant les indicateurs vendeurs (rendement, cash-flow, loyers, photos, map).
   const genererFicheClient = () => {
-    const win = window.open("", "_blank", "width=900,height=700");
+    const win = window.open("", "_blank", "width=1050,height=760");
     if (!win) { alert("Autorisez les pop-ups."); return; }
-    const fmtN = v => Math.round(v).toLocaleString("fr-FR");
-    const esc = s => String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const fmtN = v => Number(v || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+    const fmtE = v => Number(v || 0) > 0 || Number(v || 0) < 0 ? `${fmtN(v)} €` : "—";
+    const fmtPctLocal = v => Number.isFinite(Number(v)) ? `${(Number(v) * 100).toFixed(1).replace(".", ",")} %` : "—";
+    const fmtPctDirect = v => Number.isFinite(Number(v)) ? `${Number(v).toFixed(1).replace(".", ",")} %` : "—";
+
     const client = clientId ? clientsList.find(c => c.id === clientId) : null;
-    const clientFullName = client ? `${client.prenom||""} ${client.nom||""}`.trim() : null;
+    const clientFullName = client ? `${client.prenom || ""} ${client.nom || ""}`.trim() : null;
     const photoMain = photos && photos[0] ? photos[0] : null;
     const otherPhotos = photos ? photos.slice(1).filter(Boolean) : [];
     const hasAddr = adresse && adresse.trim();
     const mapSrc = hasAddr ? `https://maps.google.com/maps?q=${encodeURIComponent(adresse)}&output=embed` : null;
-    const lotRows = aLots.map((l,i) => `<tr>
-      <td style="padding:10px 14px;font-weight:700;color:#1a2d4a">Logement ${i+1}</td>
-      <td style="padding:10px 14px;text-align:center;color:#4070e8;font-weight:700">${esc(l.type)}</td>
-      <td style="padding:10px 14px;text-align:center;color:#5a6070">${esc(l.niveau)||"—"}</td>
-      <td style="padding:10px 14px;text-align:right;color:#5a6070">${l.m2} m²</td>
-      <td style="padding:10px 14px;text-align:right;font-weight:700;color:#1a7a4a;font-size:14px">${l.loyer.toLocaleString("fr-FR")} €/mois</td>
-    </tr>`).join("");
-    const cfClass = cfm1 >= 0 ? "positive" : "negative";
-    win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${esc(nom)} — Profero Invest</title>
+    const totalSurfaceLots = aLots.reduce((s,l)=>s+(Number(l.m2)||0),0);
+    const loyerM2 = totalSurfaceLots > 0 ? totLoyer / totalSurfaceLots : (surface > 0 ? totLoyer / surface : 0);
+    const chargesMensuelles = totCharges / 12;
+    const cashflowAnnuelS1 = cfm1 * 12;
+    const financementMensuelS1 = m1 || 0;
+    const financementMensuelS2 = m2 || 0;
+    const coutTotalComplet = coutTotal || 0;
+    const ratioTravaux = coutTotalComplet > 0 ? budgetTravaux / coutTotalComplet : 0;
+    const effortApport = selectedScen === 1 ? apport1 : apport2;
+    const mensualiteRetenue = selectedScen === 1 ? m1 : m2;
+    const cashflowRetenu = selectedScen === 1 ? cfm1 : cfm2;
+    const rentabiliteRetenue = rn;
+    const scoreRenta = Math.max(0, Math.min(100, (rb || 0) * 850));
+    const scoreCash = Math.max(0, Math.min(100, ((cashflowRetenu || 0) + 250) / 7.5));
+    const scoreSecu = Math.max(0, Math.min(100, (1 - (peSel || 0)) * 100));
+
+    const costItems = [
+      { label:"Acquisition + frais", value: prixAchat || 0, color:"#4070e8" },
+      { label:"Travaux", value: budgetTravaux || 0, color:"#d4610a" },
+      { label:"Honoraires", value: honoraires || 0, color:"#7c5cff" },
+      { label:"Raccordements / divers", value: enedis || 0, color:"#1a7a4a" },
+    ].filter(x => x.value > 0);
+    const maxCost = Math.max(1, ...costItems.map(x => x.value));
+    const costBars = costItems.map(x => `
+      <div class="bar-row">
+        <div class="bar-top"><span>${esc(x.label)}</span><strong>${fmtE(x.value)}</strong></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.max(4, Math.round((x.value / maxCost) * 100))}%;background:${x.color}"></div></div>
+      </div>
+    `).join("");
+
+    const maxLoyer = Math.max(1, ...aLots.map(l => Number(l.loyer) || 0));
+    const lotRows = aLots.map((l,i) => `
+      <tr>
+        <td><strong>Lot ${i+1}</strong>${l.comment ? `<div class="muted small">${esc(l.comment)}</div>` : ""}</td>
+        <td class="center"><span class="pill blue">${esc(l.type || "—")}</span></td>
+        <td class="center">${esc(l.niveau || "—")}</td>
+        <td class="right">${fmtN(l.m2)} m²</td>
+        <td class="right strong green">${fmtE(l.loyer)}</td>
+        <td>
+          <div class="mini-track"><div class="mini-fill" style="width:${Math.max(6, Math.round(((Number(l.loyer)||0)/maxLoyer)*100))}%"></div></div>
+        </td>
+      </tr>
+    `).join("");
+
+    const scenarioRows = `
+      <tr><td>Apport</td><td class="right">${fmtE(apport1)}</td><td class="right">${fmtE(apport2)}</td></tr>
+      <tr><td>Montant financé estimé</td><td class="right">${fmtE(af1)}</td><td class="right">${fmtE(af2)}</td></tr>
+      <tr><td>Taux / durée</td><td class="right">${Number(taux1||0).toFixed(2).replace(".",",")} % · ${duree1} ans</td><td class="right">${Number(taux2||0).toFixed(2).replace(".",",")} % · ${duree2} ans</td></tr>
+      <tr><td>Mensualité estimée</td><td class="right strong">${fmtE(m1)}</td><td class="right strong">${fmtE(m2)}</td></tr>
+      <tr><td>Cash-flow mensuel</td><td class="right strong ${cfm1 >= 0 ? "green" : "orange"}">${fmtE(cfm1)}</td><td class="right strong ${cfm2 >= 0 ? "green" : "orange"}">${fmtE(cfm2)}</td></tr>
+      <tr><td>Point d’équilibre</td><td class="right">${fmtPctLocal(pe1)}</td><td class="right">${fmtPctLocal(pe2)}</td></tr>
+    `;
+
+    const donut = (pct, label, sub, color) => {
+      const val = Math.max(0, Math.min(100, Number(pct) || 0));
+      const r = 42;
+      const c = 2 * Math.PI * r;
+      const dash = (val / 100) * c;
+      return `<div class="donut-card">
+        <svg viewBox="0 0 110 110" class="donut">
+          <circle cx="55" cy="55" r="42" class="donut-bg"/>
+          <circle cx="55" cy="55" r="42" class="donut-val" style="stroke:${color};stroke-dasharray:${dash} ${c-dash}"/>
+          <text x="55" y="52" text-anchor="middle" class="donut-num">${Math.round(val)}</text>
+          <text x="55" y="68" text-anchor="middle" class="donut-unit">/100</text>
+        </svg>
+        <div class="donut-label">${esc(label)}</div>
+        <div class="donut-sub">${esc(sub)}</div>
+      </div>`;
+    };
+
+    const safeParagraph = (txt, fallback) => esc(txt && String(txt).trim() ? txt : fallback);
+    const fiscaliteLabel = modeDetention === "IS" ? "SCI à l’IS" : modeDetention === "IR" ? "SCI à l’IR" : "LMNP au réel";
+    const strategieText = safeParagraph(atouts, "Projet à analyser selon le profil investisseur, le financement disponible et la stratégie locative retenue.");
+    const travauxText = safeParagraph(travaux, "Travaux à préciser après devis détaillé, diagnostics et validation technique.");
+    const descText = safeParagraph(desc, "Opportunité immobilière en cours d’analyse par Profero Invest.");
+    const dateEdition = new Date().toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" });
+
+    win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${esc(nom)} — Présentation client Profero Invest</title>
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f5f7fa;color:#2c3040;line-height:1.5;}
-      .wrap{max-width:900px;margin:0 auto;background:white;}
-
-      /* HEADER */
-      .header{padding:24px 32px 20px;border-bottom:1px solid #eef0f5;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
-      .header-brand{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#4070e8}
-      .header-brand b{display:block;font-size:22px;letter-spacing:-0.5px;color:#1a2d4a;margin-top:3px}
-      .header-meta{text-align:right;font-size:11px;color:#9aa0b0}
-      .header-meta b{display:block;color:#1a2d4a;font-size:13px;margin-bottom:2px}
-
-      /* HERO */
-      .hero{position:relative;width:100%;height:380px;background:linear-gradient(180deg,#1a2d4a,#0f1825);overflow:hidden}
-      .hero img{width:100%;height:100%;object-fit:cover;display:block}
-      .hero-overlay{position:absolute;inset:0;background:linear-gradient(to top,rgba(15,24,37,0.88) 0%,rgba(15,24,37,0.2) 50%,transparent 100%);display:flex;flex-direction:column;justify-content:flex-end;padding:32px 36px}
-      .hero-title{font-size:36px;font-weight:800;color:white;letter-spacing:-0.8px;margin-bottom:8px}
-      .hero-addr{font-size:14px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:6px}
-      .hero-placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.4);font-size:14px;font-style:italic}
-
-      /* KPIs */
-      .kpi-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:0;background:#1a2d4a;color:white}
-      .kpi-cell{padding:24px 28px;border-right:1px solid rgba(255,255,255,0.08);text-align:center}
-      .kpi-cell:last-child{border-right:none}
-      .kpi-val{font-size:32px;font-weight:800;letter-spacing:-0.8px;line-height:1}
-      .kpi-val.green{color:#7ee8a2}
-      .kpi-val.orange{color:#ffb84d}
-      .kpi-val.gold{color:#ffd54a}
-      .kpi-lbl{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-top:8px}
-
-      /* SECTIONS */
-      .section{padding:28px 36px;border-bottom:1px solid #eef0f5}
-      .section:last-child{border-bottom:none}
-      .section-title{font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;color:#4070e8;margin-bottom:14px;display:flex;align-items:center;gap:6px}
-      .section-title::before{content:"";display:inline-block;width:24px;height:2px;background:#4070e8;border-radius:1px}
-
-      /* MAP */
-      .map-wrap{border-radius:8px;overflow:hidden;border:1px solid #eef0f5;}
-      .map-wrap iframe{width:100%;height:320px;border:0;display:block}
-      .map-cap{padding:10px 14px;background:#f8f9fb;border-top:1px solid #eef0f5;font-size:13px;color:#5a6070}
-
-      /* DESCRIPTION */
-      .descs{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-      .desc-block{background:#f8f9fb;border-radius:8px;padding:18px 20px;border-left:3px solid #4070e8}
-      .desc-block.travaux{border-left-color:#d4610a}
-      .desc-block.atouts{border-left-color:#1a7a4a}
-      .desc-lbl{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#9aa0b0;margin-bottom:8px}
-      .desc-txt{font-size:13px;color:#2c3040;line-height:1.7;white-space:pre-wrap}
-
-      /* LOTS */
-      .lots-table{width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;border:1px solid #eef0f5}
-      .lots-table th{background:#1a2d4a;color:white;padding:11px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
-      .lots-table tr:nth-child(even) td{background:#fafbfd}
-      .lots-table tr:last-child td{border-bottom:none}
-      .lots-table td{border-bottom:1px solid #eef0f5}
-      .lots-total{background:linear-gradient(90deg,#1a7a4a,#208a55)!important}
-      .lots-total td{color:white!important;font-weight:800!important;font-size:14px!important;background:transparent!important}
-
-      /* GALLERY */
-      .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-      .gallery-item{aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#f0f4ff}
-      .gallery-item img{width:100%;height:100%;object-fit:cover;display:block}
-
-      /* FOOTER */
-      .footer{background:#1a2d4a;color:white;padding:24px 36px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px}
-      .footer-brand{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.5)}
-      .footer-brand b{display:block;font-size:18px;letter-spacing:-0.3px;color:white;margin-top:2px}
-      .footer-confid{font-size:11px;color:rgba(255,255,255,0.4);text-align:right;line-height:1.6}
-
-      /* CLIENT BADGE */
-      .client-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;background:rgba(64,112,232,0.10);color:#4070e8;font-size:12px;font-weight:700;margin-top:6px}
-
-      .no-print{position:fixed;top:14px;right:14px;display:flex;gap:7px;z-index:100}
-      .pbtn{padding:11px 22px;background:#4070e8;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(64,112,232,0.4)}
-      .cbtn{padding:11px 18px;background:white;color:#1a2d4a;border:1px solid #d8dce6;border-radius:8px;font-size:13px;cursor:pointer}
-      @media print{
-        .no-print{display:none!important}
-        body{background:white;padding:0}
-        .wrap{max-width:none}
-        @page{size:A4;margin:0}
-        .section{page-break-inside:avoid}
-        .hero{height:280px}
-      }
+      body{font-family:"Inter","Helvetica Neue",Arial,sans-serif;background:#eef2f7;color:#1a1f2e;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .wrap{max-width:980px;margin:0 auto;background:white;min-height:100vh;box-shadow:0 22px 80px rgba(10,20,40,.12)}
+      .no-print{position:fixed;top:16px;right:16px;display:flex;gap:8px;z-index:20}.btn{border:0;border-radius:10px;padding:11px 18px;font-weight:800;cursor:pointer}.btn.primary{background:#4070e8;color:white;box-shadow:0 8px 24px rgba(64,112,232,.28)}.btn.light{background:white;color:#1a2d4a;border:1px solid #d8dce6}
+      .hero{position:relative;min-height:380px;background:linear-gradient(135deg,#0f1825 0%,#1a2d4a 48%,#4070e8 100%);color:white;overflow:hidden}.hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(1.05)}.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(8,14,24,.92),rgba(8,14,24,.55),rgba(8,14,24,.12))}.hero-content{position:relative;z-index:2;padding:38px 44px;min-height:380px;display:flex;flex-direction:column;justify-content:space-between}.brand{font-size:12px;text-transform:uppercase;letter-spacing:4px;color:rgba(255,255,255,.62);font-weight:800}.brand b{display:block;font-size:24px;letter-spacing:.2px;color:white;margin-top:5px;text-transform:none}.hero h1{font-size:40px;letter-spacing:-1.2px;line-height:1.05;max-width:690px;margin:16px 0 10px}.addr{font-size:15px;color:rgba(255,255,255,.82)}.client-badge{display:inline-flex;width:max-content;align-items:center;gap:8px;margin-top:12px;padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);font-size:12px;font-weight:800;color:white}.hero-note{max-width:560px;font-size:13px;color:rgba(255,255,255,.76);margin-top:18px}.date{font-size:12px;color:rgba(255,255,255,.60);font-weight:700}
+      .kpis{display:grid;grid-template-columns:repeat(4,1fr);background:#111b2d;color:white}.kpi{padding:24px 22px;border-right:1px solid rgba(255,255,255,.08);text-align:center}.kpi:last-child{border-right:0}.kpi .v{font-size:29px;font-weight:900;letter-spacing:-.8px}.kpi .l{font-size:10px;text-transform:uppercase;letter-spacing:1.8px;color:rgba(255,255,255,.50);font-weight:800;margin-top:7px}.green{color:#1a7a4a}.kpis .green{color:#7ee8a2}.orange{color:#d4610a}.kpis .orange{color:#ffc266}.gold{color:#ffd54a}.blue{color:#4070e8}
+      .section{padding:30px 42px;border-top:1px solid #edf0f6}.section.compact{padding-top:24px;padding-bottom:24px}.section-title{display:flex;align-items:center;gap:10px;font-size:12px;text-transform:uppercase;letter-spacing:2.6px;color:#4070e8;font-weight:900;margin-bottom:17px}.section-title::before{content:"";width:32px;height:3px;background:#4070e8;border-radius:4px}.intro-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.card{background:#f8f9fb;border:1px solid #eef0f5;border-radius:14px;padding:18px 20px}.card.blue-line{border-left:4px solid #4070e8}.card.green-line{border-left:4px solid #1a7a4a}.card.orange-line{border-left:4px solid #d4610a}.card h3{font-size:14px;color:#1a2d4a;margin-bottom:8px}.card p{font-size:13px;color:#4a5568;white-space:pre-wrap}.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.metric{background:#f8f9fb;border-radius:14px;padding:16px;border:1px solid #eef0f5}.metric .label{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:#8a94a8;font-weight:900}.metric .value{font-size:24px;font-weight:900;color:#1a2d4a;margin-top:5px}.metric .sub{font-size:12px;color:#68758c;margin-top:3px}.bar-row{margin-bottom:13px}.bar-top{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:#4a5568;margin-bottom:6px}.bar-top strong{font-family:monospace;color:#1a2d4a}.bar-track{height:10px;background:#e9edf5;border-radius:999px;overflow:hidden}.bar-fill{height:100%;border-radius:999px}.chart-box{background:white;border:1px solid #eef0f5;border-radius:14px;padding:16px}.chart-title{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:#8a94a8;font-weight:900;margin-bottom:12px}
+      table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;border:1px solid #eef0f5;border-radius:14px;overflow:hidden;background:white}th{background:#1a2d4a;color:white;text-align:left;padding:11px 13px;font-size:10px;text-transform:uppercase;letter-spacing:1.4px}td{padding:11px 13px;border-bottom:1px solid #eef0f5;color:#3d485c}tr:last-child td{border-bottom:0}tr:nth-child(even) td{background:#fbfcfe}.center{text-align:center}.right{text-align:right}.strong{font-weight:900}.pill{display:inline-block;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:900}.pill.blue{background:rgba(64,112,232,.10);color:#4070e8}.muted{color:#8a94a8}.small{font-size:11px}.mini-track{height:8px;background:#e9edf5;border-radius:999px;overflow:hidden}.mini-fill{height:100%;background:#1a7a4a;border-radius:999px}.total-line{background:#1a2d4a;color:white;font-weight:900}.total-line td{background:#1a2d4a!important;color:white!important}
+      .donuts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.donut-card{text-align:center;background:#f8f9fb;border:1px solid #eef0f5;border-radius:16px;padding:16px}.donut{width:112px;height:112px;transform:rotate(-90deg)}.donut-bg{fill:none;stroke:#e7ebf3;stroke-width:10}.donut-val{fill:none;stroke-width:10;stroke-linecap:round}.donut-num{font-size:24px;font-weight:900;fill:#1a2d4a;transform:rotate(90deg);transform-origin:55px 55px}.donut-unit{font-size:10px;font-weight:800;fill:#8a94a8;transform:rotate(90deg);transform-origin:55px 55px}.donut-label{font-weight:900;color:#1a2d4a;font-size:13px;margin-top:6px}.donut-sub{font-size:11px;color:#748094;margin-top:3px}
+      .photo-map{display:grid;grid-template-columns:1fr 1fr;gap:16px}.photo-box,.map-box{border-radius:16px;overflow:hidden;border:1px solid #eef0f5;background:#f8f9fb;min-height:260px}.photo-box img{width:100%;height:260px;object-fit:cover;display:block}.map-box iframe{width:100%;height:260px;border:0;display:block}.cap{padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:1.4px;color:#8a94a8;font-weight:900;background:white;border-top:1px solid #eef0f5}.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.gallery-item{aspect-ratio:4/3;border-radius:14px;overflow:hidden;background:#f0f4ff;border:1px solid #eef0f5}.gallery-item img{width:100%;height:100%;object-fit:cover;display:block}.timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.step{background:#f8f9fb;border:1px solid #eef0f5;border-radius:12px;padding:14px}.step .num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#4070e8;color:white;font-weight:900;font-size:12px;margin-bottom:8px}.step b{font-size:13px;color:#1a2d4a}.step div:last-child{font-size:11px;color:#68758c;margin-top:4px}.footer{background:#111b2d;color:rgba(255,255,255,.62);padding:28px 42px;display:flex;justify-content:space-between;gap:20px;align-items:flex-start;font-size:11px}.footer b{display:block;color:white;font-size:17px;margin-bottom:4px}.disclaimer{max-width:560px;text-align:right;line-height:1.55}
+      @media print{.no-print{display:none!important}body{background:white}.wrap{box-shadow:none;max-width:none}.section{page-break-inside:avoid}.hero{min-height:300px}.hero-content{min-height:300px}@page{size:A4;margin:0}.kpis{grid-template-columns:repeat(4,1fr)}.section{padding:22px 30px}.footer{padding:22px 30px}}
     </style></head><body>
-      <div class="no-print">
-        <button class="cbtn" onclick="window.close()">✕ Fermer</button>
-        <button class="pbtn" onclick="window.print()">🖨️ Télécharger en PDF</button>
-      </div>
+      <div class="no-print"><button class="btn light" onclick="window.close()">Fermer</button><button class="btn primary" onclick="window.print()">Télécharger en PDF</button></div>
       <div class="wrap">
-
-        <!-- HEADER -->
-        <div class="header">
-          <div class="header-brand">Profero <b>Invest</b></div>
-          <div class="header-meta">
-            ${clientFullName ? `<b>Présenté à : ${esc(clientFullName)}</b>` : "<b>Présentation Investissement</b>"}
-            <div>Édité le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
-          </div>
-        </div>
-
-        <!-- HERO PHOTO -->
         <div class="hero">
-          ${photoMain
-            ? `<img src="${photoMain}" alt="Vue du bien"/>`
-            : `<div class="hero-placeholder">Aucune photo principale</div>`}
-          <div class="hero-overlay">
-            <div class="hero-title">${esc(nom)}</div>
-            ${hasAddr ? `<div class="hero-addr">📍 ${esc(adresse)}</div>` : ""}
+          ${photoMain ? `<img src="${photoMain}" alt="Vue du bien"/>` : ""}
+          <div class="hero-content">
+            <div>
+              <div class="brand">Profero <b>Invest</b></div>
+              <h1>${esc(nom || "Présentation d’opportunité immobilière")}</h1>
+              ${hasAddr ? `<div class="addr">📍 ${esc(adresse)}</div>` : ""}
+              ${clientFullName ? `<div class="client-badge">Présentation préparée pour ${esc(clientFullName)}</div>` : ""}
+              <div class="hero-note">Analyse commerciale et financière indicative, structurée pour faciliter la décision d’investissement avant validation définitive des devis, diagnostics, financement et documents juridiques.</div>
+            </div>
+            <div class="date">Édité le ${dateEdition}</div>
           </div>
         </div>
 
-        <!-- KPIs COMMERCIAUX -->
-        <div class="kpi-bar">
-          <div class="kpi-cell">
-            <div class="kpi-val green">${(rn*100).toFixed(1)} %</div>
-            <div class="kpi-lbl">Rendement net</div>
-          </div>
-          <div class="kpi-cell">
-            <div class="kpi-val ${cfm1>=0?"green":"orange"}">${cfm1>=0?"+":""}${fmtN(cfm1)} €</div>
-            <div class="kpi-lbl">Cash-flow mensuel</div>
-          </div>
-          <div class="kpi-cell">
-            <div class="kpi-val gold">${fmtN(totLoyer)} €</div>
-            <div class="kpi-lbl">Loyers mensuels</div>
-          </div>
+        <div class="kpis">
+          <div class="kpi"><div class="v green">${fmtPctLocal(rb)}</div><div class="l">Rendement brut</div></div>
+          <div class="kpi"><div class="v green">${fmtPctLocal(rn)}</div><div class="l">Rendement net</div></div>
+          <div class="kpi"><div class="v ${cashflowRetenu>=0?"green":"orange"}">${cashflowRetenu>=0?"+":""}${fmtE(cashflowRetenu)}</div><div class="l">Cash-flow mensuel</div></div>
+          <div class="kpi"><div class="v gold">${fmtE(coutTotal)}</div><div class="l">Coût total estimé</div></div>
         </div>
 
-        ${mapSrc ? `<div class="section">
-          <div class="section-title">🗺️ Localisation</div>
-          <div class="map-wrap">
-            <iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-            <div class="map-cap">📍 ${esc(adresse)}</div>
-          </div>
-        </div>` : ""}
-
-        ${(desc || travaux || atouts) ? `<div class="section">
-          <div class="section-title">📋 Le projet en détail</div>
-          <div class="descs">
-            ${desc ? `<div class="desc-block">
-              <div class="desc-lbl">Présentation du bien</div>
-              <div class="desc-txt">${esc(desc)}</div>
-            </div>` : ""}
-            ${travaux ? `<div class="desc-block travaux">
-              <div class="desc-lbl">Travaux prévus</div>
-              <div class="desc-txt">${esc(travaux)}</div>
-            </div>` : ""}
-            ${atouts ? `<div class="desc-block atouts" style="grid-column:1/-1">
-              <div class="desc-lbl">Atouts et points forts</div>
-              <div class="desc-txt">${esc(atouts)}</div>
-            </div>` : ""}
-          </div>
-        </div>` : ""}
-
-        <!-- LOTS -->
         <div class="section">
-          <div class="section-title">🏘️ Composition du bien (${aLots.length} logement${aLots.length>1?"s":""})</div>
-          <table class="lots-table">
-            <thead><tr><th>Logement</th><th style="text-align:center">Type</th><th style="text-align:center">Étage</th><th style="text-align:right">Surface</th><th style="text-align:right">Loyer mensuel</th></tr></thead>
+          <div class="section-title">Synthèse de l’opportunité</div>
+          <div class="intro-grid">
+            <div class="card blue-line"><h3>Lecture du projet</h3><p>${descText}</p></div>
+            <div class="card green-line"><h3>Atouts investisseur</h3><p>${strategieText}</p></div>
+          </div>
+        </div>
+
+        <div class="section compact">
+          <div class="section-title">Indicateurs financiers clés</div>
+          <div class="grid-3">
+            <div class="metric"><div class="label">Prix d’acquisition retenu</div><div class="value">${fmtE(prixNegocie)}</div><div class="sub">Prix affiché : ${fmtE(prixAffiche)}</div></div>
+            <div class="metric"><div class="label">Budget travaux TTC</div><div class="value">${fmtE(budgetTravaux)}</div><div class="sub">Soit ${surface>0?fmtN(budgetTravaux/surface)+" €/m²":"—"}</div></div>
+            <div class="metric"><div class="label">Loyers annuels cibles</div><div class="value green">${fmtE(totLoyerAn)}</div><div class="sub">${fmtE(totLoyer)} / mois</div></div>
+            <div class="metric"><div class="label">Mensualité estimée</div><div class="value">${fmtE(mensualiteRetenue)}</div><div class="sub">Scénario retenu : S${selectedScen}</div></div>
+            <div class="metric"><div class="label">Charges annuelles estimées</div><div class="value">${fmtE(totCharges)}</div><div class="sub">${fmtE(chargesMensuelles)} / mois</div></div>
+            <div class="metric"><div class="label">Mode fiscal simulé</div><div class="value" style="font-size:21px">${esc(fiscaliteLabel)}</div><div class="sub">Hypothèse indicative</div></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Graphiques de lecture rapide</div>
+          <div class="grid-2">
+            <div class="chart-box"><div class="chart-title">Répartition du coût global</div>${costBars || `<div class="muted">Données à compléter</div>`}</div>
+            <div class="chart-box"><div class="chart-title">Scores indicatifs</div><div class="donuts">
+              ${donut(scoreRenta, "Rentabilité", "Rendement cible", "#1a7a4a")}
+              ${donut(scoreCash, "Cash-flow", "Après charges et dette", cashflowRetenu>=0?"#1a7a4a":"#d4610a")}
+              ${donut(scoreSecu, "Sécurité", "Marge sur point d’équilibre", "#4070e8")}
+            </div></div>
+          </div>
+        </div>
+
+        ${(photoMain || mapSrc) ? `<div class="section">
+          <div class="section-title">Localisation & aperçu</div>
+          <div class="photo-map">
+            <div class="photo-box">${photoMain ? `<img src="${photoMain}" alt="Photo principale"/>` : `<div style="padding:90px 20px;text-align:center;color:#8a94a8">Aucune photo principale</div>`}<div class="cap">Photo principale</div></div>
+            <div class="map-box">${mapSrc ? `<iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>` : `<div style="padding:90px 20px;text-align:center;color:#8a94a8">Adresse non renseignée</div>`}<div class="cap">Localisation</div></div>
+          </div>
+        </div>` : ""}
+
+        <div class="section">
+          <div class="section-title">Configuration locative cible</div>
+          <table>
+            <thead><tr><th>Logement</th><th class="center">Type</th><th class="center">Étage</th><th class="right">Surface</th><th class="right">Loyer mensuel</th><th>Poids loyer</th></tr></thead>
             <tbody>
-              ${lotRows}
-              <tr class="lots-total">
-                <td colspan="3" style="padding:14px 14px">TOTAL — ${aLots.length} logement${aLots.length>1?"s":""}</td>
-                <td style="text-align:right;padding:14px 14px">${aLots.reduce((s,l)=>s+(l.m2||0),0)} m²</td>
-                <td style="text-align:right;padding:14px 14px">${fmtN(totLoyer)} €/mois</td>
-              </tr>
+              ${lotRows || `<tr><td colspan="6">Configuration cible à compléter</td></tr>`}
+              <tr class="total-line"><td colspan="3">TOTAL — ${aLots.length} logement${aLots.length>1?"s":""}</td><td class="right">${fmtN(totalSurfaceLots || surface)} m²</td><td class="right">${fmtE(totLoyer)}</td><td>${loyerM2>0?fmtN(loyerM2)+" €/m²":"—"}</td></tr>
             </tbody>
           </table>
-          <div style="display:flex;gap:30px;margin-top:14px;font-size:13px;color:#5a6070">
-            <span>📅 Loyers annuels : <strong style="color:#1a7a4a">${fmtN(totLoyerAn)} €</strong></span>
-            <span>💰 Surface totale : <strong style="color:#1a2d4a">${surface} m²</strong></span>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Scénarios de financement</div>
+          <table>
+            <thead><tr><th>Paramètre</th><th class="right">Scénario 1</th><th class="right">Scénario 2</th></tr></thead>
+            <tbody>${scenarioRows}</tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Budget et travaux</div>
+          <div class="grid-2">
+            <div class="card orange-line"><h3>Travaux envisagés</h3><p>${travauxText}</p></div>
+            <div class="card blue-line"><h3>Points de vigilance</h3><p>Ratio travaux dans l’opération : <strong>${fmtPctDirect(ratioTravaux*100)}</strong><br/>Frais de notaire estimés : <strong>${fmtE(fn)}</strong><br/>Apport retenu : <strong>${fmtE(effortApport)}</strong><br/>Prix d’achat / m² : <strong>${surface>0?fmtN(prixAchat/surface)+" €/m²":"—"}</strong></p></div>
           </div>
         </div>
 
-        ${otherPhotos.length > 0 ? `<div class="section">
-          <div class="section-title">📷 Galerie photos</div>
-          <div class="gallery">
-            ${otherPhotos.map(p => `<div class="gallery-item"><img src="${p}" alt="Photo"/></div>`).join("")}
+        <div class="section">
+          <div class="section-title">Parcours proposé</div>
+          <div class="timeline">
+            <div class="step"><div class="num">1</div><b>Validation technique</b><div>Diagnostics, faisabilité travaux, devis précis</div></div>
+            <div class="step"><div class="num">2</div><b>Validation financière</b><div>Budget global, financement, stratégie fiscale</div></div>
+            <div class="step"><div class="num">3</div><b>Offre & négociation</b><div>Prix cible, arguments, conditions suspensives</div></div>
+            <div class="step"><div class="num">4</div><b>Projet opérationnel</b><div>Compromis, urbanisme, travaux, mise en location</div></div>
           </div>
-        </div>` : ""}
+        </div>
 
-        <!-- FOOTER -->
+        ${otherPhotos.length > 0 ? `<div class="section"><div class="section-title">Galerie photos</div><div class="gallery">${otherPhotos.map(p => `<div class="gallery-item"><img src="${p}" alt="Photo du bien"/></div>`).join("")}</div></div>` : ""}
+
         <div class="footer">
-          <div class="footer-brand">Profero <b>Invest</b></div>
-          <div class="footer-confid">
-            Document à caractère confidentiel<br/>
-            ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}
-          </div>
+          <div><b>Profero Invest</b>Présentation investisseur · ${dateEdition}</div>
+          <div class="disclaimer">Document non contractuel. Les données présentées sont indicatives et doivent être confirmées par les diagnostics, devis travaux, conditions bancaires, contraintes urbanistiques, fiscalité applicable et documents juridiques du dossier.</div>
         </div>
       </div>
     </body></html>`);
