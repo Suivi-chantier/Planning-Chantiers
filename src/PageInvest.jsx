@@ -3207,6 +3207,314 @@ function ValeurBusinessDashboard({ stats, T=THEMES_INV.dark }) {
   );
 }
 
+
+function getProjetSimFinance(p = {}) {
+  const d = p?.donnees || {};
+  const inputs = d.inputs || {};
+  const selects = d.selects || {};
+  const lots = Array.isArray(d.lots) ? d.lots.filter(l => l && l.type && l.type !== "Sélectionner") : [];
+  const prixNegocie = Number(inputs.prixNegocie || 0);
+  const tauxNotaire = Number(inputs.tauxNotaire ?? 0.08);
+  const fraisNotaire = prixNegocie * tauxNotaire;
+  const budgetTravaux = Number(inputs.budgetTravaux || 0);
+  const honoraires = Number(inputs.honoraires || 0);
+  const enedis = Number(inputs.enedis || 0);
+  const coutTotal = prixNegocie + fraisNotaire + budgetTravaux + honoraires + enedis;
+  const loyersMensuels = lots.reduce((s, l) => s + (Number(l.loyer) || 0), 0);
+  const loyersAnnuels = loyersMensuels * 12;
+  const gestionActive = !!selects.gestionActive;
+  const gestionAnnuelle = gestionActive
+    ? lots.reduce((s, l) => s + (GESTION_PRICES[l.type] || 0), 0) * 12
+    : 0;
+  const charges = Number(inputs.taxeFonciere || 0)
+    + Number(inputs.assurance || 0)
+    + Number(inputs.compta || 0)
+    + Number(inputs.provisions || 0)
+    + gestionAnnuelle;
+  const mensualite = pmt(
+    Math.max(0, coutTotal - (Number(inputs.apport1) || 0)),
+    Number(inputs.taux1 || 0),
+    Number(inputs.duree1 || 0)
+  );
+  const rendementBrut = coutTotal > 0 ? (loyersAnnuels / coutTotal) * 100 : 0;
+  const rendementNet = coutTotal > 0 ? ((loyersAnnuels - charges) / coutTotal) * 100 : 0;
+  const cashflowMensuel = loyersMensuels ? ((loyersAnnuels - charges) / 12) - mensualite : 0;
+  return { coutTotal, loyersMensuels, loyersAnnuels, rendementBrut, rendementNet, cashflowMensuel, nbLots:lots.length };
+}
+
+function buildFinancePilotageStats({ clients=[], biens=[], propositions=[], projets=[] }) {
+  const clientsReels = clients.filter(c => c.statut !== "Prospect");
+  const prospects = clients.filter(c => c.statut === "Prospect");
+  const clientsActifs = clients.filter(c => c.statut === "Actif");
+  const clientsSignes = clientsReels.filter(c => !!c.date_signature);
+  const clientsPipeline = clients.filter(c => c.statut !== "Terminé");
+  const clientsSansAction = clientsReels.filter(c => !c.prochaine_action && !c.date_prochaine_action);
+  const prospectsSansAction = prospects.filter(c => !c.prochaine_action && !c.date_prochaine_action);
+  const offresEnvoyees = biens.filter(b => b.statut === "Offre envoyée");
+  const offresAcceptees = biens.filter(b => b.statut === "Offre acceptée");
+  const offresActivesMap = new Map();
+  const addOffreActive = (key, amount, source, label, statut) => {
+    const n = Number(amount) || 0;
+    if (!key || n <= 0) return;
+    offresActivesMap.set(key, { amount:n, source, label, statut });
+  };
+  biens.forEach(b => {
+    const statut = b.statut || "";
+    if (Number(b.montant_offre) > 0 && !["Abandonné", "Offre refusée"].includes(statut)) {
+      addOffreActive(`bien-${b.id}`, b.montant_offre, "Stock", getBienLabel(b), statut || "Offre renseignée");
+    }
+  });
+  propositions.forEach(p => {
+    if (!["offre en cours", "proposé", "intéressé", "en analyse"].includes(p.statut)) return;
+    addOffreActive(
+      `prop-${p.bien_id || p.id}`,
+      p.bien?.montant_offre || p.bien?.prix_vente,
+      "Proposition",
+      p.bien?.adresse || p.bien?.ville || "Bien proposé",
+      p.statut || "Proposition"
+    );
+  });
+  const offresActives = Array.from(offresActivesMap.values());
+  const montantOffresCours = offresActives.reduce((s, x) => s + x.amount, 0);
+  const delaisSignature = clientsSignes
+    .map(x => daysBetween(x.date_premier_contact || x.created_at, new Date(x.date_signature)))
+    .filter(v => Number.isFinite(v) && v >= 0);
+  const simMetrics = projets.map(getProjetSimFinance);
+  const simulationsAvecCout = simMetrics.filter(m => m.coutTotal > 0);
+  const totalCoutSimule = simMetrics.reduce((s,m)=>s+m.coutTotal,0);
+  const totalLoyersAnnuelsSimules = simMetrics.reduce((s,m)=>s+m.loyersAnnuels,0);
+  const totalCashflowMensuelSimule = simMetrics.reduce((s,m)=>s+m.cashflowMensuel,0);
+  const rendementBrutMoyen = simulationsAvecCout.length
+    ? simulationsAvecCout.reduce((s,m)=>s+m.rendementBrut,0) / simulationsAvecCout.length
+    : 0;
+  const rendementNetMoyen = simulationsAvecCout.length
+    ? simulationsAvecCout.reduce((s,m)=>s+m.rendementNet,0) / simulationsAvecCout.length
+    : 0;
+  const baseHonorairesSignes = clientsSignes.length * HONORAIRE_BASE_CONTRAT_HT;
+  const baseHonorairesPipeline = clientsPipeline.length * HONORAIRE_BASE_CONTRAT_HT;
+  const estimationHonoraireConseil = offresActives.length * HONORAIRE_CONSEIL_MOYEN_HT;
+  const caPotentielTotal = baseHonorairesPipeline + estimationHonoraireConseil;
+  const caPotentielRestant = Math.max(0, caPotentielTotal - baseHonorairesSignes);
+
+  return {
+    totalContacts: clients.length,
+    prospects: prospects.length,
+    clientsReels: clientsReels.length,
+    clientsActifs: clientsActifs.length,
+    clientsSignes: clientsSignes.length,
+    clientsSansAction: clientsSansAction.length,
+    prospectsSansAction: prospectsSansAction.length,
+    budgetClientsActifs: clientsActifs.reduce((s,x)=>s+(Number(x.budget)||0),0),
+    tauxTransformation: clients.length ? Math.round((clientsReels.length / clients.length) * 100) : 0,
+    tauxSignature: clients.length ? Math.round((clientsSignes.length / clients.length) * 100) : 0,
+    biensProposesParClientActif: clientsActifs.length ? propositions.length / clientsActifs.length : 0,
+    offresEnvoyees: offresEnvoyees.length,
+    offresAcceptees: offresAcceptees.length,
+    tauxAcceptationOffres: offresEnvoyees.length + offresAcceptees.length ? Math.round((offresAcceptees.length / (offresEnvoyees.length + offresAcceptees.length)) * 100) : 0,
+    delaiMoyenSignature: delaisSignature.length ? Math.round(delaisSignature.reduce((s,x)=>s+x,0) / delaisSignature.length) : null,
+    montantOffresCours,
+    nbOffresActives: offresActives.length,
+    offresActives,
+    baseHonorairesSignes,
+    baseHonorairesPipeline,
+    estimationHonoraireConseil,
+    caPotentielTotal,
+    caPotentielRestant,
+    simulations: projets.length,
+    simulationsAvecCout: simulationsAvecCout.length,
+    totalCoutSimule,
+    totalLoyersAnnuelsSimules,
+    totalCashflowMensuelSimule,
+    rendementBrutMoyen,
+    rendementNetMoyen,
+  };
+}
+
+function FinanceMetricRow({ label, value, sub, color, icon: IconComp, T=THEMES_INV.dark }) {
+  return (
+    <div className="inv-kpi" style={{padding:14,borderLeft:`3px solid ${color || T.accent}`}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        {IconComp && <span style={{width:32,height:32,borderRadius:RADIUS.md,background:`${color || T.accent}18`,color:color || T.accent,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon as={IconComp} size={16}/></span>}
+        <div style={{minWidth:0}}>
+          <div className="inv-kpi-lbl">{label}</div>
+          <div className="inv-kpi-val" style={{fontSize:FONT.xl.size+2,color:color || T.text}}>{value}</div>
+          {sub && <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:3,lineHeight:1.35}}>{sub}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FinanceBar({ label, value, max, color, T=THEMES_INV.dark }) {
+  const pct = max > 0 ? Math.min(100, Math.round((Number(value || 0) / max) * 100)) : 0;
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"150px 1fr 70px",gap:10,alignItems:"center",fontSize:FONT.sm.size+1,color:T.textSub}}>
+      <div style={{fontWeight:700,color:T.text}}>{label}</div>
+      <div style={{height:10,borderRadius:RADIUS.pill,background:T.input,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${pct}%`,background:color || T.accent,borderRadius:RADIUS.pill}}/>
+      </div>
+      <div style={{fontFamily:"'DM Mono',monospace",fontWeight:800,color:color || T.accent,textAlign:"right"}}>{pct}%</div>
+    </div>
+  );
+}
+
+function DashboardFinancier({ profil, T=THEMES_INV.dark }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [stats, setStats] = useState(null);
+  const [raw, setRaw] = useState({ clients:[], biens:[], propositions:[], projets:[] });
+
+  const charger = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    const [clientsRes, biensRes, propsRes, projetsRes] = await Promise.all([
+      supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,date_premier_contact,prochaine_action,date_prochaine_action,created_at,etape,source,conseiller"),
+      supabase.from("invest_biens").select("id,adresse,ville,statut,date_relance,date_visite,rendement_brut,cashflow_estime,prix_vente,prix_travaux,cout_total,montant_offre,visite_data,latitude,longitude,reference_interne,created_at"),
+      supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,adresse,ville,montant_offre,prix_vente,statut)"),
+      supabase.from("invest_projets").select("id,nom,created_at,updated_at,client_id,donnees"),
+    ]);
+    const firstError = clientsRes.error || biensRes.error || propsRes.error || projetsRes.error;
+    if (firstError) {
+      console.error("Erreur Dashboard Financier:", firstError);
+      setError(firstError.message || "Impossible de charger les données financières.");
+    }
+    const data = {
+      clients: clientsRes.data || [],
+      biens: biensRes.data || [],
+      propositions: propsRes.data || [],
+      projets: projetsRes.data || [],
+    };
+    setRaw(data);
+    setStats(buildFinancePilotageStats(data));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { charger(); }, [charger]);
+
+  const maxPerf = 100;
+  const maxBusiness = Math.max(1, stats?.caPotentielTotal || 0, stats?.montantOffresCours || 0, stats?.budgetClientsActifs || 0);
+  const clientsActifsSansProp = (() => {
+    const propByClient = new Set(raw.propositions.map(p=>p.client_id).filter(Boolean));
+    return raw.clients.filter(c => (c.statut === "Actif" || c.date_signature) && !propByClient.has(c.id));
+  })();
+  const pointsPilotage = stats ? [
+    { title:"Clients réels sans prochaine action", value:stats.clientsSansAction, sub:"À traiter pour éviter la perte de suivi", color:stats.clientsSansAction > 0 ? DA : SU, icon:AlertTriangle },
+    { title:"Prospects sans prochaine action", value:stats.prospectsSansAction, sub:"À convertir ou nettoyer du pipeline", color:stats.prospectsSansAction > 0 ? WA : SU, icon:Users },
+    { title:"Clients actifs sans bien proposé", value:clientsActifsSansProp.length, sub:"Potentiel commercial non exploité", color:clientsActifsSansProp.length > 0 ? WA : SU, icon:Building2 },
+    { title:"Offres actives à piloter", value:stats.nbOffresActives, sub:fmtDashboardEur(stats.montantOffresCours), color:T.accent, icon:Send },
+  ] : [];
+
+  return (
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1380, margin:"0 auto" }}>
+      <div style={{ marginBottom:SPACING.xl, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
+          <div style={{ width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <Icon as={Euro} size={24} strokeWidth={2}/>
+          </div>
+          <div>
+            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Dashboard Financier</div>
+            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>Performance commerciale, valeur business potentielle et pilotage des simulateurs</div>
+          </div>
+        </div>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={charger}>
+          <Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Actualiser
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}>
+          <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
+          Chargement…
+        </div>
+      ) : error ? (
+        <div style={{padding:SPACING.lg,borderRadius:RADIUS.lg,background:SEMANTIC.danger.bg,border:`1px solid ${SEMANTIC.danger.border}`,color:DA}}>{error}</div>
+      ) : stats && (
+        <>
+          <DashboardPanel title="Synthèse financière" icon={Wallet} subtitle="Les chiffres à suivre en priorité" T={T}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:SPACING.md}}>
+              <FinanceMetricRow T={T} icon={Handshake} label="Honoraires signés" value={fmtDashboardEur(stats.baseHonorairesSignes)} color={SU} sub={`${stats.clientsSignes} client${stats.clientsSignes>1?"s":""} signé${stats.clientsSignes>1?"s":""} · 1 583 € HT`}/>
+              <FinanceMetricRow T={T} icon={TrendingUp} label="Honoraires pipeline" value={fmtDashboardEur(stats.baseHonorairesPipeline)} color="#FFC200" sub="Clients en cours + prospects · base 1 583 € HT"/>
+              <FinanceMetricRow T={T} icon={Briefcase} label="Conseil négociation" value={fmtDashboardEur(stats.estimationHonoraireConseil)} color="#c084fc" sub={`${stats.nbOffresActives} offre${stats.nbOffresActives>1?"s":""} active${stats.nbOffresActives>1?"s":""} · 7 500 € HT moyen`}/>
+              <FinanceMetricRow T={T} icon={Wallet} label="CA potentiel total" value={fmtDashboardEur(stats.caPotentielTotal)} color={T.accent} sub={`Reste à convertir : ${fmtDashboardEur(stats.caPotentielRestant)}`}/>
+              <FinanceMetricRow T={T} icon={Send} label="Offres en cours" value={fmtDashboardEur(stats.montantOffresCours)} color="#4db8ff" sub={`${stats.nbOffresActives} offre${stats.nbOffresActives>1?"s":""} à suivre`}/>
+              <FinanceMetricRow T={T} icon={Users} label="Budgets clients actifs" value={fmtDashboardEur(stats.budgetClientsActifs)} color="#38bdf8" sub="Prospects exclus"/>
+            </div>
+          </DashboardPanel>
+
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:SPACING.md,alignItems:"start"}}>
+            <DashboardPanel title="Performance commerciale" icon={BarChart3} subtitle="Conversion, rythme et efficacité commerciale" T={T}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:SPACING.md,marginBottom:SPACING.lg}}>
+                <FinanceMetricRow T={T} icon={Users} label="Contacts" value={stats.totalContacts} color={T.accent} sub={`${stats.prospects} prospects · ${stats.clientsReels} clients réels`}/>
+                <FinanceMetricRow T={T} icon={Handshake} label="Taux transformation" value={`${stats.tauxTransformation}%`} color={SU} sub="Clients réels / contacts"/>
+                <FinanceMetricRow T={T} icon={Check} label="Taux signature" value={`${stats.tauxSignature}%`} color="#FFC200" sub="Clients signés / contacts"/>
+                <FinanceMetricRow T={T} icon={Calendar} label="Délai signature" value={stats.delaiMoyenSignature !== null ? `${stats.delaiMoyenSignature} j` : "—"} color="#c084fc" sub="Premier contact → signature"/>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <FinanceBar T={T} label="Transformation" value={stats.tauxTransformation} max={maxPerf} color={SU}/>
+                <FinanceBar T={T} label="Signature" value={stats.tauxSignature} max={maxPerf} color="#FFC200"/>
+                <FinanceBar T={T} label="Acceptation offres" value={stats.tauxAcceptationOffres} max={maxPerf} color="#c084fc"/>
+              </div>
+            </DashboardPanel>
+
+            <DashboardPanel title="Valeur business potentielle" icon={Wallet} subtitle="Projection HT du potentiel commercial" T={T}>
+              <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                <FinanceBar T={T} label="Pipeline" value={stats.baseHonorairesPipeline} max={maxBusiness} color="#FFC200"/>
+                <FinanceBar T={T} label="Conseil" value={stats.estimationHonoraireConseil} max={maxBusiness} color="#c084fc"/>
+                <FinanceBar T={T} label="Offres" value={stats.montantOffresCours} max={maxBusiness} color="#4db8ff"/>
+                <FinanceBar T={T} label="Budgets actifs" value={stats.budgetClientsActifs} max={maxBusiness} color={T.accent}/>
+              </div>
+              <div style={{marginTop:SPACING.lg,padding:SPACING.md,borderRadius:RADIUS.md,background:T.input,border:`1px solid ${T.border}`}}>
+                <div style={{fontSize:FONT.xs.size,fontWeight:800,color:T.textMuted,textTransform:"uppercase",letterSpacing:1}}>Lecture rapide</div>
+                <div style={{fontSize:FONT.sm.size+1,color:T.textSub,lineHeight:1.55,marginTop:5}}>
+                  Le potentiel affiché additionne la base contractuelle du pipeline et l’estimation des honoraires conseil liés aux offres actives. Les montants d’offres en cours servent à piloter le volume d’acquisition en négociation.
+                </div>
+              </div>
+            </DashboardPanel>
+          </div>
+
+          <DashboardPanel title="Portefeuille simulateurs" icon={BarChart3} subtitle="Données issues des simulateurs de projets" T={T}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:SPACING.md}}>
+              <FinanceMetricRow T={T} icon={FileText} label="Simulations" value={stats.simulations} color={T.accent} sub={`${stats.simulationsAvecCout} avec coût total renseigné`}/>
+              <FinanceMetricRow T={T} icon={Wallet} label="Coût total simulé" value={fmtDashboardEur(stats.totalCoutSimule)} color="#FFC200" sub="Somme des opérations simulées"/>
+              <FinanceMetricRow T={T} icon={TrendingUp} label="Loyers annuels simulés" value={fmtDashboardEur(stats.totalLoyersAnnuelsSimules)} color={SU} sub="Total loyers bruts annuels"/>
+              <FinanceMetricRow T={T} icon={BarChart3} label="Rendement brut moyen" value={fmtDashboardPct(stats.rendementBrutMoyen)} color="#c084fc" sub={`Rendement net moyen : ${fmtDashboardPct(stats.rendementNetMoyen)}`}/>
+              <FinanceMetricRow T={T} icon={Euro} label="Cash-flow mensuel simulé" value={fmtDashboardEur(stats.totalCashflowMensuelSimule)} color={stats.totalCashflowMensuelSimule >= 0 ? SU : DA} sub="Somme des cash-flows mensuels S1"/>
+            </div>
+          </DashboardPanel>
+
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,.95fr) minmax(0,1.05fr)",gap:SPACING.md,alignItems:"start"}}>
+            <DashboardPanel title="Pilotage à surveiller" icon={AlertTriangle} subtitle="Points financiers et commerciaux à traiter" T={T}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:SPACING.sm+2}}>
+                {pointsPilotage.map(p => <FinanceMetricRow key={p.title} T={T} icon={p.icon} label={p.title} value={p.value} color={p.color} sub={p.sub}/>) }
+              </div>
+            </DashboardPanel>
+
+            <DashboardPanel title="Offres en cours" icon={Send} subtitle="Montants à suivre dans les négociations" T={T}>
+              {stats.offresActives.length === 0 ? (
+                <div style={{padding:SPACING.lg,border:`1px dashed ${T.border}`,borderRadius:RADIUS.md,color:T.textMuted,textAlign:"center",fontStyle:"italic"}}>Aucune offre active renseignée</div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:360,overflowY:"auto"}}>
+                  {stats.offresActives.slice(0,12).map((o,idx)=>(
+                    <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 120px 105px",gap:10,alignItems:"center",padding:"9px 10px",borderRadius:RADIUS.md,background:T.input,border:`1px solid ${T.border}`}}>
+                      <div style={{minWidth:0}}>
+                        <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</div>
+                        <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2}}>{o.source} · {o.statut || "—"}</div>
+                      </div>
+                      <div style={{fontFamily:"'DM Mono',monospace",fontWeight:800,color:T.accent,textAlign:"right"}}>{fmtDashboardEur(o.amount)}</div>
+                      <div style={{fontSize:FONT.xs.size,fontWeight:800,color:T.accent,background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:RADIUS.pill,padding:"4px 8px",textAlign:"center"}}>À piloter</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </DashboardPanel>
+          </div>
+        </>
+      )}
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 function PlanningSemaine({ profil, T=THEMES_INV.dark }) {
   const { startWeek, endWeek, today } = getWeekRange();
   const [events, setEvents] = useState([]);
@@ -7026,15 +7334,23 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
     crm:        Users,
     biens:      Building2,
     simulateur: BarChart3,
+    finance:    Wallet,
     admin:      Settings,
   };
 
   // Construction de la nav depuis PAGES_INVEST, filtrée par les pages autorisées
   // pour le rôle courant (config dynamique avec fallback ROLE_PAGES_DEFAULT_INVEST).
   const allowed = (rolePages && rolePages[role]) || ROLE_PAGES_DEFAULT_INVEST[role] || ROLE_PAGES_DEFAULT_INVEST.admin;
-  const NAV = PAGES_INVEST
+  const baseNav = PAGES_INVEST
     .filter(p => allowed.includes(p.id))
     .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard }));
+  const NAV = baseNav.reduce((acc, n) => {
+    acc.push(n);
+    if (n.id === "simulateur" && !acc.some(x => x.id === "finance") && (allowed.includes("simulateur") || allowed.includes("dashboard") || allowed.includes("admin"))) {
+      acc.push({ id:"finance", label:"Dashboard Financier", icon:Wallet });
+    }
+    return acc;
+  }, []);
 
   const W = collapsed ? 64 : 220;
 
@@ -7275,6 +7591,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguerDepuisDashboard} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />        : <AccesRefuseInvest T={T} page="crm"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
+        {page === "finance"    && ((canSee("dashboard") || canSee("simulateur")) ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
         {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}
         {page === "simulateur" && (canSee("simulateur") ? (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
