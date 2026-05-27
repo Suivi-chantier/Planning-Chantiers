@@ -9324,26 +9324,78 @@ const STRUCT_DEFAULT_LOTS = [
   { adresse:"", type:"T2", structure:"PP direct", regime:"Foncier réel", loyer_mois:"", mensualite:"", crd:"", valeur:"", charges_annuelles:"", travaux_a_prevoir:"" },
 ];
 
+const firstStructValue = (...vals) => {
+  for (const v of vals) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === "string" && v.trim() === "") continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    return v;
+  }
+  return "";
+};
+
+const getStructClientStrategy = (client) => (
+  client?.strategie_data ||
+  client?.donnees_strategie ||
+  client?.strategie ||
+  client?.profil_investisseur ||
+  {}
+);
+
+const getStructNested = (obj, ...keys) => {
+  let cur = obj;
+  for (const k of keys) {
+    if (!cur || typeof cur !== "object") return "";
+    cur = cur[k];
+  }
+  return cur ?? "";
+};
+
 function buildStructDefault(client) {
+  const strategie = getStructClientStrategy(client);
+  const zones = firstStructValue(
+    strategie?.zones, strategie?.zone_recherche, strategie?.zones_recherchees, strategie?.ville_recherchee,
+    getStructNested(strategie, "recherche", "zones"), getStructNested(strategie, "criteres", "zones")
+  );
+  const objectifPrincipal = firstStructValue(
+    strategie?.objectif_principal, strategie?.objectif, strategie?.strategie,
+    getStructNested(strategie, "objectifs", "principal"),
+    "Accélération patrimoniale"
+  );
+  const budgetClient = firstStructValue(
+    client?.budget, strategie?.budget, strategie?.budget_max, strategie?.budget_global,
+    getStructNested(strategie, "financement", "budget"), getStructNested(strategie, "criteres", "budget")
+  );
+  const apportClient = firstStructValue(
+    strategie?.apport, strategie?.apport_disponible, getStructNested(strategie, "financement", "apport")
+  );
+  const rendementCible = firstStructValue(
+    strategie?.rendement_cible, strategie?.rendement_minimum, getStructNested(strategie, "objectifs", "rendement_cible")
+  );
+  const fiscalite = firstStructValue(
+    strategie?.fiscalite_recommandee, strategie?.fiscalite, strategie?.regime_fiscal, getStructNested(strategie, "fiscalite", "regime")
+  );
   return {
     version: 1,
     collecte: {
       profil: {
-        prenom: client?.prenom || "", nom: client?.nom || "", age:"", situation_familiale:"", regime_matrimonial:"", enfants:"",
+        prenom: client?.prenom || "", nom: client?.nom || "", email: client?.email || "", telephone: client?.telephone || "", conseiller: client?.conseiller || "",
+        source_crm: client?.source || "", statut_crm: client?.statut || "", budget_crm: budgetClient || "", etape_crm: client?.etape || "", notes_crm: client?.notes_rapides || "",
+        age:"", situation_familiale:"", regime_matrimonial:"", enfants:"",
         profession:"", statut_pro:"", revenus_nets_mois:"", dividendes_an:"", autres_revenus_an:"", tmi:"", residence_fiscale:"France", ifi:"",
       },
       patrimoine: {
         residence_principale_statut:"", rp_valeur:"", rp_crd:"", lots: STRUCT_DEFAULT_LOTS.map(x=>({...x})),
       },
       financement: {
-        banque_principale:"", relation_bancaire:"", mensualites_total:"", apport_disponible:"", capacite_avec_revente:"", financable_sans_revente:"",
+        banque_principale:"", relation_bancaire:"", mensualites_total:"", apport_disponible:apportClient || "", capacite_avec_revente:budgetClient || "", financable_sans_revente:"",
         taux_moyen:"", duree_initiale:"", premiere_echeance:"", bien_premiere_echeance:"", montant_libere_echeance:"",
       },
       structures: {
-        sci_existante:"", sci_regime:"", sci_associes:"", sci_biens:"", sci_resultat:"", sci_optimisee:"", holding_envisagee:"", nouvelles_sci:"", transmission:"",
+        sci_existante:"", sci_regime:fiscalite || "", sci_associes:"", sci_biens:"", sci_resultat:"", sci_optimisee:"", holding_envisagee:"", nouvelles_sci:"", transmission:"",
       },
       objectifs: {
-        objectif_principal:"Accélération patrimoniale", horizon:"15 ans", rendement_cible:"", rythme_achat:"", zones:"", gestion_locative:"", temps_immo:"", delegation:"", travaux:"",
+        objectif_principal:objectifPrincipal || "Accélération patrimoniale", horizon:firstStructValue(strategie?.horizon, getStructNested(strategie, "objectifs", "horizon"), "15 ans"), rendement_cible:rendementCible || "", rythme_achat:firstStructValue(strategie?.rythme_achat, getStructNested(strategie, "objectifs", "rythme_achat")) || "", zones:Array.isArray(zones) ? zones.join(", ") : (zones || ""), gestion_locative:firstStructValue(strategie?.gestion_locative, getStructNested(strategie, "exploitation", "gestion_locative")) || "", temps_immo:"", delegation:"", travaux:firstStructValue(strategie?.travaux, getStructNested(strategie, "criteres", "travaux")) || "",
       },
       patrimoine_financier: { liquidites:"", assurance_vie:"", pea_cto:"", per:"", epargne_salariale:"", autres:"" },
       rdv: { motivations:"", objections:"", notes:"", issue:"", relance:"", prochaine_action:"" },
@@ -9462,8 +9514,8 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const charger = useCallback(async () => {
     setLoading(true); setError("");
     const [clientsRes, dossiersRes] = await Promise.all([
-      supabase.from("invest_clients").select("id,nom,prenom,email,telephone,budget,conseiller,statut,date_signature").order("nom"),
-      supabase.from("invest_structuration_patrimoniale").select("*, client:invest_clients(id,nom,prenom,email,telephone,budget,conseiller,statut)").order("updated_at", { ascending:false }),
+      supabase.from("invest_clients").select("*").order("nom"),
+      supabase.from("invest_structuration_patrimoniale").select("*, client:invest_clients(*)").order("updated_at", { ascending:false }),
     ]);
     if (clientsRes.error) setError(clientsRes.error.message);
     if (dossiersRes.error) {
@@ -9530,11 +9582,59 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       created_by: profil?.email || profil?.nom || null,
       updated_at: new Date().toISOString(),
     };
-    const { data: created, error } = await supabase.from("invest_structuration_patrimoniale").insert(payload).select("*, client:invest_clients(id,nom,prenom,email,telephone,budget,conseiller,statut)").single();
+    const { data: created, error } = await supabase.from("invest_structuration_patrimoniale").insert(payload).select("*, client:invest_clients(*)").single();
     if (error) { alert("Impossible de créer le dossier : " + error.message); return; }
     setDossiers(prev => [created, ...prev]);
     setSelectedId(created.id);
   };
+
+  const supprimerDossier = async (id) => {
+    const target = dossiers.find(d => d.id === id);
+    if (!target) return;
+    const label = target.client ? clientFullName(target.client) : (target.titre || "ce dossier");
+    const ok = window.confirm(`Supprimer définitivement le dossier de structuration de ${label} ?
+
+Cette action supprimera le dossier et ses données d'analyse. Les documents associés seront également supprimés si le bucket est accessible.`);
+    if (!ok) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaving(true);
+    setError("");
+
+    try {
+      const bucket = supabase.storage.from("invest-documents");
+      const folder = `structuration/${id}`;
+      const { data: files } = await bucket.list(folder);
+      if (Array.isArray(files) && files.length > 0) {
+        await bucket.remove(files.map(f => `${folder}/${f.name}`));
+      }
+    } catch (e) {
+      console.warn("Suppression des documents de structuration impossible ou bucket inaccessible", e);
+    }
+
+    const { error } = await supabase.from("invest_structuration_patrimoniale").delete().eq("id", id);
+    setSaving(false);
+    if (error) {
+      setError("Impossible de supprimer le dossier : " + error.message);
+      return;
+    }
+
+    const remaining = dossiers.filter(d => d.id !== id);
+    setDossiers(remaining);
+    if (selectedId === id) {
+      const next = remaining[0] || null;
+      loadedDossierIdRef.current = null;
+      setSelectedId(next?.id || null);
+      setDossier(next);
+      dossierRef.current = next;
+      if (!next) {
+        const empty = buildStructDefault(null);
+        dataRef.current = empty;
+        setData(empty);
+      }
+    }
+  };
+
 
   useEffect(() => {
     if (!initialClientId || initialHandledRef.current || loading) return;
@@ -9563,7 +9663,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       analyse_data: currentData.analyse || {},
       updated_at: new Date().toISOString(),
     };
-    const { data: updated, error } = await supabase.from("invest_structuration_patrimoniale").update(payload).eq("id", selectedId).select("*, client:invest_clients(id,nom,prenom,email,telephone,budget,conseiller,statut)").single();
+    const { data: updated, error } = await supabase.from("invest_structuration_patrimoniale").update(payload).eq("id", selectedId).select("*, client:invest_clients(*)").single();
     setSaving(false);
     if (error) { setError("Impossible d'enregistrer : " + error.message); return; }
     setError("");
@@ -9592,6 +9692,50 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     });
     scheduleSave();
   }, [scheduleSave]);
+
+  const fillStructEmpty = (current = {}, prefill = {}) => {
+    const out = { ...(current || {}) };
+    Object.entries(prefill || {}).forEach(([k,v]) => {
+      if (v === null || v === undefined || v === "") return;
+      if (out[k] === null || out[k] === undefined || out[k] === "") out[k] = v;
+    });
+    return out;
+  };
+
+  const reintegrerInfosClientCRM = useCallback(() => {
+    const clientId = dossierRef.current?.client_id || newClientId;
+    if (!clientId) { alert("Sélectionnez d’abord un client."); return; }
+    const client = clients.find(x => x.id === clientId);
+    if (!client) { alert("Client introuvable dans le CRM."); return; }
+    const base = buildStructDefault(client);
+    mutateData(prev => {
+      const currentProfil = prev.collecte?.profil || {};
+      const baseProfil = base.collecte.profil || {};
+      const forcedProfil = {
+        prenom: baseProfil.prenom || currentProfil.prenom || "",
+        nom: baseProfil.nom || currentProfil.nom || "",
+        email: baseProfil.email || currentProfil.email || "",
+        telephone: baseProfil.telephone || currentProfil.telephone || "",
+        conseiller: baseProfil.conseiller || currentProfil.conseiller || "",
+        source_crm: baseProfil.source_crm || currentProfil.source_crm || "",
+        statut_crm: baseProfil.statut_crm || currentProfil.statut_crm || "",
+        budget_crm: baseProfil.budget_crm || currentProfil.budget_crm || "",
+        etape_crm: baseProfil.etape_crm || currentProfil.etape_crm || "",
+        notes_crm: baseProfil.notes_crm || currentProfil.notes_crm || "",
+      };
+      return {
+        ...prev,
+        collecte: {
+          ...prev.collecte,
+          profil: { ...fillStructEmpty(currentProfil, baseProfil), ...forcedProfil },
+          financement: fillStructEmpty(prev.collecte?.financement || {}, base.collecte.financement || {}),
+          structures: fillStructEmpty(prev.collecte?.structures || {}, base.collecte.structures || {}),
+          objectifs: fillStructEmpty(prev.collecte?.objectifs || {}, base.collecte.objectifs || {}),
+          rdv: fillStructEmpty(prev.collecte?.rdv || {}, base.collecte.rdv || {}),
+        },
+      };
+    });
+  }, [clients, newClientId, mutateData]);
 
   const patchDossier = (fields) => {
     setDossier(prev => {
@@ -9680,6 +9824,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
         <div style={{ display:"flex", gap:SPACING.sm, alignItems:"center", flexWrap:"wrap" }}>
           {saving && <span style={{ color:T.textMuted, fontSize:FONT.sm.size }}><Icon as={RefreshCw} size={12} style={{animation:"spin 1s linear infinite"}}/> Sync…</span>}
           {saved && <span style={{ color:SU, fontSize:FONT.sm.size, fontWeight:800 }}><Icon as={Check} size={12}/> Sauvegardé</span>}
+          <button className="inv-btn inv-btn-blue" onClick={reintegrerInfosClientCRM} disabled={!dossier?.client_id}><Icon as={RefreshCw} size={13}/> Réimporter CRM</button>
           <button className="inv-btn inv-btn-blue" onClick={renderReport} disabled={!dossier}><Icon as={FileText} size={13}/> Rapport PDF</button>
           <button className="inv-btn inv-btn-gold" onClick={()=>sauvegarder()} disabled={!dossier}><Icon as={Save} size={13}/> Enregistrer</button>
         </div>
@@ -9702,9 +9847,20 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
               <div style={{ display:"flex", flexDirection:"column", gap:7, maxHeight:620, overflowY:"auto" }}>
                 {dossiers.map(d => {
                   const active = d.id === selectedId;
-                  return <button key={d.id} onClick={()=>setSelectedId(d.id)} style={{ textAlign:"left", border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, borderRadius:RADIUS.md, padding:"10px 11px", cursor:"pointer", fontFamily:"inherit" }}>
-                    <div style={{ fontWeight:800, color:active ? T.accent : T.text, fontSize:FONT.sm.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.client ? clientFullName(d.client) : d.titre}</div>
-                    <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginTop:4, fontSize:FONT.xs.size, color:T.textMuted }}><span>{d.statut}</span><span>{new Date(d.updated_at || d.created_at).toLocaleDateString("fr-FR")}</span></div>
+                  return <button key={d.id} onClick={()=>setSelectedId(d.id)} style={{ textAlign:"left", border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, borderRadius:RADIUS.md, padding:"10px 11px", cursor:"pointer", fontFamily:"inherit", position:"relative" }}>
+                    <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:800, color:active ? T.accent : T.text, fontSize:FONT.sm.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.client ? clientFullName(d.client) : d.titre}</div>
+                        <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginTop:4, fontSize:FONT.xs.size, color:T.textMuted }}><span>{d.statut}</span><span>{new Date(d.updated_at || d.created_at).toLocaleDateString("fr-FR")}</span></div>
+                      </div>
+                      <span
+                        title="Supprimer le dossier"
+                        onClick={(e)=>{ e.stopPropagation(); supprimerDossier(d.id); }}
+                        style={{ width:24, height:24, borderRadius:RADIUS.sm+2, flexShrink:0, display:"inline-flex", alignItems:"center", justifyContent:"center", color:DA, background:SEMANTIC.danger.bg, border:`1px solid ${SEMANTIC.danger.border}`, cursor:"pointer" }}
+                      >
+                        <Icon as={Trash2} size={12} strokeWidth={2.3}/>
+                      </span>
+                    </div>
                   </button>;
                 })}
               </div>
@@ -9748,10 +9904,12 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
 
             {tab === "collecte" && <>
               <div className="inv-card"><div className="inv-card-hd blue">1 — Situation personnelle & professionnelle</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:SPACING.md }}>
-                <StructField T={T} label="Prénom" value={p.prenom} onChange={v=>updateSection("profil","prenom",v)}/><StructField T={T} label="Nom" value={p.nom} onChange={v=>updateSection("profil","nom",v)}/><StructField T={T} label="Âge" type="number" value={p.age} onChange={v=>updateSection("profil","age",v)}/><StructField T={T} label="Enfants" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)}/>
-                <StructField T={T} label="Situation familiale" value={p.situation_familiale} onChange={v=>updateSection("profil","situation_familiale",v)} options={["Célibataire","Marié(e)","Pacsé(e)","Concubinage","Divorcé(e)"]}/><StructField T={T} label="Régime matrimonial" value={p.regime_matrimonial} onChange={v=>updateSection("profil","regime_matrimonial",v)} options={["Communauté réduite aux acquêts","Séparation de biens","Participation aux acquêts","Communauté universelle","Non défini"]}/>
+                <StructField T={T} label="Prénom" value={p.prenom} onChange={v=>updateSection("profil","prenom",v)}/><StructField T={T} label="Nom" value={p.nom} onChange={v=>updateSection("profil","nom",v)}/><StructField T={T} label="Email CRM" type="email" value={p.email} onChange={v=>updateSection("profil","email",v)}/><StructField T={T} label="Téléphone CRM" value={p.telephone} onChange={v=>updateSection("profil","telephone",v)}/>
+                <StructField T={T} label="Conseiller CRM" value={p.conseiller} onChange={v=>updateSection("profil","conseiller",v)}/><StructField T={T} label="Statut CRM" value={p.statut_crm} onChange={v=>updateSection("profil","statut_crm",v)}/><StructField T={T} label="Budget CRM" type="number" value={p.budget_crm} onChange={v=>updateSection("profil","budget_crm",v)}/><StructField T={T} label="Étape CRM" value={p.etape_crm} onChange={v=>updateSection("profil","etape_crm",v)}/>
+                <StructField T={T} label="Âge" type="number" value={p.age} onChange={v=>updateSection("profil","age",v)}/><StructField T={T} label="Enfants" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)}/><StructField T={T} label="Situation familiale" value={p.situation_familiale} onChange={v=>updateSection("profil","situation_familiale",v)} options={["Célibataire","Marié(e)","Pacsé(e)","Concubinage","Divorcé(e)"]}/><StructField T={T} label="Régime matrimonial" value={p.regime_matrimonial} onChange={v=>updateSection("profil","regime_matrimonial",v)} options={["Communauté réduite aux acquêts","Séparation de biens","Participation aux acquêts","Communauté universelle","Non défini"]}/>
                 <StructField T={T} label="Profession / fonction" value={p.profession} onChange={v=>updateSection("profil","profession",v)}/><StructField T={T} label="Statut professionnel" value={p.statut_pro} onChange={v=>updateSection("profil","statut_pro",v)} options={["Salarié CDI","Dirigeant salarié","TNS","Chef d'entreprise","Profession libérale","Retraité"]}/>
                 <StructField T={T} label="Revenus nets mensuels" type="number" value={p.revenus_nets_mois} onChange={v=>updateSection("profil","revenus_nets_mois",v)}/><StructField T={T} label="Dividendes annuels" type="number" value={p.dividendes_an} onChange={v=>updateSection("profil","dividendes_an",v)}/><StructField T={T} label="Autres revenus annuels" type="number" value={p.autres_revenus_an} onChange={v=>updateSection("profil","autres_revenus_an",v)}/><StructField T={T} label="TMI" value={p.tmi} onChange={v=>updateSection("profil","tmi",v)} options={["0 %","11 %","30 %","41 %","45 %"]}/>
+                <StructField T={T} label="Notes CRM / contexte client" type="textarea" value={p.notes_crm} onChange={v=>updateSection("profil","notes_crm",v)} wide/>
               </div></div>
 
               <div className="inv-card"><div className="inv-card-hd blue" style={{ justifyContent:"space-between" }}><span>2 — Inventaire du patrimoine immobilier</span><button className="inv-btn inv-btn-sm inv-btn-blue" onClick={addLot}><Icon as={Plus} size={12}/> Ajouter un lot</button></div><div className="inv-card-bd">
