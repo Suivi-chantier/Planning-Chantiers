@@ -9428,18 +9428,28 @@ const STRUCT_REGIMES = ["Foncier réel","Micro-foncier","LMNP réel","Micro-BIC"
 // Champ stable utilisé par la page Structuration Patrimoniale.
 // Important : il est défini hors du composant principal pour éviter que React
 // démonte/remonte l'input à chaque frappe, ce qui faisait perdre le focus.
-function StructField({ T=THEMES_INV.dark, label, value, onChange, type="text", placeholder="", options=null, wide=false }) {
+function StructField({ T=THEMES_INV.dark, label, value, onChange, type="text", placeholder="", options=null, wide=false, compact=false }) {
+  const controlStyle = {
+    width:"100%",
+    minHeight: compact ? 34 : undefined,
+    padding: compact ? "7px 9px" : undefined,
+    background:T.input || "rgba(255,255,255,0.06)",
+    color:T.text || "#f5f0e8",
+    border:`1px solid ${T.border || "rgba(255,255,255,0.16)"}`,
+    borderRadius:RADIUS.md,
+    fontSize: compact ? FONT.xs.size + 1 : FONT.sm.size,
+  };
   return (
-    <div style={{ gridColumn: wide ? "1 / -1" : "auto" }}>
-      <label style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:800, display:"block", marginBottom:5 }}>{label}</label>
+    <div style={{ gridColumn: wide ? "1 / -1" : "auto", minWidth:0 }}>
+      <label style={{ fontSize:FONT.xs.size, color:T.textSub || T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:900, display:"block", marginBottom:4 }}>{label}</label>
       {options ? (
-        <select className="inv-sel" value={value || ""} onChange={e=>onChange(e.target.value)} style={{ width:"100%" }}>
+        <select className="inv-sel" value={value || ""} onChange={e=>onChange(e.target.value)} style={controlStyle}>
           <option value="">—</option>{options.map(o=><option key={o} value={o}>{o}</option>)}
         </select>
       ) : type === "textarea" ? (
-        <textarea className="inv-textarea" rows={3} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} />
+        <textarea className="inv-textarea" rows={compact ? 2 : 3} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} style={{ ...controlStyle, minHeight:compact ? 58 : 82, resize:"vertical" }} />
       ) : (
-        <input className="inv-inp" type={type} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} style={{ width:"100%", textAlign:type === "number" ? "right" : "left" }} />
+        <input className="inv-inp" type={type} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} style={{ ...controlStyle, textAlign:type === "number" ? "right" : "left" }} />
       )}
     </div>
   );
@@ -9451,7 +9461,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const [selectedId, setSelectedId] = useState(null);
   const [dossier, setDossier] = useState(null);
   const [data, setData] = useState(buildStructDefault(null));
-  const [tab, setTab] = useState("profil");
+  const [tab, setTab] = useState("collecte");
   const [filter, setFilter] = useState("Tous");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -9707,7 +9717,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     setDossiers(prev => [created, ...prev]);
     loadedDossierIdRef.current = null;
     setSelectedId(created.id);
-    setTab("profil");
+    setTab("collecte");
   };
 
   const supprimerDossier = async (id) => {
@@ -9769,7 +9779,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const renderProgress = (pct, height=5) => <div style={{ width:"100%", height, background:T.input, borderRadius:999, overflow:"hidden" }}><div style={{ width:`${Math.max(0, Math.min(100, pct || 0))}%`, height:"100%", background:T.accent, borderRadius:999 }}/></div>;
 
   const renderSidebarDossiers = () => (
-    <div style={{ background:T.sidebar, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.sidebarBorder}`, minHeight:720, display:"flex", flexDirection:"column" }}>
+    <div style={{ background:T.sidebar, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.sidebarBorder}`, height:"100%", minHeight:0, display:"flex", flexDirection:"column" }}>
       <div style={{ padding:"20px 18px 16px", borderBottom:`1px solid ${T.sidebarBorder}` }}>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:T.text, fontWeight:500 }}>Profero Invest</div>
         <div style={{ fontSize:FONT.xs.size, letterSpacing:2.4, textTransform:"uppercase", color:T.accent, marginTop:2 }}>Gestion des dossiers</div>
@@ -9791,7 +9801,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
           const active = d.id === selectedId;
           const metaData = mergeStructData(d);
           const cc = calc(metaData);
-          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("profil"); }} style={{ width:"100%", textAlign:"left", border:`1px solid ${active ? T.accentBorder : "transparent"}`, background:active ? T.accentBg : "transparent", borderRadius:RADIUS.md, padding:"11px 11px", marginBottom:8, cursor:"pointer", fontFamily:"inherit" }}>
+          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("collecte"); }} style={{ width:"100%", textAlign:"left", border:`1px solid ${active ? T.accentBorder : "transparent"}`, background:active ? T.accentBg : "transparent", borderRadius:RADIUS.md, padding:"11px 11px", marginBottom:8, cursor:"pointer", fontFamily:"inherit" }}>
             <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start" }}>
               <div style={{ minWidth:0, flex:1 }}>
                 <div style={{ color:active ? T.accent : T.text, fontWeight:900, fontSize:FONT.sm.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.client ? clientFullName(d.client) : d.titre || "Nouveau dossier"}</div>
@@ -9829,7 +9839,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
           const md = mergeStructData(d);
           const cc = calc(md);
           const initials = ((d.client?.prenom || md.collecte?.profil?.prenom || "?")[0] + (d.client?.nom || md.collecte?.profil?.nom || "?")[0]).toUpperCase();
-          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("profil"); }} style={{ ...cardStyle, padding:16, textAlign:"left", cursor:"pointer", fontFamily:"inherit" }}>
+          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("collecte"); }} style={{ ...cardStyle, padding:16, textAlign:"left", cursor:"pointer", fontFamily:"inherit" }}>
             <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
               <div style={{ width:42, height:42, borderRadius:"50%", background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>{initials}</div>
               <div style={{ flex:1, minWidth:0 }}>
@@ -9883,6 +9893,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   );
 
   const tabItems = [
+    { id:"collecte", label:"Collecte RDV" },
     { id:"profil", label:"Profil" },
     { id:"patrimoine", label:"Patrimoine" },
     { id:"financement", label:"Financement" },
@@ -9890,7 +9901,87 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     { id:"notes", label:"Notes & suivi" },
     { id:"analyse", label:"Analyse & préconisations" },
   ];
-  const renderTabs = () => <div style={{ ...cardStyle, display:"flex", gap:0, padding:"0 14px", overflowX:"auto" }}>{tabItems.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"13px 15px", border:"none", borderBottom:`2px solid ${tab === t.id ? T.accent : "transparent"}`, background:"transparent", color:tab === t.id ? T.text : T.textMuted, cursor:"pointer", fontFamily:"inherit", fontWeight:900, fontSize:FONT.sm.size, whiteSpace:"nowrap" }}>{t.label}</button>)}</div>;
+  const renderTabs = () => <div style={{ ...cardStyle, display:"flex", gap:0, padding:"0 14px", overflowX:"auto", flexShrink:0 }}>{tabItems.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"12px 14px", border:"none", borderBottom:`2px solid ${tab === t.id ? T.accent : "transparent"}`, background:tab === t.id ? T.accentBg : "transparent", color:tab === t.id ? T.text : T.textSub, cursor:"pointer", fontFamily:"inherit", fontWeight:900, fontSize:FONT.sm.size, whiteSpace:"nowrap" }}>{t.label}</button>)}</div>;
+
+  const renderCollecte = () => {
+    const fieldProps = { T, compact:true };
+    const docCritical = docs.slice(0, 12);
+    return <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.05fr) minmax(0,.95fr)", gap:SPACING.md, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md, minWidth:0 }}>
+        <div style={cardStyle}>{cardHd("Conduite RDV — informations essentielles", "gold")}
+          <div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10 }}>
+            <StructField {...fieldProps} label="Prénom" value={p.prenom} onChange={v=>updateSection("profil","prenom",v)} />
+            <StructField {...fieldProps} label="Nom" value={p.nom} onChange={v=>updateSection("profil","nom",v)} />
+            <StructField {...fieldProps} label="Situation familiale" value={p.situation_familiale} onChange={v=>updateSection("profil","situation_familiale",v)} options={["Célibataire","Marié(e)","Pacsé(e)","Divorcé(e)","Concubinage","Veuf/veuve"]} />
+            <StructField {...fieldProps} label="TMI" value={p.tmi} onChange={v=>updateSection("profil","tmi",v)} options={["11 %","30 %","41 %","45 %","À préciser"]} />
+            <StructField {...fieldProps} label="Profession" value={p.profession} onChange={v=>updateSection("profil","profession",v)} />
+            <StructField {...fieldProps} label="Statut pro" value={p.statut_professionnel} onChange={v=>updateSection("profil","statut_professionnel",v)} options={["Salarié CDI","Dirigeant salarié","TNS / Indépendant","Chef d'entreprise","Profession libérale","Retraité","Autre"]} />
+            <StructField {...fieldProps} label="Revenus nets/mois" type="number" value={p.revenus_nets_mois} onChange={v=>updateSection("profil","revenus_nets_mois",v)} />
+            <StructField {...fieldProps} label="IFI" value={p.ifi} onChange={v=>updateSection("profil","ifi",v)} options={["Non assujetti","Assujetti","Proche du seuil","À vérifier"]} />
+          </div>
+        </div>
+        <div style={cardStyle}>{cardHd("Patrimoine immobilier — saisie rapide")}
+          <div style={{ padding:14 }}>
+            <div style={{ overflowX:"auto", maxHeight:260, overflowY:"auto", border:`1px solid ${T.border}`, borderRadius:RADIUS.md }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
+                <thead><tr>{["#","Adresse / Quartier","Type","Détention","Fiscalité","Loyer","Mens.","CRD","Valeur",""].map(h=><th key={h} style={{ position:"sticky", top:0, zIndex:1, background:T.card, color:T.textSub, fontSize:FONT.xs.size, textTransform:"uppercase", padding:"7px 6px", borderBottom:`1px solid ${T.border}`, textAlign:"left" }}>{h}</th>)}</tr></thead>
+                <tbody>{lots.map((l,i)=><tr key={l.id || i}>
+                  <td style={{ color:T.accent, fontWeight:900, padding:6 }}>{i+1}</td>
+                  <td><input className="inv-inp" style={{ width:"100%", color:T.text, background:T.input }} value={l.adresse || ""} onChange={e=>updateLot(i,"adresse",e.target.value)} placeholder="Adresse"/></td>
+                  <td><select className="inv-sel" style={{ width:"100%", color:T.text, background:T.input }} value={l.type || ""} onChange={e=>updateLot(i,"type",e.target.value)}>{STRUCT_LOT_TYPES.map(o=><option key={o}>{o}</option>)}</select></td>
+                  <td><select className="inv-sel" style={{ width:"100%", color:T.text, background:T.input }} value={l.structure || ""} onChange={e=>updateLot(i,"structure",e.target.value)}>{STRUCT_DETENTION.map(o=><option key={o}>{o}</option>)}</select></td>
+                  <td><select className="inv-sel" style={{ width:"100%", color:T.text, background:T.input }} value={l.regime || ""} onChange={e=>updateLot(i,"regime",e.target.value)}>{STRUCT_REGIMES.map(o=><option key={o}>{o}</option>)}</select></td>
+                  {[["loyer_mois","Loyer"],["mensualite","Mens."],["crd","CRD"],["valeur","Valeur"]].map(([k,ph])=><td key={k}><input className="inv-inp" type="number" style={{ width:"100%", color:T.text, background:T.input, textAlign:"right" }} value={l[k] || ""} onChange={e=>updateLot(i,k,e.target.value)} placeholder={ph}/></td>)}
+                  <td><button className="inv-rm" onClick={()=>removeLot(i)}>×</button></td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+            <div style={{ marginTop:10, display:"flex", justifyContent:"space-between", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addLot}><Icon as={Plus} size={12}/> Ajouter un lot</button>
+              <div style={{ display:"flex", gap:14, flexWrap:"wrap", color:T.textSub, fontSize:FONT.xs.size+1, fontWeight:800 }}>
+                <span>Valeur <b style={{ color:T.text }}>{fmtEur(c.valeurLots)}</b></span>
+                <span>Loyers <b style={{ color:T.text }}>{fmtEur(c.loyers)}/mois</b></span>
+                <span>CRD <b style={{ color:T.text }}>{fmtEur(c.crdLots)}</b></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md, minWidth:0 }}>
+        <div style={cardStyle}>{cardHd("Financement & objectifs", "gold")}
+          <div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+            <StructField {...fieldProps} label="Banque" value={fin.banque_principale} onChange={v=>updateSection("financement","banque_principale",v)} />
+            <StructField {...fieldProps} label="Mensualités totales" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)} />
+            <StructField {...fieldProps} label="Apport disponible" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)} />
+            <StructField {...fieldProps} label="Capacité avec revente" type="number" value={fin.capacite_avec_revente} onChange={v=>updateSection("financement","capacite_avec_revente",v)} />
+            <StructField {...fieldProps} label="Objectif principal" value={obj.objectif_principal} onChange={v=>updateSection("objectifs","objectif_principal",v)} options={["Cash-flow","Capitalisation","Transmission","Défiscalisation","Accélération patrimoniale","Mix"]} />
+            <StructField {...fieldProps} label="Horizon" value={obj.horizon} onChange={v=>updateSection("objectifs","horizon",v)} options={["5 ans","10 ans","15 ans","20 ans +"]} />
+          </div>
+        </div>
+        <div style={cardStyle}>{cardHd("Structures & transmission")}
+          <div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+            <StructField {...fieldProps} label="SCI existante" value={st.sci_nom} onChange={v=>updateSection("structures","sci_nom",v)} />
+            <StructField {...fieldProps} label="Régime SCI" value={st.sci_regime} onChange={v=>updateSection("structures","sci_regime",v)} options={["IR","IS","Non défini","Pas de SCI"]} />
+            <StructField {...fieldProps} label="Nouvelles SCI" value={st.nouvelles_sci} onChange={v=>updateSection("structures","nouvelles_sci",v)} options={["Oui — 1 SCI / projet","À définir","Non"]} />
+            <StructField {...fieldProps} label="Holding" value={st.holding} onChange={v=>updateSection("structures","holding",v)} options={["Oui","Non","Pas encore réfléchi"]} />
+            <StructField {...fieldProps} label="Transmission" type="textarea" value={st.transmission} onChange={v=>updateSection("structures","transmission",v)} wide />
+          </div>
+        </div>
+        <div style={cardStyle}>{cardHd("Documents & issue RDV")}
+          <div style={{ padding:14, display:"grid", gridTemplateColumns:"1fr", gap:10 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:7 }}>
+              {docCritical.map((d,i)=><div key={d.id || i} style={{ display:"grid", gridTemplateColumns:"1fr 120px", gap:6, alignItems:"center", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:7, background:T.input }}>
+                <span style={{ color:T.textSub, fontSize:FONT.xs.size+1, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.nom}</span>
+                <select className="inv-sel" value={d.statut || "À demander"} onChange={e=>updateDoc(i,"statut",e.target.value)} style={{ color:T.text, background:T.card, fontSize:FONT.xs.size+1, padding:"5px 7px" }}>{STRUCT_DOC_STATUTS.map(s=><option key={s}>{s}</option>)}</select>
+              </div>)}
+            </div>
+            <StructField {...fieldProps} label="Motivations / signaux captés" type="textarea" value={rdv.motivations} onChange={v=>updateSection("rdv","motivations",v)} wide />
+            <StructField {...fieldProps} label="Prochaine action" value={rdv.prochaine_action} onChange={v=>updateSection("rdv","prochaine_action",v)} wide />
+          </div>
+        </div>
+      </div>
+    </div>;
+  };
 
   const renderProfil = () => <div style={{ display:"grid", gridTemplateColumns:"1.2fr .8fr", gap:SPACING.md }}>
     <div style={cardStyle}>{cardHd("Situation personnelle", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md }}>
@@ -9983,15 +10074,20 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
 
   const renderContent = () => {
     if (!selectedId || !dossier) return renderListView();
-    const map = { profil:renderProfil, patrimoine:renderPatrimoine, financement:renderFinancement, documents:renderDocuments, notes:renderNotes, analyse:renderAnalyse };
-    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>{renderDossierHeader()}{renderTabs()}{map[tab]?.()}</div>;
+    const map = { collecte:renderCollecte, profil:renderProfil, patrimoine:renderPatrimoine, financement:renderFinancement, documents:renderDocuments, notes:renderNotes, analyse:renderAnalyse };
+    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.sm, minHeight:0, height:"100%" }}>
+      <div style={{ flexShrink:0 }}>{renderDossierHeader()}</div>
+      <div style={{ flexShrink:0 }}>{renderTabs()}</div>
+      <div style={{ minHeight:0, overflowY:"auto", paddingRight:4, maxHeight:"calc(100vh - 335px)" }}>{map[tab]?.()}</div>
+    </div>;
   };
 
-  return <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1720, margin:"0 auto" }}>
-    <div style={{ display:"grid", gridTemplateColumns:"300px minmax(0,1fr)", gap:SPACING.lg, alignItems:"start" }}>
-      <div style={{ position:"sticky", top:16 }}>{renderSidebarDossiers()}</div>
-      <div style={{ minWidth:0 }}>
-        {error && <div style={{ marginBottom:SPACING.md, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
+  return <div style={{ padding:`${SPACING.md}px ${SPACING.xl}px`, maxWidth:1800, margin:"0 auto", height:"calc(100vh - 24px)", overflow:"hidden" }}>
+    <style>{`.structuration-compact .inv-inp,.structuration-compact .inv-sel,.structuration-compact .inv-textarea{color:${T.text}!important;background:${T.input}!important}.structuration-compact option{color:#0D1B2A;background:#fff}.structuration-compact ::placeholder{color:${T.textMuted}!important;opacity:.85}`}</style>
+    <div className="structuration-compact" style={{ display:"grid", gridTemplateColumns:"300px minmax(0,1fr)", gap:SPACING.md, alignItems:"start", height:"100%", minHeight:0 }}>
+      <div style={{ height:"100%", minHeight:0 }}>{renderSidebarDossiers()}</div>
+      <div style={{ minWidth:0, height:"100%", minHeight:0, overflow:"hidden" }}>
+        {error && <div style={{ marginBottom:SPACING.sm, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
         {renderContent()}
       </div>
     </div>
