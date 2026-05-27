@@ -9386,6 +9386,11 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const [newClientId, setNewClientId] = useState(initialClientId || "");
   const saveTimerRef = useRef(null);
   const initialHandledRef = useRef(false);
+  const loadedDossierIdRef = useRef(null);
+  const dataRef = useRef(data);
+  const dossierRef = useRef(dossier);
+  useEffect(() => { dataRef.current = data; }, [data]);
+  useEffect(() => { dossierRef.current = dossier; }, [dossier]);
 
   const fmtEur = v => {
     const n = Number(v || 0);
@@ -9456,22 +9461,37 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   useEffect(() => {
     const d = dossiers.find(x => x.id === selectedId) || null;
     setDossier(d);
-    if (d) {
-      const base = buildStructDefault(d.client);
-      const merged = { ...base, ...(d.donnees || {}) };
-      merged.collecte = { ...base.collecte, ...(d.donnees?.collecte || {}) };
-      merged.collecte.profil = { ...base.collecte.profil, ...(d.donnees?.collecte?.profil || {}) };
-      merged.collecte.patrimoine = { ...base.collecte.patrimoine, ...(d.donnees?.collecte?.patrimoine || {}) };
-      merged.collecte.financement = { ...base.collecte.financement, ...(d.donnees?.collecte?.financement || {}) };
-      merged.collecte.structures = { ...base.collecte.structures, ...(d.donnees?.collecte?.structures || {}) };
-      merged.collecte.objectifs = { ...base.collecte.objectifs, ...(d.donnees?.collecte?.objectifs || {}) };
-      merged.collecte.patrimoine_financier = { ...base.collecte.patrimoine_financier, ...(d.donnees?.collecte?.patrimoine_financier || {}) };
-      merged.collecte.rdv = { ...base.collecte.rdv, ...(d.donnees?.collecte?.rdv || {}) };
-      merged.collecte.documents = d.donnees?.collecte?.documents || base.collecte.documents;
-      merged.analyse = { ...base.analyse, ...(d.donnees?.analyse || d.analyse_data || {}) };
-      setData(merged);
-      setNewClientId(d.client_id || "");
+    dossierRef.current = d;
+
+    if (!d) {
+      loadedDossierIdRef.current = null;
+      return;
     }
+
+    // Important : on ne recharge les données complètes que lorsque l'on change
+    // réellement de dossier. Sinon, chaque sauvegarde Supabase met à jour
+    // `dossiers`, relance cet effet, et peut écraser la saisie en cours.
+    if (loadedDossierIdRef.current === d.id) {
+      setNewClientId(d.client_id || "");
+      return;
+    }
+
+    loadedDossierIdRef.current = d.id;
+    const base = buildStructDefault(d.client);
+    const merged = { ...base, ...(d.donnees || {}) };
+    merged.collecte = { ...base.collecte, ...(d.donnees?.collecte || {}) };
+    merged.collecte.profil = { ...base.collecte.profil, ...(d.donnees?.collecte?.profil || {}) };
+    merged.collecte.patrimoine = { ...base.collecte.patrimoine, ...(d.donnees?.collecte?.patrimoine || {}) };
+    merged.collecte.financement = { ...base.collecte.financement, ...(d.donnees?.collecte?.financement || {}) };
+    merged.collecte.structures = { ...base.collecte.structures, ...(d.donnees?.collecte?.structures || {}) };
+    merged.collecte.objectifs = { ...base.collecte.objectifs, ...(d.donnees?.collecte?.objectifs || {}) };
+    merged.collecte.patrimoine_financier = { ...base.collecte.patrimoine_financier, ...(d.donnees?.collecte?.patrimoine_financier || {}) };
+    merged.collecte.rdv = { ...base.collecte.rdv, ...(d.donnees?.collecte?.rdv || {}) };
+    merged.collecte.documents = d.donnees?.collecte?.documents || base.collecte.documents;
+    merged.analyse = { ...base.analyse, ...(d.donnees?.analyse || d.analyse_data || {}) };
+    dataRef.current = merged;
+    setData(merged);
+    setNewClientId(d.client_id || "");
   }, [selectedId, dossiers]);
 
   const creerDossier = async (clientId = newClientId) => {
@@ -9508,16 +9528,18 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   }, [initialClientId, loading, dossiers.length]);
 
   const sauvegarder = useCallback(async (silent=false) => {
-    if (!selectedId || !dossier) return;
+    const currentDossier = dossierRef.current;
+    const currentData = dataRef.current;
+    if (!selectedId || !currentDossier) return;
     setSaving(true);
     const payload = {
-      titre: dossier.titre,
-      statut: dossier.statut,
-      phase: dossier.phase,
-      conseiller: dossier.conseiller,
-      client_id: dossier.client_id || null,
-      donnees: data,
-      analyse_data: data.analyse || {},
+      titre: currentDossier.titre,
+      statut: currentDossier.statut,
+      phase: currentDossier.phase,
+      conseiller: currentDossier.conseiller,
+      client_id: currentDossier.client_id || null,
+      donnees: currentData,
+      analyse_data: currentData.analyse || {},
       updated_at: new Date().toISOString(),
     };
     const { data: updated, error } = await supabase.from("invest_structuration_patrimoniale").update(payload).eq("id", selectedId).select("*, client:invest_clients(id,nom,prenom,email,telephone,budget,conseiller,statut)").single();
@@ -9525,8 +9547,15 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     if (error) { setError("Impossible d'enregistrer : " + error.message); return; }
     setError("");
     setSaved(true); setTimeout(()=>setSaved(false), 1800);
-    if (updated) setDossiers(prev => prev.map(x => x.id === selectedId ? updated : x));
-  }, [selectedId, dossier, data]);
+    if (updated) {
+      // On conserve les données actuellement en mémoire pour éviter un écrasement visuel
+      // pendant la saisie, tout en synchronisant les métadonnées Supabase.
+      const hydrated = { ...updated, donnees: currentData, analyse_data: currentData.analyse || {} };
+      setDossiers(prev => prev.map(x => x.id === selectedId ? hydrated : x));
+      setDossier(hydrated);
+      dossierRef.current = hydrated;
+    }
+  }, [selectedId]);
 
   const scheduleSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -9534,58 +9563,62 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   }, [sauvegarder]);
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
+  const mutateData = useCallback((updater) => {
+    setData(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      dataRef.current = next;
+      return next;
+    });
+    scheduleSave();
+  }, [scheduleSave]);
+
   const patchDossier = (fields) => {
-    setDossier(prev => prev ? { ...prev, ...fields } : prev);
+    setDossier(prev => {
+      const next = prev ? { ...prev, ...fields } : prev;
+      dossierRef.current = next;
+      return next;
+    });
     setDossiers(prev => prev.map(x => x.id === selectedId ? { ...x, ...fields } : x));
     scheduleSave();
   };
   const updateSection = (section, key, value) => {
-    setData(prev => ({ ...prev, collecte:{ ...prev.collecte, [section]:{ ...(prev.collecte?.[section] || {}), [key]:value } } }));
-    scheduleSave();
+    mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, [section]:{ ...(prev.collecte?.[section] || {}), [key]:value } } }));
   };
   const updateAnalyse = (key, value) => {
-    setData(prev => ({ ...prev, analyse:{ ...prev.analyse, [key]:value } }));
-    scheduleSave();
+    mutateData(prev => ({ ...prev, analyse:{ ...prev.analyse, [key]:value } }));
   };
   const updateLot = (idx, key, value) => {
-    setData(prev => {
+    mutateData(prev => {
       const lots = [...(prev.collecte?.patrimoine?.lots || [])];
       lots[idx] = { ...lots[idx], [key]:value };
       return { ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots } } };
     });
-    scheduleSave();
   };
   const addLot = () => {
-    setData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:[...(prev.collecte?.patrimoine?.lots || []), { ...STRUCT_DEFAULT_LOTS[0] }] } } }));
-    scheduleSave();
+    mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:[...(prev.collecte?.patrimoine?.lots || []), { ...STRUCT_DEFAULT_LOTS[0] }] } } }));
   };
   const removeLot = (idx) => {
-    setData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:(prev.collecte?.patrimoine?.lots || []).filter((_,i)=>i!==idx) } } }));
-    scheduleSave();
+    mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:(prev.collecte?.patrimoine?.lots || []).filter((_,i)=>i!==idx) } } }));
   };
   const updateDoc = (idx, key, value) => {
-    setData(prev => {
+    mutateData(prev => {
       const docs = [...(prev.collecte?.documents || [])];
       docs[idx] = { ...docs[idx], [key]:value };
       return { ...prev, collecte:{ ...prev.collecte, documents:docs } };
     });
-    scheduleSave();
   };
   const updateReco = (idx, key, value) => {
-    setData(prev => {
+    mutateData(prev => {
       const preconisations = [...(prev.analyse?.preconisations || [])];
       preconisations[idx] = { ...preconisations[idx], [key]:value };
       return { ...prev, analyse:{ ...prev.analyse, preconisations } };
     });
-    scheduleSave();
   };
   const addReco = () => {
-    setData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:[...(prev.analyse?.preconisations || []), { id:`p${Date.now()}`, axe:"Stratégie", priorite:"Moyenne", titre:"Nouvelle préconisation", detail:"", action:"", statut:"À faire" }] } }));
-    scheduleSave();
+    mutateData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:[...(prev.analyse?.preconisations || []), { id:`p${Date.now()}`, axe:"Stratégie", priorite:"Moyenne", titre:"Nouvelle préconisation", detail:"", action:"", statut:"À faire" }] } }));
   };
   const removeReco = (idx) => {
-    setData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:(prev.analyse?.preconisations || []).filter((_,i)=>i!==idx) } }));
-    scheduleSave();
+    mutateData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:(prev.analyse?.preconisations || []).filter((_,i)=>i!==idx) } }));
   };
 
   const renderReport = () => {
