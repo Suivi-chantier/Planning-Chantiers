@@ -9451,7 +9451,8 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const [selectedId, setSelectedId] = useState(null);
   const [dossier, setDossier] = useState(null);
   const [data, setData] = useState(buildStructDefault(null));
-  const [tab, setTab] = useState("collecte");
+  const [tab, setTab] = useState("profil");
+  const [filter, setFilter] = useState("Tous");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -9462,15 +9463,17 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const loadedDossierIdRef = useRef(null);
   const dataRef = useRef(data);
   const dossierRef = useRef(dossier);
+
   useEffect(() => { dataRef.current = data; }, [data]);
   useEffect(() => { dossierRef.current = dossier; }, [dossier]);
 
-  const fmtEur = v => {
-    const n = Number(v || 0);
+  const fmtEur = (v) => {
+    const n = Number(String(v ?? "").replace(/\s/g, "").replace(",", ".")) || 0;
     return n ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(n) + " €" : "—";
   };
-  const toN = v => Number(String(v ?? "").replace(/\s/g, "").replace(",", ".")) || 0;
-  const clientFullName = c => [c?.prenom, c?.nom].filter(Boolean).join(" ") || c?.email || "Client";
+  const fmtPct = v => Number.isFinite(Number(v)) ? `${Math.round(Number(v) * 100)} %` : "—";
+  const toN = (v) => Number(String(v ?? "").replace(/\s/g, "").replace(",", ".")) || 0;
+  const clientFullName = (c) => [c?.prenom, c?.nom].filter(Boolean).join(" ") || c?.email || "Client";
   const currentClient = clients.find(c => c.id === dossier?.client_id) || dossier?.client || null;
 
   const calc = useCallback((d = data) => {
@@ -9481,7 +9484,8 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     const crdLots = lots.reduce((s,l)=>s+toN(l.crd),0);
     const rpVal = toN(d.collecte?.patrimoine?.rp_valeur);
     const rpCrd = toN(d.collecte?.patrimoine?.rp_crd);
-    const patrimoineBrut = valeurLots + rpVal;
+    const patrimoineFinancier = Object.values(d.collecte?.patrimoine_financier || {}).reduce((s,v)=>s+toN(v),0);
+    const patrimoineBrut = valeurLots + rpVal + patrimoineFinancier;
     const crdTotal = crdLots + rpCrd;
     const patrimoineNet = patrimoineBrut - crdTotal;
     const revenusPro = toN(d.collecte?.profil?.revenus_nets_mois);
@@ -9492,24 +9496,43 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     const cashflowMois = loyers - mensualitesLots;
     const rendementBrut = valeurLots ? (loyers*12)/valeurLots : 0;
     const ltv = patrimoineBrut ? crdTotal / patrimoineBrut : 0;
-    const ifiBase = Math.max(0, patrimoineBrut - crdTotal - Math.max(0, rpVal*0.30));
+    const ifiBase = Math.max(0, valeurLots + rpVal * 0.70 - crdTotal);
     const docs = d.collecte?.documents || [];
-    const docsRecus = docs.filter(x=>x.statut === "Reçu").length;
-    const totalFields = 22;
-    const filledFields = [
-      d.collecte?.profil?.situation_familiale, d.collecte?.profil?.revenus_nets_mois, d.collecte?.profil?.tmi,
-      d.collecte?.patrimoine?.rp_valeur, lots.length && lots.some(l=>toN(l.valeur) || toN(l.loyer_mois)),
+    const docsRecus = docs.filter(x=>["Reçu", "À vérifier", "Non applicable"].includes(x.statut)).length;
+    const required = [
+      d.collecte?.profil?.nom, d.collecte?.profil?.prenom, d.collecte?.profil?.situation_familiale,
+      d.collecte?.profil?.profession, d.collecte?.profil?.revenus_nets_mois, d.collecte?.profil?.tmi,
+      d.collecte?.patrimoine?.lots?.some(l => toN(l.valeur) || toN(l.loyer_mois)),
       d.collecte?.financement?.banque_principale, d.collecte?.financement?.apport_disponible,
-      d.collecte?.structures?.sci_existante, d.collecte?.objectifs?.objectif_principal, d.collecte?.objectifs?.horizon,
-      d.collecte?.rdv?.prochaine_action,
-    ].filter(Boolean).length;
-    const completion = Math.min(100, Math.round(((filledFields/11)*0.65 + (docs.length ? docsRecus/docs.length : 0)*0.35)*100));
+      d.collecte?.objectifs?.objectif_principal, d.collecte?.rdv?.prochaine_action,
+      d.analyse?.diagnostic, d.analyse?.strategie_recommandee,
+    ];
+    const completion = Math.min(100, Math.round(((required.filter(Boolean).length / required.length) * 0.72 + (docs.length ? docsRecus/docs.length : 0) * 0.28) * 100));
     const tarif = patrimoineBrut <= 500000 ? { phase1:2500, phase2:190, tranche:"0 à 500 k€" }
       : patrimoineBrut <= 1500000 ? { phase1:4500, phase2:390, tranche:"500 k€ à 1,5 M€" }
       : patrimoineBrut <= 5000000 ? { phase1:7500, phase2:590, tranche:"1,5 M€ à 5 M€" }
       : { phase1:10000, phase2:890, tranche:"+5 M€ — sur devis" };
-    return { valeurLots, loyers, mensualitesLots, crdLots, rpVal, rpCrd, patrimoineBrut, crdTotal, patrimoineNet, revenusRetenus, tauxEndettement, cashflowMois, rendementBrut, ltv, ifiBase, docsRecus, completion, tarif };
+    return { valeurLots, loyers, mensualitesLots, crdLots, rpVal, rpCrd, patrimoineFinancier, patrimoineBrut, crdTotal, patrimoineNet, revenusRetenus, tauxEndettement, cashflowMois, rendementBrut, ltv, ifiBase, docsRecus, completion, tarif };
   }, [data]);
+
+  const mergeStructData = (d) => {
+    const base = buildStructDefault(d?.client || null);
+    const incoming = d?.donnees || {};
+    const merged = { ...base, ...incoming };
+    merged.collecte = { ...base.collecte, ...(incoming.collecte || {}) };
+    merged.collecte.profil = { ...base.collecte.profil, ...(incoming.collecte?.profil || {}) };
+    merged.collecte.patrimoine = { ...base.collecte.patrimoine, ...(incoming.collecte?.patrimoine || {}) };
+    merged.collecte.financement = { ...base.collecte.financement, ...(incoming.collecte?.financement || {}) };
+    merged.collecte.structures = { ...base.collecte.structures, ...(incoming.collecte?.structures || {}) };
+    merged.collecte.objectifs = { ...base.collecte.objectifs, ...(incoming.collecte?.objectifs || {}) };
+    merged.collecte.patrimoine_financier = { ...base.collecte.patrimoine_financier, ...(incoming.collecte?.patrimoine_financier || {}) };
+    merged.collecte.rdv = { ...base.collecte.rdv, ...(incoming.collecte?.rdv || {}) };
+    merged.collecte.documents = incoming.collecte?.documents || base.collecte.documents;
+    merged.analyse = { ...base.analyse, ...(incoming.analyse || d?.analyse_data || {}) };
+    if (!Array.isArray(merged.analyse.scenarios)) merged.analyse.scenarios = base.analyse.scenarios;
+    if (!Array.isArray(merged.analyse.preconisations)) merged.analyse.preconisations = base.analyse.preconisations;
+    return merged;
+  };
 
   const charger = useCallback(async () => {
     setLoading(true); setError("");
@@ -9522,8 +9545,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       setError("Table invest_structuration_patrimoniale introuvable ou non accessible. Lancez la migration SQL fournie.");
       setDossiers([]);
     } else {
-      setDossiers(dossiersRes.data || []);
-      if (!selectedId && (dossiersRes.data || []).length > 0) setSelectedId(dossiersRes.data[0].id);
+      const list = dossiersRes.data || [];
+      setDossiers(list);
+      if (!selectedId && list.length) setSelectedId(list[0].id);
     }
     setClients(clientsRes.data || []);
     setLoading(false);
@@ -9535,120 +9559,16 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     const d = dossiers.find(x => x.id === selectedId) || null;
     setDossier(d);
     dossierRef.current = d;
-
-    if (!d) {
-      loadedDossierIdRef.current = null;
-      return;
-    }
-
-    // Important : on ne recharge les données complètes que lorsque l'on change
-    // réellement de dossier. Sinon, chaque sauvegarde Supabase met à jour
-    // `dossiers`, relance cet effet, et peut écraser la saisie en cours.
-    if (loadedDossierIdRef.current === d.id) {
-      setNewClientId(d.client_id || "");
-      return;
-    }
-
+    if (!d) { loadedDossierIdRef.current = null; return; }
+    if (loadedDossierIdRef.current === d.id) { setNewClientId(d.client_id || ""); return; }
     loadedDossierIdRef.current = d.id;
-    const base = buildStructDefault(d.client);
-    const merged = { ...base, ...(d.donnees || {}) };
-    merged.collecte = { ...base.collecte, ...(d.donnees?.collecte || {}) };
-    merged.collecte.profil = { ...base.collecte.profil, ...(d.donnees?.collecte?.profil || {}) };
-    merged.collecte.patrimoine = { ...base.collecte.patrimoine, ...(d.donnees?.collecte?.patrimoine || {}) };
-    merged.collecte.financement = { ...base.collecte.financement, ...(d.donnees?.collecte?.financement || {}) };
-    merged.collecte.structures = { ...base.collecte.structures, ...(d.donnees?.collecte?.structures || {}) };
-    merged.collecte.objectifs = { ...base.collecte.objectifs, ...(d.donnees?.collecte?.objectifs || {}) };
-    merged.collecte.patrimoine_financier = { ...base.collecte.patrimoine_financier, ...(d.donnees?.collecte?.patrimoine_financier || {}) };
-    merged.collecte.rdv = { ...base.collecte.rdv, ...(d.donnees?.collecte?.rdv || {}) };
-    merged.collecte.documents = d.donnees?.collecte?.documents || base.collecte.documents;
-    merged.analyse = { ...base.analyse, ...(d.donnees?.analyse || d.analyse_data || {}) };
+    const merged = mergeStructData(d);
     dataRef.current = merged;
     setData(merged);
     setNewClientId(d.client_id || "");
   }, [selectedId, dossiers]);
 
-  const creerDossier = async (clientId = newClientId) => {
-    if (!clientId) { alert("Sélectionnez un client avant de créer un dossier."); return; }
-    const c = clients.find(x => x.id === clientId);
-    const base = buildStructDefault(c);
-    const payload = {
-      client_id: clientId,
-      titre: `Structuration patrimoniale — ${clientFullName(c)}`,
-      statut: "Collecte",
-      phase: "Phase 1 — Audit & Conseil",
-      conseiller: profil?.nom || c?.conseiller || "",
-      donnees: base,
-      analyse_data: base.analyse,
-      created_by: profil?.email || profil?.nom || null,
-      updated_at: new Date().toISOString(),
-    };
-    const { data: created, error } = await supabase.from("invest_structuration_patrimoniale").insert(payload).select("*, client:invest_clients(*)").single();
-    if (error) { alert("Impossible de créer le dossier : " + error.message); return; }
-    setDossiers(prev => [created, ...prev]);
-    setSelectedId(created.id);
-  };
-
-  const supprimerDossier = async (id) => {
-    const target = dossiers.find(d => d.id === id);
-    if (!target) return;
-    const label = target.client ? clientFullName(target.client) : (target.titre || "ce dossier");
-    const ok = window.confirm(`Supprimer définitivement le dossier de structuration de ${label} ?
-
-Cette action supprimera le dossier et ses données d'analyse. Les documents associés seront également supprimés si le bucket est accessible.`);
-    if (!ok) return;
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    setSaving(true);
-    setError("");
-
-    try {
-      const bucket = supabase.storage.from("invest-documents");
-      const folder = `structuration/${id}`;
-      const { data: files } = await bucket.list(folder);
-      if (Array.isArray(files) && files.length > 0) {
-        await bucket.remove(files.map(f => `${folder}/${f.name}`));
-      }
-    } catch (e) {
-      console.warn("Suppression des documents de structuration impossible ou bucket inaccessible", e);
-    }
-
-    const { error } = await supabase.from("invest_structuration_patrimoniale").delete().eq("id", id);
-    setSaving(false);
-    if (error) {
-      setError("Impossible de supprimer le dossier : " + error.message);
-      return;
-    }
-
-    const remaining = dossiers.filter(d => d.id !== id);
-    setDossiers(remaining);
-    if (selectedId === id) {
-      const next = remaining[0] || null;
-      loadedDossierIdRef.current = null;
-      setSelectedId(next?.id || null);
-      setDossier(next);
-      dossierRef.current = next;
-      if (!next) {
-        const empty = buildStructDefault(null);
-        dataRef.current = empty;
-        setData(empty);
-      }
-    }
-  };
-
-
-  useEffect(() => {
-    if (!initialClientId || initialHandledRef.current || loading) return;
-    initialHandledRef.current = true;
-    const existing = dossiers.find(d => d.client_id === initialClientId);
-    if (existing) setSelectedId(existing.id);
-    else {
-      setNewClientId(initialClientId);
-      setTimeout(() => creerDossier(initialClientId), 50);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialClientId, loading, dossiers.length]);
-
-  const sauvegarder = useCallback(async (silent=false) => {
+  const sauvegarder = useCallback(async () => {
     const currentDossier = dossierRef.current;
     const currentData = dataRef.current;
     if (!selectedId || !currentDossier) return;
@@ -9667,10 +9587,8 @@ Cette action supprimera le dossier et ses données d'analyse. Les documents asso
     setSaving(false);
     if (error) { setError("Impossible d'enregistrer : " + error.message); return; }
     setError("");
-    setSaved(true); setTimeout(()=>setSaved(false), 1800);
+    setSaved(true); setTimeout(()=>setSaved(false), 1600);
     if (updated) {
-      // On conserve les données actuellement en mémoire pour éviter un écrasement visuel
-      // pendant la saisie, tout en synchronisant les métadonnées Supabase.
       const hydrated = { ...updated, donnees: currentData, analyse_data: currentData.analyse || {} };
       setDossiers(prev => prev.map(x => x.id === selectedId ? hydrated : x));
       setDossier(hydrated);
@@ -9680,7 +9598,7 @@ Cette action supprimera le dossier et ses données d'analyse. Les documents asso
 
   const scheduleSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => sauvegarder(true), 900);
+    saveTimerRef.current = setTimeout(() => sauvegarder(), 850);
   }, [sauvegarder]);
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
@@ -9692,6 +9610,48 @@ Cette action supprimera le dossier et ses données d'analyse. Les documents asso
     });
     scheduleSave();
   }, [scheduleSave]);
+
+  const patchDossier = (fields) => {
+    setDossier(prev => {
+      const next = prev ? { ...prev, ...fields } : prev;
+      dossierRef.current = next;
+      return next;
+    });
+    setDossiers(prev => prev.map(x => x.id === selectedId ? { ...x, ...fields } : x));
+    scheduleSave();
+  };
+
+  const updateSection = (section, key, value) => {
+    mutateData(prev => ({
+      ...prev,
+      collecte: { ...prev.collecte, [section]: { ...(prev.collecte?.[section] || {}), [key]: value } }
+    }));
+  };
+  const updateAnalyse = (key, value) => mutateData(prev => ({ ...prev, analyse:{ ...(prev.analyse || {}), [key]:value } }));
+  const updateLot = (idx, key, value) => mutateData(prev => {
+    const lots = [...(prev.collecte?.patrimoine?.lots || [])];
+    lots[idx] = { ...(lots[idx] || {}), [key]:value };
+    return { ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...(prev.collecte?.patrimoine || {}), lots } } };
+  });
+  const addLot = () => mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...(prev.collecte?.patrimoine || {}), lots:[...(prev.collecte?.patrimoine?.lots || []), { ...STRUCT_DEFAULT_LOTS[0], id:`lot-${Date.now()}` }] } } }));
+  const removeLot = (idx) => { if (!window.confirm("Supprimer ce lot ?")) return; mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...(prev.collecte?.patrimoine || {}), lots:(prev.collecte?.patrimoine?.lots || []).filter((_,i)=>i!==idx) } } })); };
+  const updateDoc = (idx, key, value) => mutateData(prev => {
+    const docs = [...(prev.collecte?.documents || [])];
+    docs[idx] = { ...(docs[idx] || {}), [key]:value };
+    return { ...prev, collecte:{ ...prev.collecte, documents:docs } };
+  });
+  const updateScenario = (idx, key, value) => mutateData(prev => {
+    const scenarios = [...(prev.analyse?.scenarios || [])];
+    scenarios[idx] = { ...(scenarios[idx] || {}), [key]:value };
+    return { ...prev, analyse:{ ...(prev.analyse || {}), scenarios } };
+  });
+  const updateReco = (idx, key, value) => mutateData(prev => {
+    const preconisations = [...(prev.analyse?.preconisations || [])];
+    preconisations[idx] = { ...(preconisations[idx] || {}), [key]:value };
+    return { ...prev, analyse:{ ...(prev.analyse || {}), preconisations } };
+  });
+  const addReco = () => mutateData(prev => ({ ...prev, analyse:{ ...(prev.analyse || {}), preconisations:[...(prev.analyse?.preconisations || []), { id:`p${Date.now()}`, axe:"Stratégie", priorite:"Moyenne", titre:"Nouvelle préconisation", detail:"", action:"", statut:"À faire" }] } }));
+  const removeReco = (idx) => { if (!window.confirm("Supprimer cette préconisation ?")) return; mutateData(prev => ({ ...prev, analyse:{ ...(prev.analyse || {}), preconisations:(prev.analyse?.preconisations || []).filter((_,i)=>i!==idx) } })); };
 
   const fillStructEmpty = (current = {}, prefill = {}) => {
     const out = { ...(current || {}) };
@@ -9711,23 +9671,11 @@ Cette action supprimera le dossier et ses données d'analyse. Les documents asso
     mutateData(prev => {
       const currentProfil = prev.collecte?.profil || {};
       const baseProfil = base.collecte.profil || {};
-      const forcedProfil = {
-        prenom: baseProfil.prenom || currentProfil.prenom || "",
-        nom: baseProfil.nom || currentProfil.nom || "",
-        email: baseProfil.email || currentProfil.email || "",
-        telephone: baseProfil.telephone || currentProfil.telephone || "",
-        conseiller: baseProfil.conseiller || currentProfil.conseiller || "",
-        source_crm: baseProfil.source_crm || currentProfil.source_crm || "",
-        statut_crm: baseProfil.statut_crm || currentProfil.statut_crm || "",
-        budget_crm: baseProfil.budget_crm || currentProfil.budget_crm || "",
-        etape_crm: baseProfil.etape_crm || currentProfil.etape_crm || "",
-        notes_crm: baseProfil.notes_crm || currentProfil.notes_crm || "",
-      };
       return {
         ...prev,
         collecte: {
           ...prev.collecte,
-          profil: { ...fillStructEmpty(currentProfil, baseProfil), ...forcedProfil },
+          profil: { ...fillStructEmpty(currentProfil, baseProfil), prenom:baseProfil.prenom || currentProfil.prenom || "", nom:baseProfil.nom || currentProfil.nom || "", email:baseProfil.email || currentProfil.email || "", telephone:baseProfil.telephone || currentProfil.telephone || "", conseiller:baseProfil.conseiller || currentProfil.conseiller || "", source_crm:baseProfil.source_crm || currentProfil.source_crm || "", statut_crm:baseProfil.statut_crm || currentProfil.statut_crm || "", budget_crm:baseProfil.budget_crm || currentProfil.budget_crm || "", etape_crm:baseProfil.etape_crm || currentProfil.etape_crm || "", notes_crm:baseProfil.notes_crm || currentProfil.notes_crm || "" },
           financement: fillStructEmpty(prev.collecte?.financement || {}, base.collecte.financement || {}),
           structures: fillStructEmpty(prev.collecte?.structures || {}, base.collecte.structures || {}),
           objectifs: fillStructEmpty(prev.collecte?.objectifs || {}, base.collecte.objectifs || {}),
@@ -9737,69 +9685,63 @@ Cette action supprimera le dossier et ses données d'analyse. Les documents asso
     });
   }, [clients, newClientId, mutateData]);
 
-  const patchDossier = (fields) => {
-    setDossier(prev => {
-      const next = prev ? { ...prev, ...fields } : prev;
-      dossierRef.current = next;
-      return next;
-    });
-    setDossiers(prev => prev.map(x => x.id === selectedId ? { ...x, ...fields } : x));
-    scheduleSave();
-  };
-  const updateSection = (section, key, value) => {
-    mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, [section]:{ ...(prev.collecte?.[section] || {}), [key]:value } } }));
-  };
-  const updateAnalyse = (key, value) => {
-    mutateData(prev => ({ ...prev, analyse:{ ...prev.analyse, [key]:value } }));
-  };
-  const updateLot = (idx, key, value) => {
-    mutateData(prev => {
-      const lots = [...(prev.collecte?.patrimoine?.lots || [])];
-      lots[idx] = { ...lots[idx], [key]:value };
-      return { ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots } } };
-    });
-  };
-  const addLot = () => {
-    mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:[...(prev.collecte?.patrimoine?.lots || []), { ...STRUCT_DEFAULT_LOTS[0] }] } } }));
-  };
-  const removeLot = (idx) => {
-    mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:(prev.collecte?.patrimoine?.lots || []).filter((_,i)=>i!==idx) } } }));
-  };
-  const updateDoc = (idx, key, value) => {
-    mutateData(prev => {
-      const docs = [...(prev.collecte?.documents || [])];
-      docs[idx] = { ...docs[idx], [key]:value };
-      return { ...prev, collecte:{ ...prev.collecte, documents:docs } };
-    });
-  };
-  const updateReco = (idx, key, value) => {
-    mutateData(prev => {
-      const preconisations = [...(prev.analyse?.preconisations || [])];
-      preconisations[idx] = { ...preconisations[idx], [key]:value };
-      return { ...prev, analyse:{ ...prev.analyse, preconisations } };
-    });
-  };
-  const addReco = () => {
-    mutateData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:[...(prev.analyse?.preconisations || []), { id:`p${Date.now()}`, axe:"Stratégie", priorite:"Moyenne", titre:"Nouvelle préconisation", detail:"", action:"", statut:"À faire" }] } }));
-  };
-  const removeReco = (idx) => {
-    mutateData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:(prev.analyse?.preconisations || []).filter((_,i)=>i!==idx) } }));
+  const creerDossier = async (clientId = newClientId) => {
+    if (!clientId) { alert("Sélectionnez un client avant de créer un dossier."); return; }
+    const existing = dossiers.find(d => d.client_id === clientId);
+    if (existing && window.confirm("Un dossier existe déjà pour ce client. L’ouvrir ?")) { setSelectedId(existing.id); return; }
+    const c = clients.find(x => x.id === clientId);
+    const base = buildStructDefault(c);
+    const payload = {
+      client_id: clientId,
+      titre: `Structuration patrimoniale — ${clientFullName(c)}`,
+      statut: "Collecte",
+      phase: "Phase 1 — Audit & Conseil",
+      conseiller: profil?.nom || c?.conseiller || "",
+      donnees: base,
+      analyse_data: base.analyse,
+      created_by: profil?.email || profil?.nom || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: created, error } = await supabase.from("invest_structuration_patrimoniale").insert(payload).select("*, client:invest_clients(*)").single();
+    if (error) { alert("Impossible de créer le dossier : " + error.message); return; }
+    setDossiers(prev => [created, ...prev]);
+    loadedDossierIdRef.current = null;
+    setSelectedId(created.id);
+    setTab("profil");
   };
 
-  const renderReport = () => {
-    const c = calc();
-    const esc = s => String(s || "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
-    const win = window.open("", "_blank", "width=900,height=800");
-    if (!win) { alert("Autorisez les pop-ups pour générer le rapport."); return; }
-    const lots = data.collecte?.patrimoine?.lots || [];
-    const rows = lots.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(l.adresse)}</td><td>${esc(l.type)}</td><td>${esc(l.structure)}</td><td>${esc(fmtEur(l.valeur))}</td><td>${esc(fmtEur(l.loyer_mois))}</td><td>${esc(fmtEur(l.crd))}</td></tr>`).join("");
-    const recos = (data.analyse?.preconisations || []).map(r=>`<div class="reco"><b>${esc(r.axe)} — ${esc(r.titre)}</b><p>${esc(r.detail)}</p><small>Action : ${esc(r.action)} · Priorité : ${esc(r.priorite)}</small></div>`).join("");
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(dossier?.titre)}</title><style>
-      body{font-family:Arial,sans-serif;margin:0;background:#eef1f6;color:#152238}.page{max-width:900px;margin:0 auto;background:white;padding:28px}.top{display:flex;justify-content:space-between;border-bottom:4px solid #17365f;padding-bottom:14px;margin-bottom:18px}.brand{font-weight:900;color:#17365f}.sub{color:#4070e8;font-weight:800}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.kpi{border-left:4px solid #4070e8;background:#f8fbff;border-radius:8px;padding:12px}.kpi b{font-size:20px;color:#17365f}.kpi span{display:block;color:#7a8495;font-size:10px;text-transform:uppercase;margin-top:4px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{border:1px solid #e5eaf2;border-radius:8px;margin-bottom:14px;overflow:hidden}.hd{background:#17365f;color:white;font-weight:900;padding:8px 10px}.bd{padding:12px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#17365f;color:white;text-align:left;padding:7px}td{border-bottom:1px solid #e7ebf2;padding:7px}.reco{border-left:4px solid #c9a84c;background:#fbfaf5;border-radius:6px;padding:10px;margin-bottom:8px}.reco p{margin:5px 0;color:#445}.no-print{position:fixed;right:15px;top:15px}.btn{background:#17365f;color:white;border:0;border-radius:8px;padding:10px 15px;font-weight:800;cursor:pointer}@media print{.no-print{display:none}body{background:white}.page{max-width:none}@page{size:A4;margin:12mm}}
-    </style></head><body><div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div><div class="page"><div class="top"><div><div class="brand">PROFERO INVEST</div><div>Rapport de structuration patrimoniale</div></div><div style="text-align:right"><h2>${esc(currentClient ? clientFullName(currentClient) : dossier?.titre)}</h2><div class="sub">${esc(dossier?.phase)} · ${new Date().toLocaleDateString("fr-FR")}</div></div></div><div class="kpis"><div class="kpi"><b>${fmtEur(c.patrimoineBrut)}</b><span>Patrimoine brut</span></div><div class="kpi"><b>${fmtEur(c.patrimoineNet)}</b><span>Patrimoine net estimé</span></div><div class="kpi"><b>${fmtEur(c.cashflowMois)}/mois</b><span>Cash-flow locatif</span></div><div class="kpi"><b>${Math.round(c.completion)} %</b><span>Complétude dossier</span></div></div><div class="grid"><div class="card"><div class="hd">Diagnostic</div><div class="bd">${esc(data.analyse?.diagnostic || "Diagnostic à compléter après collecte des documents.")}</div></div><div class="card"><div class="hd">Stratégie recommandée</div><div class="bd">${esc(data.analyse?.strategie_recommandee || "Stratégie à formaliser selon arbitrages, fiscalité, capacité d’emprunt et objectifs familiaux.")}</div></div></div><div class="card"><div class="hd">Inventaire immobilier</div><div class="bd"><table><thead><tr><th>#</th><th>Bien</th><th>Type</th><th>Détention</th><th>Valeur</th><th>Loyer</th><th>CRD</th></tr></thead><tbody>${rows}</tbody></table></div></div><div class="card"><div class="hd">Préconisations</div><div class="bd">${recos || "Aucune préconisation renseignée."}</div></div><div class="card"><div class="hd">Conclusion</div><div class="bd">${esc(data.analyse?.conclusion || "Conclusion à rédiger avant restitution client.")}</div></div></div></body></html>`);
-    win.document.close();
+  const supprimerDossier = async (id) => {
+    const target = dossiers.find(d => d.id === id);
+    if (!target) return;
+    const label = target.client ? clientFullName(target.client) : (target.titre || "ce dossier");
+    const ok = window.confirm(`Supprimer définitivement le dossier de structuration de ${label} ?\n\nCette action supprimera le dossier et ses données d'analyse. Les documents associés seront également supprimés si le bucket est accessible.`);
+    if (!ok) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaving(true); setError("");
+    try {
+      const bucket = supabase.storage.from("invest-documents");
+      const folder = `structuration/${id}`;
+      const { data: files } = await bucket.list(folder);
+      if (Array.isArray(files) && files.length > 0) await bucket.remove(files.map(f => `${folder}/${f.name}`));
+    } catch (e) { console.warn("Suppression documents impossible", e); }
+    const { error } = await supabase.from("invest_structuration_patrimoniale").delete().eq("id", id);
+    setSaving(false);
+    if (error) { setError("Impossible de supprimer le dossier : " + error.message); return; }
+    const remaining = dossiers.filter(d => d.id !== id);
+    setDossiers(remaining);
+    if (selectedId === id) { loadedDossierIdRef.current = null; setSelectedId(remaining[0]?.id || null); }
   };
 
+  useEffect(() => {
+    if (!initialClientId || initialHandledRef.current || loading) return;
+    initialHandledRef.current = true;
+    const existing = dossiers.find(d => d.client_id === initialClientId);
+    if (existing) setSelectedId(existing.id);
+    else { setNewClientId(initialClientId); setTimeout(() => creerDossier(initialClientId), 80); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialClientId, loading, dossiers.length]);
+
+  const filteredDossiers = dossiers.filter(d => filter === "Tous" || d.statut === filter);
   const c = calc();
   const p = data.collecte?.profil || {};
   const pat = data.collecte?.patrimoine || {};
@@ -9811,143 +9753,249 @@ Cette action supprimera le dossier et ses données d'analyse. Les documents asso
   const docs = data.collecte?.documents || [];
   const lots = pat.lots || [];
 
-  return (
-    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1600, margin:"0 auto" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, marginBottom:SPACING.xl, flexWrap:"wrap" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
-          <div style={{ width:48, height:48, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={Briefcase} size={24}/></div>
-          <div>
-            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text }}>Structuration patrimoniale</div>
-            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub }}>Collecte patrimoniale, analyse stratégique, préconisations et documents</div>
-          </div>
+  const statusColors = {
+    "Collecte": { bg:SEMANTIC.info.bg, color:SEMANTIC.info.color, border:SEMANTIC.info.border },
+    "Analyse": { bg:SEMANTIC.warning.bg, color:SEMANTIC.warning.color, border:SEMANTIC.warning.border },
+    "Préconisations": { bg:T.accentBg, color:T.accent, border:T.accentBorder },
+    "Restitution": { bg:SEMANTIC.success.bg, color:SU, border:SEMANTIC.success.border },
+    "Phase 2": { bg:"rgba(80,200,120,0.10)", color:SU, border:"rgba(80,200,120,0.25)" },
+    "Terminé": { bg:T.input, color:T.textMuted, border:T.border },
+  };
+  const chipStyle = (status) => ({ fontSize:FONT.xs.size, fontWeight:800, padding:"3px 8px", borderRadius:999, background:statusColors[status]?.bg || T.input, color:statusColors[status]?.color || T.textSub, border:`1px solid ${statusColors[status]?.border || T.border}`, display:"inline-flex", alignItems:"center", gap:4 });
+  const cardStyle = { background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, boxShadow:T.shadow, overflow:"hidden" };
+  const cardHd = (label, tone="") => <div style={{ padding:"12px 14px", borderBottom:`1px solid ${T.border}`, color:tone === "gold" ? T.accent : T.text, fontWeight:900, letterSpacing:.8, textTransform:"uppercase", fontSize:FONT.xs.size }}>{label}</div>;
+  const kpi = (label, value, sub, tone="") => <div style={{ ...cardStyle, padding:"14px 16px", borderLeft:`4px solid ${tone === "gold" ? T.accent : tone === "red" ? DA : tone === "green" ? SU : T.accentBorder}` }}><div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.h2.size, fontWeight:800, color:T.text }}>{value}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size, textTransform:"uppercase", letterSpacing:.8, fontWeight:800 }}>{label}</div>{sub && <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, marginTop:4 }}>{sub}</div>}</div>;
+
+  const renderProgress = (pct, height=5) => <div style={{ width:"100%", height, background:T.input, borderRadius:999, overflow:"hidden" }}><div style={{ width:`${Math.max(0, Math.min(100, pct || 0))}%`, height:"100%", background:T.accent, borderRadius:999 }}/></div>;
+
+  const renderSidebarDossiers = () => (
+    <div style={{ background:T.sidebar, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.sidebarBorder}`, minHeight:720, display:"flex", flexDirection:"column" }}>
+      <div style={{ padding:"20px 18px 16px", borderBottom:`1px solid ${T.sidebarBorder}` }}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:T.text, fontWeight:500 }}>Profero Invest</div>
+        <div style={{ fontSize:FONT.xs.size, letterSpacing:2.4, textTransform:"uppercase", color:T.accent, marginTop:2 }}>Gestion des dossiers</div>
+      </div>
+      <div style={{ padding:14, borderBottom:`1px solid ${T.sidebarBorder}` }}>
+        <div style={{ display:"flex", gap:7 }}>
+          <select className="inv-sel" value={newClientId} onChange={e=>setNewClientId(e.target.value)} style={{ flex:1, minWidth:0 }}>
+            <option value="">Nouveau dossier client…</option>
+            {clients.map(c=><option key={c.id} value={c.id}>{clientFullName(c)}</option>)}
+          </select>
+          <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={()=>creerDossier()} title="Créer"><Icon as={Plus} size={13}/></button>
         </div>
-        <div style={{ display:"flex", gap:SPACING.sm, alignItems:"center", flexWrap:"wrap" }}>
-          {saving && <span style={{ color:T.textMuted, fontSize:FONT.sm.size }}><Icon as={RefreshCw} size={12} style={{animation:"spin 1s linear infinite"}}/> Sync…</span>}
-          {saved && <span style={{ color:SU, fontSize:FONT.sm.size, fontWeight:800 }}><Icon as={Check} size={12}/> Sauvegardé</span>}
-          <button className="inv-btn inv-btn-blue" onClick={reintegrerInfosClientCRM} disabled={!dossier?.client_id}><Icon as={RefreshCw} size={13}/> Réimporter CRM</button>
-          <button className="inv-btn inv-btn-blue" onClick={renderReport} disabled={!dossier}><Icon as={FileText} size={13}/> Rapport PDF</button>
-          <button className="inv-btn inv-btn-gold" onClick={()=>sauvegarder()} disabled={!dossier}><Icon as={Save} size={13}/> Enregistrer</button>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:5, marginTop:10 }}>
+          {["Tous","Collecte","Analyse","Phase 2"].map(f => <button key={f} onClick={()=>setFilter(f)} style={{ border:`1px solid ${filter === f ? T.accentBorder : T.sidebarBorder}`, background:filter === f ? T.accentBg : "rgba(255,255,255,0.03)", color:filter === f ? T.accent : T.textMuted, borderRadius:RADIUS.sm+2, fontSize:FONT.xs.size, padding:"6px 2px", cursor:"pointer", fontWeight:800 }}>{f}</button>)}
         </div>
       </div>
-
-      {error && <div style={{ marginBottom:SPACING.md, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
-
-      <div style={{ display:"grid", gridTemplateColumns:"310px 1fr", gap:SPACING.lg, alignItems:"start" }}>
-        <div className="inv-card" style={{ position:"sticky", top:16 }}>
-          <div className="inv-card-hd blue">Dossiers</div>
-          <div className="inv-card-bd">
-            <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-              <select className="inv-sel" value={newClientId} onChange={e=>setNewClientId(e.target.value)} style={{ flex:1, minWidth:0 }}>
-                <option value="">Créer pour un client…</option>
-                {clients.map(c=><option key={c.id} value={c.id}>{clientFullName(c)}</option>)}
-              </select>
-              <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={()=>creerDossier()}><Icon as={Plus} size={12}/></button>
+      <div style={{ padding:12, overflowY:"auto", flex:1 }}>
+        {loading ? <div style={{ color:T.textMuted, padding:18, textAlign:"center" }}>Chargement…</div> : filteredDossiers.length === 0 ? <div style={{ color:T.textMuted, textAlign:"center", padding:24, lineHeight:1.6 }}>Aucun dossier<br/>dans ce filtre</div> : filteredDossiers.map(d => {
+          const active = d.id === selectedId;
+          const metaData = mergeStructData(d);
+          const cc = calc(metaData);
+          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("profil"); }} style={{ width:"100%", textAlign:"left", border:`1px solid ${active ? T.accentBorder : "transparent"}`, background:active ? T.accentBg : "transparent", borderRadius:RADIUS.md, padding:"11px 11px", marginBottom:8, cursor:"pointer", fontFamily:"inherit" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start" }}>
+              <div style={{ minWidth:0, flex:1 }}>
+                <div style={{ color:active ? T.accent : T.text, fontWeight:900, fontSize:FONT.sm.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.client ? clientFullName(d.client) : d.titre || "Nouveau dossier"}</div>
+                <div style={{ color:T.textMuted, fontSize:FONT.xs.size, marginTop:2 }}>{d.conseiller || "Sans conseiller"} · {new Date(d.updated_at || d.created_at).toLocaleDateString("fr-FR")}</div>
+              </div>
+              <span style={chipStyle(d.statut || "Collecte")}>{d.statut || "Collecte"}</span>
             </div>
-            {loading ? <div style={{ color:T.textMuted, padding:20, textAlign:"center" }}>Chargement…</div> : dossiers.length === 0 ? <div style={{ color:T.textMuted, fontStyle:"italic", textAlign:"center", padding:20 }}>Aucun dossier</div> : (
-              <div style={{ display:"flex", flexDirection:"column", gap:7, maxHeight:620, overflowY:"auto" }}>
-                {dossiers.map(d => {
-                  const active = d.id === selectedId;
-                  return <button key={d.id} onClick={()=>setSelectedId(d.id)} style={{ textAlign:"left", border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, borderRadius:RADIUS.md, padding:"10px 11px", cursor:"pointer", fontFamily:"inherit", position:"relative" }}>
-                    <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:800, color:active ? T.accent : T.text, fontSize:FONT.sm.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.client ? clientFullName(d.client) : d.titre}</div>
-                        <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginTop:4, fontSize:FONT.xs.size, color:T.textMuted }}><span>{d.statut}</span><span>{new Date(d.updated_at || d.created_at).toLocaleDateString("fr-FR")}</span></div>
-                      </div>
-                      <span
-                        title="Supprimer le dossier"
-                        onClick={(e)=>{ e.stopPropagation(); supprimerDossier(d.id); }}
-                        style={{ width:24, height:24, borderRadius:RADIUS.sm+2, flexShrink:0, display:"inline-flex", alignItems:"center", justifyContent:"center", color:DA, background:SEMANTIC.danger.bg, border:`1px solid ${SEMANTIC.danger.border}`, cursor:"pointer" }}
-                      >
-                        <Icon as={Trash2} size={12} strokeWidth={2.3}/>
-                      </span>
-                    </div>
-                  </button>;
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {!dossier ? (
-          <div className="inv-card"><div className="inv-card-bd" style={{ textAlign:"center", padding:60, color:T.textMuted }}>Sélectionnez ou créez un dossier de structuration patrimoniale.</div></div>
-        ) : (
-          <div style={{ display:"flex", flexDirection:"column", gap:SPACING.lg }}>
-            <div className="inv-card">
-              <div className="inv-card-bd">
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:SPACING.md, marginBottom:SPACING.md }}>
-                  {[
-                    ["Patrimoine brut", fmtEur(c.patrimoineBrut), Wallet, T.accent],
-                    ["Patrimoine net", fmtEur(c.patrimoineNet), TrendingUp, SU],
-                    ["Cash-flow locatif", `${fmtEur(c.cashflowMois)}/mois`, Euro, c.cashflowMois >= 0 ? SU : DA],
-                    ["Endettement", c.revenusRetenus ? `${(c.tauxEndettement*100).toFixed(1)} %` : "—", BarChart3, c.tauxEndettement > .35 ? DA : WA],
-                    ["Forfait Phase 1", fmtEur(c.tarif.phase1), Briefcase, "#FFC200"],
-                  ].map(([label,val,IconComp,color])=><KPICard key={label} label={label} value={val} icon={IconComp} color={color}/>) }
-                </div>
-                <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr", gap:SPACING.sm, alignItems:"end" }}>
-                  <StructField T={T} label="Titre du dossier" value={dossier.titre} onChange={v=>patchDossier({ titre:v })}/>
-                  <StructField T={T} label="Statut" value={dossier.statut} onChange={v=>patchDossier({ statut:v })} options={STRUCT_STATUTS}/>
-                  <StructField T={T} label="Phase" value={dossier.phase} onChange={v=>patchDossier({ phase:v })} options={STRUCT_PHASES}/>
-                  <StructField T={T} label="Conseiller" value={dossier.conseiller} onChange={v=>patchDossier({ conseiller:v })}/>
-                </div>
-                <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:10 }}>
-                  <div style={{ flex:1, height:6, background:T.input, borderRadius:999, overflow:"hidden" }}><div style={{ width:`${c.completion}%`, height:"100%", background:T.accent }}/></div>
-                  <div style={{ color:T.textSub, fontSize:FONT.xs.size, fontWeight:800 }}>{c.completion}% complété · Tarif : {c.tarif.tranche} · Phase 2 : {fmtEur(c.tarif.phase2)}/mois</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="inv-tab-nav" style={{ borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.border}` }}>
-              {[ ["collecte","Collecte informations & documents", FileText], ["analyse","Analyse stratégique & préconisations", Sparkles] ].map(([k,l,IconComp])=>(
-                <button key={k} className={`inv-tab-btn${tab===k?" active":""}`} onClick={()=>setTab(k)} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Icon as={IconComp} size={13}/>{l}</button>
-              ))}
-            </div>
-
-            {tab === "collecte" && <>
-              <div className="inv-card"><div className="inv-card-hd blue">1 — Situation personnelle & professionnelle</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:SPACING.md }}>
-                <StructField T={T} label="Prénom" value={p.prenom} onChange={v=>updateSection("profil","prenom",v)}/><StructField T={T} label="Nom" value={p.nom} onChange={v=>updateSection("profil","nom",v)}/><StructField T={T} label="Email CRM" type="email" value={p.email} onChange={v=>updateSection("profil","email",v)}/><StructField T={T} label="Téléphone CRM" value={p.telephone} onChange={v=>updateSection("profil","telephone",v)}/>
-                <StructField T={T} label="Conseiller CRM" value={p.conseiller} onChange={v=>updateSection("profil","conseiller",v)}/><StructField T={T} label="Statut CRM" value={p.statut_crm} onChange={v=>updateSection("profil","statut_crm",v)}/><StructField T={T} label="Budget CRM" type="number" value={p.budget_crm} onChange={v=>updateSection("profil","budget_crm",v)}/><StructField T={T} label="Étape CRM" value={p.etape_crm} onChange={v=>updateSection("profil","etape_crm",v)}/>
-                <StructField T={T} label="Âge" type="number" value={p.age} onChange={v=>updateSection("profil","age",v)}/><StructField T={T} label="Enfants" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)}/><StructField T={T} label="Situation familiale" value={p.situation_familiale} onChange={v=>updateSection("profil","situation_familiale",v)} options={["Célibataire","Marié(e)","Pacsé(e)","Concubinage","Divorcé(e)"]}/><StructField T={T} label="Régime matrimonial" value={p.regime_matrimonial} onChange={v=>updateSection("profil","regime_matrimonial",v)} options={["Communauté réduite aux acquêts","Séparation de biens","Participation aux acquêts","Communauté universelle","Non défini"]}/>
-                <StructField T={T} label="Profession / fonction" value={p.profession} onChange={v=>updateSection("profil","profession",v)}/><StructField T={T} label="Statut professionnel" value={p.statut_pro} onChange={v=>updateSection("profil","statut_pro",v)} options={["Salarié CDI","Dirigeant salarié","TNS","Chef d'entreprise","Profession libérale","Retraité"]}/>
-                <StructField T={T} label="Revenus nets mensuels" type="number" value={p.revenus_nets_mois} onChange={v=>updateSection("profil","revenus_nets_mois",v)}/><StructField T={T} label="Dividendes annuels" type="number" value={p.dividendes_an} onChange={v=>updateSection("profil","dividendes_an",v)}/><StructField T={T} label="Autres revenus annuels" type="number" value={p.autres_revenus_an} onChange={v=>updateSection("profil","autres_revenus_an",v)}/><StructField T={T} label="TMI" value={p.tmi} onChange={v=>updateSection("profil","tmi",v)} options={["0 %","11 %","30 %","41 %","45 %"]}/>
-                <StructField T={T} label="Notes CRM / contexte client" type="textarea" value={p.notes_crm} onChange={v=>updateSection("profil","notes_crm",v)} wide/>
-              </div></div>
-
-              <div className="inv-card"><div className="inv-card-hd blue" style={{ justifyContent:"space-between" }}><span>2 — Inventaire du patrimoine immobilier</span><button className="inv-btn inv-btn-sm inv-btn-blue" onClick={addLot}><Icon as={Plus} size={12}/> Ajouter un lot</button></div><div className="inv-card-bd">
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md, marginBottom:SPACING.md }}>
-                  <StructField T={T} label="Statut résidence principale" value={pat.residence_principale_statut} onChange={v=>updateSection("patrimoine","residence_principale_statut",v)} options={["Propriétaire","Locataire","Logé gratuitement"]}/><StructField T={T} label="Valeur RP estimée" type="number" value={pat.rp_valeur} onChange={v=>updateSection("patrimoine","rp_valeur",v)}/><StructField T={T} label="CRD crédit RP" type="number" value={pat.rp_crd} onChange={v=>updateSection("patrimoine","rp_crd",v)}/>
-                </div>
-                <div style={{ overflowX:"auto" }}><table style={{ width:"100%", borderCollapse:"collapse", minWidth:980 }}><thead><tr style={{ color:T.textMuted, fontSize:FONT.xs.size, textTransform:"uppercase" }}><th>#</th><th>Adresse / quartier</th><th>Type</th><th>Détention</th><th>Régime</th><th>Loyer</th><th>Mensualité</th><th>CRD</th><th>Valeur</th><th></th></tr></thead><tbody>{lots.map((l,i)=><tr key={i} style={{ borderTop:`1px solid ${T.rowBorder}` }}><td style={{ color:T.accent, fontWeight:800 }}>{i+1}</td><td><input className="inv-inp" value={l.adresse || ""} onChange={e=>updateLot(i,"adresse",e.target.value)} style={{ width:"100%", textAlign:"left" }}/></td><td><select className="inv-sel" value={l.type || ""} onChange={e=>updateLot(i,"type",e.target.value)}>{STRUCT_LOT_TYPES.map(x=><option key={x}>{x}</option>)}</select></td><td><select className="inv-sel" value={l.structure || ""} onChange={e=>updateLot(i,"structure",e.target.value)}>{STRUCT_DETENTION.map(x=><option key={x}>{x}</option>)}</select></td><td><select className="inv-sel" value={l.regime || ""} onChange={e=>updateLot(i,"regime",e.target.value)}>{STRUCT_REGIMES.map(x=><option key={x}>{x}</option>)}</select></td>{["loyer_mois","mensualite","crd","valeur"].map(k=><td key={k}><input className="inv-inp" type="number" value={l[k] || ""} onChange={e=>updateLot(i,k,e.target.value)} style={{ width:100 }}/></td>)}<td><button className="inv-rm" onClick={()=>removeLot(i)}>×</button></td></tr>)}</tbody></table></div>
-                <div style={{ display:"flex", gap:SPACING.lg, marginTop:SPACING.md, color:T.textSub, flexWrap:"wrap" }}><b>Valeur : <span style={{color:T.accent}}>{fmtEur(c.valeurLots)}</span></b><b>Loyers : <span style={{color:SU}}>{fmtEur(c.loyers)}/mois</span></b><b>Mensualités : <span style={{color:WA}}>{fmtEur(c.mensualitesLots)}/mois</span></b><b>CRD : <span style={{color:T.text}}>{fmtEur(c.crdLots)}</span></b></div>
-              </div></div>
-
-              <div className="inv-card"><div className="inv-card-hd mid">3 — Financement, structures & objectifs</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:SPACING.md }}>
-                <StructField T={T} label="Banque principale" value={fin.banque_principale} onChange={v=>updateSection("financement","banque_principale",v)}/><StructField T={T} label="Mensualités totales" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)}/><StructField T={T} label="Apport disponible" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)}/><StructField T={T} label="Capacité avec revente" type="number" value={fin.capacite_avec_revente} onChange={v=>updateSection("financement","capacite_avec_revente",v)}/>
-                <StructField T={T} label="SCI existante" value={st.sci_existante} onChange={v=>updateSection("structures","sci_existante",v)}/><StructField T={T} label="Régime SCI" value={st.sci_regime} onChange={v=>updateSection("structures","sci_regime",v)} options={["IR","IS","Non défini"]}/><StructField T={T} label="Holding envisagée" value={st.holding_envisagee} onChange={v=>updateSection("structures","holding_envisagee",v)} options={["Oui","Non","À étudier"]}/><StructField T={T} label="Nouvelles SCI" value={st.nouvelles_sci} onChange={v=>updateSection("structures","nouvelles_sci",v)} options={["Oui — 1 SCI/projet","À définir","Non"]}/>
-                <StructField T={T} label="Objectif principal" value={obj.objectif_principal} onChange={v=>updateSection("objectifs","objectif_principal",v)} options={["Cash-flow","Capitalisation","Transmission","Défiscalisation","Accélération patrimoniale","Sécurisation"]}/><StructField T={T} label="Horizon" value={obj.horizon} onChange={v=>updateSection("objectifs","horizon",v)} options={["5 ans","10 ans","15 ans","20 ans +"]}/><StructField T={T} label="Rendement cible" type="number" value={obj.rendement_cible} onChange={v=>updateSection("objectifs","rendement_cible",v)}/><StructField T={T} label="Rythme d'achat" value={obj.rythme_achat} onChange={v=>updateSection("objectifs","rythme_achat",v)} options={["1 bien / an","2 biens / an","1 bien / 2 ans","Opportuniste"]}/>
-                <StructField T={T} label="Transmission / succession" type="textarea" value={st.transmission} onChange={v=>updateSection("structures","transmission",v)} wide/>
-              </div></div>
-
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.lg }}>
-                <div className="inv-card"><div className="inv-card-hd">4 — Patrimoine financier</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>{[["Liquidités", "liquidites"],["Assurance-vie", "assurance_vie"],["PEA / CTO", "pea_cto"],["PER", "per"],["Épargne salariale", "epargne_salariale"],["Autres", "autres"]].map(([l,k])=><StructField T={T} key={k} label={l} type="number" value={pf[k]} onChange={v=>updateSection("patrimoine_financier",k,v)}/>)}</div></div>
-                <div className="inv-card"><div className="inv-card-hd">5 — Documents de collecte</div><div className="inv-card-bd" style={{ display:"flex", flexDirection:"column", gap:8 }}>{docs.map((doc,i)=><div key={doc.id || i} style={{ display:"grid", gridTemplateColumns:"1.2fr 150px 1fr", gap:8, alignItems:"center" }}><div style={{ color:T.text, fontWeight:700, fontSize:FONT.sm.size }}>{doc.label}</div><select className="inv-sel" value={doc.statut} onChange={e=>updateDoc(i,"statut",e.target.value)}>{STRUCT_DOC_STATUTS.map(s=><option key={s}>{s}</option>)}</select><input className="inv-inp" placeholder="Commentaire" value={doc.commentaire || ""} onChange={e=>updateDoc(i,"commentaire",e.target.value)} style={{ width:"100%", textAlign:"left" }}/></div>)}</div></div>
-              </div>
-              <DocumentsSection folder={`structuration/${selectedId}`} T={T} />
-            </>}
-
-            {tab === "analyse" && <>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.lg }}>
-                <div className="inv-card"><div className="inv-card-hd blue">Diagnostic patrimonial</div><div className="inv-card-bd"><StructField T={T} label="Diagnostic synthétique" type="textarea" value={data.analyse?.diagnostic} onChange={v=>updateAnalyse("diagnostic",v)} placeholder="Situation actuelle, points de blocage, lecture bancaire, fiscalité..." wide/><StructField T={T} label="Stratégie recommandée" type="textarea" value={data.analyse?.strategie_recommandee} onChange={v=>updateAnalyse("strategie_recommandee",v)} placeholder="Orientation globale : conserver, arbitrer, structurer, transmettre..." wide/></div></div>
-                <div className="inv-card"><div className="inv-card-hd gold">Ratios d'aide à la décision</div><div className="inv-card-bd">{[["Rendement brut parc", c.rendementBrut ? `${(c.rendementBrut*100).toFixed(2)} %` : "—"],["LTV globale", c.ltv ? `${(c.ltv*100).toFixed(1)} %` : "—"],["Base IFI estimée", fmtEur(c.ifiBase)],["Revenus retenus banque", `${fmtEur(c.revenusRetenus)}/mois`],["Cash-flow locatif", `${fmtEur(c.cashflowMois)}/mois`],["Complétude documents", `${c.docsRecus}/${docs.length}`]].map(([l,v])=><div className="inv-row" key={l}><span className="inv-lbl">{l}</span><span className="inv-val calc">{v}</span></div>)}</div></div>
-              </div>
-              <div className="inv-card"><div className="inv-card-hd mid">Scénarios stratégiques</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md }}>{(data.analyse?.scenarios || []).map((s,i)=><div key={s.id || i} style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:SPACING.md, background:T.input }}><input className="inv-inp" value={s.nom} onChange={e=>{ const scenarios=[...(data.analyse?.scenarios||[])]; scenarios[i]={...scenarios[i],nom:e.target.value}; updateAnalyse("scenarios",scenarios); }} style={{ width:"100%", textAlign:"left", fontWeight:800, marginBottom:8 }}/><textarea className="inv-textarea" rows={3} value={s.objectif} onChange={e=>{ const scenarios=[...(data.analyse?.scenarios||[])]; scenarios[i]={...scenarios[i],objectif:e.target.value}; updateAnalyse("scenarios",scenarios); }}/><select className="inv-sel" value={s.statut} onChange={e=>{ const scenarios=[...(data.analyse?.scenarios||[])]; scenarios[i]={...scenarios[i],statut:e.target.value}; updateAnalyse("scenarios",scenarios); }} style={{ width:"100%", marginTop:8 }}><option>À étudier</option><option>Recommandé</option><option>Écarté</option><option>À valider avec expert</option></select></div>)}</div></div>
-              <div className="inv-card"><div className="inv-card-hd" style={{ justifyContent:"space-between" }}><span>Préconisations</span><button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addReco}><Icon as={Plus} size={12}/> Ajouter</button></div><div className="inv-card-bd" style={{ display:"flex", flexDirection:"column", gap:10 }}>{(data.analyse?.preconisations || []).map((r,i)=><div key={r.id || i} style={{ display:"grid", gridTemplateColumns:"130px 110px 1fr 1fr 1fr 34px", gap:8, alignItems:"start", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:SPACING.sm, background:T.input }}><select className="inv-sel" value={r.axe} onChange={e=>updateReco(i,"axe",e.target.value)}>{["Financement","Fiscalité","Structure","Transmission","Arbitrage","Gestion","Documents"].map(x=><option key={x}>{x}</option>)}</select><select className="inv-sel" value={r.priorite} onChange={e=>updateReco(i,"priorite",e.target.value)}>{["Haute","Moyenne","Basse"].map(x=><option key={x}>{x}</option>)}</select><input className="inv-inp" value={r.titre} onChange={e=>updateReco(i,"titre",e.target.value)} style={{ width:"100%", textAlign:"left" }}/><textarea className="inv-textarea" rows={2} value={r.detail} onChange={e=>updateReco(i,"detail",e.target.value)}/><textarea className="inv-textarea" rows={2} value={r.action} onChange={e=>updateReco(i,"action",e.target.value)} placeholder="Action à engager"/><button className="inv-rm" onClick={()=>removeReco(i)}>×</button></div>)}</div></div>
-              <div className="inv-card"><div className="inv-card-hd danger">Points d'attention & conclusion</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}><StructField T={T} label="Points d'attention" type="textarea" value={data.analyse?.points_attention} onChange={v=>updateAnalyse("points_attention",v)} wide/><StructField T={T} label="Conclusion de restitution" type="textarea" value={data.analyse?.conclusion} onChange={v=>updateAnalyse("conclusion",v)} wide/></div></div>
-            </>}
-          </div>
-        )}
+            <div style={{ marginTop:8 }}>{renderProgress(cc.completion, 3)}</div>
+            <div style={{ marginTop:5, color:T.textMuted, fontSize:FONT.xs.size }}>{cc.completion} % complété</div>
+          </button>;
+        })}
       </div>
     </div>
   );
+
+  const renderListView = () => {
+    const count = (status) => dossiers.filter(d => d.statut === status).length;
+    const avgCompletion = dossiers.length ? Math.round(dossiers.reduce((s,d)=>s+calc(mergeStructData(d)).completion,0)/dossiers.length) : 0;
+    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, ...cardStyle, padding:"18px 20px" }}>
+        <div>
+          <div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Tableau de bord structuration</div>
+          <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Pilotage des missions de collecte, analyse, restitution et suivi patrimonial</div>
+        </div>
+        <button className="inv-btn inv-btn-gold" onClick={()=>newClientId ? creerDossier() : alert("Sélectionnez un client dans la colonne de gauche.")}><Icon as={Plus} size={14}/> Nouveau dossier</button>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:SPACING.md }}>
+        {kpi("Dossiers total", dossiers.length, "Portefeuille structuration")}
+        {kpi("En collecte", count("Collecte"), "Données & documents")}
+        {kpi("En analyse", count("Analyse") + count("Préconisations"), "Stratégie à formaliser", "gold")}
+        {kpi("Complétude moyenne", `${avgCompletion} %`, "Qualité des dossiers", avgCompletion > 70 ? "green" : "red")}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:SPACING.md }}>
+        {dossiers.map(d => {
+          const md = mergeStructData(d);
+          const cc = calc(md);
+          const initials = ((d.client?.prenom || md.collecte?.profil?.prenom || "?")[0] + (d.client?.nom || md.collecte?.profil?.nom || "?")[0]).toUpperCase();
+          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("profil"); }} style={{ ...cardStyle, padding:16, textAlign:"left", cursor:"pointer", fontFamily:"inherit" }}>
+            <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
+              <div style={{ width:42, height:42, borderRadius:"50%", background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>{initials}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:900, color:T.text, fontSize:FONT.md.size }}>{d.client ? clientFullName(d.client) : d.titre}</div>
+                <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1 }}>{d.conseiller || "Sans conseiller"}</div>
+              </div>
+              <span style={chipStyle(d.statut || "Collecte")}>{d.statut || "Collecte"}</span>
+            </div>
+            <div style={{ marginTop:14, display:"flex", justifyContent:"space-between", color:T.textMuted, fontSize:FONT.xs.size, fontWeight:800 }}><span>Progression</span><span>{cc.completion} %</span></div>
+            <div style={{ marginTop:5 }}>{renderProgress(cc.completion, 5)}</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:12, color:T.textSub, fontSize:FONT.xs.size+1 }}>
+              <span>Patrimoine : <b style={{ color:T.text }}>{fmtEur(cc.patrimoineBrut)}</b></span>
+              <span>Docs : <b style={{ color:T.text }}>{cc.docsRecus}/{docs.length || STRUCT_DOCS_DEFAULT.length}</b></span>
+            </div>
+          </button>;
+        })}
+      </div>
+    </div>;
+  };
+
+  const renderDossierHeader = () => (
+    <div style={{ ...cardStyle, overflow:"hidden" }}>
+      <div style={{ background:T.sidebar, padding:"16px 18px", display:"flex", alignItems:"center", gap:SPACING.md, borderBottom:`1px solid ${T.sidebarBorder}` }}>
+        <button className="inv-btn inv-btn-sm" onClick={()=>setSelectedId(null)} style={{ background:"rgba(255,255,255,0.06)", color:T.textSub, border:`1px solid ${T.sidebarBorder}` }}><Icon as={ArrowLeft} size={13}/> Dossiers</button>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:25, fontWeight:500, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{currentClient ? clientFullName(currentClient) : (dossier?.titre || "Dossier structuration")}</div>
+          <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, marginTop:2 }}>{dossier?.phase || "Phase 1"} · Créé le {dossier?.created_at ? new Date(dossier.created_at).toLocaleDateString("fr-FR") : "—"}</div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
+          {saving && <span style={{ color:T.accent, fontSize:FONT.xs.size, fontWeight:800 }}><Icon as={RefreshCw} size={12} style={{animation:"spin 1s linear infinite"}}/> Enregistrement…</span>}
+          {saved && <span style={{ color:SU, fontSize:FONT.xs.size, fontWeight:900 }}><Icon as={Check} size={13}/> Sauvegardé</span>}
+          <select className="inv-sel" value={dossier?.statut || "Collecte"} onChange={e=>patchDossier({ statut:e.target.value })} style={{ minWidth:140 }}>{STRUCT_STATUTS.map(s=><option key={s} value={s}>{s}</option>)}</select>
+          <select className="inv-sel" value={dossier?.phase || "Phase 1 — Audit & Conseil"} onChange={e=>patchDossier({ phase:e.target.value })} style={{ minWidth:210 }}>{STRUCT_PHASES.map(s=><option key={s} value={s}>{s}</option>)}</select>
+          <button className="inv-btn inv-btn-blue" onClick={reintegrerInfosClientCRM} disabled={!dossier?.client_id}><Icon as={RefreshCw} size={13}/> Réimporter CRM</button>
+          <button className="inv-btn inv-btn-gold" onClick={()=>sauvegarder()}><Icon as={Save} size={13}/> Enregistrer</button>
+          <button className="inv-btn inv-btn-sm" onClick={()=>supprimerDossier(dossier.id)} style={{ background:SEMANTIC.danger.bg, color:DA, border:`1px solid ${SEMANTIC.danger.border}` }}><Icon as={Trash2} size={13}/></button>
+        </div>
+      </div>
+      <div style={{ padding:"14px 18px", display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:SPACING.md }}>
+        {kpi("Patrimoine brut", fmtEur(c.patrimoineBrut), c.tarif.tranche)}
+        {kpi("Patrimoine net", fmtEur(c.patrimoineNet), `LTV ${fmtPct(c.ltv)}`)}
+        {kpi("Cash-flow locatif", `${fmtEur(c.cashflowMois)}/mois`, `Loyers ${fmtEur(c.loyers)}/mois`, c.cashflowMois >= 0 ? "green" : "red")}
+        {kpi("Endettement indicatif", fmtPct(c.tauxEndettement), "Lecture bancaire à qualifier", c.tauxEndettement > 0.35 ? "red" : "green")}
+        {kpi("Mission Phase 1", fmtEur(c.tarif.phase1), `Phase 2 ${fmtEur(c.tarif.phase2)}/mois`, "gold")}
+      </div>
+      <div style={{ padding:"0 18px 16px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", color:T.textMuted, fontSize:FONT.xs.size, marginBottom:6, fontWeight:800 }}><span>Progression du dossier</span><span>{c.completion} %</span></div>
+        {renderProgress(c.completion, 6)}
+      </div>
+    </div>
+  );
+
+  const tabItems = [
+    { id:"profil", label:"Profil" },
+    { id:"patrimoine", label:"Patrimoine" },
+    { id:"financement", label:"Financement" },
+    { id:"documents", label:"Documents" },
+    { id:"notes", label:"Notes & suivi" },
+    { id:"analyse", label:"Analyse & préconisations" },
+  ];
+  const renderTabs = () => <div style={{ ...cardStyle, display:"flex", gap:0, padding:"0 14px", overflowX:"auto" }}>{tabItems.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"13px 15px", border:"none", borderBottom:`2px solid ${tab === t.id ? T.accent : "transparent"}`, background:"transparent", color:tab === t.id ? T.text : T.textMuted, cursor:"pointer", fontFamily:"inherit", fontWeight:900, fontSize:FONT.sm.size, whiteSpace:"nowrap" }}>{t.label}</button>)}</div>;
+
+  const renderProfil = () => <div style={{ display:"grid", gridTemplateColumns:"1.2fr .8fr", gap:SPACING.md }}>
+    <div style={cardStyle}>{cardHd("Situation personnelle", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md }}>
+      <StructField T={T} label="Prénom" value={p.prenom} onChange={v=>updateSection("profil","prenom",v)} />
+      <StructField T={T} label="Nom" value={p.nom} onChange={v=>updateSection("profil","nom",v)} />
+      <StructField T={T} label="Âge" type="number" value={p.age} onChange={v=>updateSection("profil","age",v)} />
+      <StructField T={T} label="Email" value={p.email} onChange={v=>updateSection("profil","email",v)} />
+      <StructField T={T} label="Téléphone" value={p.telephone} onChange={v=>updateSection("profil","telephone",v)} />
+      <StructField T={T} label="Situation familiale" value={p.situation_familiale} onChange={v=>updateSection("profil","situation_familiale",v)} options={["Célibataire","Marié(e)","Pacsé(e)","Divorcé(e)","Concubinage","Veuf/veuve"]} />
+      <StructField T={T} label="Régime matrimonial" value={p.regime_matrimonial} onChange={v=>updateSection("profil","regime_matrimonial",v)} options={["Communauté réduite aux acquêts","Séparation de biens","Participation aux acquêts","Communauté universelle","Non concerné"]} />
+      <StructField T={T} label="Nombre d'enfants" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)} />
+      <StructField T={T} label="Résidence fiscale" value={p.residence_fiscale} onChange={v=>updateSection("profil","residence_fiscale",v)} options={["France","DOM-TOM","Étranger"]} />
+    </div></div>
+    <div style={cardStyle}>{cardHd("Infos CRM réintégrées")}
+      <div style={{ padding:16, display:"flex", flexDirection:"column", gap:10 }}>
+        <div style={{ color:T.textSub, fontSize:FONT.sm.size, lineHeight:1.5 }}>Les champs ci-dessous sont alimentés depuis la fiche client pour éviter une double saisie.</div>
+        <div style={{ display:"grid", gap:7, fontSize:FONT.sm.size }}>
+          <span style={{ color:T.textMuted }}>Statut CRM : <b style={{ color:T.text }}>{p.statut_crm || "—"}</b></span>
+          <span style={{ color:T.textMuted }}>Étape CRM : <b style={{ color:T.text }}>{p.etape_crm || "—"}</b></span>
+          <span style={{ color:T.textMuted }}>Budget CRM : <b style={{ color:T.text }}>{fmtEur(p.budget_crm)}</b></span>
+          <span style={{ color:T.textMuted }}>Conseiller : <b style={{ color:T.text }}>{p.conseiller || dossier?.conseiller || "—"}</b></span>
+        </div>
+        <button className="inv-btn inv-btn-blue" onClick={reintegrerInfosClientCRM} disabled={!dossier?.client_id}><Icon as={RefreshCw} size={13}/> Réimporter les infos CRM</button>
+      </div>
+    </div>
+    <div style={{ ...cardStyle, gridColumn:"1 / -1" }}>{cardHd("Situation professionnelle & fiscale", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:SPACING.md }}>
+      <StructField T={T} label="Profession / fonction" value={p.profession} onChange={v=>updateSection("profil","profession",v)} />
+      <StructField T={T} label="Statut professionnel" value={p.statut_pro} onChange={v=>updateSection("profil","statut_pro",v)} options={["Salarié CDI","Dirigeant salarié","TNS / Indépendant","Chef d'entreprise","Profession libérale","Retraité","Autre"]} />
+      <StructField T={T} label="Revenus nets / mois" type="number" value={p.revenus_nets_mois} onChange={v=>updateSection("profil","revenus_nets_mois",v)} />
+      <StructField T={T} label="Dividendes / an" type="number" value={p.dividendes_an} onChange={v=>updateSection("profil","dividendes_an",v)} />
+      <StructField T={T} label="Autres revenus / an" type="number" value={p.autres_revenus_an} onChange={v=>updateSection("profil","autres_revenus_an",v)} />
+      <StructField T={T} label="TMI" value={p.tmi} onChange={v=>updateSection("profil","tmi",v)} options={["11 %","30 %","41 %","45 %"]} />
+      <StructField T={T} label="IFI" value={p.ifi} onChange={v=>updateSection("profil","ifi",v)} options={["Non assujetti","Proche du seuil","Assujetti"]} />
+    </div></div>
+  </div>;
+
+  const renderPatrimoine = () => <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
+    <div style={cardStyle}>{cardHd("Inventaire immobilier", "gold")}<div style={{ padding:16 }}>
+      <div style={{ color:T.textSub, fontSize:FONT.sm.size, marginBottom:12 }}>Renseigner chaque bien détenu : valeur, CRD, loyers, mensualités, régime fiscal et structure de détention.</div>
+      <div style={{ overflowX:"auto" }}><table className="inv-table" style={{ minWidth:960 }}><thead><tr><th>#</th><th>Adresse / quartier</th><th>Type</th><th>Structure</th><th>Régime</th><th>Loyer/mois</th><th>Mensualité</th><th>CRD</th><th>Valeur</th><th></th></tr></thead><tbody>{lots.map((l,i)=><tr key={i}><td style={{ color:T.accent, fontWeight:900 }}>{i+1}</td><td><input className="inv-inp" value={l.adresse || ""} onChange={e=>updateLot(i,"adresse",e.target.value)} /></td><td><select className="inv-sel" value={l.type || ""} onChange={e=>updateLot(i,"type",e.target.value)}>{STRUCT_LOT_TYPES.map(o=><option key={o}>{o}</option>)}</select></td><td><select className="inv-sel" value={l.structure || ""} onChange={e=>updateLot(i,"structure",e.target.value)}>{STRUCT_DETENTION.map(o=><option key={o}>{o}</option>)}</select></td><td><select className="inv-sel" value={l.regime || ""} onChange={e=>updateLot(i,"regime",e.target.value)}>{STRUCT_REGIMES.map(o=><option key={o}>{o}</option>)}</select></td><td><input className="inv-inp" type="number" value={l.loyer_mois || ""} onChange={e=>updateLot(i,"loyer_mois",e.target.value)} style={{ textAlign:"right" }}/></td><td><input className="inv-inp" type="number" value={l.mensualite || ""} onChange={e=>updateLot(i,"mensualite",e.target.value)} style={{ textAlign:"right" }}/></td><td><input className="inv-inp" type="number" value={l.crd || ""} onChange={e=>updateLot(i,"crd",e.target.value)} style={{ textAlign:"right" }}/></td><td><input className="inv-inp" type="number" value={l.valeur || ""} onChange={e=>updateLot(i,"valeur",e.target.value)} style={{ textAlign:"right" }}/></td><td><button className="inv-rm" onClick={()=>removeLot(i)}>×</button></td></tr>)}</tbody></table></div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, marginTop:12, flexWrap:"wrap" }}><button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addLot}><Icon as={Plus} size={12}/> Ajouter un lot</button><div style={{ display:"flex", gap:16, flexWrap:"wrap", color:T.textMuted, fontSize:FONT.sm.size }}><span>Valeur : <b style={{ color:T.text }}>{fmtEur(c.valeurLots)}</b></span><span>Loyers : <b style={{ color:T.text }}>{fmtEur(c.loyers)}/mois</b></span><span>Mensualités : <b style={{ color:T.text }}>{fmtEur(c.mensualitesLots)}/mois</b></span><span>CRD : <b style={{ color:T.text }}>{fmtEur(c.crdLots)}</b></span></div></div>
+    </div></div>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>
+      <div style={cardStyle}>{cardHd("Résidence principale")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md }}><StructField T={T} label="Statut RP" value={pat.residence_principale_statut} onChange={v=>updateSection("patrimoine","residence_principale_statut",v)} options={["Propriétaire","Locataire","Logé gratuitement"]}/><StructField T={T} label="Valeur RP" type="number" value={pat.rp_valeur} onChange={v=>updateSection("patrimoine","rp_valeur",v)}/><StructField T={T} label="CRD RP" type="number" value={pat.rp_crd} onChange={v=>updateSection("patrimoine","rp_crd",v)}/></div></div>
+      <div style={cardStyle}>{cardHd("Patrimoine financier")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md }}><StructField T={T} label="Liquidités" type="number" value={pf.liquidites} onChange={v=>updateSection("patrimoine_financier","liquidites",v)}/><StructField T={T} label="Assurance-vie" type="number" value={pf.assurance_vie} onChange={v=>updateSection("patrimoine_financier","assurance_vie",v)}/><StructField T={T} label="PEA / CTO" type="number" value={pf.pea_cto} onChange={v=>updateSection("patrimoine_financier","pea_cto",v)}/><StructField T={T} label="PER" type="number" value={pf.per} onChange={v=>updateSection("patrimoine_financier","per",v)}/><StructField T={T} label="Épargne salariale" type="number" value={pf.epargne_salariale} onChange={v=>updateSection("patrimoine_financier","epargne_salariale",v)}/><StructField T={T} label="Autres" type="number" value={pf.autres} onChange={v=>updateSection("patrimoine_financier","autres",v)}/></div></div>
+    </div>
+  </div>;
+
+  const renderFinancement = () => <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>
+    <div style={cardStyle}>{cardHd("Situation bancaire", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:SPACING.md }}><StructField T={T} label="Banque principale" value={fin.banque_principale} onChange={v=>updateSection("financement","banque_principale",v)}/><StructField T={T} label="Relation bancaire" value={fin.relation_bancaire} onChange={v=>updateSection("financement","relation_bancaire",v)} options={["4 banques en concurrence","Banque unique","Via courtier","Mix banques + courtier"]}/><StructField T={T} label="Mensualités totales" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)}/><StructField T={T} label="Apport disponible" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)}/><StructField T={T} label="Capacité avec revente" type="number" value={fin.capacite_avec_revente} onChange={v=>updateSection("financement","capacite_avec_revente",v)}/><StructField T={T} label="Finançable sans revente" value={fin.financable_sans_revente} onChange={v=>updateSection("financement","financable_sans_revente",v)} options={["Oui","Non — bloqué","Partiellement","À confirmer"]}/><StructField T={T} label="Taux moyen" type="number" value={fin.taux_moyen} onChange={v=>updateSection("financement","taux_moyen",v)}/><StructField T={T} label="Durée initiale" value={fin.duree_initiale} onChange={v=>updateSection("financement","duree_initiale",v)} options={["15 ans","20 ans","25 ans","Mix"]}/></div></div>
+    <div style={cardStyle}>{cardHd("Objectifs & structures", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:SPACING.md }}><StructField T={T} label="Objectif principal" value={obj.objectif_principal} onChange={v=>updateSection("objectifs","objectif_principal",v)} options={["Cash-flow","Capitalisation","Transmission","Défiscalisation","Accélération patrimoniale","Mix"]}/><StructField T={T} label="Horizon" value={obj.horizon} onChange={v=>updateSection("objectifs","horizon",v)} options={["5 ans","10 ans","15 ans","20 ans","20 ans +"]}/><StructField T={T} label="Rendement cible" type="number" value={obj.rendement_cible} onChange={v=>updateSection("objectifs","rendement_cible",v)}/><StructField T={T} label="Rythme d'achat" value={obj.rythme_achat} onChange={v=>updateSection("objectifs","rythme_achat",v)} options={["1 bien / an","2 biens / an","1 bien / 2 ans","Opportuniste"]}/><StructField T={T} label="Zones" value={obj.zones} onChange={v=>updateSection("objectifs","zones",v)} /><StructField T={T} label="Gestion locative" value={obj.gestion_locative} onChange={v=>updateSection("objectifs","gestion_locative",v)} options={["Lui-même","Agence","Mix","À déléguer"]}/><StructField T={T} label="SCI existante" value={st.sci_existante} onChange={v=>updateSection("structures","sci_existante",v)} /><StructField T={T} label="Régime SCI" value={st.sci_regime} onChange={v=>updateSection("structures","sci_regime",v)} options={["IR","IS","Non défini","Pas de SCI"]}/><StructField T={T} label="Holding envisagée" value={st.holding_envisagee} onChange={v=>updateSection("structures","holding_envisagee",v)} options={["Oui","Non","À étudier"]}/><StructField T={T} label="Transmission" value={st.transmission} onChange={v=>updateSection("structures","transmission",v)} /></div></div>
+  </div>;
+
+  const renderDocuments = () => <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 380px", gap:SPACING.md }}>
+    <div style={cardStyle}>{cardHd("Checklist documentaire", "gold")}<div style={{ padding:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", color:T.textMuted, fontSize:FONT.sm.size, marginBottom:8 }}><span>Documents reçus / traités</span><b style={{ color:T.text }}>{c.docsRecus}/{docs.length}</b></div>{renderProgress(docs.length ? (c.docsRecus/docs.length)*100 : 0, 6)}
+      <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:14 }}>{docs.map((doc,i)=><div key={doc.id || i} style={{ display:"grid", gridTemplateColumns:"1fr 150px 1.2fr", gap:8, alignItems:"center", padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.input }}><div style={{ color:T.text, fontWeight:800, fontSize:FONT.sm.size }}>{doc.label}</div><select className="inv-sel" value={doc.statut || "À demander"} onChange={e=>updateDoc(i,"statut",e.target.value)}>{STRUCT_DOC_STATUTS.map(o=><option key={o}>{o}</option>)}</select><input className="inv-inp" value={doc.commentaire || ""} placeholder="Commentaire" onChange={e=>updateDoc(i,"commentaire",e.target.value)}/></div>)}</div>
+    </div></div>
+    <div style={cardStyle}>{cardHd("Fichiers du dossier")}
+      <div style={{ padding:16 }}>
+        <div style={{ color:T.textSub, fontSize:FONT.sm.size, lineHeight:1.5, marginBottom:12 }}>Ajoutez ici les PDF, photos et pièces justificatives du dossier de structuration.</div>
+        {selectedId ? <DocumentsSection folder={`structuration/${selectedId}`} T={T} /> : <div style={{ color:T.textMuted }}>Créez d’abord un dossier.</div>}
+      </div>
+    </div>
+  </div>;
+
+  const renderNotes = () => <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>
+    <div style={cardStyle}>{cardHd("Notes RDV", "gold")}<div style={{ padding:16, display:"grid", gap:SPACING.md }}><StructField T={T} label="Motivations captées" type="textarea" value={rdv.motivations} onChange={v=>updateSection("rdv","motivations",v)} wide/><StructField T={T} label="Objections / résistances" type="textarea" value={rdv.objections} onChange={v=>updateSection("rdv","objections",v)} wide/><StructField T={T} label="Notes libres" type="textarea" value={rdv.notes} onChange={v=>updateSection("rdv","notes",v)} wide/></div></div>
+    <div style={cardStyle}>{cardHd("Issue & suivi")}
+      <div style={{ padding:16, display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}><StructField T={T} label="Issue" value={rdv.issue} onChange={v=>updateSection("rdv","issue",v)} options={["Phase 1 signée","Phase 1 + Phase 2 signées","Réflexion — relance fixée","Refus","Contrat à envoyer"]}/><StructField T={T} label="Date de relance" type="date" value={rdv.relance} onChange={v=>updateSection("rdv","relance",v)}/><StructField T={T} label="Prochaine action" value={rdv.prochaine_action} onChange={v=>updateSection("rdv","prochaine_action",v)} wide/></div>
+    </div>
+  </div>;
+
+  const renderReport = () => {
+    const esc = s => String(s || "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+    const win = window.open("", "_blank", "width=980,height=850");
+    if (!win) { alert("Autorisez les pop-ups pour générer le rapport."); return; }
+    const rows = lots.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(l.adresse)}</td><td>${esc(l.type)}</td><td>${esc(l.structure)}</td><td>${esc(fmtEur(l.valeur))}</td><td>${esc(fmtEur(l.loyer_mois))}</td><td>${esc(fmtEur(l.crd))}</td></tr>`).join("");
+    const recos = (data.analyse?.preconisations || []).map(r=>`<div class="reco"><b>${esc(r.axe)} — ${esc(r.titre)}</b><p>${esc(r.detail)}</p><small>Action : ${esc(r.action)} · Priorité : ${esc(r.priorite)}</small></div>`).join("");
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(dossier?.titre)}</title><style>body{font-family:Arial,sans-serif;margin:0;background:#f5f0e8;color:#0d1b2a}.page{max-width:940px;margin:0 auto;background:white;padding:28px}.top{background:#0d1b2a;color:white;border-radius:12px;padding:22px 24px;display:flex;justify-content:space-between;gap:20px}.brand{font-family:Georgia,serif;font-size:24px}.gold{color:#c9a84c}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.kpi{border:1px solid #e8e2d6;border-left:4px solid #c9a84c;border-radius:10px;padding:12px}.kpi b{font-size:20px}.kpi span{display:block;color:#778;font-size:10px;text-transform:uppercase;margin-top:4px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{border:1px solid #e5e2da;border-radius:10px;margin-bottom:14px;overflow:hidden}.hd{background:#0d1b2a;color:white;font-weight:900;padding:9px 12px}.bd{padding:12px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f5ecd5;color:#0d1b2a;text-align:left;padding:7px}td{border-bottom:1px solid #eee;padding:7px}.reco{border-left:4px solid #c9a84c;background:#fffaf0;border-radius:8px;padding:10px;margin-bottom:8px}.no-print{position:fixed;right:15px;top:15px}.btn{background:#0d1b2a;color:white;border:0;border-radius:8px;padding:10px 15px;font-weight:800;cursor:pointer}@media print{.no-print{display:none}body{background:white}.page{max-width:none}@page{size:A4;margin:12mm}}</style></head><body><div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div><div class="page"><div class="top"><div><div class="brand">Profero Invest</div><div class="gold">Structuration patrimoniale immobilière</div></div><div style="text-align:right"><h2>${esc(currentClient ? clientFullName(currentClient) : dossier?.titre)}</h2><div>${new Date().toLocaleDateString("fr-FR")}</div></div></div><div class="kpis"><div class="kpi"><b>${fmtEur(c.patrimoineBrut)}</b><span>Patrimoine brut</span></div><div class="kpi"><b>${fmtEur(c.patrimoineNet)}</b><span>Patrimoine net</span></div><div class="kpi"><b>${fmtEur(c.cashflowMois)}/mois</b><span>Cash-flow locatif</span></div><div class="kpi"><b>${c.completion} %</b><span>Complétude</span></div></div><div class="grid"><div class="card"><div class="hd">Diagnostic</div><div class="bd">${esc(data.analyse?.diagnostic || "Diagnostic à compléter.")}</div></div><div class="card"><div class="hd">Stratégie recommandée</div><div class="bd">${esc(data.analyse?.strategie_recommandee || "Stratégie à formaliser.")}</div></div></div><div class="card"><div class="hd">Inventaire immobilier</div><div class="bd"><table><thead><tr><th>#</th><th>Bien</th><th>Type</th><th>Détention</th><th>Valeur</th><th>Loyer</th><th>CRD</th></tr></thead><tbody>${rows}</tbody></table></div></div><div class="card"><div class="hd">Préconisations</div><div class="bd">${recos || "Aucune préconisation renseignée."}</div></div><div class="card"><div class="hd">Conclusion</div><div class="bd">${esc(data.analyse?.conclusion || "Conclusion à rédiger avant restitution client.")}</div></div></div></body></html>`);
+    win.document.close();
+  };
+
+  const renderAnalyse = () => <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:SPACING.md }}>{kpi("Patrimoine brut", fmtEur(c.patrimoineBrut), "Immobilier + financier")}{kpi("Patrimoine net", fmtEur(c.patrimoineNet), `CRD ${fmtEur(c.crdTotal)}`)}{kpi("Base IFI indicative", fmtEur(c.ifiBase), "À valider fiscalement")}{kpi("Tranche tarifaire", c.tarif.tranche, `${fmtEur(c.tarif.phase1)} HT`, "gold")}</div>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}><div style={cardStyle}>{cardHd("Diagnostic patrimonial", "gold")}<div style={{ padding:16 }}><StructField T={T} label="Diagnostic" type="textarea" value={data.analyse?.diagnostic} onChange={v=>updateAnalyse("diagnostic",v)} wide/><div style={{ height:12 }}/><StructField T={T} label="Stratégie recommandée" type="textarea" value={data.analyse?.strategie_recommandee} onChange={v=>updateAnalyse("strategie_recommandee",v)} wide/></div></div><div style={cardStyle}>{cardHd("Points d'attention & conclusion")}<div style={{ padding:16 }}><StructField T={T} label="Points d'attention" type="textarea" value={data.analyse?.points_attention} onChange={v=>updateAnalyse("points_attention",v)} wide/><div style={{ height:12 }}/><StructField T={T} label="Conclusion de restitution" type="textarea" value={data.analyse?.conclusion} onChange={v=>updateAnalyse("conclusion",v)} wide/><button className="inv-btn inv-btn-blue" style={{ marginTop:12 }} onClick={renderReport}><Icon as={FileText} size={13}/> Générer le rapport PDF</button></div></div></div>
+    <div style={cardStyle}>{cardHd("Scénarios stratégiques", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{(data.analyse?.scenarios || []).map((s,i)=><div key={s.id || i} style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:12, background:T.input }}><StructField T={T} label="Nom" value={s.nom} onChange={v=>updateScenario(i,"nom",v)}/><div style={{ height:8 }}/><StructField T={T} label="Objectif" type="textarea" value={s.objectif} onChange={v=>updateScenario(i,"objectif",v)}/><div style={{ height:8 }}/><StructField T={T} label="Statut" value={s.statut} options={["À étudier","Recommandé","À écarter","En attente"]} onChange={v=>updateScenario(i,"statut",v)}/></div>)}</div></div>
+    <div style={cardStyle}>{cardHd("Préconisations opérationnelles", "gold")}<div style={{ padding:16, display:"flex", flexDirection:"column", gap:10 }}>{(data.analyse?.preconisations || []).map((r,i)=><div key={r.id || i} style={{ display:"grid", gridTemplateColumns:"140px 120px 1fr 1fr 1fr 36px", gap:8, alignItems:"center", padding:10, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.input }}><select className="inv-sel" value={r.axe || ""} onChange={e=>updateReco(i,"axe",e.target.value)}>{["Financement","Fiscalité","Structure","Transmission","Arbitrage","Gestion","Documents","Stratégie"].map(o=><option key={o}>{o}</option>)}</select><select className="inv-sel" value={r.priorite || ""} onChange={e=>updateReco(i,"priorite",e.target.value)}>{["Haute","Moyenne","Basse"].map(o=><option key={o}>{o}</option>)}</select><input className="inv-inp" value={r.titre || ""} onChange={e=>updateReco(i,"titre",e.target.value)} placeholder="Préconisation"/><input className="inv-inp" value={r.detail || ""} onChange={e=>updateReco(i,"detail",e.target.value)} placeholder="Détail"/><input className="inv-inp" value={r.action || ""} onChange={e=>updateReco(i,"action",e.target.value)} placeholder="Action"/><button className="inv-rm" onClick={()=>removeReco(i)}>×</button></div>)}<button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addReco} style={{ alignSelf:"flex-start" }}><Icon as={Plus} size={12}/> Ajouter une préconisation</button></div></div>
+  </div>;
+
+  const renderContent = () => {
+    if (!selectedId || !dossier) return renderListView();
+    const map = { profil:renderProfil, patrimoine:renderPatrimoine, financement:renderFinancement, documents:renderDocuments, notes:renderNotes, analyse:renderAnalyse };
+    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>{renderDossierHeader()}{renderTabs()}{map[tab]?.()}</div>;
+  };
+
+  return <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1720, margin:"0 auto" }}>
+    <div style={{ display:"grid", gridTemplateColumns:"300px minmax(0,1fr)", gap:SPACING.lg, alignItems:"start" }}>
+      <div style={{ position:"sticky", top:16 }}>{renderSidebarDossiers()}</div>
+      <div style={{ minWidth:0 }}>
+        {error && <div style={{ marginBottom:SPACING.md, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
+        {renderContent()}
+      </div>
+    </div>
+  </div>;
 }
 
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
