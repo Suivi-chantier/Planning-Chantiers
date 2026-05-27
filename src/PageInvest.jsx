@@ -61,6 +61,27 @@ Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
   }
 });
 
+// Page Structuration Patrimoniale — liée aux clients Invest.
+if (Array.isArray(PAGES_INVEST) && !PAGES_INVEST.some(p => p.id === "structuration")) {
+  const financeIndex = PAGES_INVEST.findIndex(p => p.id === "finance");
+  const biensIndex = PAGES_INVEST.findIndex(p => p.id === "biens");
+  const structPage = { id: "structuration", label: "Structuration Patrimoniale" };
+  if (financeIndex >= 0) PAGES_INVEST.splice(financeIndex, 0, structPage);
+  else if (biensIndex >= 0) PAGES_INVEST.splice(biensIndex + 1, 0, structPage);
+  else PAGES_INVEST.push(structPage);
+}
+Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
+  const pages = ROLE_PAGES_DEFAULT_INVEST[roleKey];
+  if (!Array.isArray(pages) || pages.includes("structuration")) return;
+  if (pages.includes("admin") || pages.includes("crm") || pages.includes("finance") || pages.includes("dashboard")) {
+    const financeIndex = pages.indexOf("finance");
+    const adminIndex = pages.indexOf("admin");
+    if (financeIndex >= 0) pages.splice(financeIndex, 0, "structuration");
+    else if (adminIndex >= 0) pages.splice(adminIndex, 0, "structuration");
+    else pages.push("structuration");
+  }
+});
+
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const LOT_TYPES  = ["Sélectionner","Studio","T1","T2","T3","T4","T5","T6","Commerce"];
 const NIVEAUX    = ["RDC","R+1","R+2","R+3","R+4","Autre"];
@@ -4116,7 +4137,7 @@ const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
 const STATUTS_PROP    = ["proposé","intéressé","refusé","en analyse","offre en cours"];
 
-function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, initialFilter }) {
+function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, initialFilter }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
@@ -4178,7 +4199,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, initialFilter }) {
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
   const gridCols = "1.55fr .85fr .85fr .9fr .85fr .95fr 1.35fr 1.25fr 75px";
 
-  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} />;
+  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} />;
 
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1600, margin:"0 auto" }}>
@@ -4632,7 +4653,7 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
   );
 }
 
-function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation }) {
+function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
   const [props, setProps]     = useState([]);
@@ -4728,6 +4749,11 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
           <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
         </button>
+        {onOpenStructuration && (
+          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOpenStructuration(client.id)}>
+            <Icon as={Briefcase} size={12} strokeWidth={2.2}/> Structuration
+          </button>
+        )}
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ${client.prenom} ${client.nom} ? Cette action est irréversible.`)) return;
           await supabase.from("invest_notes").delete().eq("client_id", id);
@@ -9279,6 +9305,454 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
   );
 }
 
+
+// ─── STRUCTURATION PATRIMONIALE ─────────────────────────────────────────────
+const STRUCT_DOCS_DEFAULT = [
+  { id:"avis_imposition", label:"Avis d'imposition", statut:"À demander", commentaire:"" },
+  { id:"tableau_credits", label:"Tableau des crédits / échéanciers", statut:"À demander", commentaire:"" },
+  { id:"actes_notaries", label:"Actes notariés / titres de propriété", statut:"À demander", commentaire:"" },
+  { id:"baux", label:"Baux locatifs et loyers", statut:"À demander", commentaire:"" },
+  { id:"taxes_foncieres", label:"Taxes foncières", statut:"À demander", commentaire:"" },
+  { id:"charges_copro", label:"Charges de copropriété / PV d'AG", statut:"À demander", commentaire:"" },
+  { id:"dpe_ddt", label:"DPE / diagnostics / DDT", statut:"À demander", commentaire:"" },
+  { id:"statuts_societes", label:"Statuts SCI / bilans / liasses fiscales", statut:"À demander", commentaire:"" },
+  { id:"releves_placements", label:"Assurance-vie, PEA, PER, placements", statut:"À demander", commentaire:"" },
+  { id:"etat_civil", label:"Livret de famille / contrat de mariage / PACS", statut:"À demander", commentaire:"" },
+];
+
+const STRUCT_DEFAULT_LOTS = [
+  { adresse:"", type:"T2", structure:"PP direct", regime:"Foncier réel", loyer_mois:"", mensualite:"", crd:"", valeur:"", charges_annuelles:"", travaux_a_prevoir:"" },
+];
+
+function buildStructDefault(client) {
+  return {
+    version: 1,
+    collecte: {
+      profil: {
+        prenom: client?.prenom || "", nom: client?.nom || "", age:"", situation_familiale:"", regime_matrimonial:"", enfants:"",
+        profession:"", statut_pro:"", revenus_nets_mois:"", dividendes_an:"", autres_revenus_an:"", tmi:"", residence_fiscale:"France", ifi:"",
+      },
+      patrimoine: {
+        residence_principale_statut:"", rp_valeur:"", rp_crd:"", lots: STRUCT_DEFAULT_LOTS.map(x=>({...x})),
+      },
+      financement: {
+        banque_principale:"", relation_bancaire:"", mensualites_total:"", apport_disponible:"", capacite_avec_revente:"", financable_sans_revente:"",
+        taux_moyen:"", duree_initiale:"", premiere_echeance:"", bien_premiere_echeance:"", montant_libere_echeance:"",
+      },
+      structures: {
+        sci_existante:"", sci_regime:"", sci_associes:"", sci_biens:"", sci_resultat:"", sci_optimisee:"", holding_envisagee:"", nouvelles_sci:"", transmission:"",
+      },
+      objectifs: {
+        objectif_principal:"Accélération patrimoniale", horizon:"15 ans", rendement_cible:"", rythme_achat:"", zones:"", gestion_locative:"", temps_immo:"", delegation:"", travaux:"",
+      },
+      patrimoine_financier: { liquidites:"", assurance_vie:"", pea_cto:"", per:"", epargne_salariale:"", autres:"" },
+      rdv: { motivations:"", objections:"", notes:"", issue:"", relance:"", prochaine_action:"" },
+      documents: STRUCT_DOCS_DEFAULT.map(x=>({...x})),
+    },
+    analyse: {
+      diagnostic:"", strategie_recommandee:"", points_attention:"", conclusion:"",
+      scenarios: [
+        { id:"s1", nom:"Conserver & optimiser", objectif:"Optimiser fiscalité, gestion et refinancement sans arbitrage majeur", statut:"À étudier" },
+        { id:"s2", nom:"Arbitrer & réinvestir", objectif:"Céder les actifs peu performants pour reconstituer capacité d’emprunt", statut:"À étudier" },
+        { id:"s3", nom:"Structurer en société", objectif:"SCI IS / Holding / démembrement selon objectifs de capitalisation et transmission", statut:"À étudier" },
+      ],
+      preconisations: [
+        { id:"p1", axe:"Financement", priorite:"Haute", titre:"Clarifier la capacité d’emprunt résiduelle", detail:"Comparer la lecture bancaire actuelle avec un scénario d’arbitrage ou de refinancement.", action:"Collecter échéanciers et CRD exacts", statut:"À faire" },
+        { id:"p2", axe:"Fiscalité", priorite:"Haute", titre:"Comparer IR / LMNP / SCI IS", detail:"Évaluer la charge fiscale actuelle et l’intérêt d’une structure à l’IS selon l’horizon et les flux.", action:"Reconstituer résultat fiscal par bien", statut:"À faire" },
+        { id:"p3", axe:"Transmission", priorite:"Moyenne", titre:"Préparer la transmission du patrimoine immobilier", detail:"Étudier donation de parts, démembrement et SCI familiale si enfants / conjoint concernés.", action:"Valider situation familiale et objectifs", statut:"À faire" },
+      ],
+    },
+  };
+}
+
+const STRUCT_STATUTS = ["Collecte", "Analyse", "Préconisations", "Restitution", "Phase 2", "Terminé"];
+const STRUCT_PHASES = ["Phase 1 — Audit & Conseil", "Phase 2 — Suivi patrimonial", "Phase 1 + Phase 2"];
+const STRUCT_DOC_STATUTS = ["À demander", "Reçu", "À vérifier", "Non applicable"];
+const STRUCT_LOT_TYPES = ["Studio","T1","T2","T3","T4","T5+","Commerce","Immeuble","SCPI","Autre"];
+const STRUCT_DETENTION = ["PP direct","SCI IR","SCI IS","SARL famille","Holding SAS","Démembrement","Autre"];
+const STRUCT_REGIMES = ["Foncier réel","Micro-foncier","LMNP réel","Micro-BIC","SCI IS","LMP","Non défini"];
+
+function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId }) {
+  const [clients, setClients] = useState([]);
+  const [dossiers, setDossiers] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [dossier, setDossier] = useState(null);
+  const [data, setData] = useState(buildStructDefault(null));
+  const [tab, setTab] = useState("collecte");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [newClientId, setNewClientId] = useState(initialClientId || "");
+  const saveTimerRef = useRef(null);
+  const initialHandledRef = useRef(false);
+
+  const fmtEur = v => {
+    const n = Number(v || 0);
+    return n ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(n) + " €" : "—";
+  };
+  const toN = v => Number(String(v ?? "").replace(/\s/g, "").replace(",", ".")) || 0;
+  const clientFullName = c => [c?.prenom, c?.nom].filter(Boolean).join(" ") || c?.email || "Client";
+  const currentClient = clients.find(c => c.id === dossier?.client_id) || dossier?.client || null;
+
+  const calc = useCallback((d = data) => {
+    const lots = d.collecte?.patrimoine?.lots || [];
+    const valeurLots = lots.reduce((s,l)=>s+toN(l.valeur),0);
+    const loyers = lots.reduce((s,l)=>s+toN(l.loyer_mois),0);
+    const mensualitesLots = lots.reduce((s,l)=>s+toN(l.mensualite),0);
+    const crdLots = lots.reduce((s,l)=>s+toN(l.crd),0);
+    const rpVal = toN(d.collecte?.patrimoine?.rp_valeur);
+    const rpCrd = toN(d.collecte?.patrimoine?.rp_crd);
+    const patrimoineBrut = valeurLots + rpVal;
+    const crdTotal = crdLots + rpCrd;
+    const patrimoineNet = patrimoineBrut - crdTotal;
+    const revenusPro = toN(d.collecte?.profil?.revenus_nets_mois);
+    const autresRevMois = (toN(d.collecte?.profil?.dividendes_an)+toN(d.collecte?.profil?.autres_revenus_an))/12;
+    const revenusRetenus = revenusPro + autresRevMois + loyers * 0.70;
+    const mensualitesTotal = toN(d.collecte?.financement?.mensualites_total) || mensualitesLots;
+    const tauxEndettement = revenusRetenus ? mensualitesTotal / revenusRetenus : 0;
+    const cashflowMois = loyers - mensualitesLots;
+    const rendementBrut = valeurLots ? (loyers*12)/valeurLots : 0;
+    const ltv = patrimoineBrut ? crdTotal / patrimoineBrut : 0;
+    const ifiBase = Math.max(0, patrimoineBrut - crdTotal - Math.max(0, rpVal*0.30));
+    const docs = d.collecte?.documents || [];
+    const docsRecus = docs.filter(x=>x.statut === "Reçu").length;
+    const totalFields = 22;
+    const filledFields = [
+      d.collecte?.profil?.situation_familiale, d.collecte?.profil?.revenus_nets_mois, d.collecte?.profil?.tmi,
+      d.collecte?.patrimoine?.rp_valeur, lots.length && lots.some(l=>toN(l.valeur) || toN(l.loyer_mois)),
+      d.collecte?.financement?.banque_principale, d.collecte?.financement?.apport_disponible,
+      d.collecte?.structures?.sci_existante, d.collecte?.objectifs?.objectif_principal, d.collecte?.objectifs?.horizon,
+      d.collecte?.rdv?.prochaine_action,
+    ].filter(Boolean).length;
+    const completion = Math.min(100, Math.round(((filledFields/11)*0.65 + (docs.length ? docsRecus/docs.length : 0)*0.35)*100));
+    const tarif = patrimoineBrut <= 500000 ? { phase1:2500, phase2:190, tranche:"0 à 500 k€" }
+      : patrimoineBrut <= 1500000 ? { phase1:4500, phase2:390, tranche:"500 k€ à 1,5 M€" }
+      : patrimoineBrut <= 5000000 ? { phase1:7500, phase2:590, tranche:"1,5 M€ à 5 M€" }
+      : { phase1:10000, phase2:890, tranche:"+5 M€ — sur devis" };
+    return { valeurLots, loyers, mensualitesLots, crdLots, rpVal, rpCrd, patrimoineBrut, crdTotal, patrimoineNet, revenusRetenus, tauxEndettement, cashflowMois, rendementBrut, ltv, ifiBase, docsRecus, completion, tarif };
+  }, [data]);
+
+  const charger = useCallback(async () => {
+    setLoading(true); setError("");
+    const [clientsRes, dossiersRes] = await Promise.all([
+      supabase.from("invest_clients").select("id,nom,prenom,email,telephone,budget,conseiller,statut,date_signature").order("nom"),
+      supabase.from("invest_structuration_patrimoniale").select("*, client:invest_clients(id,nom,prenom,email,telephone,budget,conseiller,statut)").order("updated_at", { ascending:false }),
+    ]);
+    if (clientsRes.error) setError(clientsRes.error.message);
+    if (dossiersRes.error) {
+      setError("Table invest_structuration_patrimoniale introuvable ou non accessible. Lancez la migration SQL fournie.");
+      setDossiers([]);
+    } else {
+      setDossiers(dossiersRes.data || []);
+      if (!selectedId && (dossiersRes.data || []).length > 0) setSelectedId(dossiersRes.data[0].id);
+    }
+    setClients(clientsRes.data || []);
+    setLoading(false);
+  }, [selectedId]);
+
+  useEffect(() => { charger(); }, []);
+
+  useEffect(() => {
+    const d = dossiers.find(x => x.id === selectedId) || null;
+    setDossier(d);
+    if (d) {
+      const base = buildStructDefault(d.client);
+      const merged = { ...base, ...(d.donnees || {}) };
+      merged.collecte = { ...base.collecte, ...(d.donnees?.collecte || {}) };
+      merged.collecte.profil = { ...base.collecte.profil, ...(d.donnees?.collecte?.profil || {}) };
+      merged.collecte.patrimoine = { ...base.collecte.patrimoine, ...(d.donnees?.collecte?.patrimoine || {}) };
+      merged.collecte.financement = { ...base.collecte.financement, ...(d.donnees?.collecte?.financement || {}) };
+      merged.collecte.structures = { ...base.collecte.structures, ...(d.donnees?.collecte?.structures || {}) };
+      merged.collecte.objectifs = { ...base.collecte.objectifs, ...(d.donnees?.collecte?.objectifs || {}) };
+      merged.collecte.patrimoine_financier = { ...base.collecte.patrimoine_financier, ...(d.donnees?.collecte?.patrimoine_financier || {}) };
+      merged.collecte.rdv = { ...base.collecte.rdv, ...(d.donnees?.collecte?.rdv || {}) };
+      merged.collecte.documents = d.donnees?.collecte?.documents || base.collecte.documents;
+      merged.analyse = { ...base.analyse, ...(d.donnees?.analyse || d.analyse_data || {}) };
+      setData(merged);
+      setNewClientId(d.client_id || "");
+    }
+  }, [selectedId, dossiers]);
+
+  const creerDossier = async (clientId = newClientId) => {
+    if (!clientId) { alert("Sélectionnez un client avant de créer un dossier."); return; }
+    const c = clients.find(x => x.id === clientId);
+    const base = buildStructDefault(c);
+    const payload = {
+      client_id: clientId,
+      titre: `Structuration patrimoniale — ${clientFullName(c)}`,
+      statut: "Collecte",
+      phase: "Phase 1 — Audit & Conseil",
+      conseiller: profil?.nom || c?.conseiller || "",
+      donnees: base,
+      analyse_data: base.analyse,
+      created_by: profil?.email || profil?.nom || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: created, error } = await supabase.from("invest_structuration_patrimoniale").insert(payload).select("*, client:invest_clients(id,nom,prenom,email,telephone,budget,conseiller,statut)").single();
+    if (error) { alert("Impossible de créer le dossier : " + error.message); return; }
+    setDossiers(prev => [created, ...prev]);
+    setSelectedId(created.id);
+  };
+
+  useEffect(() => {
+    if (!initialClientId || initialHandledRef.current || loading) return;
+    initialHandledRef.current = true;
+    const existing = dossiers.find(d => d.client_id === initialClientId);
+    if (existing) setSelectedId(existing.id);
+    else {
+      setNewClientId(initialClientId);
+      setTimeout(() => creerDossier(initialClientId), 50);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialClientId, loading, dossiers.length]);
+
+  const sauvegarder = useCallback(async (silent=false) => {
+    if (!selectedId || !dossier) return;
+    setSaving(true);
+    const payload = {
+      titre: dossier.titre,
+      statut: dossier.statut,
+      phase: dossier.phase,
+      conseiller: dossier.conseiller,
+      client_id: dossier.client_id || null,
+      donnees: data,
+      analyse_data: data.analyse || {},
+      updated_at: new Date().toISOString(),
+    };
+    const { data: updated, error } = await supabase.from("invest_structuration_patrimoniale").update(payload).eq("id", selectedId).select("*, client:invest_clients(id,nom,prenom,email,telephone,budget,conseiller,statut)").single();
+    setSaving(false);
+    if (error) { setError("Impossible d'enregistrer : " + error.message); return; }
+    setError("");
+    setSaved(true); setTimeout(()=>setSaved(false), 1800);
+    if (updated) setDossiers(prev => prev.map(x => x.id === selectedId ? updated : x));
+  }, [selectedId, dossier, data]);
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => sauvegarder(true), 900);
+  }, [sauvegarder]);
+  useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
+
+  const patchDossier = (fields) => {
+    setDossier(prev => prev ? { ...prev, ...fields } : prev);
+    setDossiers(prev => prev.map(x => x.id === selectedId ? { ...x, ...fields } : x));
+    scheduleSave();
+  };
+  const updateSection = (section, key, value) => {
+    setData(prev => ({ ...prev, collecte:{ ...prev.collecte, [section]:{ ...(prev.collecte?.[section] || {}), [key]:value } } }));
+    scheduleSave();
+  };
+  const updateAnalyse = (key, value) => {
+    setData(prev => ({ ...prev, analyse:{ ...prev.analyse, [key]:value } }));
+    scheduleSave();
+  };
+  const updateLot = (idx, key, value) => {
+    setData(prev => {
+      const lots = [...(prev.collecte?.patrimoine?.lots || [])];
+      lots[idx] = { ...lots[idx], [key]:value };
+      return { ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots } } };
+    });
+    scheduleSave();
+  };
+  const addLot = () => {
+    setData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:[...(prev.collecte?.patrimoine?.lots || []), { ...STRUCT_DEFAULT_LOTS[0] }] } } }));
+    scheduleSave();
+  };
+  const removeLot = (idx) => {
+    setData(prev => ({ ...prev, collecte:{ ...prev.collecte, patrimoine:{ ...prev.collecte.patrimoine, lots:(prev.collecte?.patrimoine?.lots || []).filter((_,i)=>i!==idx) } } }));
+    scheduleSave();
+  };
+  const updateDoc = (idx, key, value) => {
+    setData(prev => {
+      const docs = [...(prev.collecte?.documents || [])];
+      docs[idx] = { ...docs[idx], [key]:value };
+      return { ...prev, collecte:{ ...prev.collecte, documents:docs } };
+    });
+    scheduleSave();
+  };
+  const updateReco = (idx, key, value) => {
+    setData(prev => {
+      const preconisations = [...(prev.analyse?.preconisations || [])];
+      preconisations[idx] = { ...preconisations[idx], [key]:value };
+      return { ...prev, analyse:{ ...prev.analyse, preconisations } };
+    });
+    scheduleSave();
+  };
+  const addReco = () => {
+    setData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:[...(prev.analyse?.preconisations || []), { id:`p${Date.now()}`, axe:"Stratégie", priorite:"Moyenne", titre:"Nouvelle préconisation", detail:"", action:"", statut:"À faire" }] } }));
+    scheduleSave();
+  };
+  const removeReco = (idx) => {
+    setData(prev => ({ ...prev, analyse:{ ...prev.analyse, preconisations:(prev.analyse?.preconisations || []).filter((_,i)=>i!==idx) } }));
+    scheduleSave();
+  };
+
+  const renderReport = () => {
+    const c = calc();
+    const esc = s => String(s || "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+    const win = window.open("", "_blank", "width=900,height=800");
+    if (!win) { alert("Autorisez les pop-ups pour générer le rapport."); return; }
+    const lots = data.collecte?.patrimoine?.lots || [];
+    const rows = lots.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(l.adresse)}</td><td>${esc(l.type)}</td><td>${esc(l.structure)}</td><td>${esc(fmtEur(l.valeur))}</td><td>${esc(fmtEur(l.loyer_mois))}</td><td>${esc(fmtEur(l.crd))}</td></tr>`).join("");
+    const recos = (data.analyse?.preconisations || []).map(r=>`<div class="reco"><b>${esc(r.axe)} — ${esc(r.titre)}</b><p>${esc(r.detail)}</p><small>Action : ${esc(r.action)} · Priorité : ${esc(r.priorite)}</small></div>`).join("");
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(dossier?.titre)}</title><style>
+      body{font-family:Arial,sans-serif;margin:0;background:#eef1f6;color:#152238}.page{max-width:900px;margin:0 auto;background:white;padding:28px}.top{display:flex;justify-content:space-between;border-bottom:4px solid #17365f;padding-bottom:14px;margin-bottom:18px}.brand{font-weight:900;color:#17365f}.sub{color:#4070e8;font-weight:800}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.kpi{border-left:4px solid #4070e8;background:#f8fbff;border-radius:8px;padding:12px}.kpi b{font-size:20px;color:#17365f}.kpi span{display:block;color:#7a8495;font-size:10px;text-transform:uppercase;margin-top:4px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{border:1px solid #e5eaf2;border-radius:8px;margin-bottom:14px;overflow:hidden}.hd{background:#17365f;color:white;font-weight:900;padding:8px 10px}.bd{padding:12px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#17365f;color:white;text-align:left;padding:7px}td{border-bottom:1px solid #e7ebf2;padding:7px}.reco{border-left:4px solid #c9a84c;background:#fbfaf5;border-radius:6px;padding:10px;margin-bottom:8px}.reco p{margin:5px 0;color:#445}.no-print{position:fixed;right:15px;top:15px}.btn{background:#17365f;color:white;border:0;border-radius:8px;padding:10px 15px;font-weight:800;cursor:pointer}@media print{.no-print{display:none}body{background:white}.page{max-width:none}@page{size:A4;margin:12mm}}
+    </style></head><body><div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div><div class="page"><div class="top"><div><div class="brand">PROFERO INVEST</div><div>Rapport de structuration patrimoniale</div></div><div style="text-align:right"><h2>${esc(currentClient ? clientFullName(currentClient) : dossier?.titre)}</h2><div class="sub">${esc(dossier?.phase)} · ${new Date().toLocaleDateString("fr-FR")}</div></div></div><div class="kpis"><div class="kpi"><b>${fmtEur(c.patrimoineBrut)}</b><span>Patrimoine brut</span></div><div class="kpi"><b>${fmtEur(c.patrimoineNet)}</b><span>Patrimoine net estimé</span></div><div class="kpi"><b>${fmtEur(c.cashflowMois)}/mois</b><span>Cash-flow locatif</span></div><div class="kpi"><b>${Math.round(c.completion)} %</b><span>Complétude dossier</span></div></div><div class="grid"><div class="card"><div class="hd">Diagnostic</div><div class="bd">${esc(data.analyse?.diagnostic || "Diagnostic à compléter après collecte des documents.")}</div></div><div class="card"><div class="hd">Stratégie recommandée</div><div class="bd">${esc(data.analyse?.strategie_recommandee || "Stratégie à formaliser selon arbitrages, fiscalité, capacité d’emprunt et objectifs familiaux.")}</div></div></div><div class="card"><div class="hd">Inventaire immobilier</div><div class="bd"><table><thead><tr><th>#</th><th>Bien</th><th>Type</th><th>Détention</th><th>Valeur</th><th>Loyer</th><th>CRD</th></tr></thead><tbody>${rows}</tbody></table></div></div><div class="card"><div class="hd">Préconisations</div><div class="bd">${recos || "Aucune préconisation renseignée."}</div></div><div class="card"><div class="hd">Conclusion</div><div class="bd">${esc(data.analyse?.conclusion || "Conclusion à rédiger avant restitution client.")}</div></div></div></body></html>`);
+    win.document.close();
+  };
+
+  const Field = ({ label, value, onChange, type="text", placeholder="", options=null, wide=false }) => (
+    <div style={{ gridColumn: wide ? "1 / -1" : "auto" }}>
+      <label style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:800, display:"block", marginBottom:5 }}>{label}</label>
+      {options ? (
+        <select className="inv-sel" value={value || ""} onChange={e=>onChange(e.target.value)} style={{ width:"100%" }}>
+          <option value="">—</option>{options.map(o=><option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : type === "textarea" ? (
+        <textarea className="inv-textarea" rows={3} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} />
+      ) : (
+        <input className="inv-inp" type={type} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} style={{ width:"100%", textAlign:type === "number" ? "right" : "left" }} />
+      )}
+    </div>
+  );
+
+  const c = calc();
+  const p = data.collecte?.profil || {};
+  const pat = data.collecte?.patrimoine || {};
+  const fin = data.collecte?.financement || {};
+  const st = data.collecte?.structures || {};
+  const obj = data.collecte?.objectifs || {};
+  const pf = data.collecte?.patrimoine_financier || {};
+  const rdv = data.collecte?.rdv || {};
+  const docs = data.collecte?.documents || [];
+  const lots = pat.lots || [];
+
+  return (
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1600, margin:"0 auto" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, marginBottom:SPACING.xl, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
+          <div style={{ width:48, height:48, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={Briefcase} size={24}/></div>
+          <div>
+            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text }}>Structuration patrimoniale</div>
+            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub }}>Collecte patrimoniale, analyse stratégique, préconisations et documents</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:SPACING.sm, alignItems:"center", flexWrap:"wrap" }}>
+          {saving && <span style={{ color:T.textMuted, fontSize:FONT.sm.size }}><Icon as={RefreshCw} size={12} style={{animation:"spin 1s linear infinite"}}/> Sync…</span>}
+          {saved && <span style={{ color:SU, fontSize:FONT.sm.size, fontWeight:800 }}><Icon as={Check} size={12}/> Sauvegardé</span>}
+          <button className="inv-btn inv-btn-blue" onClick={renderReport} disabled={!dossier}><Icon as={FileText} size={13}/> Rapport PDF</button>
+          <button className="inv-btn inv-btn-gold" onClick={()=>sauvegarder()} disabled={!dossier}><Icon as={Save} size={13}/> Enregistrer</button>
+        </div>
+      </div>
+
+      {error && <div style={{ marginBottom:SPACING.md, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
+
+      <div style={{ display:"grid", gridTemplateColumns:"310px 1fr", gap:SPACING.lg, alignItems:"start" }}>
+        <div className="inv-card" style={{ position:"sticky", top:16 }}>
+          <div className="inv-card-hd blue">Dossiers</div>
+          <div className="inv-card-bd">
+            <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+              <select className="inv-sel" value={newClientId} onChange={e=>setNewClientId(e.target.value)} style={{ flex:1, minWidth:0 }}>
+                <option value="">Créer pour un client…</option>
+                {clients.map(c=><option key={c.id} value={c.id}>{clientFullName(c)}</option>)}
+              </select>
+              <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={()=>creerDossier()}><Icon as={Plus} size={12}/></button>
+            </div>
+            {loading ? <div style={{ color:T.textMuted, padding:20, textAlign:"center" }}>Chargement…</div> : dossiers.length === 0 ? <div style={{ color:T.textMuted, fontStyle:"italic", textAlign:"center", padding:20 }}>Aucun dossier</div> : (
+              <div style={{ display:"flex", flexDirection:"column", gap:7, maxHeight:620, overflowY:"auto" }}>
+                {dossiers.map(d => {
+                  const active = d.id === selectedId;
+                  return <button key={d.id} onClick={()=>setSelectedId(d.id)} style={{ textAlign:"left", border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, borderRadius:RADIUS.md, padding:"10px 11px", cursor:"pointer", fontFamily:"inherit" }}>
+                    <div style={{ fontWeight:800, color:active ? T.accent : T.text, fontSize:FONT.sm.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.client ? clientFullName(d.client) : d.titre}</div>
+                    <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginTop:4, fontSize:FONT.xs.size, color:T.textMuted }}><span>{d.statut}</span><span>{new Date(d.updated_at || d.created_at).toLocaleDateString("fr-FR")}</span></div>
+                  </button>;
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!dossier ? (
+          <div className="inv-card"><div className="inv-card-bd" style={{ textAlign:"center", padding:60, color:T.textMuted }}>Sélectionnez ou créez un dossier de structuration patrimoniale.</div></div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:SPACING.lg }}>
+            <div className="inv-card">
+              <div className="inv-card-bd">
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:SPACING.md, marginBottom:SPACING.md }}>
+                  {[
+                    ["Patrimoine brut", fmtEur(c.patrimoineBrut), Wallet, T.accent],
+                    ["Patrimoine net", fmtEur(c.patrimoineNet), TrendingUp, SU],
+                    ["Cash-flow locatif", `${fmtEur(c.cashflowMois)}/mois`, Euro, c.cashflowMois >= 0 ? SU : DA],
+                    ["Endettement", c.revenusRetenus ? `${(c.tauxEndettement*100).toFixed(1)} %` : "—", BarChart3, c.tauxEndettement > .35 ? DA : WA],
+                    ["Forfait Phase 1", fmtEur(c.tarif.phase1), Briefcase, "#FFC200"],
+                  ].map(([label,val,IconComp,color])=><KPICard key={label} label={label} value={val} icon={IconComp} color={color}/>) }
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr", gap:SPACING.sm, alignItems:"end" }}>
+                  <Field label="Titre du dossier" value={dossier.titre} onChange={v=>patchDossier({ titre:v })}/>
+                  <Field label="Statut" value={dossier.statut} onChange={v=>patchDossier({ statut:v })} options={STRUCT_STATUTS}/>
+                  <Field label="Phase" value={dossier.phase} onChange={v=>patchDossier({ phase:v })} options={STRUCT_PHASES}/>
+                  <Field label="Conseiller" value={dossier.conseiller} onChange={v=>patchDossier({ conseiller:v })}/>
+                </div>
+                <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ flex:1, height:6, background:T.input, borderRadius:999, overflow:"hidden" }}><div style={{ width:`${c.completion}%`, height:"100%", background:T.accent }}/></div>
+                  <div style={{ color:T.textSub, fontSize:FONT.xs.size, fontWeight:800 }}>{c.completion}% complété · Tarif : {c.tarif.tranche} · Phase 2 : {fmtEur(c.tarif.phase2)}/mois</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="inv-tab-nav" style={{ borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.border}` }}>
+              {[ ["collecte","Collecte informations & documents", FileText], ["analyse","Analyse stratégique & préconisations", Sparkles] ].map(([k,l,IconComp])=>(
+                <button key={k} className={`inv-tab-btn${tab===k?" active":""}`} onClick={()=>setTab(k)} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Icon as={IconComp} size={13}/>{l}</button>
+              ))}
+            </div>
+
+            {tab === "collecte" && <>
+              <div className="inv-card"><div className="inv-card-hd blue">1 — Situation personnelle & professionnelle</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:SPACING.md }}>
+                <Field label="Prénom" value={p.prenom} onChange={v=>updateSection("profil","prenom",v)}/><Field label="Nom" value={p.nom} onChange={v=>updateSection("profil","nom",v)}/><Field label="Âge" type="number" value={p.age} onChange={v=>updateSection("profil","age",v)}/><Field label="Enfants" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)}/>
+                <Field label="Situation familiale" value={p.situation_familiale} onChange={v=>updateSection("profil","situation_familiale",v)} options={["Célibataire","Marié(e)","Pacsé(e)","Concubinage","Divorcé(e)"]}/><Field label="Régime matrimonial" value={p.regime_matrimonial} onChange={v=>updateSection("profil","regime_matrimonial",v)} options={["Communauté réduite aux acquêts","Séparation de biens","Participation aux acquêts","Communauté universelle","Non défini"]}/>
+                <Field label="Profession / fonction" value={p.profession} onChange={v=>updateSection("profil","profession",v)}/><Field label="Statut professionnel" value={p.statut_pro} onChange={v=>updateSection("profil","statut_pro",v)} options={["Salarié CDI","Dirigeant salarié","TNS","Chef d'entreprise","Profession libérale","Retraité"]}/>
+                <Field label="Revenus nets mensuels" type="number" value={p.revenus_nets_mois} onChange={v=>updateSection("profil","revenus_nets_mois",v)}/><Field label="Dividendes annuels" type="number" value={p.dividendes_an} onChange={v=>updateSection("profil","dividendes_an",v)}/><Field label="Autres revenus annuels" type="number" value={p.autres_revenus_an} onChange={v=>updateSection("profil","autres_revenus_an",v)}/><Field label="TMI" value={p.tmi} onChange={v=>updateSection("profil","tmi",v)} options={["0 %","11 %","30 %","41 %","45 %"]}/>
+              </div></div>
+
+              <div className="inv-card"><div className="inv-card-hd blue" style={{ justifyContent:"space-between" }}><span>2 — Inventaire du patrimoine immobilier</span><button className="inv-btn inv-btn-sm inv-btn-blue" onClick={addLot}><Icon as={Plus} size={12}/> Ajouter un lot</button></div><div className="inv-card-bd">
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md, marginBottom:SPACING.md }}>
+                  <Field label="Statut résidence principale" value={pat.residence_principale_statut} onChange={v=>updateSection("patrimoine","residence_principale_statut",v)} options={["Propriétaire","Locataire","Logé gratuitement"]}/><Field label="Valeur RP estimée" type="number" value={pat.rp_valeur} onChange={v=>updateSection("patrimoine","rp_valeur",v)}/><Field label="CRD crédit RP" type="number" value={pat.rp_crd} onChange={v=>updateSection("patrimoine","rp_crd",v)}/>
+                </div>
+                <div style={{ overflowX:"auto" }}><table style={{ width:"100%", borderCollapse:"collapse", minWidth:980 }}><thead><tr style={{ color:T.textMuted, fontSize:FONT.xs.size, textTransform:"uppercase" }}><th>#</th><th>Adresse / quartier</th><th>Type</th><th>Détention</th><th>Régime</th><th>Loyer</th><th>Mensualité</th><th>CRD</th><th>Valeur</th><th></th></tr></thead><tbody>{lots.map((l,i)=><tr key={i} style={{ borderTop:`1px solid ${T.rowBorder}` }}><td style={{ color:T.accent, fontWeight:800 }}>{i+1}</td><td><input className="inv-inp" value={l.adresse || ""} onChange={e=>updateLot(i,"adresse",e.target.value)} style={{ width:"100%", textAlign:"left" }}/></td><td><select className="inv-sel" value={l.type || ""} onChange={e=>updateLot(i,"type",e.target.value)}>{STRUCT_LOT_TYPES.map(x=><option key={x}>{x}</option>)}</select></td><td><select className="inv-sel" value={l.structure || ""} onChange={e=>updateLot(i,"structure",e.target.value)}>{STRUCT_DETENTION.map(x=><option key={x}>{x}</option>)}</select></td><td><select className="inv-sel" value={l.regime || ""} onChange={e=>updateLot(i,"regime",e.target.value)}>{STRUCT_REGIMES.map(x=><option key={x}>{x}</option>)}</select></td>{["loyer_mois","mensualite","crd","valeur"].map(k=><td key={k}><input className="inv-inp" type="number" value={l[k] || ""} onChange={e=>updateLot(i,k,e.target.value)} style={{ width:100 }}/></td>)}<td><button className="inv-rm" onClick={()=>removeLot(i)}>×</button></td></tr>)}</tbody></table></div>
+                <div style={{ display:"flex", gap:SPACING.lg, marginTop:SPACING.md, color:T.textSub, flexWrap:"wrap" }}><b>Valeur : <span style={{color:T.accent}}>{fmtEur(c.valeurLots)}</span></b><b>Loyers : <span style={{color:SU}}>{fmtEur(c.loyers)}/mois</span></b><b>Mensualités : <span style={{color:WA}}>{fmtEur(c.mensualitesLots)}/mois</span></b><b>CRD : <span style={{color:T.text}}>{fmtEur(c.crdLots)}</span></b></div>
+              </div></div>
+
+              <div className="inv-card"><div className="inv-card-hd mid">3 — Financement, structures & objectifs</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:SPACING.md }}>
+                <Field label="Banque principale" value={fin.banque_principale} onChange={v=>updateSection("financement","banque_principale",v)}/><Field label="Mensualités totales" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)}/><Field label="Apport disponible" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)}/><Field label="Capacité avec revente" type="number" value={fin.capacite_avec_revente} onChange={v=>updateSection("financement","capacite_avec_revente",v)}/>
+                <Field label="SCI existante" value={st.sci_existante} onChange={v=>updateSection("structures","sci_existante",v)}/><Field label="Régime SCI" value={st.sci_regime} onChange={v=>updateSection("structures","sci_regime",v)} options={["IR","IS","Non défini"]}/><Field label="Holding envisagée" value={st.holding_envisagee} onChange={v=>updateSection("structures","holding_envisagee",v)} options={["Oui","Non","À étudier"]}/><Field label="Nouvelles SCI" value={st.nouvelles_sci} onChange={v=>updateSection("structures","nouvelles_sci",v)} options={["Oui — 1 SCI/projet","À définir","Non"]}/>
+                <Field label="Objectif principal" value={obj.objectif_principal} onChange={v=>updateSection("objectifs","objectif_principal",v)} options={["Cash-flow","Capitalisation","Transmission","Défiscalisation","Accélération patrimoniale","Sécurisation"]}/><Field label="Horizon" value={obj.horizon} onChange={v=>updateSection("objectifs","horizon",v)} options={["5 ans","10 ans","15 ans","20 ans +"]}/><Field label="Rendement cible" type="number" value={obj.rendement_cible} onChange={v=>updateSection("objectifs","rendement_cible",v)}/><Field label="Rythme d'achat" value={obj.rythme_achat} onChange={v=>updateSection("objectifs","rythme_achat",v)} options={["1 bien / an","2 biens / an","1 bien / 2 ans","Opportuniste"]}/>
+                <Field label="Transmission / succession" type="textarea" value={st.transmission} onChange={v=>updateSection("structures","transmission",v)} wide/>
+              </div></div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.lg }}>
+                <div className="inv-card"><div className="inv-card-hd">4 — Patrimoine financier</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>{[["Liquidités", "liquidites"],["Assurance-vie", "assurance_vie"],["PEA / CTO", "pea_cto"],["PER", "per"],["Épargne salariale", "epargne_salariale"],["Autres", "autres"]].map(([l,k])=><Field key={k} label={l} type="number" value={pf[k]} onChange={v=>updateSection("patrimoine_financier",k,v)}/>)}</div></div>
+                <div className="inv-card"><div className="inv-card-hd">5 — Documents de collecte</div><div className="inv-card-bd" style={{ display:"flex", flexDirection:"column", gap:8 }}>{docs.map((doc,i)=><div key={doc.id || i} style={{ display:"grid", gridTemplateColumns:"1.2fr 150px 1fr", gap:8, alignItems:"center" }}><div style={{ color:T.text, fontWeight:700, fontSize:FONT.sm.size }}>{doc.label}</div><select className="inv-sel" value={doc.statut} onChange={e=>updateDoc(i,"statut",e.target.value)}>{STRUCT_DOC_STATUTS.map(s=><option key={s}>{s}</option>)}</select><input className="inv-inp" placeholder="Commentaire" value={doc.commentaire || ""} onChange={e=>updateDoc(i,"commentaire",e.target.value)} style={{ width:"100%", textAlign:"left" }}/></div>)}</div></div>
+              </div>
+              <DocumentsSection folder={`structuration/${selectedId}`} T={T} />
+            </>}
+
+            {tab === "analyse" && <>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.lg }}>
+                <div className="inv-card"><div className="inv-card-hd blue">Diagnostic patrimonial</div><div className="inv-card-bd"><Field label="Diagnostic synthétique" type="textarea" value={data.analyse?.diagnostic} onChange={v=>updateAnalyse("diagnostic",v)} placeholder="Situation actuelle, points de blocage, lecture bancaire, fiscalité..." wide/><Field label="Stratégie recommandée" type="textarea" value={data.analyse?.strategie_recommandee} onChange={v=>updateAnalyse("strategie_recommandee",v)} placeholder="Orientation globale : conserver, arbitrer, structurer, transmettre..." wide/></div></div>
+                <div className="inv-card"><div className="inv-card-hd gold">Ratios d'aide à la décision</div><div className="inv-card-bd">{[["Rendement brut parc", c.rendementBrut ? `${(c.rendementBrut*100).toFixed(2)} %` : "—"],["LTV globale", c.ltv ? `${(c.ltv*100).toFixed(1)} %` : "—"],["Base IFI estimée", fmtEur(c.ifiBase)],["Revenus retenus banque", `${fmtEur(c.revenusRetenus)}/mois`],["Cash-flow locatif", `${fmtEur(c.cashflowMois)}/mois`],["Complétude documents", `${c.docsRecus}/${docs.length}`]].map(([l,v])=><div className="inv-row" key={l}><span className="inv-lbl">{l}</span><span className="inv-val calc">{v}</span></div>)}</div></div>
+              </div>
+              <div className="inv-card"><div className="inv-card-hd mid">Scénarios stratégiques</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:SPACING.md }}>{(data.analyse?.scenarios || []).map((s,i)=><div key={s.id || i} style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:SPACING.md, background:T.input }}><input className="inv-inp" value={s.nom} onChange={e=>{ const scenarios=[...(data.analyse?.scenarios||[])]; scenarios[i]={...scenarios[i],nom:e.target.value}; updateAnalyse("scenarios",scenarios); }} style={{ width:"100%", textAlign:"left", fontWeight:800, marginBottom:8 }}/><textarea className="inv-textarea" rows={3} value={s.objectif} onChange={e=>{ const scenarios=[...(data.analyse?.scenarios||[])]; scenarios[i]={...scenarios[i],objectif:e.target.value}; updateAnalyse("scenarios",scenarios); }}/><select className="inv-sel" value={s.statut} onChange={e=>{ const scenarios=[...(data.analyse?.scenarios||[])]; scenarios[i]={...scenarios[i],statut:e.target.value}; updateAnalyse("scenarios",scenarios); }} style={{ width:"100%", marginTop:8 }}><option>À étudier</option><option>Recommandé</option><option>Écarté</option><option>À valider avec expert</option></select></div>)}</div></div>
+              <div className="inv-card"><div className="inv-card-hd" style={{ justifyContent:"space-between" }}><span>Préconisations</span><button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addReco}><Icon as={Plus} size={12}/> Ajouter</button></div><div className="inv-card-bd" style={{ display:"flex", flexDirection:"column", gap:10 }}>{(data.analyse?.preconisations || []).map((r,i)=><div key={r.id || i} style={{ display:"grid", gridTemplateColumns:"130px 110px 1fr 1fr 1fr 34px", gap:8, alignItems:"start", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:SPACING.sm, background:T.input }}><select className="inv-sel" value={r.axe} onChange={e=>updateReco(i,"axe",e.target.value)}>{["Financement","Fiscalité","Structure","Transmission","Arbitrage","Gestion","Documents"].map(x=><option key={x}>{x}</option>)}</select><select className="inv-sel" value={r.priorite} onChange={e=>updateReco(i,"priorite",e.target.value)}>{["Haute","Moyenne","Basse"].map(x=><option key={x}>{x}</option>)}</select><input className="inv-inp" value={r.titre} onChange={e=>updateReco(i,"titre",e.target.value)} style={{ width:"100%", textAlign:"left" }}/><textarea className="inv-textarea" rows={2} value={r.detail} onChange={e=>updateReco(i,"detail",e.target.value)}/><textarea className="inv-textarea" rows={2} value={r.action} onChange={e=>updateReco(i,"action",e.target.value)} placeholder="Action à engager"/><button className="inv-rm" onClick={()=>removeReco(i)}>×</button></div>)}</div></div>
+              <div className="inv-card"><div className="inv-card-hd danger">Points d'attention & conclusion</div><div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}><Field label="Points d'attention" type="textarea" value={data.analyse?.points_attention} onChange={v=>updateAnalyse("points_attention",v)} wide/><Field label="Conclusion de restitution" type="textarea" value={data.analyse?.conclusion} onChange={v=>updateAnalyse("conclusion",v)} wide/></div></div>
+            </>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── SIDEBAR INVEST ───────────────────────────────────────────────────────────
 function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null }) {
   const role = profil?.role || "admin";
@@ -9299,6 +9773,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
     simulateur: BarChart3,
     finance:    Wallet,
     suivi_financier: Euro,
+    structuration: Briefcase,
     admin:      Settings,
   };
 
@@ -9477,6 +9952,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [vueSim, setVueSim]             = useState("liste");
   const [crmInitialFilter, setCrmInitialFilter] = useState(null);
   const [biensInitialFilter, setBiensInitialFilter] = useState(null);
+  const [structInitialClientId, setStructInitialClientId] = useState(null);
 
   // Config d'accès Invest (chargée depuis planning_config, fallback hardcodé)
   const role = profil?.role || "admin";
@@ -9507,6 +9983,10 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     setVueSim("simulateur");
     setPage("simulateur"); // bascule le routeur sur la vue plein écran
   };
+  const ouvrirStructurationDepuisClient = (clientId) => {
+    setStructInitialClientId(clientId);
+    setPage("structuration");
+  };
   const fermerSim = () => {
     setVueSim("liste");
     if (simOrigine === "crm") setPage("crm");
@@ -9527,6 +10007,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     setPage(p);
     if (p !== "crm") setCrmInitialFilter(null);
     if (p !== "biens") setBiensInitialFilter(null);
+    if (p !== "structuration") setStructInitialClientId(null);
   };
 
   // Simulateur plein écran — uniquement quand une fiche projet est ouverte
@@ -9546,8 +10027,9 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguerDepuisDashboard} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
-        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} />        : <AccesRefuseInvest T={T} page="crm"/>)}
+        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} onOpenStructuration={ouvrirStructurationDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
+        {page === "structuration" && (canSee("structuration") ? <StructurationPatrimoniale profil={profil} T={T} initialClientId={structInitialClientId} /> : <AccesRefuseInvest T={T} page="structuration"/>)}
         {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
         {page === "suivi_financier" && (canSee("suivi_financier") ? <SuiviFinancier profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="suivi_financier"/>)}
         {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}
