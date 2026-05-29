@@ -672,16 +672,49 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
-  // Heures vendues vs réelles par phase (suivi des dérives)
-  const heuresParPhase = selectedPhasage ? PHASES.map(ph => {
-    const taches = selectedPhasage.plan_travaux?.[ph.id] || [];
-    const vendues = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-    const reelles = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-    return { ...ph, vendues, reelles };
-  }).filter(p => p.vendues > 0 || p.reelles > 0) : [];
-  const totalHeures = heuresParPhase.reduce((s, p) => ({
-    vendues: s.vendues + p.vendues,
-    reelles: s.reelles + p.reelles,
+  // Heures vendues vs réelles par OUVRAGE (suivi des dérives).
+  // Source : ouvrage.heures_devis pour les vendues, somme des heures_reelles
+  // des tâches rattachées à l'ouvrage (toutes phases confondues) pour le réel.
+  // Tâches sans ouvrage_id → groupées sous "Sans ouvrage" en fin de liste.
+  const heuresParOuvrage = (() => {
+    if (!selectedPhasage) return [];
+    const ouvrages = selectedPhasage.ouvrages || [];
+    const tachesParOuvrage = new Map();
+    const orphan = { reelles: 0, vendues: 0 };
+    PHASES.forEach(ph => {
+      (selectedPhasage.plan_travaux?.[ph.id] || []).forEach(t => {
+        const hR = parseFloat(t.heures_reelles)  || 0;
+        const hV = parseFloat(t.heures_vendues) || 0;
+        if (t.ouvrage_id) {
+          if (!tachesParOuvrage.has(t.ouvrage_id)) tachesParOuvrage.set(t.ouvrage_id, { reelles: 0, phasesCount: {} });
+          const entry = tachesParOuvrage.get(t.ouvrage_id);
+          entry.reelles += hR;
+          entry.phasesCount[ph.id] = (entry.phasesCount[ph.id] || 0) + 1;
+        } else {
+          orphan.reelles += hR;
+          orphan.vendues += hV;
+        }
+      });
+    });
+    const result = ouvrages.map(o => {
+      const entry = tachesParOuvrage.get(o.id) || { reelles: 0, phasesCount: {} };
+      const vendues = parseFloat(o.heures_devis) || 0;
+      // Couleur = celle de la phase dominante (la plus de tâches), fallback accent
+      let domPhaseId = null, maxCount = 0;
+      Object.entries(entry.phasesCount).forEach(([phId, count]) => {
+        if (count > maxCount) { maxCount = count; domPhaseId = phId; }
+      });
+      const couleur = PHASES.find(p => p.id === domPhaseId)?.couleur || acc.accent;
+      return { id: o.id, label: o.libelle || "(sans nom)", couleur, vendues, reelles: entry.reelles };
+    }).filter(o => o.vendues > 0 || o.reelles > 0);
+    if (orphan.vendues > 0 || orphan.reelles > 0) {
+      result.push({ id: "_orphan", label: "Sans ouvrage rattaché", couleur: textMuted, ...orphan });
+    }
+    return result;
+  })();
+  const totalHeures = heuresParOuvrage.reduce((s, o) => ({
+    vendues: s.vendues + o.vendues,
+    reelles: s.reelles + o.reelles,
   }), { vendues: 0, reelles: 0 });
 
   // ── Styles communs (cohérent avec autres pages) ──
@@ -1358,11 +1391,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           <NotesChantier chantierId={selected} T={T} accent={acc.accent}/>
         </div>
 
-        {/* ── Section : Suivi des heures vendues vs réelles ── */}
-        {heuresParPhase.length > 0 && (
+        {/* ── Section : Suivi des heures par ouvrage ── */}
+        {heuresParOuvrage.length > 0 && (
           <div>
             <div style={sectionTitle}>
-              <Icon as={Clock} size={13}/> Suivi des heures
+              <Icon as={Clock} size={13}/> Suivi des heures par ouvrage
             </div>
             <div style={{ background: card, border: `1px solid ${border}`, borderRadius: RADIUS.xl, overflow: "hidden" }}>
               {/* Totaux en haut */}
@@ -1397,19 +1430,19 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                   </div>
                 );
               })()}
-              {heuresParPhase.map(p => {
-                const drift = p.vendues > 0 ? (p.reelles / p.vendues) * 100 : (p.reelles > 0 ? 999 : 0);
+              {heuresParOuvrage.map(o => {
+                const drift = o.vendues > 0 ? (o.reelles / o.vendues) * 100 : (o.reelles > 0 ? 999 : 0);
                 const col = drift > 120 ? "#ef4444" : drift > 100 ? "#f59e0b" : "#22c55e";
                 const widthVendu  = Math.min(100, drift);
                 const widthOver   = Math.min(80, Math.max(0, drift - 100));
                 return (
-                  <div key={p.id} className="tache-row" style={{ padding: "12px 16px" }}>
+                  <div key={o.id} className="tache-row" style={{ padding: "12px 16px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: p.couleur, flexShrink: 0 }}/>
-                      <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, flex: 1 }}>{p.label}</span>
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: o.couleur, flexShrink: 0 }}/>
+                      <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
                       <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: col, flexShrink: 0 }}>
-                        {fmtH(p.reelles)}h / {fmtH(p.vendues)}h
-                        {p.vendues > 0 && (
+                        {fmtH(o.reelles)}h / {fmtH(o.vendues)}h
+                        {o.vendues > 0 && (
                           <span style={{ fontSize: FONT.xs.size, opacity: .8, marginLeft: 5, fontWeight: 700 }}>
                             ({drift.toFixed(0)}%)
                           </span>
