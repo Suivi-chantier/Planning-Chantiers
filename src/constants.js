@@ -101,13 +101,13 @@ export function parseTachesFromPlanifie(planifie,tachesExistantes){
 }
 export function emptyCommande(){return{chantier_id:"",article:"",fournisseur:"",quantite:"",statut:"a_commander",priorite:"normal",ouvrier_demandeur:"",notes:""};}
 
-// Avancement global d'un phasage pondéré par heures vendues au niveau ouvrage.
+// Avancement global d'un phasage pondéré par valeur facturable (prix HT).
 // On regroupe les tâches par ouvrage (via t.ouvrage_id), on calcule l'avancement
 // de chaque groupe (pondéré par heures_estimees, sinon moyenne simple), puis on
-// pondère les groupes par leurs heures_devis ouvrage. Cascade de fallbacks pour
-// rester robuste si certaines données manquent :
-//   heures_devis ouvrage → Σ heures_vendues tâches → Σ heures_estimees tâches →
-//   nombre de tâches (équivaut à moyenne simple).
+// pondère les groupes par leur prix_ht ouvrage. Cascade de fallbacks pour rester
+// robuste si certaines données manquent :
+//   prix_ht ouvrage → heures_devis ouvrage → Σ prix_ht tâches →
+//   Σ heures_vendues tâches → Σ heures_estimees tâches → nombre de tâches.
 export function calcAvancementPondere(ouvrages, allTaches) {
   if (!Array.isArray(allTaches) || allTaches.length === 0) return 0;
   // Grouper les tâches par ouvrage_id (les sans-rattachement vont sous "")
@@ -125,9 +125,11 @@ export function calcAvancementPondere(ouvrages, allTaches) {
     const av = totalHE > 0
       ? taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHE
       : taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length;
-    // Poids du groupe : cascade heures_devis → heures_vendues tâches → heures_estimees → comptage
+    // Poids du groupe : cascade prix_ht → heures_devis → prix_ht tâches → heures_vendues → heures_estimees → comptage
     const ouv = ouvrageId ? (ouvrages || []).find(o => o?.id === ouvrageId) : null;
-    let poids = parseFloat(ouv?.heures_devis) || 0;
+    let poids = parseFloat(ouv?.prix_ht) || 0;
+    if (!poids) poids = parseFloat(ouv?.heures_devis) || 0;
+    if (!poids) poids = taches.reduce((s, t) => s + (parseFloat(t.prix_ht) || 0), 0);
     if (!poids) poids = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
     if (!poids) poids = totalHE;
     if (!poids) poids = taches.length;
