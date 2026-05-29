@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
-import { supabase } from "./supabase";
+import { supabase, getClientId } from "./supabase";
 import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
 import { Icon } from "./ui";
 import {
@@ -13,27 +13,6 @@ import GanttView from "./GanttView";
 import { useIsMobile } from "./Navigation";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-// Identifiant unique par onglet, utilisé pour étiqueter nos propres sauvegardes
-// et les distinguer des updates Realtime venant d'autres collaborateurs.
-function getClientId() {
-  try {
-    let id = sessionStorage.getItem("phasage_client_id");
-    if (!id) {
-      id = (typeof crypto !== "undefined" && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `c${Date.now()}${Math.random().toString(36).slice(2)}`;
-      sessionStorage.setItem("phasage_client_id", id);
-    }
-    return id;
-  } catch {
-    // sessionStorage indisponible (mode privé strict) — fallback en mémoire
-    if (!globalThis.__phasageClientId) {
-      globalThis.__phasageClientId = `c${Date.now()}${Math.random().toString(36).slice(2)}`;
-    }
-    return globalThis.__phasageClientId;
-  }
-}
-
 function normalise(str) {
   return (str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }

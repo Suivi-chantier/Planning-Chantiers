@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { supabase } from "./supabase";
+import { supabase, getClientId } from "./supabase";
 import { FONT, RADIUS, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
 import {
@@ -83,7 +83,16 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   const eraseMode  = useRef(false);
   const isDrawing  = useRef(false);
   const lastPos    = useRef({ x:0, y:0 });
-  const saveTimer  = useRef(null);
+  // Timers de debounce, indexés par clé. BUG corrigé : auparavant un seul ref
+  // partagé annulait les saves des autres opérations (ex : taper un nom client
+  // puis modifier une quantité d'ouvrage avant 800ms écrasait la save du nom).
+  const saveTimers = useRef({});
+  // Statut de sauvegarde : "saved" | "pending" | "saving" | "error"
+  const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
+  // Set des champs `infos` modifiés localement depuis la dernière save terminée.
+  // Sert au merge Realtime : on garde nos valeurs locales sur ces champs et on
+  // prend la version remote pour les autres.
+  const dirtyInfosRef = useRef(new Set());
 
   // Thème
   const bg      = T.bg      || "#0d0f12";
@@ -133,7 +142,13 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   }
 
   async function chargerProjet(id) {
-    setLoading(true); setProjetId(id);
+    setLoading(true);
+    // Reset dirty + status quand on change de projet (les modifs en attente sur
+    // le projet précédent ont déjà leur projetId capturé dans la closure du
+    // debounce, donc elles iront bien sur le bon projet).
+    dirtyInfosRef.current.clear();
+    setAutoSaveStatus("saved");
+    setProjetId(id);
     const [{ data:p },{ data:o },{ data:c },{ data:pl }] = await Promise.all([
       supabase.from("profero_projets").select("*").eq("id",id).single(),
       supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id",id),
@@ -147,11 +162,79 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
     setPlanIdx(0); setLoading(false);
   }
 
-  async function savePhotos(newPhotos) {
-    setPhotos(newPhotos);
+  // ─── Subscription Realtime sur le projet en cours ─────────────────────────
+  // Champs scalaires : on prend la version remote sauf si l'utilisateur a
+  // touché ce champ localement depuis sa dernière save (dirtyInfosRef).
+  // Pour les tables liées (ouvrages_selectionnes, cotes, plans) on s'abonne
+  // aussi pour refléter les ajouts/suppressions/modifs des autres.
+  useEffect(() => {
     if (!projetId) return;
-    const { error } = await supabase.from("profero_projets").update({ photos: newPhotos }).eq("id", projetId);
-    if (error) console.error("savePhotos:", error);
+    const clientId = getClientId();
+    const projChan = supabase
+      .channel(`info-client-projet-${projetId}`)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profero_projets", filter: `id=eq.${projetId}` },
+        ({ new: remote }) => {
+          if (!remote) return;
+          if (remote.last_client_id === clientId) return; // notre propre save
+          const dirty = dirtyInfosRef.current;
+          setInfos(prev => {
+            const merged = { ...prev };
+            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","logements","statut"].forEach(f => {
+              if (!dirty.has(f) && remote[f] !== undefined && remote[f] !== null) merged[f] = remote[f];
+              else if (!dirty.has(f) && remote[f] === null && f === "date_visite") merged[f] = "";
+            });
+            return merged;
+          });
+          if (!dirty.has("photos") && Array.isArray(remote.photos)) setPhotos(remote.photos);
+          setProjets(prev => prev.map(p => p.id === remote.id ? { ...p, ...remote } : p));
+        }
+      )
+      .subscribe();
+    const ouvChan = supabase
+      .channel(`info-client-ouvrages-${projetId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "profero_ouvrages_selectionnes", filter: `projet_id=eq.${projetId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setOuvrages(prev => prev.some(o => o.id === payload.new.id) ? prev : [...prev, payload.new]);
+          } else if (payload.eventType === "UPDATE") {
+            setOuvrages(prev => prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o));
+          } else if (payload.eventType === "DELETE") {
+            setOuvrages(prev => prev.filter(o => o.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+    const coteChan = supabase
+      .channel(`info-client-cotes-${projetId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "profero_cotes", filter: `projet_id=eq.${projetId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setCotes(prev => prev.some(c => c.id === payload.new.id) ? prev : [...prev, payload.new]);
+          } else if (payload.eventType === "UPDATE") {
+            setCotes(prev => prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c));
+          } else if (payload.eventType === "DELETE") {
+            setCotes(prev => prev.filter(c => c.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(projChan);
+      supabase.removeChannel(ouvChan);
+      supabase.removeChannel(coteChan);
+    };
+  }, [projetId]);
+
+  async function savePhotos(newPhotos, pid = projetId) {
+    setPhotos(newPhotos);
+    if (!pid) return;
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_projets").update({ photos: newPhotos }).eq("id", pid);
+    if (error) { console.error("savePhotos:", error); setAutoSaveStatus("error"); return; }
+    setAutoSaveStatus("saved");
   }
 
   async function onPhotoFiles(files) {
@@ -172,29 +255,66 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   const updatePhotoLabel = (i, label) => {
     const next = photos.map((p, idx) => idx === i ? { ...p, label } : p);
     setPhotos(next);
-    debounce(() => savePhotos(next));
+    const pid = projetId;
+    debounce("photos", () => savePhotos(next, pid));
   };
 
-  function debounce(fn, d=800) { if(saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current=setTimeout(fn,d); }
+  // Debounce avec timer dédié par clé : évite que des opérations indépendantes
+  // (saveInfos, update ouvrage, update cote…) s'écrasent mutuellement.
+  function debounce(key, fn, d=800) {
+    setAutoSaveStatus("pending");
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
+      delete saveTimers.current[key];
+      fn();
+    }, d);
+  }
 
-  async function saveInfos(v) {
-    if (!projetId) return; setSaving(true);
+  async function saveInfos(v, pid = projetId) {
+    if (!pid) return;
+    setSaving(true);
+    setAutoSaveStatus("saving");
+    // Snapshot des champs dirty AVANT save : on ne nettoiera que ces clés après,
+    // pour ne pas perdre des modifs faites pendant la requête.
+    const dirtyAtSave = new Set(dirtyInfosRef.current);
     const payload = {
       client_nom:          v.client_nom          ?? "",
       client_prenom:       v.client_prenom       ?? "",
       adresse_bien:        v.adresse_bien        ?? "",
       description_projet:  v.description_projet  ?? "",
-      date_visite:         v.date_visite         ?? "",
+      // date_visite peut être de type DATE en base ; on envoie null si vide
+      date_visite:         v.date_visite || null,
       observations:        v.observations        ?? "",
       logements:           v.logements           ?? [],
       statut:              v.statut              ?? "prospect",
+      last_client_id:      getClientId(),
     };
-    const { error } = await supabase.from("profero_projets").update(payload).eq("id", projetId);
-    if (error) console.error("saveInfos projet error:", error);
-    setSaving(false); setProjets(prev=>prev.map(p=>p.id===projetId?{...p,...v}:p));
+    const { error } = await supabase.from("profero_projets").update(payload).eq("id", pid);
+    setSaving(false);
+    if (error) {
+      console.error("saveInfos projet error:", error);
+      setAutoSaveStatus("error");
+      return;
+    }
+    dirtyAtSave.forEach(f => dirtyInfosRef.current.delete(f));
+    setAutoSaveStatus("saved");
+    setProjets(prev => prev.map(p => p.id===pid ? { ...p, ...v } : p));
   }
-  function updInfo(f,v) { const u={...infos,[f]:v}; setInfos(u); debounce(()=>saveInfos(u)); }
-  function togLog(v) { const l=infos.logements.includes(v)?infos.logements.filter(x=>x!==v):[...infos.logements,v]; const u={...infos,logements:l}; setInfos(u); debounce(()=>saveInfos(u)); }
+  function updInfo(f,v) {
+    dirtyInfosRef.current.add(f);
+    const u = { ...infos, [f]: v };
+    setInfos(u);
+    const pid = projetId;
+    debounce("infos", () => saveInfos(u, pid));
+  }
+  function togLog(v) {
+    dirtyInfosRef.current.add("logements");
+    const l = infos.logements.includes(v) ? infos.logements.filter(x => x!==v) : [...infos.logements, v];
+    const u = { ...infos, logements: l };
+    setInfos(u);
+    const pid = projetId;
+    debounce("infos", () => saveInfos(u, pid));
+  }
 
   async function togOuvrage(cat,item) {
     if (!projetId) return;
@@ -202,15 +322,39 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
     if (ex) { await supabase.from("profero_ouvrages_selectionnes").delete().eq("id",ex.id); setOuvrages(p=>p.filter(o=>!(o.category===cat&&o.item===item))); }
     else { const{data}=await supabase.from("profero_ouvrages_selectionnes").insert({projet_id:projetId,category:cat,item,quantite:"",unite:UNITES[cat]||"U"}).select().single(); if(data) setOuvrages(p=>[...p,data]); }
   }
-  async function updQte(id,q) { setOuvrages(p=>p.map(o=>o.id===id?{...o,quantite:q}:o)); debounce(()=>supabase.from("profero_ouvrages_selectionnes").update({quantite:q}).eq("id",id)); }
-  async function updUnite(id,u) { setOuvrages(p=>p.map(o=>o.id===id?{...o,unite:u}:o)); await supabase.from("profero_ouvrages_selectionnes").update({unite:u}).eq("id",id); }
+  async function updQte(id,q) {
+    setOuvrages(p => p.map(o => o.id===id ? { ...o, quantite: q } : o));
+    debounce(`ouvrage-qte-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ quantite: q }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+    });
+  }
+  async function updUnite(id,u) {
+    setOuvrages(p => p.map(o => o.id===id ? { ...o, unite: u } : o));
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ unite: u }).eq("id", id);
+    setAutoSaveStatus(error ? "error" : "saved");
+  }
   async function updPrix(id,prix) {
-    setOuvrages(p=>p.map(o=>o.id===id?{...o,prix_unitaire:prix}:o));
-    debounce(()=>supabase.from("profero_ouvrages_selectionnes").update({prix_unitaire:prix===""?null:parseFloat(prix)}).eq("id",id));
+    setOuvrages(p => p.map(o => o.id===id ? { ...o, prix_unitaire: prix } : o));
+    debounce(`ouvrage-prix-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_ouvrages_selectionnes")
+        .update({ prix_unitaire: prix==="" ? null : parseFloat(prix) }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+    });
   }
 
   async function ajoutCote() { if(!projetId) return; const{data}=await supabase.from("profero_cotes").insert({projet_id:projetId,nom:"",largeur:"",hauteur:"",localisation:""}).select().single(); if(data) setCotes(p=>[...p,data]); }
-  async function updCote(id,f,v) { setCotes(p=>p.map(c=>c.id===id?{...c,[f]:v}:c)); debounce(()=>supabase.from("profero_cotes").update({[f]:v}).eq("id",id)); }
+  async function updCote(id,f,v) {
+    setCotes(p => p.map(c => c.id===id ? { ...c, [f]: v } : c));
+    debounce(`cote-${id}-${f}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_cotes").update({ [f]: v }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+    });
+  }
   async function delCote(id) { await supabase.from("profero_cotes").delete().eq("id",id); setCotes(p=>p.filter(c=>c.id!==id)); }
 
   async function ajoutPlan() { if(!projetId) return; const{data}=await supabase.from("profero_plans").insert({projet_id:projetId,nom:`Plan ${plans.length+1}`,data:null}).select().single(); if(data){setPlans(p=>[...p,data]);setPlanIdx(plans.length);} }
@@ -483,9 +627,30 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
               <Icon as={UserCircle} size={18} strokeWidth={2}/>
             </div>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,letterSpacing:-.2}}>Info Client</div>
+              <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,letterSpacing:-.2,display:"flex",alignItems:"center",gap:8}}>
+                Info Client
+                {(() => {
+                  const c = autoSaveStatus === "saved" ? "#22c55e"
+                          : autoSaveStatus === "saving" ? acc.accent
+                          : autoSaveStatus === "error"  ? "#e15a5a"
+                          : "#f5a623";
+                  const lbl = autoSaveStatus === "saved" ? "Sauvegardé"
+                            : autoSaveStatus === "saving" ? "Sauvegarde…"
+                            : autoSaveStatus === "error"  ? "Erreur"
+                            : "Modif en cours";
+                  return <span style={{
+                    display:"inline-flex",alignItems:"center",gap:5,
+                    fontSize:9,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",
+                    color:c,background:c+"18",border:`1px solid ${c}40`,
+                    borderRadius:99,padding:"2px 8px",
+                  }}>
+                    <span style={{width:6,height:6,borderRadius:"50%",background:c}}/>
+                    {lbl}
+                  </span>;
+                })()}
+              </div>
               <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>
-                {projets.length} projet{projets.length>1?"s":""}{saving && " · sauvegarde…"}
+                {projets.length} projet{projets.length>1?"s":""}
               </div>
             </div>
             <button onClick={nouveauProjet} title="Nouveau projet" style={{
