@@ -13,6 +13,27 @@ import GanttView from "./GanttView";
 import { useIsMobile } from "./Navigation";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+// Identifiant unique par onglet, utilisé pour étiqueter nos propres sauvegardes
+// et les distinguer des updates Realtime venant d'autres collaborateurs.
+function getClientId() {
+  try {
+    let id = sessionStorage.getItem("phasage_client_id");
+    if (!id) {
+      id = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `c${Date.now()}${Math.random().toString(36).slice(2)}`;
+      sessionStorage.setItem("phasage_client_id", id);
+    }
+    return id;
+  } catch {
+    // sessionStorage indisponible (mode privé strict) — fallback en mémoire
+    if (!globalThis.__phasageClientId) {
+      globalThis.__phasageClientId = `c${Date.now()}${Math.random().toString(36).slice(2)}`;
+    }
+    return globalThis.__phasageClientId;
+  }
+}
+
 function normalise(str) {
   return (str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -1073,6 +1094,17 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
   const autoSaveTimer = useRef(null);
   const isFirstRender = useRef(true);
+  // ─── Collab temps réel : merge par id sur le plan ─────────────────────────
+  // dirtyTachesRef = ids de tâches modifiées localement depuis la dernière save
+  // (transverse à toutes les phases). dirtyMetaRef = champs scalaires meta
+  // modifiés localement (prix_vendu, marge_vendue_cible, seuil_prime, prime).
+  // lastSyncedSnapshotRef = JSON du plan + meta synchronisé, pour court-circuiter
+  // l'autosave quand un merge n'a rien changé.
+  const dirtyTachesRef = useRef(new Set());
+  const dirtyMetaRef   = useRef(new Set());
+  const lastSyncedSnapshotRef = useRef("");
+  const markTacheDirty = (id) => { if (id) dirtyTachesRef.current.add(id); };
+  const markMetaDirty  = (key) => { dirtyMetaRef.current.add(key); };
   const [ajoutPhase, setAjoutPhase] = useState(null);
   const [ajoutForm, setAjoutForm] = useState({ nom: "", heures_vendues: "", heures_estimees: "", ouvriers: [], date_prevue: "" });
   const dragItem = useRef(null);
@@ -1211,13 +1243,22 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   });
 
   useEffect(() => {
-    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      lastSyncedSnapshotRef.current = JSON.stringify({ plan, meta: buildMeta(plan) });
+      return;
+    }
+    const snapshot = JSON.stringify({ plan, meta: buildMeta(plan) });
+    if (snapshot === lastSyncedSnapshotRef.current) return; // identique à l'état synchronisé
     setAutoSaveStatus("pending");
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus("saving");
       try {
         await onSavePlan({ ...plan, meta: buildMeta(plan) });
+        lastSyncedSnapshotRef.current = JSON.stringify({ plan, meta: buildMeta(plan) });
+        dirtyTachesRef.current.clear();
+        dirtyMetaRef.current.clear();
         setAutoSaveStatus("saved");
       } catch (e) {
         console.error("Autosave échouée :", e);
@@ -1228,6 +1269,84 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, prixVendu, margeVendueCible, seuilPrime, primeChantier]);
 
+  // ─── Subscription Realtime sur ce phasage ────────────────────────────────
+  // Merge per-id sur chaque phase de plan_travaux + sur les scalaires meta.
+  // Items remote dont l'id est dirty → on garde le local. Sinon take remote.
+  useEffect(() => {
+    if (!phasage?.id) return;
+    const clientId = getClientId();
+    const ch = supabase
+      .channel(`plan-travaux-${phasage.id}`)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "phasages", filter: `id=eq.${phasage.id}` },
+        (payload) => {
+          const remote = payload?.new;
+          if (!remote) return;
+          if (remote.plan_travaux?.meta?.last_client_id === clientId) return;
+          const remotePlan = remote.plan_travaux || {};
+          const dirtyT = dirtyTachesRef.current;
+          const dirtyM = dirtyMetaRef.current;
+          const rMeta  = remotePlan.meta || {};
+          // ─ Merge des arrays de tâches par phase + clés scalaires non-array.
+          let mergedSnapshot = null;
+          setPlan(prev => {
+            const allKeys = new Set([...Object.keys(prev || {}), ...Object.keys(remotePlan)]);
+            const merged = {};
+            allKeys.forEach(key => {
+              if (key === "meta") return;
+              const r = remotePlan[key];
+              const l = prev?.[key];
+              if (Array.isArray(r) || Array.isArray(l)) {
+                const lr = Array.isArray(r) ? r : [];
+                const ll = Array.isArray(l) ? l : [];
+                const remoteById = new Map(lr.map(t => [t.id, t]));
+                const localById  = new Map(ll.map(t => [t.id, t]));
+                const phaseMerged = [];
+                lr.forEach(rT => {
+                  if (dirtyT.has(rT.id) && localById.has(rT.id)) phaseMerged.push(localById.get(rT.id));
+                  else phaseMerged.push(rT);
+                });
+                ll.forEach(lT => {
+                  if (!remoteById.has(lT.id) && dirtyT.has(lT.id)) phaseMerged.push(lT);
+                });
+                merged[key] = phaseMerged;
+              } else {
+                merged[key] = r !== undefined ? r : l;
+              }
+            });
+            merged.meta = remotePlan.meta || prev?.meta || {};
+            mergedSnapshot = merged;
+            return merged;
+          });
+          // ─ Merge des scalaires meta (prix_vendu, etc.) — détermine la valeur
+          //   que l'état React aura APRÈS les setX, pour précalculer le
+          //   futur snapshot et court-circuiter l'autosave consécutif.
+          const futurePrix = !dirtyM.has("prix_vendu")         && rMeta.prix_vendu         !== undefined ? rMeta.prix_vendu         : prixVendu;
+          const futureMarg = !dirtyM.has("marge_vendue_cible") && rMeta.marge_vendue_cible !== undefined ? rMeta.marge_vendue_cible : margeVendueCible;
+          const futureSeui = !dirtyM.has("seuil_prime")        && rMeta.seuil_prime        !== undefined ? rMeta.seuil_prime        : seuilPrime;
+          const futurePrim = !dirtyM.has("prime")              && rMeta.prime              !== undefined ? rMeta.prime              : primeChantier;
+          if (!dirtyM.has("prix_vendu")         && rMeta.prix_vendu         !== undefined) setPrixVendu(rMeta.prix_vendu);
+          if (!dirtyM.has("marge_vendue_cible") && rMeta.marge_vendue_cible !== undefined) setMargeVendueCible(rMeta.marge_vendue_cible);
+          if (!dirtyM.has("seuil_prime")        && rMeta.seuil_prime        !== undefined) setSeuilPrime(rMeta.seuil_prime);
+          if (!dirtyM.has("prime")              && rMeta.prime              !== undefined) setPrimeChantier(rMeta.prime);
+          // Snapshot identique à ce que produira buildMeta(merged) après re-render
+          if (mergedSnapshot) {
+            const futureMeta = {
+              ...(mergedSnapshot.meta || {}),
+              prix_vendu:         futurePrix,
+              marge_vendue_cible: parseFloat(futureMarg) || 0,
+              seuil_prime:        parseFloat(futureSeui) || 0,
+              prime:              parseFloat(futurePrim) || 0,
+            };
+            lastSyncedSnapshotRef.current = JSON.stringify({ plan: mergedSnapshot, meta: futureMeta });
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phasage?.id]);
+
   // Save immédiat (sans debounce) pour les opérations critiques où la
   // perte de données serait grave (ajout/suppression de matériaux à prévoir,
   // d'ouvrages, etc.). Utilisé par setMateriauxPhase ci-dessous.
@@ -1236,6 +1355,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     setAutoSaveStatus("saving");
     try {
       await onSavePlan({ ...planToSave, meta: buildMeta(planToSave) });
+      lastSyncedSnapshotRef.current = JSON.stringify({ plan: planToSave, meta: buildMeta(planToSave) });
+      dirtyTachesRef.current.clear();
+      dirtyMetaRef.current.clear();
       setAutoSaveStatus("saved");
     } catch (e) {
       console.error("Save immédiat échoué :", e);
@@ -1257,11 +1379,18 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     return () => window.removeEventListener("beforeunload", handler);
   }, [autoSaveStatus]);
 
-  function updateTache(phaseId, tacheId, updates) { setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).map(t => t.id === tacheId ? { ...t, ...updates } : t) })); }
-  function deleteTache(phaseId, tacheId) { setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).filter(t => t.id !== tacheId) })); }
+  function updateTache(phaseId, tacheId, updates) {
+    markTacheDirty(tacheId);
+    setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).map(t => t.id === tacheId ? { ...t, ...updates } : t) }));
+  }
+  function deleteTache(phaseId, tacheId) {
+    dirtyTachesRef.current.delete(tacheId);
+    setPlan(p => ({ ...p, [phaseId]: (p[phaseId] || []).filter(t => t.id !== tacheId) }));
+  }
   function addTache(phaseId) {
     if (!ajoutForm.nom) return;
     const newT = { id: Math.random().toString(36).slice(2), nom: ajoutForm.nom, heures_vendues: parseFloat(ajoutForm.heures_vendues) || 0, heures_estimees: parseFloat(ajoutForm.heures_estimees) || null, heures_reelles: 0, cout_materiel: 0, ouvriers: ajoutForm.ouvriers || [], date_prevue: ajoutForm.date_prevue || "", avancement: 0 };
+    markTacheDirty(newT.id);
     setPlan(p => ({ ...p, [phaseId]: [...(p[phaseId] || []), newT] }));
     setAjoutPhase(null); setAjoutForm({ nom: "", heures_vendues: "", heures_estimees: "", ouvriers: [], date_prevue: "" });
   }
@@ -1278,6 +1407,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       const next = {};
       PHASES.forEach(ph => { next[ph.id] = [...(prev[ph.id] || [])]; });
       const [moved] = next[fp].splice(fi, 1);
+      if (moved?.id) markTacheDirty(moved.id); // reorder = position locale à préserver
       next[tp].splice(ti, 0, moved);
       return next;
     });
@@ -1642,7 +1772,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600, letterSpacing: .3 }}>Prix de vente</div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 2 }}>
-                <input type="number" value={prixVendu || ""} onChange={e => setPrixVendu(e.target.value)} placeholder="0"
+                <input type="number" value={prixVendu || ""} onChange={e => { markMetaDirty("prix_vendu"); setPrixVendu(e.target.value); }} placeholder="0"
                   style={{ flex: 1, minWidth: 0, padding: "2px 4px", background: "transparent", border: "none",
                     color: T.text, fontSize: FONT.xl.size - 2, fontWeight: 800, outline: "none", letterSpacing: -.5 }}/>
                 <span style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.textMuted }}>€</span>
@@ -1707,14 +1837,14 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2, fontStyle: "italic" }}>Visible dans Dashboard Analyse</div>
           </div>
           {[
-            { label: "Marge vendue cible", value: margeVendueCible, set: setMargeVendueCible, suffix: "%", placeholder: "30" },
-            { label: "Seuil prime",         value: seuilPrime,       set: setSeuilPrime,       suffix: "%", placeholder: "25" },
-            { label: "Prime chantier",      value: primeChantier,    set: setPrimeChantier,    suffix: "€", placeholder: "300" },
+            { label: "Marge vendue cible", value: margeVendueCible, set: setMargeVendueCible, key: "marge_vendue_cible", suffix: "%", placeholder: "30" },
+            { label: "Seuil prime",         value: seuilPrime,       set: setSeuilPrime,       key: "seuil_prime",         suffix: "%", placeholder: "25" },
+            { label: "Prime chantier",      value: primeChantier,    set: setPrimeChantier,    key: "prime",               suffix: "€", placeholder: "300" },
           ].map(f => (
             <div key={f.label} style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 130 }}>
               <span style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, letterSpacing: .4, textTransform: "uppercase" }}>{f.label}</span>
               <div style={{ display: "inline-flex", alignItems: "baseline", gap: 4 }}>
-                <input type="number" value={f.value ?? ""} onChange={e => f.set(e.target.value)} placeholder={f.placeholder}
+                <input type="number" value={f.value ?? ""} onChange={e => { markMetaDirty(f.key); f.set(e.target.value); }} placeholder={f.placeholder}
                   style={{ width: 70, padding: "5px 8px", background: "rgba(255,255,255,0.05)", border: `1px solid ${T.border}`,
                     borderRadius: 6, color: T.text, fontFamily: "'DM Mono',monospace", fontSize: 14, fontWeight: 700, outline: "none" }}/>
                 <span style={{ fontSize: 13, fontWeight: 700, color: T.textMuted }}>{f.suffix}</span>
@@ -2222,19 +2352,72 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
   const autoSaveTimer = useRef(null);
   const isFirstRender = useRef(true);
+  // ─── Collab temps réel : merge par id ────────────────────────────────────
+  // dirtyOuvragesRef = ids d'ouvrages modifiés localement depuis la dernière
+  // save terminée. Permet, à la réception d'un update Realtime, de garder nos
+  // versions locales pour ces ids et de prendre la version remote pour les
+  // autres. lastSyncedSnapshotRef = JSON du dernier état synchronisé (post-save
+  // ou post-merge) pour court-circuiter l'autosave si rien n'a changé.
+  const dirtyOuvragesRef = useRef(new Set());
+  const lastSyncedSnapshotRef = useRef(JSON.stringify(phasage.ouvrages || []));
+  const markOuvrageDirty = (id) => { if (id) dirtyOuvragesRef.current.add(id); };
 
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     if (view === "plan") return;
+    const snapshot = JSON.stringify(ouvrages);
+    if (snapshot === lastSyncedSnapshotRef.current) return; // identique au dernier sync → rien à sauver
     setAutoSaveStatus("pending");
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus("saving");
       await onSave({ ...phasage, ouvrages });
+      lastSyncedSnapshotRef.current = JSON.stringify(ouvrages);
+      dirtyOuvragesRef.current.clear();
       setAutoSaveStatus("saved");
     }, 1200);
     return () => clearTimeout(autoSaveTimer.current);
   }, [ouvrages]);
+
+  // ─── Subscription Realtime sur ce phasage ────────────────────────────────
+  // À chaque UPDATE sur la ligne, on merge avec l'état local :
+  //   - items remote dont l'id est dans dirtyOuvragesRef → on garde le local
+  //   - autres items remote → on prend leur version
+  //   - items local-only (créés ici) restent si dirty
+  useEffect(() => {
+    if (!phasage?.id) return;
+    const clientId = getClientId();
+    const ch = supabase
+      .channel(`phasage-detail-${phasage.id}`)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "phasages", filter: `id=eq.${phasage.id}` },
+        (payload) => {
+          const remote = payload?.new;
+          if (!remote) return;
+          // Filtre nos propres saves
+          if (remote.plan_travaux?.meta?.last_client_id === clientId) return;
+          const remoteOuvrages = Array.isArray(remote.ouvrages) ? remote.ouvrages : [];
+          setOuvrages(prev => {
+            const dirty = dirtyOuvragesRef.current;
+            const remoteById = new Map(remoteOuvrages.map(o => [o.id, o]));
+            const localById  = new Map(prev.map(o => [o.id, o]));
+            const merged = [];
+            remoteOuvrages.forEach(r => {
+              if (dirty.has(r.id) && localById.has(r.id)) merged.push(localById.get(r.id));
+              else merged.push(r);
+            });
+            prev.forEach(l => {
+              if (!remoteById.has(l.id) && dirty.has(l.id)) merged.push(l);
+            });
+            // Synchronise lastSynced pour ne pas redéclencher de save inutile
+            lastSyncedSnapshotRef.current = JSON.stringify(merged);
+            return merged;
+          });
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [phasage?.id]);
 
   // Génère les sous-tâches d'un ouvrage importé.
   // Refactor : on n'applique plus de ratio — les sous-tâches sont créées sans
@@ -2287,6 +2470,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
         ],
       };
     });
+    nouveaux.forEach(o => markOuvrageDirty(o.id));
     setOuvrages(prev => [...prev, ...nouveaux]);
     setShowImport(false);
   }
@@ -2298,12 +2482,17 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
     const hD = parseFloat(heuresInput), q = parseFloat(quantiteInput) || null;
     const hE = bibl.cadence && q ? parseFloat((bibl.cadence * q).toFixed(2)) : null;
     const newO = { id: Math.random().toString(36).slice(2), bibliotheque_id: selectedOuvrage, libelle: bibl.libelle, unite: bibl.unite, heures_devis: hD, quantite: q, heures_estimees: hE, taches: genererTaches(selectedOuvrage) };
+    markOuvrageDirty(newO.id);
     setOuvrages(prev => [...prev, newO]);
     setShowAjout(false); setSelectedOuvrage(""); setHeuresInput(""); setQuantiteInput(""); setSearch("");
   }
 
-  function supprimerOuvrage(id) { setOuvrages(prev => prev.filter(o => o.id !== id)); }
+  function supprimerOuvrage(id) {
+    dirtyOuvragesRef.current.delete(id); // pas la peine de tracker un item supprimé
+    setOuvrages(prev => prev.filter(o => o.id !== id));
+  }
   function updateHeures(id, val) {
+    markOuvrageDirty(id);
     setOuvrages(prev => prev.map(o => {
       if (o.id !== id) return o;
       const h = parseFloat(val) || 0;
@@ -2314,12 +2503,14 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
     }));
   }
   function updateLibelle(id, val) {
+    markOuvrageDirty(id);
     setOuvrages(prev => prev.map(o => o.id !== id ? o : { ...o, libelle: val }));
   }
 
   // CRUD sous-tâches d'un ouvrage (préparation du devis)
   function ajouterSousTacheOuvrage(ouvrageId, nom, phaseId) {
     if (!nom?.trim()) return;
+    markOuvrageDirty(ouvrageId);
     const nouvelle = {
       nom: nom.trim(),
       phaseId: phaseId || "",
@@ -2333,6 +2524,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
     setOuvrages(prev => prev.map(o => o.id !== ouvrageId ? o : { ...o, taches: [...(o.taches || []), nouvelle] }));
   }
   function supprimerSousTacheOuvrage(ouvrageId, idx) {
+    markOuvrageDirty(ouvrageId);
     setOuvrages(prev => prev.map(o => o.id !== ouvrageId ? o : { ...o, taches: (o.taches || []).filter((_, i) => i !== idx) }));
   }
 
@@ -3017,10 +3209,24 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
   }
 
   async function savePhasage(phasage) {
-    const { error } = await supabase.from("phasages").update({ ouvrages: phasage.ouvrages, plan_travaux: phasage.plan_travaux || null, updated_at: new Date().toISOString() }).eq("id", phasage.id);
+    // Étiquette la save avec notre client_id pour que les autres tabs/onglets
+    // sachent que c'est notre update et ne nous le réinjectent pas. On le stocke
+    // dans plan_travaux.meta pour éviter une nouvelle colonne en base.
+    const clientId = getClientId();
+    const planTrav = phasage.plan_travaux || {};
+    const planTravWithMeta = {
+      ...planTrav,
+      meta: { ...(planTrav.meta || {}), last_client_id: clientId, last_saved_at: Date.now() },
+    };
+    const phasageOut = { ...phasage, plan_travaux: planTravWithMeta };
+    const { error } = await supabase.from("phasages").update({
+      ouvrages: phasageOut.ouvrages,
+      plan_travaux: planTravWithMeta,
+      updated_at: new Date().toISOString(),
+    }).eq("id", phasage.id);
     if (error) { console.error(error.message); return; }
-    setPhasages(prev => prev.map(p => p.id === phasage.id ? phasage : p));
-    if (selected?.id === phasage.id) setSelected(phasage);
+    setPhasages(prev => prev.map(p => p.id === phasage.id ? phasageOut : p));
+    if (selected?.id === phasage.id) setSelected(phasageOut);
   }
 
   async function supprimerPhasage(id) {
