@@ -7,6 +7,7 @@ import {
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
   Wallet, Banknote, Receipt, TrendingDown, TrendingUp, Image as ImageIcon,
   Clock, Search, Package, Calendar, Info, StickyNote, Bold, Italic, Underline,
+  Palette, List, ListOrdered,
 } from "lucide-react";
 
 // PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
@@ -127,13 +128,28 @@ const fmt = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", currency:
 // 800ms. Subscription Realtime sur chantier_notes filtrée par chantier_id pour
 // la collab. Quand un remote arrive pendant qu'on est focus, on l'ignore pour
 // ne pas perdre le curseur (le local va écraser au prochain save de toute façon).
+// Palette de couleurs pour le texte des notes. "default" reset à la couleur
+// héritée du thème (= variable T.text). 6 teintes choisies pour rester lisibles
+// sur fond sombre comme sur fond clair.
+const NOTE_COLORS = [
+  { id: "default", label: "Défaut",  value: null      },
+  { id: "red",     label: "Rouge",   value: "#e15a5a" },
+  { id: "orange",  label: "Orange",  value: "#f5a623" },
+  { id: "yellow",  label: "Jaune",   value: "#FFC300" },
+  { id: "green",   label: "Vert",    value: "#22c55e" },
+  { id: "blue",    label: "Bleu",    value: "#5b9cf6" },
+  { id: "purple",  label: "Violet",  value: "#a78bfa" },
+];
+
 function NotesChantier({ chantierId, T, accent }) {
   const [loading, setLoading]             = useState(true);
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
   const editorRef    = useRef(null);
   const saveTimer    = useRef(null);
   const isFocusedRef = useRef(false);
   const isDirtyRef   = useRef(false);
+  const savedSelectionRef = useRef(null); // sauve la sélection avant ouvrir le menu couleur
 
   // Applique le HTML reçu de la base dans le contentEditable sans casser le
   // curseur si l'utilisateur n'est pas en train d'écrire.
@@ -198,11 +214,43 @@ function NotesChantier({ chantierId, T, accent }) {
   }, [chantierId]);
 
   // Toolbar : exécute la commande sur la sélection courante puis trigger save
-  const exec = (cmd) => {
+  const exec = (cmd, arg = undefined) => {
     if (!editorRef.current) return;
     editorRef.current.focus();
-    document.execCommand(cmd, false);
+    // Restaure la sélection si on l'a sauvegardée (utilisé par le menu couleur
+    // qui fait perdre le focus le temps du clic sur une pastille).
+    if (savedSelectionRef.current) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(savedSelectionRef.current);
+      savedSelectionRef.current = null;
+    }
+    document.execCommand(cmd, false, arg);
     onInput();
+  };
+
+  // Mémorise la sélection courante avant d'ouvrir le menu couleur (le clic sur
+  // une pastille ferait perdre le focus du contenteditable).
+  const memoSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
+      savedSelectionRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  // Applique une couleur (ou reset si null/default).
+  const applyColor = (value) => {
+    if (value) {
+      exec("foreColor", value);
+    } else {
+      // Reset : on remet la couleur héritée. Astuce : foreColor avec "inherit"
+      // n'est pas universellement supporté ; on passe par removeFormat pour les
+      // attributs de style/font, puis on rapplique bold/italic/underline si la
+      // sélection les avait — trop complexe pour un cas marginal. Plus simple :
+      // foreColor avec la couleur texte du thème.
+      exec("foreColor", T?.text || "#f0f0f0");
+    }
+    setColorMenuOpen(false);
   };
 
   const statusColor = autoSaveStatus === "saved" ? "#22c55e"
@@ -239,6 +287,48 @@ function NotesChantier({ chantierId, T, accent }) {
         <button onClick={() => exec("bold")}       title="Gras (Ctrl+B)"       style={toolBtn()}><Icon as={Bold} size={13}/></button>
         <button onClick={() => exec("italic")}     title="Italique (Ctrl+I)"   style={toolBtn()}><Icon as={Italic} size={13}/></button>
         <button onClick={() => exec("underline")}  title="Souligné (Ctrl+U)"   style={toolBtn()}><Icon as={Underline} size={13}/></button>
+        {/* Séparateur */}
+        <div style={{ width: 1, height: 18, background: border, margin: "0 2px" }}/>
+        {/* Couleur de texte */}
+        <div style={{ position: "relative" }}>
+          <button
+            onMouseDown={memoSelection}
+            onClick={() => setColorMenuOpen(o => !o)}
+            title="Couleur de texte"
+            style={{ ...toolBtn(colorMenuOpen) }}
+          >
+            <Icon as={Palette} size={13}/>
+          </button>
+          {colorMenuOpen && (
+            <>
+              <div onClick={() => setColorMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }}/>
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 100,
+                background: surface, border: `1px solid ${border}`, borderRadius: RADIUS.md,
+                padding: 6, boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+                display: "flex", gap: 6,
+              }}>
+                {NOTE_COLORS.map(c => (
+                  <button
+                    key={c.id}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyColor(c.value)}
+                    title={c.label}
+                    style={{
+                      width: 22, height: 22, borderRadius: "50%",
+                      background: c.value || `linear-gradient(135deg, ${text} 50%, ${textMuted} 50%)`,
+                      border: c.value ? `2px solid ${border}` : `2px dashed ${textMuted}`,
+                      cursor: "pointer", padding: 0,
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        {/* Listes */}
+        <button onClick={() => exec("insertUnorderedList")} title="Liste à puces"     style={toolBtn()}><Icon as={List} size={13}/></button>
+        <button onClick={() => exec("insertOrderedList")}   title="Liste numérotée" style={toolBtn()}><Icon as={ListOrdered} size={13}/></button>
         <div style={{ flex: 1 }}/>
         <span style={{
           display: "inline-flex", alignItems: "center", gap: 5,
@@ -275,6 +365,9 @@ function NotesChantier({ chantierId, T, accent }) {
         [contenteditable=true] b, [contenteditable=true] strong { font-weight: 800; }
         [contenteditable=true] i, [contenteditable=true] em     { font-style: italic; }
         [contenteditable=true] u                                { text-decoration: underline; }
+        [contenteditable=true] ul                               { list-style: disc;    padding-left: 22px; margin: 4px 0; }
+        [contenteditable=true] ol                               { list-style: decimal; padding-left: 22px; margin: 4px 0; }
+        [contenteditable=true] li                               { margin: 2px 0; }
       `}</style>
     </div>
   );
