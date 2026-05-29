@@ -1898,10 +1898,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                   </div>
                   {phPrixHt > 0 && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                      <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase" }}>Vendu</div><div style={{ fontSize: 13, fontWeight: 800, color: T.accent }}>{phPrixHt.toFixed(0)} €</div></div>
+                      <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase" }}>Vendu</div><div style={{ fontSize: 13, fontWeight: 800, color: T.accent }}>{phPrixHt.toFixed(2)} €</div></div>
                       <div style={{ width: 1, height: 28, background: T.border }} />
-                      <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase" }}>Coût</div><div style={{ fontSize: 13, fontWeight: 800, color: phCout > phPrixHt && phPrixHt > 0 ? "#e05c5c" : T.text }}>{phCout.toFixed(0)} €</div></div>
-                      {phCout > 0 && <><div style={{ width: 1, height: 28, background: T.border }} /><div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase" }}>Marge</div><div style={{ fontSize: 13, fontWeight: 800, color: phMarge >= 0 ? "#50c878" : "#e05c5c" }}>{phMarge >= 0 ? "+" : ""}{phMarge.toFixed(0)} €</div></div></>}
+                      <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase" }}>Coût</div><div style={{ fontSize: 13, fontWeight: 800, color: phCout > phPrixHt && phPrixHt > 0 ? "#e05c5c" : T.text }}>{phCout.toFixed(2)} €</div></div>
+                      {phCout > 0 && <><div style={{ width: 1, height: 28, background: T.border }} /><div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase" }}>Marge</div><div style={{ fontSize: 13, fontWeight: 800, color: phMarge >= 0 ? "#50c878" : "#e05c5c" }}>{phMarge >= 0 ? "+" : ""}{phMarge.toFixed(2)} €</div></div></>}
                     </div>
                   )}
                   {taches.length > 0 && (
