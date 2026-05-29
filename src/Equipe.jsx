@@ -7,6 +7,7 @@ import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
   Check, X, RefreshCw, MessageSquare, Pencil, Camera, FileDown, Trash2,
   ArrowRight, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, RotateCcw, ExternalLink,
+  FileText,
 } from "lucide-react";
 
 // ─── PAGE ÉQUIPE ──────────────────────────────────────────────────────────────
@@ -977,6 +978,448 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
   );
 }
 
+// ─── MODALE COMPTE RENDU CLIENT ───────────────────────────────────────────────
+// Génère un compte rendu PDF à destination du client à partir des rapports
+// équipe de la semaine. Le contenu est pré-rempli automatiquement depuis les
+// rapports (tâches faites + photos) puis éditable avant impression. Réutilise
+// le pipeline window.print() avec HTML stylisé (cf. PageCompteRendu d'origine).
+function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defaultChantierId, branch }) {
+  // Filtre les chantiers ayant au moins un rapport cette semaine pour le dropdown
+  const chantiersAvecRapports = Array.from(new Set(rapports.map(r => r.chantier_id).filter(Boolean)));
+  const initialChantierId = defaultChantierId && chantiersAvecRapports.includes(defaultChantierId)
+    ? defaultChantierId
+    : chantiersAvecRapports[0] || "";
+
+  const [selectedChantierId, setSelectedChantierId] = useState(initialChantierId);
+  const [clientNom,      setClientNom]      = useState("");
+  const [adresse,        setAdresse]        = useState("");
+  const [dateVisite,     setDateVisite]     = useState(() => new Date().toISOString().slice(0,10));
+  const [avancement,     setAvancement]     = useState("");
+  const [resume,         setResume]         = useState("");
+  const [prochaineEtape, setProchaineEtape] = useState("");
+  const [remarques,      setRemarques]      = useState("");
+  const [tachesIncluses, setTachesIncluses] = useState(new Set());
+  const [photosIncluses, setPhotosIncluses] = useState(new Set());
+  const [editableTaches, setEditableTaches] = useState({}); // {key: customText} pour override
+  const [generating,     setGenerating]     = useState(false);
+
+  // Filtre les rapports du chantier sélectionné
+  const rapportsChantier = rapports.filter(r => r.chantier_id === selectedChantierId);
+  const chantier = chantiers.find(c => c.id === selectedChantierId);
+
+  // Extraction auto des tâches faites + photos pour ce chantier
+  const tachesAuto = rapportsChantier.flatMap(r =>
+    (r.taches || [])
+      .filter(t => t.statut === "faite")
+      .map((t, ti) => ({
+        key: `${r.id}-${ti}`,
+        texte: t.planifie || "(sans description)",
+        ouvrier: r.ouvrier,
+        date: r.date_rapport,
+        remarque: t.remarque || "",
+      }))
+  );
+  const photosAuto = (() => {
+    const seen = new Set();
+    const result = [];
+    rapportsChantier.forEach(r => {
+      (r.photos_chantier || []).forEach(url => {
+        if (seen.has(url)) return; seen.add(url);
+        result.push({ url, ouvrier: r.ouvrier, date: r.date_rapport, source: "Vue chantier" });
+      });
+      (r.taches || []).forEach(t => {
+        (t.photos || []).forEach(url => {
+          if (seen.has(url)) return; seen.add(url);
+          result.push({ url, ouvrier: r.ouvrier, date: r.date_rapport, source: t.planifie || "Tâche" });
+        });
+      });
+    });
+    return result;
+  })();
+
+  // Re-init sélections + résumé auto à chaque changement de chantier
+  useEffect(() => {
+    setTachesIncluses(new Set(tachesAuto.map(t => t.key)));
+    setPhotosIncluses(new Set(photosAuto.map(p => p.url)));
+    setEditableTaches({});
+    if (tachesAuto.length > 0) {
+      const nb = tachesAuto.length;
+      setResume(`Cette semaine, l'équipe a réalisé ${nb} tâche${nb > 1 ? "s" : ""} sur le chantier.`);
+    } else {
+      setResume("");
+    }
+    // Tente de pré-remplir client + adresse + avancement depuis profero_projets
+    // et phasages liés au chantier (best effort, échec silencieux).
+    (async () => {
+      if (!chantier) return;
+      // Adresse depuis planning_config.chantier_adresses
+      const { data: addr } = await supabase.from("planning_config").select("value").eq("key", "chantier_adresses").maybeSingle();
+      const addrCh = addr?.value?.[chantier.id];
+      if (addrCh?.adresse) setAdresse(addrCh.adresse);
+      // Avancement depuis phasage
+      const { data: ph } = await supabase.from("phasages").select("ouvrages, plan_travaux").eq("chantier_id", chantier.id).maybeSingle();
+      if (ph?.plan_travaux) {
+        const allTaches = Object.values(ph.plan_travaux).filter(Array.isArray).flat();
+        // Calcul simple : moyenne pondérée par heures_estimees (sinon moyenne simple)
+        const totalHE = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+        const av = totalHE > 0
+          ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHE)
+          : allTaches.length > 0 ? Math.round(allTaches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / allTaches.length) : 0;
+        if (av > 0) setAvancement(String(av));
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChantierId]);
+
+  const toggleTache = (key) => {
+    setTachesIncluses(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const togglePhoto = (url) => {
+    setPhotosIncluses(prev => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url); else next.add(url);
+      return next;
+    });
+  };
+
+  // ── Génération du PDF ──
+  async function genererPDF() {
+    if (!chantier) return;
+    setGenerating(true);
+    try {
+      const dateStr = dateVisite
+        ? new Date(dateVisite).toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
+        : new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+      const fmt = (txt) => (txt || "").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+
+      // Tâches retenues + override custom
+      const tachesFinales = tachesAuto
+        .filter(t => tachesIncluses.has(t.key))
+        .map(t => editableTaches[t.key] !== undefined ? editableTaches[t.key] : t.texte)
+        .filter(Boolean);
+
+      const tachesHtml = tachesFinales.length === 0 ? "" : `
+        <div style="margin-bottom:10pt;">
+          <div style="display:flex;align-items:center;gap:6pt;margin-bottom:5pt;">
+            <div style="width:3pt;height:11pt;background:#f5c400;border-radius:2pt;"></div>
+            <span style="font-size:7.5pt;font-weight:700;color:#888;letter-spacing:.08em;">TRAVAUX RÉALISÉS CETTE SEMAINE</span>
+          </div>
+          <div style="height:0.5pt;background:#eee;margin-bottom:8pt;"></div>
+          <ul style="font-size:9pt;color:#333;line-height:1.6;padding-left:18pt;margin:0;">
+            ${tachesFinales.map(t => `<li style="margin-bottom:3pt;">${fmt(t)}</li>`).join("")}
+          </ul>
+        </div>`;
+
+      // Pré-charge les photos en base64 (sinon le popup d'impression n'a pas le
+      // temps de fetch les URLs Supabase Storage avant print()).
+      const photosRetenues = photosAuto.filter(p => photosIncluses.has(p.url));
+      const photosBase64 = await Promise.all(
+        photosRetenues.map(p => fetch(p.url)
+          .then(r => r.ok ? r.blob() : null)
+          .then(b => b ? new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(b); }) : null)
+          .catch(() => null)
+        )
+      );
+      const photosHtml = photosRetenues.length === 0 ? "" : `
+        <div style="margin-bottom:10pt;">
+          <div style="display:flex;align-items:center;gap:6pt;margin-bottom:5pt;">
+            <div style="width:3pt;height:11pt;background:#f5c400;border-radius:2pt;"></div>
+            <span style="font-size:7.5pt;font-weight:700;color:#888;letter-spacing:.08em;">PHOTOS</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8pt;">
+            ${photosRetenues.map((p, i) => {
+              const src = photosBase64[i] || p.url;
+              return `<img src="${src}" style="width:120pt;height:90pt;object-fit:cover;border-radius:5pt;border:1pt solid #ddd;" />`;
+            }).join("")}
+          </div>
+        </div>`;
+
+      const section = (titre, contenu) => !contenu ? "" : `
+        <div style="margin-bottom:10pt;">
+          <div style="display:flex;align-items:center;gap:6pt;margin-bottom:5pt;">
+            <div style="width:3pt;height:11pt;background:#f5c400;border-radius:2pt;flex-shrink:0;"></div>
+            <span style="font-size:7.5pt;font-weight:700;color:#888;letter-spacing:.08em;">${titre}</span>
+          </div>
+          <div style="height:0.5pt;background:#eee;margin-bottom:8pt;"></div>
+          <div style="font-size:9pt;color:#333;line-height:1.6;">${contenu}</div>
+        </div>`;
+
+      const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
+      const avancementBox = avancement ? `
+        <div style="width:90pt;background:#0a0a0a;border-radius:5pt;padding:10pt 12pt;text-align:center;">
+          <div style="font-size:7pt;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Avancement</div>
+          <div style="font-size:22pt;font-weight:700;color:#f5c400;">${parseInt(avancement) || 0}%</div>
+        </div>` : "";
+
+      const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+      <style>
+        *{box-sizing:border-box;margin:0;padding:0;}
+        body{font-family:Arial,sans-serif;background:#fff;color:#111;font-size:9pt;}
+        @page{margin:14mm 16mm;size:A4;}
+        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+      </style></head><body>
+      <div style="background:#0a0a0a;padding:16pt 20pt;display:flex;justify-content:space-between;align-items:center;margin-bottom:16pt;border-radius:5pt;">
+        <div style="display:flex;align-items:center;gap:14pt;">
+          <img src="${logoUrl}" alt="Profero" style="height:42pt;object-fit:contain;object-position:left;" />
+          <div style="color:rgba(255,255,255,.45);font-size:9pt;font-weight:600;letter-spacing:.04em;">Compte Rendu de Chantier</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="color:#fff;font-size:9pt;font-weight:600;">${fmt(clientNom) || chantier?.nom || "—"}</div>
+          <div style="color:rgba(255,255,255,.5);font-size:8pt;margin-top:2pt;">${dateStr}</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10pt;margin-bottom:12pt;">
+        <div style="flex:1;background:#f9f9f9;border-radius:5pt;padding:10pt 12pt;">
+          <div style="font-size:7pt;font-weight:700;color:#aaa;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Chantier</div>
+          <div style="font-size:10pt;font-weight:600;color:#111;">${fmt(chantier?.nom || "—")}</div>
+          ${clientNom ? `<div style="font-size:9pt;color:#444;margin-top:4pt;">${fmt(clientNom)}</div>` : ""}
+          ${adresse ? `<div style="font-size:8.5pt;color:#555;margin-top:4pt;">${fmt(adresse)}</div>` : ""}
+        </div>
+        ${avancementBox}
+      </div>
+
+      ${section("RÉSUMÉ DE LA SEMAINE", fmt(resume))}
+      ${tachesHtml}
+      ${prochaineEtape ? `<div style="background:#fff9e6;border-left:3pt solid #f5c400;padding:8pt 12pt;border-radius:4pt;margin-bottom:10pt;font-size:9pt;color:#333;"><strong style="color:#9a7a00;">Prochaine étape :</strong> ${fmt(prochaineEtape)}</div>` : ""}
+      ${section("REMARQUES", fmt(remarques))}
+      ${photosHtml}
+
+      <div style="position:fixed;bottom:0;left:0;right:0;background:#0a0a0a;padding:5pt 14pt;display:flex;justify-content:space-between;">
+        <span style="color:#555;font-size:7pt;">PROFERO — Document confidentiel</span>
+        <span style="color:#555;font-size:7pt;">${new Date().toLocaleDateString("fr-FR")}</span>
+      </div>
+      </body></html>`;
+
+      const w = window.open("", "_blank", "width=900,height=700");
+      w.document.write(html); w.document.close();
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 300);
+    } catch (e) {
+      console.error("PDF compte rendu client :", e);
+      alert("Erreur lors de la génération du PDF.");
+    }
+    setGenerating(false);
+  }
+
+  // ─── UI ─────────────────────────────────────────────────────────────────────
+  if (chantiersAvecRapports.length === 0) {
+    return (
+      <div onClick={onClose} style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 600,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      }}>
+        <div onClick={e => e.stopPropagation()} style={{
+          background: T.modal, borderRadius: RADIUS.xl, border: `1px solid ${T.border}`,
+          padding: 28, maxWidth: 460, textAlign: "center",
+        }}>
+          <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text, marginBottom: 8 }}>Aucun rapport cette semaine</div>
+          <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginBottom: 18 }}>
+            Aucun compte rendu équipe trouvé pour générer un CR client. Les ouvriers doivent d'abord soumettre leurs rapports.
+          </div>
+          <button onClick={onClose} style={{
+            padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+            background: accent, color: "#000", fontFamily: "inherit",
+            fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>Fermer</button>
+        </div>
+      </div>
+    );
+  }
+
+  const fieldLbl = { fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, letterSpacing: .8, textTransform: "uppercase", marginBottom: 5 };
+  const inp     = { width: "100%", padding: "8px 11px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: T.fieldBg || T.card, color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none" };
+  const ta      = { ...inp, resize: "vertical", minHeight: 60 };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 600,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      backdropFilter: "blur(4px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.modal, borderRadius: RADIUS.xl, border: `1px solid ${T.border}`,
+        width: "100%", maxWidth: 820, maxHeight: "92vh",
+        display: "flex", flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: RADIUS.md, background: accent + "22", color: accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon as={FileText} size={17}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text, letterSpacing: -.2 }}>Compte rendu client</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>Aperçu éditable — généré depuis les rapports équipe</div>
+          </div>
+          <button onClick={onClose} title="Fermer" style={{
+            background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", padding: 6,
+            borderRadius: RADIUS.sm, display: "inline-flex", alignItems: "center",
+          }}><Icon as={X} size={18}/></button>
+        </div>
+
+        {/* Body scrollable */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Sélection chantier + infos */}
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 110px", gap: 10 }}>
+            <div>
+              <div style={fieldLbl}>Chantier</div>
+              <select value={selectedChantierId} onChange={e => setSelectedChantierId(e.target.value)} style={{ ...inp, cursor: "pointer" }}>
+                {chantiersAvecRapports.map(cid => {
+                  const c = chantiers.find(ch => ch.id === cid);
+                  return <option key={cid} value={cid}>{c?.nom || cid}</option>;
+                })}
+              </select>
+            </div>
+            <div>
+              <div style={fieldLbl}>Date du CR</div>
+              <input type="date" value={dateVisite} onChange={e => setDateVisite(e.target.value)} style={inp}/>
+            </div>
+            <div>
+              <div style={fieldLbl}>Avancement</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input type="number" min="0" max="100" value={avancement} onChange={e => setAvancement(e.target.value)} placeholder="0" style={{ ...inp, textAlign: "center" }}/>
+                <span style={{ color: T.textMuted, fontSize: FONT.sm.size }}>%</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10 }}>
+            <div>
+              <div style={fieldLbl}>Client</div>
+              <input value={clientNom} onChange={e => setClientNom(e.target.value)} placeholder="Nom du client" style={inp}/>
+            </div>
+            <div>
+              <div style={fieldLbl}>Adresse</div>
+              <input value={adresse} onChange={e => setAdresse(e.target.value)} placeholder="Adresse du chantier" style={inp}/>
+            </div>
+          </div>
+
+          {/* Résumé */}
+          <div>
+            <div style={fieldLbl}>Résumé de la semaine</div>
+            <textarea value={resume} onChange={e => setResume(e.target.value)} placeholder="Texte d'introduction…" rows={2} style={ta}/>
+          </div>
+
+          {/* Tâches faites (auto, sélection / édition) */}
+          <div>
+            <div style={{ ...fieldLbl, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span>Travaux réalisés ({tachesIncluses.size} / {tachesAuto.length} incluses)</span>
+            </div>
+            {tachesAuto.length === 0 ? (
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic", padding: "10px 12px", background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
+                Aucune tâche marquée "faite" cette semaine sur ce chantier.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto", padding: 8, background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.md }}>
+                {tachesAuto.map(t => {
+                  const incluse = tachesIncluses.has(t.key);
+                  const txt = editableTaches[t.key] !== undefined ? editableTaches[t.key] : t.texte;
+                  return (
+                    <div key={t.key} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 8px", borderRadius: RADIUS.sm, background: incluse ? "rgba(255,255,255,0.03)" : "transparent", opacity: incluse ? 1 : .5 }}>
+                      <input type="checkbox" checked={incluse} onChange={() => toggleTache(t.key)} style={{ marginTop: 4, cursor: "pointer", accentColor: accent }}/>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <textarea
+                          value={txt}
+                          onChange={e => setEditableTaches(prev => ({ ...prev, [t.key]: e.target.value }))}
+                          rows={1}
+                          style={{ width: "100%", background: "transparent", border: "none", color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none", resize: "vertical", minHeight: 22 }}
+                        />
+                        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>
+                          {t.ouvrier} · {t.date}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Prochaine étape + Remarques */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <div style={fieldLbl}>Prochaine étape</div>
+              <textarea value={prochaineEtape} onChange={e => setProchaineEtape(e.target.value)} placeholder="Ce qu'on prévoit pour la suite…" rows={3} style={ta}/>
+            </div>
+            <div>
+              <div style={fieldLbl}>Remarques</div>
+              <textarea value={remarques} onChange={e => setRemarques(e.target.value)} placeholder="Notes complémentaires au client…" rows={3} style={ta}/>
+            </div>
+          </div>
+
+          {/* Photos */}
+          <div>
+            <div style={{ ...fieldLbl, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span>Photos ({photosIncluses.size} / {photosAuto.length} incluses)</span>
+              {photosAuto.length > 0 && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setPhotosIncluses(new Set(photosAuto.map(p => p.url)))} style={{
+                    padding: "3px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                    background: "transparent", color: T.textSub, fontSize: FONT.xs.size, cursor: "pointer", fontFamily: "inherit",
+                  }}>Tout</button>
+                  <button onClick={() => setPhotosIncluses(new Set())} style={{
+                    padding: "3px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                    background: "transparent", color: T.textSub, fontSize: FONT.xs.size, cursor: "pointer", fontFamily: "inherit",
+                  }}>Aucune</button>
+                </div>
+              )}
+            </div>
+            {photosAuto.length === 0 ? (
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic", padding: "10px 12px", background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
+                Aucune photo disponible sur les rapports de la semaine.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(110px,1fr))", gap: 8, padding: 8, background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.md }}>
+                {photosAuto.map(p => {
+                  const incluse = photosIncluses.has(p.url);
+                  return (
+                    <div key={p.url} onClick={() => togglePhoto(p.url)} style={{
+                      position: "relative", cursor: "pointer", borderRadius: RADIUS.sm, overflow: "hidden",
+                      border: `2px solid ${incluse ? accent : "transparent"}`,
+                      opacity: incluse ? 1 : .4, transition: "all .12s",
+                    }}>
+                      <img src={photoTransform(p.url, { width: 256, height: 256, resize: "cover", quality: 70 })}
+                           alt="" loading="lazy"
+                           style={{ width: "100%", height: 80, objectFit: "cover", display: "block" }}/>
+                      {incluse && (
+                        <div style={{ position: "absolute", top: 4, right: 4, background: accent, borderRadius: "50%", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icon as={Check} size={11} color="#000"/>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
+          <button onClick={onClose} style={{
+            padding: "9px 18px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub, fontFamily: "inherit",
+            fontSize: FONT.sm.size, cursor: "pointer",
+          }}>Annuler</button>
+          <button onClick={genererPDF} disabled={generating || !selectedChantierId} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+            background: accent, color: "#000", fontFamily: "inherit",
+            fontSize: FONT.sm.size, fontWeight: 800, cursor: generating ? "default" : "pointer",
+            opacity: generating ? .6 : 1,
+          }}>
+            <Icon as={FileText} size={13}/>
+            {generating ? "Génération…" : "Générer le PDF"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation"}) {
   const acc = getBranchAccent(branch);
   const [rapports, setRapports]       = useState([]);
@@ -987,6 +1430,7 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
   const [groupBy, setGroupBy]         = useState("ouvrier"); // "ouvrier" | "chantier"
   const [viewMode, setViewMode]       = useState("liste");   // "liste" | "calendrier"
   const [showBilan, setShowBilan]     = useState(false);
+  const [showCRClient, setShowCRClient] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
 
@@ -1103,6 +1547,16 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
           weekId={filterSemaine||weekId} onClose={()=>setShowBilan(false)} T={T}/>
       )}
 
+      {showCRClient && (
+        <CompteRenduClientModal
+          rapports={rapports}
+          chantiers={chantiers}
+          T={T} accent={acc.accent} branch={branch}
+          defaultChantierId={filterChantier !== "all" ? filterChantier : null}
+          onClose={() => setShowCRClient(false)}
+        />
+      )}
+
       {/* Lightbox photos */}
       {lightbox && (
         <div onClick={()=>setLightbox(null)} style={{
@@ -1166,6 +1620,16 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
           }}>
             <Icon as={ChartBar} size={14}/>
             Bilan semaine
+          </button>
+          <button onClick={()=>setShowCRClient(true)} style={{
+            display:"inline-flex", alignItems:"center", gap:6,
+            background: "transparent", color: acc.accent, border: `1px solid ${acc.border}`,
+            borderRadius: RADIUS.md, padding: "9px 16px",
+            fontFamily:"inherit", fontSize: FONT.sm.size, fontWeight:800,
+            cursor:"pointer",
+          }}>
+            <Icon as={FileText} size={14}/>
+            Compte rendu client
           </button>
           <div className="eq-link-box" style={{
             background: T.card, border: `1px solid ${T.border}`,

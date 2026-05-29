@@ -32,7 +32,6 @@ export const PAGES_RENOVATION = [
   { id: "biblio-materiaux",   label: "Biblio. matériaux"         },
   { id: "visite",             label: "Visites chantier"          },
   { id: "info-client",        label: "Infos Client"              },
-  { id: "compte-rendu",       label: "Compte rendu client"       },
   { id: "dashboard-analyse",  label: "Dashboard Analyse"         },
   { id: "admin",              label: "Réglages"                  },
 ];
@@ -62,15 +61,15 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu","dashboard-analyse","admin",
+    "visite","info-client","dashboard-analyse","admin",
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu",
+    "visite","info-client",
   ],
   commercial: [
-    "dashboard","chantiers","planning","plans","visite","info-client","compte-rendu",
+    "dashboard","chantiers","planning","plans","visite","info-client",
   ],
   comptable: [
     "dashboard","chantiers","commandes","biblio-materiaux","phasage",

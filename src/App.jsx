@@ -45,7 +45,6 @@ import PageRapportMobile      from "./RapportMobile";
 import PageInvest             from "./PageInvest";
 import PageVisiteChantier     from "./VisiteChantier";
 import PageInfoClient         from "./PageInfoClient";
-import PageCompteRendu        from "./PageCompteRendu";
 import PageChantiers          from "./PageChantiers";
 import PageDashboardAnalyse   from "./DashboardAnalyse";
 
@@ -617,7 +616,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch}/> : <AccesRefuse T={T} page="visite"/>)}
           {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch}/> : <AccesRefuse T={T} page="info-client"/>)}
-          {page==="compte-rendu"       && (canAccess(role,"compte-rendu")       ? <PageCompteRendu T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="compte-rendu"/>)}
           {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch} onOpenChantier={ouvrirFicheChantier}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
           {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
         </div>

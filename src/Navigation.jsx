@@ -26,15 +26,15 @@ const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu","admin"
+    "visite","info-client","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","bibliotheque","biblio-materiaux",
-    "visite","info-client","compte-rendu"
+    "visite","info-client"
   ],
   commercial: [
-    "dashboard","chantiers","planning","plans","visite","info-client","compte-rendu"
+    "dashboard","chantiers","planning","plans","visite","info-client"
   ],
   comptable: [
     "dashboard","chantiers","commandes","biblio-materiaux","phasage"
@@ -58,7 +58,6 @@ const ALL_NAV_ITEMS = [
   { id:"biblio-materiaux", icon:Layers,          label:"Matériaux",  longLabel:"Biblio. matériaux"   },
   { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
   { id:"info-client",      icon:IdCard,          label:"Client",     longLabel:"Infos Client"        },
-  { id:"compte-rendu",     icon:FileText,        label:"CR",         longLabel:"Compte rendu client" },
   { id:"dashboard-analyse",icon:TrendingUp,      label:"Analyse",    longLabel:"Dashboard Analyse"   },
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
 ];
@@ -249,7 +248,6 @@ function Sidebar({
     { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
     { id:"visite",           icon:Search,          label:"Visites chantier" },
     { id:"info-client",      icon:IdCard,          label:"Infos Client"     },
-    { id:"compte-rendu",     icon:FileText,        label:"Compte rendu client"},
     { id:"dashboard-analyse",icon:TrendingUp,      label:"Dashboard Analyse"  },
     { id:"admin",            icon:Settings,        label:"Réglages"         },
   ];
