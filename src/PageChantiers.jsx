@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import { supabase, photoTransform } from "./supabase";
+import { supabase, photoTransform, getClientId } from "./supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
 import { Icon } from "./ui";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
   Wallet, Banknote, Receipt, TrendingDown, TrendingUp, Image as ImageIcon,
-  Clock, Search, Package, Calendar, Info,
+  Clock, Search, Package, Calendar, Info, StickyNote, Bold, Italic, Underline,
 } from "lucide-react";
 
 // PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
@@ -120,6 +120,165 @@ function trouverPhasage(phasages, chantier) {
 }
 
 const fmt = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n || 0);
+
+// ─── WIDGET NOTES (par chantier) ──────────────────────────────────────────────
+// Éditeur riche minimal avec contentEditable natif + document.execCommand :
+// gras, italique, souligné. Aucune dépendance externe. Autosave debounced
+// 800ms. Subscription Realtime sur chantier_notes filtrée par chantier_id pour
+// la collab. Quand un remote arrive pendant qu'on est focus, on l'ignore pour
+// ne pas perdre le curseur (le local va écraser au prochain save de toute façon).
+function NotesChantier({ chantierId, T, accent }) {
+  const [loading, setLoading]             = useState(true);
+  const [autoSaveStatus, setAutoSaveStatus] = useState("saved");
+  const editorRef    = useRef(null);
+  const saveTimer    = useRef(null);
+  const isFocusedRef = useRef(false);
+  const isDirtyRef   = useRef(false);
+
+  // Applique le HTML reçu de la base dans le contentEditable sans casser le
+  // curseur si l'utilisateur n'est pas en train d'écrire.
+  const applyHtml = (html) => {
+    if (!editorRef.current) return;
+    if (editorRef.current.innerHTML !== html) editorRef.current.innerHTML = html || "";
+  };
+
+  // Chargement initial
+  useEffect(() => {
+    if (!chantierId) { setLoading(false); return; }
+    setLoading(true);
+    isDirtyRef.current = false;
+    supabase.from("chantier_notes").select("contenu").eq("chantier_id", chantierId).maybeSingle()
+      .then(({ data, error }) => {
+        if (error && error.code !== "PGRST116") console.warn("Chargement notes :", error.message);
+        applyHtml(data?.contenu || "");
+        setLoading(false);
+      });
+  }, [chantierId]);
+
+  // Autosave debounced
+  const scheduleSave = (html) => {
+    setAutoSaveStatus("pending");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("chantier_notes").upsert({
+        chantier_id: chantierId,
+        contenu: html,
+        last_client_id: getClientId(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "chantier_id" });
+      if (error) { console.error("Save notes :", error.message); setAutoSaveStatus("error"); return; }
+      isDirtyRef.current = false;
+      setAutoSaveStatus("saved");
+    }, 800);
+  };
+
+  const onInput = () => {
+    isDirtyRef.current = true;
+    scheduleSave(editorRef.current?.innerHTML || "");
+  };
+
+  // Subscription Realtime — applique le contenu remote si on ne tape pas
+  useEffect(() => {
+    if (!chantierId) return;
+    const clientId = getClientId();
+    const ch = supabase.channel(`chantier-notes-${chantierId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "chantier_notes", filter: `chantier_id=eq.${chantierId}` },
+        (payload) => {
+          const remote = payload?.new;
+          if (!remote) return;
+          if (remote.last_client_id === clientId) return;
+          if (isFocusedRef.current && isDirtyRef.current) return; // l'utilisateur tape, on ne touche pas
+          applyHtml(remote.contenu || "");
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [chantierId]);
+
+  // Toolbar : exécute la commande sur la sélection courante puis trigger save
+  const exec = (cmd) => {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+    document.execCommand(cmd, false);
+    onInput();
+  };
+
+  const statusColor = autoSaveStatus === "saved" ? "#22c55e"
+                    : autoSaveStatus === "saving" ? accent
+                    : autoSaveStatus === "error"  ? "#e15a5a"
+                    : "#f5a623";
+  const statusLbl = autoSaveStatus === "saved" ? "Sauvegardé"
+                  : autoSaveStatus === "saving" ? "Sauvegarde…"
+                  : autoSaveStatus === "error"  ? "Erreur"
+                  : "Modif en cours";
+
+  const text     = T?.text     || "#f0f0f0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+  const surface  = T?.surface  || "#262a32";
+  const border   = T?.border   || "rgba(255,255,255,0.07)";
+  const card     = T?.card     || "rgba(255,255,255,0.04)";
+
+  const toolBtn = (active = false) => ({
+    width: 30, height: 30, borderRadius: RADIUS.sm,
+    background: active ? accent + "22" : "transparent",
+    border: `1px solid ${border}`, color: text,
+    cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+    fontFamily: "inherit", padding: 0,
+  });
+
+  return (
+    <div style={{ background: card, border: `1px solid ${border}`, borderRadius: RADIUS.xl, overflow: "hidden" }}>
+      {/* Toolbar */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6,
+        padding: "8px 12px", borderBottom: `1px solid ${border}`,
+        background: surface,
+      }}>
+        <button onClick={() => exec("bold")}       title="Gras (Ctrl+B)"       style={toolBtn()}><Icon as={Bold} size={13}/></button>
+        <button onClick={() => exec("italic")}     title="Italique (Ctrl+I)"   style={toolBtn()}><Icon as={Italic} size={13}/></button>
+        <button onClick={() => exec("underline")}  title="Souligné (Ctrl+U)"   style={toolBtn()}><Icon as={Underline} size={13}/></button>
+        <div style={{ flex: 1 }}/>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          fontSize: 9, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase",
+          color: statusColor, background: statusColor + "18", border: `1px solid ${statusColor}40`,
+          borderRadius: 99, padding: "2px 8px",
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }}/>
+          {statusLbl}
+        </span>
+      </div>
+      {/* Éditeur */}
+      <div
+        ref={editorRef}
+        contentEditable={!loading}
+        suppressContentEditableWarning
+        onInput={onInput}
+        onFocus={() => { isFocusedRef.current = true; }}
+        onBlur={() => { isFocusedRef.current = false; }}
+        data-placeholder="Écrire des notes sur ce chantier…"
+        style={{
+          minHeight: 110, padding: "12px 16px",
+          color: text, fontSize: FONT.sm.size + 1, lineHeight: 1.6,
+          outline: "none", fontFamily: "inherit",
+        }}
+      />
+      <style>{`
+        [contenteditable=true]:empty:before {
+          content: attr(data-placeholder);
+          color: ${textMuted};
+          opacity: .55;
+          pointer-events: none;
+        }
+        [contenteditable=true] b, [contenteditable=true] strong { font-weight: 800; }
+        [contenteditable=true] i, [contenteditable=true] em     { font-style: italic; }
+        [contenteditable=true] u                                { text-decoration: underline; }
+      `}</style>
+    </div>
+  );
+}
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
 export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
@@ -1096,6 +1255,14 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── Section : Notes du chantier ── */}
+        <div>
+          <div style={sectionTitle}>
+            <Icon as={StickyNote} size={13}/> Notes du chantier
+          </div>
+          <NotesChantier chantierId={selected} T={T} accent={acc.accent}/>
         </div>
 
         {/* ── Section : Suivi des heures vendues vs réelles ── */}
