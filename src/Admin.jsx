@@ -865,7 +865,7 @@ const SOCIETE_DEFAUT = {
   email: "",
   site_web: "",
 };
-const HEURES_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 8 };
+const HEURES_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
 const PHRASES_DEFAUT = {
   cr_observation: [
     "Travaux conformes au plan, RAS.",

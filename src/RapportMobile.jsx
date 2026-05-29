@@ -233,6 +233,10 @@ function PageRapportMobile() {
   const [photosChantier, setPhotosChantier] = useState({}); // { chantier_id: [url, ...] }
   const [submitting, setSubmitting] = useState(false);
   const [planData, setPlanData]     = useState(null);
+  // Heures attendues par jour — config Admin (clé planning_config "heures_par_jour").
+  // Le défaut local sert de fallback tant que la config n'est pas chargée.
+  const HEURES_PAR_JOUR_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
+  const [heuresParJour, setHeuresParJour] = useState(HEURES_PAR_JOUR_DEFAUT);
 
   const today    = new Date();
   const dateStr  = today.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
@@ -240,8 +244,8 @@ function PageRapportMobile() {
   const {year, week} = getCurrentWeek();
   const weekId   = getWeekId(year, week);
   const todayJour = getTodayJour();
-  // Cible d'heures par jour : 10h Lun-Mer, 9h Jeu-Ven (utilisé partout : UI + validation)
-  const cibleHeures = (todayJour === "Jeudi" || todayJour === "Vendredi") ? 9 : 10;
+  // Cible d'heures du jour, lue depuis la config Admin (onglet "Planning").
+  const cibleHeures = parseFloat(heuresParJour?.[todayJour]) || HEURES_PAR_JOUR_DEFAUT[todayJour] || 10;
 
   // Load config + planning
   useEffect(() => {
@@ -251,6 +255,7 @@ function PageRapportMobile() {
         cfg.forEach(r => {
           if (r.key === "chantiers") setChantiers(r.value);
           if (r.key === "ouvriers")  setOuvriers(r.value);
+          if (r.key === "heures_par_jour" && r.value) setHeuresParJour({ ...HEURES_PAR_JOUR_DEFAUT, ...r.value });
         });
       }
     };
