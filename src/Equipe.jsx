@@ -341,53 +341,50 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       let progBadge = "";
       if (p) {
         if (p.avant == null) {
-          progBadge = `<span style="font-size:11pt;font-weight:600;color:#5b6a8a;background:#f0f3f8;border-radius:6pt;padding:3pt 9pt;">Avancement : <strong style="color:#1a1f2e;">${p.maintenant}%</strong></span>`;
+          progBadge = `<span style="font-size:9pt;color:#5b6a8a;white-space:nowrap;">Avancement : <strong style="color:#1a1f2e;font-size:10pt;">${p.maintenant}%</strong></span>`;
         } else {
           const c = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : "#5b6a8a";
           const sign = p.delta > 0 ? "+" : "";
           const euros = p.deltaEuros != null
-            ? ` <span style="color:${c};font-weight:800;padding-left:6pt;border-left:1pt solid ${c}33;margin-left:4pt;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
+            ? ` <span style="color:${c};font-weight:700;">(${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €)</span>`
             : "";
-          progBadge = `<span style="font-size:11pt;font-weight:600;color:#1a1f2e;background:${c}15;border:1pt solid ${c}55;border-radius:6pt;padding:3pt 9pt;"><span style="color:#5b6a8a;">${p.avant}% → </span><strong>${p.maintenant}%</strong> <span style="color:${c};font-weight:800;">(${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""})</span>${euros}</span>`;
+          progBadge = `<span style="white-space:nowrap;font-size:9pt;color:#5b6a8a;">${p.avant}% → </span><strong style="font-size:10pt;color:#1a1f2e;white-space:nowrap;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:9pt;white-space:nowrap;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}${euros}</span>`;
         }
       }
       const listeTaches = (items, color, icon) => items.length === 0 ? "" : `
-        <ul style="margin:6pt 0 10pt;padding:0;list-style:none;">
-          ${items.map(t => `<li style="font-size:10pt;color:#333;margin-bottom:4pt;padding-left:16pt;position:relative;">
-            <span style="position:absolute;left:0;color:${color};font-weight:700;">${icon}</span>
-            ${esc(t.planifie||t.text||"")}${t.remarque ? ` <span style="color:#777;">— ${esc(t.remarque)}</span>` : ""}
-            <span style="color:#999;font-size:9pt;"> (${esc(t.ouvrier||"")})</span>
+        <ul style="margin:0 0 8pt;padding:0;">
+          ${items.map(t => `<li style="font-size:10pt;color:#222;margin:0 0 3pt;padding-left:14pt;position:relative;list-style:none;">
+            <span style="position:absolute;left:0;top:0;color:${color};font-weight:700;">${icon}</span>${esc(t.planifie||t.text||"")}${t.remarque ? ` <span style="color:#666;">— ${esc(t.remarque)}</span>` : ""}<span style="color:#999;font-size:9pt;"> (${esc(t.ouvrier||"")})</span>
           </li>`).join("")}
         </ul>`;
+      const titreSection = (label, color) => `<div class="sect-title" style="color:${color};font-size:8pt;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4pt;">${label}</div>`;
       return `
-        <div class="chantier-card" style="background:#fff;border-radius:8pt;border:1pt solid #e6e6e6;border-left:5pt solid ${couleur};margin-bottom:14pt;overflow:hidden;">
-          <table class="card-header" style="width:100%;border-collapse:collapse;background:${couleur}18;">
+        <div class="chantier-card" style="background:#fff;border:1pt solid #e0e0e0;border-left:5pt solid ${couleur};margin:0 0 10pt;">
+          <table class="card-header" style="width:100%;border-collapse:collapse;background:#fafafa;">
             <tr>
-              <td style="padding:11pt 14pt;vertical-align:middle;white-space:nowrap;">
-                <span style="display:inline-block;width:11pt;height:11pt;background:${couleur};border-radius:3pt;vertical-align:middle;margin-right:8pt;"></span>
-                <span style="font-size:14pt;font-weight:800;color:#1a1f2e;vertical-align:middle;">${esc(grp.nom)}</span>
+              <td style="padding:8pt 12pt;vertical-align:middle;white-space:nowrap;">
+                <span style="font-size:13pt;font-weight:800;color:#1a1f2e;">${esc(grp.nom)}</span>
               </td>
-              <td style="padding:11pt 14pt;vertical-align:middle;white-space:nowrap;">${progBadge}</td>
-              <td style="padding:11pt 14pt;vertical-align:middle;text-align:right;white-space:nowrap;">
-                ${heures > 0 ? `<span style="display:inline-block;background:#fff8c8;border:1pt solid #f5c40044;border-radius:6pt;padding:3pt 11pt;font-weight:800;color:#9a7a00;font-size:12pt;">${heures.toFixed(1)}h</span>` : ""}
+              <td style="padding:8pt 12pt;vertical-align:middle;text-align:center;">${progBadge}</td>
+              <td style="padding:8pt 12pt;vertical-align:middle;text-align:right;white-space:nowrap;width:90pt;">
+                ${heures > 0 ? `<span style="background:#fff4b8;padding:2pt 9pt;font-weight:800;color:#8a6a00;font-size:11pt;">${heures.toFixed(1)} h</span>` : ""}
               </td>
             </tr>
           </table>
-          <div style="padding:12pt 16pt;">
+          <div style="padding:9pt 12pt;">
             ${presences.length > 0 ? `
               <div class="taches-section">
-                <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Présences</div>
-                <div style="margin-bottom:10pt;font-size:10pt;color:#333;">
-                  ${presences.map(p => `<div class="presence-row" style="margin-bottom:3pt;"><strong>${esc(p.jour)} :</strong> ${esc(p.ouvriers.join(", "))}</div>`).join("")}
-                </div>
+                ${titreSection("Présences", "#888")}
+                ${presences.map(p => `<div class="presence-row" style="font-size:10pt;color:#222;margin:0 0 2pt;"><strong>${esc(p.jour)} :</strong> ${esc(p.ouvriers.join(", "))}</div>`).join("")}
+                <div style="height:6pt;"></div>
               </div>` : ""}
-            ${faites.length > 0 ? `<div class="taches-section"><div style="font-size:9pt;font-weight:700;color:#22c55e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✓ Réalisé</div>${listeTaches(faites, "#22c55e", "✓")}</div>` : ""}
-            ${enCours.length > 0 ? `<div class="taches-section"><div style="font-size:9pt;font-weight:700;color:#f5a623;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">↻ En cours</div>${listeTaches(enCours, "#f5a623", "↻")}</div>` : ""}
-            ${nonFaites.length > 0 ? `<div class="taches-section"><div style="font-size:9pt;font-weight:700;color:#e15a5a;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✗ Non faites</div>${listeTaches(nonFaites, "#e15a5a", "✗")}</div>` : ""}
+            ${faites.length > 0 ? `<div class="taches-section">${titreSection("✓ Réalisé", "#22c55e")}${listeTaches(faites, "#22c55e", "✓")}</div>` : ""}
+            ${enCours.length > 0 ? `<div class="taches-section">${titreSection("↻ En cours", "#f5a623")}${listeTaches(enCours, "#f5a623", "↻")}</div>` : ""}
+            ${nonFaites.length > 0 ? `<div class="taches-section">${titreSection("✗ Non faites", "#e15a5a")}${listeTaches(nonFaites, "#e15a5a", "✗")}</div>` : ""}
             ${remarques.length > 0 ? `
               <div class="taches-section">
-                <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:8pt;margin-bottom:4pt;">Remarques</div>
-                ${remarques.map(r => `<div class="remarque-row" style="font-size:10pt;color:#333;margin-bottom:4pt;background:#f9f9f9;padding:6pt 10pt;border-radius:4pt;border-left:2pt solid #5b8af5;"><strong>${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}
+                ${titreSection("Remarques", "#888")}
+                ${remarques.map(r => `<div class="remarque-row" style="background:#f5f7fa;border-left:2pt solid #5b8af5;padding:5pt 9pt;margin:0 0 4pt;font-size:10pt;color:#222;"><strong>${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}
               </div>` : ""}
           </div>
         </div>`;
@@ -396,53 +393,51 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     // Espace insécable français entre les milliers et l'unité € ( )
     const fmtEuros = (n) => `${n.toLocaleString("fr-FR")} €`;
 
-    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    const kpiCell = (val, label, color) => `
+      <td style="padding:10pt 12pt;vertical-align:middle;text-align:center;border-left:1pt solid rgba(255,255,255,.12);">
+        <div style="color:${color};font-size:14pt;font-weight:800;line-height:1;white-space:nowrap;">${val}</div>
+        <div style="color:rgba(255,255,255,.55);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:3pt;white-space:nowrap;">${label}</div>
+      </td>`;
+
+    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <title>Bilan ${esc(weekId)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:11pt;line-height:1.5;padding-bottom:24pt;}
-  .page{max-width:780pt;margin:0 auto;padding:0;background:#fff;}
-  /* Anti-coupures html2pdf : on protège uniquement les petites unités
-     (sections, items de liste, rangées présences/remarques). On évite
-     volontairement de mettre break-inside:avoid sur .chantier-card car ça
-     forçait la card entière à passer en page suivante quand elle ne
-     tenait pas — créant les gros trous blancs. Une card peut donc se
-     scinder entre ses sections, jamais au milieu d'une section. */
-  .taches-section, .presence-row, .remarque-row, li { break-inside: avoid; page-break-inside: avoid; }
-  /* Headers de carte et bandeau global : never break */
-  .bilan-header, .card-header { break-inside: avoid; page-break-inside: avoid; }
-  @page{margin:14mm 16mm;size:A4;}
-  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}}
+  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.45;padding:0;}
+  .page{max-width:760pt;margin:0 auto;padding:0;}
+  /* Coupures de page : on protège uniquement les unités atomiques. Une
+     .chantier-card peut se scinder entre ses .taches-section, mais aucune
+     section/rangée/li/card-header n'est jamais coupée. */
+  .taches-section, .presence-row, .remarque-row, li,
+  .card-header, .bilan-banner, .sect-title {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Évite qu'un titre de section ou un en-tête de carte se retrouve
+     orphelin en bas de page sans son contenu. */
+  .card-header, .sect-title { page-break-after: avoid; }
+  @page{margin:14mm 14mm;size:A4;}
+  @media print {
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}
+    .no-print{display:none!important;}
+  }
 </style></head><body><div class="page">
-  <!-- Bandeau global : table-layout fixed pour un rendu prévisible dans
-       html2canvas (les flex sont parfois mal mesurés et causaient des KPI
-       qui dépassaient à droite). -->
-  <table class="bilan-header" style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:8pt;overflow:hidden;margin-bottom:18pt;">
+  <table class="bilan-banner" style="width:100%;border-collapse:collapse;background:#0a0a0a;margin:0 0 14pt;">
     <tr>
-      <td style="padding:14pt 18pt;vertical-align:middle;width:60pt;">
-        <img src="${logoUrl}" alt="Profero" style="height:36pt;object-fit:contain;display:block;" />
+      <td style="padding:12pt 16pt;vertical-align:middle;width:80pt;">
+        <img src="${logoUrl}" alt="Profero" style="height:30pt;object-fit:contain;display:block;"/>
       </td>
-      <td style="padding:14pt 8pt;vertical-align:middle;white-space:nowrap;">
-        <div style="color:#f5c400;font-size:8pt;font-weight:700;letter-spacing:1.6pt;text-transform:uppercase;">Bilan semaine</div>
-        <div style="color:#fff;font-size:18pt;font-weight:800;line-height:1.1;margin-top:3pt;">${esc(weekId)}</div>
+      <td style="padding:12pt 8pt;vertical-align:middle;white-space:nowrap;">
+        <div style="color:#f5c400;font-size:7pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;">Bilan semaine</div>
+        <div style="color:#fff;font-size:15pt;font-weight:800;line-height:1.1;margin-top:2pt;">${esc(weekId)}</div>
       </td>
-      <td style="padding:14pt 12pt;vertical-align:middle;text-align:center;white-space:nowrap;border-left:1pt solid rgba(255,255,255,.08);">
-        <div style="color:#f5c400;font-size:17pt;font-weight:800;line-height:1;">${totalHeures.toFixed(1)}h</div>
-        <div style="color:rgba(255,255,255,.5);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:4pt;">Heures</div>
-      </td>
-      <td style="padding:14pt 12pt;vertical-align:middle;text-align:center;white-space:nowrap;border-left:1pt solid rgba(255,255,255,.08);">
-        <div style="color:#50c878;font-size:17pt;font-weight:800;line-height:1;">${totalFaites}</div>
-        <div style="color:rgba(255,255,255,.5);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:4pt;">Tâches</div>
-      </td>
-      ${totalGenereEuros > 0 ? `
-      <td style="padding:14pt 12pt;vertical-align:middle;text-align:center;white-space:nowrap;border-left:1pt solid rgba(255,255,255,.08);">
-        <div style="color:#f5c400;font-size:15pt;font-weight:800;line-height:1;">+${fmtEuros(totalGenereEuros)}</div>
-        <div style="color:rgba(255,255,255,.5);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:4pt;">Généré</div>
-      </td>` : ""}
+      ${kpiCell(`${totalHeures.toFixed(1)} h`, "Heures", "#f5c400")}
+      ${kpiCell(`${totalFaites}`, "Tâches", "#50c878")}
+      ${totalGenereEuros > 0 ? kpiCell(`+${fmtEuros(totalGenereEuros)}`, "Généré", "#f5c400") : ""}
     </tr>
   </table>
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:#999;">Aucun compte rendu pour cette semaine.</div>`}
-  <div style="text-align:center;margin-top:20pt;font-size:9pt;color:#999;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
+  <div style="text-align:center;margin-top:14pt;font-size:8pt;color:#999;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
 </div></body></html>`;
   };
 
@@ -489,7 +484,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       // pousse toute la carte en page suivante → grosses pages blanches.
       pagebreak:   {
         mode: ["css", "legacy"],
-        avoid: [".bilan-header", ".card-header",
+        avoid: [".bilan-banner", ".card-header",
                 ".taches-section", ".presence-row", ".remarque-row", "li"],
       },
     };
@@ -501,22 +496,29 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     }
   };
 
-  // ── Export PDF : génère + télécharge directement ──────────────────────────
+  // ── Export PDF : ouvre une nouvelle fenêtre + déclenche le print natif ────
+  // Pourquoi window.print() plutôt que html2pdf pour le téléchargement :
+  // le navigateur fait du vrai pagination texte (pas de rastérisation) donc
+  // les sauts de page sont propres, les blocs ne sont jamais coupés en plein
+  // milieu et la qualité est nettement meilleure. L'utilisateur clique
+  // "Enregistrer comme PDF" dans la boîte de dialogue.
+  // (Pour l'envoi par mail on garde html2pdf via generatePDFBlob — il faut un
+  //  Blob binaire pour l'attachement.)
   const [generatingPDF, setGeneratingPDF] = useState(false);
-  const genPDFBilan = async () => {
-    setGeneratingPDF(true);
+  const genPDFBilan = () => {
     try {
-      const blob = await generatePDFBlob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Bilan-semaine-${weekId}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const html = buildBilanHTML();
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `Bilan-semaine-${weekId}`;
+      w.document.write(html);
+      w.document.close();
+      // Attend le chargement du logo avant d'ouvrir le print, sinon il manque
+      // dans la prévisualisation.
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
     } catch (e) {
       alert("Erreur génération PDF : " + (e.message || e));
     }
-    setGeneratingPDF(false);
   };
 
   // ── Envoi par mail avec PDF en pièce jointe ───────────────────────────────
