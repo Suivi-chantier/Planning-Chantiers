@@ -346,16 +346,20 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
           </div>
           <div style="padding:12pt 16pt;">
             ${presences.length > 0 ? `
-              <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Présences</div>
-              <div style="margin-bottom:10pt;font-size:10pt;color:#333;">
-                ${presences.map(p => `<div style="margin-bottom:3pt;"><strong>${esc(p.jour)} :</strong> ${esc(p.ouvriers.join(", "))}</div>`).join("")}
+              <div class="taches-section">
+                <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Présences</div>
+                <div style="margin-bottom:10pt;font-size:10pt;color:#333;">
+                  ${presences.map(p => `<div class="presence-row" style="margin-bottom:3pt;"><strong>${esc(p.jour)} :</strong> ${esc(p.ouvriers.join(", "))}</div>`).join("")}
+                </div>
               </div>` : ""}
-            ${faites.length > 0 ? `<div style="font-size:9pt;font-weight:700;color:#22c55e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✓ Réalisé</div>${listeTaches(faites, "#22c55e", "✓")}` : ""}
-            ${enCours.length > 0 ? `<div style="font-size:9pt;font-weight:700;color:#f5a623;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">↻ En cours</div>${listeTaches(enCours, "#f5a623", "↻")}` : ""}
-            ${nonFaites.length > 0 ? `<div style="font-size:9pt;font-weight:700;color:#e15a5a;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✗ Non faites</div>${listeTaches(nonFaites, "#e15a5a", "✗")}` : ""}
+            ${faites.length > 0 ? `<div class="taches-section"><div style="font-size:9pt;font-weight:700;color:#22c55e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✓ Réalisé</div>${listeTaches(faites, "#22c55e", "✓")}</div>` : ""}
+            ${enCours.length > 0 ? `<div class="taches-section"><div style="font-size:9pt;font-weight:700;color:#f5a623;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">↻ En cours</div>${listeTaches(enCours, "#f5a623", "↻")}</div>` : ""}
+            ${nonFaites.length > 0 ? `<div class="taches-section"><div style="font-size:9pt;font-weight:700;color:#e15a5a;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4pt;">✗ Non faites</div>${listeTaches(nonFaites, "#e15a5a", "✗")}</div>` : ""}
             ${remarques.length > 0 ? `
-              <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:8pt;margin-bottom:4pt;">Remarques</div>
-              ${remarques.map(r => `<div style="font-size:10pt;color:#333;margin-bottom:4pt;background:#f9f9f9;padding:6pt 10pt;border-radius:4pt;border-left:2pt solid #5b8af5;"><strong>${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}` : ""}
+              <div class="taches-section">
+                <div style="font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:8pt;margin-bottom:4pt;">Remarques</div>
+                ${remarques.map(r => `<div class="remarque-row" style="font-size:10pt;color:#333;margin-bottom:4pt;background:#f9f9f9;padding:6pt 10pt;border-radius:4pt;border-left:2pt solid #5b8af5;"><strong>${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}
+              </div>` : ""}
           </div>
         </div>`;
     }).join("");
@@ -364,12 +368,23 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
 <title>Bilan ${esc(weekId)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,Helvetica,sans-serif;background:#f7f7f7;color:#1a1f2e;font-size:11pt;line-height:1.5;padding:0;}
-  .page{max-width:780pt;margin:0 auto;padding:20pt;background:#f7f7f7;}
+  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:11pt;line-height:1.5;padding:0;}
+  .page{max-width:780pt;margin:0 auto;padding:0;background:#fff;}
+  /* Anti-coupures html2pdf : tout élément critique doit rester d'un bloc.
+     Les avoid CSS sont lus en plus du \`pagebreak.avoid\` JS pour maximiser
+     les chances que html2pdf trouve un break-point propre. */
+  .no-break, .bilan-header, .chantier-card, .chantier-card *, ul, li,
+  .presence-row, .taches-section, .remarque-row {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Marge bas de sécurité pour éviter qu'un dernier bloc soit collé contre
+     le pied de page et coupé d'un pixel. */
+  body { padding-bottom: 24pt; }
   @page{margin:14mm 16mm;size:A4;}
-  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}.page{padding:0;}}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}}
 </style></head><body><div class="page">
-  <div style="background:#0a0a0a;padding:18pt 24pt;display:flex;justify-content:space-between;align-items:center;border-radius:8pt;margin-bottom:18pt;">
+  <div class="bilan-header no-break" style="background:#0a0a0a;padding:18pt 24pt;display:flex;justify-content:space-between;align-items:center;border-radius:8pt;margin-bottom:18pt;">
     <div style="display:flex;align-items:center;gap:14pt;">
       <img src="${logoUrl}" alt="Profero" style="height:42pt;object-fit:contain;" />
       <div>
@@ -422,16 +437,25 @@ function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
       });
     }
     const opts = {
-      margin:      [10, 10, 10, 10],
+      // Marges plus généreuses pour éviter que le dernier bloc d'une page
+      // dépasse de quelques pixels et soit visuellement coupé.
+      margin:      [14, 12, 16, 12],
       filename:    `Bilan-semaine-${weekId}.pdf`,
       image:       { type: "jpeg", quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff",
+                     // windowWidth fige le viewport de rendu : sinon html2canvas
+                     // peut prendre une mesure du body parent et tronquer.
+                     windowWidth: 794 },
       jsPDF:       { unit: "mm", format: "a4", orientation: "portrait" },
-      // mode "css" : respecte page-break-inside:avoid sur les cartes chantier
-      // (évite les coupures laides au milieu d'un chantier) mais laisse
-      // plusieurs chantiers tenir sur une même page si la place le permet.
-      // Avant : "avoid-all" forçait 1 chantier par page → trop de pages quasi vides.
-      pagebreak:   { mode: ["css", "legacy"], avoid: ".chantier-card" },
+      // mode "css" + "legacy" : respecte page-break-inside:avoid en CSS et
+      // détecte les éléments à cheval sur une coupure. avoid étendu à toutes
+      // les sous-sections (présences, listes de tâches, remarques) pour qu'un
+      // bloc ne soit jamais coupé en plein milieu.
+      pagebreak:   {
+        mode: ["css", "legacy"],
+        avoid: [".chantier-card", ".bilan-header", ".no-break",
+                ".taches-section", ".presence-row", ".remarque-row", "li"],
+      },
     };
     try {
       const blob = await html2pdf().set(opts).from(container.querySelector(".page") || container).outputPdf("blob");
