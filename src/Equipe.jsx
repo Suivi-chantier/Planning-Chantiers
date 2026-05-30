@@ -87,6 +87,17 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     }));
   };
 
+  // Lecture d'une valeur saisie avec fallback sur la valeur par défaut du
+  // conflit (split moitié-moitié). Évite que les calculs de totaux soient à
+  // zéro quand l'utilisateur n'a pas encore édité un input — l'input affiche
+  // la valeur par défaut, le total doit la prendre en compte aussi.
+  const getSaisi = (jour, ouvrier, cid) => {
+    const v = heuresSaisies[jour]?.[ouvrier]?.[cid];
+    if (v !== undefined && v !== "" && v !== null) return parseFloat(v) || 0;
+    const conflit = conflits.find(c => c.jour === jour && c.ouvrier === ouvrier);
+    return parseFloat(conflit?.heures[cid]) || 0;
+  };
+
   // ── Calcul heures réelles par chantier ───────────────────────────────────────
   const calcHeuresParChantier = () => {
     const res = {};
@@ -102,7 +113,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         (cell.ouvriers||[]).forEach(o => {
           if (!res[cid]) res[cid] = 0;
           if (ouvrierEnConflit.has(o)) {
-            res[cid] += parseFloat(heuresSaisies[jour]?.[o]?.[cid] || 0);
+            res[cid] += getSaisi(jour, o, cid);
           } else {
             res[cid] += heuresJour;
           }
@@ -607,7 +618,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"20px 24px", display:"flex", flexDirection:"column", gap:20, minHeight:0 }}>
             {conflits.map((c, idx) => {
-              const total = c.chantierIds.reduce((s, cid) => s + parseFloat(heuresSaisies[c.jour]?.[c.ouvrier]?.[cid] || 0), 0);
+              const total = c.chantierIds.reduce((s, cid) => s + getSaisi(c.jour, c.ouvrier, cid), 0);
               const ecart = parseFloat((c.heuresJour - total).toFixed(2));
               const ok = Math.abs(ecart) < 0.05;
               return (
