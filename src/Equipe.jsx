@@ -360,15 +360,19 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
           </li>`).join("")}
         </ul>`;
       return `
-        <div class="chantier-card" style="background:#fff;border-radius:8pt;border:1pt solid #e6e6e6;border-left:5pt solid ${couleur};margin-bottom:14pt;overflow:hidden;page-break-inside:avoid;">
-          <div style="background:${couleur}18;padding:12pt 16pt;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10pt;">
-            <div style="display:flex;align-items:center;gap:10pt;flex-wrap:wrap;">
-              <div style="width:12pt;height:12pt;background:${couleur};border-radius:3pt;"></div>
-              <div style="font-size:15pt;font-weight:800;color:#1a1f2e;">${esc(grp.nom)}</div>
-              ${progBadge}
-            </div>
-            ${heures > 0 ? `<div style="background:#fff8c8;border:1pt solid #f5c40044;border-radius:6pt;padding:4pt 12pt;font-weight:800;color:#9a7a00;font-size:13pt;">${heures.toFixed(1)}h</div>` : ""}
-          </div>
+        <div class="chantier-card" style="background:#fff;border-radius:8pt;border:1pt solid #e6e6e6;border-left:5pt solid ${couleur};margin-bottom:14pt;overflow:hidden;">
+          <table class="card-header" style="width:100%;border-collapse:collapse;background:${couleur}18;">
+            <tr>
+              <td style="padding:11pt 14pt;vertical-align:middle;white-space:nowrap;">
+                <span style="display:inline-block;width:11pt;height:11pt;background:${couleur};border-radius:3pt;vertical-align:middle;margin-right:8pt;"></span>
+                <span style="font-size:14pt;font-weight:800;color:#1a1f2e;vertical-align:middle;">${esc(grp.nom)}</span>
+              </td>
+              <td style="padding:11pt 14pt;vertical-align:middle;white-space:nowrap;">${progBadge}</td>
+              <td style="padding:11pt 14pt;vertical-align:middle;text-align:right;white-space:nowrap;">
+                ${heures > 0 ? `<span style="display:inline-block;background:#fff8c8;border:1pt solid #f5c40044;border-radius:6pt;padding:3pt 11pt;font-weight:800;color:#9a7a00;font-size:12pt;">${heures.toFixed(1)}h</span>` : ""}
+              </td>
+            </tr>
+          </table>
           <div style="padding:12pt 16pt;">
             ${presences.length > 0 ? `
               <div class="taches-section">
@@ -389,50 +393,54 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         </div>`;
     }).join("");
 
+    // Espace insécable français entre les milliers et l'unité € ( )
+    const fmtEuros = (n) => `${n.toLocaleString("fr-FR")} €`;
+
     return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bilan ${esc(weekId)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:11pt;line-height:1.5;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:11pt;line-height:1.5;padding-bottom:24pt;}
   .page{max-width:780pt;margin:0 auto;padding:0;background:#fff;}
-  /* Anti-coupures html2pdf : tout élément critique doit rester d'un bloc.
-     Les avoid CSS sont lus en plus du \`pagebreak.avoid\` JS pour maximiser
-     les chances que html2pdf trouve un break-point propre. */
-  .no-break, .bilan-header, .chantier-card, .chantier-card *, ul, li,
-  .presence-row, .taches-section, .remarque-row {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-  /* Marge bas de sécurité pour éviter qu'un dernier bloc soit collé contre
-     le pied de page et coupé d'un pixel. */
-  body { padding-bottom: 24pt; }
+  /* Anti-coupures html2pdf : on protège uniquement les petites unités
+     (sections, items de liste, rangées présences/remarques). On évite
+     volontairement de mettre break-inside:avoid sur .chantier-card car ça
+     forçait la card entière à passer en page suivante quand elle ne
+     tenait pas — créant les gros trous blancs. Une card peut donc se
+     scinder entre ses sections, jamais au milieu d'une section. */
+  .taches-section, .presence-row, .remarque-row, li { break-inside: avoid; page-break-inside: avoid; }
+  /* Headers de carte et bandeau global : never break */
+  .bilan-header, .card-header { break-inside: avoid; page-break-inside: avoid; }
   @page{margin:14mm 16mm;size:A4;}
   @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}}
 </style></head><body><div class="page">
-  <div class="bilan-header no-break" style="background:#0a0a0a;padding:18pt 24pt;display:flex;justify-content:space-between;align-items:center;border-radius:8pt;margin-bottom:18pt;">
-    <div style="display:flex;align-items:center;gap:14pt;">
-      <img src="${logoUrl}" alt="Profero" style="height:42pt;object-fit:contain;" />
-      <div>
-        <div style="color:#f5c400;font-size:9pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">Bilan de la semaine</div>
-        <div style="color:#fff;font-size:22pt;font-weight:800;margin-top:2pt;">${esc(weekId)}</div>
-      </div>
-    </div>
-    <div style="display:flex;gap:18pt;text-align:center;">
-      <div>
-        <div style="font-size:22pt;font-weight:800;color:#f5c400;">${totalHeures.toFixed(1)}h</div>
-        <div style="font-size:9pt;color:rgba(255,255,255,.5);letter-spacing:.06em;text-transform:uppercase;">Heures réelles</div>
-      </div>
-      <div>
-        <div style="font-size:22pt;font-weight:800;color:#50c878;">${totalFaites}</div>
-        <div style="font-size:9pt;color:rgba(255,255,255,.5);letter-spacing:.06em;text-transform:uppercase;">Tâches faites</div>
-      </div>
+  <!-- Bandeau global : table-layout fixed pour un rendu prévisible dans
+       html2canvas (les flex sont parfois mal mesurés et causaient des KPI
+       qui dépassaient à droite). -->
+  <table class="bilan-header" style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:8pt;overflow:hidden;margin-bottom:18pt;">
+    <tr>
+      <td style="padding:14pt 18pt;vertical-align:middle;width:60pt;">
+        <img src="${logoUrl}" alt="Profero" style="height:36pt;object-fit:contain;display:block;" />
+      </td>
+      <td style="padding:14pt 8pt;vertical-align:middle;white-space:nowrap;">
+        <div style="color:#f5c400;font-size:8pt;font-weight:700;letter-spacing:1.6pt;text-transform:uppercase;">Bilan semaine</div>
+        <div style="color:#fff;font-size:18pt;font-weight:800;line-height:1.1;margin-top:3pt;">${esc(weekId)}</div>
+      </td>
+      <td style="padding:14pt 12pt;vertical-align:middle;text-align:center;white-space:nowrap;border-left:1pt solid rgba(255,255,255,.08);">
+        <div style="color:#f5c400;font-size:17pt;font-weight:800;line-height:1;">${totalHeures.toFixed(1)}h</div>
+        <div style="color:rgba(255,255,255,.5);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:4pt;">Heures</div>
+      </td>
+      <td style="padding:14pt 12pt;vertical-align:middle;text-align:center;white-space:nowrap;border-left:1pt solid rgba(255,255,255,.08);">
+        <div style="color:#50c878;font-size:17pt;font-weight:800;line-height:1;">${totalFaites}</div>
+        <div style="color:rgba(255,255,255,.5);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:4pt;">Tâches</div>
+      </td>
       ${totalGenereEuros > 0 ? `
-      <div>
-        <div style="font-size:22pt;font-weight:800;color:#f5c400;">+${totalGenereEuros.toLocaleString("fr-FR")} €</div>
-        <div style="font-size:9pt;color:rgba(255,255,255,.5);letter-spacing:.06em;text-transform:uppercase;">Généré semaine</div>
-      </div>` : ""}
-    </div>
-  </div>
+      <td style="padding:14pt 12pt;vertical-align:middle;text-align:center;white-space:nowrap;border-left:1pt solid rgba(255,255,255,.08);">
+        <div style="color:#f5c400;font-size:15pt;font-weight:800;line-height:1;">+${fmtEuros(totalGenereEuros)}</div>
+        <div style="color:rgba(255,255,255,.5);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:4pt;">Généré</div>
+      </td>` : ""}
+    </tr>
+  </table>
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:#999;">Aucun compte rendu pour cette semaine.</div>`}
   <div style="text-align:center;margin-top:20pt;font-size:9pt;color:#999;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
 </div></body></html>`;
@@ -476,9 +484,12 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       // détecte les éléments à cheval sur une coupure. avoid étendu à toutes
       // les sous-sections (présences, listes de tâches, remarques) pour qu'un
       // bloc ne soit jamais coupé en plein milieu.
+      // avoid SANS .chantier-card : une carte trop longue peut/doit se scinder
+      // entre ses sections (Présences / Réalisé / Remarques), sinon html2pdf
+      // pousse toute la carte en page suivante → grosses pages blanches.
       pagebreak:   {
         mode: ["css", "legacy"],
-        avoid: [".chantier-card", ".bilan-header", ".no-break",
+        avoid: [".bilan-header", ".card-header",
                 ".taches-section", ".presence-row", ".remarque-row", "li"],
       },
     };
