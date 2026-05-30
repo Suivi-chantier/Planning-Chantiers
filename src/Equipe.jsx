@@ -405,17 +405,25 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.45;padding:0;}
   .page{max-width:760pt;margin:0 auto;padding:0;}
-  /* Coupures de page : on protège uniquement les unités atomiques. Une
-     .chantier-card peut se scinder entre ses .taches-section, mais aucune
-     section/rangée/li/card-header n'est jamais coupée. */
-  .taches-section, .presence-row, .remarque-row, li,
-  .card-header, .bilan-banner, .sect-title {
+  /* Coupures de page : on protège UNIQUEMENT les unités atomiques (rangée
+     présence, item de liste, rangée remarque, headers). Les .taches-section
+     sont autorisées à se scinder entre deux pages — c'est ce qui évite les
+     gros trous blancs quand une longue liste "Réalisé" (30+ items) ne tient
+     pas sur la fin de page. Chaque <li> reste intact donc on ne coupe
+     jamais une ligne de texte en deux. */
+  .presence-row, .remarque-row, li, .card-header, .bilan-banner, .sect-title {
     break-inside: avoid;
     page-break-inside: avoid;
   }
   /* Évite qu'un titre de section ou un en-tête de carte se retrouve
-     orphelin en bas de page sans son contenu. */
+     orphelin en bas de page sans son contenu : push à la page suivante. */
   .card-header, .sect-title { page-break-after: avoid; }
+  /* Footer générique répété sur chaque page (running footer Chrome print). */
+  @page {
+    @bottom-left   { content: "Profero Rénovation"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-center { content: "Bilan semaine ${esc(weekId)}"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-right  { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+  }
   @page{margin:14mm 14mm;size:A4;}
   @media print {
     body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}
@@ -479,13 +487,14 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       // détecte les éléments à cheval sur une coupure. avoid étendu à toutes
       // les sous-sections (présences, listes de tâches, remarques) pour qu'un
       // bloc ne soit jamais coupé en plein milieu.
-      // avoid SANS .chantier-card : une carte trop longue peut/doit se scinder
-      // entre ses sections (Présences / Réalisé / Remarques), sinon html2pdf
-      // pousse toute la carte en page suivante → grosses pages blanches.
+      // avoid SANS .chantier-card NI .taches-section : une longue liste
+      // (ex : Réalisé avec 30+ items) doit pouvoir se scinder pour ne pas
+      // laisser de gros trous blancs en bas de page. Chaque <li> reste
+      // intact donc aucune ligne de texte n'est coupée en deux.
       pagebreak:   {
         mode: ["css", "legacy"],
         avoid: [".bilan-banner", ".card-header",
-                ".taches-section", ".presence-row", ".remarque-row", "li"],
+                ".presence-row", ".remarque-row", "li"],
       },
     };
     try {
