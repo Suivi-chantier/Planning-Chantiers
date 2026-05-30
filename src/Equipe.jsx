@@ -15,9 +15,34 @@ import {
 const HEURES_PAR_JOUR = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9 };
 
 // ─── MODAL BILAN SEMAINE ──────────────────────────────────────────────────────
-function BilanSemaine({ rapports, chantiers, cells, weekId, onClose, T }) {
+function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, T }) {
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [draftStatus, setDraftStatus]     = useState(null);
+  // cells (planning_cells) doit refléter la semaine BILAN, pas la semaine
+  // actuelle de l'app. Si weekId ≠ semaine courante, on les recharge ici.
+  // En attendant, on part des cells du parent pour ne pas afficher du vide.
+  const [cells, setCells] = useState(cellsProp || {});
+  const [cellsLoading, setCellsLoading] = useState(false);
+  useEffect(() => {
+    if (!weekId) return;
+    let cancelled = false;
+    setCellsLoading(true);
+    supabase.from("planning_cells").select("*").eq("week_id", weekId)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) { console.warn("Bilan : load cells", error.message); setCellsLoading(false); return; }
+        const m = {};
+        (data || []).forEach(r => {
+          m[`${r.chantier_id}_${r.jour}`] = {
+            planifie: r.planifie || "", reel: r.reel || "",
+            ouvriers: r.ouvriers || [], taches: r.taches || [],
+          };
+        });
+        setCells(m);
+        setCellsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [weekId]);
 
   // ── Détection ouvriers sur plusieurs chantiers un même jour ─────────────────
   const conflits = (() => {
