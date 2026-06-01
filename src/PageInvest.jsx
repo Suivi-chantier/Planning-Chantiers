@@ -9983,7 +9983,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     ];
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:SPACING.md }}>
-        {auditKpis.map(([lab,val],i)=><div key={lab} style={{ ...cardStyle, padding:"12px 14px", borderTop:`3px solid ${i===2 && c.tauxEndettement > .35 ? DA : T.accent}` }}><div style={{ color:T.textMuted, fontSize:FONT.xs.size, textTransform:"uppercase", fontWeight:900, letterSpacing:.7 }}>{lab}</div><div style={{ color:T.text, fontSize:FONT.h3.size, fontWeight:900, marginTop:5 }}>{val}</div></div>)}
+        {auditKpis.map(([lab,val],i)=><div key={lab} style={{ ...cardStyle, padding:"12px 14px", borderTop:`3px solid ${i===2 && c.tauxEndettement > .35 ? DA : T.accent}` }}><div style={{ color:T.textMuted, fontSize:FONT.xs.size, textTransform:"uppercase", fontWeight:900, letterSpacing:.7 }}>{lab}</div><div style={{ color:T.text, fontSize:FONT.xl.size, fontWeight:900, marginTop:5 }}>{val}</div></div>)}
       </div>
       <div style={{ ...cardStyle, padding:"11px 14px", borderLeft:`4px solid ${T.accent}`, background:T.accentBg }}>
         <div style={{ color:T.text, fontWeight:900, fontSize:FONT.sm.size }}>Trame de rendez-vous patrimonial immobilier</div>
@@ -10154,9 +10154,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const renderDocuments = () => <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 370px", gap:SPACING.md, alignItems:"start" }}>
     <div style={cardStyle}>{cardHd("Liste des documents à fournir — audit & stratégie", "gold")}<div style={{ padding:14 }}>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10, marginBottom:14 }}>
-        <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>TOTAL</div><div style={{color:T.text,fontWeight:900,fontSize:FONT.h3.size}}>{docs.length}</div></div>
-        <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>REÇUS / TRAITÉS</div><div style={{color:SU,fontWeight:900,fontSize:FONT.h3.size}}>{c.docsRecus}</div></div>
-        <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>OBLIGATOIRES VALIDÉS</div><div style={{color:T.accent,fontWeight:900,fontSize:FONT.h3.size}}>{c.docsObligatoiresOk}/{c.docsObligatoires}</div></div>
+        <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>TOTAL</div><div style={{color:T.text,fontWeight:900,fontSize:FONT.xl.size}}>{docs.length}</div></div>
+        <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>REÇUS / TRAITÉS</div><div style={{color:SU,fontWeight:900,fontSize:FONT.xl.size}}>{c.docsRecus}</div></div>
+        <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>OBLIGATOIRES VALIDÉS</div><div style={{color:T.accent,fontWeight:900,fontSize:FONT.xl.size}}>{c.docsObligatoiresOk}/{c.docsObligatoires}</div></div>
       </div>
       {STRUCT_DOC_CATEGORIES.map(cat => { const catDocs = docs.filter(doc => doc.categorie === cat.id); const complete = catDocs.filter(doc => ["Reçu","Validé","Non applicable"].includes(doc.statut)).length; return <div key={cat.id} style={{ marginBottom:14, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
         <div style={{ padding:"9px 10px", display:"flex", justifyContent:"space-between", gap:8, background:T.input, borderBottom:`1px solid ${T.border}` }}><div><div style={{color:T.text,fontSize:FONT.sm.size,fontWeight:900}}>{cat.label}</div><div style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>{cat.description}</div></div><div style={{color:T.accent,fontWeight:900,fontSize:FONT.sm.size,whiteSpace:"nowrap"}}>{complete}/{catDocs.length}</div></div>
