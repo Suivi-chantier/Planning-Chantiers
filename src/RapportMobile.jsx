@@ -775,8 +775,14 @@ function PageRapportMobile() {
         const pct = Math.min(100, (totalJourneeH / cibleHeures) * 100);
         return (
           <div style={{
-            ...S.card, background:bg, border:`1.5px solid ${bdr}`, padding:"14px 16px",
+            ...S.card,
+            // Sticky → besoin d'un fond opaque, sinon la teinte sémantique à 12%
+            // laisse passer le contenu en dessous quand on scrolle. On superpose
+            // donc la teinte sur du blanc + on renforce le shadow pour détacher.
+            background:`linear-gradient(${bg}, ${bg}), ${T.surface}`,
+            border:`1.5px solid ${bdr}`, padding:"14px 16px",
             position:"sticky", top:8, zIndex:10,
+            boxShadow:"0 4px 16px rgba(0,0,0,0.10)",
           }}>
             <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:8}}>
               <div style={{...S.sectionTitle(col), marginBottom:0}}>
