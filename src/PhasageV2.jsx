@@ -243,17 +243,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     color: T.textMuted,
     flexShrink: 0,
   };
-  const colBody = { flex: 1, overflowY: "auto", padding: "8px 6px" };
-  const rowItem = (active) => ({
-    display: "flex", alignItems: "center", gap: 10,
-    padding: "10px 12px", margin: "2px 4px",
-    borderRadius: RADIUS.md,
-    background: active ? acc.bg10 : "transparent",
-    border: `1px solid ${active ? acc.border : "transparent"}`,
-    color: active ? acc.accent : T.text,
-    cursor: "pointer", fontSize: FONT.sm.size,
-    transition: "all .12s",
-  });
+  const colBody = { flex: 1, overflowY: "auto", padding: "10px 10px" };
   const emptyColMsg = (label) => (
     <div style={{ padding: 24, textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size + 1, fontStyle: "italic" }}>
       {label}
@@ -299,6 +289,44 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, overflow: "hidden" }}>
+      {/* CSS bubbles — couleur de chaque bulle = --bubble-color (var inline). */}
+      <style>{`
+        .p2-bubble {
+          --c: var(--bubble-color, #888);
+          background: color-mix(in srgb, var(--c) 10%, transparent);
+          border: 1px solid color-mix(in srgb, var(--c) 25%, transparent);
+          border-left: 4px solid var(--c);
+          border-radius: 12px;
+          padding: 11px 14px;
+          margin: 8px 4px;
+          cursor: pointer;
+          color: ${T.text};
+          font-size: ${FONT.sm.size}px;
+          transition: transform .14s ease, background-color .14s ease, border-color .14s ease, box-shadow .14s ease;
+          will-change: transform;
+        }
+        .p2-bubble:hover {
+          background: color-mix(in srgb, var(--c) 20%, transparent);
+          border-color: color-mix(in srgb, var(--c) 55%, transparent);
+          transform: scale(1.02);
+          box-shadow: 0 6px 18px color-mix(in srgb, var(--c) 28%, transparent);
+        }
+        .p2-bubble.active {
+          background: color-mix(in srgb, var(--c) 22%, transparent);
+          border-color: var(--c);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 32%, transparent);
+        }
+        .p2-bubble-form {
+          background: color-mix(in srgb, var(--c) 14%, transparent);
+          border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+          border-left: 4px solid var(--c);
+          border-radius: 12px;
+          padding: 14px 16px;
+          margin: 8px 4px;
+          box-shadow: 0 4px 16px color-mix(in srgb, var(--c) 18%, transparent);
+        }
+      `}</style>
+
       {/* ── Header avec sélecteur chantier ── */}
       <div style={{
         padding: "14px 22px", borderBottom: `1px solid ${T.border}`,
@@ -419,29 +447,36 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 const active = selectedLotId === l.id;
                 const count = countByLot[l.id] || 0;
                 return (
-                  <div key={l.id} onClick={() => { setSelectedLotId(l.id); setSelectedOuvrageId(null); }}
-                    style={rowItem(active)}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: l.couleur, flexShrink: 0 }}/>
-                    <span style={{ flex: 1, fontWeight: 600 }}>{l.label}</span>
+                  <div key={l.id} className={`p2-bubble ${active ? "active" : ""}`}
+                    style={{ "--bubble-color": l.couleur, display: "flex", alignItems: "center", gap: 10 }}
+                    onClick={() => { setSelectedLotId(l.id); setSelectedOuvrageId(null); }}>
+                    <span style={{ flex: 1, fontWeight: 700, color: T.text }}>{l.label}</span>
+                    {l.code_prefixe && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 800, letterSpacing: .5,
+                        padding: "1px 6px", borderRadius: RADIUS.sm,
+                        background: "rgba(255,255,255,0.10)", color: T.text, opacity: .65,
+                      }}>{l.code_prefixe}</span>
+                    )}
                     {count > 0 && (
                       <span style={{
-                        fontSize: 10, fontWeight: 700, padding: "1px 7px",
+                        fontSize: 10, fontWeight: 800, padding: "2px 8px",
                         borderRadius: RADIUS.pill,
-                        background: active ? "rgba(255,255,255,0.12)" : T.card,
-                        color: active ? acc.accent : T.textMuted,
+                        background: "rgba(0,0,0,0.18)", color: T.text,
                       }}>{count}</span>
                     )}
                   </div>
                 );
               })}
               {orphans > 0 && (
-                <div onClick={() => { setSelectedLotId("_orphans"); setSelectedOuvrageId(null); }}
-                  style={{ ...rowItem(selectedLotId === "_orphans"), marginTop: 8, borderTop: `1px dashed ${T.border}`, paddingTop: 12 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 3, background: T.textMuted, flexShrink: 0, opacity: .5 }}/>
-                  <span style={{ flex: 1, fontStyle: "italic", color: T.textMuted }}>Sans lot</span>
+                <div className={`p2-bubble ${selectedLotId === "_orphans" ? "active" : ""}`}
+                  style={{ "--bubble-color": T.textMuted, marginTop: 14,
+                    display: "flex", alignItems: "center", gap: 10, opacity: .85 }}
+                  onClick={() => { setSelectedLotId("_orphans"); setSelectedOuvrageId(null); }}>
+                  <span style={{ flex: 1, fontStyle: "italic", color: T.textMuted, fontWeight: 600 }}>Sans lot</span>
                   <span style={{
-                    fontSize: 10, fontWeight: 700, padding: "1px 7px",
-                    borderRadius: RADIUS.pill, background: T.card, color: T.textMuted,
+                    fontSize: 10, fontWeight: 800, padding: "2px 8px",
+                    borderRadius: RADIUS.pill, background: "rgba(0,0,0,0.18)", color: T.text,
                   }}>{orphans}</span>
                 </div>
               )}
@@ -474,15 +509,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   : ouvragesLot.map(o => {
                     const active = selectedOuvrageId === o.id;
                     const nbTaches = (o.taches || []).length;
+                    const lotColor = lots.find(l => l.id === o.lot_id)?.couleur || acc.accent;
                     if (active) {
                       // Édition inline pour l'ouvrage sélectionné
                       return (
-                        <div key={o.id} style={{
-                          margin: "4px 4px 8px", padding: "12px 14px",
-                          borderRadius: RADIUS.md,
-                          background: acc.bg10, border: `1px solid ${acc.border}`,
-                          display: "flex", flexDirection: "column", gap: 10,
-                        }}>
+                        <div key={o.id} className="p2-bubble-form"
+                          style={{ "--bubble-color": lotColor, display: "flex", flexDirection: "column", gap: 10 }}>
                           <div>
                             <span style={lbl}>Libellé</span>
                             <input ref={newOuvrageInputRef} value={o.libelle || ""}
@@ -535,13 +567,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                       );
                     }
                     return (
-                      <div key={o.id} onClick={() => setSelectedOuvrageId(o.id)} style={rowItem(false)}>
+                      <div key={o.id} className="p2-bubble"
+                        style={{ "--bubble-color": lotColor, display: "flex", alignItems: "center", gap: 10 }}
+                        onClick={() => setSelectedOuvrageId(o.id)}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: FONT.sm.size, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {o.libelle || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans libellé)</span>}
                           </div>
                           {(o.heures_devis || o.quantite || o.prix_ht) && (
-                            <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>
+                            <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>
                               {o.heures_devis ? `${o.heures_devis}h` : ""}
                               {o.quantite ? `${o.heures_devis ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
                               {o.prix_ht ? `${(o.heures_devis||o.quantite) ? " · " : ""}${o.prix_ht.toLocaleString("fr-FR")} €` : ""}
@@ -550,9 +584,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                         </div>
                         {nbTaches > 0 && (
                           <span style={{
-                            fontSize: 10, fontWeight: 700, padding: "1px 7px",
+                            fontSize: 10, fontWeight: 800, padding: "2px 8px",
                             borderRadius: RADIUS.pill,
-                            background: T.card, color: T.textMuted, flexShrink: 0,
+                            background: "rgba(0,0,0,0.18)", color: T.text, flexShrink: 0,
                           }}>{nbTaches}</span>
                         )}
                       </div>
@@ -585,41 +619,40 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 ? emptyColMsg("Sélectionne un ouvrage")
                 : taches.length === 0
                   ? emptyColMsg("Aucune tâche — clique « + Tâche »")
-                  : taches.map(t => (
-                    <div key={t.id} style={{
-                      padding: "10px 12px", margin: "4px 4px",
-                      borderRadius: RADIUS.md,
-                      background: T.card, border: `1px solid ${T.border}`,
-                      display: "flex", flexDirection: "column", gap: 8,
-                    }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                        <input value={t.nom || ""}
-                          onChange={e => updateTache(selectedOuvrage.id, t.id, { nom: e.target.value })}
-                          placeholder="Description de la tâche"
-                          style={{ ...inp, flex: 1, fontWeight: 600 }}/>
-                        <button onClick={() => deleteTache(selectedOuvrage.id, t.id)} title="Supprimer la tâche"
-                          style={iconBtnDanger}
-                          onMouseEnter={e => { e.currentTarget.style.background = "rgba(225,90,90,0.12)"; e.currentTarget.style.borderColor = "rgba(225,90,90,0.3)"; }}
-                          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
-                          <Icon as={Trash2} size={13}/>
-                        </button>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        <div>
-                          <span style={lbl}>Heures estimées</span>
-                          <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
-                            onChange={e => updateTache(selectedOuvrage.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                            placeholder="0" style={inp}/>
+                  : (() => {
+                    const tacheColor = lots.find(l => l.id === selectedOuvrage.lot_id)?.couleur || acc.accent;
+                    return taches.map(t => (
+                      <div key={t.id} className="p2-bubble-form"
+                        style={{ "--bubble-color": tacheColor, display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                          <input value={t.nom || ""}
+                            onChange={e => updateTache(selectedOuvrage.id, t.id, { nom: e.target.value })}
+                            placeholder="Description de la tâche"
+                            style={{ ...inp, flex: 1, fontWeight: 600 }}/>
+                          <button onClick={() => deleteTache(selectedOuvrage.id, t.id)} title="Supprimer la tâche"
+                            style={iconBtnDanger}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(225,90,90,0.12)"; e.currentTarget.style.borderColor = "rgba(225,90,90,0.3)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
+                            <Icon as={Trash2} size={13}/>
+                          </button>
                         </div>
-                        <div>
-                          <span style={lbl}>Avancement (%)</span>
-                          <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
-                            onChange={e => updateTache(selectedOuvrage.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
-                            placeholder="0" style={inp}/>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          <div>
+                            <span style={lbl}>Heures estimées</span>
+                            <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
+                              onChange={e => updateTache(selectedOuvrage.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                              placeholder="0" style={inp}/>
+                          </div>
+                          <div>
+                            <span style={lbl}>Avancement (%)</span>
+                            <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
+                              onChange={e => updateTache(selectedOuvrage.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                              placeholder="0" style={inp}/>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    ));
+                  })()
               }
             </div>
           </div>
