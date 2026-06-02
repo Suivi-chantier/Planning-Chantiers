@@ -325,10 +325,17 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       <style>{`
         .p2-bubble {
           --c: var(--bubble-color, #888);
-          /* --bubble-fill : 10% par défaut. Surchargé inline pour les
-             bulles tâches selon leur % d'avancement (10% à 0 %, 60% à 100 %). */
-          background: color-mix(in srgb, var(--c) var(--bubble-fill, 10%), transparent);
-          border: 1px solid color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 15%), transparent);
+          /* --av : 0% par défaut. Surchargé inline sur les bulles tâches
+             avec le % d'avancement. Le linear-gradient crée une vraie
+             barre de progression à l'intérieur de la bulle : la partie
+             gauche (jusqu'à --av) est saturée, la droite reste discrète. */
+          background: linear-gradient(to right,
+            color-mix(in srgb, var(--c) 45%, transparent) 0,
+            color-mix(in srgb, var(--c) 45%, transparent) var(--av, 0%),
+            color-mix(in srgb, var(--c) 10%, transparent) var(--av, 0%),
+            color-mix(in srgb, var(--c) 10%, transparent) 100%
+          );
+          border: 1px solid color-mix(in srgb, var(--c) 25%, transparent);
           border-left: 4px solid var(--c);
           border-radius: 12px;
           padding: 11px 14px;
@@ -336,17 +343,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           cursor: pointer;
           color: ${T.text};
           font-size: ${FONT.sm.size}px;
-          transition: transform .14s ease, background-color .14s ease, border-color .14s ease, box-shadow .14s ease;
+          transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
           will-change: transform;
         }
         .p2-bubble:hover {
-          background: color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 10%), transparent);
-          border-color: color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 40%), transparent);
+          background: linear-gradient(to right,
+            color-mix(in srgb, var(--c) 60%, transparent) 0,
+            color-mix(in srgb, var(--c) 60%, transparent) var(--av, 0%),
+            color-mix(in srgb, var(--c) 22%, transparent) var(--av, 0%),
+            color-mix(in srgb, var(--c) 22%, transparent) 100%
+          );
+          border-color: color-mix(in srgb, var(--c) 55%, transparent);
           transform: scale(1.02);
           box-shadow: 0 6px 18px color-mix(in srgb, var(--c) 28%, transparent);
         }
         .p2-bubble.active {
-          background: color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 12%), transparent);
+          background: linear-gradient(to right,
+            color-mix(in srgb, var(--c) 55%, transparent) 0,
+            color-mix(in srgb, var(--c) 55%, transparent) var(--av, 0%),
+            color-mix(in srgb, var(--c) 22%, transparent) var(--av, 0%),
+            color-mix(in srgb, var(--c) 22%, transparent) 100%
+          );
           border-color: var(--c);
           box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 32%, transparent);
         }
@@ -619,34 +636,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                     const tacheColor = lots.find(l => l.id === selectedOuvrage.lot_id)?.couleur || acc.accent;
                     return taches.map(t => {
                       const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
-                      // Remplissage évolutif : 10 % à 0 %, jusqu'à 60 % à 100 %.
-                      const fill = `${(10 + (av / 100) * 50).toFixed(0)}%`;
                       return (
                         <div key={t.id} className="p2-bubble"
-                          style={{ "--bubble-color": tacheColor, "--bubble-fill": fill, display: "flex", alignItems: "center", gap: 10 }}
+                          style={{ "--bubble-color": tacheColor, "--av": `${av}%`, display: "flex", alignItems: "center", gap: 10 }}
                           onClick={() => setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id })}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
                               {t.heures_estimees != null && (
                                 <span style={{ fontSize: FONT.xs.size, color: T.textMuted, whiteSpace: "nowrap" }}>
                                   {t.heures_estimees}h estimées
                                 </span>
                               )}
-                              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
-                                <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden", minWidth: 40 }}>
-                                  <div style={{
-                                    width: `${av}%`, height: "100%", borderRadius: 2,
-                                    background: av >= 100 ? "#22c55e" : tacheColor,
-                                    transition: "width .3s",
-                                  }}/>
-                                </div>
-                                <span style={{ fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 700, minWidth: 32, textAlign: "right" }}>
-                                  {av}%
-                                </span>
-                              </div>
+                              <span style={{ marginLeft: "auto", fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800 }}>
+                                {av}%
+                              </span>
                             </div>
                           </div>
                           <button
