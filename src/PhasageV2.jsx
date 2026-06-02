@@ -271,8 +271,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     }
     return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
   };
-  // Détail du calcul (affiché en tooltip pour debug) — permet de vérifier ce
-  // qui est réellement stocké dans chaque tâche quand le résultat surprend.
+  // Détails de calcul (affichés en tooltip pour debug) — permettent de vérifier
+  // ce qui est réellement stocké quand le résultat surprend.
   const avancementOuvrageDetail = (ouvrage) => {
     const taches = ouvrage.taches || [];
     if (taches.length === 0) return "Aucune tâche";
@@ -286,7 +286,29 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       });
       return `Calcul pondéré par heures estimées :\n${lines.join("\n")}\n\nNumérateur = ${num}\nTotal heures = ${totalHE}\n→ ${num} / ${totalHE} = ${(num/totalHE).toFixed(2)} %`;
     }
-    return "Aucune heure estimée — moyenne simple des % des tâches";
+    const moy = taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length;
+    return `Aucune heure estimée — moyenne simple :\n${taches.map((t, i) => `  ${i+1}. "${t.nom || "(sans nom)"}" : ${parseFloat(t.avancement) || 0}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %`;
+  };
+  const avancementLotDetail = (lotId) => {
+    const lotOuvrages = ouvragesDuLot(lotId);
+    if (lotOuvrages.length === 0) return "Aucun ouvrage dans ce lot";
+    const totalPrix = lotOuvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+    if (totalPrix > 0) {
+      const lines = lotOuvrages.map((o, i) => {
+        const a = avancementOuvrage(o);
+        const p = parseFloat(o.prix_ht) || 0;
+        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${(a*p).toLocaleString("fr-FR")}`;
+      });
+      const num = lotOuvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0);
+      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\nNumérateur = ${num.toLocaleString("fr-FR")}\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${(num/totalPrix).toFixed(2)} %`;
+    }
+    const moy = lotOuvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / lotOuvrages.length;
+    return `Aucun prix HT renseigné — moyenne simple :\n${lotOuvrages.map((o, i) => `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${avancementOuvrage(o)}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %`;
+  };
+  const avancementTacheDetail = (t) => {
+    const av = parseFloat(t.avancement) || 0;
+    const h  = parseFloat(t.heures_estimees);
+    return `Avancement saisi : ${av} %${h != null && !isNaN(h) ? `\nHeures estimées : ${h} h\nContribution à l'ouvrage : ${av}% × ${h}h = ${av*h}` : ""}`;
   };
   // Lot = moyenne des avancements de ses ouvrages, pondérée par prix_ht. Si
   // aucun ouvrage n'a prix_ht → moyenne simple. Le pseudo-lot "_orphans"
@@ -580,9 +602,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 const active = selectedLotId === l.id;
                 const count = countByLot[l.id] || 0;
                 const av = count > 0 ? avancementLot(l.id) : 0;
+                const bubbleColor = av >= 100 ? "#22c55e" : l.couleur;
                 return (
                   <div key={l.id} className={`p2-bubble ${active ? "active" : ""}`}
-                    style={{ "--bubble-color": l.couleur, "--av": `${av}%`,
+                    style={{ "--bubble-color": bubbleColor, "--av": `${av}%`,
                       display: "flex", alignItems: "center", gap: 10 }}
                     onClick={() => { setSelectedLotId(l.id); setSelectedOuvrageId(null); }}>
                     <span style={{ flex: 1, fontWeight: 700, color: T.text }}>{l.label}</span>
@@ -600,7 +623,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                           borderRadius: RADIUS.pill,
                           background: "rgba(0,0,0,0.18)", color: T.text,
                         }}>{count}</span>
-                        <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right" }}>
+                        <span title={avancementLotDetail(l.id)}
+                          style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
                           {av}%
                         </span>
                       </>
@@ -610,9 +634,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
               })}
               {orphans > 0 && (() => {
                 const av = avancementLot("_orphans");
+                const bubbleColor = av >= 100 ? "#22c55e" : T.textMuted;
                 return (
                   <div className={`p2-bubble ${selectedLotId === "_orphans" ? "active" : ""}`}
-                    style={{ "--bubble-color": T.textMuted, "--av": `${av}%`, marginTop: 14,
+                    style={{ "--bubble-color": bubbleColor, "--av": `${av}%`, marginTop: 14,
                       display: "flex", alignItems: "center", gap: 10, opacity: .85 }}
                     onClick={() => { setSelectedLotId("_orphans"); setSelectedOuvrageId(null); }}>
                     <span style={{ flex: 1, fontStyle: "italic", color: T.textMuted, fontWeight: 600 }}>Sans lot</span>
@@ -620,7 +645,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                       fontSize: 10, fontWeight: 800, padding: "2px 8px",
                       borderRadius: RADIUS.pill, background: "rgba(0,0,0,0.18)", color: T.text,
                     }}>{orphans}</span>
-                    <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right" }}>
+                    <span title={avancementLotDetail("_orphans")}
+                      style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
                       {av}%
                     </span>
                   </div>
@@ -657,9 +683,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                     const nbTaches = (o.taches || []).length;
                     const lotColor = lots.find(l => l.id === o.lot_id)?.couleur || acc.accent;
                     const av = nbTaches > 0 ? avancementOuvrage(o) : 0;
+                    const bubbleColor = av >= 100 ? "#22c55e" : lotColor;
                     return (
                       <div key={o.id} className={`p2-bubble ${active ? "active" : ""}`}
-                        style={{ "--bubble-color": lotColor, "--av": `${av}%`,
+                        style={{ "--bubble-color": bubbleColor, "--av": `${av}%`,
                           display: "flex", alignItems: "center", gap: 10 }}
                         onClick={() => setSelectedOuvrageId(o.id)}>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -735,9 +762,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                     const tacheColor = lots.find(l => l.id === selectedOuvrage.lot_id)?.couleur || acc.accent;
                     return taches.map(t => {
                       const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+                      const bubbleColor = av >= 100 ? "#22c55e" : tacheColor;
                       return (
                         <div key={t.id} className="p2-bubble"
-                          style={{ "--bubble-color": tacheColor, "--av": `${av}%`, display: "flex", alignItems: "center", gap: 10 }}
+                          style={{ "--bubble-color": bubbleColor, "--av": `${av}%`, display: "flex", alignItems: "center", gap: 10 }}
                           onClick={() => setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id })}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -749,7 +777,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                                   {t.heures_estimees}h estimées
                                 </span>
                               )}
-                              <span style={{ marginLeft: "auto", fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800 }}>
+                              <span title={avancementTacheDetail(t)}
+                                style={{ marginLeft: "auto", fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800, cursor: "help" }}>
                                 {av}%
                               </span>
                             </div>
