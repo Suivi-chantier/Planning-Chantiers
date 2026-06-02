@@ -133,6 +133,15 @@ export async function loadAccessConfig(branch = "renovation") {
   for (const r of roles) {
     if (!Array.isArray(rolePages[r.id])) rolePages[r.id] = [];
   }
+  // Auto-grant pour l'admin des pages NOUVELLEMENT ajoutées : si une page
+  // figure dans la liste admin par défaut mais pas dans la config sauvegardée,
+  // on l'ajoute (admin uniquement). Évite qu'une nouvelle page reste invisible
+  // jusqu'à ce qu'on aille la cocher manuellement dans Réglages → Accès. Les
+  // autres rôles ne sont pas touchés — l'admin décide explicitement pour eux.
+  const adminDefault = def.rolePages.admin || [];
+  const adminSaved   = rolePages.admin     || [];
+  const adminMissing = adminDefault.filter(p => !adminSaved.includes(p));
+  if (adminMissing.length > 0) rolePages.admin = [...adminSaved, ...adminMissing];
   return { roles, rolePages };
 }
 
