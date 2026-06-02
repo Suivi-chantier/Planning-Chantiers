@@ -172,116 +172,97 @@ def append_articles(articles):
 
 
 # ─── Scraping ─────────────────────────────────────────────────────────────────
-def set_date_filter(page, months_back):
-    """Élargit le filtre de date à N mois en arrière, change pageSize à 50,
-    déclenche le rechargement de la liste."""
+def fetch_all_orders(page, months_back):
+    """Récupère TOUTES les commandes sur N mois en appelant directement
+    l'endpoint AJAX /frx/my-account/orders/getOrderHistory.ajax depuis le
+    contexte de la page (réutilise les cookies de session).
+
+    Le datepicker jQuery UI Rexel est galère à automatiser (inputs cachés,
+    pas de callback hook simple), donc on bypasse l'UI : on appelle
+    directement l'endpoint qu'elle invoque. Plus rapide et plus fiable.
+    """
     end_date = datetime.now()
     start_date = end_date - timedelta(days=months_back * 31)
     start_str = start_date.strftime("%d.%m.%Y")
     end_str = end_date.strftime("%d.%m.%Y")
-    print(f"  → filtre date : {start_str} → {end_str}, pageSize=50")
-    # Le bouton "Rechercher" déclenche un AJAX vers getOrderHistory.ajax.
-    # On modifie les valeurs des inputs cachés puis on appelle directement
-    # la fonction JS exposée par Rexel si possible, sinon on submit le form.
-    page.evaluate(
-        """
-        (params) => {
-            const sd = document.getElementById('orderStartDate');
-            const ed = document.getElementById('orderEndDate');
-            if (sd) sd.value = params.start;
-            if (ed) ed.value = params.end;
-            // Change pageSize si un select existe
-            const sel = document.querySelector('select[name="pageSize"], select#pageSize, select.pageSize');
-            if (sel) {
-                sel.value = '50';
-                sel.dispatchEvent(new Event('change', { bubbles: true }));
+    # L'UI Rexel force pageSize <= 50, mais l'endpoint accepte plus.
+    # On demande 500 pour récupérer toute la fenêtre en un seul appel.
+    PAGE_SIZE = 500
+    print(f"  filtre date AJAX : {start_str} -> {end_str}, pageSize={PAGE_SIZE}")
+
+    all_orders = []
+    seen_ids = set()
+    page_num = 1  # Rexel : pagination 1-indexed (cf. input#currentPageId value="1")
+
+    while True:
+        result = page.evaluate(
+            r"""
+            async ({startDate, endDate, pageNum, pageSize}) => {
+                // Params en body (form-urlencoded) — la doc REST Rexel suit
+                // le form action method=POST avec body, pas en query string.
+                const body = new URLSearchParams({
+                    searchStartDate: startDate,
+                    searchEndDate: endDate,
+                    currentPage: String(pageNum),
+                    pageSize: String(pageSize),
+                    searchStatus: '',
+                    searchFilterType: '',
+                    orderSearchProp: '',
+                    ordersearchPropValue: '',
+                    projectNumber: '',
+                });
+                const response = await fetch(
+                    '/frx/my-account/orders/getOrderHistory.ajax',
+                    {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: body.toString(),
+                    }
+                );
+                const html = await response.text();
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                const containers = div.querySelectorAll('div.orderHistory-container');
+                const orders = Array.from(containers).map(c => {
+                    const id = c.id;
+                    const hidden = c.querySelector('input.myAccountOrderDetailsUrl');
+                    const url = hidden ? hidden.value.replace(/\?$/, '') : null;
+                    return { id, url };
+                }).filter(o => o.url);
+                return { orders };
             }
-        }
-        """,
-        {"start": start_str, "end": end_str},
-    )
-    # Clic sur le bouton de recherche / appliquer
-    # On essaie plusieurs sélecteurs (Rexel a plusieurs boutons possibles)
-    clicked = False
-    for sel in [
-        "button#searchOrderBtn",
-        "button.searchOrderBtn",
-        "a.searchOrderBtn",
-        "input.searchOrderBtn",
-        "button.orderHistorySearchBtn",
-        "#applyFilter",
-    ]:
-        try:
-            btn = page.query_selector(sel)
-            if btn:
-                btn.click()
-                clicked = True
-                break
-        except Exception:
-            pass
-    if not clicked:
-        # Fallback : recharger la page avec URL params (Hybris souvent ok)
-        url = (
-            f"{ORDERS_URL}?"
-            f"orderStartDate={start_str}&orderEndDate={end_str}&pageSize=50"
+            """,
+            {
+                "startDate": start_str,
+                "endDate": end_str,
+                "pageNum": page_num,
+                "pageSize": PAGE_SIZE,
+            },
         )
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    try:
-        page.wait_for_load_state("networkidle", timeout=15000)
-    except Exception:
-        pass
+        page_orders = result["orders"]
+        if not page_orders:
+            break
 
+        new_count = 0
+        for o in page_orders:
+            if o["id"] in seen_ids:
+                continue
+            seen_ids.add(o["id"])
+            all_orders.append(o)
+            new_count += 1
+        print(f"  page {page_num}: {len(page_orders)} retournées, {new_count} nouvelles uniques")
 
-def get_total_pages(page):
-    """Lit le nombre total de pages depuis la pagination Bootpag."""
-    return page.evaluate(
-        """
-        () => {
-            const lis = document.querySelectorAll('.OrderHistoryPgnTion li[data-lp]');
-            let max = 1;
-            lis.forEach(li => {
-                const n = parseInt(li.dataset.lp);
-                if (!isNaN(n) && n > max) max = n;
-            });
-            return max;
-        }
-        """
-    )
+        # Fin si on a reçu moins que pageSize, ou si rien de neuf (sécurité boucle)
+        if len(page_orders) < PAGE_SIZE or new_count == 0:
+            break
+        page_num += 1
+        time.sleep(0.5)
 
-
-def collect_orders_on_page(page):
-    """Renvoie les URLs des commandes affichées sur la page courante."""
-    return page.evaluate(
-        f"""
-        () => Array.from(document.querySelectorAll('div.orderHistory-container'))
-            .map(div => {{
-                const id = div.id;
-                const hidden = div.querySelector('input.myAccountOrderDetailsUrl');
-                const url = hidden ? hidden.value.replace(/\\?$/, '') : null;
-                return {{ id, url }};
-            }})
-            .filter(o => o.url)
-        """
-    )
-
-
-def go_to_page(page, page_num):
-    """Clique sur la page N de la pagination Bootpag, attend rechargement."""
-    page.evaluate(
-        f"""
-        () => {{
-            const li = document.querySelector('.OrderHistoryPgnTion li[data-lp="{page_num}"]');
-            const a = li ? li.querySelector('a') : null;
-            if (a) a.click();
-        }}
-        """
-    )
-    # Bootpag fait un AJAX, on attend un peu et networkidle
-    time.sleep(1.5)
-    try:
-        page.wait_for_load_state("networkidle", timeout=15000)
-    except Exception:
-        pass
+    return all_orders
 
 
 def extract_lines_from_order(page, order_url):
@@ -340,22 +321,10 @@ def scrape_orders(args):
 
         print(f"[phase 1] connecté, url = {page.url}")
 
-        print(f"\n[phase 2] application du filtre {args.months} mois")
-        set_date_filter(page, args.months)
+        print(f"\n[phase 2] collecte des commandes sur {args.months} mois (via AJAX)")
+        orders = fetch_all_orders(page, args.months)
 
-        total_pages = get_total_pages(page)
-        print(f"[phase 2] {total_pages} page(s) de commandes")
-
-        # Collecte URLs commandes
-        orders = []
-        for p_num in range(1, total_pages + 1):
-            if p_num > 1:
-                print(f"  → page {p_num}")
-                go_to_page(page, p_num)
-            page_orders = collect_orders_on_page(page)
-            orders.extend(page_orders)
-
-        print(f"\n[phase 3] {len(orders)} commandes trouvées")
+        print(f"\n[phase 3] {len(orders)} commandes uniques à parcourir")
         if args.max_orders:
             orders = orders[: args.max_orders]
             print(f"           limité à {len(orders)} via --max-orders")
