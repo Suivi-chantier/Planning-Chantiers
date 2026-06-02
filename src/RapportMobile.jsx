@@ -6,7 +6,7 @@ import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
   ClipboardList, AlertTriangle, MessageSquare, Zap, Users, BarChart3,
   Send, Pencil, ChevronRight, Sparkles, FileText, Coffee, Smile,
-  Hourglass, Calendar, RefreshCw, LogOut, ImagePlus, ListPlus,
+  Hourglass, Calendar, RefreshCw, LogOut, ImagePlus, ListPlus, Trash2,
 } from "lucide-react";
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
 
@@ -428,6 +428,10 @@ function PageRapportMobile() {
     };
   }));
   const addTacheLibre     = ()            => setTaches(t => [...t, {chantier_id:"",chantier_nom:"",chantier_couleur:"#c8d8f0",planifie:"",statut:null,remarque:"",photos:[],libre:true}]);
+  // Suppression d'une tâche libre (ajoutée par l'ouvrier). On ne propose pas
+  // la suppression des tâches issues du planning : si elles n'ont pas été faites,
+  // l'ouvrier doit explicitement mettre "Non faite" pour qu'on en garde la trace.
+  const supprimerTache = (idx) => setTaches(t => t.filter((_, i) => i !== idx));
 
   const soumettre = async () => {
     const tachesRemplies = taches.filter(t => t.planifie.trim());
@@ -635,8 +639,13 @@ function PageRapportMobile() {
   const enCours  = taches.filter(t=>t.statut==="en_cours").length;
   const nonFaite = taches.filter(t=>t.statut==="non_faite").length;
 
-  // Total journée = tâches + trajet matin + trajet soir (trajets en minutes)
-  const totalTachesH = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+  // Total journée = tâches + trajet matin + trajet soir (trajets en minutes).
+  // On ne compte que les tâches avec texte renseigné — alignement strict avec
+  // la validation de soumettre() (sinon : heures saisies sur une tâche libre
+  // sans description gonflent l'affichage mais sont ignorées au submit).
+  const totalTachesH = taches
+    .filter(t => t.planifie?.trim())
+    .reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
   const totalTrajetMin = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
   const totalJourneeH = totalTachesH + totalTrajetMin / 60;
   const matchCible = Math.abs(totalJourneeH - cibleHeures) < 0.01;
@@ -905,6 +914,19 @@ function PageRapportMobile() {
                 borderRadius:RADIUS.sm,padding:"2px 8px",fontSize:FONT.xs.size,fontWeight:700}}>
                 <Icon as={Hourglass} size={11} strokeWidth={2.2}/> {t.duree}h estimée{t.duree>1?"s":""}
               </span>
+            )}
+            {t.libre && (
+              <button onClick={()=>supprimerTache(idx)} style={{
+                marginLeft:"auto",
+                display:"inline-flex",alignItems:"center",gap:4,
+                background:T.dangerBg,border:`1px solid ${T.dangerBd}`,
+                borderRadius:RADIUS.sm,padding:"4px 9px",
+                color:T.danger,fontSize:FONT.xs.size,fontWeight:700,
+                cursor:"pointer",fontFamily:"inherit",
+              }}>
+                <Icon as={Trash2} size={11} strokeWidth={2.2}/>
+                Supprimer
+              </button>
             )}
           </div>
           {t.libre && (
