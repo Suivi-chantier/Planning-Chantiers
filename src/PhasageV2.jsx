@@ -305,6 +305,34 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     }
     return Math.round(lotOuvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / lotOuvrages.length);
   };
+  // Avancement global du chantier : moyenne de TOUS les ouvrages (lots
+  // confondus), pondérée par prix_ht. Si aucun ouvrage n'a prix_ht →
+  // moyenne simple. Sert pour la barre persistante en bas de page.
+  const avancementChantier = (() => {
+    if (ouvrages.length === 0) return 0;
+    const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+    if (totalPrix > 0) {
+      return Math.round(
+        ouvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix
+      );
+    }
+    return Math.round(ouvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / ouvrages.length);
+  })();
+  // Détail du calcul global (tooltip debug)
+  const avancementChantierDetail = (() => {
+    if (ouvrages.length === 0) return "Aucun ouvrage";
+    const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+    if (totalPrix > 0) {
+      const lines = ouvrages.map((o, i) => {
+        const a = avancementOuvrage(o);
+        const p = parseFloat(o.prix_ht) || 0;
+        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${(a*p).toLocaleString("fr-FR")}`;
+      });
+      const num = ouvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0);
+      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\nNumérateur = ${num.toLocaleString("fr-FR")}\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${(num/totalPrix).toFixed(2)} %`;
+    }
+    return "Aucun prix HT renseigné — moyenne simple des % des ouvrages";
+  })();
 
   const ouvragesLot = selectedLotId
     ? ouvrages.filter(o => (selectedLotId === "_orphans"
@@ -745,6 +773,48 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   })()
               }
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Barre d'avancement chantier (persistante en bas) ── */}
+      {chantierId && !loadingPhasage && ouvrages.length > 0 && (
+        <div style={{
+          flexShrink: 0,
+          borderTop: `1px solid ${T.border}`,
+          background: T.surface,
+          padding: "12px 22px",
+          display: "flex", alignItems: "center", gap: 14,
+        }}>
+          <div style={{
+            fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.textMuted,
+            letterSpacing: .6, textTransform: "uppercase", whiteSpace: "nowrap",
+          }}>
+            Avancement chantier
+          </div>
+          <div title={avancementChantierDetail}
+            style={{
+              flex: 1, position: "relative", height: 18,
+              background: "rgba(255,255,255,0.06)", borderRadius: 9,
+              overflow: "hidden", cursor: "help",
+              border: `1px solid ${T.border}`,
+            }}>
+            <div style={{
+              width: `${Math.min(100, avancementChantier)}%`, height: "100%",
+              background: avancementChantier >= 100
+                ? "linear-gradient(90deg, #16a34a, #22c55e)"
+                : `linear-gradient(90deg, color-mix(in srgb, ${acc.accent} 80%, transparent), ${acc.accent})`,
+              transition: "width .4s ease",
+              boxShadow: avancementChantier > 0 ? `0 0 8px color-mix(in srgb, ${acc.accent} 50%, transparent)` : "none",
+            }}/>
+          </div>
+          <div style={{
+            fontSize: FONT.lg.size, fontWeight: 800,
+            color: avancementChantier >= 100 ? "#22c55e" : T.text,
+            minWidth: 54, textAlign: "right",
+            letterSpacing: -.3,
+          }}>
+            {avancementChantier}%
           </div>
         </div>
       )}
