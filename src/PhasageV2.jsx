@@ -5,6 +5,7 @@ import { Icon } from "./ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
+  Pencil,
 } from "lucide-react";
 import { parseDevisExcel } from "./devisImport";
 
@@ -32,6 +33,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const saveTimerRef = useRef(null);
   const newOuvrageInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  // Modales d'édition : id de l'ouvrage / de la tâche en cours d'édition
+  const [editingOuvrageId, setEditingOuvrageId] = useState(null);
+  const [editingTache, setEditingTache] = useState(null); // { ouvrageId, tacheId }
   // Bibliothèque ouvrages (sert au matching à l'import devis)
   const [bibliotheque, setBibliotheque] = useState([]);
   // État de la modale d'import (null si fermée)
@@ -127,8 +131,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     const next = [...ouvrages, newO];
     updateOuvrages(next);
     setSelectedOuvrageId(newO.id);
-    // Focus le champ libellé du nouvel ouvrage juste après le render.
-    setTimeout(() => { newOuvrageInputRef.current?.focus(); }, 50);
+    // Ouvre directement la modale d'édition pour le nouveau
+    setEditingOuvrageId(newO.id);
   };
 
   const updateOuvrage = (id, patch) => {
@@ -149,6 +153,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: [...(o.taches || []), newT] }
       : o));
+    setEditingTache({ ouvrageId, tacheId: newT.id });
   };
 
   const updateTache = (ouvrageId, tacheId, patch) => {
@@ -324,6 +329,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           padding: 14px 16px;
           margin: 8px 4px;
           box-shadow: 0 4px 16px color-mix(in srgb, var(--c) 18%, transparent);
+        }
+        .p2-edit-btn:hover {
+          background: var(--c) !important;
+          border-color: var(--c) !important;
+          color: #000 !important;
         }
       `}</style>
 
@@ -510,64 +520,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                     const active = selectedOuvrageId === o.id;
                     const nbTaches = (o.taches || []).length;
                     const lotColor = lots.find(l => l.id === o.lot_id)?.couleur || acc.accent;
-                    if (active) {
-                      // Édition inline pour l'ouvrage sélectionné
-                      return (
-                        <div key={o.id} className="p2-bubble-form"
-                          style={{ "--bubble-color": lotColor, display: "flex", flexDirection: "column", gap: 10 }}>
-                          <div>
-                            <span style={lbl}>Libellé</span>
-                            <input ref={newOuvrageInputRef} value={o.libelle || ""}
-                              onChange={e => updateOuvrage(o.id, { libelle: e.target.value })}
-                              placeholder="Nom de l'ouvrage" style={{ ...inp, fontWeight: 600 }}/>
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                            <div>
-                              <span style={lbl}>Heures vendues</span>
-                              <input type="number" step="0.5" min="0" value={o.heures_devis ?? ""}
-                                onChange={e => updateOuvrage(o.id, { heures_devis: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                                placeholder="0" style={inp}/>
-                            </div>
-                            <div>
-                              <span style={lbl}>Quantité</span>
-                              <div style={{ display: "flex", gap: 4 }}>
-                                <input type="number" step="0.01" min="0" value={o.quantite ?? ""}
-                                  onChange={e => updateOuvrage(o.id, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                                  placeholder="0" style={{ ...inp, flex: 1 }}/>
-                                <input value={o.unite || ""}
-                                  onChange={e => updateOuvrage(o.id, { unite: e.target.value })}
-                                  placeholder="U" style={{ ...inp, width: 50, textAlign: "center" }}/>
-                              </div>
-                            </div>
-                            <div>
-                              <span style={lbl}>Prix HT (€)</span>
-                              <input type="number" step="0.01" min="0" value={o.prix_ht ?? ""}
-                                onChange={e => updateOuvrage(o.id, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                                placeholder="0" style={inp}/>
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <span style={lbl}>Lot</span>
-                              <select value={o.lot_id || ""}
-                                onChange={e => updateOuvrage(o.id, { lot_id: e.target.value || null })}
-                                style={{ ...inp, cursor: "pointer" }}>
-                                <option value="">— Sans lot —</option>
-                                {lots.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
-                              </select>
-                            </div>
-                            <button onClick={() => deleteOuvrage(o.id)} title="Supprimer l'ouvrage"
-                              style={{ ...iconBtnDanger, width: 32, height: 32 }}
-                              onMouseEnter={e => { e.currentTarget.style.background = "rgba(225,90,90,0.12)"; e.currentTarget.style.borderColor = "rgba(225,90,90,0.3)"; }}
-                              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
-                              <Icon as={Trash2} size={14}/>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
                     return (
-                      <div key={o.id} className="p2-bubble"
+                      <div key={o.id} className={`p2-bubble ${active ? "active" : ""}`}
                         style={{ "--bubble-color": lotColor, display: "flex", alignItems: "center", gap: 10 }}
                         onClick={() => setSelectedOuvrageId(o.id)}>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -589,6 +543,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                             background: "rgba(0,0,0,0.18)", color: T.text, flexShrink: 0,
                           }}>{nbTaches}</span>
                         )}
+                        <button
+                          className="p2-edit-btn"
+                          onClick={e => { e.stopPropagation(); setEditingOuvrageId(o.id); }}
+                          title="Modifier l'ouvrage"
+                          style={{
+                            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                            color: T.text, borderRadius: RADIUS.sm,
+                            width: 26, height: 26, padding: 0, cursor: "pointer",
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            flexShrink: 0, transition: "all .12s",
+                          }}>
+                          <Icon as={Pencil} size={12}/>
+                        </button>
                       </div>
                     );
                   })
@@ -621,37 +588,52 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   ? emptyColMsg("Aucune tâche — clique « + Tâche »")
                   : (() => {
                     const tacheColor = lots.find(l => l.id === selectedOuvrage.lot_id)?.couleur || acc.accent;
-                    return taches.map(t => (
-                      <div key={t.id} className="p2-bubble-form"
-                        style={{ "--bubble-color": tacheColor, display: "flex", flexDirection: "column", gap: 8 }}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                          <input value={t.nom || ""}
-                            onChange={e => updateTache(selectedOuvrage.id, t.id, { nom: e.target.value })}
-                            placeholder="Description de la tâche"
-                            style={{ ...inp, flex: 1, fontWeight: 600 }}/>
-                          <button onClick={() => deleteTache(selectedOuvrage.id, t.id)} title="Supprimer la tâche"
-                            style={iconBtnDanger}
-                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(225,90,90,0.12)"; e.currentTarget.style.borderColor = "rgba(225,90,90,0.3)"; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
-                            <Icon as={Trash2} size={13}/>
+                    return taches.map(t => {
+                      const av = parseInt(t.avancement) || 0;
+                      return (
+                        <div key={t.id} className="p2-bubble"
+                          style={{ "--bubble-color": tacheColor, display: "flex", alignItems: "center", gap: 10 }}
+                          onClick={() => setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id })}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+                              {t.heures_estimees != null && (
+                                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, whiteSpace: "nowrap" }}>
+                                  {t.heures_estimees}h estimées
+                                </span>
+                              )}
+                              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden", minWidth: 40 }}>
+                                  <div style={{
+                                    width: `${av}%`, height: "100%", borderRadius: 2,
+                                    background: av >= 100 ? "#22c55e" : tacheColor,
+                                    transition: "width .3s",
+                                  }}/>
+                                </div>
+                                <span style={{ fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 700, minWidth: 32, textAlign: "right" }}>
+                                  {av}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            className="p2-edit-btn"
+                            onClick={e => { e.stopPropagation(); setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id }); }}
+                            title="Modifier la tâche"
+                            style={{
+                              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                              color: T.text, borderRadius: RADIUS.sm,
+                              width: 26, height: 26, padding: 0, cursor: "pointer",
+                              display: "inline-flex", alignItems: "center", justifyContent: "center",
+                              flexShrink: 0, transition: "all .12s",
+                            }}>
+                            <Icon as={Pencil} size={12}/>
                           </button>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                          <div>
-                            <span style={lbl}>Heures estimées</span>
-                            <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
-                              onChange={e => updateTache(selectedOuvrage.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                              placeholder="0" style={inp}/>
-                          </div>
-                          <div>
-                            <span style={lbl}>Avancement (%)</span>
-                            <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
-                              onChange={e => updateTache(selectedOuvrage.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
-                              placeholder="0" style={inp}/>
-                          </div>
-                        </div>
-                      </div>
-                    ));
+                      );
+                    });
                   })()
               }
             </div>
@@ -671,6 +653,162 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           onConfirm={confirmImport}
         />
       )}
+
+      {/* ── Modale édition ouvrage ── */}
+      {editingOuvrageId && (() => {
+        const o = ouvrages.find(x => x.id === editingOuvrageId);
+        if (!o) return null;
+        const lotColor = lots.find(l => l.id === o.lot_id)?.couleur || acc.accent;
+        return (
+          <ItemEditModal
+            title="Modifier l'ouvrage"
+            color={lotColor}
+            T={T} accent={acc.accent}
+            onClose={() => setEditingOuvrageId(null)}
+            onDelete={() => { deleteOuvrage(o.id); setEditingOuvrageId(null); }}
+          >
+            <ModalField label="Libellé">
+              <input autoFocus value={o.libelle || ""}
+                onChange={e => updateOuvrage(o.id, { libelle: e.target.value })}
+                placeholder="Nom de l'ouvrage" style={{ ...modalInp(T), fontWeight: 600 }}/>
+            </ModalField>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <ModalField label="Heures vendues">
+                <input type="number" step="0.5" min="0" value={o.heures_devis ?? ""}
+                  onChange={e => updateOuvrage(o.id, { heures_devis: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                  placeholder="0" style={modalInp(T)}/>
+              </ModalField>
+              <ModalField label="Quantité">
+                <div style={{ display: "flex", gap: 4 }}>
+                  <input type="number" step="0.01" min="0" value={o.quantite ?? ""}
+                    onChange={e => updateOuvrage(o.id, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                    placeholder="0" style={{ ...modalInp(T), flex: 1 }}/>
+                  <input value={o.unite || ""}
+                    onChange={e => updateOuvrage(o.id, { unite: e.target.value })}
+                    placeholder="U" style={{ ...modalInp(T), width: 56, textAlign: "center" }}/>
+                </div>
+              </ModalField>
+              <ModalField label="Prix HT (€)">
+                <input type="number" step="0.01" min="0" value={o.prix_ht ?? ""}
+                  onChange={e => updateOuvrage(o.id, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                  placeholder="0" style={modalInp(T)}/>
+              </ModalField>
+            </div>
+            <ModalField label="Lot">
+              <select value={o.lot_id || ""}
+                onChange={e => updateOuvrage(o.id, { lot_id: e.target.value || null })}
+                style={{ ...modalInp(T), cursor: "pointer" }}>
+                <option value="">— Sans lot —</option>
+                {lots.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+              </select>
+            </ModalField>
+          </ItemEditModal>
+        );
+      })()}
+
+      {/* ── Modale édition tâche ── */}
+      {editingTache && (() => {
+        const o = ouvrages.find(x => x.id === editingTache.ouvrageId);
+        const t = o?.taches?.find(x => x.id === editingTache.tacheId);
+        if (!t) return null;
+        const lotColor = lots.find(l => l.id === o.lot_id)?.couleur || acc.accent;
+        return (
+          <ItemEditModal
+            title="Modifier la tâche"
+            color={lotColor}
+            T={T} accent={acc.accent}
+            onClose={() => setEditingTache(null)}
+            onDelete={() => { deleteTache(o.id, t.id); setEditingTache(null); }}
+          >
+            <ModalField label="Description">
+              <textarea autoFocus value={t.nom || ""}
+                onChange={e => updateTache(o.id, t.id, { nom: e.target.value })}
+                placeholder="Description de la tâche" rows={2}
+                style={{ ...modalInp(T), fontWeight: 600, resize: "vertical", minHeight: 60 }}/>
+            </ModalField>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <ModalField label="Heures estimées">
+                <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
+                  onChange={e => updateTache(o.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                  placeholder="0" style={modalInp(T)}/>
+              </ModalField>
+              <ModalField label="Avancement (%)">
+                <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
+                  onChange={e => updateTache(o.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                  placeholder="0" style={modalInp(T)}/>
+              </ModalField>
+            </div>
+          </ItemEditModal>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ─── Composants modale d'édition ───────────────────────────────────────────────
+const modalInp = (T) => ({
+  width: "100%", padding: "9px 12px", borderRadius: RADIUS.md,
+  border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
+  color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none",
+});
+function ModalField({ label, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase", marginBottom: 5, opacity: .65 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+function ItemEditModal({ title, color, T, accent, onClose, onDelete, children }) {
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 700,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      backdropFilter: "blur(4px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.modal || T.surface, borderRadius: RADIUS.xl,
+        border: `1px solid ${T.border}`, borderLeft: `5px solid ${color}`,
+        width: "100%", maxWidth: 560,
+        boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+        display: "flex", flexDirection: "column", maxHeight: "90vh",
+      }}>
+        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: RADIUS.md, flexShrink: 0,
+            background: `color-mix(in srgb, ${color} 20%, transparent)`,
+            color: color, display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={Pencil} size={14}/>
+          </div>
+          <div style={{ flex: 1, fontSize: FONT.md.size, fontWeight: 800, color: T.text, letterSpacing: -.2 }}>{title}</div>
+          <button onClick={onClose} title="Fermer" style={{
+            background: "transparent", border: "none", color: T.textMuted, cursor: "pointer",
+            padding: 6, borderRadius: RADIUS.sm, display: "inline-flex", alignItems: "center",
+          }}><Icon as={X} size={18}/></button>
+        </div>
+        <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
+          {children}
+        </div>
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <button onClick={onDelete} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "8px 14px", borderRadius: RADIUS.md,
+            border: "1px solid rgba(225,90,90,0.3)", background: "transparent", color: "#e15a5a",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+          }}>
+            <Icon as={Trash2} size={13}/>
+            Supprimer
+          </button>
+          <button onClick={onClose} style={{
+            padding: "8px 18px", borderRadius: RADIUS.md, border: "none",
+            background: accent, color: "#000",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>
+            OK
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
