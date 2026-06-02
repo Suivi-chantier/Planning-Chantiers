@@ -5,7 +5,7 @@ import { Icon } from "./ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
-  Pencil, Settings, FileDown,
+  Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
 } from "lucide-react";
 import { parseDevisExcel } from "./devisImport";
 
@@ -57,6 +57,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const [editingTache, setEditingTache] = useState(null); // { ouvrageId, tacheId }
   // Modale suivi direction (marge cible, seuil prime, prime chantier)
   const [showSuiviDirection, setShowSuiviDirection] = useState(false);
+  // Mode d'affichage : "list" (3 colonnes Lots/Ouvrages/Tâches) | "gantt" (timeline)
+  const [viewMode, setViewMode] = useState("list");
   // Form planification (envoyer une tâche dans planning_cells)
   const initialSemaine = (() => { const { year, week } = getCurrentWeek(); return getWeekId(year, week); })();
   const [planifSemaine, setPlanifSemaine] = useState(initialSemaine);
@@ -896,9 +898,36 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         {chantierId && (
           <>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={onFilePicked} style={{ display: "none" }}/>
+            {/* Toggle Liste / Gantt */}
+            <div style={{
+              marginLeft: "auto",
+              display: "inline-flex", borderRadius: RADIUS.md,
+              border: `1px solid ${T.border}`, background: T.card, overflow: "hidden",
+            }}>
+              {[
+                { id: "list",  icon: LayoutGrid,         label: "Liste" },
+                { id: "gantt", icon: GanttChartSquare,   label: "Gantt" },
+              ].map(opt => {
+                const active = viewMode === opt.id;
+                return (
+                  <button key={opt.id} onClick={() => setViewMode(opt.id)}
+                    title={opt.label}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "7px 12px", border: "none",
+                      background: active ? acc.bg10 : "transparent",
+                      color: active ? acc.accent : T.textSub,
+                      fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
+                      cursor: "pointer", transition: "all .12s",
+                    }}>
+                    <Icon as={opt.icon} size={13}/>
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
             <button onClick={exportRapportPDF} title="Exporter le phasage en PDF"
               style={{
-                marginLeft: "auto",
                 display: "inline-flex", alignItems: "center", gap: 6,
                 padding: "8px 14px", borderRadius: RADIUS.md,
                 border: `1px solid ${T.border}`, background: T.card, color: T.textSub,
@@ -1054,6 +1083,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: FONT.sm.size }}>
           Chargement du phasage…
         </div>
+      ) : viewMode === "gantt" ? (
+        <GanttV2
+          ouvrages={ouvrages} lots={lots} acc={acc} T={T}
+          avancementOuvrage={avancementOuvrage}
+          tacheHeuresReelles={tacheHeuresReelles}
+          onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
+        />
       ) : (
         <div style={{ flex: 1, display: "grid", gridTemplateColumns: "260px minmax(0, 1fr) minmax(0, 1.2fr)", minHeight: 0 }}>
           {/* ── Colonne 1 : Lots ── */}
@@ -1613,6 +1649,284 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </ItemEditModal>
         );
       })()}
+    </div>
+  );
+}
+
+// ─── GANTT V2 ─────────────────────────────────────────────────────────────────
+// Timeline simple par jour ouvré (Lun-Ven). Une ligne par tâche, groupées par
+// ouvrage puis par lot. Chaque tâche a une barre qui commence à date_prevue
+// et s'étend sur ⌈heures_estimees / 7⌉ jours (heuristique 7h/jour).
+function GanttV2({ ouvrages, lots, acc, T, avancementOuvrage, tacheHeuresReelles, onClickTache }) {
+  const DAY_PX = 28, ROW_H = 30, LABEL_W = 280, HEADER_H = 56;
+  const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+  const addDays    = (d, n) => { const x = startOfDay(d); x.setDate(x.getDate() + n); return x; };
+  const isWeekend  = (d) => { const w = d.getDay(); return w === 0 || w === 6; };
+  const parseDate  = (s) => { if (!s) return null; const d = new Date(s); return isNaN(d.getTime()) ? null : startOfDay(d); };
+  const fmtDay     = (d) => d.toLocaleDateString("fr-FR", { day: "numeric" });
+  const fmtMonth   = (d) => d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  const isoDay     = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const todayISO   = isoDay(startOfDay(new Date()));
+
+  // ── Construit la liste plate { lot, ouvrage, tache } pour les tâches qui
+  //    ont une date_prevue. Les non-planifiées vont dans un bloc séparé.
+  const rows = [];
+  const orphans = [];
+  ouvrages.forEach(o => {
+    const lot = lots.find(l => l.id === o.lot_id) || { id: "_x", label: "Sans lot", couleur: "#888" };
+    (o.taches || []).forEach(t => {
+      const d = parseDate(t.date_prevue);
+      if (d) rows.push({ lot, ouvrage: o, tache: t, date: d });
+      else   orphans.push({ lot, ouvrage: o, tache: t });
+    });
+  });
+
+  // ── Plage de dates : du min des date_prevue à +35 jours après le max.
+  //    Si rien de planifié, on affiche aujourd'hui + 30 jours.
+  const dates = rows.map(r => r.date);
+  let dateMin = dates.length > 0 ? new Date(Math.min(...dates.map(d => d.getTime()))) : startOfDay(new Date());
+  let dateMax = dates.length > 0 ? new Date(Math.max(...dates.map(d => d.getTime()))) : addDays(new Date(), 30);
+  // 3 jours de marge avant, 14 jours après le max (ou heures longues).
+  dateMin = addDays(dateMin, -3);
+  dateMax = addDays(dateMax, 14);
+
+  // Liste des jours affichés (skip weekends)
+  const days = [];
+  for (let d = startOfDay(dateMin); d <= dateMax; d = addDays(d, 1)) {
+    if (!isWeekend(d)) days.push(new Date(d));
+  }
+  const dayIndex = (d) => {
+    const target = isoDay(d);
+    return days.findIndex(x => isoDay(x) === target);
+  };
+  const totalWidth = days.length * DAY_PX;
+
+  // Groupes pour entêtes de mois
+  const monthsHeader = [];
+  let lastMonthKey = "";
+  days.forEach((d, i) => {
+    const k = `${d.getFullYear()}-${d.getMonth()}`;
+    if (k !== lastMonthKey) {
+      monthsHeader.push({ label: fmtMonth(d), startIdx: i, span: 1 });
+      lastMonthKey = k;
+    } else {
+      monthsHeader[monthsHeader.length - 1].span += 1;
+    }
+  });
+
+  // Tri des rows : par lot.id puis par ouvrage puis par date
+  rows.sort((a, b) => {
+    if (a.lot.id !== b.lot.id) return a.lot.id.localeCompare(b.lot.id);
+    if (a.ouvrage.id !== b.ouvrage.id) return (a.ouvrage.libelle || "").localeCompare(b.ouvrage.libelle || "");
+    return a.date.getTime() - b.date.getTime();
+  });
+
+  // Longueur en jours (skip weekends) à partir des heures estimées (~ 7h/jour)
+  const dureeJours = (t) => {
+    const h = parseFloat(t.heures_estimees);
+    if (!h || isNaN(h) || h <= 0) return 1;
+    return Math.max(1, Math.ceil(h / 7));
+  };
+
+  if (rows.length === 0 && orphans.length === 0) {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
+        <div style={{
+          background: T.card, border: `1px dashed ${T.border}`,
+          borderRadius: RADIUS.xl, padding: "48px 32px", textAlign: "center",
+          maxWidth: 460, color: T.textMuted,
+        }}>
+          <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+            Aucune tâche à afficher
+          </div>
+          <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6 }}>
+            Ajoute des tâches et planifie-les (modale tâche → "Envoyer dans le planning") pour les voir sur le Gantt.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Rendu
+  return (
+    <div style={{ flex: 1, overflow: "auto", background: T.bg, padding: 0 }}>
+      <div style={{ position: "relative", width: LABEL_W + totalWidth, minWidth: "100%" }}>
+        {/* Header dates (sticky) */}
+        <div style={{
+          position: "sticky", top: 0, zIndex: 10,
+          background: T.surface, borderBottom: `1px solid ${T.border}`,
+          height: HEADER_H,
+          display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+        }}>
+          <div style={{
+            borderRight: `1px solid ${T.border}`,
+            padding: "10px 14px", display: "flex", alignItems: "center",
+            fontSize: FONT.xs.size, fontWeight: 800, color: T.textMuted, letterSpacing: .8, textTransform: "uppercase",
+          }}>
+            Tâche / Ouvrage
+          </div>
+          <div style={{ position: "relative", height: HEADER_H }}>
+            {/* Ligne mois */}
+            <div style={{ display: "flex", height: HEADER_H / 2, borderBottom: `1px solid ${T.border}` }}>
+              {monthsHeader.map((m, i) => (
+                <div key={i} style={{
+                  width: m.span * DAY_PX, padding: "0 8px",
+                  display: "flex", alignItems: "center",
+                  fontSize: FONT.xs.size, fontWeight: 700, color: T.text,
+                  borderRight: `1px solid ${T.border}`,
+                }}>
+                  {m.label}
+                </div>
+              ))}
+            </div>
+            {/* Ligne jours */}
+            <div style={{ display: "flex", height: HEADER_H / 2 }}>
+              {days.map((d, i) => {
+                const today = isoDay(d) === todayISO;
+                return (
+                  <div key={i} style={{
+                    width: DAY_PX, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 9, fontWeight: today ? 800 : 600,
+                    color: today ? acc.accent : T.textMuted,
+                    background: today ? acc.bg10 : "transparent",
+                    borderRight: `1px solid ${T.border}`,
+                  }}>
+                    {fmtDay(d)}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Rangées tâches */}
+        {(() => {
+          const els = [];
+          let lastLotId = null;
+          rows.forEach((r, idx) => {
+            // Header de lot si on change
+            if (r.lot.id !== lastLotId) {
+              els.push(
+                <div key={`lot-${r.lot.id}`} style={{
+                  display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+                  background: `color-mix(in srgb, ${r.lot.couleur} 14%, transparent)`,
+                  borderTop: `1px solid ${T.border}`,
+                  borderBottom: `1px solid ${T.border}`,
+                  height: 26, alignItems: "center",
+                }}>
+                  <div style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, height: "100%", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: r.lot.couleur }}/>
+                    <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: T.text, textTransform: "uppercase", letterSpacing: .5 }}>{r.lot.label}</span>
+                  </div>
+                  <div/>
+                </div>
+              );
+              lastLotId = r.lot.id;
+            }
+            // Rangée tâche
+            const startIdx = dayIndex(r.date);
+            const spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
+            const left = startIdx >= 0 ? startIdx * DAY_PX : 0;
+            const widthBar = spanDays * DAY_PX - 4;
+            const av = Math.max(0, Math.min(100, parseInt(r.tache.avancement) || 0));
+            const barColor = av >= 100 ? "#22c55e" : r.lot.couleur;
+            const hr = tacheHeuresReelles(r.tache);
+            const tooltip = `${r.tache.nom || "(sans nom)"} — ${r.date.toLocaleDateString("fr-FR")} — ${av}%${r.tache.heures_estimees ? ` — ${hr || 0}h/${r.tache.heures_estimees}h` : ""}`;
+            els.push(
+              <div key={`row-${r.tache.id}-${idx}`} style={{
+                display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+                height: ROW_H, borderBottom: `1px solid ${T.border}`,
+                background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)",
+              }}>
+                <div style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.tache.nom || "(sans nom)"}
+                  </div>
+                  <div style={{ fontSize: 9, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.ouvrage.libelle || "(sans libellé)"}
+                  </div>
+                </div>
+                <div style={{ position: "relative", height: ROW_H }}>
+                  {/* Grille de fond (jour) */}
+                  {days.map((d, i) => {
+                    const today = isoDay(d) === todayISO;
+                    return (
+                      <div key={i} style={{
+                        position: "absolute", left: i * DAY_PX, top: 0, width: DAY_PX, height: "100%",
+                        borderRight: `1px solid ${T.border}`,
+                        background: today ? `color-mix(in srgb, ${acc.accent} 8%, transparent)` : "transparent",
+                      }}/>
+                    );
+                  })}
+                  {/* Barre tâche */}
+                  {startIdx >= 0 && (
+                    <div onClick={() => onClickTache(r.ouvrage.id, r.tache.id)}
+                      title={tooltip}
+                      style={{
+                        position: "absolute", left: left + 2, top: 4, width: Math.max(20, widthBar),
+                        height: ROW_H - 8, borderRadius: 5,
+                        background: `linear-gradient(to right,
+                          color-mix(in srgb, ${barColor} 80%, transparent) 0,
+                          color-mix(in srgb, ${barColor} 80%, transparent) ${av}%,
+                          color-mix(in srgb, ${barColor} 30%, transparent) ${av}%,
+                          color-mix(in srgb, ${barColor} 30%, transparent) 100%)`,
+                        border: `1px solid ${barColor}`,
+                        color: "#000", fontSize: 10, fontWeight: 800,
+                        display: "flex", alignItems: "center", padding: "0 8px",
+                        cursor: "pointer", overflow: "hidden",
+                        boxShadow: `0 2px 4px color-mix(in srgb, ${barColor} 30%, transparent)`,
+                      }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.tache.nom || ""} {av > 0 ? `· ${av}%` : ""}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          });
+          return els;
+        })()}
+
+        {/* Section tâches non planifiées (pas de date_prevue) */}
+        {orphans.length > 0 && (
+          <>
+            <div style={{
+              display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+              background: "rgba(255,255,255,0.03)",
+              borderTop: `1px dashed ${T.border}`, borderBottom: `1px solid ${T.border}`,
+              height: 26, alignItems: "center",
+            }}>
+              <div style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, height: "100%", display: "flex", alignItems: "center" }}>
+                <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: T.textMuted, textTransform: "uppercase", letterSpacing: .5, fontStyle: "italic" }}>
+                  Non planifiées ({orphans.length})
+                </span>
+              </div>
+              <div/>
+            </div>
+            {orphans.map((r, idx) => (
+              <div key={`orphan-${r.tache.id}-${idx}`} style={{
+                display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+                height: ROW_H, borderBottom: `1px solid ${T.border}`,
+                opacity: .65,
+              }}>
+                <div onClick={() => onClickTache(r.ouvrage.id, r.tache.id)}
+                  style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, cursor: "pointer", minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.tache.nom || "(sans nom)"}
+                  </div>
+                  <div style={{ fontSize: 9, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.ouvrage.libelle || "(sans libellé)"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", padding: "0 14px", fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
+                  Clique pour planifier (modale → Envoyer dans le planning)
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
     </div>
   );
 }
