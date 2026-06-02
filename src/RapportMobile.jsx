@@ -233,6 +233,11 @@ function PageRapportMobile() {
   const [photosChantier, setPhotosChantier] = useState({}); // { chantier_id: [url, ...] }
   const [submitting, setSubmitting] = useState(false);
   const [planData, setPlanData]     = useState(null);
+  // Brouillon : persistance locale pour que les saisies survivent à un refresh
+  // et que l'ouvrier puisse compléter le formulaire tout au long de la journée.
+  // Clé = ouvrier + date → un brouillon distinct par personne et par jour.
+  const [brouillonRepris, setBrouillonRepris] = useState(false);
+  const [lastSaved, setLastSaved]   = useState(null);
   // Heures attendues par jour — config Admin (clé planning_config "heures_par_jour").
   // Le défaut local sert de fallback tant que la config n'est pas chargée.
   const HEURES_PAR_JOUR_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
@@ -261,6 +266,46 @@ function PageRapportMobile() {
     };
     load();
   }, []);
+
+  // ── Brouillon : helpers + autosave ──────────────────────────────────────────
+  const brouillonKey = (nom, date) => `cr_brouillon::${nom}::${date}`;
+
+  const effacerBrouillon = () => {
+    const nom = ouvrier.trim();
+    if (!nom) return;
+    try { localStorage.removeItem(brouillonKey(nom, dateKey)); } catch {}
+  };
+
+  // Autosave dès qu'on est en étape rapport et qu'on a un ouvrier.
+  useEffect(() => {
+    if (step !== "rapport") return;
+    const nom = ouvrier.trim();
+    if (!nom) return;
+    try {
+      const payload = {
+        taches, trajetMatin, trajetSoir, remarque,
+        paniers, photosChantier, planData,
+        ts: Date.now(),
+      };
+      localStorage.setItem(brouillonKey(nom, dateKey), JSON.stringify(payload));
+      setLastSaved(new Date());
+    } catch (e) {
+      // QuotaExceeded ou JSON.stringify circular → on log mais on ne bloque pas
+      console.warn("Sauvegarde brouillon:", e);
+    }
+  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, remarque, paniers, photosChantier, planData]);
+
+  const repartirDeZero = () => {
+    effacerBrouillon();
+    setBrouillonRepris(false);
+    setTrajetMatin("");
+    setTrajetSoir("");
+    setRemarque("");
+    setPaniers({});
+    setPhotosChantier({});
+    setLastSaved(null);
+    loadTaches(ouvrier.trim());
+  };
 
   // Quand ouvrier confirmé, charge ses tâches du jour
   const loadTaches = async (nom) => {
@@ -314,8 +359,38 @@ function PageRapportMobile() {
 
   const confirmerPrenom = () => {
     if (!ouvrier.trim()) return;
-    localStorage.setItem("mon_prenom", ouvrier.trim());
-    loadTaches(ouvrier.trim());
+    const nom = ouvrier.trim();
+    localStorage.setItem("mon_prenom", nom);
+    // Tente de restaurer un brouillon du jour pour cet ouvrier.
+    // Si présent : on saute le rechargement du planning et on reprend tel quel.
+    try {
+      const raw = localStorage.getItem(brouillonKey(nom, dateKey));
+      if (raw) {
+        const b = JSON.parse(raw);
+        setTaches(Array.isArray(b.taches) ? b.taches : []);
+        setTrajetMatin(b.trajetMatin || "");
+        setTrajetSoir(b.trajetSoir || "");
+        setRemarque(b.remarque || "");
+        setPaniers(b.paniers || {});
+        setPhotosChantier(b.photosChantier || {});
+        if (b.planData) setPlanData(b.planData);
+        setBrouillonRepris(true);
+        setStep("rapport");
+        return;
+      }
+    } catch (e) {
+      console.warn("Brouillon corrompu, on recharge depuis le planning:", e);
+    }
+    // Pas de brouillon : on reset les états locaux pour éviter qu'un changement
+    // d'ouvrier (bouton "Changer") n'hérite des trajets/paniers/etc. du précédent.
+    setBrouillonRepris(false);
+    setTrajetMatin("");
+    setTrajetSoir("");
+    setRemarque("");
+    setPaniers({});
+    setPhotosChantier({});
+    setLastSaved(null);
+    loadTaches(nom);
   };
 
   const setStatut         = (idx, statut) => setTaches(t => t.map((x,i) => i===idx ? {...x, statut} : x));
@@ -453,6 +528,10 @@ function PageRapportMobile() {
       }
     } // ← fermeture du for
 
+    // CR envoyé → on efface le brouillon (sinon l'ouvrier le retrouverait demain).
+    effacerBrouillon();
+    setBrouillonRepris(false);
+    setLastSaved(null);
     setSubmitting(false);
     setStep("done");
   };
@@ -599,6 +678,37 @@ function PageRapportMobile() {
         )}
       </div>
 
+      {/* ── Bandeau brouillon repris ── */}
+      {brouillonRepris && (
+        <div style={{
+          ...S.card,
+          background:T.infoBg,
+          borderLeft:`4px solid ${T.info}`,
+          padding:"12px 16px",
+        }}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:8,flex:"1 1 200px"}}>
+              <Icon as={Sparkles} size={16} color={T.info} strokeWidth={2.2} style={{flexShrink:0,marginTop:2}}/>
+              <div>
+                <div style={{fontSize:FONT.base.size,fontWeight:700,color:T.text,marginBottom:2}}>Brouillon repris</div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.4}}>
+                  On a récupéré ce que tu avais commencé à saisir aujourd'hui. Continue là où tu en étais.
+                </div>
+              </div>
+            </div>
+            <button onClick={repartirDeZero} style={{
+              padding:"8px 12px",borderRadius:RADIUS.md,border:`1.5px solid ${T.info}`,
+              background:"transparent",color:T.info,fontSize:FONT.sm.size,fontWeight:700,
+              cursor:"pointer",fontFamily:"inherit",
+              display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap",
+            }}>
+              <Icon as={RotateCw} size={11} strokeWidth={2.5}/>
+              Repartir de zéro
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Bandeau règles à respecter ── */}
       <div style={{
         ...S.card,
@@ -674,6 +784,15 @@ function PageRapportMobile() {
               {fmtH(totalTachesH)}h de tâches
               {totalTrajetMin > 0 && ` + ${totalTrajetMin} min de trajet (${fmtH(totalTrajetMin/60)}h)`}
             </div>
+            {lastSaved && (
+              <div style={{
+                fontSize:FONT.xs.size,color:T.textMuted,marginTop:6,
+                display:"flex",alignItems:"center",gap:4,fontStyle:"italic",
+              }}>
+                <Icon as={Check} size={10} color={T.success} strokeWidth={2.5}/>
+                Sauvegardé à {lastSaved.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} — tu peux fermer la page sans perdre tes saisies
+              </div>
+            )}
           </div>
         );
       })()}
