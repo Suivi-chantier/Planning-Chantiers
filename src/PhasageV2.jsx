@@ -179,7 +179,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           Chargement du phasage…
         </div>
       ) : (
-        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "260px 1fr 1.2fr", minHeight: 0 }}>
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "260px minmax(0, 1fr) minmax(0, 1.2fr)", minHeight: 0 }}>
           {/* ── Colonne 1 : Lots ── */}
           <div style={{ display: "flex", flexDirection: "column", borderRight: `1px solid ${T.border}`, minHeight: 0 }}>
             <div style={colHeader}><Icon as={Boxes} size={12}/> Lots</div>
