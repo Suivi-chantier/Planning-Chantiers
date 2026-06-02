@@ -678,6 +678,63 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         </div>
       </div>
 
+      {/* ── Sous-header chantier (KPI + barre d'avancement, persistant) ── */}
+      {chantierId && !loadingPhasage && ouvrages.length > 0 && (() => {
+        const margeColor = margeChantier < 0 ? "#e15a5a"
+                         : margePctChantier < 15 ? "#f5a623"
+                         : "#22c55e";
+        return (
+          <div style={{
+            flexShrink: 0,
+            borderBottom: `1px solid ${T.border}`,
+            background: T.surface,
+            padding: "10px 22px 12px",
+            display: "flex", flexDirection: "column", gap: 8,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+              <KpiBlock T={T} label="Vendu" value={fmtEur(prixHTChantier)}/>
+              <KpiBlock T={T} label="Coût MO" value={fmtEur(coutMOChantier)}
+                accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}/>
+              <KpiBlock T={T} label="Marge" value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
+                sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}%` : null}
+                accent={margeColor}/>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.textMuted,
+                letterSpacing: .6, textTransform: "uppercase", whiteSpace: "nowrap",
+              }}>
+                Avancement
+              </div>
+              <div title={avancementChantierDetail}
+                style={{
+                  flex: 1, position: "relative", height: 18,
+                  background: "rgba(255,255,255,0.06)", borderRadius: 9,
+                  overflow: "hidden", cursor: "help",
+                  border: `1px solid ${T.border}`,
+                }}>
+                <div style={{
+                  width: `${Math.min(100, avancementChantier)}%`, height: "100%",
+                  background: avancementChantier >= 100
+                    ? "linear-gradient(90deg, #16a34a, #22c55e)"
+                    : `linear-gradient(90deg, color-mix(in srgb, ${acc.accent} 80%, transparent), ${acc.accent})`,
+                  transition: "width .4s ease",
+                  boxShadow: avancementChantier > 0 ? `0 0 8px color-mix(in srgb, ${acc.accent} 50%, transparent)` : "none",
+                }}/>
+              </div>
+              <div style={{
+                fontSize: FONT.lg.size, fontWeight: 800,
+                color: avancementChantier >= 100 ? "#22c55e" : T.text,
+                minWidth: 54, textAlign: "right",
+                letterSpacing: -.3,
+              }}>
+                {avancementChantier}%
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Body 3 colonnes ── */}
       {noChantier ? (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
@@ -1000,65 +1057,6 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </div>
         </div>
       )}
-
-      {/* ── Footer chantier (KPI + barre d'avancement persistante) ── */}
-      {chantierId && !loadingPhasage && ouvrages.length > 0 && (() => {
-        const margeColor = margeChantier < 0 ? "#e15a5a"
-                         : margePctChantier < 15 ? "#f5a623"
-                         : "#22c55e";
-        return (
-          <div style={{
-            flexShrink: 0,
-            borderTop: `1px solid ${T.border}`,
-            background: T.surface,
-            padding: "10px 22px 12px",
-            display: "flex", flexDirection: "column", gap: 8,
-          }}>
-            {/* Ligne KPI */}
-            <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
-              <KpiBlock T={T} label="Vendu" value={fmtEur(prixHTChantier)}/>
-              <KpiBlock T={T} label="Coût MO" value={fmtEur(coutMOChantier)}
-                accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}/>
-              <KpiBlock T={T} label="Marge" value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
-                sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}%` : null}
-                accent={margeColor}/>
-            </div>
-            {/* Ligne avancement */}
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
-                fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.textMuted,
-                letterSpacing: .6, textTransform: "uppercase", whiteSpace: "nowrap",
-              }}>
-                Avancement
-              </div>
-              <div title={avancementChantierDetail}
-                style={{
-                  flex: 1, position: "relative", height: 18,
-                  background: "rgba(255,255,255,0.06)", borderRadius: 9,
-                  overflow: "hidden", cursor: "help",
-                  border: `1px solid ${T.border}`,
-                }}>
-                <div style={{
-                  width: `${Math.min(100, avancementChantier)}%`, height: "100%",
-                  background: avancementChantier >= 100
-                    ? "linear-gradient(90deg, #16a34a, #22c55e)"
-                    : `linear-gradient(90deg, color-mix(in srgb, ${acc.accent} 80%, transparent), ${acc.accent})`,
-                  transition: "width .4s ease",
-                  boxShadow: avancementChantier > 0 ? `0 0 8px color-mix(in srgb, ${acc.accent} 50%, transparent)` : "none",
-                }}/>
-              </div>
-              <div style={{
-                fontSize: FONT.lg.size, fontWeight: 800,
-                color: avancementChantier >= 100 ? "#22c55e" : T.text,
-                minWidth: 54, textAlign: "right",
-                letterSpacing: -.3,
-              }}>
-                {avancementChantier}%
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── Modale import devis ── */}
       {importState && (
