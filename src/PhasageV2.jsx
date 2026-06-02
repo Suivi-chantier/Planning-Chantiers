@@ -176,11 +176,28 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
 
   // ─── CRUD TÂCHES ────────────────────────────────────────────────────────
   const createTache = (ouvrageId) => {
-    const newT = { id: rid(), nom: "", heures_estimees: null, avancement: 0 };
+    const newT = { id: rid(), nom: "", heures_estimees: null, heures_reelles: null, avancement: 0 };
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: [...(o.taches || []), newT] }
       : o));
     setEditingTache({ ouvrageId, tacheId: newT.id });
+  };
+
+  // Helper : extrait les heures réelles d'une tâche en gérant les anciens
+  // formats de la v1 (qui pouvait stocker un tableau au lieu d'un nombre).
+  const tacheHeuresReelles = (t) => {
+    if (Array.isArray(t.heures_reelles)) {
+      return t.heures_reelles.reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    }
+    return parseFloat(t.heures_reelles) || 0;
+  };
+  // Couleur de dérive : vert si <= estimées, orange jusqu'à +20%, rouge au-delà.
+  const couleurDerive = (reelles, estimees) => {
+    if (!estimees || estimees <= 0) return null;
+    const ratio = reelles / estimees;
+    if (ratio <= 1)   return "#22c55e";
+    if (ratio <= 1.2) return "#f5a623";
+    return "#e15a5a";
   };
 
   const updateTache = (ouvrageId, tacheId, patch) => {
@@ -784,11 +801,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                               {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
-                              {t.heures_estimees != null && (
-                                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, whiteSpace: "nowrap" }}>
-                                  {t.heures_estimees}h estimées
-                                </span>
-                              )}
+                              {(() => {
+                                const hr = tacheHeuresReelles(t);
+                                const he = parseFloat(t.heures_estimees);
+                                if (hr > 0 || (he != null && !isNaN(he))) {
+                                  const derive = couleurDerive(hr, he);
+                                  return (
+                                    <span style={{ fontSize: FONT.xs.size, color: derive || T.textMuted, fontWeight: derive ? 700 : 400, whiteSpace: "nowrap" }}
+                                      title={he ? `Réalisé ${hr}h sur ${he}h estimées (${Math.round(hr/he*100)}%)` : `${hr}h réelles`}>
+                                      {hr || 0}h / {(he != null && !isNaN(he)) ? `${he}h` : "—"}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                               <span title={avancementTacheDetail(t)}
                                 style={{ marginLeft: "auto", fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800, cursor: "help" }}>
                                 {av}%
@@ -945,10 +971,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 placeholder="Description de la tâche" rows={2}
                 style={{ ...modalInp(T), fontWeight: 600, resize: "vertical", minHeight: 60 }}/>
             </ModalField>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures estimées">
                 <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
                   onChange={e => updateTache(o.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                  placeholder="0" style={modalInp(T)}/>
+              </ModalField>
+              <ModalField label="Heures réelles">
+                <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
+                  onChange={e => updateTache(o.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) })}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
               <ModalField label="Avancement (%)">
