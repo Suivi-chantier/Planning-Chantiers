@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "./constants";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId } from "./constants";
 import { Icon } from "./ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
@@ -16,6 +16,25 @@ import { parseDevisExcel } from "./devisImport";
 // Les ouvrages portent un nouveau champ `lot_id` qui les rattache à un lot.
 
 const rid = () => Math.random().toString(36).slice(2, 10);
+
+const JOURS_SEM = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+
+// Convertit un weekId "YYYY-W##" + un jour ("Lundi", etc.) en date ISO
+// yyyy-mm-dd. ISO 8601 : la semaine 1 contient le 4 janvier.
+function getDateFromWeekAndDay(weekId, jourName) {
+  const m = /^(\d{4})-W(\d{1,2})$/.exec(weekId || "");
+  if (!m) return "";
+  const year = parseInt(m[1], 10), week = parseInt(m[2], 10);
+  const idx = JOURS_SEM.indexOf(jourName);
+  if (idx < 0) return "";
+  const jan4 = new Date(year, 0, 4);
+  const mon = new Date(jan4);
+  mon.setDate(jan4.getDate() - ((jan4.getDay() || 7) - 1) + (week - 1) * 7);
+  const d = new Date(mon);
+  d.setDate(mon.getDate() + idx);
+  const y = d.getFullYear(), mo = String(d.getMonth() + 1).padStart(2, "0"), da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
+}
 
 function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
@@ -36,6 +55,78 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // Modales d'édition : id de l'ouvrage / de la tâche en cours d'édition
   const [editingOuvrageId, setEditingOuvrageId] = useState(null);
   const [editingTache, setEditingTache] = useState(null); // { ouvrageId, tacheId }
+  // Form planification (envoyer une tâche dans planning_cells)
+  const initialSemaine = (() => { const { year, week } = getCurrentWeek(); return getWeekId(year, week); })();
+  const [planifSemaine, setPlanifSemaine] = useState(initialSemaine);
+  const [planifJour, setPlanifJour] = useState("Lundi");
+  const [planifDuree, setPlanifDuree] = useState("");
+  const [planifMsg, setPlanifMsg] = useState(null); // { ok: bool, txt: string }
+  const [planifSaving, setPlanifSaving] = useState(false);
+  // Reset le form de planification quand on ouvre une nouvelle tâche.
+  useEffect(() => {
+    if (!editingTache) return;
+    const o = ouvrages.find(x => x.id === editingTache.ouvrageId);
+    const t = o?.taches?.find(x => x.id === editingTache.tacheId);
+    setPlanifSemaine(initialSemaine);
+    setPlanifJour("Lundi");
+    setPlanifDuree(t?.heures_estimees ? String(t.heures_estimees) : "");
+    setPlanifMsg(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingTache?.tacheId]);
+
+  // Construit la liste des 12 prochaines semaines pour le select.
+  const semainesFutures = (() => {
+    const list = [];
+    const now = getCurrentWeek();
+    for (let i = 0; i < 12; i++) {
+      let w = now.week + i, y = now.year;
+      while (w > 52) { w -= 52; y += 1; }
+      list.push(getWeekId(y, w));
+    }
+    return list;
+  })();
+
+  // Envoie une tâche dans planning_cells (week + chantier + jour). Si la
+  // cellule existe déjà, on ajoute la tâche à son tableau au lieu de
+  // remplacer. Met aussi à jour date_prevue sur la tâche source.
+  const envoyerDansPlanning = async (ouvrageId, tache) => {
+    if (!chantierId || !planifSemaine || !planifJour) {
+      setPlanifMsg({ ok: false, txt: "Choisis une semaine et un jour." });
+      return;
+    }
+    setPlanifSaving(true);
+    setPlanifMsg(null);
+    try {
+      const { data: ex } = await supabase.from("planning_cells")
+        .select("*")
+        .eq("week_id", planifSemaine).eq("chantier_id", chantierId).eq("jour", planifJour)
+        .maybeSingle();
+      const base = ex || { planifie: "", reel: "", ouvriers: [], taches: [] };
+      const ouvriersTache = Array.isArray(tache.ouvriers) ? tache.ouvriers : [];
+      const duree = parseFloat(planifDuree) || 0;
+      const newTask = { id: rid(), text: tache.nom || "", duree, ouvriers: ouvriersTache };
+      const nouveauPlanifie = base.planifie ? `${base.planifie}\n${tache.nom || ""}` : (tache.nom || "");
+      const upsertPayload = {
+        week_id: planifSemaine,
+        chantier_id: chantierId,
+        jour: planifJour,
+        planifie: nouveauPlanifie,
+        taches: [...(base.taches || []), newTask],
+        reel: base.reel || "",
+        ouvriers: [...new Set([...(base.ouvriers || []), ...ouvriersTache])],
+      };
+      const { error } = await supabase.from("planning_cells").upsert(upsertPayload, { onConflict: "week_id,chantier_id,jour" });
+      if (error) throw error;
+      // Met à jour la date_prevue sur la tâche d'origine
+      const exactDate = getDateFromWeekAndDay(planifSemaine, planifJour);
+      updateTache(ouvrageId, tache.id, { date_prevue: exactDate });
+      setPlanifMsg({ ok: true, txt: `✓ Envoyé dans ${planifSemaine} · ${planifJour}` });
+    } catch (e) {
+      console.error("envoyerDansPlanning:", e);
+      setPlanifMsg({ ok: false, txt: e.message || "Erreur lors de l'envoi." });
+    }
+    setPlanifSaving(false);
+  };
   // Bibliothèque ouvrages (sert au matching à l'import devis)
   const [bibliotheque, setBibliotheque] = useState([]);
   // État de la modale d'import (null si fermée)
@@ -958,6 +1049,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                                 }
                                 return null;
                               })()}
+                              {t.date_prevue && (() => {
+                                const d = new Date(t.date_prevue);
+                                if (isNaN(d.getTime())) return null;
+                                const lbl = d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+                                return (
+                                  <span title={`Planifié le ${d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`}
+                                    style={{
+                                      display: "inline-flex", alignItems: "center", gap: 3,
+                                      fontSize: 10, fontWeight: 700,
+                                      padding: "1px 7px", borderRadius: RADIUS.sm,
+                                      background: "rgba(91,138,245,0.16)", color: "#5b8af5",
+                                      border: "1px solid rgba(91,138,245,0.35)",
+                                    }}>
+                                    📅 {lbl}
+                                  </span>
+                                );
+                              })()}
                               {Array.isArray(t.ouvriers) && t.ouvriers.length > 0 && (
                                 <div style={{ display: "inline-flex", alignItems: "center", gap: -4, marginLeft: 4 }}
                                   title={t.ouvriers.join(", ")}>
@@ -1187,6 +1295,80 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 </div>
               )}
             </ModalField>
+
+            {/* ── Section Planification ── */}
+            <div style={{
+              marginTop: 6, paddingTop: 14,
+              borderTop: `1px dashed ${T.border}`,
+            }}>
+              <div style={{
+                fontSize: 10, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase",
+                color: T.textMuted, marginBottom: 10,
+              }}>
+                Envoyer dans le planning semaine
+              </div>
+              {t.date_prevue && (
+                <div style={{
+                  fontSize: FONT.xs.size + 1, color: T.textSub, marginBottom: 10,
+                  display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <Icon as={Check} size={11} color="#22c55e"/>
+                  <span>Déjà planifié le <strong style={{ color: T.text }}>{new Date(t.date_prevue).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</strong></span>
+                  <button onClick={() => updateTache(o.id, t.id, { date_prevue: "" })}
+                    style={{
+                      marginLeft: "auto", background: "transparent", border: `1px solid ${T.border}`,
+                      color: T.textMuted, borderRadius: RADIUS.sm, padding: "2px 8px",
+                      fontFamily: "inherit", fontSize: FONT.xs.size, cursor: "pointer",
+                    }}>
+                    Effacer la date
+                  </button>
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 0.8fr auto", gap: 8, alignItems: "flex-end" }}>
+                <ModalField label="Semaine">
+                  <select value={planifSemaine} onChange={e => setPlanifSemaine(e.target.value)}
+                    style={{ ...modalInp(T), cursor: "pointer" }}>
+                    {semainesFutures.map(w => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                </ModalField>
+                <ModalField label="Jour">
+                  <select value={planifJour} onChange={e => setPlanifJour(e.target.value)}
+                    style={{ ...modalInp(T), cursor: "pointer" }}>
+                    {JOURS_SEM.map(j => <option key={j} value={j}>{j}</option>)}
+                  </select>
+                </ModalField>
+                <ModalField label="Durée (h)">
+                  <input type="number" step="0.5" min="0" value={planifDuree}
+                    onChange={e => setPlanifDuree(e.target.value)}
+                    placeholder="0" style={modalInp(T)}/>
+                </ModalField>
+                <button onClick={() => envoyerDansPlanning(o.id, t)}
+                  disabled={planifSaving}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "9px 16px", borderRadius: RADIUS.md, border: "none",
+                    background: planifSaving ? T.border : acc.accent,
+                    color: planifSaving ? T.textMuted : "#000",
+                    fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                    cursor: planifSaving ? "default" : "pointer",
+                    whiteSpace: "nowrap",
+                  }}>
+                  <Icon as={Check} size={13}/>
+                  {planifSaving ? "Envoi…" : "Envoyer"}
+                </button>
+              </div>
+              {planifMsg && (
+                <div style={{
+                  marginTop: 8, padding: "6px 10px", borderRadius: RADIUS.sm,
+                  fontSize: FONT.xs.size + 1, fontWeight: 700,
+                  background: planifMsg.ok ? "rgba(34,197,94,0.10)" : "rgba(225,90,90,0.10)",
+                  border: `1px solid ${planifMsg.ok ? "rgba(34,197,94,0.30)" : "rgba(225,90,90,0.30)"}`,
+                  color: planifMsg.ok ? "#22c55e" : "#e15a5a",
+                }}>
+                  {planifMsg.txt}
+                </div>
+              )}
+            </div>
           </ItemEditModal>
         );
       })()}
