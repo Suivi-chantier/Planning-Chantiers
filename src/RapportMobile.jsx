@@ -393,7 +393,25 @@ function PageRapportMobile() {
     loadTaches(nom);
   };
 
-  const setStatut         = (idx, statut) => setTaches(t => t.map((x,i) => i===idx ? {...x, statut} : x));
+  // Statut → auto-remplit avancement (100/0) et heures (0 pour non_faite).
+  // Si on quitte faite/non_faite vers en_cours, on vide pour forcer une vraie
+  // saisie (l'ancien 0/100 hérité de l'auto-fill serait faux).
+  const setStatut = (idx, statut) => setTaches(t => t.map((x, i) => {
+    if (i !== idx) return x;
+    let avancement = x.avancement;
+    let heures_reelles = x.heures_reelles;
+    if (statut === "faite") {
+      avancement = "100";
+    } else if (statut === "non_faite") {
+      avancement = "0";
+      heures_reelles = ""; // non faite = 0h comptées dans le total
+    } else if (statut === "en_cours") {
+      if (x.statut === "faite" || x.statut === "non_faite") avancement = "";
+    }
+    // Si on quitte non_faite, on reset les heures pour forcer la saisie.
+    if (x.statut === "non_faite" && statut !== "non_faite") heures_reelles = "";
+    return { ...x, statut, avancement, heures_reelles };
+  }));
   const setTacheRemarque  = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, remarque:val} : x));
   const setTachePlanifie  = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, planifie:val} : x));
   const setTacheHeures    = (idx, val)    => setTaches(t => t.map((x,i) => i===idx ? {...x, heures_reelles:val} : x));
@@ -950,7 +968,8 @@ function PageRapportMobile() {
             })}
           </div>
 
-          {/* Durée + Avancement */}
+          {/* Durée + Avancement — masqués pour non_faite (heures auto à 0, av auto à 0) */}
+          {t.statut !== "non_faite" && (
           <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
 
             {/* Durée — OBLIGATOIRE */}
@@ -989,7 +1008,9 @@ function PageRapportMobile() {
               </div>
             </div>
 
-            {/* Avancement % */}
+            {/* Avancement % — affiché uniquement pour "en cours".
+                Pour faite → 100% auto, pour non_faite → 0% auto (cf. setStatut). */}
+            {t.statut === "en_cours" && (
             <div style={{
               flex:"1 1 200px",
               background: !avRenseigne ? T.dangerBg : av100 ? T.successBg : "rgba(139,92,246,0.06)",
@@ -1040,7 +1061,9 @@ function PageRapportMobile() {
                   width:`${t.avancement||0}%`}}/>
               </div>
             </div>
+            )}
           </div>
+          )}
 
           {/* Remarque tâche */}
           <div>
