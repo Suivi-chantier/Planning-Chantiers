@@ -530,6 +530,44 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           border-color: var(--c) !important;
           color: #000 !important;
         }
+        /* Bulle tâche : un panneau d'accès rapide se déplie au hover,
+           permettant d'éditer heures réelles + ouvriers sans ouvrir la modale.
+           Tout est en CSS pour rester fluide (pas de state React qui flicker). */
+        .p2-tache-expand {
+          max-height: 0;
+          opacity: 0;
+          overflow: hidden;
+          transition: max-height .22s ease, opacity .15s ease, margin-top .22s ease, padding .22s ease;
+          margin-top: 0;
+          padding-top: 0;
+        }
+        .p2-bubble:hover .p2-tache-expand {
+          max-height: 220px;
+          opacity: 1;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+        }
+        .p2-mini-chip {
+          padding: 3px 9px;
+          border-radius: 99px;
+          font-size: 10px;
+          font-weight: 700;
+          cursor: pointer;
+          font-family: inherit;
+          border: 1px solid ${T.border};
+          background: rgba(255,255,255,0.04);
+          color: ${T.textSub};
+          transition: all .12s;
+        }
+        .p2-mini-chip.sel {
+          background: color-mix(in srgb, var(--c) 30%, transparent);
+          border-color: var(--c);
+          color: ${T.text};
+        }
+        .p2-mini-chip:hover {
+          background: color-mix(in srgb, var(--c) 20%, transparent);
+        }
       `}</style>
 
       {/* ── Header avec sélecteur chantier ── */}
@@ -815,8 +853,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                       const bubbleColor = av >= 100 ? "#22c55e" : tacheColor;
                       return (
                         <div key={t.id} className="p2-bubble"
-                          style={{ "--bubble-color": bubbleColor, "--av": `${av}%`, display: "flex", alignItems: "center", gap: 10 }}
+                          style={{ "--bubble-color": bubbleColor, "--av": `${av}%`, display: "flex", flexDirection: "column", gap: 0 }}
                           onClick={() => setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id })}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
@@ -876,6 +915,56 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                             }}>
                             <Icon as={Pencil} size={12}/>
                           </button>
+                          </div>
+                          {/* ── Panneau d'accès rapide (déplié au hover) ── */}
+                          <div className="p2-tache-expand" onClick={e => e.stopPropagation()}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, minWidth: 70 }}>
+                                Heures réelles
+                              </span>
+                              <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e => updateTache(selectedOuvrage.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                                placeholder="0"
+                                style={{
+                                  width: 70, padding: "4px 8px", borderRadius: RADIUS.sm,
+                                  border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
+                                  color: T.text, fontSize: FONT.xs.size + 1, fontFamily: "inherit",
+                                  outline: "none", textAlign: "right",
+                                }}/>
+                              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, marginLeft: 8 }}>
+                                Avanc.
+                              </span>
+                              <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e => updateTache(selectedOuvrage.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                                placeholder="0"
+                                style={{
+                                  width: 60, padding: "4px 8px", borderRadius: RADIUS.sm,
+                                  border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
+                                  color: T.text, fontSize: FONT.xs.size + 1, fontFamily: "inherit",
+                                  outline: "none", textAlign: "right",
+                                }}/>
+                              <span style={{ fontSize: 10, color: T.textMuted }}>%</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, minWidth: 70 }}>
+                                Ouvriers
+                              </span>
+                              {ouvriers.length === 0 ? (
+                                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>aucun configuré</span>
+                              ) : ouvriers.map(nom => {
+                                const sel = (t.ouvriers || []).includes(nom);
+                                return (
+                                  <button key={nom}
+                                    className={`p2-mini-chip ${sel ? "sel" : ""}`}
+                                    onClick={e => { e.stopPropagation(); toggleOuvrier(selectedOuvrage.id, t.id, nom); }}>
+                                    {nom}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         </div>
                       );
                     });
