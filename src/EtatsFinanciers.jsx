@@ -188,6 +188,15 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
           </div>
         </div>
 
+        {/* ─── KPI : moyennes + taux horaire ──────────────────────────────────── */}
+        <div className="ef-kpis" style={{
+          display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20,
+        }}>
+          <KpiCard T={T} icon={Euro}        iconColor="#ff9a4d"   label="Moyenne FG / mois"     value={fmtEur(moyFG)}/>
+          <KpiCard T={T} icon={Clock}       iconColor="#5b9cf6"   label="Moyenne Heures / mois" value={fmtH(moyH)}/>
+          <KpiCard T={T} icon={Calculator}  iconColor={acc.accent} label="Taux horaire FG"      value={fmtTaux(tauxHoraire)} highlight/>
+        </div>
+
         {/* ─── Tableau mensuel ────────────────────────────────────────────────── */}
         <div style={{
           background: card, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg,
@@ -275,15 +284,6 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
               </tfoot>
             </table>
           </div>
-        </div>
-
-        {/* ─── KPI : moyennes + taux horaire ──────────────────────────────────── */}
-        <div className="ef-kpis" style={{
-          display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16,
-        }}>
-          <KpiCard T={T} icon={Euro}        iconColor="#ff9a4d"   label="Moyenne FG / mois"     value={fmtEur(moyFG)}/>
-          <KpiCard T={T} icon={Clock}       iconColor="#5b9cf6"   label="Moyenne Heures / mois" value={fmtH(moyH)}/>
-          <KpiCard T={T} icon={Calculator}  iconColor={acc.accent} label="Taux horaire FG"      value={fmtTaux(tauxHoraire)} highlight/>
         </div>
 
         {/* ─── Note explicative ───────────────────────────────────────────────── */}
