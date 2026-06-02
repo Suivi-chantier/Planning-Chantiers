@@ -4,8 +4,9 @@ import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "./constant
 import { Icon } from "./ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
-  ChevronDown, Plus, Trash2,
+  ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
 } from "lucide-react";
+import { parseDevisExcel } from "./devisImport";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un
@@ -30,9 +31,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error
   const saveTimerRef = useRef(null);
   const newOuvrageInputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  // Bibliothèque ouvrages (sert au matching à l'import devis)
+  const [bibliotheque, setBibliotheque] = useState([]);
+  // État de la modale d'import (null si fermée)
+  // { items: [...], unknownLotHeaders: [...], parsing: bool, error: string|null }
+  const [importState, setImportState] = useState(null);
 
   // Charge les lots (config Admin)
   useEffect(() => { loadLots().then(setLots); }, []);
+  // Charge la bibliothèque d'ouvrages
+  useEffect(() => {
+    supabase.from("bibliotheque_ratios").select("*").order("libelle")
+      .then(({ data }) => setBibliotheque(data || []));
+  }, []);
 
   // Mémorise le dernier chantier ouvert
   useEffect(() => {
@@ -149,6 +161,61 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: (o.taches || []).filter(t => t.id !== tacheId) }
       : o));
+  };
+
+  // ─── IMPORT DEVIS ───────────────────────────────────────────────────────
+  const onFilePicked = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportState({ items: [], unknownLotHeaders: [], parsing: true, error: null });
+    try {
+      const { items, unknownLotHeaders } = await parseDevisExcel(file, lots, bibliotheque);
+      setImportState({ items, unknownLotHeaders, parsing: false, error: null });
+    } catch (err) {
+      console.error("Parsing devis:", err);
+      setImportState({ items: [], unknownLotHeaders: [], parsing: false, error: err.message || "Impossible de lire le fichier." });
+    }
+    // Reset input pour permettre re-import du même fichier après cancel
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const updateImportItem = (key, patch) => {
+    setImportState(s => ({ ...s, items: s.items.map(it => it._key === key ? { ...it, ...patch } : it) }));
+  };
+  const toggleAllImport = (val) => {
+    setImportState(s => ({ ...s, items: s.items.map(it => ({ ...it, selectionne: val })) }));
+  };
+
+  const confirmImport = () => {
+    if (!importState) return;
+    const selected = importState.items.filter(it => it.selectionne);
+    if (selected.length === 0) { setImportState(null); return; }
+    const newOuvrages = selected.map(it => {
+      // Heures estimées = cadence biblio × quantité (si dispo), sinon null.
+      const cadence = parseFloat(it.match?.cadence) || null;
+      const heuresEstimees = cadence && it.quantite ? parseFloat((cadence * it.quantite).toFixed(2)) : null;
+      // Tâches : copies des sous_taches de la biblio (juste le nom pour la v2)
+      const taches = (it.match?.sous_taches || []).map(st => ({
+        id: rid(),
+        nom: st.nom || "",
+        heures_estimees: null,
+        avancement: 0,
+      }));
+      return {
+        id: rid(),
+        libelle: it.libelle,
+        lot_id: it.lot_id || null,
+        heures_devis: it.heures,
+        quantite: it.quantite,
+        unite: it.unite || "U",
+        prix_ht: it.prix_ht,
+        heures_estimees: heuresEstimees,
+        bibliotheque_id: it.match?.id || null,
+        taches,
+      };
+    });
+    updateOuvrages([...ouvrages, ...newOuvrages]);
+    setImportState(null);
   };
 
   // Comptes pour les badges
@@ -271,8 +338,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </span>
         )}
 
+        {/* Bouton import devis */}
+        {chantierId && (
+          <>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={onFilePicked} style={{ display: "none" }}/>
+            <button onClick={() => fileInputRef.current?.click()} style={{
+              marginLeft: "auto",
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 14px", borderRadius: RADIUS.md,
+              border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+            }}>
+              <Icon as={FileSpreadsheet} size={14}/>
+              Importer un devis
+            </button>
+          </>
+        )}
+
         {/* Sélecteur chantier */}
-        <div style={{ position: "relative", marginLeft: "auto", minWidth: 240 }}>
+        <div style={{ position: "relative", marginLeft: chantierId ? 0 : "auto", minWidth: 240 }}>
           <Icon as={Building2} size={13} color={T.textMuted}
             style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}/>
           <select
@@ -541,6 +625,207 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </div>
         </div>
       )}
+
+      {/* ── Modale import devis ── */}
+      {importState && (
+        <ImportDevisModal
+          state={importState}
+          lots={lots}
+          T={T} accent={acc.accent} accentBorder={acc.border} accentBg10={acc.bg10}
+          onUpdateItem={updateImportItem}
+          onToggleAll={toggleAllImport}
+          onClose={() => setImportState(null)}
+          onConfirm={confirmImport}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Modale d'import devis ────────────────────────────────────────────────────
+function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, onUpdateItem, onToggleAll, onClose, onConfirm }) {
+  const { items, unknownLotHeaders, parsing, error } = state;
+  // Groupe les items par lot pour l'affichage
+  const groups = (() => {
+    const map = new Map();
+    items.forEach(it => {
+      const k = it.lot_id || "_orphans";
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(it);
+    });
+    return Array.from(map.entries());
+  })();
+  const nbSel    = items.filter(i => i.selectionne).length;
+  const nbMatch  = items.filter(i => i.match).length;
+
+  const lotLabel = (id) => id === "_orphans" ? "Sans lot" : (lots.find(l => l.id === id)?.label || id);
+  const lotCouleur = (id) => id === "_orphans" ? T.textMuted : (lots.find(l => l.id === id)?.couleur || T.textMuted);
+
+  const inp = {
+    padding: "5px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+    background: T.fieldBg || T.card, color: T.text, fontSize: FONT.xs.size + 1,
+    fontFamily: "inherit", outline: "none",
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 600,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      backdropFilter: "blur(4px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.modal || T.surface, borderRadius: RADIUS.xl, border: `1px solid ${T.border}`,
+        width: "100%", maxWidth: 980, maxHeight: "92vh",
+        display: "flex", flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: RADIUS.md, background: accentBg10, color: accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon as={FileSpreadsheet} size={17}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text, letterSpacing: -.2 }}>Importer un devis</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>
+              {parsing ? "Analyse en cours…"
+                : error ? "Erreur"
+                : `${items.length} ouvrage${items.length > 1 ? "s" : ""} détecté${items.length > 1 ? "s" : ""} · ${nbMatch} matché${nbMatch > 1 ? "s" : ""} en bibliothèque · ${nbSel} sélectionné${nbSel > 1 ? "s" : ""}`}
+            </div>
+          </div>
+          <button onClick={onClose} title="Fermer" style={{
+            background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", padding: 6,
+            borderRadius: RADIUS.sm, display: "inline-flex", alignItems: "center",
+          }}><Icon as={X} size={18}/></button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px" }}>
+          {parsing ? (
+            <div style={{ padding: 60, textAlign: "center", color: T.textMuted }}>Lecture du fichier…</div>
+          ) : error ? (
+            <div style={{ padding: 16, borderRadius: RADIUS.md, background: "rgba(225,90,90,0.10)", border: "1px solid rgba(225,90,90,0.3)", color: "#e15a5a", fontSize: FONT.sm.size }}>
+              <Icon as={AlertTriangle} size={14} style={{ verticalAlign: "middle", marginRight: 6 }}/>
+              {error}
+            </div>
+          ) : items.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: FONT.sm.size }}>
+              Aucun ouvrage détecté dans ce fichier.
+              {unknownLotHeaders.length > 0 && (
+                <div style={{ marginTop: 12, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                  En-têtes potentiels trouvés : {unknownLotHeaders.slice(0, 5).join(" · ")}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Actions globales */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+                <button onClick={() => onToggleAll(true)} style={{
+                  padding: "5px 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                  background: "transparent", color: T.textSub, fontSize: FONT.xs.size + 1, cursor: "pointer", fontFamily: "inherit",
+                }}>Tout cocher</button>
+                <button onClick={() => onToggleAll(false)} style={{
+                  padding: "5px 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                  background: "transparent", color: T.textSub, fontSize: FONT.xs.size + 1, cursor: "pointer", fontFamily: "inherit",
+                }}>Tout décocher</button>
+                {unknownLotHeaders.length > 0 && (
+                  <span style={{ marginLeft: "auto", fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
+                    {unknownLotHeaders.length} en-tête{unknownLotHeaders.length > 1 ? "s" : ""} non reconnu{unknownLotHeaders.length > 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+
+              {/* Liste groupée par lot */}
+              {groups.map(([lotId, lotItems]) => (
+                <div key={lotId} style={{ marginBottom: 16 }}>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 10px", marginBottom: 4,
+                    background: T.card, borderRadius: RADIUS.sm,
+                  }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: lotCouleur(lotId), flexShrink: 0 }}/>
+                    <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.text, letterSpacing: .5, textTransform: "uppercase" }}>
+                      {lotLabel(lotId)}
+                    </span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: "1px 7px",
+                      borderRadius: RADIUS.pill, background: T.surface, color: T.textMuted,
+                    }}>{lotItems.length}</span>
+                  </div>
+                  {lotItems.map(it => (
+                    <div key={it._key} style={{
+                      display: "grid",
+                      gridTemplateColumns: "24px minmax(0, 1fr) 70px 70px 80px 110px",
+                      gap: 8, alignItems: "center",
+                      padding: "8px 10px",
+                      borderBottom: `1px solid ${T.border}`,
+                      opacity: it.selectionne ? 1 : .45,
+                    }}>
+                      <input type="checkbox" checked={it.selectionne}
+                        onChange={e => onUpdateItem(it._key, { selectionne: e.target.checked })}
+                        style={{ cursor: "pointer", accentColor: accent }}/>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {it.libelle}
+                        </div>
+                        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                          {it.match ? (
+                            <>
+                              <Icon as={Check} size={10} color="#22c55e"/>
+                              <span>Matché : {it.match.libelle} ({(it.match.sous_taches || []).length} sous-tâches)</span>
+                            </>
+                          ) : (
+                            <span style={{ fontStyle: "italic" }}>Pas de match biblio — créé sans tâches</span>
+                          )}
+                        </div>
+                      </div>
+                      <input type="number" step="0.5" value={it.heures ?? ""}
+                        onChange={e => onUpdateItem(it._key, { heures: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                        placeholder="h" style={{ ...inp, textAlign: "right" }}/>
+                      <input type="number" step="0.01" value={it.quantite ?? ""}
+                        onChange={e => onUpdateItem(it._key, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                        placeholder="qté" style={{ ...inp, textAlign: "right" }}/>
+                      <input type="number" step="0.01" value={it.prix_ht ?? ""}
+                        onChange={e => onUpdateItem(it._key, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                        placeholder="€ HT" style={{ ...inp, textAlign: "right" }}/>
+                      <select value={it.lot_id || ""}
+                        onChange={e => onUpdateItem(it._key, { lot_id: e.target.value || null })}
+                        style={{ ...inp, cursor: "pointer" }}>
+                        <option value="">Sans lot</option>
+                        {lots.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+            {!parsing && !error && items.length > 0 && `${nbSel} ouvrage${nbSel > 1 ? "s" : ""} à importer`}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={onClose} style={{
+              padding: "9px 18px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+              background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+            }}>Annuler</button>
+            <button onClick={onConfirm} disabled={parsing || !!error || nbSel === 0}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+                background: (parsing || !!error || nbSel === 0) ? T.border : accent,
+                color: (parsing || !!error || nbSel === 0) ? T.textMuted : "#000",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                cursor: (parsing || !!error || nbSel === 0) ? "default" : "pointer",
+              }}>
+              <Icon as={Check} size={13}/>
+              Importer {nbSel > 0 ? `(${nbSel})` : ""}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
