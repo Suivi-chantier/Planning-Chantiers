@@ -28,6 +28,7 @@ export const PAGES_RENOVATION = [
   { id: "equipe",             label: "Équipe"                    },
   { id: "plans",              label: "Plans"                     },
   { id: "phasage",            label: "Phasage"                   },
+  { id: "phasage-v2",         label: "Phasage v2 (refonte)"      },
   { id: "bibliotheque",       label: "Biblio. ouvrages"          },
   { id: "biblio-materiaux",   label: "Biblio. matériaux"         },
   { id: "visite",             label: "Visites chantier"          },
@@ -60,19 +61,19 @@ export const ROLES_DEFAULT_INVEST = [
 export const ROLE_PAGES_DEFAULT_RENOVATION = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
+    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","dashboard-analyse","admin",
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
+    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client",
   ],
   commercial: [
     "dashboard","chantiers","planning","plans","visite","info-client",
   ],
   comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage",
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2",
   ],
 };
 

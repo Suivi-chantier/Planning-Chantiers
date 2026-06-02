@@ -38,6 +38,7 @@ import PagePlanningCommandes  from "./PagePlanningCommandes";
 import PageEquipe             from "./Equipe";
 import PagePlans              from "./Plans";
 import PagePhasage            from "./Phasage";
+import PagePhasageV2          from "./PhasageV2";
 import PageBibliotheque       from "./Bibliotheque";
 import PageBibliothequeMateriaux from "./PageBibliothequeMateriaux";
 import PageAdmin              from "./Admin";
@@ -612,6 +613,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/> : <AccesRefuse T={T} page="equipe"/>)}
           {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {page==="phasage"            && (canAccess(role,"phasage")            ? <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage"/>)}
+          {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
           {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch}/> : <AccesRefuse T={T} page="visite"/>)}

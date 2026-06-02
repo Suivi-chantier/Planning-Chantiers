@@ -25,19 +25,19 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
+    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","bibliotheque","biblio-materiaux",
+    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client"
   ],
   commercial: [
     "dashboard","chantiers","planning","plans","visite","info-client"
   ],
   comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage"
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2"
   ],
 };
 
@@ -54,6 +54,7 @@ const ALL_NAV_ITEMS = [
   { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
   { id:"plans",            icon:Ruler,           label:"Plans",      longLabel:"Plans"               },
   { id:"phasage",          icon:ListChecks,      label:"Phasage",    longLabel:"Phasage"             },
+  { id:"phasage-v2",       icon:ListChecks,      label:"Phasage v2", longLabel:"Phasage v2 (refonte)" },
   { id:"bibliotheque",     icon:BookOpen,        label:"Biblio.",    longLabel:"Biblio. ouvrages"    },
   { id:"biblio-materiaux", icon:Layers,          label:"Matériaux",  longLabel:"Biblio. matériaux"   },
   { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
@@ -244,6 +245,7 @@ function Sidebar({
     { id:"equipe",           icon:Users,           label:"Équipe"           },
     { id:"plans",            icon:Ruler,           label:"Plans"            },
     { id:"phasage",          icon:ListChecks,      label:"Phasage"          },
+    { id:"phasage-v2",       icon:ListChecks,      label:"Phasage v2 (refonte)" },
     { id:"bibliotheque",     icon:BookOpen,        label:"Biblio. ouvrages" },
     { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
     { id:"visite",           icon:Search,          label:"Visites chantier" },
