@@ -1,14 +1,20 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "./constants";
 import { Icon } from "./ui";
-import { ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList, ChevronDown } from "lucide-react";
+import {
+  ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
+  ChevronDown, Plus, Trash2,
+} from "lucide-react";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un
 // chantier sélectionné en haut de page. Lit/écrit dans les mêmes tables
 // Supabase que la v1 (`phasages`, `bibliotheque_ratios`, `planning_config`).
 // Les ouvrages portent un nouveau champ `lot_id` qui les rattache à un lot.
+
+const rid = () => Math.random().toString(36).slice(2, 10);
+
 function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
 
@@ -21,6 +27,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const [loadingPhasage, setLoadingPhasage] = useState(false);
   const [selectedLotId, setSelectedLotId] = useState(null);
   const [selectedOuvrageId, setSelectedOuvrageId] = useState(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error
+  const saveTimerRef = useRef(null);
+  const newOuvrageInputRef = useRef(null);
 
   // Charge les lots (config Admin)
   useEffect(() => { loadLots().then(setLots); }, []);
@@ -53,7 +62,96 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const ouvrages = phasage?.ouvrages || [];
   const chantier = chantiers.find(c => c.id === chantierId);
 
-  // Compte d'ouvrages par lot (pour le badge sur chaque lot)
+  // ─── PERSISTANCE ────────────────────────────────────────────────────────
+  // Crée la ligne phasages si elle n'existe pas encore pour ce chantier.
+  const ensurePhasage = async () => {
+    if (phasage?.id) return phasage;
+    const { data, error } = await supabase.from("phasages").insert({
+      chantier_id: chantierId,
+      chantier_nom: chantier?.nom || chantierId,
+      ouvrages: [],
+    }).select().single();
+    if (error) { console.error("ensurePhasage:", error.message); return null; }
+    setPhasage(data);
+    return data;
+  };
+
+  // Autosave debounced 800ms : on push tout le tableau ouvrages à chaque
+  // modif. Simple et fiable pour la v2 ; le merge collab par id pourra être
+  // ajouté plus tard si nécessaire.
+  const scheduleSave = (ouvragesNext) => {
+    setAutoSaveStatus("pending");
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      setAutoSaveStatus("saving");
+      const p = await ensurePhasage();
+      if (!p?.id) { setAutoSaveStatus("error"); return; }
+      const { error } = await supabase.from("phasages").update({
+        ouvrages: ouvragesNext,
+        updated_at: new Date().toISOString(),
+      }).eq("id", p.id);
+      setAutoSaveStatus(error ? "error" : "saved");
+      if (error) console.warn("PhasageV2 save:", error.message);
+    }, 800);
+  };
+
+  const updateOuvrages = (next) => {
+    setPhasage(p => ({ ...(p || { chantier_id: chantierId }), ouvrages: next }));
+    scheduleSave(next);
+  };
+
+  // ─── CRUD OUVRAGES ──────────────────────────────────────────────────────
+  const createOuvrage = (lotId) => {
+    const newO = {
+      id: rid(),
+      libelle: "",
+      lot_id: lotId === "_orphans" ? null : lotId,
+      heures_devis: null,
+      quantite: null,
+      unite: "U",
+      prix_ht: null,
+      taches: [],
+    };
+    const next = [...ouvrages, newO];
+    updateOuvrages(next);
+    setSelectedOuvrageId(newO.id);
+    // Focus le champ libellé du nouvel ouvrage juste après le render.
+    setTimeout(() => { newOuvrageInputRef.current?.focus(); }, 50);
+  };
+
+  const updateOuvrage = (id, patch) => {
+    updateOuvrages(ouvrages.map(o => o.id === id ? { ...o, ...patch } : o));
+  };
+
+  const deleteOuvrage = (id) => {
+    const o = ouvrages.find(x => x.id === id);
+    if (!o) return;
+    if (!window.confirm(`Supprimer l'ouvrage « ${o.libelle || "sans libellé"} » et toutes ses tâches ?`)) return;
+    updateOuvrages(ouvrages.filter(x => x.id !== id));
+    if (selectedOuvrageId === id) setSelectedOuvrageId(null);
+  };
+
+  // ─── CRUD TÂCHES ────────────────────────────────────────────────────────
+  const createTache = (ouvrageId) => {
+    const newT = { id: rid(), nom: "", heures_estimees: null, avancement: 0 };
+    updateOuvrages(ouvrages.map(o => o.id === ouvrageId
+      ? { ...o, taches: [...(o.taches || []), newT] }
+      : o));
+  };
+
+  const updateTache = (ouvrageId, tacheId, patch) => {
+    updateOuvrages(ouvrages.map(o => o.id === ouvrageId
+      ? { ...o, taches: (o.taches || []).map(t => t.id === tacheId ? { ...t, ...patch } : t) }
+      : o));
+  };
+
+  const deleteTache = (ouvrageId, tacheId) => {
+    updateOuvrages(ouvrages.map(o => o.id === ouvrageId
+      ? { ...o, taches: (o.taches || []).filter(t => t.id !== tacheId) }
+      : o));
+  };
+
+  // Comptes pour les badges
   const countByLot = lots.reduce((acc, l) => {
     acc[l.id] = ouvrages.filter(o => o.lot_id === l.id).length;
     return acc;
@@ -61,9 +159,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const orphans = ouvrages.filter(o => !o.lot_id || !lots.some(l => l.id === o.lot_id)).length;
 
   const ouvragesLot = selectedLotId
-    ? ouvrages.filter(o => (selectedLotId === "_orphans" ? (!o.lot_id || !lots.some(l => l.id === o.lot_id)) : o.lot_id === selectedLotId))
+    ? ouvrages.filter(o => (selectedLotId === "_orphans"
+        ? (!o.lot_id || !lots.some(l => l.id === o.lot_id))
+        : o.lot_id === selectedLotId))
     : [];
-  const selectedOuvrage = ouvragesLot.find(o => o.id === selectedOuvrageId) || null;
+  const selectedOuvrage = ouvrages.find(o => o.id === selectedOuvrageId) || null;
   const taches = selectedOuvrage?.taches || [];
 
   // ── Styles ──────────────────────────────────────────────────────────────
@@ -92,8 +192,42 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       {label}
     </div>
   );
+  const addBtn = {
+    marginLeft: "auto",
+    display: "inline-flex", alignItems: "center", gap: 4,
+    padding: "4px 9px", borderRadius: RADIUS.sm + 2,
+    border: "none", background: acc.accent, color: acc.onAccent,
+    fontSize: 10, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase",
+    cursor: "pointer", fontFamily: "inherit",
+  };
+  const iconBtnDanger = {
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    width: 26, height: 26, borderRadius: RADIUS.sm,
+    background: "transparent", border: `1px solid transparent`,
+    color: "#e15a5a", cursor: "pointer",
+    transition: "all .12s",
+  };
+  const inp = {
+    padding: "6px 10px", borderRadius: RADIUS.md,
+    border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
+    color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit",
+    outline: "none", width: "100%",
+  };
+  const lbl = {
+    display: "block", fontSize: 9, fontWeight: 700, letterSpacing: .6,
+    textTransform: "uppercase", color: T.textMuted, marginBottom: 4,
+  };
 
-  // ── Pas de chantier sélectionné : placeholder ───────────────────────────
+  // ── Statut sauvegarde ──
+  const statusColor = autoSaveStatus === "saved"  ? "#22c55e"
+                    : autoSaveStatus === "saving" ? acc.accent
+                    : autoSaveStatus === "error"  ? "#e15a5a"
+                    : "#f5a623";
+  const statusLbl = autoSaveStatus === "saved"  ? "Sauvegardé"
+                  : autoSaveStatus === "saving" ? "Sauvegarde…"
+                  : autoSaveStatus === "error"  ? "Erreur"
+                  : "Modif en cours";
+
   const noChantier = !chantierId;
 
   return (
@@ -123,6 +257,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
             V2
           </span>
         </div>
+
+        {/* Badge statut sauvegarde — visible seulement si on a un chantier ouvert */}
+        {chantierId && (
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            fontSize: 9, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase",
+            color: statusColor, background: statusColor + "18", border: `1px solid ${statusColor}40`,
+            borderRadius: 99, padding: "2px 8px",
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }}/>
+            {statusLbl}
+          </span>
+        )}
 
         {/* Sélecteur chantier */}
         <div style={{ position: "relative", marginLeft: "auto", minWidth: 240 }}>
@@ -221,29 +368,96 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           <div style={{ display: "flex", flexDirection: "column", borderRight: `1px solid ${T.border}`, minHeight: 0 }}>
             <div style={colHeader}>
               <Icon as={Hammer} size={12}/> Ouvrages
-              {selectedLotId && ouvragesLot.length > 0 && (
-                <span style={{
-                  fontSize: 10, fontWeight: 700, padding: "1px 7px",
-                  borderRadius: RADIUS.pill, background: T.card, color: T.textMuted, marginLeft: "auto",
-                }}>{ouvragesLot.length}</span>
+              {selectedLotId && (
+                <>
+                  {ouvragesLot.length > 0 && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: "1px 7px",
+                      borderRadius: RADIUS.pill, background: T.card, color: T.textMuted,
+                    }}>{ouvragesLot.length}</span>
+                  )}
+                  <button onClick={() => createOuvrage(selectedLotId)} style={addBtn}>
+                    <Icon as={Plus} size={11}/> Ouvrage
+                  </button>
+                </>
               )}
             </div>
             <div style={colBody}>
               {!selectedLotId
                 ? emptyColMsg("Sélectionne un lot à gauche")
                 : ouvragesLot.length === 0
-                  ? emptyColMsg("Aucun ouvrage pour ce lot")
+                  ? emptyColMsg("Aucun ouvrage pour ce lot — clique « + Ouvrage »")
                   : ouvragesLot.map(o => {
                     const active = selectedOuvrageId === o.id;
                     const nbTaches = (o.taches || []).length;
+                    if (active) {
+                      // Édition inline pour l'ouvrage sélectionné
+                      return (
+                        <div key={o.id} style={{
+                          margin: "4px 4px 8px", padding: "12px 14px",
+                          borderRadius: RADIUS.md,
+                          background: acc.bg10, border: `1px solid ${acc.border}`,
+                          display: "flex", flexDirection: "column", gap: 10,
+                        }}>
+                          <div>
+                            <span style={lbl}>Libellé</span>
+                            <input ref={newOuvrageInputRef} value={o.libelle || ""}
+                              onChange={e => updateOuvrage(o.id, { libelle: e.target.value })}
+                              placeholder="Nom de l'ouvrage" style={{ ...inp, fontWeight: 600 }}/>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                            <div>
+                              <span style={lbl}>Heures vendues</span>
+                              <input type="number" step="0.5" min="0" value={o.heures_devis ?? ""}
+                                onChange={e => updateOuvrage(o.id, { heures_devis: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                                placeholder="0" style={inp}/>
+                            </div>
+                            <div>
+                              <span style={lbl}>Quantité</span>
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <input type="number" step="0.01" min="0" value={o.quantite ?? ""}
+                                  onChange={e => updateOuvrage(o.id, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                                  placeholder="0" style={{ ...inp, flex: 1 }}/>
+                                <input value={o.unite || ""}
+                                  onChange={e => updateOuvrage(o.id, { unite: e.target.value })}
+                                  placeholder="U" style={{ ...inp, width: 50, textAlign: "center" }}/>
+                              </div>
+                            </div>
+                            <div>
+                              <span style={lbl}>Prix HT (€)</span>
+                              <input type="number" step="0.01" min="0" value={o.prix_ht ?? ""}
+                                onChange={e => updateOuvrage(o.id, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                                placeholder="0" style={inp}/>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                            <div style={{ flex: 1 }}>
+                              <span style={lbl}>Lot</span>
+                              <select value={o.lot_id || ""}
+                                onChange={e => updateOuvrage(o.id, { lot_id: e.target.value || null })}
+                                style={{ ...inp, cursor: "pointer" }}>
+                                <option value="">— Sans lot —</option>
+                                {lots.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                              </select>
+                            </div>
+                            <button onClick={() => deleteOuvrage(o.id)} title="Supprimer l'ouvrage"
+                              style={{ ...iconBtnDanger, width: 32, height: 32 }}
+                              onMouseEnter={e => { e.currentTarget.style.background = "rgba(225,90,90,0.12)"; e.currentTarget.style.borderColor = "rgba(225,90,90,0.3)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
+                              <Icon as={Trash2} size={14}/>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
-                      <div key={o.id} onClick={() => setSelectedOuvrageId(o.id)} style={rowItem(active)}>
+                      <div key={o.id} onClick={() => setSelectedOuvrageId(o.id)} style={rowItem(false)}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 600, fontSize: FONT.sm.size, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {o.libelle || "(sans libellé)"}
+                            {o.libelle || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans libellé)</span>}
                           </div>
                           {(o.heures_devis || o.quantite || o.prix_ht) && (
-                            <div style={{ fontSize: FONT.xs.size, color: active ? acc.accent : T.textMuted, marginTop: 2, opacity: active ? .9 : 1 }}>
+                            <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>
                               {o.heures_devis ? `${o.heures_devis}h` : ""}
                               {o.quantite ? `${o.heures_devis ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
                               {o.prix_ht ? `${(o.heures_devis||o.quantite) ? " · " : ""}${o.prix_ht.toLocaleString("fr-FR")} €` : ""}
@@ -254,8 +468,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                           <span style={{
                             fontSize: 10, fontWeight: 700, padding: "1px 7px",
                             borderRadius: RADIUS.pill,
-                            background: active ? "rgba(255,255,255,0.12)" : T.card,
-                            color: active ? acc.accent : T.textMuted, flexShrink: 0,
+                            background: T.card, color: T.textMuted, flexShrink: 0,
                           }}>{nbTaches}</span>
                         )}
                       </div>
@@ -269,32 +482,58 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
             <div style={colHeader}>
               <Icon as={ClipboardList} size={12}/> Tâches
-              {selectedOuvrage && taches.length > 0 && (
-                <span style={{
-                  fontSize: 10, fontWeight: 700, padding: "1px 7px",
-                  borderRadius: RADIUS.pill, background: T.card, color: T.textMuted, marginLeft: "auto",
-                }}>{taches.length}</span>
+              {selectedOuvrage && (
+                <>
+                  {taches.length > 0 && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: "1px 7px",
+                      borderRadius: RADIUS.pill, background: T.card, color: T.textMuted,
+                    }}>{taches.length}</span>
+                  )}
+                  <button onClick={() => createTache(selectedOuvrage.id)} style={addBtn}>
+                    <Icon as={Plus} size={11}/> Tâche
+                  </button>
+                </>
               )}
             </div>
             <div style={colBody}>
               {!selectedOuvrage
                 ? emptyColMsg("Sélectionne un ouvrage")
                 : taches.length === 0
-                  ? emptyColMsg("Aucune tâche pour cet ouvrage")
-                  : taches.map((t, i) => (
-                    <div key={i} style={{
-                      padding: "10px 12px", margin: "2px 4px",
+                  ? emptyColMsg("Aucune tâche — clique « + Tâche »")
+                  : taches.map(t => (
+                    <div key={t.id} style={{
+                      padding: "10px 12px", margin: "4px 4px",
                       borderRadius: RADIUS.md,
                       background: T.card, border: `1px solid ${T.border}`,
-                      fontSize: FONT.sm.size, color: T.text,
+                      display: "flex", flexDirection: "column", gap: 8,
                     }}>
-                      <div style={{ fontWeight: 600 }}>{t.nom || "(sans nom)"}</div>
-                      {(t.heures_estimees || t.avancement !== undefined) && (
-                        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, display: "flex", gap: 10 }}>
-                          {t.heures_estimees ? <span>{t.heures_estimees}h estimées</span> : null}
-                          {t.avancement !== undefined && t.avancement !== null && t.avancement !== "" ? <span>{t.avancement}% fait</span> : null}
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                        <input value={t.nom || ""}
+                          onChange={e => updateTache(selectedOuvrage.id, t.id, { nom: e.target.value })}
+                          placeholder="Description de la tâche"
+                          style={{ ...inp, flex: 1, fontWeight: 600 }}/>
+                        <button onClick={() => deleteTache(selectedOuvrage.id, t.id)} title="Supprimer la tâche"
+                          style={iconBtnDanger}
+                          onMouseEnter={e => { e.currentTarget.style.background = "rgba(225,90,90,0.12)"; e.currentTarget.style.borderColor = "rgba(225,90,90,0.3)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
+                          <Icon as={Trash2} size={13}/>
+                        </button>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div>
+                          <span style={lbl}>Heures estimées</span>
+                          <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
+                            onChange={e => updateTache(selectedOuvrage.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                            placeholder="0" style={inp}/>
                         </div>
-                      )}
+                        <div>
+                          <span style={lbl}>Avancement (%)</span>
+                          <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
+                            onChange={e => updateTache(selectedOuvrage.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                            placeholder="0" style={inp}/>
+                        </div>
+                      </div>
                     </div>
                   ))
               }
