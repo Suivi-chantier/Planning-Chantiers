@@ -380,3 +380,31 @@ export async function loadPhases() {
   } catch (e) { console.warn("loadPhases:", e?.message || e); }
   return PHASES_DEFAUT;
 }
+
+// ─── LOTS DE TRAVAUX (Phasage v2) ─────────────────────────────────────────────
+// Catégorisation par corps de métier utilisée dans la page Phasage v2 (vue
+// 3 colonnes : Lots → Ouvrages → Tâches). Distincts des phases v1 — chaque
+// ouvrage peut porter un `lot_id` qui le rattache à un lot.
+// Personnalisables via Admin → onglet Lots (stockage planning_config/lots_travaux).
+export const LOTS_DEFAUT = [
+  { id: "electricite",  label: "Électricité",            couleur: "#eab308" },
+  { id: "maconnerie",   label: "Maçonnerie",             couleur: "#a8a29e" },
+  { id: "murs_cloison", label: "Murs cloison doublages", couleur: "#6366f1" },
+  { id: "ouvertures",   label: "Ouvertures",             couleur: "#8b5cf6" },
+  { id: "plomberie",    label: "Plomberie sanitaire",    couleur: "#06b6d4" },
+];
+
+export async function loadLots() {
+  try {
+    const { data } = await _supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle();
+    const items = data?.value?.items;
+    if (Array.isArray(items) && items.length > 0) {
+      return items.map((l, i) => ({
+        id:      l.id      || `lot_${i}`,
+        label:   l.label   || `Lot ${i + 1}`,
+        couleur: l.couleur || l.color || "#888888",
+      }));
+    }
+  } catch (e) { console.warn("loadLots:", e?.message || e); }
+  return LOTS_DEFAUT;
+}

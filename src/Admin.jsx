@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT } from "./constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT } from "./constants";
 import { Icon } from "./ui";
 import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
@@ -8,6 +8,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
   Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck, Lock,
+  Boxes,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -909,6 +910,12 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [phaseToDelete, setPhaseToDelete] = useState(null);
   const [resetPhasesConfirm, setResetPhasesConfirm] = useState(false);
 
+  // ─── LOTS (Phasage v2) ──────────────────────────────────────────────────
+  const [lots, setLots]                 = useState(LOTS_DEFAUT);
+  const [editLotColIdx, setEditLotColIdx] = useState(null);
+  const [lotToDelete, setLotToDelete]   = useState(null);
+  const [resetLotsConfirm, setResetLotsConfirm] = useState(false);
+
   // ─── EMAIL TEMPLATES (Bloc 3) ────────────────────────────────────────────
   const [emailTemplates, setEmailTemplates] = useState(EMAIL_TEMPLATES_DEFAUT);
 
@@ -920,7 +927,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "email_templates", "phasage_templates"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "lots_travaux", "email_templates", "phasage_templates"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "societe" && r.value)         setSociete({ ...SOCIETE_DEFAUT, ...r.value });
@@ -928,6 +935,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           if (r.key === "phrases_bank" && r.value)    setPhrases({ ...PHRASES_DEFAUT, ...r.value });
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
             setPhases(r.value.items);
+          }
+          if (r.key === "lots_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
+            setLots(r.value.items);
           }
           if (r.key === "email_templates" && r.value) {
             setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
@@ -1072,6 +1082,38 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const resetPhases = () => {
     savePhases([...PHASES_DEFAUT]);
     setResetPhasesConfirm(false);
+  };
+
+  // ─── LOTS (Phasage v2) CRUD ──────────────────────────────────────────────
+  const saveLots = async (next) => {
+    setLots(next);
+    await saveConfig("lots_travaux", { items: next });
+  };
+  const addLot = () => {
+    const id = `lot_${Date.now()}`;
+    saveLots([...lots, { id, label: "Nouveau lot", couleur: COULEURS_PALETTE[lots.length % COULEURS_PALETTE.length] }]);
+  };
+  const updLot = (i, patch) => {
+    const next = lots.map((l, idx) => idx === i ? { ...l, ...patch } : l);
+    setLots(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("lots_travaux", { items: next }), 600);
+  };
+  const removeLot = () => {
+    if (lotToDelete === null) return;
+    const next = lots.filter((_, idx) => idx !== lotToDelete);
+    saveLots(next);
+    setLotToDelete(null);
+  };
+  const moveLot = (i, d) => {
+    const a = [...lots], j = i + d;
+    if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]];
+    saveLots(a);
+  };
+  const resetLots = () => {
+    saveLots([...LOTS_DEFAUT]);
+    setResetLotsConfirm(false);
   };
 
   // ─── BACKUP JSON ─────────────────────────────────────────────────────────
@@ -1370,6 +1412,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["taux",         "Taux horaires",   Euro],
     ["chantiers",    "Chantiers",       Building2],
     ["phases",       "Phases",          ClipboardCheck],
+    ["lots",         "Lots",            Boxes],
     ["templates",    "Templates phasage", FileText],
     ["societe",      "Société",         Briefcase],
     ["planning",     "Planning",        Clock],
@@ -1586,6 +1629,148 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
                   }}>Annuler</button>
                   <button onClick={resetPhases} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:acc.accent,color:acc.onAccent,border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Check} size={13}/>
+                    Restaurer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── LOTS (Phasage v2) ── */}
+      {adminTab==="lots" && (
+        <div className="ac">
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Lots de travaux</div>
+              <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
+                Catégorisation par corps de métier utilisée dans la page <strong style={{color:T.text}}>Phasage v2</strong> (vue 3 colonnes Lots → Ouvrages → Tâches). Chaque ouvrage peut être rattaché à un lot.
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>setResetLotsConfirm(true)} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"7px 12px",borderRadius:RADIUS.md,
+                border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:600,cursor:"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11}/>
+                Restaurer par défaut
+              </button>
+              <button onClick={addLot} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:acc.accent,color:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Plus} size={12}/>
+                Ajouter un lot
+              </button>
+            </div>
+          </div>
+
+          {lots.map((l, i) => (
+            <div key={l.id || i} className="ar" style={{flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                <button className="ib" onClick={()=>moveLot(i,-1)} title="Monter"><Icon as={ChevronUp} size={12}/></button>
+                <button className="ib" onClick={()=>moveLot(i,1)} title="Descendre"><Icon as={ChevronDown} size={12}/></button>
+              </div>
+              <div onClick={()=>setEditLotColIdx(editLotColIdx===i?null:i)}
+                style={{
+                  width:30,height:30,borderRadius:RADIUS.md,flexShrink:0,
+                  background:l.couleur||"#888",border:`2px solid ${T.border}`,cursor:"pointer",
+                }} title="Couleur du lot"/>
+              {editLotColIdx===i ? (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,flex:"1 1 200px"}}>
+                  {COULEURS_PALETTE.map(col=>(
+                    <div key={col} onClick={()=>{updLot(i,{couleur:col});setEditLotColIdx(null);}}
+                      className={`cdot ${l.couleur===col?"sel":""}`} style={{background:col,cursor:"pointer"}}/>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <input className="ti" value={l.label||""} onChange={e=>updLot(i,{label:e.target.value})}
+                    placeholder="Libellé du lot" style={{flex:"2 1 200px",minWidth:140,fontWeight:600}}/>
+                  <button className="btn-d" onClick={()=>setLotToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                    <Icon as={Trash2} size={11}/>
+                    Supprimer
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+
+          {lotToDelete !== null && (
+            <div onClick={()=>setLotToDelete(null)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={AlertTriangle} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce lot&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  Le lot <strong style={{color:T.text}}>« {lots[lotToDelete]?.label} »</strong> sera retiré de la liste.
+                  <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les ouvrages déjà rattachés à ce lot restent en base mais ne seront plus regroupés sous ce lot dans Phasage v2.</span>
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setLotToDelete(null)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={removeLot} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"#e15a5a",color:"#fff",border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Trash2} size={13}/>
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {resetLotsConfirm && (
+            <div onClick={()=>setResetLotsConfirm(false)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(245,166,35,0.16)",color:"#f5a623",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={RefreshCw} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Restaurer les lots par défaut&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  Ta liste actuelle sera remplacée par les 5 lots standards (Électricité, Maçonnerie, Murs cloison doublages, Ouvertures, Plomberie sanitaire).
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setResetLotsConfirm(false)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={resetLots} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:acc.accent,color:acc.onAccent,border:"none",
                     borderRadius:RADIUS.md,padding:"9px 18px",
