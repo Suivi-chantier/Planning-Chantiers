@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 import { FONT, RADIUS, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
-import { Calculator, Euro, Clock, TrendingUp, Info } from "lucide-react";
+import { Calculator, Euro, Clock, TrendingUp, Info, Save } from "lucide-react";
 
 const KEY = "etats_financiers";
 
@@ -36,8 +36,9 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [months, setMonths] = useState(emptyMonths());
   const [loading, setLoading] = useState(true);
-  const [saveStatus, setSaveStatus] = useState(""); // "" | "saving" | "saved"
-  const saveTimer = useRef(null);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
 
   // ── Chargement ──────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -51,6 +52,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
       if (data?.value?.months) {
         setMonths({ ...emptyMonths(), ...data.value.months });
       }
+      setDirty(false);
     } catch (e) {
       console.error("EtatsFinanciers load:", e);
     }
@@ -59,39 +61,33 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Realtime ────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const ch = supabase.channel("etats_financiers")
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "planning_config", filter: `key=eq.${KEY}` },
-        p => {
-          const v = p.new?.value;
-          if (v?.months) setMonths({ ...emptyMonths(), ...v.months });
-        })
-      .subscribe();
-    return () => supabase.removeChannel(ch);
-  }, []);
-
-  // ── Sauvegarde debounced ───────────────────────────────────────────────────
-  const save = async (newMonths) => {
-    setSaveStatus("saving");
+  // ── Sauvegarde manuelle ─────────────────────────────────────────────────────
+  const save = async () => {
+    setSaving(true);
     const { error } = await supabase.from("planning_config")
-      .upsert({ key: KEY, value: { months: newMonths }, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      .upsert({ key: KEY, value: { months }, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    setSaving(false);
     if (error) {
       console.error("EtatsFinanciers save:", error);
-      setSaveStatus("");
+      alert("Erreur lors de la sauvegarde : " + error.message);
       return;
     }
-    setSaveStatus("saved");
-    setTimeout(() => setSaveStatus(""), 1500);
+    setDirty(false);
+    setLastSavedAt(new Date());
   };
 
   const updateField = (moisId, field, raw) => {
-    const next = { ...months, [moisId]: { ...months[moisId], [field]: raw } };
-    setMonths(next);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => save(next), 600);
+    setMonths(prev => ({ ...prev, [moisId]: { ...prev[moisId], [field]: raw } }));
+    setDirty(true);
   };
+
+  // ── Avertir avant de quitter avec des modifs non sauvegardées ──────────────
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   // ── Calculs ─────────────────────────────────────────────────────────────────
   const parsed = MOIS.map(m => {
@@ -155,17 +151,41 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
               États financiers
             </div>
           </div>
-          {saveStatus && (
-            <span style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "4px 10px", borderRadius: RADIUS.pill,
-              background: saveStatus === "saved" ? "rgba(80,200,120,0.12)" : "rgba(245,166,35,0.12)",
-              color: saveStatus === "saved" ? "#50c878" : "#f5a623",
-              fontSize: 12, fontWeight: 700, letterSpacing: 0.3,
-            }}>
-              {saveStatus === "saved" ? "✓ Enregistré" : "Enregistrement…"}
-            </span>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {dirty && (
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "4px 10px", borderRadius: RADIUS.pill,
+                background: "rgba(245,166,35,0.12)", color: "#f5a623",
+                fontSize: 12, fontWeight: 700, letterSpacing: 0.3,
+              }}>
+                ● Modifications non sauvegardées
+              </span>
+            )}
+            {!dirty && lastSavedAt && (
+              <span style={{ fontSize: 12, color: T.textMuted }}>
+                Enregistré à {lastSavedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            <button
+              onClick={save}
+              disabled={saving || !dirty}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "9px 18px", borderRadius: RADIUS.md,
+                border: "none", cursor: (saving || !dirty) ? "not-allowed" : "pointer",
+                background: (saving || !dirty) ? T.card : acc.accent,
+                color: (saving || !dirty) ? T.textMuted : "#111",
+                fontFamily: "inherit", fontSize: 13, fontWeight: 800,
+                letterSpacing: 0.5, textTransform: "uppercase",
+                opacity: (saving || !dirty) ? 0.6 : 1,
+                transition: "background .12s, opacity .12s",
+              }}
+            >
+              <Icon as={Save} size={14}/>
+              {saving ? "Enregistrement…" : "Sauvegarder"}
+            </button>
+          </div>
         </div>
 
         {/* ─── Tableau mensuel ────────────────────────────────────────────────── */}
