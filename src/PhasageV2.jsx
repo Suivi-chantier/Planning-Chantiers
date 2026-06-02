@@ -271,6 +271,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     }
     return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
   };
+  // Détail du calcul (affiché en tooltip pour debug) — permet de vérifier ce
+  // qui est réellement stocké dans chaque tâche quand le résultat surprend.
+  const avancementOuvrageDetail = (ouvrage) => {
+    const taches = ouvrage.taches || [];
+    if (taches.length === 0) return "Aucune tâche";
+    const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+    if (totalHE > 0) {
+      const num = taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0);
+      const lines = taches.map((t, i) => {
+        const av = parseFloat(t.avancement) || 0;
+        const h  = parseFloat(t.heures_estimees) || 0;
+        return `  ${i+1}. "${t.nom || "(sans nom)"}" : ${av}% × ${h}h = ${av*h}`;
+      });
+      return `Calcul pondéré par heures estimées :\n${lines.join("\n")}\n\nNumérateur = ${num}\nTotal heures = ${totalHE}\n→ ${num} / ${totalHE} = ${(num/totalHE).toFixed(2)} %`;
+    }
+    return "Aucune heure estimée — moyenne simple des % des tâches";
+  };
   // Lot = moyenne des avancements de ses ouvrages, pondérée par prix_ht. Si
   // aucun ouvrage n'a prix_ht → moyenne simple. Le pseudo-lot "_orphans"
   // agrège les ouvrages sans lot_id reconnu.
@@ -636,7 +653,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                               borderRadius: RADIUS.pill,
                               background: "rgba(0,0,0,0.18)", color: T.text, flexShrink: 0,
                             }}>{nbTaches}</span>
-                            <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right" }}>
+                            <span
+                              title={avancementOuvrageDetail(o)}
+                              style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
                               {av}%
                             </span>
                           </>
