@@ -6,6 +6,7 @@ import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
+  Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent,
 } from "lucide-react";
 import { parseDevisExcel } from "./devisImport";
 
@@ -248,6 +249,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       quantite: null,
       unite: "U",
       prix_ht: null,
+      cout_materiaux: null,
       taches: [],
     };
     const next = [...ouvrages, newO];
@@ -337,8 +339,17 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const prixHTLot      = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + prixHTOuvrage(o), 0);
   const prixHTChantier = ouvrages.reduce((s, o) => s + prixHTOuvrage(o), 0);
 
-  // Marge brute = prix HT − coût MO (matériaux pas encore intégrés).
-  const margeChantier  = prixHTChantier - coutMOChantier;
+  // Coût matériaux par ouvrage (saisie manuelle dans la modale ouvrage).
+  const coutMatOuvrage  = (o) => parseFloat(o.cout_materiaux) || 0;
+  const coutMatChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);
+  // Frais généraux = % du prix HT, configurable dans Suivi direction.
+  const fgPctChantier = (() => {
+    const v = parseFloat(phasage?.plan_travaux?.meta?.fg_pct);
+    return Number.isFinite(v) ? v : 0;
+  })();
+  const fgChantier = (fgPctChantier / 100) * prixHTChantier;
+  // Marge brute = Vendu − Coût MO − Coût matériaux − Frais généraux.
+  const margeChantier  = prixHTChantier - coutMOChantier - coutMatChantier - fgChantier;
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
   const fmtEur = (n) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
@@ -716,7 +727,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       </td>
       ${kpiCell(`${avancementChantier}%`, "Avancement", avancementChantier >= 100 ? "#50c878" : "#f5c400")}
       ${kpiCell(`${Math.round(prixHTChantier).toLocaleString("fr-FR")} €`, "Vendu", "#f5c400")}
-      ${kpiCell(`${Math.round(coutMOChantier).toLocaleString("fr-FR")} €`, "Coût MO", "#f5c400")}
+      ${kpiCell(`${Math.round(coutMOChantier).toLocaleString("fr-FR")} €`, "Coût MO", "#60a5fa")}
+      ${kpiCell(`${Math.round(coutMatChantier).toLocaleString("fr-FR")} €`, "Matériaux", "#f97316")}
+      ${kpiCell(`${Math.round(fgChantier).toLocaleString("fr-FR")} €`, `FG ${fgPctChantier ? fgPctChantier+"%" : ""}`, "#a78bfa")}
       ${kpiCell(`${margeChantier >= 0 ? "+" : ""}${Math.round(margeChantier).toLocaleString("fr-FR")} €`,
         `Marge ${prixHTChantier > 0 ? margePctChantier.toFixed(0) + "%" : ""}`,
         margeChantier >= 0 ? "#50c878" : "#ff6b6b")}
@@ -1001,20 +1014,39 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
             padding: "10px 22px 12px",
             display: "flex", flexDirection: "column", gap: 8,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
-              <KpiBlock T={T} label="Vendu" value={fmtEur(prixHTChantier)}/>
-              <KpiBlock T={T} label="Coût MO" value={fmtEur(coutMOChantier)}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: 10,
+            }}>
+              <KpiCard T={T} icon={Banknote} iconColor="#f5c400" label="Vendu HT"
+                value={fmtEur(prixHTChantier)}
+                sub={`${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""}`}/>
+              <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label="Coût MO"
+                value={fmtEur(coutMOChantier)}
+                sub="Heures réelles × taux"
                 accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}/>
-              <KpiBlock T={T} label="Marge" value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
-                sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}%` : null}
-                accent={margeColor}/>
+              <KpiCard T={T} icon={Receipt} iconColor="#f97316" label="Matériaux"
+                value={fmtEur(coutMatChantier)}
+                sub="Saisis par ouvrage"/>
+              <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label="Frais généraux"
+                value={fmtEur(fgChantier)}
+                sub={fgPctChantier > 0 ? `${fgPctChantier}% du vendu` : "0% — à régler"}/>
+              <KpiCard T={T}
+                icon={margeChantier >= 0 ? TrendingUp : TrendingDown}
+                iconColor={margeColor} label="Marge brute"
+                value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
+                sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : null}
+                accent={margeColor} bold={true}/>
               {margeCible > 0 && (
-                <KpiBlock T={T} label="Cible" value={`${margeCible}%`}
+                <KpiCard T={T} icon={null} label="Marge cible"
+                  value={`${margeCible}%`}
                   sub={prixHTChantier > 0 ? (margePctChantier >= margeCible ? "✓ atteinte" : `${(margeCible - margePctChantier).toFixed(1)}% à faire`) : null}
                   accent={margePctChantier >= margeCible ? "#22c55e" : T.textMuted}/>
               )}
               {primeChant > 0 && (
-                <KpiBlock T={T} label="Prime" value={fmtEur(primeChant)}
+                <KpiCard T={T} icon={null} label="Prime équipe"
+                  value={fmtEur(primeChant)}
                   sub={seuilPrime > 0 ? (margePctChantier >= seuilPrime ? "✓ acquise" : `seuil ${seuilPrime}%`) : null}
                   accent={seuilPrime > 0 && margePctChantier >= seuilPrime ? "#22c55e" : T.textMuted}/>
               )}
@@ -1414,11 +1446,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.5, marginBottom: 4 }}>
             Objectifs RH / pilotage de ce chantier. Visible dans le footer et utilisé par Dashboard Analyse.
           </div>
-          <ModalField label="Marge vendue cible (%)">
-            <input type="number" step="1" min="0" max="100" value={meta.marge_vendue_cible ?? ""}
-              onChange={e => saveMeta({ marge_vendue_cible: e.target.value === "" ? null : parseFloat(e.target.value) })}
-              placeholder="30" style={modalInp(T)}/>
-          </ModalField>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <ModalField label="Marge vendue cible (%)">
+              <input type="number" step="1" min="0" max="100" value={meta.marge_vendue_cible ?? ""}
+                onChange={e => saveMeta({ marge_vendue_cible: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                placeholder="30" style={modalInp(T)}/>
+            </ModalField>
+            <ModalField label="Frais généraux (%)">
+              <input type="number" step="0.5" min="0" max="100" value={meta.fg_pct ?? ""}
+                onChange={e => saveMeta({ fg_pct: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                placeholder="15" style={modalInp(T)}/>
+            </ModalField>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <ModalField label="Seuil prime (%)">
               <input type="number" step="1" min="0" max="100" value={meta.seuil_prime ?? ""}
@@ -1437,6 +1476,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
             fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.6,
           }}>
             <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge brute pour considérer le chantier rentable.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : % appliqué au prix HT (admin, transport, etc.). Déduit de la marge.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Seuil prime</strong> : marge minimale à partir de laquelle l'équipe touche la prime.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Prime chantier</strong> : montant attribué à l'équipe si le seuil est dépassé.</div>
           </div>
@@ -1496,6 +1536,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
             </div>
+            <ModalField label="Coût matériaux (€)">
+              <input type="number" step="0.01" min="0" value={o.cout_materiaux ?? ""}
+                onChange={e => updateOuvrage(o.id, { cout_materiaux: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                placeholder="0" style={modalInp(T)}/>
+            </ModalField>
             <ModalField label="Lot">
               <select value={o.lot_id || ""}
                 onChange={e => updateOuvrage(o.id, { lot_id: e.target.value || null })}
@@ -1954,6 +1999,53 @@ function KpiBlock({ T, label, value, sub, accent }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── KPI Card (variante visuelle avec icône) ──────────────────────────────────
+function KpiCard({ T, icon, iconColor, label, value, sub, accent, bold }) {
+  const valColor = accent || T.text;
+  return (
+    <div style={{
+      background: T.card,
+      border: `1px solid ${T.border}`,
+      borderRadius: RADIUS.md,
+      padding: "10px 12px",
+      display: "flex", flexDirection: "column", gap: 6,
+      minWidth: 0,
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6,
+        fontSize: 9, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase",
+        color: T.textMuted,
+      }}>
+        {icon && (
+          <span style={{
+            width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+            background: `color-mix(in srgb, ${iconColor || T.textMuted} 18%, transparent)`,
+            color: iconColor || T.textMuted,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={icon} size={11} strokeWidth={2.4}/>
+          </span>
+        )}
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {label}
+        </span>
+      </div>
+      <div style={{
+        fontSize: FONT.md.size + 4, fontWeight: bold ? 900 : 800,
+        color: valColor, letterSpacing: -.4, lineHeight: 1.1,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, opacity: .85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
