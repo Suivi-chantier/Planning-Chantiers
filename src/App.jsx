@@ -48,6 +48,7 @@ import PageVisiteChantier     from "./VisiteChantier";
 import PageInfoClient         from "./PageInfoClient";
 import PageChantiers          from "./PageChantiers";
 import PageDashboardAnalyse   from "./DashboardAnalyse";
+import PageEtatsFinanciers    from "./EtatsFinanciers";
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 // Centralisé dans src/access.js. App.jsx charge la config au mount et propage.
@@ -619,6 +620,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch}/> : <AccesRefuse T={T} page="visite"/>)}
           {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch}/> : <AccesRefuse T={T} page="info-client"/>)}
           {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch} onOpenChantier={ouvrirFicheChantier}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
+          {page==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
           {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
         </div>
       </div>

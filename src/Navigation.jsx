@@ -3,7 +3,7 @@ import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
-  TrendingUp,
+  TrendingUp, Calculator,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "./constants";
 import { Icon } from "./ui";
@@ -26,7 +26,7 @@ const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
-    "visite","info-client","admin"
+    "visite","info-client","etats-financiers","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
@@ -37,7 +37,7 @@ const ROLE_PAGES = {
     "dashboard","chantiers","planning","plans","visite","info-client"
   ],
   comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2"
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2","etats-financiers"
   ],
 };
 
@@ -60,6 +60,7 @@ const ALL_NAV_ITEMS = [
   { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
   { id:"info-client",      icon:IdCard,          label:"Client",     longLabel:"Infos Client"        },
   { id:"dashboard-analyse",icon:TrendingUp,      label:"Analyse",    longLabel:"Dashboard Analyse"   },
+  { id:"etats-financiers", icon:Calculator,      label:"États fin.", longLabel:"États financiers"    },
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
 ];
 
@@ -251,6 +252,7 @@ function Sidebar({
     { id:"visite",           icon:Search,          label:"Visites chantier" },
     { id:"info-client",      icon:IdCard,          label:"Infos Client"     },
     { id:"dashboard-analyse",icon:TrendingUp,      label:"Dashboard Analyse"  },
+    { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
     { id:"admin",            icon:Settings,        label:"Réglages"         },
   ];
 

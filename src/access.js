@@ -34,6 +34,7 @@ export const PAGES_RENOVATION = [
   { id: "visite",             label: "Visites chantier"          },
   { id: "info-client",        label: "Infos Client"              },
   { id: "dashboard-analyse",  label: "Dashboard Analyse"         },
+  { id: "etats-financiers",   label: "États financiers"          },
   { id: "admin",              label: "Réglages"                  },
 ];
 
@@ -62,7 +63,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
-    "visite","info-client","dashboard-analyse","admin",
+    "visite","info-client","dashboard-analyse","etats-financiers","admin",
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
@@ -73,7 +74,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "dashboard","chantiers","planning","plans","visite","info-client",
   ],
   comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2",
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2","etats-financiers",
   ],
 };
 
