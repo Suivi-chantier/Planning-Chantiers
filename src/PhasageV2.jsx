@@ -433,13 +433,24 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       // Heures estimées = cadence biblio × quantité (si dispo), sinon null.
       const cadence = parseFloat(it.match?.cadence) || null;
       const heuresEstimees = cadence && it.quantite ? parseFloat((cadence * it.quantite).toFixed(2)) : null;
-      // Tâches : copies des sous_taches de la biblio (juste le nom pour la v2)
-      const taches = (it.match?.sous_taches || []).map(st => ({
-        id: rid(),
-        nom: st.nom || "",
-        heures_estimees: null,
-        avancement: 0,
-      }));
+      // Tâches : copies des sous_taches de la biblio. Le ratio de chaque
+      // sous-tâche répartit les heures ESTIMÉES de l'ouvrage (pas les heures
+      // vendues). Si l'ouvrage n'a pas d'heures estimées calculables (pas de
+      // cadence ou pas de quantité), on laisse heures_estimees à null.
+      const sousTaches = it.match?.sous_taches || [];
+      const sumRatios = sousTaches.reduce((s, st) => s + (parseFloat(st.ratio) || 0), 0);
+      const taches = sousTaches.map(st => {
+        const ratio = parseFloat(st.ratio) || 0;
+        const heuresTache = (heuresEstimees != null && sumRatios > 0 && ratio > 0)
+          ? parseFloat(((heuresEstimees * ratio) / sumRatios).toFixed(2))
+          : null;
+        return {
+          id: rid(),
+          nom: st.nom || "",
+          heures_estimees: heuresTache,
+          avancement: 0,
+        };
+      });
       // Matériaux liés : copies des materiaux_liens de la biblio. Le coût
       // matériaux est auto-calculé = quantité_ouvrage × Σ(qté_par_unité × prix_unitaire).
       // Si l'utilisateur a déjà saisi manuellement un cout_materiaux, on ne l'écrase pas.

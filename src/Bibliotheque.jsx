@@ -20,9 +20,10 @@ const CATEGORIES_BASE = [
 ];
 
 // ─── SOUS-TÂCHE ROW ──────────────────────────────────────────────────────────
-// Note : le champ `ratio` n'est plus édité dans l'UI (suite au refactor où les
-// heures vendues ne vivent plus qu'au niveau ouvrage). La valeur existante en
-// base est conservée pour ne rien casser, mais n'est plus utilisée.
+// Le ratio (%) détermine la répartition des heures ESTIMÉES de l'ouvrage
+// (= cadence × quantité, càd le coût de production interne), pas les heures
+// vendues au client. Permet à l'import devis de pré-remplir heures_estimees
+// de chaque tâche dans PhasageV2.
 function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) {
   const phase = PHASES.find(p => p.id === st.phaseId);
 
@@ -40,7 +41,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
   return (
     <div className="biblio-row" style={{
       display: "grid",
-      gridTemplateColumns: "1fr 220px 26px",
+      gridTemplateColumns: "1fr 180px 80px 26px",
       gap: 8,
       alignItems: "center",
       padding: "8px 12px",
@@ -72,6 +73,26 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
         <option value="">Phase automatique…</option>
         {PHASES.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.label}</option>)}
       </select>
+
+      {/* Ratio (%) */}
+      <div style={{ position: "relative" }}>
+        <input
+          type="number" min="0" max="100" step="1"
+          value={st.ratio ?? ""}
+          onChange={e => update("ratio", e.target.value === "" ? null : parseFloat(e.target.value))}
+          placeholder="—"
+          style={{
+            width: "100%", padding: "6px 22px 6px 10px",
+            borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+            background: T.inputBg, color: T.text, fontFamily: "inherit",
+            fontSize: FONT.sm.size, outline: "none", textAlign: "center", fontWeight: 700,
+          }}
+        />
+        <span style={{
+          position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+          color: T.textMuted, fontSize: FONT.xs.size, pointerEvents: "none",
+        }}>%</span>
+      </div>
 
       <button
         onClick={remove}
@@ -261,8 +282,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
   const cadence = parseFloat(ouvrage.cadence) || null;
 
   function addSousTache() {
-    // Pas de ratio dans le nouveau modèle (heures vendues uniquement au niveau ouvrage)
-    const next = [...(editData.sous_taches || []), { nom: "", phaseId: "" }];
+    const next = [...(editData.sous_taches || []), { nom: "", phaseId: "", ratio: null }];
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
@@ -382,17 +402,54 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
             </div>
           </div>
 
-          {/* En-tête colonnes sous-tâches */}
-          {(editData.sous_taches || []).length > 0 && (
-            <div style={{
-              display: "grid", gridTemplateColumns: "1fr 220px 26px",
-              gap: 8, padding: "0 12px 6px",
-            }}>
-              {["Nom de la sous-tâche", "Phase de travail", ""].map((h, i) => (
-                <div key={i} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>{h}</div>
-              ))}
-            </div>
-          )}
+          {/* En-tête colonnes sous-tâches + total ratios */}
+          {(editData.sous_taches || []).length > 0 && (() => {
+            const sumRatios = (editData.sous_taches || [])
+              .reduce((s, st) => s + (parseFloat(st.ratio) || 0), 0);
+            const ratioOk = sumRatios === 100;
+            const ratioColor = sumRatios === 0
+              ? T.textMuted
+              : ratioOk ? "#22c55e" : "#f5a623";
+            return (
+              <>
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  marginBottom: 6, paddingLeft: 2,
+                }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 700, color: T.textMuted,
+                      textTransform: "uppercase", letterSpacing: 1,
+                    }}>Sous-tâches</div>
+                    <div style={{
+                      fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600,
+                      background: T.card, borderRadius: RADIUS.pill, padding: "1px 7px",
+                    }}>{(editData.sous_taches || []).length}</div>
+                  </div>
+                  <div title="Le total des ratios doit faire 100 % pour répartir correctement les heures estimées de l'ouvrage entre les sous-tâches."
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      fontSize: FONT.xs.size + 1, fontWeight: 700, color: ratioColor,
+                    }}>
+                    Σ ratios = {sumRatios.toFixed(0)} %
+                    {!ratioOk && sumRatios > 0 && <Icon as={AlertTriangle} size={11}/>}
+                  </div>
+                </div>
+                <div style={{
+                  display: "grid", gridTemplateColumns: "1fr 180px 80px 26px",
+                  gap: 8, padding: "0 12px 6px",
+                }}>
+                  {["Nom de la sous-tâche", "Phase de travail", "Ratio", ""].map((h, i) => (
+                    <div key={i} style={{
+                      fontSize: 10, fontWeight: 700, color: T.textMuted,
+                      textTransform: "uppercase", letterSpacing: 0.8,
+                      textAlign: i === 2 ? "center" : "left",
+                    }}>{h}</div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
 
           {/* Liste des sous-tâches */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
