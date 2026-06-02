@@ -57,7 +57,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     }
   }, [chantierId]);
 
-  // Charge le phasage du chantier sélectionné
+  // Charge le phasage du chantier sélectionné. Au passage on normalise les
+  // ids : les tâches importées en v1 (ou via devis biblio) n'ont pas
+  // toujours de champ `id`. Sans id, tous les updateTache(undefined)
+  // matchaient toutes les tâches de l'ouvrage en même temps. On assigne
+  // un id manquant ici, et on persiste silencieusement si on a dû en
+  // créer (sinon chaque reload réassignerait des ids différents).
   useEffect(() => {
     if (!chantierId) { setPhasage(null); return; }
     let cancelled = false;
@@ -66,8 +71,30 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error && error.code !== "PGRST116") console.warn("PhasageV2 load:", error.message);
+        let mutated = false;
+        if (data && Array.isArray(data.ouvrages)) {
+          data.ouvrages = data.ouvrages.map(o => {
+            const oid = o.id || (() => { mutated = true; return rid(); })();
+            const taches = (o.taches || []).map(t => {
+              if (t.id) return t;
+              mutated = true;
+              return { ...t, id: rid() };
+            });
+            return { ...o, id: oid, taches };
+          });
+        }
         setPhasage(data || null);
         setLoadingPhasage(false);
+        // Si on a assigné de nouveaux ids, on les persiste pour que le
+        // prochain chargement parte sur des ids stables.
+        if (mutated && data?.id) {
+          supabase.from("phasages").update({
+            ouvrages: data.ouvrages,
+            updated_at: new Date().toISOString(),
+          }).eq("id", data.id).then(({ error: err }) => {
+            if (err) console.warn("Persist normalized ids:", err.message);
+          });
+        }
       });
     return () => { cancelled = true; };
   }, [chantierId]);
@@ -298,8 +325,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       <style>{`
         .p2-bubble {
           --c: var(--bubble-color, #888);
-          background: color-mix(in srgb, var(--c) 10%, transparent);
-          border: 1px solid color-mix(in srgb, var(--c) 25%, transparent);
+          /* --bubble-fill : 10% par défaut. Surchargé inline pour les
+             bulles tâches selon leur % d'avancement (10% à 0 %, 60% à 100 %). */
+          background: color-mix(in srgb, var(--c) var(--bubble-fill, 10%), transparent);
+          border: 1px solid color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 15%), transparent);
           border-left: 4px solid var(--c);
           border-radius: 12px;
           padding: 11px 14px;
@@ -311,13 +340,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           will-change: transform;
         }
         .p2-bubble:hover {
-          background: color-mix(in srgb, var(--c) 20%, transparent);
-          border-color: color-mix(in srgb, var(--c) 55%, transparent);
+          background: color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 10%), transparent);
+          border-color: color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 40%), transparent);
           transform: scale(1.02);
           box-shadow: 0 6px 18px color-mix(in srgb, var(--c) 28%, transparent);
         }
         .p2-bubble.active {
-          background: color-mix(in srgb, var(--c) 22%, transparent);
+          background: color-mix(in srgb, var(--c) calc(var(--bubble-fill, 10%) + 12%), transparent);
           border-color: var(--c);
           box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 32%, transparent);
         }
@@ -589,10 +618,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   : (() => {
                     const tacheColor = lots.find(l => l.id === selectedOuvrage.lot_id)?.couleur || acc.accent;
                     return taches.map(t => {
-                      const av = parseInt(t.avancement) || 0;
+                      const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+                      // Remplissage évolutif : 10 % à 0 %, jusqu'à 60 % à 100 %.
+                      const fill = `${(10 + (av / 100) * 50).toFixed(0)}%`;
                       return (
                         <div key={t.id} className="p2-bubble"
-                          style={{ "--bubble-color": tacheColor, display: "flex", alignItems: "center", gap: 10 }}
+                          style={{ "--bubble-color": tacheColor, "--bubble-fill": fill, display: "flex", alignItems: "center", gap: 10 }}
                           onClick={() => setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id })}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
