@@ -5,7 +5,7 @@ import { Icon } from "./ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
-  Pencil,
+  Pencil, Settings,
 } from "lucide-react";
 import { parseDevisExcel } from "./devisImport";
 
@@ -55,6 +55,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // Modales d'édition : id de l'ouvrage / de la tâche en cours d'édition
   const [editingOuvrageId, setEditingOuvrageId] = useState(null);
   const [editingTache, setEditingTache] = useState(null); // { ouvrageId, tacheId }
+  // Modale suivi direction (marge cible, seuil prime, prime chantier)
+  const [showSuiviDirection, setShowSuiviDirection] = useState(false);
   // Form planification (envoyer une tâche dans planning_cells)
   const initialSemaine = (() => { const { year, week } = getCurrentWeek(); return getWeekId(year, week); })();
   const [planifSemaine, setPlanifSemaine] = useState(initialSemaine);
@@ -337,6 +339,29 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const margeChantier  = prixHTChantier - coutMOChantier;
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
   const fmtEur = (n) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+
+  // ─── SUIVI DIRECTION (scalaires stockés dans plan_travaux.meta) ─────────
+  // Compatibilité v1 : on lit/écrit dans phasage.plan_travaux.meta avec les
+  // mêmes clés. La v1 PlanTravaux continue de fonctionner si on bascule.
+  const meta = phasage?.plan_travaux?.meta || {};
+  const margeCible  = parseFloat(meta.marge_vendue_cible) || 0;
+  const seuilPrime  = parseFloat(meta.seuil_prime)        || 0;
+  const primeChant  = parseFloat(meta.prime)              || 0;
+  // Sauvegarde des meta dans plan_travaux. Le reste de plan_travaux est
+  // conservé (les tâches v1 par phase, etc.).
+  const saveMeta = async (patch) => {
+    if (!chantierId) return;
+    const p = await ensurePhasage();
+    if (!p?.id) return;
+    const currentPlan = phasage?.plan_travaux || {};
+    const newMeta = { ...(currentPlan.meta || {}), ...patch };
+    const newPlan = { ...currentPlan, meta: newMeta };
+    setPhasage(prev => ({ ...prev, plan_travaux: newPlan }));
+    const { error } = await supabase.from("phasages").update({
+      plan_travaux: newPlan, updated_at: new Date().toISOString(),
+    }).eq("id", p.id);
+    if (error) console.warn("saveMeta:", error.message);
+  };
 
   const updateTache = (ouvrageId, tacheId, patch) => {
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
@@ -726,12 +751,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </span>
         )}
 
-        {/* Bouton import devis */}
+        {/* Boutons d'action chantier */}
         {chantierId && (
           <>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={onFilePicked} style={{ display: "none" }}/>
+            <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
+              style={{
+                marginLeft: "auto",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 36, height: 36, borderRadius: RADIUS.md,
+                border: `1px solid ${T.border}`, background: T.card, color: T.textSub,
+                cursor: "pointer", transition: "all .12s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = acc.accent; e.currentTarget.style.borderColor = acc.border; }}
+              onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.borderColor = T.border; }}>
+              <Icon as={Settings} size={14}/>
+            </button>
             <button onClick={() => fileInputRef.current?.click()} style={{
-              marginLeft: "auto",
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "8px 14px", borderRadius: RADIUS.md,
               border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
@@ -789,6 +825,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
               <KpiBlock T={T} label="Marge" value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
                 sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}%` : null}
                 accent={margeColor}/>
+              {margeCible > 0 && (
+                <KpiBlock T={T} label="Cible" value={`${margeCible}%`}
+                  sub={prixHTChantier > 0 ? (margePctChantier >= margeCible ? "✓ atteinte" : `${(margeCible - margePctChantier).toFixed(1)}% à faire`) : null}
+                  accent={margePctChantier >= margeCible ? "#22c55e" : T.textMuted}/>
+              )}
+              {primeChant > 0 && (
+                <KpiBlock T={T} label="Prime" value={fmtEur(primeChant)}
+                  sub={seuilPrime > 0 ? (margePctChantier >= seuilPrime ? "✓ acquise" : `seuil ${seuilPrime}%`) : null}
+                  accent={seuilPrime > 0 && margePctChantier >= seuilPrime ? "#22c55e" : T.textMuted}/>
+              )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{
@@ -1166,6 +1212,47 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         </div>
       )}
 
+      {/* ── Modale suivi direction ── */}
+      {showSuiviDirection && (
+        <ItemEditModal
+          title="Suivi direction"
+          color={acc.accent}
+          T={T} accent={acc.accent}
+          onClose={() => setShowSuiviDirection(false)}
+          onDelete={null}
+        >
+          <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.5, marginBottom: 4 }}>
+            Objectifs RH / pilotage de ce chantier. Visible dans le footer et utilisé par Dashboard Analyse.
+          </div>
+          <ModalField label="Marge vendue cible (%)">
+            <input type="number" step="1" min="0" max="100" value={meta.marge_vendue_cible ?? ""}
+              onChange={e => saveMeta({ marge_vendue_cible: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              placeholder="30" style={modalInp(T)}/>
+          </ModalField>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <ModalField label="Seuil prime (%)">
+              <input type="number" step="1" min="0" max="100" value={meta.seuil_prime ?? ""}
+                onChange={e => saveMeta({ seuil_prime: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                placeholder="25" style={modalInp(T)}/>
+            </ModalField>
+            <ModalField label="Prime chantier (€)">
+              <input type="number" step="50" min="0" value={meta.prime ?? ""}
+                onChange={e => saveMeta({ prime: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                placeholder="300" style={modalInp(T)}/>
+            </ModalField>
+          </div>
+          <div style={{
+            marginTop: 4, padding: "10px 12px", borderRadius: RADIUS.md,
+            background: T.card, border: `1px solid ${T.border}`,
+            fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.6,
+          }}>
+            <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge brute pour considérer le chantier rentable.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Seuil prime</strong> : marge minimale à partir de laquelle l'équipe touche la prime.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Prime chantier</strong> : montant attribué à l'équipe si le seuil est dépassé.</div>
+          </div>
+        </ItemEditModal>
+      )}
+
       {/* ── Modale import devis ── */}
       {importState && (
         <ImportDevisModal
@@ -1448,16 +1535,18 @@ function ItemEditModal({ title, color, T, accent, onClose, onDelete, children })
         <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
           {children}
         </div>
-        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <button onClick={onDelete} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "8px 14px", borderRadius: RADIUS.md,
-            border: "1px solid rgba(225,90,90,0.3)", background: "transparent", color: "#e15a5a",
-            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
-          }}>
-            <Icon as={Trash2} size={13}/>
-            Supprimer
-          </button>
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: onDelete ? "space-between" : "flex-end", gap: 10 }}>
+          {onDelete && (
+            <button onClick={onDelete} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 14px", borderRadius: RADIUS.md,
+              border: "1px solid rgba(225,90,90,0.3)", background: "transparent", color: "#e15a5a",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+            }}>
+              <Icon as={Trash2} size={13}/>
+              Supprimer
+            </button>
+          )}
           <button onClick={onClose} style={{
             padding: "8px 18px", borderRadius: RADIUS.md, border: "none",
             background: accent, color: "#000",
