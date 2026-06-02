@@ -176,11 +176,32 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
 
   // ─── CRUD TÂCHES ────────────────────────────────────────────────────────
   const createTache = (ouvrageId) => {
-    const newT = { id: rid(), nom: "", heures_estimees: null, heures_reelles: null, avancement: 0 };
+    const newT = { id: rid(), nom: "", heures_estimees: null, heures_reelles: null, avancement: 0, ouvriers: [] };
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: [...(o.taches || []), newT] }
       : o));
     setEditingTache({ ouvrageId, tacheId: newT.id });
+  };
+
+  // Toggle un ouvrier dans le tableau ouvriers d'une tâche (multi-select).
+  const toggleOuvrier = (ouvrageId, tacheId, nom) => {
+    updateOuvrages(ouvrages.map(o => o.id === ouvrageId
+      ? { ...o, taches: (o.taches || []).map(t => {
+          if (t.id !== tacheId) return t;
+          const list = Array.isArray(t.ouvriers) ? [...t.ouvriers] : [];
+          const idx = list.indexOf(nom);
+          if (idx >= 0) list.splice(idx, 1); else list.push(nom);
+          return { ...t, ouvriers: list };
+        }) }
+      : o));
+  };
+
+  // Initiales pour les badges ouvriers (2 lettres max).
+  const initiales = (nom) => {
+    if (!nom) return "?";
+    const parts = String(nom).trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
   // Helper : extrait les heures réelles d'une tâche en gérant les anciens
@@ -800,7 +821,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                             <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                               {(() => {
                                 const hr = tacheHeuresReelles(t);
                                 const he = parseFloat(t.heures_estimees);
@@ -815,6 +836,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                                 }
                                 return null;
                               })()}
+                              {Array.isArray(t.ouvriers) && t.ouvriers.length > 0 && (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: -4, marginLeft: 4 }}
+                                  title={t.ouvriers.join(", ")}>
+                                  {t.ouvriers.slice(0, 3).map((n, idx) => (
+                                    <span key={n} style={{
+                                      width: 18, height: 18, borderRadius: "50%",
+                                      background: `color-mix(in srgb, ${tacheColor} 60%, transparent)`,
+                                      border: `1.5px solid ${T.surface}`,
+                                      color: T.text, fontSize: 9, fontWeight: 800,
+                                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                      marginLeft: idx === 0 ? 0 : -6, position: "relative", zIndex: 3 - idx,
+                                    }}>{initiales(n)}</span>
+                                  ))}
+                                  {t.ouvriers.length > 3 && (
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 800, color: T.textMuted,
+                                      marginLeft: 4,
+                                    }}>+{t.ouvriers.length - 3}</span>
+                                  )}
+                                </div>
+                              )}
                               <span title={avancementTacheDetail(t)}
                                 style={{ marginLeft: "auto", fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800, cursor: "help" }}>
                                 {av}%
@@ -988,6 +1030,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
             </div>
+            <ModalField label={`Ouvriers assignés${(t.ouvriers||[]).length > 0 ? ` (${t.ouvriers.length})` : ""}`}>
+              {ouvriers.length === 0 ? (
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>
+                  Aucun ouvrier configuré — ajoute-en dans Réglages → Ouvriers.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {ouvriers.map(nom => {
+                    const selected = (t.ouvriers || []).includes(nom);
+                    return (
+                      <button key={nom}
+                        onClick={() => toggleOuvrier(o.id, t.id, nom)}
+                        style={{
+                          padding: "5px 12px", borderRadius: RADIUS.pill,
+                          border: `1px solid ${selected ? acc.accent : T.border}`,
+                          background: selected ? acc.bg10 : "transparent",
+                          color: selected ? acc.accent : T.textSub,
+                          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
+                          cursor: "pointer", transition: "all .12s",
+                        }}>
+                        {nom}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </ModalField>
           </ItemEditModal>
         );
       })()}
