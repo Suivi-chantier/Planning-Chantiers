@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId } from "./constants";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId, LOGO_RENO_H } from "./constants";
 import { Icon } from "./ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
-  Pencil, Settings,
+  Pencil, Settings, FileDown,
 } from "lucide-react";
 import { parseDevisExcel } from "./devisImport";
 
@@ -598,6 +598,147 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     textTransform: "uppercase", color: T.textMuted, marginBottom: 4,
   };
 
+  // ─── EXPORT PDF DU PHASAGE ──────────────────────────────────────────────
+  // Pipeline window.print() : le navigateur fait une vraie pagination texte
+  // (pas de rastérisation comme html2pdf) → coupures de page propres et
+  // qualité d'impression nette. Même approche que le Bilan semaine et le
+  // Compte rendu client.
+  const buildRapportHTML = () => {
+    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+    const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
+    const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const titre = chantier?.nom || chantierId;
+
+    // ── Bandeau en-tête (table-layout pour rendu prévisible)
+    const kpiCell = (val, label, color) => `
+      <td style="padding:10pt 12pt;vertical-align:middle;text-align:center;border-left:1pt solid rgba(255,255,255,.12);white-space:nowrap;">
+        <div style="color:${color};font-size:13pt;font-weight:800;line-height:1;">${val}</div>
+        <div style="color:rgba(255,255,255,.55);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:3pt;">${label}</div>
+      </td>`;
+
+    // ── Carte ouvrage
+    const ouvrageHTML = (o, lotColor) => {
+      const taches = o.taches || [];
+      const av = avancementOuvrage(o);
+      const avColor = av >= 100 ? "#22c55e" : lotColor;
+      const ouvragesInfos = [];
+      if (o.heures_devis) ouvragesInfos.push(`${o.heures_devis}h`);
+      if (o.quantite)     ouvragesInfos.push(`${o.quantite} ${o.unite || ""}`);
+      if (o.prix_ht)      ouvragesInfos.push(`${o.prix_ht.toLocaleString("fr-FR")} €`);
+      const tachesHTML = taches.length === 0 ? "" : `
+        <ul style="margin:4pt 0 0;padding:0 0 0 14pt;list-style:none;">
+          ${taches.map(t => {
+            const tav = parseInt(t.avancement) || 0;
+            const tavColor = tav >= 100 ? "#22c55e" : "#666";
+            const hr = tacheHeuresReelles(t);
+            const he = parseFloat(t.heures_estimees);
+            const heuresStr = (hr > 0 || (he != null && !isNaN(he)))
+              ? ` <span style="color:#888;font-size:8.5pt;">(${hr || 0}h/${he != null && !isNaN(he) ? `${he}h` : "—"})</span>`
+              : "";
+            const ouvriersStr = Array.isArray(t.ouvriers) && t.ouvriers.length > 0
+              ? ` <span style="color:#5b8af5;font-size:8.5pt;font-weight:600;">${t.ouvriers.map(esc).join(", ")}</span>`
+              : "";
+            const dateStr = t.date_prevue ? ` <span style="color:#999;font-size:8pt;">📅 ${new Date(t.date_prevue).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span>` : "";
+            return `<li style="font-size:9pt;color:#222;padding:2pt 0;break-inside:avoid;page-break-inside:avoid;">
+              <span style="color:${tavColor};font-weight:800;display:inline-block;width:32pt;">${tav}%</span>
+              <span>${esc(t.nom || "(sans nom)")}</span>${heuresStr}${ouvriersStr}${dateStr}
+            </li>`;
+          }).join("")}
+        </ul>`;
+      return `
+        <div class="ouvrage" style="border:1pt solid #e0e0e0;border-left:4pt solid ${lotColor};margin:0 0 8pt;padding:8pt 12pt;break-inside:avoid;page-break-inside:avoid;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8pt;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:800;font-size:10pt;color:#1a1f2e;">${esc(o.libelle || "(sans libellé)")}</div>
+              ${ouvragesInfos.length > 0 ? `<div style="font-size:8.5pt;color:#666;margin-top:2pt;">${ouvragesInfos.join(" · ")}</div>` : ""}
+            </div>
+            <div style="text-align:right;white-space:nowrap;">
+              <span style="font-size:11pt;font-weight:800;color:${avColor};">${av}%</span>
+            </div>
+          </div>
+          ${tachesHTML}
+        </div>`;
+    };
+
+    // ── Sections par lot
+    const lotsAvecOuvrages = lots
+      .map(l => ({ ...l, _ouvrages: ouvragesDuLot(l.id) }))
+      .filter(l => l._ouvrages.length > 0);
+    const orphansList = ouvragesDuLot("_orphans");
+
+    const lotSection = (lotLabel, lotColor, codePrefix, lotOuvrages, av) => `
+      <section style="margin:0 0 14pt;">
+        <div class="lot-header" style="background:color-mix(in srgb, ${lotColor} 18%, transparent);border-left:5pt solid ${lotColor};padding:8pt 12pt;margin:0 0 6pt;display:flex;align-items:center;justify-content:space-between;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid;">
+          <div style="display:flex;align-items:center;gap:10pt;">
+            <span style="font-size:13pt;font-weight:800;color:#1a1f2e;letter-spacing:.3pt;text-transform:uppercase;">${esc(lotLabel)}</span>
+            ${codePrefix ? `<span style="font-size:8pt;font-weight:700;letter-spacing:.5pt;color:#444;background:rgba(0,0,0,.06);padding:1pt 6pt;border-radius:3pt;">${esc(codePrefix)}</span>` : ""}
+            <span style="font-size:8pt;color:#666;">${lotOuvrages.length} ouvrage${lotOuvrages.length>1?"s":""}</span>
+          </div>
+          <span style="font-size:12pt;font-weight:800;color:${av >= 100 ? "#22c55e" : lotColor};">${av}%</span>
+        </div>
+        ${lotOuvrages.map(o => ouvrageHTML(o, lotColor)).join("")}
+      </section>`;
+
+    const sectionsHTML = lotsAvecOuvrages.map(l =>
+      lotSection(l.label, l.couleur, l.code_prefixe, l._ouvrages, avancementLot(l.id))
+    ).join("");
+    const orphansHTML = orphansList.length > 0
+      ? lotSection("Sans lot", "#888888", "", orphansList, avancementLot("_orphans"))
+      : "";
+
+    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Phasage ${esc(titre)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.4;}
+  .page{max-width:780pt;margin:0 auto;}
+  .ouvrage, .lot-header, ul, li { break-inside: avoid; page-break-inside: avoid; }
+  .lot-header { page-break-after: avoid; }
+  @page{margin:14mm 12mm 16mm;size:A4;}
+  @page {
+    @bottom-left   { content: "Profero Rénovation"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-center { content: "${esc(titre)}"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-right  { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+  }
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body><div class="page">
+  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;margin:0 0 14pt;">
+    <tr>
+      <td style="padding:12pt 16pt;vertical-align:middle;width:80pt;">
+        <img src="${logoUrl}" alt="Profero" style="height:30pt;object-fit:contain;display:block;"/>
+      </td>
+      <td style="padding:12pt 8pt;vertical-align:middle;white-space:nowrap;">
+        <div style="color:#f5c400;font-size:7pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;">Phasage chantier</div>
+        <div style="color:#fff;font-size:15pt;font-weight:800;margin-top:2pt;line-height:1.1;">${esc(titre)}</div>
+        <div style="color:rgba(255,255,255,.5);font-size:8pt;margin-top:3pt;">Édité le ${dateGen}</div>
+      </td>
+      ${kpiCell(`${avancementChantier}%`, "Avancement", avancementChantier >= 100 ? "#50c878" : "#f5c400")}
+      ${kpiCell(`${Math.round(prixHTChantier).toLocaleString("fr-FR")} €`, "Vendu", "#f5c400")}
+      ${kpiCell(`${Math.round(coutMOChantier).toLocaleString("fr-FR")} €`, "Coût MO", "#f5c400")}
+      ${kpiCell(`${margeChantier >= 0 ? "+" : ""}${Math.round(margeChantier).toLocaleString("fr-FR")} €`,
+        `Marge ${prixHTChantier > 0 ? margePctChantier.toFixed(0) + "%" : ""}`,
+        margeChantier >= 0 ? "#50c878" : "#ff6b6b")}
+    </tr>
+  </table>
+  ${sectionsHTML || `<div style="text-align:center;padding:40pt;color:#999;">Aucun ouvrage dans ce phasage.</div>`}
+  ${orphansHTML}
+</div></body></html>`;
+  };
+
+  const exportRapportPDF = () => {
+    try {
+      const html = buildRapportHTML();
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `Phasage-${chantier?.nom || chantierId}`;
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+    } catch (e) {
+      alert("Erreur génération PDF : " + (e.message || e));
+    }
+  };
+
   // ── Statut sauvegarde ──
   const statusColor = autoSaveStatus === "saved"  ? "#22c55e"
                     : autoSaveStatus === "saving" ? acc.accent
@@ -755,9 +896,22 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         {chantierId && (
           <>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={onFilePicked} style={{ display: "none" }}/>
-            <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
+            <button onClick={exportRapportPDF} title="Exporter le phasage en PDF"
               style={{
                 marginLeft: "auto",
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "8px 14px", borderRadius: RADIUS.md,
+                border: `1px solid ${T.border}`, background: T.card, color: T.textSub,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+                transition: "all .12s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = acc.accent; e.currentTarget.style.borderColor = acc.border; }}
+              onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.borderColor = T.border; }}>
+              <Icon as={FileDown} size={14}/>
+              PDF
+            </button>
+            <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
+              style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 width: 36, height: 36, borderRadius: RADIUS.md,
                 border: `1px solid ${T.border}`, background: T.card, color: T.textSub,
