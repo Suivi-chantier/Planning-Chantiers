@@ -34,3 +34,7 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Données locales d'import (Excel articles, exports fournisseurs…)
+# On garde le dossier scripts/ versionné mais pas son sous-dossier data/.
+scripts/data/
