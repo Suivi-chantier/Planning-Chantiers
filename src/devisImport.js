@@ -60,15 +60,53 @@ export function detectLot(rowCells, lots) {
   return bestScore >= 0.8 ? best.id : null;
 }
 
-// Match d'un libellé d'ouvrage contre la bibliothèque. Renvoie le meilleur
-// candidat au-dessus d'un seuil de 0.4 (assez permissif).
+// Extrait un éventuel code en début de libellé (ex : "E-001 Prise courant"
+// → { prefix: "E", number: "001", full: "E-001", rest: "Prise courant" }).
+// Accepte plusieurs séparateurs : "E-001", "E001", "E 001", "E.001".
+// Renvoie null si pas de code détecté.
+export function extractCode(libelle) {
+  if (!libelle) return null;
+  const s = String(libelle).trim();
+  const m = s.match(/^([A-Z]{1,3})[\s\-\._]?(\d{1,5})\b\s*(.*)$/i);
+  if (!m) return null;
+  const prefix = m[1].toUpperCase();
+  const number = m[2];
+  return { prefix, number, full: `${prefix}-${number}`, rest: (m[3] || "").trim() };
+}
+
+// Détermine le lot d'un libellé via son préfixe de code (ex : "E-001" →
+// lot dont code_prefixe === "E"). Renvoie l'id du lot ou null.
+export function detectLotByCode(libelle, lots) {
+  const code = extractCode(libelle);
+  if (!code) return null;
+  const lot = lots.find(l => (l.code_prefixe || "").toUpperCase() === code.prefix);
+  return lot ? lot.id : null;
+}
+
+// Match d'un libellé d'ouvrage contre la bibliothèque. On essaie d'abord un
+// match par code exact (si les deux libellés ont un code identique), sinon
+// on retombe sur la similarité Jaccard (seuil 0.4).
 export function matchBiblio(libelle, bibliotheque = []) {
+  const codeIn = extractCode(libelle);
+  if (codeIn) {
+    // Match exact par code en début de libellé biblio
+    for (const b of bibliotheque) {
+      const codeB = extractCode(b.libelle);
+      if (codeB && codeB.full === codeIn.full) {
+        return { match: b, score: 1, by: "code" };
+      }
+    }
+  }
+  // Fallback similarité libellé (sans le code, pour pas le compter)
+  const lblIn = codeIn?.rest || libelle;
   let best = null, bestScore = 0;
   for (const b of bibliotheque) {
-    const s = scoreSim(libelle, b.libelle);
+    const codeB = extractCode(b.libelle);
+    const lblB = codeB?.rest || b.libelle;
+    const s = scoreSim(lblIn, lblB);
     if (s > bestScore) { bestScore = s; best = b; }
   }
-  return bestScore >= 0.4 ? { match: best, score: bestScore } : { match: null, score: 0 };
+  return bestScore >= 0.4 ? { match: best, score: bestScore, by: "libelle" } : { match: null, score: 0, by: null };
 }
 
 // Heuristique pour distinguer une rangée de titre/note (à ignorer) d'une
@@ -161,17 +199,25 @@ export async function parseDevisExcel(file, lots = [], bibliotheque = []) {
     const libelle = String(row[colL] || "").trim();
     if (!libelle || libelle.length < 3) continue;
 
+    // Le lot prioritaire = celui déduit du préfixe du code (ex : "E-001"
+    // → lot Électricité). Si pas de code ou pas de lot avec ce préfixe,
+    // on retombe sur le lot courant (issu d'un en-tête de section).
+    const lotIdByCode = detectLotByCode(libelle, lots);
+    const lot_id = lotIdByCode || currentLotId;
+
     const bm = matchBiblio(libelle, bibliotheque);
     items.push({
       _key: `imp_${i}`,
       libelle,
-      lot_id: currentLotId,
+      code: extractCode(libelle)?.full || null,
+      lot_id,
       heures,
       quantite,
       prix_ht,
       unite: bm.match?.unite || "U",
       match: bm.match,
       score: bm.score,
+      matchBy: bm.by, // "code" | "libelle" | null
       selectionne: true,
     });
   }

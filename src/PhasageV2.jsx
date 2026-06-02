@@ -655,8 +655,9 @@ function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, on
     });
     return Array.from(map.entries());
   })();
-  const nbSel    = items.filter(i => i.selectionne).length;
-  const nbMatch  = items.filter(i => i.match).length;
+  const nbSel       = items.filter(i => i.selectionne).length;
+  const nbMatchCode = items.filter(i => i.matchBy === "code").length;
+  const nbMatchLbl  = items.filter(i => i.matchBy === "libelle").length;
 
   const lotLabel = (id) => id === "_orphans" ? "Sans lot" : (lots.find(l => l.id === id)?.label || id);
   const lotCouleur = (id) => id === "_orphans" ? T.textMuted : (lots.find(l => l.id === id)?.couleur || T.textMuted);
@@ -688,7 +689,7 @@ function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, on
             <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>
               {parsing ? "Analyse en cours…"
                 : error ? "Erreur"
-                : `${items.length} ouvrage${items.length > 1 ? "s" : ""} détecté${items.length > 1 ? "s" : ""} · ${nbMatch} matché${nbMatch > 1 ? "s" : ""} en bibliothèque · ${nbSel} sélectionné${nbSel > 1 ? "s" : ""}`}
+                : `${items.length} ouvrage${items.length > 1 ? "s" : ""} détecté${items.length > 1 ? "s" : ""} · ${nbMatchCode} par code · ${nbMatchLbl} par similarité · ${nbSel} sélectionné${nbSel > 1 ? "s" : ""}`}
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{
@@ -770,11 +771,18 @@ function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, on
                         <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
                           {it.match ? (
                             <>
-                              <Icon as={Check} size={10} color="#22c55e"/>
-                              <span>Matché : {it.match.libelle} ({(it.match.sous_taches || []).length} sous-tâches)</span>
+                              <Icon as={Check} size={10} color={it.matchBy === "code" ? "#22c55e" : "#5b8af5"}/>
+                              <span>
+                                {it.matchBy === "code"
+                                  ? <>Match par <strong>code</strong> ({it.code})</>
+                                  : <>Match par similarité ({Math.round(it.score * 100)}%)</>}
+                                {" · "}{(it.match.sous_taches || []).length} sous-tâche{(it.match.sous_taches || []).length > 1 ? "s" : ""}
+                              </span>
                             </>
                           ) : (
-                            <span style={{ fontStyle: "italic" }}>Pas de match biblio — créé sans tâches</span>
+                            <span style={{ fontStyle: "italic" }}>
+                              {it.code ? `Code ${it.code} inconnu en biblio — créé sans tâches` : "Pas de match biblio — créé sans tâches"}
+                            </span>
                           )}
                         </div>
                       </div>

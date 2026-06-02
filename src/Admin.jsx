@@ -1698,6 +1698,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 <>
                   <input className="ti" value={l.label||""} onChange={e=>updLot(i,{label:e.target.value})}
                     placeholder="Libellé du lot" style={{flex:"2 1 200px",minWidth:140,fontWeight:600}}/>
+                  <input className="ti" value={l.code_prefixe||""}
+                    onChange={e=>updLot(i,{code_prefixe:e.target.value.toUpperCase().slice(0,3)})}
+                    placeholder="E" title="Préfixe de code (ex : E pour Électricité). Sert à l'import devis : 'E-001 ...' sera auto-attribué à ce lot."
+                    style={{width:60,textAlign:"center",fontWeight:700,letterSpacing:1}}/>
                   <button className="btn-d" onClick={()=>setLotToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
                     <Icon as={Trash2} size={11}/>
                     Supprimer
