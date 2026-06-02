@@ -654,6 +654,32 @@ function PageRapportMobile() {
   // Helper format heures sans drift flottant
   const fmtH = (n) => (+n.toFixed(2)).toString();
 
+  // Regroupement par chantier — quand l'ouvrier a 2+ chantiers dans la journée,
+  // on rend une section par chantier (tâches + photos + besoins regroupés)
+  // au lieu d'éclater photos/besoins en bas du formulaire. Si 1 seul chantier,
+  // pas d'en-tête de section (visuel inchangé). Tâches libres sans chantier
+  // sélectionné → groupe "Autres tâches" en bas. L'ordre des groupes suit
+  // l'ordre d'apparition des tâches dans `taches`.
+  const chantierGroups = (() => {
+    const map = new Map();
+    taches.forEach((t, idx) => {
+      const key = t.chantier_id || "_libres";
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          cId: t.chantier_id || null,
+          chantier_nom: t.chantier_id ? (t.chantier_nom || "Chantier") : "Autres tâches",
+          chantier_couleur: t.chantier_couleur || T.info,
+          isLibres: !t.chantier_id,
+          items: [],
+        });
+      }
+      map.get(key).items.push({ t, idx });
+    });
+    return [...map.values()];
+  })();
+  const hasMultipleGroups = chantierGroups.length > 1;
+
   return (
     <div style={S.wrap}>
       <div style={S.header}>
@@ -887,7 +913,37 @@ function PageRapportMobile() {
         </div>
       )}
 
-      {taches.map((t, idx) => {
+      {chantierGroups.map(group => (
+        <React.Fragment key={group.key}>
+          {(hasMultipleGroups || group.isLibres) && (
+            <div style={{
+              margin:"16px 16px 0",
+              padding:"12px 14px",
+              background: group.isLibres ? T.bg : `${group.chantier_couleur}1F`,
+              borderRadius: RADIUS.lg,
+              borderLeft: `4px solid ${group.isLibres ? T.borderHover : group.chantier_couleur}`,
+              display:"flex", alignItems:"center", gap:10,
+            }}>
+              {!group.isLibres && (
+                <span style={{
+                  width:14, height:14, borderRadius:"50%",
+                  background: group.chantier_couleur,
+                  boxShadow: `0 0 0 3px ${group.chantier_couleur}33`,
+                  flexShrink: 0,
+                }}/>
+              )}
+              <div style={{flex:1, minWidth:0}}>
+                <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:T.textMuted}}>
+                  {group.isLibres ? "Tâches ajoutées" : "Chantier"}
+                </div>
+                <div style={{fontSize:FONT.md.size+1,fontWeight:800,color:T.text,letterSpacing:-0.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {group.chantier_nom}
+                </div>
+              </div>
+            </div>
+          )}
+
+      {group.items.map(({ t, idx }) => {
         const dureeOk    = t.statut==="non_faite" || (t.heures_reelles && parseFloat(t.heures_reelles)>0);
         const avRenseigne = !(t.avancement===""||t.avancement===undefined||t.avancement===null);
         const av100 = parseInt(t.avancement)===100;
@@ -1122,7 +1178,81 @@ function PageRapportMobile() {
         );
       })}
 
-      {/* Ajouter tâche libre */}
+      {/* Photos + besoins du chantier — affichés dans la section du chantier
+          (pas pour le groupe "Autres tâches" qui n'a pas encore de chantier). */}
+      {group.cId && (
+        <>
+          <div style={{...S.card, border:`1.5px solid ${group.chantier_couleur}55`, background:`${group.chantier_couleur}0A`}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+              <span style={{...S.sectionTitle(T.text), marginBottom:0}}>
+                <Icon as={Camera} size={13} strokeWidth={2.2}/>
+                Photos du chantier
+              </span>
+            </div>
+            <PhotosPicker
+              photos={photosChantier[group.cId] || []}
+              onChange={(arr)=>setPhotosChantier(p=>({...p,[group.cId]:arr}))}
+              pathPrefix={`rapports/${ouvrier}/${dateKey}/chantier-${group.cId}`}
+              color={group.chantier_couleur}
+              label="Vue globale, avancement…"
+            />
+            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:8,fontStyle:"italic"}}>
+              Visibles dans la fiche chantier et dans le bilan d'équipe.
+            </div>
+          </div>
+
+          {(() => {
+            const nbArticles = Object.values(paniers[group.cId]||{}).filter(v=>v.qty>0).length;
+            const VIOLET = "#9040c0";
+            return (
+              <div style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:6}}>
+                  <span style={{...S.sectionTitle(VIOLET), marginBottom:0}}>
+                    <Icon as={ShoppingCart} size={13} strokeWidth={2.2}/>
+                    Besoins commande
+                  </span>
+                  {nbArticles > 0 && (
+                    <span style={{background:"rgba(176,96,255,0.2)",color:VIOLET,borderRadius:RADIUS.pill,
+                      padding:"2px 10px",fontSize:FONT.sm.size,fontWeight:700}}>
+                      {nbArticles} article{nbArticles>1?"s":""}
+                    </span>
+                  )}
+                </div>
+
+                {nbArticles > 0 && (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                    {Object.values(paniers[group.cId]||{}).filter(v=>v.qty>0).map(({article,qty})=>(
+                      <div key={article.id} style={{background:"rgba(176,96,255,0.12)",borderRadius:RADIUS.lg,
+                        padding:"4px 10px",fontSize:FONT.sm.size,fontWeight:700,color:"#6020a0"}}>
+                        {qty}× {article.nom}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button onClick={()=>setBesoinDrawer(group.cId)} style={{
+                  width:"100%",padding:"12px",border:"1.5px dashed rgba(176,96,255,0.4)",
+                  borderRadius:RADIUS.xl,fontSize:FONT.base.size,fontWeight:700,cursor:"pointer",
+                  fontFamily:"inherit",background:"transparent",color:VIOLET,
+                  display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                }}>
+                  <Icon as={nbArticles > 0 ? Pencil : ShoppingCart} size={14} strokeWidth={2.2}/>
+                  {nbArticles > 0 ? "Modifier ma sélection" : "Choisir dans la bibliothèque"}
+                </button>
+
+                <div style={{fontSize:FONT.xs.size+1,color:VIOLET,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+                  <Icon as={Zap} size={11} strokeWidth={2.2}/>
+                  Sera transmis automatiquement dans l'onglet Commandes
+                </div>
+              </div>
+            );
+          })()}
+        </>
+      )}
+        </React.Fragment>
+      ))}
+
+      {/* Ajouter tâche libre — bouton global en bas de tous les groupes */}
       <div style={{padding:"0 16px 8px"}}>
         <button onClick={addTacheLibre} style={{
           width:"100%",padding:"12px",border:`1.5px dashed ${T.borderHover}`,borderRadius:RADIUS.xl,
@@ -1134,94 +1264,6 @@ function PageRapportMobile() {
           Ajouter une tâche
         </button>
       </div>
-
-      {/* Photos générales du chantier */}
-      {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
-        const ct = taches.find(t=>t.chantier_id===cId);
-        const couleur = ct?.chantier_couleur || T.info;
-        return (
-          <div key={`ph-${cId}`} style={{...S.card, border:`1.5px solid ${couleur}55`, background:`${couleur}0A`}}>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
-              <span style={{...S.sectionTitle(T.text), marginBottom:0}}>
-                <Icon as={Camera} size={13} strokeWidth={2.2}/>
-                Photos du chantier
-              </span>
-              {ct?.chantier_nom && (
-                <span style={{background:`${couleur}44`,color:T.text,
-                  borderRadius:RADIUS.sm,padding:"0 6px",fontSize:FONT.xs.size-1,fontWeight:700,textTransform:"uppercase"}}>
-                  {ct.chantier_nom}
-                </span>
-              )}
-            </div>
-            <PhotosPicker
-              photos={photosChantier[cId] || []}
-              onChange={(arr)=>setPhotosChantier(p=>({...p,[cId]:arr}))}
-              pathPrefix={`rapports/${ouvrier}/${dateKey}/chantier-${cId}`}
-              color={couleur}
-              label="Vue globale, avancement…"
-            />
-            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:8,fontStyle:"italic"}}>
-              Visibles dans la fiche chantier et dans le bilan d'équipe.
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Besoins en commande par chantier */}
-      {[...new Set(taches.filter(t=>t.chantier_id).map(t=>t.chantier_id))].map(cId => {
-        const ct = taches.find(t=>t.chantier_id===cId);
-        const couleur = ct?.chantier_couleur || T.info;
-        const nbArticles = Object.values(paniers[cId]||{}).filter(v=>v.qty>0).length;
-        const VIOLET = "#9040c0";
-        return (
-          <div key={cId} style={{...S.card, border:"1.5px solid rgba(176,96,255,0.3)", background:"rgba(176,96,255,0.04)"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:6}}>
-              <span style={{...S.sectionTitle(VIOLET), marginBottom:0}}>
-                <Icon as={ShoppingCart} size={13} strokeWidth={2.2}/>
-                Besoins commande
-                {ct?.chantier_nom && (
-                  <span style={{marginLeft:2,background:`${couleur}44`,color:T.text,
-                    borderRadius:RADIUS.sm,padding:"0 6px",fontSize:FONT.xs.size-1,fontWeight:700,textTransform:"uppercase"}}>
-                    {ct.chantier_nom}
-                  </span>
-                )}
-              </span>
-              {nbArticles > 0 && (
-                <span style={{background:"rgba(176,96,255,0.2)",color:VIOLET,borderRadius:RADIUS.pill,
-                  padding:"2px 10px",fontSize:FONT.sm.size,fontWeight:700}}>
-                  {nbArticles} article{nbArticles>1?"s":""}
-                </span>
-              )}
-            </div>
-
-            {nbArticles > 0 && (
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
-                {Object.values(paniers[cId]||{}).filter(v=>v.qty>0).map(({article,qty})=>(
-                  <div key={article.id} style={{background:"rgba(176,96,255,0.12)",borderRadius:RADIUS.lg,
-                    padding:"4px 10px",fontSize:FONT.sm.size,fontWeight:700,color:"#6020a0"}}>
-                    {qty}× {article.nom}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <button onClick={()=>setBesoinDrawer(cId)} style={{
-              width:"100%",padding:"12px",border:"1.5px dashed rgba(176,96,255,0.4)",
-              borderRadius:RADIUS.xl,fontSize:FONT.base.size,fontWeight:700,cursor:"pointer",
-              fontFamily:"inherit",background:"transparent",color:VIOLET,
-              display:"flex",alignItems:"center",justifyContent:"center",gap:6,
-            }}>
-              <Icon as={nbArticles > 0 ? Pencil : ShoppingCart} size={14} strokeWidth={2.2}/>
-              {nbArticles > 0 ? "Modifier ma sélection" : "Choisir dans la bibliothèque"}
-            </button>
-
-            <div style={{fontSize:FONT.xs.size+1,color:VIOLET,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
-              <Icon as={Zap} size={11} strokeWidth={2.2}/>
-              Sera transmis automatiquement dans l'onglet Commandes
-            </div>
-          </div>
-        );
-      })}
 
       {/* Drawer bibliothèque */}
       {besoinDrawer && (() => {
