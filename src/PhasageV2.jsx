@@ -271,20 +271,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     }
     return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
   };
-  // Détails de calcul (affichés en tooltip pour debug) — permettent de vérifier
-  // ce qui est réellement stocké quand le résultat surprend.
+  // Détails de calcul (affichés en tooltip pour debug). Le ratio % d'avancement
+  // multiplié par une charge (heures ou euros) donne la quantité ACCOMPLIE
+  // dans la même unité. Ex : 10% × 10h = 1h faite, 50% × 8000€ = 4000€ vendus
+  // accomplis. On affiche les valeurs avec leurs vraies unités, plus le ratio
+  // final en pourcentage.
+  const fmt1 = (n) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
   const avancementOuvrageDetail = (ouvrage) => {
     const taches = ouvrage.taches || [];
     if (taches.length === 0) return "Aucune tâche";
     const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
     if (totalHE > 0) {
-      const num = taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0);
       const lines = taches.map((t, i) => {
         const av = parseFloat(t.avancement) || 0;
         const h  = parseFloat(t.heures_estimees) || 0;
-        return `  ${i+1}. "${t.nom || "(sans nom)"}" : ${av}% × ${h}h = ${av*h}`;
+        const faites = (av / 100) * h;
+        return `  ${i+1}. "${t.nom || "(sans nom)"}" : ${av}% × ${fmt1(h)}h = ${fmt1(faites)}h`;
       });
-      return `Calcul pondéré par heures estimées :\n${lines.join("\n")}\n\nNumérateur = ${num}\nTotal heures = ${totalHE}\n→ ${num} / ${totalHE} = ${(num/totalHE).toFixed(2)} %`;
+      const heuresFaites = taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) / 100) * (parseFloat(t.heures_estimees) || 0), 0);
+      return `Calcul pondéré par heures estimées :\n${lines.join("\n")}\n\nHeures faites = ${fmt1(heuresFaites)}h\nTotal heures = ${fmt1(totalHE)}h\n→ ${fmt1(heuresFaites)} / ${fmt1(totalHE)} = ${(heuresFaites/totalHE*100).toFixed(2)} %`;
     }
     const moy = taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length;
     return `Aucune heure estimée — moyenne simple :\n${taches.map((t, i) => `  ${i+1}. "${t.nom || "(sans nom)"}" : ${parseFloat(t.avancement) || 0}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %`;
@@ -297,10 +302,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       const lines = lotOuvrages.map((o, i) => {
         const a = avancementOuvrage(o);
         const p = parseFloat(o.prix_ht) || 0;
-        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${(a*p).toLocaleString("fr-FR")}`;
+        const accompli = (a / 100) * p;
+        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${accompli.toLocaleString("fr-FR")} €`;
       });
-      const num = lotOuvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0);
-      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\nNumérateur = ${num.toLocaleString("fr-FR")}\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${(num/totalPrix).toFixed(2)} %`;
+      const eurosAccomplis = lotOuvrages.reduce((s, o) => s + (avancementOuvrage(o) / 100) * (parseFloat(o.prix_ht) || 0), 0);
+      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\n€ accomplis = ${eurosAccomplis.toLocaleString("fr-FR")} €\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${eurosAccomplis.toLocaleString("fr-FR")} / ${totalPrix.toLocaleString("fr-FR")} = ${(eurosAccomplis/totalPrix*100).toFixed(2)} %`;
     }
     const moy = lotOuvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / lotOuvrages.length;
     return `Aucun prix HT renseigné — moyenne simple :\n${lotOuvrages.map((o, i) => `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${avancementOuvrage(o)}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %`;
@@ -308,7 +314,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const avancementTacheDetail = (t) => {
     const av = parseFloat(t.avancement) || 0;
     const h  = parseFloat(t.heures_estimees);
-    return `Avancement saisi : ${av} %${h != null && !isNaN(h) ? `\nHeures estimées : ${h} h\nContribution à l'ouvrage : ${av}% × ${h}h = ${av*h}` : ""}`;
+    if (h != null && !isNaN(h)) {
+      const faites = (av / 100) * h;
+      return `Avancement saisi : ${av} %\nHeures estimées : ${fmt1(h)}h\nHeures faites : ${av}% × ${fmt1(h)}h = ${fmt1(faites)}h`;
+    }
+    return `Avancement saisi : ${av} %\n(Pas d'heures estimées)`;
   };
   // Lot = moyenne des avancements de ses ouvrages, pondérée par prix_ht. Si
   // aucun ouvrage n'a prix_ht → moyenne simple. Le pseudo-lot "_orphans"
@@ -340,7 +350,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     }
     return Math.round(ouvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / ouvrages.length);
   })();
-  // Détail du calcul global (tooltip debug)
+  // Détail du calcul global (tooltip debug) — mêmes conventions d'unité que
+  // les autres tooltips : avancement × prix = euros accomplis.
   const avancementChantierDetail = (() => {
     if (ouvrages.length === 0) return "Aucun ouvrage";
     const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
@@ -348,10 +359,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       const lines = ouvrages.map((o, i) => {
         const a = avancementOuvrage(o);
         const p = parseFloat(o.prix_ht) || 0;
-        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${(a*p).toLocaleString("fr-FR")}`;
+        const accompli = (a / 100) * p;
+        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${accompli.toLocaleString("fr-FR")} €`;
       });
-      const num = ouvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0);
-      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\nNumérateur = ${num.toLocaleString("fr-FR")}\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${(num/totalPrix).toFixed(2)} %`;
+      const eurosAccomplis = ouvrages.reduce((s, o) => s + (avancementOuvrage(o) / 100) * (parseFloat(o.prix_ht) || 0), 0);
+      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\n€ accomplis = ${eurosAccomplis.toLocaleString("fr-FR")} €\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${eurosAccomplis.toLocaleString("fr-FR")} / ${totalPrix.toLocaleString("fr-FR")} = ${(eurosAccomplis/totalPrix*100).toFixed(2)} %`;
     }
     return "Aucun prix HT renseigné — moyenne simple des % des ouvrages";
   })();
