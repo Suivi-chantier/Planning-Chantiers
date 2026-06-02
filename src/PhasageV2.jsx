@@ -221,6 +221,32 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     return "#e15a5a";
   };
 
+  // ─── COÛTS & MARGE ──────────────────────────────────────────────────────
+  // Coût MO d'une tâche : pour chaque ouvrier assigné, on cumule
+  // heures_reelles × son taux horaire. Si N ouvriers assignés, le coût total
+  // est N × heures × taux_moyen — car on considère que chacun a travaillé
+  // ces heures réelles en parallèle (lecture la plus fidèle pour un chantier).
+  const coutMOTache = (t) => {
+    const hr = tacheHeuresReelles(t);
+    if (hr === 0) return 0;
+    const ouvs = Array.isArray(t.ouvriers) ? t.ouvriers.filter(Boolean) : [];
+    if (ouvs.length === 0) return 0;
+    return ouvs.reduce((s, nom) => s + hr * (parseFloat(tauxHoraires?.[nom]) || 0), 0);
+  };
+  const coutMOOuvrage  = (o) => (o.taches || []).reduce((s, t) => s + coutMOTache(t), 0);
+  const coutMOLot      = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + coutMOOuvrage(o), 0);
+  const coutMOChantier = ouvrages.reduce((s, o) => s + coutMOOuvrage(o), 0);
+
+  // Prix HT (vendu) au niveau ouvrage / lot / chantier.
+  const prixHTOuvrage  = (o) => parseFloat(o.prix_ht) || 0;
+  const prixHTLot      = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + prixHTOuvrage(o), 0);
+  const prixHTChantier = ouvrages.reduce((s, o) => s + prixHTOuvrage(o), 0);
+
+  // Marge brute = prix HT − coût MO (matériaux pas encore intégrés).
+  const margeChantier  = prixHTChantier - coutMOChantier;
+  const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
+  const fmtEur = (n) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+
   const updateTache = (ouvrageId, tacheId, patch) => {
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: (o.taches || []).map(t => t.id === tacheId ? { ...t, ...patch } : t) }
@@ -975,47 +1001,64 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         </div>
       )}
 
-      {/* ── Barre d'avancement chantier (persistante en bas) ── */}
-      {chantierId && !loadingPhasage && ouvrages.length > 0 && (
-        <div style={{
-          flexShrink: 0,
-          borderTop: `1px solid ${T.border}`,
-          background: T.surface,
-          padding: "12px 22px",
-          display: "flex", alignItems: "center", gap: 14,
-        }}>
+      {/* ── Footer chantier (KPI + barre d'avancement persistante) ── */}
+      {chantierId && !loadingPhasage && ouvrages.length > 0 && (() => {
+        const margeColor = margeChantier < 0 ? "#e15a5a"
+                         : margePctChantier < 15 ? "#f5a623"
+                         : "#22c55e";
+        return (
           <div style={{
-            fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.textMuted,
-            letterSpacing: .6, textTransform: "uppercase", whiteSpace: "nowrap",
+            flexShrink: 0,
+            borderTop: `1px solid ${T.border}`,
+            background: T.surface,
+            padding: "10px 22px 12px",
+            display: "flex", flexDirection: "column", gap: 8,
           }}>
-            Avancement chantier
+            {/* Ligne KPI */}
+            <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+              <KpiBlock T={T} label="Vendu" value={fmtEur(prixHTChantier)}/>
+              <KpiBlock T={T} label="Coût MO" value={fmtEur(coutMOChantier)}
+                accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}/>
+              <KpiBlock T={T} label="Marge" value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
+                sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}%` : null}
+                accent={margeColor}/>
+            </div>
+            {/* Ligne avancement */}
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.textMuted,
+                letterSpacing: .6, textTransform: "uppercase", whiteSpace: "nowrap",
+              }}>
+                Avancement
+              </div>
+              <div title={avancementChantierDetail}
+                style={{
+                  flex: 1, position: "relative", height: 18,
+                  background: "rgba(255,255,255,0.06)", borderRadius: 9,
+                  overflow: "hidden", cursor: "help",
+                  border: `1px solid ${T.border}`,
+                }}>
+                <div style={{
+                  width: `${Math.min(100, avancementChantier)}%`, height: "100%",
+                  background: avancementChantier >= 100
+                    ? "linear-gradient(90deg, #16a34a, #22c55e)"
+                    : `linear-gradient(90deg, color-mix(in srgb, ${acc.accent} 80%, transparent), ${acc.accent})`,
+                  transition: "width .4s ease",
+                  boxShadow: avancementChantier > 0 ? `0 0 8px color-mix(in srgb, ${acc.accent} 50%, transparent)` : "none",
+                }}/>
+              </div>
+              <div style={{
+                fontSize: FONT.lg.size, fontWeight: 800,
+                color: avancementChantier >= 100 ? "#22c55e" : T.text,
+                minWidth: 54, textAlign: "right",
+                letterSpacing: -.3,
+              }}>
+                {avancementChantier}%
+              </div>
+            </div>
           </div>
-          <div title={avancementChantierDetail}
-            style={{
-              flex: 1, position: "relative", height: 18,
-              background: "rgba(255,255,255,0.06)", borderRadius: 9,
-              overflow: "hidden", cursor: "help",
-              border: `1px solid ${T.border}`,
-            }}>
-            <div style={{
-              width: `${Math.min(100, avancementChantier)}%`, height: "100%",
-              background: avancementChantier >= 100
-                ? "linear-gradient(90deg, #16a34a, #22c55e)"
-                : `linear-gradient(90deg, color-mix(in srgb, ${acc.accent} 80%, transparent), ${acc.accent})`,
-              transition: "width .4s ease",
-              boxShadow: avancementChantier > 0 ? `0 0 8px color-mix(in srgb, ${acc.accent} 50%, transparent)` : "none",
-            }}/>
-          </div>
-          <div style={{
-            fontSize: FONT.lg.size, fontWeight: 800,
-            color: avancementChantier >= 100 ? "#22c55e" : T.text,
-            minWidth: 54, textAlign: "right",
-            letterSpacing: -.3,
-          }}>
-            {avancementChantier}%
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Modale import devis ── */}
       {importState && (
@@ -1149,6 +1192,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </ItemEditModal>
         );
       })()}
+    </div>
+  );
+}
+
+// ─── KPI compact (footer phasage v2) ──────────────────────────────────────────
+function KpiBlock({ T, label, value, sub, accent }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+      <div style={{
+        fontSize: 9, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase",
+        color: T.textMuted,
+      }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+        <span style={{
+          fontSize: FONT.sm.size + 2, fontWeight: 800, letterSpacing: -.2,
+          color: accent || T.text,
+        }}>
+          {value}
+        </span>
+        {sub && (
+          <span style={{ fontSize: FONT.xs.size, fontWeight: 700, color: accent || T.textMuted }}>
+            {sub}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
