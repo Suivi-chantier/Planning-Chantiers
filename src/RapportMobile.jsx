@@ -848,7 +848,7 @@ function PageRapportMobile() {
                 onChange={e=>setter(e.target.value)}
                 placeholder="Autre"
                 style={{width:64,padding:"7px 6px",border:`1.5px solid ${T.border}`,
-                  borderRadius:RADIUS.md,fontSize:FONT.sm.size,fontWeight:700,fontFamily:"inherit",
+                  borderRadius:RADIUS.md,fontSize:16,fontWeight:700,fontFamily:"inherit",
                   outline:"none",textAlign:"center",color:T.text,background:T.surface}}
               />
               <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,fontWeight:600}}>min</span>
@@ -945,7 +945,7 @@ function PageRapportMobile() {
           {t.libre ? (
             <textarea value={t.planifie} onChange={e=>setTachePlanifie(idx,e.target.value)}
               placeholder="Décris la tâche…"
-              style={{...S.input,resize:"none",minHeight:60,marginBottom:10,fontSize:FONT.md.size}}/>
+              style={{...S.input,resize:"none",minHeight:60,marginBottom:10,fontSize:16}}/>
           ) : (
             <div style={{fontSize:FONT.md.size+1,fontWeight:600,color:T.text,marginBottom:12,lineHeight:1.4}}>{t.planifie}</div>
           )}
@@ -1008,7 +1008,7 @@ function PageRapportMobile() {
                   onChange={e=>setTacheHeures(idx,e.target.value)}
                   placeholder="Autre"
                   style={{width:58,padding:"7px 6px",border:`1.5px solid ${T.border}`,
-                    borderRadius:RADIUS.md,fontSize:FONT.sm.size,fontWeight:700,fontFamily:"inherit",
+                    borderRadius:RADIUS.md,fontSize:16,fontWeight:700,fontFamily:"inherit",
                     outline:"none",textAlign:"center",color:T.text,background:T.surface}}
                 />
               </div>
@@ -1082,7 +1082,7 @@ function PageRapportMobile() {
             )}
             <textarea value={t.remarque} onChange={e=>setTacheRemarque(idx,e.target.value)}
               placeholder={t.statut==="en_cours"?"Qu'est-ce qui bloque ? Estimation de fin…":t.statut==="non_faite"?"Pourquoi non réalisé ?":"Remarque, précision… (optionnel)"}
-              style={{...S.input,resize:"none",minHeight:52,fontSize:FONT.base.size,color:T.textSub,
+              style={{...S.input,resize:"none",minHeight:52,fontSize:16,color:T.textSub,
                 border: expliRequise && !explOk ? `1.5px solid ${T.dangerBd}` : `1.5px solid ${T.border}`}}/>
           </div>
 
@@ -1226,7 +1226,7 @@ function PageRapportMobile() {
         </span>
         <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
           placeholder="Informations utiles…"
-          style={{...S.input,resize:"none",minHeight:80,fontSize:FONT.base.size}}/>
+          style={{...S.input,resize:"none",minHeight:80,fontSize:16}}/>
       </div>
 
       {/* Bouton soumettre */}

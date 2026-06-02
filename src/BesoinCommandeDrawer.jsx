@@ -144,7 +144,7 @@ export default function BesoinCommandeDrawer({
             <span style={{ fontSize: 16 }}>🔍</span>
             <input
               ref={searchRef}
-              style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 15, color: "#fff", fontFamily: "inherit" }}
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 16, color: "#fff", fontFamily: "inherit" }}
               placeholder="Rechercher un article…"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -285,7 +285,7 @@ export default function BesoinCommandeDrawer({
                             flex: 1, textAlign: "center",
                             border: `1.5px solid ${accent}`,
                             borderRadius: 8, padding: "6px 2px",
-                            fontSize: 14, fontWeight: 800, fontFamily: "inherit",
+                            fontSize: 16, fontWeight: 800, fontFamily: "inherit",
                             color: "#1a1f2e", outline: "none",
                           }}
                         />
