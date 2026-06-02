@@ -8880,7 +8880,12 @@ const finPctFmt = (v) => Number.isFinite(v) ? (v * 100).toFixed(1).replace(".", 
 const SUIVI_FIN_BILAN1_END_INDEX = 3;
 const finBilan1 = (arr) => finSum((arr || []).slice(0, SUIVI_FIN_BILAN1_END_INDEX + 1));
 const finTotalAnnuel = (arr) => finSum((arr || []).slice(SUIVI_FIN_BILAN1_END_INDEX + 1));
-const finTvaRateForRow = (row) => /alimentaire|repas/i.test(String(row?.label || "")) ? 10 : 20;
+const finTvaRateForRow = (row) => {
+  const label = String(row?.label || "");
+  // Tom facture ses commissions/rémunérations sans TVA : aucune TVA déductible à calculer.
+  if (/\b(tom|fourmond)\b/i.test(label)) return 0;
+  return /alimentaire|repas/i.test(label) ? 10 : 20;
+};
 const finTvaDeductibleRows = (finance = {}) => [
   ...(finance.chargesFixes || []), ...(finance.chargesVariables || [])
 ].map(r => ({ id:`tva_${r.id || r.label}`, label:r.label || "Charge", rate:finTvaRateForRow(r), values:SUIVI_FIN_MONTHS.map((_,i)=>finNum(r.values?.[i]) * finTvaRateForRow(r) / 100) }));
@@ -9062,7 +9067,7 @@ function SuiviTvaAutoTable({ rows, T, validatedMonths=null }) {
   const totals = finRowsSum(rows);
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
-      <div className="inv-card-hd blue"><span>TVA déductible automatique</span></div>
+      <div className="inv-card-hd blue"><span>TVA déductible automatique · TOM sans TVA</span></div>
       <div className="inv-card-bd" style={{ padding:0, overflowX:"auto" }}>
         <div style={{ width:"100%", minWidth:920 }}>
           <div style={{ display:"grid", gridTemplateColumns:`minmax(145px,1.35fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(38px,.65fr)) minmax(62px,.75fr) 26px`, background:T.sectionHd }}>
@@ -9072,7 +9077,7 @@ function SuiviTvaAutoTable({ rows, T, validatedMonths=null }) {
           </div>
           {(rows || []).filter(r => finSum(r.values) !== 0).map((r, idx) => (
             <div key={r.id || idx} style={{ display:"grid", gridTemplateColumns:`minmax(145px,1.35fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(38px,.65fr)) minmax(62px,.75fr) 26px`, borderBottom:`1px solid ${T.rowBorder}` }}>
-              <div style={{ padding:"7px 8px", color:T.textSub, fontWeight:700, fontSize:FONT.xs.size+1 }}>{r.label} <span style={{color:T.accent}}>· {r.rate}%</span></div>
+              <div style={{ padding:"7px 8px", color:T.textSub, fontWeight:700, fontSize:FONT.xs.size+1 }}>{r.label} <span style={{color:T.accent}}>{r.rate === 0 ? "· Sans TVA" : `· ${r.rate}%`}</span></div>
               {SUIVI_FIN_MONTHS.map((m, mi) => <div key={m} style={{ padding:"7px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size, color:T.textSub, background:validatedMonths?.[mi] ? "rgba(34,197,94,0.08)" : "transparent" }}>{finEur(r.values?.[mi])}</div>)}
               <div style={{ padding:"7px 5px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size }}>{finEur(finSum(r.values))}</div><div/>
             </div>
@@ -9266,7 +9271,7 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
         <FinKPI T={T} icon={TrendingUp} label="Résultat après IS" value={finEur(totalRN)} sub={`Taux net : ${finPctFmt(tauxRNAnnuel)}`} color={totalRN >= 0 ? SU : DA} />
         <FinKPI T={T} icon={BarChart3} label="Marge brute" value={finPctFmt(tauxMargeAnnuel)} sub={finEur(finSum(calc.margeBrute))} color={T.accent} />
         <FinKPI T={T} icon={Wallet} label="Trésorerie actuelle" value={finEur(tresoActuelle)} sub={`Objectif : ${finEur(objectifTreso)}`} color={tresoActuelle >= objectifTreso ? SU : "#4db8ff"} />
-        <FinKPI T={T} icon={FileText} label="TVA nette" value={finEur(finSum(calc.tvaNette))} sub="Collectée - déductible auto" color="#c084fc" />
+        <FinKPI T={T} icon={FileText} label="TVA nette" value={finEur(finSum(calc.tvaNette))} sub="Collectée - déductible auto · TOM sans TVA" color="#c084fc" />
       </div>
 
       <div className="inv-tab-nav" style={{ marginBottom:SPACING.lg, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.border}` }}>
