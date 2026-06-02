@@ -760,6 +760,199 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     }
   };
 
+  // ─── EXPORT PDF DE LA VUE GANTT ─────────────────────────────────────────
+  // Landscape A4 avec table : 1 colonne label + 1fr × N jours. Pour chaque
+  // tâche, on colore les cellules de date_prevue jusqu'à +durée jours
+  // ouvrés. Le label de la tâche se met dans la 1re cellule colorée.
+  const buildGanttHTML = () => {
+    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+    const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
+    const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const titre = chantier?.nom || chantierId;
+
+    // Helpers dates (mêmes règles que GanttV2)
+    const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+    const addDays    = (d, n) => { const x = startOfDay(d); x.setDate(x.getDate() + n); return x; };
+    const isWeekend  = (d) => { const w = d.getDay(); return w === 0 || w === 6; };
+    const parseDate  = (s) => { if (!s) return null; const d = new Date(s); return isNaN(d.getTime()) ? null : startOfDay(d); };
+    const isoDay     = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const todayISO   = isoDay(startOfDay(new Date()));
+
+    // Construit les rows
+    const rows = [];
+    const orphans = [];
+    ouvrages.forEach(o => {
+      const lot = lots.find(l => l.id === o.lot_id) || { id: "_x", label: "Sans lot", couleur: "#888" };
+      (o.taches || []).forEach(t => {
+        const d = parseDate(t.date_prevue);
+        if (d) rows.push({ lot, ouvrage: o, tache: t, date: d });
+        else   orphans.push({ lot, ouvrage: o, tache: t });
+      });
+    });
+
+    if (rows.length === 0) {
+      return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Gantt ${esc(titre)}</title></head><body style="font-family:Arial;padding:40pt;text-align:center;color:#666;">Aucune tâche planifiée pour ce chantier.</body></html>`;
+    }
+
+    // Plage de dates
+    const dates = rows.map(r => r.date);
+    let dateMin = new Date(Math.min(...dates.map(d => d.getTime())));
+    let dateMax = new Date(Math.max(...dates.map(d => d.getTime())));
+    dateMin = addDays(dateMin, -2);
+    dateMax = addDays(dateMax, 10);
+    const days = [];
+    for (let d = startOfDay(dateMin); d <= dateMax; d = addDays(d, 1)) {
+      if (!isWeekend(d)) days.push(new Date(d));
+    }
+    const dayIndex = (d) => {
+      const target = isoDay(d);
+      return days.findIndex(x => isoDay(x) === target);
+    };
+    const dureeJours = (t) => {
+      const h = parseFloat(t.heures_estimees);
+      if (!h || isNaN(h) || h <= 0) return 1;
+      return Math.max(1, Math.ceil(h / 7));
+    };
+
+    // Mois pour l'en-tête (rowspans en colspan ici)
+    const monthsHeader = [];
+    let lastMonthKey = "";
+    days.forEach((d) => {
+      const k = `${d.getFullYear()}-${d.getMonth()}`;
+      if (k !== lastMonthKey) {
+        monthsHeader.push({ label: d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), span: 1 });
+        lastMonthKey = k;
+      } else {
+        monthsHeader[monthsHeader.length - 1].span += 1;
+      }
+    });
+
+    // Tri des rows
+    rows.sort((a, b) => {
+      if (a.lot.id !== b.lot.id) return a.lot.id.localeCompare(b.lot.id);
+      if (a.ouvrage.id !== b.ouvrage.id) return (a.ouvrage.libelle || "").localeCompare(b.ouvrage.libelle || "");
+      return a.date.getTime() - b.date.getTime();
+    });
+
+    // Build les lignes regroupées par lot
+    let html = "";
+    let lastLotId = null;
+    rows.forEach((r) => {
+      if (r.lot.id !== lastLotId) {
+        html += `<tr class="lot-row" style="background:color-mix(in srgb, ${r.lot.couleur} 18%, #fff);">
+          <td colspan="${days.length + 1}" style="padding:5pt 8pt;font-size:8pt;font-weight:800;letter-spacing:.5pt;text-transform:uppercase;color:#1a1f2e;border-top:1pt solid #ccc;border-bottom:1pt solid #ccc;">
+            <span style="display:inline-block;width:9pt;height:9pt;background:${r.lot.couleur};border-radius:2pt;vertical-align:middle;margin-right:6pt;"></span>
+            ${esc(r.lot.label)}
+          </td>
+        </tr>`;
+        lastLotId = r.lot.id;
+      }
+      const startIdx = dayIndex(r.date);
+      const spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
+      const av = Math.max(0, Math.min(100, parseInt(r.tache.avancement) || 0));
+      const barColor = av >= 100 ? "#22c55e" : r.lot.couleur;
+      const cells = days.map((d, i) => {
+        const inBar = startIdx >= 0 && i >= startIdx && i < startIdx + spanDays;
+        const isFirst = inBar && i === startIdx;
+        const today = isoDay(d) === todayISO;
+        const bg = inBar
+          ? `color-mix(in srgb, ${barColor} 70%, transparent)`
+          : (today ? "#fff4b8" : "transparent");
+        return `<td style="border-right:0.5pt solid #eee;padding:0;height:18pt;background:${bg};font-size:7pt;color:#000;overflow:hidden;white-space:nowrap;">
+          ${isFirst ? `<div style="padding:0 4pt;font-weight:700;overflow:hidden;text-overflow:ellipsis;">${esc((r.tache.nom || "").slice(0, 40))}${av > 0 ? ` · ${av}%` : ""}</div>` : ""}
+        </td>`;
+      }).join("");
+      html += `<tr style="break-inside:avoid;page-break-inside:avoid;">
+        <td style="padding:4pt 8pt;border-right:1pt solid #ccc;border-bottom:0.5pt solid #eee;font-size:8pt;color:#1a1f2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140pt;">
+          <div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;">${esc(r.tache.nom || "(sans nom)")}</div>
+          <div style="font-size:7pt;color:#888;overflow:hidden;text-overflow:ellipsis;">${esc(r.ouvrage.libelle || "")}</div>
+        </td>
+        ${cells}
+      </tr>`;
+    });
+
+    // En-têtes : mois + jours
+    const monthHeaders = monthsHeader.map(m =>
+      `<th colspan="${m.span}" style="border-right:1pt solid #ccc;border-bottom:0.5pt solid #ccc;padding:3pt 5pt;font-size:7.5pt;font-weight:700;text-transform:capitalize;color:#444;background:#fafafa;">${esc(m.label)}</th>`
+    ).join("");
+    const dayHeaders = days.map(d => {
+      const today = isoDay(d) === todayISO;
+      return `<th style="border-right:0.5pt solid #eee;padding:2pt 0;font-size:6.5pt;font-weight:${today ? 800 : 600};color:${today ? "#9a7a00" : "#666"};background:${today ? "#fff4b8" : "#fafafa"};text-align:center;">${d.getDate()}</th>`;
+    }).join("");
+
+    const orphansHTML = orphans.length === 0 ? "" : `
+      <div style="margin-top:14pt;padding:8pt 12pt;background:#fff8dc;border:1pt dashed #d4a017;border-radius:4pt;break-inside:avoid;">
+        <div style="font-size:8pt;font-weight:700;color:#9a7a00;letter-spacing:.4pt;text-transform:uppercase;margin-bottom:6pt;">Tâches non planifiées (${orphans.length})</div>
+        <ul style="margin:0;padding:0 0 0 14pt;font-size:8pt;color:#333;">
+          ${orphans.map(r => `<li style="margin-bottom:2pt;">${esc(r.tache.nom || "(sans nom)")} <span style="color:#888;">— ${esc(r.ouvrage.libelle || "")}</span></li>`).join("")}
+        </ul>
+      </div>`;
+
+    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Gantt ${esc(titre)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;color:#1a1f2e;font-size:9pt;}
+  table{border-collapse:collapse;table-layout:fixed;width:100%;}
+  th,td{vertical-align:middle;}
+  thead{display:table-header-group;}
+  tbody{display:table-row-group;}
+  @page{size:A4 landscape;margin:8mm;}
+  @page {
+    @bottom-left   { content: "Profero Rénovation — Gantt"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-center { content: "${esc(titre)}"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-right  { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+  }
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body>
+  <table style="margin-bottom:10pt;width:100%;border-collapse:collapse;background:#0a0a0a;">
+    <tr>
+      <td style="padding:8pt 12pt;vertical-align:middle;width:60pt;">
+        <img src="${logoUrl}" alt="Profero" style="height:24pt;object-fit:contain;display:block;"/>
+      </td>
+      <td style="padding:8pt 6pt;vertical-align:middle;white-space:nowrap;">
+        <div style="color:#f5c400;font-size:6.5pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;">Gantt chantier</div>
+        <div style="color:#fff;font-size:12pt;font-weight:800;line-height:1.1;margin-top:1pt;">${esc(titre)}</div>
+      </td>
+      <td style="padding:8pt 10pt;vertical-align:middle;text-align:right;color:rgba(255,255,255,.7);font-size:8pt;white-space:nowrap;">
+        ${rows.length} tâche${rows.length>1?"s":""} planifiée${rows.length>1?"s":""} · Édité le ${dateGen}
+      </td>
+    </tr>
+  </table>
+  <table>
+    <colgroup>
+      <col style="width:140pt;"/>
+      ${days.map(() => `<col/>`).join("")}
+    </colgroup>
+    <thead>
+      <tr>
+        <th rowspan="2" style="border-right:1pt solid #ccc;border-bottom:1pt solid #ccc;background:#fafafa;padding:4pt 8pt;font-size:7.5pt;font-weight:800;letter-spacing:.4pt;text-transform:uppercase;color:#444;text-align:left;">Tâche / Ouvrage</th>
+        ${monthHeaders}
+      </tr>
+      <tr>${dayHeaders}</tr>
+    </thead>
+    <tbody>
+      ${html}
+    </tbody>
+  </table>
+  ${orphansHTML}
+</body></html>`;
+  };
+
+  const exportGanttPDF = () => {
+    try {
+      const html = buildGanttHTML();
+      const w = window.open("", "_blank", "width=1100,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `Gantt-${chantier?.nom || chantierId}`;
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+    } catch (e) {
+      alert("Erreur génération PDF Gantt : " + (e.message || e));
+    }
+  };
+
   // ── Statut sauvegarde ──
   const statusColor = autoSaveStatus === "saved"  ? "#22c55e"
                     : autoSaveStatus === "saving" ? acc.accent
@@ -945,7 +1138,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 );
               })}
             </div>
-            <button onClick={exportRapportPDF} title="Exporter le phasage en PDF"
+            <button onClick={viewMode === "gantt" ? exportGanttPDF : exportRapportPDF}
+              title={viewMode === "gantt" ? "Exporter le Gantt en PDF (paysage)" : "Exporter le phasage en PDF"}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 6,
                 padding: "8px 14px", borderRadius: RADIUS.md,
@@ -956,7 +1150,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
               onMouseEnter={e => { e.currentTarget.style.color = acc.accent; e.currentTarget.style.borderColor = acc.border; }}
               onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.borderColor = T.border; }}>
               <Icon as={FileDown} size={14}/>
-              PDF
+              PDF {viewMode === "gantt" ? "Gantt" : ""}
             </button>
             <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
               style={{
