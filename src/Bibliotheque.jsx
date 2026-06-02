@@ -4,7 +4,7 @@ import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, lo
 import { Icon } from "./ui";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box,
+  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package,
 } from "lucide-react";
 
 // PHASES dynamiques : init avec les défauts, remplacement async au mount
@@ -88,8 +88,174 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
   );
 }
 
+// ─── MATÉRIAU LIÉ ROW ────────────────────────────────────────────────────────
+// Un lien matériau ↔ ouvrage : { materiau_id, quantite }. La quantité est
+// exprimée pour 1 unité d'ouvrage (ex : 4 vis par porte posée).
+function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, materiaux, T, acc }) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen]     = useState(false);
+  const mat = materiaux.find(m => m.id === ml.materiau_id);
+
+  function update(field, value) {
+    const next = [...(editData.materiaux_liens || [])];
+    next[idx] = { ...next[idx], [field]: value };
+    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
+  }
+
+  function remove() {
+    const next = (editData.materiaux_liens || []).filter((_, i) => i !== idx);
+    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
+  }
+
+  function pick(materiau) {
+    update("materiau_id", materiau.id);
+    setOpen(false);
+    setSearch("");
+  }
+
+  const q = search.trim().toLowerCase();
+  const filtered = !q ? [] : materiaux
+    .filter(m =>
+      (m.nom || "").toLowerCase().includes(q) ||
+      (m.reference || "").toLowerCase().includes(q) ||
+      (m.fournisseur || "").toLowerCase().includes(q)
+    )
+    .slice(0, 8);
+
+  const prixLigne = mat && ml.quantite != null
+    ? (parseFloat(mat.prix_unitaire) || 0) * (parseFloat(ml.quantite) || 0)
+    : null;
+
+  return (
+    <div className="biblio-row" style={{
+      display: "grid",
+      gridTemplateColumns: "1fr 100px 60px 80px 26px",
+      gap: 8, alignItems: "center",
+      padding: "8px 12px", borderRadius: RADIUS.md,
+      background: T.card, border: `1px solid ${T.border}`,
+    }}>
+      {/* Sélecteur matériau */}
+      {mat ? (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "5px 10px",
+          background: T.inputBg, borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+          minWidth: 0,
+        }}>
+          <Icon as={Package} size={11} color={acc.accent}/>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{
+              fontSize: FONT.sm.size, fontWeight: 600, color: T.text,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>{mat.nom}</div>
+            {(mat.reference || mat.fournisseur) && (
+              <div style={{
+                fontSize: FONT.xs.size, color: T.textMuted, marginTop: 1,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {mat.reference}{mat.reference && mat.fournisseur ? " · " : ""}{mat.fournisseur}
+              </div>
+            )}
+          </div>
+          <button onClick={() => update("materiau_id", null)} title="Changer le matériau" style={{
+            background: "transparent", border: "none", color: T.textMuted,
+            cursor: "pointer", padding: 0, lineHeight: 1,
+          }}>
+            <Icon as={X} size={11}/>
+          </button>
+        </div>
+      ) : (
+        <div style={{ position: "relative" }}>
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 180)}
+            placeholder="Rechercher un matériau…"
+            style={{
+              width: "100%", padding: "6px 10px", borderRadius: RADIUS.sm,
+              border: `1px solid ${T.border}`, background: T.inputBg, color: T.text,
+              fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+            }}
+          />
+          {open && filtered.length > 0 && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+              background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+              maxHeight: 240, overflowY: "auto", zIndex: 20,
+              boxShadow: "0 10px 24px rgba(0,0,0,0.30)",
+            }}>
+              {filtered.map(m => (
+                <div key={m.id} onMouseDown={() => pick(m)}
+                  style={{
+                    padding: "7px 10px", cursor: "pointer",
+                    borderBottom: `1px solid ${T.sectionDivider}`, fontSize: FONT.sm.size, color: T.text,
+                  }}>
+                  <div style={{ fontWeight: 600 }}>{m.nom}</div>
+                  {(m.reference || m.fournisseur || m.unite) && (
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>
+                      {m.reference}{m.reference && m.fournisseur ? " · " : ""}{m.fournisseur}
+                      {m.unite ? <span style={{ marginLeft: m.reference || m.fournisseur ? 6 : 0 }}>· {m.unite}</span> : null}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {open && q && filtered.length === 0 && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+              background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+              padding: "8px 12px", zIndex: 20, fontSize: FONT.xs.size + 1, color: T.textMuted,
+              boxShadow: "0 10px 24px rgba(0,0,0,0.30)",
+            }}>
+              Aucun matériau trouvé pour « {search} »
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quantité par unité d'ouvrage */}
+      <input
+        type="number" min="0" step="0.01"
+        value={ml.quantite ?? ""}
+        onChange={e => update("quantite", e.target.value === "" ? null : parseFloat(e.target.value))}
+        placeholder="Qté / u"
+        style={{
+          padding: "6px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+          background: T.inputBg, color: T.text, fontFamily: "inherit",
+          fontSize: FONT.sm.size, outline: "none", textAlign: "center",
+        }}
+      />
+
+      {/* Unité (depuis matériau, read-only) */}
+      <div style={{
+        padding: "6px 4px", color: T.textMuted,
+        fontSize: FONT.xs.size + 1, textAlign: "center", fontWeight: 600,
+      }}>
+        {mat?.unite || "—"}
+      </div>
+
+      {/* Prix calculé */}
+      <div style={{
+        padding: "6px 4px", color: prixLigne != null ? T.text : T.textMuted,
+        fontSize: FONT.xs.size + 1, textAlign: "right", fontWeight: prixLigne != null ? 700 : 400,
+      }}>
+        {prixLigne != null ? `${prixLigne.toFixed(2)} €` : "—"}
+      </div>
+
+      <button onClick={remove} title="Retirer ce matériau" style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        background: "transparent", border: "none", color: "#e15a5a",
+        cursor: "pointer", padding: 0, lineHeight: 1,
+      }}>
+        <Icon as={X} size={14}/>
+      </button>
+    </div>
+  );
+}
+
 // ─── OUVRAGE CARD ─────────────────────────────────────────────────────────────
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, T, acc }) {
+function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
@@ -99,6 +265,18 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
     const next = [...(editData.sous_taches || []), { nom: "", phaseId: "" }];
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
+
+  function addMateriauLien() {
+    const next = [...(editData.materiaux_liens || []), { materiau_id: null, quantite: null }];
+    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
+  }
+
+  const liens = editData.materiaux_liens || [];
+  const coutTotalParUnite = liens.reduce((s, ml) => {
+    const m = materiaux.find(x => x.id === ml.materiau_id);
+    if (!m || ml.quantite == null) return s;
+    return s + (parseFloat(m.prix_unitaire) || 0) * (parseFloat(ml.quantite) || 0);
+  }, 0);
 
   return (
     <div style={{
@@ -243,6 +421,74 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
             Ajouter une sous-tâche
           </button>
 
+          {/* ── Matériaux liés ─────────────────────────────────────────────── */}
+          <div style={{
+            marginTop: 22, paddingTop: 14, borderTop: `1px dashed ${T.sectionDivider}`,
+          }}>
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              marginBottom: 10, paddingLeft: 2,
+            }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                <Icon as={Package} size={12} color={acc.accent}/>
+                <div style={{
+                  fontSize: 10, fontWeight: 700, color: T.textMuted,
+                  textTransform: "uppercase", letterSpacing: 1,
+                }}>Matériaux liés</div>
+                <div style={{
+                  fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600,
+                  background: T.card, borderRadius: RADIUS.pill, padding: "1px 7px",
+                }}>{liens.length}</div>
+              </div>
+              {coutTotalParUnite > 0 && (
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.text, fontWeight: 700 }}>
+                  {coutTotalParUnite.toFixed(2)} € / {editData.unite || "u"}
+                </div>
+              )}
+            </div>
+
+            {liens.length > 0 && (
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 100px 60px 80px 26px",
+                gap: 8, padding: "0 12px 6px",
+              }}>
+                {["Matériau", "Qté / u", "Unité", "Prix", ""].map((h, i) => (
+                  <div key={i} style={{
+                    fontSize: 10, fontWeight: 700, color: T.textMuted,
+                    textTransform: "uppercase", letterSpacing: 0.8,
+                    textAlign: i === 0 ? "left" : i === 3 ? "right" : "center",
+                  }}>{h}</div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {liens.map((ml, idx) => (
+                <MateriauLienRow
+                  key={idx}
+                  ml={ml} idx={idx}
+                  editData={editData} ouvrage={ouvrage}
+                  setOuvrages={setOuvrages} ouvrages={ouvrages}
+                  materiaux={materiaux}
+                  T={T} acc={acc}
+                />
+              ))}
+            </div>
+
+            <button
+              onClick={addMateriauLien}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                marginTop: 8, width: "100%", padding: "9px",
+                border: `1.5px dashed ${T.border}`, borderRadius: RADIUS.md,
+                background: "transparent", color: T.textMuted,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
+              }}>
+              <Icon as={Plus} size={12}/>
+              Ajouter un matériau
+            </button>
+          </div>
+
           {/* Footer */}
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -286,6 +532,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
 function PageBibliotheque({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [ouvrages, setOuvrages] = useState([]);
+  const [materiaux, setMateriaux] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
   const [search, setSearch] = useState("");
@@ -312,6 +559,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   useEffect(() => {
     loadOuvrages();
     loadCategoriesCustom();
+    loadMateriaux();
     // Realtime : tout changement de la bibliothèque ou des catégories custom
     // est propagé en direct chez tous les utilisateurs connectés.
     const chOuvr = supabase.channel("biblio-ouvrages-rt")
@@ -323,8 +571,23 @@ function PageBibliotheque({ T, branch = "renovation" }) {
           { event: "*", schema: "public", table: "planning_config", filter: "key=eq.bibliotheque_categories_custom" },
           () => loadCategoriesCustom())
       .subscribe();
-    return () => { supabase.removeChannel(chOuvr); supabase.removeChannel(chCat); };
+    const chMat = supabase.channel("biblio-materiaux-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "materiaux_bibliotheque" },
+          () => loadMateriaux())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(chOuvr);
+      supabase.removeChannel(chCat);
+      supabase.removeChannel(chMat);
+    };
   }, []);
+
+  async function loadMateriaux() {
+    const { data } = await supabase.from("materiaux_bibliotheque")
+      .select("id,nom,reference,unite,prix_unitaire,fournisseur,categorie")
+      .order("nom");
+    setMateriaux(data || []);
+  }
 
   async function loadOuvrages() {
     setLoading(true);
@@ -439,10 +702,18 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     // des heures vendues (elles vivent désormais au niveau ouvrage uniquement).
     // Conserver cette validation bloquait silencieusement la sauvegarde des
     // sous-tâches saisies via la nouvelle UI (sans ratio).
+    // Nettoyage : on ne persiste que les liens valides (matériau sélectionné).
+    const liensClean = (ouvrage.materiaux_liens || [])
+      .filter(ml => ml && ml.materiau_id != null)
+      .map(ml => ({
+        materiau_id: ml.materiau_id,
+        quantite: ml.quantite == null ? null : parseFloat(ml.quantite),
+      }));
     const { error } = await supabase.from("bibliotheque_ratios").update({
       libelle: ouvrage.libelle, unite: ouvrage.unite,
       cadence: ouvrage.cadence ?? null,
       sous_taches: ouvrage.sous_taches,
+      materiaux_liens: liensClean,
       updated_at: new Date().toISOString(),
     }).eq("id", ouvrage.id);
     if (error) {
@@ -876,6 +1147,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                       categories={categories}
                       getCat={getCat}
                       changerCategorie={changerCategorie}
+                      materiaux={materiaux}
                       T={T} acc={acc}
                     />
                   ))}

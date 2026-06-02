@@ -134,6 +134,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   };
   // Bibliothèque ouvrages (sert au matching à l'import devis)
   const [bibliotheque, setBibliotheque] = useState([]);
+  // Bibliothèque matériaux (sert à valoriser les materiaux_liens d'un ouvrage)
+  const [materiauxBiblio, setMateriauxBiblio] = useState([]);
   // État de la modale d'import (null si fermée)
   // { items: [...], unknownLotHeaders: [...], parsing: bool, error: string|null }
   const [importState, setImportState] = useState(null);
@@ -144,6 +146,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   useEffect(() => {
     supabase.from("bibliotheque_ratios").select("*").order("libelle")
       .then(({ data }) => setBibliotheque(data || []));
+  }, []);
+  // Charge la bibliothèque matériaux (pour le prix unitaire lors du calcul du
+  // coût matériaux à l'import devis).
+  useEffect(() => {
+    supabase.from("materiaux_bibliotheque")
+      .select("id,nom,unite,prix_unitaire")
+      .then(({ data }) => setMateriauxBiblio(data || []));
   }, []);
 
   // Mémorise le dernier chantier ouvert
@@ -431,6 +440,24 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         heures_estimees: null,
         avancement: 0,
       }));
+      // Matériaux liés : copies des materiaux_liens de la biblio. Le coût
+      // matériaux est auto-calculé = quantité_ouvrage × Σ(qté_par_unité × prix_unitaire).
+      // Si l'utilisateur a déjà saisi manuellement un cout_materiaux, on ne l'écrase pas.
+      const liens = (it.match?.materiaux_liens || [])
+        .filter(ml => ml && ml.materiau_id != null)
+        .map(ml => ({
+          materiau_id: ml.materiau_id,
+          quantite: ml.quantite == null ? null : parseFloat(ml.quantite),
+        }));
+      const qOuvrage = parseFloat(it.quantite) || 0;
+      const coutMatParUnite = liens.reduce((s, ml) => {
+        const m = materiauxBiblio.find(x => x.id === ml.materiau_id);
+        if (!m || ml.quantite == null) return s;
+        return s + (parseFloat(m.prix_unitaire) || 0) * (parseFloat(ml.quantite) || 0);
+      }, 0);
+      const coutMateriaux = qOuvrage > 0 && coutMatParUnite > 0
+        ? parseFloat((qOuvrage * coutMatParUnite).toFixed(2))
+        : null;
       return {
         id: rid(),
         libelle: it.libelle,
@@ -441,6 +468,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         prix_ht: it.prix_ht,
         heures_estimees: heuresEstimees,
         bibliotheque_id: it.match?.id || null,
+        materiaux_liens: liens,
+        ...(coutMateriaux != null ? { cout_materiaux: coutMateriaux } : {}),
         taches,
       };
     });
@@ -1739,6 +1768,94 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 onChange={e => updateOuvrage(o.id, { cout_materiaux: e.target.value === "" ? null : parseFloat(e.target.value) })}
                 placeholder="0" style={modalInp(T)}/>
             </ModalField>
+
+            {/* ── Matériaux liés (depuis la biblio ouvrage) ─────────────── */}
+            {(() => {
+              const liens = (o.materiaux_liens || []).filter(ml => ml && ml.materiau_id != null);
+              if (liens.length === 0) return null;
+              const qOuvrage = parseFloat(o.quantite) || 0;
+              const lignes = liens.map(ml => {
+                const m = materiauxBiblio.find(x => x.id === ml.materiau_id);
+                const qParU = parseFloat(ml.quantite) || 0;
+                const prixU = m ? (parseFloat(m.prix_unitaire) || 0) : 0;
+                const qTot  = qOuvrage * qParU;
+                const cout  = qTot * prixU;
+                return { m, ml, qParU, prixU, qTot, cout };
+              });
+              const totalCout = lignes.reduce((s, l) => s + l.cout, 0);
+              return (
+                <ModalField label={`Matériaux liés (${liens.length})`}>
+                  <div style={{
+                    background: T.card, border: `1px solid ${T.border}`,
+                    borderRadius: RADIUS.md, overflow: "hidden",
+                  }}>
+                    <div style={{
+                      display: "grid", gridTemplateColumns: "1fr 70px 90px 80px",
+                      gap: 8, padding: "6px 10px",
+                      background: T.surface, borderBottom: `1px solid ${T.border}`,
+                      fontSize: 10, fontWeight: 700, color: T.textMuted,
+                      textTransform: "uppercase", letterSpacing: 0.6,
+                    }}>
+                      <div>Matériau</div>
+                      <div style={{ textAlign: "center" }}>Qté/u</div>
+                      <div style={{ textAlign: "center" }}>Qté totale</div>
+                      <div style={{ textAlign: "right" }}>Coût</div>
+                    </div>
+                    {lignes.map((l, i) => (
+                      <div key={i} style={{
+                        display: "grid", gridTemplateColumns: "1fr 70px 90px 80px",
+                        gap: 8, padding: "7px 10px",
+                        borderTop: i === 0 ? "none" : `1px solid ${T.sectionDivider}`,
+                        fontSize: FONT.xs.size + 1, color: T.text, alignItems: "center",
+                      }}>
+                        <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {l.m ? l.m.nom : <span style={{ color: T.textMuted, fontStyle: "italic" }}>Matériau introuvable</span>}
+                        </div>
+                        <div style={{ textAlign: "center", color: T.textSub }}>
+                          {l.qParU || "—"}
+                        </div>
+                        <div style={{ textAlign: "center", color: T.textSub }}>
+                          {l.qTot > 0 ? `${l.qTot.toFixed(2)} ${l.m?.unite || ""}` : "—"}
+                        </div>
+                        <div style={{ textAlign: "right", fontWeight: 700 }}>
+                          {l.cout > 0 ? `${l.cout.toFixed(2)} €` : "—"}
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "8px 10px", borderTop: `1px solid ${T.border}`,
+                      background: T.surface,
+                    }}>
+                      <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600 }}>
+                        Total calculé
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text }}>
+                          {totalCout.toFixed(2)} €
+                        </div>
+                        <button
+                          onClick={() => updateOuvrage(o.id, { cout_materiaux: parseFloat(totalCout.toFixed(2)) })}
+                          disabled={!(totalCout > 0)}
+                          title="Recopier ce total dans le champ Coût matériaux"
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            padding: "4px 10px", borderRadius: RADIUS.sm, border: "none",
+                            background: totalCout > 0 ? acc.accent : T.border,
+                            color: acc.onAccent || "#fff",
+                            fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
+                            cursor: totalCout > 0 ? "pointer" : "default",
+                            opacity: totalCout > 0 ? 1 : .5,
+                          }}>
+                          Recalculer
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </ModalField>
+              );
+            })()}
+
             <ModalField label="Lot">
               <select value={o.lot_id || ""}
                 onChange={e => updateOuvrage(o.id, { lot_id: e.target.value || null })}
