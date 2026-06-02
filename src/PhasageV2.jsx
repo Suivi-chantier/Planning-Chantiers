@@ -257,6 +257,38 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   }, {});
   const orphans = ouvrages.filter(o => !o.lot_id || !lots.some(l => l.id === o.lot_id)).length;
 
+  // ─── AVANCEMENT CALCULÉ ─────────────────────────────────────────────────
+  // Ouvrage = moyenne des avancements de ses tâches, pondérée par heures_estimees.
+  // Si aucune tâche n'a heures_estimees → moyenne simple. Si aucune tâche → 0.
+  const avancementOuvrage = (ouvrage) => {
+    const taches = ouvrage.taches || [];
+    if (taches.length === 0) return 0;
+    const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+    if (totalHE > 0) {
+      return Math.round(
+        taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0) / totalHE
+      );
+    }
+    return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
+  };
+  // Lot = moyenne des avancements de ses ouvrages, pondérée par prix_ht. Si
+  // aucun ouvrage n'a prix_ht → moyenne simple. Le pseudo-lot "_orphans"
+  // agrège les ouvrages sans lot_id reconnu.
+  const ouvragesDuLot = (lotId) => lotId === "_orphans"
+    ? ouvrages.filter(o => !o.lot_id || !lots.some(l => l.id === o.lot_id))
+    : ouvrages.filter(o => o.lot_id === lotId);
+  const avancementLot = (lotId) => {
+    const lotOuvrages = ouvragesDuLot(lotId);
+    if (lotOuvrages.length === 0) return 0;
+    const totalPrix = lotOuvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+    if (totalPrix > 0) {
+      return Math.round(
+        lotOuvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix
+      );
+    }
+    return Math.round(lotOuvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / lotOuvrages.length);
+  };
+
   const ouvragesLot = selectedLotId
     ? ouvrages.filter(o => (selectedLotId === "_orphans"
         ? (!o.lot_id || !lots.some(l => l.id === o.lot_id))
@@ -502,9 +534,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
               {lots.map(l => {
                 const active = selectedLotId === l.id;
                 const count = countByLot[l.id] || 0;
+                const av = count > 0 ? avancementLot(l.id) : 0;
                 return (
                   <div key={l.id} className={`p2-bubble ${active ? "active" : ""}`}
-                    style={{ "--bubble-color": l.couleur, display: "flex", alignItems: "center", gap: 10 }}
+                    style={{ "--bubble-color": l.couleur, "--av": `${av}%`,
+                      display: "flex", alignItems: "center", gap: 10 }}
                     onClick={() => { setSelectedLotId(l.id); setSelectedOuvrageId(null); }}>
                     <span style={{ flex: 1, fontWeight: 700, color: T.text }}>{l.label}</span>
                     {l.code_prefixe && (
@@ -515,27 +549,38 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                       }}>{l.code_prefixe}</span>
                     )}
                     {count > 0 && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 800, padding: "2px 8px",
-                        borderRadius: RADIUS.pill,
-                        background: "rgba(0,0,0,0.18)", color: T.text,
-                      }}>{count}</span>
+                      <>
+                        <span style={{
+                          fontSize: 10, fontWeight: 800, padding: "2px 8px",
+                          borderRadius: RADIUS.pill,
+                          background: "rgba(0,0,0,0.18)", color: T.text,
+                        }}>{count}</span>
+                        <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right" }}>
+                          {av}%
+                        </span>
+                      </>
                     )}
                   </div>
                 );
               })}
-              {orphans > 0 && (
-                <div className={`p2-bubble ${selectedLotId === "_orphans" ? "active" : ""}`}
-                  style={{ "--bubble-color": T.textMuted, marginTop: 14,
-                    display: "flex", alignItems: "center", gap: 10, opacity: .85 }}
-                  onClick={() => { setSelectedLotId("_orphans"); setSelectedOuvrageId(null); }}>
-                  <span style={{ flex: 1, fontStyle: "italic", color: T.textMuted, fontWeight: 600 }}>Sans lot</span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 800, padding: "2px 8px",
-                    borderRadius: RADIUS.pill, background: "rgba(0,0,0,0.18)", color: T.text,
-                  }}>{orphans}</span>
-                </div>
-              )}
+              {orphans > 0 && (() => {
+                const av = avancementLot("_orphans");
+                return (
+                  <div className={`p2-bubble ${selectedLotId === "_orphans" ? "active" : ""}`}
+                    style={{ "--bubble-color": T.textMuted, "--av": `${av}%`, marginTop: 14,
+                      display: "flex", alignItems: "center", gap: 10, opacity: .85 }}
+                    onClick={() => { setSelectedLotId("_orphans"); setSelectedOuvrageId(null); }}>
+                    <span style={{ flex: 1, fontStyle: "italic", color: T.textMuted, fontWeight: 600 }}>Sans lot</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, padding: "2px 8px",
+                      borderRadius: RADIUS.pill, background: "rgba(0,0,0,0.18)", color: T.text,
+                    }}>{orphans}</span>
+                    <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right" }}>
+                      {av}%
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -566,9 +611,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                     const active = selectedOuvrageId === o.id;
                     const nbTaches = (o.taches || []).length;
                     const lotColor = lots.find(l => l.id === o.lot_id)?.couleur || acc.accent;
+                    const av = nbTaches > 0 ? avancementOuvrage(o) : 0;
                     return (
                       <div key={o.id} className={`p2-bubble ${active ? "active" : ""}`}
-                        style={{ "--bubble-color": lotColor, display: "flex", alignItems: "center", gap: 10 }}
+                        style={{ "--bubble-color": lotColor, "--av": `${av}%`,
+                          display: "flex", alignItems: "center", gap: 10 }}
                         onClick={() => setSelectedOuvrageId(o.id)}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -583,11 +630,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                           )}
                         </div>
                         {nbTaches > 0 && (
-                          <span style={{
-                            fontSize: 10, fontWeight: 800, padding: "2px 8px",
-                            borderRadius: RADIUS.pill,
-                            background: "rgba(0,0,0,0.18)", color: T.text, flexShrink: 0,
-                          }}>{nbTaches}</span>
+                          <>
+                            <span style={{
+                              fontSize: 10, fontWeight: 800, padding: "2px 8px",
+                              borderRadius: RADIUS.pill,
+                              background: "rgba(0,0,0,0.18)", color: T.text, flexShrink: 0,
+                            }}>{nbTaches}</span>
+                            <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right" }}>
+                              {av}%
+                            </span>
+                          </>
                         )}
                         <button
                           className="p2-edit-btn"
