@@ -227,6 +227,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // Autosave debounced 800ms : on push tout le tableau ouvrages à chaque
   // modif. Simple et fiable pour la v2 ; le merge collab par id pourra être
   // ajouté plus tard si nécessaire.
+  // Garde anti-écrasement : avant d'écrire on relit le distant ; si on
+  // s'apprête à supprimer > 50 % des ouvrages alors que le distant en
+  // a plus de 2, on demande confirmation. Évite qu'un state local périmé
+  // (V2 n'a pas de sub realtime, donc il ne sait pas si V1 a modifié) ne
+  // wipe le travail d'un collègue.
   const scheduleSave = (ouvragesNext) => {
     setAutoSaveStatus("pending");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -234,6 +239,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       setAutoSaveStatus("saving");
       const p = await ensurePhasage();
       if (!p?.id) { setAutoSaveStatus("error"); return; }
+      const { data: remote } = await supabase.from("phasages")
+        .select("ouvrages").eq("id", p.id).maybeSingle();
+      const remoteO = Array.isArray(remote?.ouvrages) ? remote.ouvrages.length : 0;
+      const nextO   = Array.isArray(ouvragesNext) ? ouvragesNext.length : 0;
+      if (remoteO > 2 && nextO < remoteO * 0.5) {
+        const ok = window.confirm(
+          `⚠️ Sauvegarde inhabituelle détectée\n\n` +
+          `Ouvrages : ${remoteO} (distant) → ${nextO} (local)\n\n` +
+          `Si vous êtes en train de supprimer beaucoup d'ouvrages, OK.\n` +
+          `Si c'est inattendu (un collègue éditait peut-être en même temps), ` +
+          `Annuler puis rechargez la page (F5).`
+        );
+        if (!ok) {
+          setAutoSaveStatus("error");
+          // Resynchronise depuis le distant pour stopper le ping-pong
+          const { data: full } = await supabase.from("phasages")
+            .select("*").eq("id", p.id).maybeSingle();
+          if (full) setPhasage(full);
+          return;
+        }
+      }
       const { error } = await supabase.from("phasages").update({
         ouvrages: ouvragesNext,
         updated_at: new Date().toISOString(),
@@ -376,11 +402,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const primeChant  = parseFloat(meta.prime)              || 0;
   // Sauvegarde des meta dans plan_travaux. Le reste de plan_travaux est
   // conservé (les tâches v1 par phase, etc.).
+  // CRITIQUE : on relit plan_travaux depuis la DB AVANT d'écrire, pas depuis
+  // le state React. Sans sub realtime en V2, le state local peut être
+  // périmé si V1 a modifié plan_travaux entretemps — et écrire l'ancien
+  // state wiperait tout le travail V1 (incident du 2026-06-03).
   const saveMeta = async (patch) => {
     if (!chantierId) return;
     const p = await ensurePhasage();
     if (!p?.id) return;
-    const currentPlan = phasage?.plan_travaux || {};
+    const { data: fresh, error: fetchErr } = await supabase.from("phasages")
+      .select("plan_travaux").eq("id", p.id).maybeSingle();
+    if (fetchErr) { console.warn("saveMeta fetch:", fetchErr.message); return; }
+    const currentPlan = fresh?.plan_travaux || {};
     const newMeta = { ...(currentPlan.meta || {}), ...patch };
     const newPlan = { ...currentPlan, meta: newMeta };
     setPhasage(prev => ({ ...prev, plan_travaux: newPlan }));

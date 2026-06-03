@@ -3188,6 +3188,45 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
   }
 
   async function savePhasage(phasage) {
+    // Garde anti-écrasement : si la sauvegarde s'apprête à faire disparaître
+    // une grande partie des données (cas typique : autosave concurrent qui
+    // pousse un état local non hydraté), on demande confirmation explicite.
+    // Le trigger SQL phasages_history sert de filet final, mais on évite
+    // ici de polluer l'historique avec des wipes accidentels.
+    const prev = phasages.find(p => p.id === phasage.id);
+    if (prev) {
+      const countTaches = (p) => Object.values(p?.plan_travaux || {})
+        .filter(Array.isArray).reduce((s, arr) => s + arr.length, 0);
+      const countOuvrages = (p) => Array.isArray(p?.ouvrages) ? p.ouvrages.length : 0;
+      const prevT = countTaches(prev),    nextT = countTaches(phasage);
+      const prevO = countOuvrages(prev),  nextO = countOuvrages(phasage);
+      const tachesWipe   = prevT > 5 && nextT < prevT * 0.5;
+      const ouvragesWipe = prevO > 2 && nextO < prevO * 0.5;
+      if (tachesWipe || ouvragesWipe) {
+        console.warn("[savePhasage] Perte massive détectée, demande confirmation", {
+          phasage_id: phasage.id, taches: { avant: prevT, apres: nextT }, ouvrages: { avant: prevO, apres: nextO },
+        });
+        const ok = window.confirm(
+          `⚠️ Sauvegarde inhabituelle détectée\n\n` +
+          `Tâches : ${prevT} → ${nextT}\n` +
+          `Ouvrages : ${prevO} → ${nextO}\n\n` +
+          `Si vous êtes en train de supprimer beaucoup d'éléments, cliquez OK.\n` +
+          `Si c'est inattendu (un collègue éditait peut-être en même temps), ` +
+          `cliquez Annuler et rechargez la page (F5) avant de retenter votre modification.`
+        );
+        if (!ok) {
+          // Force un refresh depuis Supabase pour resynchroniser l'état local
+          // avec le distant et éviter qu'un autosave immédiat ne repropose
+          // la même suppression.
+          const { data } = await supabase.from("phasages").select("*").eq("id", phasage.id).maybeSingle();
+          if (data) {
+            setPhasages(p => p.map(x => x.id === data.id ? data : x));
+            if (selected?.id === data.id) setSelected(data);
+          }
+          return;
+        }
+      }
+    }
     // Étiquette la save avec notre client_id pour que les autres tabs/onglets
     // sachent que c'est notre update et ne nous le réinjectent pas. On le stocke
     // dans plan_travaux.meta pour éviter une nouvelle colonne en base.
