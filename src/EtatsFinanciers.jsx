@@ -32,14 +32,3031 @@ const MOIS = [
   { id: "12", label: "Décembre"  },
 ];
 
-const DEFAULT_AVANCEMENT_PERIODS = [
-  { id: "2026-05-31", label: "31/05/26" },
-  { id: "2026-04-30-corrige", label: "30/04/26 corrigé" },
-  { id: "2026-04-30", label: "30/04/26" },
-  { id: "2026-03-31", label: "31/03/26" },
-  { id: "2026-02-28", label: "28/02/26" },
-  { id: "2025-12-31", label: "31/12/25" },
-];
+const DEFAULT_AVANCEMENT = {
+  "periods": [
+    {
+      "id": "2026-05-31",
+      "label": "31/05/26"
+    },
+    {
+      "id": "2026-04-30-corrige",
+      "label": "30/04/26 corrigé"
+    },
+    {
+      "id": "2026-04-30",
+      "label": "30/04/26"
+    },
+    {
+      "id": "2026-03-31",
+      "label": "31/03/26"
+    },
+    {
+      "id": "2026-02-28",
+      "label": "28/02/26"
+    },
+    {
+      "id": "2025-12-31",
+      "label": "31/12/25"
+    }
+  ],
+  "rows": [
+    {
+      "id": "av_001",
+      "devis": "D-250023",
+      "chantier": "BRIOLLAY - LOT 1",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250023",
+          "chantier": "BRIOLLAY - LOT 1",
+          "montantHT": 22386.4,
+          "montantTTC": 24625.04,
+          "sourceRow": 3,
+          "avancementPrecedent": 0.64,
+          "avancementReel": 0.69,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": 0.01,
+          "caProvisionner": 223.864
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250023",
+          "chantier": "BRIOLLAY - LOT 1",
+          "montantHT": 22386.4,
+          "montantTTC": 24625.04,
+          "sourceRow": 3,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.64,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.04,
+          "caProvisionner": -895.456
+        },
+        "2026-04-30": {
+          "devis": "D-250023",
+          "chantier": "BRIOLLAY - LOT 1",
+          "montantHT": 22386.4,
+          "montantTTC": 24625.04,
+          "sourceRow": 3,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.64,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.04,
+          "caProvisionner": -895.456
+        },
+        "2026-03-31": {
+          "devis": "D-250023",
+          "chantier": "BRIOLLAY - LOT 1",
+          "montantHT": 22386.4,
+          "montantTTC": 24625.04,
+          "sourceRow": 3,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -4029.552
+        },
+        "2026-02-28": {
+          "devis": "D-250023",
+          "chantier": "BRIOLLAY - LOT 1",
+          "montantHT": 22386.4,
+          "montantTTC": 24625.04,
+          "sourceRow": 3,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -4029.552
+        },
+        "2025-12-31": {
+          "devis": "D-250023",
+          "chantier": "BRIOLLAY - LOT 1",
+          "montantHT": 22386.4,
+          "montantTTC": 24625.04,
+          "sourceRow": 3,
+          "avancementPrecedent": "",
+          "avancementReel": 0.5,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.5,
+          "caProvisionner": 11193.2
+        }
+      }
+    },
+    {
+      "id": "av_002",
+      "devis": "D-250024",
+      "chantier": "BRIOLLAY - LOT 2",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250024",
+          "chantier": "BRIOLLAY - LOT 2",
+          "montantHT": 27175.27,
+          "montantTTC": 29892.8,
+          "sourceRow": 4,
+          "avancementPrecedent": 0.52,
+          "avancementReel": 0.6,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.08,
+          "caProvisionner": -2174.0216
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250024",
+          "chantier": "BRIOLLAY - LOT 2",
+          "montantHT": 27175.27,
+          "montantTTC": 29892.8,
+          "sourceRow": 4,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.52,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.16,
+          "caProvisionner": -4348.0432
+        },
+        "2026-04-30": {
+          "devis": "D-250024",
+          "chantier": "BRIOLLAY - LOT 2",
+          "montantHT": 27175.27,
+          "montantTTC": 29892.8,
+          "sourceRow": 4,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.52,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.16,
+          "caProvisionner": -4348.0432
+        },
+        "2026-03-31": {
+          "devis": "D-250024",
+          "chantier": "BRIOLLAY - LOT 2",
+          "montantHT": 27175.27,
+          "montantTTC": 29892.8,
+          "sourceRow": 4,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -4891.5486
+        },
+        "2026-02-28": {
+          "devis": "D-250024",
+          "chantier": "BRIOLLAY - LOT 2",
+          "montantHT": 27175.27,
+          "montantTTC": 29892.8,
+          "sourceRow": 4,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -4891.5486
+        },
+        "2025-12-31": {
+          "devis": "D-250024",
+          "chantier": "BRIOLLAY - LOT 2",
+          "montantHT": 27175.27,
+          "montantTTC": 29892.8,
+          "sourceRow": 4,
+          "avancementPrecedent": "",
+          "avancementReel": 0.5,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.5,
+          "caProvisionner": 13587.635
+        }
+      }
+    },
+    {
+      "id": "av_003",
+      "devis": "D-250025",
+      "chantier": "BRIOLLAY - LOT 3",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250025",
+          "chantier": "BRIOLLAY - LOT 3",
+          "montantHT": 17312.4,
+          "montantTTC": 19043.64,
+          "sourceRow": 5,
+          "avancementPrecedent": 0.52,
+          "avancementReel": 0.55,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.13,
+          "caProvisionner": -2250.612
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250025",
+          "chantier": "BRIOLLAY - LOT 3",
+          "montantHT": 17312.4,
+          "montantTTC": 19043.64,
+          "sourceRow": 5,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.52,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.16,
+          "caProvisionner": -2769.984
+        },
+        "2026-04-30": {
+          "devis": "D-250025",
+          "chantier": "BRIOLLAY - LOT 3",
+          "montantHT": 17312.4,
+          "montantTTC": 19043.64,
+          "sourceRow": 5,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.52,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.16,
+          "caProvisionner": -2769.984
+        },
+        "2026-03-31": {
+          "devis": "D-250025",
+          "chantier": "BRIOLLAY - LOT 3",
+          "montantHT": 17312.4,
+          "montantTTC": 19043.64,
+          "sourceRow": 5,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -3116.232
+        },
+        "2026-02-28": {
+          "devis": "D-250025",
+          "chantier": "BRIOLLAY - LOT 3",
+          "montantHT": 17312.4,
+          "montantTTC": 19043.64,
+          "sourceRow": 5,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -3116.232
+        },
+        "2025-12-31": {
+          "devis": "D-250025",
+          "chantier": "BRIOLLAY - LOT 3",
+          "montantHT": 17312.4,
+          "montantTTC": 19043.64,
+          "sourceRow": 5,
+          "avancementPrecedent": "",
+          "avancementReel": 0.2,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.2,
+          "caProvisionner": 3462.48
+        }
+      }
+    },
+    {
+      "id": "av_004",
+      "devis": "D-250026",
+      "chantier": "BRIOLLAY - LOT 4",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250026",
+          "chantier": "BRIOLLAY - LOT 4",
+          "montantHT": 16055.7,
+          "montantTTC": 17661.27,
+          "sourceRow": 6,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.54,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.14,
+          "caProvisionner": -2247.798
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250026",
+          "chantier": "BRIOLLAY - LOT 4",
+          "montantHT": 16055.7,
+          "montantTTC": 17661.27,
+          "sourceRow": 6,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2890.026
+        },
+        "2026-04-30": {
+          "devis": "D-250026",
+          "chantier": "BRIOLLAY - LOT 4",
+          "montantHT": 16055.7,
+          "montantTTC": 17661.27,
+          "sourceRow": 6,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2890.026
+        },
+        "2026-03-31": {
+          "devis": "D-250026",
+          "chantier": "BRIOLLAY - LOT 4",
+          "montantHT": 16055.7,
+          "montantTTC": 17661.27,
+          "sourceRow": 6,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2890.026
+        },
+        "2026-02-28": {
+          "devis": "D-250026",
+          "chantier": "BRIOLLAY - LOT 4",
+          "montantHT": 16055.7,
+          "montantTTC": 17661.27,
+          "sourceRow": 6,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2890.026
+        },
+        "2025-12-31": {
+          "devis": "D-250026",
+          "chantier": "BRIOLLAY - LOT 4",
+          "montantHT": 16055.7,
+          "montantTTC": 17661.27,
+          "sourceRow": 6,
+          "avancementPrecedent": "",
+          "avancementReel": 0.2,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.2,
+          "caProvisionner": 3211.14
+        }
+      }
+    },
+    {
+      "id": "av_005",
+      "devis": "D-250027",
+      "chantier": "BRIOLLAY - LOT 5",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250027",
+          "chantier": "BRIOLLAY - LOT 5",
+          "montantHT": 15215.44,
+          "montantTTC": 16736.98,
+          "sourceRow": 7,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.51,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.17,
+          "caProvisionner": -2586.6248
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250027",
+          "chantier": "BRIOLLAY - LOT 5",
+          "montantHT": 15215.44,
+          "montantTTC": 16736.98,
+          "sourceRow": 7,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2738.7792
+        },
+        "2026-04-30": {
+          "devis": "D-250027",
+          "chantier": "BRIOLLAY - LOT 5",
+          "montantHT": 15215.44,
+          "montantTTC": 16736.98,
+          "sourceRow": 7,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2738.7792
+        },
+        "2026-03-31": {
+          "devis": "D-250027",
+          "chantier": "BRIOLLAY - LOT 5",
+          "montantHT": 15215.44,
+          "montantTTC": 16736.98,
+          "sourceRow": 7,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2738.7792
+        },
+        "2026-02-28": {
+          "devis": "D-250027",
+          "chantier": "BRIOLLAY - LOT 5",
+          "montantHT": 15215.44,
+          "montantTTC": 16736.98,
+          "sourceRow": 7,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.5,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.18,
+          "caProvisionner": -2738.7792
+        },
+        "2025-12-31": {
+          "devis": "D-250027",
+          "chantier": "BRIOLLAY - LOT 5",
+          "montantHT": 15215.44,
+          "montantTTC": 16736.98,
+          "sourceRow": 7,
+          "avancementPrecedent": "",
+          "avancementReel": 0.2,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.2,
+          "caProvisionner": 3043.088
+        }
+      }
+    },
+    {
+      "id": "av_006",
+      "devis": "D-250028",
+      "chantier": "BRIOLLAY - LOT 6",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250028",
+          "chantier": "BRIOLLAY - LOT 6",
+          "montantHT": 18593.14,
+          "montantTTC": 20452.45,
+          "sourceRow": 8,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -8924.7072
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250028",
+          "chantier": "BRIOLLAY - LOT 6",
+          "montantHT": 18593.14,
+          "montantTTC": 20452.45,
+          "sourceRow": 8,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -8924.7072
+        },
+        "2026-04-30": {
+          "devis": "D-250028",
+          "chantier": "BRIOLLAY - LOT 6",
+          "montantHT": 18593.14,
+          "montantTTC": 20452.45,
+          "sourceRow": 8,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -8924.7072
+        },
+        "2026-03-31": {
+          "devis": "D-250028",
+          "chantier": "BRIOLLAY - LOT 6",
+          "montantHT": 18593.14,
+          "montantTTC": 20452.45,
+          "sourceRow": 8,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -8924.7072
+        },
+        "2026-02-28": {
+          "devis": "D-250028",
+          "chantier": "BRIOLLAY - LOT 6",
+          "montantHT": 18593.14,
+          "montantTTC": 20452.45,
+          "sourceRow": 8,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -8924.7072
+        },
+        "2025-12-31": {
+          "devis": "D-250028",
+          "chantier": "BRIOLLAY - LOT 6",
+          "montantHT": 18593.14,
+          "montantTTC": 20452.45,
+          "sourceRow": 8,
+          "avancementPrecedent": "",
+          "avancementReel": 0.2,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.2,
+          "caProvisionner": 3718.628
+        }
+      }
+    },
+    {
+      "id": "av_007",
+      "devis": "D-250029",
+      "chantier": "BRIOLLAY - LOT 7",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250029",
+          "chantier": "BRIOLLAY - LOT 7",
+          "montantHT": 19553.69,
+          "montantTTC": 21509.06,
+          "sourceRow": 9,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -9385.7712
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250029",
+          "chantier": "BRIOLLAY - LOT 7",
+          "montantHT": 19553.69,
+          "montantTTC": 21509.06,
+          "sourceRow": 9,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -9385.7712
+        },
+        "2026-04-30": {
+          "devis": "D-250029",
+          "chantier": "BRIOLLAY - LOT 7",
+          "montantHT": 19553.69,
+          "montantTTC": 21509.06,
+          "sourceRow": 9,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -9385.7712
+        },
+        "2026-03-31": {
+          "devis": "D-250029",
+          "chantier": "BRIOLLAY - LOT 7",
+          "montantHT": 19553.69,
+          "montantTTC": 21509.06,
+          "sourceRow": 9,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.71,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -9385.7712
+        },
+        "2026-02-28": {
+          "devis": "D-250029",
+          "chantier": "BRIOLLAY - LOT 7",
+          "montantHT": 19553.69,
+          "montantTTC": 21509.06,
+          "sourceRow": 9,
+          "avancementPrecedent": 0.2,
+          "avancementReel": 0.2,
+          "pctFacture": 0.68,
+          "acompteMois": 0.71,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.48,
+          "caProvisionner": -9385.7712
+        },
+        "2025-12-31": {
+          "devis": "D-250029",
+          "chantier": "BRIOLLAY - LOT 7",
+          "montantHT": 19553.69,
+          "montantTTC": 21509.06,
+          "sourceRow": 9,
+          "avancementPrecedent": "",
+          "avancementReel": 0.2,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.2,
+          "caProvisionner": 3910.738
+        }
+      }
+    },
+    {
+      "id": "av_008",
+      "devis": "D-250018",
+      "chantier": "CAP INVEST / CO-LIVING",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250018",
+          "chantier": "CAP INVEST / CO-LIVING",
+          "montantHT": 32650.17,
+          "montantTTC": 35915.19,
+          "sourceRow": 11,
+          "avancementPrecedent": 0.98,
+          "avancementReel": 0.98,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.43,
+          "caProvisionner": 14039.5731
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250018",
+          "chantier": "CAP INVEST / CO-LIVING",
+          "montantHT": 32650.17,
+          "montantTTC": 35915.19,
+          "sourceRow": 11,
+          "avancementPrecedent": 0.98,
+          "avancementReel": 0.98,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.43,
+          "caProvisionner": 14039.5731
+        },
+        "2026-04-30": {
+          "devis": "D-250018",
+          "chantier": "CAP INVEST / CO-LIVING",
+          "montantHT": 32650.17,
+          "montantTTC": 35915.19,
+          "sourceRow": 11,
+          "avancementPrecedent": 0.98,
+          "avancementReel": 0.98,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.43,
+          "caProvisionner": 14039.5731
+        },
+        "2026-03-31": {
+          "devis": "D-250018",
+          "chantier": "CAP INVEST / CO-LIVING",
+          "montantHT": 32650.17,
+          "montantTTC": 35915.19,
+          "sourceRow": 11,
+          "avancementPrecedent": 0.98,
+          "avancementReel": 0.98,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.43,
+          "caProvisionner": 14039.5731
+        },
+        "2026-02-28": {
+          "devis": "D-250018",
+          "chantier": "CAP INVEST / CO-LIVING",
+          "montantHT": 32650.17,
+          "montantTTC": 35915.19,
+          "sourceRow": 11,
+          "avancementPrecedent": 1,
+          "avancementReel": 0.98,
+          "pctFacture": 0.49,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 1,
+          "note": "",
+          "pctProvisionner": 0.49,
+          "caProvisionner": 15998.5833
+        },
+        "2025-12-31": {
+          "devis": "D-250018",
+          "chantier": "CO-LIVING",
+          "montantHT": 32650.17,
+          "montantTTC": 35915.19,
+          "sourceRow": 12,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 1,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_009",
+      "devis": "D-250017",
+      "chantier": "CAP INVEST / LOT 102",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250017",
+          "chantier": "CAP INVEST / LOT 102",
+          "montantHT": 16957.65,
+          "montantTTC": 18653.42,
+          "sourceRow": 12,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -6783.06
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250017",
+          "chantier": "CAP INVEST / LOT 102",
+          "montantHT": 16957.65,
+          "montantTTC": 18653.42,
+          "sourceRow": 12,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -6783.06
+        },
+        "2026-04-30": {
+          "devis": "D-250017",
+          "chantier": "CAP INVEST / LOT 102",
+          "montantHT": 16957.65,
+          "montantTTC": 18653.42,
+          "sourceRow": 12,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -6783.06
+        },
+        "2026-03-31": {
+          "devis": "D-250017",
+          "chantier": "CAP INVEST / LOT 102",
+          "montantHT": 16957.65,
+          "montantTTC": 18653.42,
+          "sourceRow": 12,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -6783.06
+        },
+        "2026-02-28": {
+          "devis": "D-250017",
+          "chantier": "CAP INVEST / LOT 102",
+          "montantHT": 16957.65,
+          "montantTTC": 18653.42,
+          "sourceRow": 12,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.49,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.34,
+          "caProvisionner": -5765.601
+        },
+        "2025-12-31": {
+          "devis": "D-250017",
+          "chantier": "LOT 102",
+          "montantHT": 16957.65,
+          "montantTTC": 18653.42,
+          "sourceRow": 13,
+          "avancementPrecedent": "",
+          "avancementReel": 0.15,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.15,
+          "caProvisionner": 2543.6475
+        }
+      }
+    },
+    {
+      "id": "av_010",
+      "devis": "D-250016",
+      "chantier": "CAP INVEST / LOT 101",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250016",
+          "chantier": "CAP INVEST / LOT 101",
+          "montantHT": 20616,
+          "montantTTC": 22677.6,
+          "sourceRow": 13,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -8246.4
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250016",
+          "chantier": "CAP INVEST / LOT 101",
+          "montantHT": 20616,
+          "montantTTC": 22677.6,
+          "sourceRow": 13,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -8246.4
+        },
+        "2026-04-30": {
+          "devis": "D-250016",
+          "chantier": "CAP INVEST / LOT 101",
+          "montantHT": 20616,
+          "montantTTC": 22677.6,
+          "sourceRow": 13,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -8246.4
+        },
+        "2026-03-31": {
+          "devis": "D-250016",
+          "chantier": "CAP INVEST / LOT 101",
+          "montantHT": 20616,
+          "montantTTC": 22677.6,
+          "sourceRow": 13,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.4,
+          "caProvisionner": -8246.4
+        },
+        "2026-02-28": {
+          "devis": "D-250016",
+          "chantier": "CAP INVEST / LOT 101",
+          "montantHT": 20616,
+          "montantTTC": 22677.6,
+          "sourceRow": 13,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.15,
+          "pctFacture": 0.49,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.34,
+          "caProvisionner": -7009.44
+        },
+        "2025-12-31": {
+          "devis": "D-250016",
+          "chantier": "LOT 101",
+          "montantHT": 20616,
+          "montantTTC": 22677.6,
+          "sourceRow": 14,
+          "avancementPrecedent": "",
+          "avancementReel": 0.15,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.15,
+          "caProvisionner": 3092.4
+        }
+      }
+    },
+    {
+      "id": "av_011",
+      "devis": "D-250015",
+      "chantier": "CAP INVEST / ELEC CO-LIVING",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250015",
+          "chantier": "CAP INVEST / ELEC CO-LIVING",
+          "montantHT": 10380.69,
+          "montantTTC": 11418.76,
+          "sourceRow": 14,
+          "avancementPrecedent": 0.43,
+          "avancementReel": 0.43,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.12,
+          "caProvisionner": -1245.6828
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250015",
+          "chantier": "CAP INVEST / ELEC CO-LIVING",
+          "montantHT": 10380.69,
+          "montantTTC": 11418.76,
+          "sourceRow": 14,
+          "avancementPrecedent": 0.43,
+          "avancementReel": 0.43,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.12,
+          "caProvisionner": -1245.6828
+        },
+        "2026-04-30": {
+          "devis": "D-250015",
+          "chantier": "CAP INVEST / ELEC CO-LIVING",
+          "montantHT": 10380.69,
+          "montantTTC": 11418.76,
+          "sourceRow": 14,
+          "avancementPrecedent": 0.43,
+          "avancementReel": 0.43,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.12,
+          "caProvisionner": -1245.6828
+        },
+        "2026-03-31": {
+          "devis": "D-250015",
+          "chantier": "CAP INVEST / ELEC CO-LIVING",
+          "montantHT": 10380.69,
+          "montantTTC": 11418.76,
+          "sourceRow": 14,
+          "avancementPrecedent": 0.43,
+          "avancementReel": 0.43,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": -0.12,
+          "caProvisionner": -1245.6828
+        },
+        "2026-02-28": {
+          "devis": "D-250015",
+          "chantier": "CAP INVEST / ELEC CO-LIVING",
+          "montantHT": 10380.69,
+          "montantTTC": 11418.76,
+          "sourceRow": 14,
+          "avancementPrecedent": 1,
+          "avancementReel": 0.43,
+          "pctFacture": 0.49,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 1,
+          "note": "",
+          "pctProvisionner": -0.06,
+          "caProvisionner": -622.8414
+        },
+        "2025-12-31": {
+          "devis": "D-250015",
+          "chantier": "ELEC CO-LIVING",
+          "montantHT": 10380.69,
+          "montantTTC": 11418.76,
+          "sourceRow": 15,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 1,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_012",
+      "devis": "D-250031",
+      "chantier": "CAP INVEST / CO-LIVING 6éme lot",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250031",
+          "chantier": "CAP INVEST / CO-LIVING 6éme lot",
+          "montantHT": 3500.9,
+          "montantTTC": 3850.99,
+          "sourceRow": 15,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 1575.405
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250031",
+          "chantier": "CAP INVEST / CO-LIVING 6éme lot",
+          "montantHT": 3500.9,
+          "montantTTC": 3850.99,
+          "sourceRow": 15,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 1575.405
+        },
+        "2026-04-30": {
+          "devis": "D-250031",
+          "chantier": "CAP INVEST / CO-LIVING 6éme lot",
+          "montantHT": 3500.9,
+          "montantTTC": 3850.99,
+          "sourceRow": 15,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 1575.405
+        },
+        "2026-03-31": {
+          "devis": "D-250031",
+          "chantier": "CAP INVEST / CO-LIVING 6éme lot",
+          "montantHT": 3500.9,
+          "montantTTC": 3850.99,
+          "sourceRow": 15,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 1575.405
+        },
+        "2026-02-28": {
+          "devis": "D-250031",
+          "chantier": "CAP INVEST / CO-LIVING 6éme lot",
+          "montantHT": 3500.9,
+          "montantTTC": 3850.99,
+          "sourceRow": 15,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.49,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 1,
+          "note": "",
+          "pctProvisionner": 0.51,
+          "caProvisionner": 1785.459
+        },
+        "2025-12-31": {
+          "devis": "D-250031",
+          "chantier": "CO-LIVING 6éme lot",
+          "montantHT": 3500.9,
+          "montantTTC": 3850.99,
+          "sourceRow": 16,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 1,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_013",
+      "devis": "D-250050",
+      "chantier": "CAP INVEST / Cuisine 6éme lot",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250050",
+          "chantier": "CAP INVEST / Cuisine 6éme lot",
+          "montantHT": 1243.85,
+          "montantTTC": 1368.24,
+          "sourceRow": 16,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 559.7325
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250050",
+          "chantier": "CAP INVEST / Cuisine 6éme lot",
+          "montantHT": 1243.85,
+          "montantTTC": 1368.24,
+          "sourceRow": 16,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 559.7325
+        },
+        "2026-04-30": {
+          "devis": "D-250050",
+          "chantier": "CAP INVEST / Cuisine 6éme lot",
+          "montantHT": 1243.85,
+          "montantTTC": 1368.24,
+          "sourceRow": 16,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 559.7325
+        },
+        "2026-03-31": {
+          "devis": "D-250050",
+          "chantier": "CAP INVEST / Cuisine 6éme lot",
+          "montantHT": 1243.85,
+          "montantTTC": 1368.24,
+          "sourceRow": 16,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.55,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.69,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 559.7325
+        },
+        "2026-02-28": {
+          "devis": "D-250050",
+          "chantier": "CAP INVEST / Cuisine 6éme lot",
+          "montantHT": 1243.85,
+          "montantTTC": 1368.24,
+          "sourceRow": 16,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.49,
+          "acompteMois": 0.69,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0.51,
+          "caProvisionner": 634.3635
+        },
+        "2025-12-31": {
+          "devis": "D-250050",
+          "chantier": "Cuisine 6éme lot",
+          "montantHT": 1243.85,
+          "montantTTC": 1368.24,
+          "sourceRow": 17,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 0,
+          "acompteMois": 0,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 1,
+          "caProvisionner": 1243.85
+        }
+      }
+    },
+    {
+      "id": "av_014",
+      "devis": "D-250048",
+      "chantier": "ERCEAU LOU",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250048",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 61200.86,
+          "montantTTC": 67320.95,
+          "sourceRow": 18,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250048",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 61200.86,
+          "montantTTC": 67320.95,
+          "sourceRow": 18,
+          "avancementPrecedent": 0.99,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "D-250048",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 61200.86,
+          "montantTTC": 67320.95,
+          "sourceRow": 18,
+          "avancementPrecedent": 0.99,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-03-31": {
+          "devis": "D-250048",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 61200.86,
+          "montantTTC": 67320.95,
+          "sourceRow": 18,
+          "avancementPrecedent": 0.68,
+          "avancementReel": 0.99,
+          "pctFacture": 0.8,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.19,
+          "caProvisionner": 11628.1634
+        },
+        "2026-02-28": {
+          "devis": "D-250048",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 61200.86,
+          "montantTTC": 67320.95,
+          "sourceRow": 18,
+          "avancementPrecedent": 0.4,
+          "avancementReel": 0.68,
+          "pctFacture": 0.78,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": -0.1,
+          "caProvisionner": -6120.086
+        },
+        "2025-12-31": {
+          "devis": "D-250048",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 72604.67,
+          "montantTTC": 79865.14,
+          "sourceRow": 19,
+          "avancementPrecedent": "",
+          "avancementReel": 0.4,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.4,
+          "caProvisionner": 29041.868
+        }
+      }
+    },
+    {
+      "id": "av_015",
+      "devis": "",
+      "chantier": "ERCEAU LOU",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 1799.6,
+          "montantTTC": 1979.56,
+          "sourceRow": 19,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 1799.6,
+          "montantTTC": 1979.56,
+          "sourceRow": 19,
+          "avancementPrecedent": 0,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 1799.6,
+          "montantTTC": 1979.56,
+          "sourceRow": 19,
+          "avancementPrecedent": 0,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-03-31": {
+          "devis": "",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 1799.6,
+          "montantTTC": 1979.56,
+          "sourceRow": 19,
+          "avancementPrecedent": 0,
+          "avancementReel": 0,
+          "pctFacture": 0.8,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.8,
+          "caProvisionner": 1439.68
+        },
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 1799.6,
+          "montantTTC": 1979.56,
+          "sourceRow": 19,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0.78,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.78,
+          "caProvisionner": 1403.688
+        }
+      }
+    },
+    {
+      "id": "av_016",
+      "devis": "D-250005",
+      "chantier": "METOIS EXTENSION",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250005",
+          "chantier": "METOIS EXTENSION",
+          "montantHT": 72122.86,
+          "montantTTC": 84410.92,
+          "sourceRow": 21,
+          "avancementPrecedent": 0.9,
+          "avancementReel": 0.95,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.18,
+          "caProvisionner": 12982.1148
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250005",
+          "chantier": "METOIS EXTENSION",
+          "montantHT": 72122.86,
+          "montantTTC": 84410.92,
+          "sourceRow": 21,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 9375.9718
+        },
+        "2026-04-30": {
+          "devis": "D-250005",
+          "chantier": "METOIS EXTENSION",
+          "montantHT": 72122.86,
+          "montantTTC": 84410.92,
+          "sourceRow": 21,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 9375.9718
+        },
+        "2026-03-31": {
+          "devis": "D-250005",
+          "chantier": "METOIS EXTENSION",
+          "montantHT": 72122.86,
+          "montantTTC": 84410.92,
+          "sourceRow": 21,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.7,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": -0.07,
+          "caProvisionner": -5048.6002
+        },
+        "2026-02-28": {
+          "devis": "D-250005",
+          "chantier": "METOIS EXTENSION",
+          "montantHT": 72122.86,
+          "montantTTC": 84410.92,
+          "sourceRow": 22,
+          "avancementPrecedent": 0.9,
+          "avancementReel": 0.7,
+          "pctFacture": 0.68,
+          "acompteMois": 0.63,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.02,
+          "caProvisionner": 1442.4572
+        },
+        "2025-12-31": {
+          "devis": "D-250005",
+          "chantier": "METOIS EXTENSION",
+          "montantHT": 72122.86,
+          "montantTTC": 84410.92,
+          "sourceRow": 21,
+          "avancementPrecedent": "",
+          "avancementReel": 0.9,
+          "pctFacture": 0.8,
+          "acompteMois": "",
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.1,
+          "caProvisionner": 7212.286
+        }
+      }
+    },
+    {
+      "id": "av_017",
+      "devis": "D-250019",
+      "chantier": "MURS + DALLE",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250019",
+          "chantier": "MURS + DALLE",
+          "montantHT": 6861.85,
+          "montantTTC": 7548.04,
+          "sourceRow": 22,
+          "avancementPrecedent": 0.9,
+          "avancementReel": 0.95,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.18,
+          "caProvisionner": 1235.133
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250019",
+          "chantier": "MURS + DALLE",
+          "montantHT": 6861.85,
+          "montantTTC": 7548.04,
+          "sourceRow": 22,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 892.0405
+        },
+        "2026-04-30": {
+          "devis": "D-250019",
+          "chantier": "MURS + DALLE",
+          "montantHT": 6861.85,
+          "montantTTC": 7548.04,
+          "sourceRow": 22,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 892.0405
+        },
+        "2026-03-31": {
+          "devis": "D-250019",
+          "chantier": "MURS + DALLE",
+          "montantHT": 6861.85,
+          "montantTTC": 7548.04,
+          "sourceRow": 22,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.7,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": -0.07,
+          "caProvisionner": -480.3295
+        },
+        "2026-02-28": {
+          "devis": "D-250019",
+          "chantier": "MURS + DALLE",
+          "montantHT": 6861.85,
+          "montantTTC": 7548.04,
+          "sourceRow": 23,
+          "avancementPrecedent": 0.5,
+          "avancementReel": 0.7,
+          "pctFacture": 0.68,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0.02,
+          "caProvisionner": 137.237
+        },
+        "2025-12-31": {
+          "devis": "D-250019",
+          "chantier": "MURS + DALLE",
+          "montantHT": 6861.85,
+          "montantTTC": 7548.04,
+          "sourceRow": 22,
+          "avancementPrecedent": "",
+          "avancementReel": 0.5,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.5,
+          "caProvisionner": 3430.925
+        }
+      }
+    },
+    {
+      "id": "av_018",
+      "devis": "D-250032",
+      "chantier": "AVENANT ISOLANT",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250032",
+          "chantier": "AVENANT ISOLANT",
+          "montantHT": 3162.1,
+          "montantTTC": 3478.31,
+          "sourceRow": 23,
+          "avancementPrecedent": 0.9,
+          "avancementReel": 0.95,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.18,
+          "caProvisionner": 569.178
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250032",
+          "chantier": "AVENANT ISOLANT",
+          "montantHT": 3162.1,
+          "montantTTC": 3478.31,
+          "sourceRow": 23,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 411.073
+        },
+        "2026-04-30": {
+          "devis": "D-250032",
+          "chantier": "AVENANT ISOLANT",
+          "montantHT": 3162.1,
+          "montantTTC": 3478.31,
+          "sourceRow": 23,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 411.073
+        },
+        "2026-03-31": {
+          "devis": "D-250032",
+          "chantier": "AVENANT ISOLANT",
+          "montantHT": 3162.1,
+          "montantTTC": 3478.31,
+          "sourceRow": 23,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.7,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": -0.07,
+          "caProvisionner": -221.347
+        },
+        "2026-02-28": {
+          "devis": "D-250032",
+          "chantier": "AVENANT ISOLANT",
+          "montantHT": 3162.1,
+          "montantTTC": 3478.31,
+          "sourceRow": 24,
+          "avancementPrecedent": 1,
+          "avancementReel": 0.7,
+          "pctFacture": 0.68,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0.02,
+          "caProvisionner": 63.242
+        },
+        "2025-12-31": {
+          "devis": "D-250032",
+          "chantier": "AVENANT ISOLANT",
+          "montantHT": 3162.1,
+          "montantTTC": 3478.31,
+          "sourceRow": 23,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 1,
+          "caProvisionner": 3162.1
+        }
+      }
+    },
+    {
+      "id": "av_019",
+      "devis": "D-250049",
+      "chantier": "AVENANT COUVERTURE",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250049",
+          "chantier": "AVENANT COUVERTURE",
+          "montantHT": 5263.5,
+          "montantTTC": 6316.2,
+          "sourceRow": 24,
+          "avancementPrecedent": 0.9,
+          "avancementReel": 0.95,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.18,
+          "caProvisionner": 947.43
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250049",
+          "chantier": "AVENANT COUVERTURE",
+          "montantHT": 5263.5,
+          "montantTTC": 6316.2,
+          "sourceRow": 24,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 684.255
+        },
+        "2026-04-30": {
+          "devis": "D-250049",
+          "chantier": "AVENANT COUVERTURE",
+          "montantHT": 5263.5,
+          "montantTTC": 6316.2,
+          "sourceRow": 24,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.9,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 684.255
+        },
+        "2026-03-31": {
+          "devis": "D-250049",
+          "chantier": "AVENANT COUVERTURE",
+          "montantHT": 5263.5,
+          "montantTTC": 6316.2,
+          "sourceRow": 24,
+          "avancementPrecedent": 0.7,
+          "avancementReel": 0.7,
+          "pctFacture": 0.77,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 0.63,
+          "note": "",
+          "pctProvisionner": -0.07,
+          "caProvisionner": -368.445
+        },
+        "2026-02-28": {
+          "devis": "D-250049",
+          "chantier": "AVENANT COUVERTURE",
+          "montantHT": 5263.5,
+          "montantTTC": 6316.2,
+          "sourceRow": 25,
+          "avancementPrecedent": 1,
+          "avancementReel": 0.7,
+          "pctFacture": 0.68,
+          "acompteMois": 0.63,
+          "acomptePrecedent": 1,
+          "note": "",
+          "pctProvisionner": 0.02,
+          "caProvisionner": 105.27
+        },
+        "2025-12-31": {
+          "devis": "D-250049",
+          "chantier": "AVENANT COUVERTURE",
+          "montantHT": 5263.5,
+          "montantTTC": 6316.2,
+          "sourceRow": 24,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 1,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_020",
+      "devis": "D-240062",
+      "chantier": "GILDAS",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-240062",
+          "chantier": "GILDAS",
+          "montantHT": 63789.21,
+          "montantTTC": 70168.13,
+          "sourceRow": 26,
+          "avancementPrecedent": 0.93,
+          "avancementReel": 0.99,
+          "pctFacture": 1,
+          "acompteMois": 0.55,
+          "acomptePrecedent": 0.55,
+          "note": "",
+          "pctProvisionner": -0.01,
+          "caProvisionner": -637.8921
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-240062",
+          "chantier": "GILDAS",
+          "montantHT": 63789.21,
+          "montantTTC": 70168.13,
+          "sourceRow": 26,
+          "avancementPrecedent": 0.79,
+          "avancementReel": 0.93,
+          "pctFacture": 1,
+          "acompteMois": 0.55,
+          "acomptePrecedent": 0.55,
+          "note": "",
+          "pctProvisionner": -0.07,
+          "caProvisionner": -4465.2447
+        },
+        "2026-04-30": {
+          "devis": "D-240062",
+          "chantier": "GILDAS",
+          "montantHT": 63789.21,
+          "montantTTC": 70168.13,
+          "sourceRow": 26,
+          "avancementPrecedent": 0.79,
+          "avancementReel": 0.93,
+          "pctFacture": 1,
+          "acompteMois": 0.55,
+          "acomptePrecedent": 0.55,
+          "note": "",
+          "pctProvisionner": -0.07,
+          "caProvisionner": -4465.2447
+        },
+        "2026-03-31": {
+          "devis": "D-240062",
+          "chantier": "GILDAS",
+          "montantHT": 63789.21,
+          "montantTTC": "",
+          "sourceRow": 26,
+          "avancementPrecedent": 0.52,
+          "avancementReel": 0.79,
+          "pctFacture": 1,
+          "acompteMois": 0.55,
+          "acomptePrecedent": 0.55,
+          "note": "",
+          "pctProvisionner": -0.21,
+          "caProvisionner": -13395.7341
+        },
+        "2026-02-28": {
+          "devis": "D-240062",
+          "chantier": "GILDAS",
+          "montantHT": 53763.37,
+          "montantTTC": 59139.71,
+          "sourceRow": 27,
+          "avancementPrecedent": 0.9,
+          "avancementReel": 0.52,
+          "pctFacture": 0.9,
+          "acompteMois": 0.55,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": -0.38,
+          "caProvisionner": -20430.0806
+        },
+        "2025-12-31": {
+          "devis": "D-240062",
+          "chantier": "GILDAS",
+          "montantHT": 53763.37,
+          "montantTTC": 59139.71,
+          "sourceRow": 26,
+          "avancementPrecedent": "",
+          "avancementReel": 0.9,
+          "pctFacture": 0.8,
+          "acompteMois": "",
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.1,
+          "caProvisionner": 5376.337
+        }
+      }
+    },
+    {
+      "id": "av_021",
+      "devis": "",
+      "chantier": "GILDAS PEINTURE",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "GILDAS PEINTURE",
+          "montantHT": 5702.85,
+          "montantTTC": 6273.14,
+          "sourceRow": 27,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.9,
+          "acompteMois": 0.51,
+          "acomptePrecedent": 0.51,
+          "note": "",
+          "pctProvisionner": 0.1,
+          "caProvisionner": 570.285
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "GILDAS PEINTURE",
+          "montantHT": 5702.85,
+          "montantTTC": 6273.14,
+          "sourceRow": 27,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 0.9,
+          "acompteMois": 0.51,
+          "acomptePrecedent": 0.55,
+          "note": "",
+          "pctProvisionner": 0.1,
+          "caProvisionner": 570.285
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "GILDAS PEINTURE",
+          "montantHT": 5702.85,
+          "montantTTC": 6273.14,
+          "sourceRow": 27,
+          "avancementPrecedent": 1,
+          "avancementReel": 0.9,
+          "pctFacture": 0.9,
+          "acompteMois": 0.51,
+          "acomptePrecedent": 0.55,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-03-31": {
+          "devis": "",
+          "chantier": "GILDAS PEINTURE",
+          "montantHT": 5702.85,
+          "montantTTC": 6273.14,
+          "sourceRow": 27,
+          "avancementPrecedent": 0,
+          "avancementReel": 1,
+          "pctFacture": 0.9,
+          "acompteMois": 0.51,
+          "acomptePrecedent": 0.55,
+          "note": "",
+          "pctProvisionner": 0.1,
+          "caProvisionner": 570.285
+        },
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "GILDAS PEINTURE",
+          "montantHT": 5702.85,
+          "montantTTC": 6273.14,
+          "sourceRow": 28,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0.9,
+          "acompteMois": 0.55,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": -0.9,
+          "caProvisionner": -5132.565
+        }
+      }
+    },
+    {
+      "id": "av_022",
+      "devis": "D-250012",
+      "chantier": "DOUAULT",
+      "values": {
+        "2026-05-31": {
+          "devis": "D-250012",
+          "chantier": "DOUAULT",
+          "montantHT": 11356.56,
+          "montantTTC": 12492.22,
+          "sourceRow": 29,
+          "avancementPrecedent": 0.99,
+          "avancementReel": "",
+          "pctFacture": 0.82,
+          "acompteMois": 0,
+          "acomptePrecedent": 0,
+          "note": "",
+          "pctProvisionner": -0.82,
+          "caProvisionner": -9312.3792
+        },
+        "2026-04-30-corrige": {
+          "devis": "D-250012",
+          "chantier": "DOUAULT",
+          "montantHT": 11356.56,
+          "montantTTC": 12492.22,
+          "sourceRow": 29,
+          "avancementPrecedent": 0.99,
+          "avancementReel": 0.99,
+          "pctFacture": 0.82,
+          "acompteMois": 0,
+          "acomptePrecedent": 0,
+          "note": "",
+          "pctProvisionner": 0.17,
+          "caProvisionner": 1930.6152
+        },
+        "2026-04-30": {
+          "devis": "D-250012",
+          "chantier": "DOUAULT",
+          "montantHT": 11356.56,
+          "montantTTC": 12492.22,
+          "sourceRow": 29,
+          "avancementPrecedent": 0.99,
+          "avancementReel": 0.99,
+          "pctFacture": 0.82,
+          "acompteMois": 0,
+          "acomptePrecedent": 0,
+          "note": "",
+          "pctProvisionner": 0.17,
+          "caProvisionner": 1930.6152
+        },
+        "2026-03-31": {
+          "devis": "D-250012",
+          "chantier": "DOUAULT",
+          "montantHT": 11356.56,
+          "montantTTC": 12492.22,
+          "sourceRow": 29,
+          "avancementPrecedent": 0.82,
+          "avancementReel": 0.99,
+          "pctFacture": 0.82,
+          "acompteMois": 0,
+          "acomptePrecedent": 0,
+          "note": "",
+          "pctProvisionner": 0.17,
+          "caProvisionner": 1930.6152
+        },
+        "2026-02-28": {
+          "devis": "D-250012",
+          "chantier": "DOUAULT",
+          "montantHT": 11356.56,
+          "montantTTC": 12492.22,
+          "sourceRow": 31,
+          "avancementPrecedent": 0.8231,
+          "avancementReel": 0.82,
+          "pctFacture": 0.82,
+          "acompteMois": 0,
+          "acomptePrecedent": "",
+          "note": "Francois ne sait pas",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2025-12-31": {
+          "devis": "D-250012",
+          "chantier": "DOUAULT",
+          "montantHT": 11356.56,
+          "montantTTC": 12492.22,
+          "sourceRow": 28,
+          "avancementPrecedent": "",
+          "avancementReel": 0.8231,
+          "pctFacture": 0.8231,
+          "acompteMois": "",
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_023",
+      "devis": "ARTHUR",
+      "chantier": "FOURMOND - Bureau",
+      "values": {
+        "2026-05-31": {
+          "devis": "ARTHUR",
+          "chantier": "FOURMOND - Bureau",
+          "montantHT": 10294.52,
+          "montantTTC": 11323.97,
+          "sourceRow": 31,
+          "avancementPrecedent": 0.47,
+          "avancementReel": 0.75,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.75,
+          "caProvisionner": 7720.89
+        }
+      }
+    },
+    {
+      "id": "av_024",
+      "devis": "",
+      "chantier": "FOURMOND - R+1",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "FOURMOND - R+1",
+          "montantHT": 23172.72,
+          "montantTTC": 25489.99,
+          "sourceRow": 32,
+          "avancementPrecedent": 0.33,
+          "avancementReel": 0.45,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.45,
+          "caProvisionner": 10427.724
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "FOURMOND - R+1",
+          "montantHT": 23172.72,
+          "montantTTC": 25489.99,
+          "sourceRow": 32,
+          "avancementPrecedent": 0.27,
+          "avancementReel": 0.33,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.33,
+          "caProvisionner": 7646.9976
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "FOURMOND - R+1",
+          "montantHT": 23172.72,
+          "montantTTC": 25489.99,
+          "sourceRow": 32,
+          "avancementPrecedent": 0.27,
+          "avancementReel": 0.33,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.33,
+          "caProvisionner": 7646.9976
+        },
+        "2026-03-31": {
+          "devis": "",
+          "chantier": "FOURMOND - R+1",
+          "montantHT": 23172.72,
+          "montantTTC": 25489.99,
+          "sourceRow": 32,
+          "avancementPrecedent": 0.25,
+          "avancementReel": 0.27,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.27,
+          "caProvisionner": 6256.6344
+        },
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "FOURMOND - R+1",
+          "montantHT": 23172.72,
+          "montantTTC": 25489.99,
+          "sourceRow": 34,
+          "avancementPrecedent": "",
+          "avancementReel": 0.25,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.25,
+          "caProvisionner": 5793.18
+        }
+      }
+    },
+    {
+      "id": "av_025",
+      "devis": "",
+      "chantier": "FOURMOND - R+2",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "FOURMOND - R+2",
+          "montantHT": 30328.72,
+          "montantTTC": 28992.47,
+          "sourceRow": 33,
+          "avancementPrecedent": 0.49,
+          "avancementReel": 0.7,
+          "pctFacture": 0,
+          "acompteMois": 0.67,
+          "acomptePrecedent": 0.67,
+          "note": "",
+          "pctProvisionner": 0.7,
+          "caProvisionner": 21230.104
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "FOURMOND - R+2",
+          "montantHT": 30328.72,
+          "montantTTC": 28992.47,
+          "sourceRow": 33,
+          "avancementPrecedent": 0.3,
+          "avancementReel": 0.49,
+          "pctFacture": 0,
+          "acompteMois": 0.67,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.49,
+          "caProvisionner": 14861.0728
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "FOURMOND - R+2",
+          "montantHT": 30328.72,
+          "montantTTC": 28992.47,
+          "sourceRow": 33,
+          "avancementPrecedent": 0.3,
+          "avancementReel": 0.49,
+          "pctFacture": 0,
+          "acompteMois": 0.67,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.49,
+          "caProvisionner": 14861.0728
+        }
+      }
+    },
+    {
+      "id": "av_026",
+      "devis": "",
+      "chantier": "PHILIBERT / JEAN MARIE ANGERS",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "PHILIBERT / JEAN MARIE ANGERS",
+          "montantHT": 19637.29,
+          "montantTTC": 19334.54,
+          "sourceRow": 35,
+          "avancementPrecedent": 1,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "PHILIBERT / JEAN MARIE ANGERS",
+          "montantHT": 19637.29,
+          "montantTTC": 19334.54,
+          "sourceRow": 35,
+          "avancementPrecedent": 0.99,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "PHILIBERT / JEAN MARIE ANGERS",
+          "montantHT": 19637.29,
+          "montantTTC": 19334.54,
+          "sourceRow": 35,
+          "avancementPrecedent": 0.99,
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-03-31": {
+          "devis": "",
+          "chantier": "PHILIBERT / JEAN MARIE ANGERS",
+          "montantHT": 19637.29,
+          "montantTTC": 19334.54,
+          "sourceRow": 35,
+          "avancementPrecedent": 0.9,
+          "avancementReel": 0.99,
+          "pctFacture": 0.98,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0.01,
+          "caProvisionner": 196.3729
+        }
+      }
+    },
+    {
+      "id": "av_027",
+      "devis": "",
+      "chantier": "MAUDUIT",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "MAUDUIT",
+          "montantHT": 25850.19,
+          "montantTTC": 28435.21,
+          "sourceRow": 37,
+          "avancementPrecedent": 0,
+          "avancementReel": 0.25,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0.25,
+          "caProvisionner": 6462.5475
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "MAUDUIT",
+          "montantHT": 25850.19,
+          "montantTTC": 28435.21,
+          "sourceRow": 37,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "MAUDUIT",
+          "montantHT": 25850.19,
+          "montantTTC": 28435.21,
+          "sourceRow": 37,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_028",
+      "devis": "TOM & CAMILLE",
+      "chantier": "TROTTIER T3 - RDC",
+      "values": {
+        "2026-05-31": {
+          "devis": "TOM & CAMILLE",
+          "chantier": "TROTTIER T3 - RDC",
+          "montantHT": 22593.87,
+          "montantTTC": 24853.26,
+          "sourceRow": 39,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.28,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.28,
+          "caProvisionner": 6326.2836
+        }
+      }
+    },
+    {
+      "id": "av_029",
+      "devis": "",
+      "chantier": "TROTTIER T3 - R+1",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - R+1",
+          "montantHT": 21044.11,
+          "montantTTC": 23148.52,
+          "sourceRow": 40,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.25,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.25,
+          "caProvisionner": 5261.0275
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - R+1",
+          "montantHT": 21044.11,
+          "montantTTC": 23148.52,
+          "sourceRow": 40,
+          "avancementPrecedent": "",
+          "avancementReel": 0.15,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.15,
+          "caProvisionner": 3156.6165
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - R+1",
+          "montantHT": 21044.11,
+          "montantTTC": 23148.52,
+          "sourceRow": 40,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_030",
+      "devis": "",
+      "chantier": "TROTTIER T3 - R+2",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - R+2",
+          "montantHT": 28434.74,
+          "montantTTC": 31278.21,
+          "sourceRow": 41,
+          "avancementPrecedent": 0.15,
+          "avancementReel": 0.43,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.43,
+          "caProvisionner": 12226.9382
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - R+2",
+          "montantHT": 28434.74,
+          "montantTTC": 31278.21,
+          "sourceRow": 41,
+          "avancementPrecedent": "",
+          "avancementReel": 0.15,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.15,
+          "caProvisionner": 4265.211
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - R+2",
+          "montantHT": 28434.74,
+          "montantTTC": 31278.21,
+          "sourceRow": 41,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_031",
+      "devis": "BD ROI RENE",
+      "chantier": "MONTAIGNE - ABRI VELO",
+      "values": {
+        "2026-05-31": {
+          "devis": "BD ROI RENE",
+          "chantier": "MONTAIGNE - ABRI VELO",
+          "montantHT": 1319.73,
+          "montantTTC": 1451.7,
+          "sourceRow": 43,
+          "avancementPrecedent": 0,
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_032",
+      "devis": "",
+      "chantier": "MONTAIGNE - CAGE ESCALIER",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "MONTAIGNE - CAGE ESCALIER",
+          "montantHT": 9567.76,
+          "montantTTC": 10524.54,
+          "sourceRow": 44,
+          "avancementPrecedent": 0,
+          "avancementReel": 1,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 1,
+          "caProvisionner": 9567.76
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "MONTAIGNE - CAGE ESCALIER",
+          "montantHT": 9567.76,
+          "montantTTC": 10524.54,
+          "sourceRow": 44,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "MONTAIGNE - CAGE ESCALIER",
+          "montantHT": 9567.76,
+          "montantTTC": 10524.54,
+          "sourceRow": 44,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_033",
+      "devis": "",
+      "chantier": "MONTAIGNE - LINKY",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "MONTAIGNE - LINKY",
+          "montantHT": 1404.24,
+          "montantTTC": 1544.66,
+          "sourceRow": 45,
+          "avancementPrecedent": 0,
+          "avancementReel": 1,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 1,
+          "caProvisionner": 1404.24
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "MONTAIGNE - LINKY",
+          "montantHT": 1404.24,
+          "montantTTC": 1544.66,
+          "sourceRow": 45,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "MONTAIGNE - LINKY",
+          "montantHT": 1404.24,
+          "montantTTC": 1544.66,
+          "sourceRow": 45,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_034",
+      "devis": "",
+      "chantier": "MONTAIGNE - RACCORDEMENT EAU",
+      "values": {
+        "2026-05-31": {
+          "devis": "",
+          "chantier": "MONTAIGNE - RACCORDEMENT EAU",
+          "montantHT": 1056.8,
+          "montantTTC": 1162.48,
+          "sourceRow": 46,
+          "avancementPrecedent": 0,
+          "avancementReel": 1,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 1,
+          "caProvisionner": 1056.8
+        },
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "MONTAIGNE - RACCORDEMENT EAU",
+          "montantHT": 1056.8,
+          "montantTTC": 1162.48,
+          "sourceRow": 46,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "MONTAIGNE - RACCORDEMENT EAU",
+          "montantHT": 1056.8,
+          "montantTTC": 1162.48,
+          "sourceRow": 46,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_035",
+      "devis": "",
+      "chantier": "FOURMOND - Bureau",
+      "values": {
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "FOURMOND - Bureau",
+          "montantHT": 10294.52,
+          "montantTTC": 11323.97,
+          "sourceRow": 31,
+          "avancementPrecedent": 0.31,
+          "avancementReel": 0.47,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.47,
+          "caProvisionner": 4838.4244
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "FOURMOND - Bureau",
+          "montantHT": 10294.52,
+          "montantTTC": 11323.97,
+          "sourceRow": 31,
+          "avancementPrecedent": 0.31,
+          "avancementReel": 0.47,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.47,
+          "caProvisionner": 4838.4244
+        },
+        "2026-03-31": {
+          "devis": "",
+          "chantier": "FOURMOND - Bureau",
+          "montantHT": 10294.52,
+          "montantTTC": 11323.97,
+          "sourceRow": 31,
+          "avancementPrecedent": 0.29,
+          "avancementReel": 0.31,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.31,
+          "caProvisionner": 3191.3012
+        },
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "FOURMOND - Bureau",
+          "montantHT": 10294.52,
+          "montantTTC": 11323.97,
+          "sourceRow": 33,
+          "avancementPrecedent": "",
+          "avancementReel": 0.29,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.29,
+          "caProvisionner": 2985.4108
+        }
+      }
+    },
+    {
+      "id": "av_036",
+      "devis": "",
+      "chantier": "TROTTIER T3 - RDC",
+      "values": {
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - RDC",
+          "montantHT": 22593.87,
+          "montantTTC": 24853.26,
+          "sourceRow": 39,
+          "avancementPrecedent": "",
+          "avancementReel": 0.15,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.15,
+          "caProvisionner": 3389.0805
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "TROTTIER T3 - RDC",
+          "montantHT": 22593.87,
+          "montantTTC": 24853.26,
+          "sourceRow": 39,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_037",
+      "devis": "",
+      "chantier": "MONTAIGNE - ABRI VELO",
+      "values": {
+        "2026-04-30-corrige": {
+          "devis": "",
+          "chantier": "MONTAIGNE - ABRI VELO",
+          "montantHT": 1319.73,
+          "montantTTC": 1451.7,
+          "sourceRow": 43,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        },
+        "2026-04-30": {
+          "devis": "",
+          "chantier": "MONTAIGNE - ABRI VELO",
+          "montantHT": 1319.73,
+          "montantTTC": 1451.7,
+          "sourceRow": 43,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_038",
+      "devis": "",
+      "chantier": "FOURMOND - R+2",
+      "values": {
+        "2026-03-31": {
+          "devis": "",
+          "chantier": "FOURMOND - R+2",
+          "montantHT": 26356.79,
+          "montantTTC": 28992.47,
+          "sourceRow": 33,
+          "avancementPrecedent": 0.13,
+          "avancementReel": 0.3,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "",
+          "pctProvisionner": 0.3,
+          "caProvisionner": 7907.037
+        },
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "FOURMOND - R+2",
+          "montantHT": 26356.79,
+          "montantTTC": 28992.47,
+          "sourceRow": 35,
+          "avancementPrecedent": "",
+          "avancementReel": 0.13,
+          "pctFacture": 0,
+          "acompteMois": 0.7,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.13,
+          "caProvisionner": 3426.3827
+        }
+      }
+    },
+    {
+      "id": "av_039",
+      "devis": "",
+      "chantier": "FUMOLAND",
+      "values": {
+        "2026-03-31": {
+          "devis": "",
+          "chantier": "FUMOLAND",
+          "montantHT": 65275.11,
+          "montantTTC": "",
+          "sourceRow": 37,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 1,
+          "acompteMois": 0.5,
+          "acomptePrecedent": 0.5,
+          "note": "",
+          "pctProvisionner": 0,
+          "caProvisionner": 0
+        }
+      }
+    },
+    {
+      "id": "av_040",
+      "devis": "",
+      "chantier": "ERCEAU LOU",
+      "values": {
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "ERCEAU LOU",
+          "montantHT": 11403.81,
+          "montantTTC": "",
+          "sourceRow": 20,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0.78,
+          "acompteMois": 0.7,
+          "acomptePrecedent": 0.7,
+          "note": "Marché selon ProGbat = 74404.27",
+          "pctProvisionner": -0.78,
+          "caProvisionner": -8894.9718
+        }
+      }
+    },
+    {
+      "id": "av_041",
+      "devis": "",
+      "chantier": "GILDAS",
+      "values": {
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "GILDAS",
+          "montantHT": 4322.99,
+          "montantTTC": "",
+          "sourceRow": 29,
+          "avancementPrecedent": "",
+          "avancementReel": 0,
+          "pctFacture": 0.9,
+          "acompteMois": 0.55,
+          "acomptePrecedent": "",
+          "note": "Marché selon ProGbat = 63789.21",
+          "pctProvisionner": -0.9,
+          "caProvisionner": -3890.691
+        }
+      }
+    },
+    {
+      "id": "av_042",
+      "devis": "",
+      "chantier": "PHILIBERT",
+      "values": {
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "PHILIBERT",
+          "montantHT": 17576.85,
+          "montantTTC": 19334.54,
+          "sourceRow": 37,
+          "avancementPrecedent": "",
+          "avancementReel": 0.9,
+          "pctFacture": 0.95,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": -0.05,
+          "caProvisionner": -878.8425
+        }
+      }
+    },
+    {
+      "id": "av_043",
+      "devis": "",
+      "chantier": "PHILIBERT",
+      "values": {
+        "2026-02-28": {
+          "devis": "",
+          "chantier": "PHILIBERT",
+          "montantHT": 1608.72,
+          "montantTTC": 1769.59,
+          "sourceRow": 38,
+          "avancementPrecedent": "",
+          "avancementReel": 1,
+          "pctFacture": 0.95,
+          "acompteMois": 0.5,
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": 0.05,
+          "caProvisionner": 80.436
+        }
+      }
+    },
+    {
+      "id": "av_044",
+      "devis": "",
+      "chantier": "SURPLUS",
+      "values": {
+        "2025-12-31": {
+          "devis": "",
+          "chantier": "SURPLUS",
+          "montantHT": "",
+          "montantTTC": "",
+          "sourceRow": 10,
+          "avancementPrecedent": "",
+          "avancementReel": "",
+          "pctFacture": "",
+          "acompteMois": "",
+          "acomptePrecedent": "",
+          "note": "",
+          "pctProvisionner": "",
+          "caProvisionner": 0
+        }
+      }
+    }
+  ]
+};
+
+const DEFAULT_AVANCEMENT_PERIODS = DEFAULT_AVANCEMENT.periods;
 
 function createId(prefix = "item") {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -52,31 +3069,78 @@ function emptyMonths() {
   return MOIS.reduce((acc, m) => ({ ...acc, [m.id]: { fg: "", heures: "" } }), {});
 }
 
-function createAvancementRow() {
+function emptyAvancementValue() {
   return {
-    id: createId("chantier"),
     devis: "",
     chantier: "",
     montantHT: "",
     montantTTC: "",
-    values: {},
+    avancementPrecedent: "",
+    avancementReel: "",
+    pctFacture: "",
+    pctProvisionner: "",
+    acompteMois: "",
+    acomptePrecedent: "",
+    note: "",
+    sourceRow: 9999,
   };
 }
 
+function createAvancementRow(periodId) {
+  const row = {
+    id: createId("chantier"),
+    devis: "",
+    chantier: "",
+    values: {},
+  };
+
+  if (periodId) {
+    row.values[periodId] = emptyAvancementValue();
+  }
+
+  return row;
+}
+
 function normalizeAvancement(raw) {
-  const periods = Array.isArray(raw?.periods) && raw.periods.length > 0
-    ? raw.periods
+  const source = Array.isArray(raw?.rows) && raw.rows.length > 0
+    ? raw
+    : DEFAULT_AVANCEMENT;
+
+  const periods = Array.isArray(source?.periods) && source.periods.length > 0
+    ? source.periods
     : DEFAULT_AVANCEMENT_PERIODS;
 
-  const rows = Array.isArray(raw?.rows)
-    ? raw.rows.map(row => ({
-        id: row.id || createId("chantier"),
-        devis: row.devis ?? "",
-        chantier: row.chantier ?? "",
-        montantHT: row.montantHT ?? "",
-        montantTTC: row.montantTTC ?? "",
-        values: row.values || {},
-      }))
+  const rows = Array.isArray(source?.rows)
+    ? source.rows.map(row => {
+        const rawValues = row.values || {};
+        const values = Object.fromEntries(
+          Object.entries(rawValues).map(([periodId, value]) => [
+            periodId,
+            {
+              devis: value?.devis ?? row.devis ?? "",
+              chantier: value?.chantier ?? row.chantier ?? "",
+              montantHT: value?.montantHT ?? row.montantHT ?? "",
+              montantTTC: value?.montantTTC ?? row.montantTTC ?? "",
+              avancementPrecedent: value?.avancementPrecedent ?? "",
+              avancementReel: value?.avancementReel ?? "",
+              pctFacture: value?.pctFacture ?? "",
+              pctProvisionner: value?.pctProvisionner ?? "",
+              caProvisionner: value?.caProvisionner ?? "",
+              acompteMois: value?.acompteMois ?? "",
+              acomptePrecedent: value?.acomptePrecedent ?? "",
+              note: value?.note ?? "",
+              sourceRow: value?.sourceRow ?? 9999,
+            },
+          ])
+        );
+
+        return {
+          id: row.id || createId("chantier"),
+          devis: row.devis ?? "",
+          chantier: row.chantier ?? "",
+          values,
+        };
+      })
     : [];
 
   return {
@@ -206,7 +3270,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   const addAvancementRow = () => {
     setAvancement(prev => ({
       ...prev,
-      rows: [...prev.rows, createAvancementRow()],
+      rows: [...prev.rows, createAvancementRow(activeAvancementPeriodId)],
     }));
     setDirty(true);
   };
@@ -840,24 +3904,37 @@ function AvancementChantierTab({
     textAlign: "left",
   };
 
-  const computedRows = rows.map(row => {
-    const values = row.values?.[currentPeriodId] || {};
-    const montantHT = parseNumber(row.montantHT);
-    const avancementReel = parsePercent(values.avancementReel);
-    const pctFacture = parsePercent(values.pctFacture);
-    const pctProvisionner = avancementReel - pctFacture;
-    const caProvisionner = montantHT * pctProvisionner;
+  const computedRows = rows
+    .map(row => {
+      const hasPeriodData = Boolean(
+        currentPeriodId &&
+        row.values &&
+        Object.prototype.hasOwnProperty.call(row.values, currentPeriodId)
+      );
+      const values = row.values?.[currentPeriodId] || {};
+      const montantHT = parseNumber(values.montantHT);
+      const avancementReel = parsePercent(values.avancementReel);
+      const pctFacture = parsePercent(values.pctFacture);
+      const hasPctProvisionner = values.pctProvisionner !== "" && values.pctProvisionner !== null && values.pctProvisionner !== undefined;
+      const pctProvisionner = hasPctProvisionner
+        ? parsePercent(values.pctProvisionner)
+        : avancementReel - pctFacture;
+      const caProvisionner = montantHT * pctProvisionner;
 
-    return {
-      row,
-      values,
-      montantHT,
-      avancementReel,
-      pctFacture,
-      pctProvisionner,
-      caProvisionner,
-    };
-  });
+      return {
+        row,
+        values,
+        hasPeriodData,
+        montantHT,
+        avancementReel,
+        pctFacture,
+        pctProvisionner,
+        caProvisionner,
+        sourceRow: parseNumber(values.sourceRow) || 9999,
+      };
+    })
+    .filter(item => item.hasPeriodData)
+    .sort((a, b) => a.sourceRow - b.sourceRow);
 
   const totalHT = computedRows.reduce((sum, item) => sum + item.montantHT, 0);
   const totalProvisionner = computedRows.reduce((sum, item) => sum + item.caProvisionner, 0);
@@ -968,7 +4045,7 @@ function AvancementChantierTab({
           icon={FileSpreadsheet}
           iconColor="#5b9cf6"
           label="Chantiers suivis"
-          value={String(rows.length)}
+          value={String(computedRows.length)}
         />
         <KpiCard
           T={T}
@@ -1025,7 +4102,7 @@ function AvancementChantierTab({
         </div>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", minWidth: 1320, borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", minWidth: 1580, borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
@@ -1039,6 +4116,7 @@ function AvancementChantierTab({
                 <AvancementTh T={T}>CA HT à provisionner</AvancementTh>
                 <AvancementTh T={T}>% acompte mois</AvancementTh>
                 <AvancementTh T={T}>% acompte précédent</AvancementTh>
+                <AvancementTh T={T} align="left">Commentaire</AvancementTh>
                 <AvancementTh T={T}>Action</AvancementTh>
               </tr>
             </thead>
@@ -1046,8 +4124,8 @@ function AvancementChantierTab({
             <tbody>
               {computedRows.length === 0 && (
                 <tr>
-                  <td colSpan={12} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
-                    Aucun chantier saisi pour le moment. Clique sur <strong style={{ color: T.text }}>Ajouter un chantier</strong> pour commencer.
+                  <td colSpan={13} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
+                    Aucun chantier saisi pour ce mois. Clique sur <strong style={{ color: T.text }}>Ajouter un chantier</strong> pour commencer.
                   </td>
                 </tr>
               )}
@@ -1057,8 +4135,8 @@ function AvancementChantierTab({
                   <td style={{ padding: "7px 8px", width: 120 }}>
                     <input
                       className="ef-input"
-                      value={row.devis ?? ""}
-                      onChange={e => updateRow(row.id, "devis", e.target.value)}
+                      value={values.devis ?? row.devis ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "devis", e.target.value)}
                       placeholder="D-250000"
                       style={textInput}
                     />
@@ -1067,8 +4145,8 @@ function AvancementChantierTab({
                   <td style={{ padding: "7px 8px", width: 230 }}>
                     <input
                       className="ef-input"
-                      value={row.chantier ?? ""}
-                      onChange={e => updateRow(row.id, "chantier", e.target.value)}
+                      value={values.chantier ?? row.chantier ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "chantier", e.target.value)}
                       placeholder="Nom du chantier"
                       style={{ ...textInput, minWidth: 210 }}
                     />
@@ -1079,8 +4157,8 @@ function AvancementChantierTab({
                       className="ef-input"
                       type="number"
                       step="0.01"
-                      value={row.montantHT ?? ""}
-                      onChange={e => updateRow(row.id, "montantHT", e.target.value)}
+                      value={values.montantHT ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "montantHT", e.target.value)}
                       placeholder="0"
                       style={numberInput}
                     />
@@ -1091,8 +4169,8 @@ function AvancementChantierTab({
                       className="ef-input"
                       type="number"
                       step="0.01"
-                      value={row.montantTTC ?? ""}
-                      onChange={e => updateRow(row.id, "montantTTC", e.target.value)}
+                      value={values.montantTTC ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "montantTTC", e.target.value)}
                       placeholder="0"
                       style={numberInput}
                     />
@@ -1134,17 +4212,20 @@ function AvancementChantierTab({
                     />
                   </td>
 
-                  <td
-                    style={{
-                      padding: "7px 8px",
-                      width: 120,
-                      textAlign: "right",
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color: pctProvisionner >= 0 ? acc.accent : "#ff5c5c",
-                    }}
-                  >
-                    {fmtPct(pctProvisionner)}
+                  <td style={{ padding: "7px 8px", width: 120 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={values.pctProvisionner ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "pctProvisionner", e.target.value)}
+                      placeholder="0,18"
+                      style={{
+                        ...numberInput,
+                        color: pctProvisionner >= 0 ? acc.accent : "#ff5c5c",
+                        fontWeight: 800,
+                      }}
+                    />
                   </td>
 
                   <td
@@ -1184,6 +4265,16 @@ function AvancementChantierTab({
                     />
                   </td>
 
+                  <td style={{ padding: "7px 8px", width: 180 }}>
+                    <input
+                      className="ef-input"
+                      value={values.note ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "note", e.target.value)}
+                      placeholder="Commentaire"
+                      style={{ ...textInput, minWidth: 160 }}
+                    />
+                  </td>
+
                   <td style={{ padding: "7px 8px", width: 70, textAlign: "center" }}>
                     <button
                       onClick={() => removeRow(row.id)}
@@ -1219,7 +4310,7 @@ function AvancementChantierTab({
                 <td style={{ padding: "12px", textAlign: "right", fontSize: 13, fontWeight: 900, color: totalProvisionner >= 0 ? acc.accent : "#ff5c5c" }}>
                   {fmtEur(totalProvisionner)}
                 </td>
-                <td colSpan={3}></td>
+                <td colSpan={4}></td>
               </tr>
             </tfoot>
           </table>
@@ -1242,7 +4333,7 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est calculé comme <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé comme <em>montant HT × % à provisionner</em>. Tu peux saisir les pourcentages au format <strong style={{ color: T.text }}>0,69</strong> ou <strong style={{ color: T.text }}>69</strong>.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est repris depuis le fichier Excel lorsqu'il existe, puis reste modifiable. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé comme <em>montant HT × % à provisionner</em>. Tu peux saisir les pourcentages au format <strong style={{ color: T.text }}>0,69</strong> ou <strong style={{ color: T.text }}>69</strong>.
         </div>
       </div>
     </>
