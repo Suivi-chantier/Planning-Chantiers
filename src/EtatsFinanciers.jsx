@@ -44,12 +44,13 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   const [dirty, setDirty] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
 
-  const tabs = [
-    { id: "frais_generaux", label: "Frais généraux", icon: Calculator },
-    { id: "avancement_chantier", label: "Avancement de chantier", icon: Clock },
-    { id: "situation", label: "Situation", icon: Euro },
-    { id: "analyse_financiere", label: "Analyse financière", icon: TrendingUp },
-  ];
+const tabs = [
+  { id: "frais_generaux", label: "Frais généraux", icon: Calculator },
+  { id: "avancement_chantier", label: "Avancement de chantier", icon: Clock },
+  { id: "achat", label: "Achat", icon: Euro },
+  { id: "situation", label: "Situation", icon: Euro },
+  { id: "analyse_financiere", label: "Analyse financière", icon: TrendingUp },
+];
 
   // ── Chargement ──────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -356,6 +357,15 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
           />
         )}
 
+      {activeTab === "achat" && (
+        <PlaceholderTab
+          T={T}
+          icon={Euro}
+          title="Achat"
+          description="Cet onglet servira à suivre les achats liés aux chantiers : fournisseurs, matériaux, montants engagés, factures reçues, factures payées, reste à payer et écarts avec les budgets prévus."
+        />
+      )}
+        
         {activeTab === "situation" && (
           <PlaceholderTab
             T={T}
