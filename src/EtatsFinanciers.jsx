@@ -2,7 +2,18 @@ import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 import { FONT, RADIUS, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
-import { Calculator, Euro, Clock, TrendingUp, Info, Save } from "lucide-react";
+import {
+  Calculator,
+  Euro,
+  Clock,
+  TrendingUp,
+  Info,
+  Save,
+  Plus,
+  Trash2,
+  CalendarPlus,
+  FileSpreadsheet,
+} from "lucide-react";
 
 const KEY = "etats_financiers";
 
@@ -21,9 +32,76 @@ const MOIS = [
   { id: "12", label: "Décembre"  },
 ];
 
+const DEFAULT_AVANCEMENT_PERIODS = [
+  { id: "2026-05-31", label: "31/05/26" },
+  { id: "2026-04-30-corrige", label: "30/04/26 corrigé" },
+  { id: "2026-04-30", label: "30/04/26" },
+  { id: "2026-03-31", label: "31/03/26" },
+  { id: "2026-02-28", label: "28/02/26" },
+  { id: "2025-12-31", label: "31/12/25" },
+];
+
+function createId(prefix = "item") {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return `${prefix}_${crypto.randomUUID()}`;
+  }
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
 function emptyMonths() {
   return MOIS.reduce((acc, m) => ({ ...acc, [m.id]: { fg: "", heures: "" } }), {});
 }
+
+function createAvancementRow() {
+  return {
+    id: createId("chantier"),
+    devis: "",
+    chantier: "",
+    montantHT: "",
+    montantTTC: "",
+    values: {},
+  };
+}
+
+function normalizeAvancement(raw) {
+  const periods = Array.isArray(raw?.periods) && raw.periods.length > 0
+    ? raw.periods
+    : DEFAULT_AVANCEMENT_PERIODS;
+
+  const rows = Array.isArray(raw?.rows)
+    ? raw.rows.map(row => ({
+        id: row.id || createId("chantier"),
+        devis: row.devis ?? "",
+        chantier: row.chantier ?? "",
+        montantHT: row.montantHT ?? "",
+        montantTTC: row.montantTTC ?? "",
+        values: row.values || {},
+      }))
+    : [];
+
+  return {
+    periods: periods.map(p => ({
+      id: p.id || createId("periode"),
+      label: p.label || "Mois d'avancement",
+    })),
+    rows,
+  };
+}
+
+const parseNumber = (value) => {
+  if (value === null || value === undefined || value === "") return 0;
+  const cleaned = String(value)
+    .replace(/\s/g, "")
+    .replace("€", "")
+    .replace(",", ".");
+  return parseFloat(cleaned) || 0;
+};
+
+const parsePercent = (value) => {
+  const n = parseNumber(value);
+  if (Math.abs(n) > 1) return n / 100;
+  return n;
+};
 
 const fmtEur = (n) =>
   new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n) + " €";
@@ -34,23 +112,28 @@ const fmtH = (n) =>
 const fmtTaux = (n) =>
   new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " €/h";
 
+const fmtPct = (n) =>
+  new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n * 100) + " %";
+
 export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
 
   const [activeTab, setActiveTab] = useState("frais_generaux");
+  const [activeAvancementPeriodId, setActiveAvancementPeriodId] = useState(DEFAULT_AVANCEMENT_PERIODS[0].id);
   const [months, setMonths] = useState(emptyMonths());
+  const [avancement, setAvancement] = useState(() => normalizeAvancement());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
 
-const tabs = [
-  { id: "frais_generaux", label: "Frais généraux", icon: Calculator },
-  { id: "avancement_chantier", label: "Avancement de chantier", icon: Clock },
-  { id: "achat", label: "Achat", icon: Euro },
-  { id: "situation", label: "Situation", icon: Euro },
-  { id: "analyse_financiere", label: "Analyse financière", icon: TrendingUp },
-];
+  const tabs = [
+    { id: "frais_generaux", label: "Frais généraux", icon: Calculator },
+    { id: "avancement_chantier", label: "Avancement de chantier", icon: Clock },
+    { id: "achat", label: "Achat", icon: Euro },
+    { id: "situation", label: "Situation", icon: Euro },
+    { id: "analyse_financiere", label: "Analyse financière", icon: TrendingUp },
+  ];
 
   // ── Chargement ──────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -65,6 +148,10 @@ const tabs = [
       if (data?.value?.months) {
         setMonths({ ...emptyMonths(), ...data.value.months });
       }
+
+      const nextAvancement = normalizeAvancement(data?.value?.avancement);
+      setAvancement(nextAvancement);
+      setActiveAvancementPeriodId(nextAvancement.periods[0]?.id || DEFAULT_AVANCEMENT_PERIODS[0].id);
 
       setDirty(false);
     } catch (e) {
@@ -84,7 +171,11 @@ const tabs = [
     const { error } = await supabase
       .from("planning_config")
       .upsert(
-        { key: KEY, value: { months }, updated_at: new Date().toISOString() },
+        {
+          key: KEY,
+          value: { months, avancement },
+          updated_at: new Date().toISOString(),
+        },
         { onConflict: "key" }
       );
 
@@ -112,6 +203,102 @@ const tabs = [
     setDirty(true);
   };
 
+  const addAvancementRow = () => {
+    setAvancement(prev => ({
+      ...prev,
+      rows: [...prev.rows, createAvancementRow()],
+    }));
+    setDirty(true);
+  };
+
+  const removeAvancementRow = (rowId) => {
+    if (!window.confirm("Supprimer ce chantier de l'avancement ?")) return;
+
+    setAvancement(prev => ({
+      ...prev,
+      rows: prev.rows.filter(row => row.id !== rowId),
+    }));
+    setDirty(true);
+  };
+
+  const updateAvancementRow = (rowId, field, raw) => {
+    setAvancement(prev => ({
+      ...prev,
+      rows: prev.rows.map(row => (
+        row.id === rowId
+          ? { ...row, [field]: raw }
+          : row
+      )),
+    }));
+    setDirty(true);
+  };
+
+  const updateAvancementValue = (rowId, periodId, field, raw) => {
+    setAvancement(prev => ({
+      ...prev,
+      rows: prev.rows.map(row => (
+        row.id === rowId
+          ? {
+              ...row,
+              values: {
+                ...row.values,
+                [periodId]: {
+                  ...(row.values?.[periodId] || {}),
+                  [field]: raw,
+                },
+              },
+            }
+          : row
+      )),
+    }));
+    setDirty(true);
+  };
+
+  const addAvancementPeriod = () => {
+    const label = window.prompt("Nom du nouvel onglet d'avancement", "30/06/26");
+    if (!label || !label.trim()) return;
+
+    const newPeriod = {
+      id: createId("periode"),
+      label: label.trim(),
+    };
+
+    setAvancement(prev => ({
+      ...prev,
+      periods: [newPeriod, ...prev.periods],
+    }));
+    setActiveAvancementPeriodId(newPeriod.id);
+    setDirty(true);
+  };
+
+  const removeAvancementPeriod = (periodId) => {
+    if (avancement.periods.length <= 1) {
+      alert("Impossible de supprimer le dernier mois d'avancement.");
+      return;
+    }
+
+    if (!window.confirm("Supprimer cet onglet d'avancement et les données associées ?")) return;
+
+    setAvancement(prev => {
+      const nextPeriods = prev.periods.filter(period => period.id !== periodId);
+      const nextRows = prev.rows.map(row => {
+        const nextValues = { ...(row.values || {}) };
+        delete nextValues[periodId];
+        return { ...row, values: nextValues };
+      });
+
+      setActiveAvancementPeriodId(nextPeriods[0]?.id || DEFAULT_AVANCEMENT_PERIODS[0].id);
+
+      return {
+        ...prev,
+        periods: nextPeriods,
+        rows: nextRows,
+      };
+    });
+
+    setDirty(true);
+  };
+
   // ── Avertir avant de quitter avec des modifs non sauvegardées ──────────────
   useEffect(() => {
     if (!dirty) return;
@@ -127,8 +314,8 @@ const tabs = [
 
   // ── Calculs ─────────────────────────────────────────────────────────────────
   const parsed = MOIS.map(m => {
-    const fg = parseFloat(String(months[m.id]?.fg).replace(",", ".")) || 0;
-    const heures = parseFloat(String(months[m.id]?.heures).replace(",", ".")) || 0;
+    const fg = parseNumber(months[m.id]?.fg);
+    const heures = parseNumber(months[m.id]?.heures);
 
     return {
       ...m,
@@ -185,15 +372,17 @@ const tabs = [
         .ef-row:hover { background: ${T.cardHover}; }
         .ef-input:focus { border-color: ${acc.accent} !important; }
         .ef-tab:hover { background: ${T.cardHover}; }
+        .ef-subtab:hover { background: ${T.cardHover}; }
         @media (max-width: 767px) {
           .ef-wrap { padding: 14px 12px !important; }
           .ef-kpis { grid-template-columns: 1fr !important; }
           .ef-tabs { overflow-x: auto; padding-bottom: 4px; }
           .ef-tab { white-space: nowrap; }
+          .ef-actions { width: 100%; justify-content: flex-start !important; }
         }
       `}</style>
 
-      <div className="ef-wrap" style={{ padding: "24px 32px", maxWidth: 1100, margin: "0 auto" }}>
+      <div className="ef-wrap" style={{ padding: "24px 32px", maxWidth: 1220, margin: "0 auto" }}>
         {/* ─── Header ─────────────────────────────────────────────────────────── */}
         <div
           style={{
@@ -225,64 +414,62 @@ const tabs = [
             </div>
           </div>
 
-          {activeTab === "frais_generaux" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              {dirty && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 10px",
-                    borderRadius: RADIUS.pill,
-                    background: "rgba(245,166,35,0.12)",
-                    color: "#f5a623",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    letterSpacing: 0.3,
-                  }}
-                >
-                  ● Modifications non sauvegardées
-                </span>
-              )}
-
-              {!dirty && lastSavedAt && (
-                <span style={{ fontSize: 12, color: T.textMuted }}>
-                  Enregistré à{" "}
-                  {lastSavedAt.toLocaleTimeString("fr-FR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              )}
-
-              <button
-                onClick={save}
-                disabled={saving || !dirty}
+          <div className="ef-actions" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" }}>
+            {dirty && (
+              <span
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 8,
-                  padding: "9px 18px",
-                  borderRadius: RADIUS.md,
-                  border: "none",
-                  cursor: saving || !dirty ? "not-allowed" : "pointer",
-                  background: saving || !dirty ? T.card : acc.accent,
-                  color: saving || !dirty ? T.textMuted : "#111",
-                  fontFamily: "inherit",
-                  fontSize: 13,
-                  fontWeight: 800,
-                  letterSpacing: 0.5,
-                  textTransform: "uppercase",
-                  opacity: saving || !dirty ? 0.6 : 1,
-                  transition: "background .12s, opacity .12s",
+                  gap: 6,
+                  padding: "4px 10px",
+                  borderRadius: RADIUS.pill,
+                  background: "rgba(245,166,35,0.12)",
+                  color: "#f5a623",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 0.3,
                 }}
               >
-                <Icon as={Save} size={14} />
-                {saving ? "Enregistrement…" : "Sauvegarder"}
-              </button>
-            </div>
-          )}
+                ● Modifications non sauvegardées
+              </span>
+            )}
+
+            {!dirty && lastSavedAt && (
+              <span style={{ fontSize: 12, color: T.textMuted }}>
+                Enregistré à{" "}
+                {lastSavedAt.toLocaleTimeString("fr-FR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
+
+            <button
+              onClick={save}
+              disabled={saving || !dirty}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "9px 18px",
+                borderRadius: RADIUS.md,
+                border: "none",
+                cursor: saving || !dirty ? "not-allowed" : "pointer",
+                background: saving || !dirty ? T.card : acc.accent,
+                color: saving || !dirty ? T.textMuted : "#111",
+                fontFamily: "inherit",
+                fontSize: 13,
+                fontWeight: 800,
+                letterSpacing: 0.5,
+                textTransform: "uppercase",
+                opacity: saving || !dirty ? 0.6 : 1,
+                transition: "background .12s, opacity .12s",
+              }}
+            >
+              <Icon as={Save} size={14} />
+              {saving ? "Enregistrement…" : "Sauvegarder"}
+            </button>
+          </div>
         </div>
 
         {/* ─── Onglets internes ──────────────────────────────────────────────── */}
@@ -349,23 +536,30 @@ const tabs = [
         )}
 
         {activeTab === "avancement_chantier" && (
-          <PlaceholderTab
+          <AvancementChantierTab
             T={T}
-            icon={Clock}
-            title="Avancement de chantier"
-            description="Cet onglet servira à suivre l’état d’avancement des chantiers, les montants produits, les restes à produire et les écarts entre avancement réel et avancement financier."
+            acc={acc}
+            avancement={avancement}
+            activePeriodId={activeAvancementPeriodId}
+            setActivePeriodId={setActiveAvancementPeriodId}
+            addPeriod={addAvancementPeriod}
+            removePeriod={removeAvancementPeriod}
+            addRow={addAvancementRow}
+            removeRow={removeAvancementRow}
+            updateRow={updateAvancementRow}
+            updateValue={updateAvancementValue}
           />
         )}
 
-      {activeTab === "achat" && (
-        <PlaceholderTab
-          T={T}
-          icon={Euro}
-          title="Achat"
-          description="Cet onglet servira à suivre les achats liés aux chantiers : fournisseurs, matériaux, montants engagés, factures reçues, factures payées, reste à payer et écarts avec les budgets prévus."
-        />
-      )}
-        
+        {activeTab === "achat" && (
+          <PlaceholderTab
+            T={T}
+            icon={Euro}
+            title="Achat"
+            description="Cet onglet servira à suivre les achats liés aux chantiers : fournisseurs, matériaux, montants engagés, factures reçues, factures payées, reste à payer et écarts avec les budgets prévus."
+          />
+        )}
+
         {activeTab === "situation" && (
           <PlaceholderTab
             T={T}
@@ -601,6 +795,494 @@ function FraisGenerauxTab({
       </div>
     </>
   );
+}
+
+// ─── ONGLET 2 : AVANCEMENT DE CHANTIER ───────────────────────────────────────
+function AvancementChantierTab({
+  T,
+  acc,
+  avancement,
+  activePeriodId,
+  setActivePeriodId,
+  addPeriod,
+  removePeriod,
+  addRow,
+  removeRow,
+  updateRow,
+  updateValue,
+}) {
+  const periods = avancement.periods || [];
+  const rows = avancement.rows || [];
+  const activePeriod = periods.find(period => period.id === activePeriodId) || periods[0];
+  const currentPeriodId = activePeriod?.id;
+
+  const inputBase = {
+    width: "100%",
+    minWidth: 90,
+    background: T.card,
+    border: `1px solid ${T.border}`,
+    borderRadius: RADIUS.md,
+    padding: "7px 9px",
+    color: T.text,
+    fontFamily: "inherit",
+    fontSize: 13,
+    outline: "none",
+    transition: "border-color .12s",
+  };
+
+  const numberInput = {
+    ...inputBase,
+    textAlign: "right",
+  };
+
+  const textInput = {
+    ...inputBase,
+    textAlign: "left",
+  };
+
+  const computedRows = rows.map(row => {
+    const values = row.values?.[currentPeriodId] || {};
+    const montantHT = parseNumber(row.montantHT);
+    const avancementReel = parsePercent(values.avancementReel);
+    const pctFacture = parsePercent(values.pctFacture);
+    const pctProvisionner = avancementReel - pctFacture;
+    const caProvisionner = montantHT * pctProvisionner;
+
+    return {
+      row,
+      values,
+      montantHT,
+      avancementReel,
+      pctFacture,
+      pctProvisionner,
+      caProvisionner,
+    };
+  });
+
+  const totalHT = computedRows.reduce((sum, item) => sum + item.montantHT, 0);
+  const totalProvisionner = computedRows.reduce((sum, item) => sum + item.caProvisionner, 0);
+  const moyenneAvancement = computedRows.length > 0
+    ? computedRows.reduce((sum, item) => sum + item.avancementReel, 0) / computedRows.length
+    : 0;
+
+  return (
+    <>
+      <div
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg,
+          padding: 16,
+          marginBottom: 16,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            marginBottom: 14,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>
+              Avancement de chantier
+            </div>
+            <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>
+              Onglets repris du fichier Excel d'avancement 2026, avec ajout libre de mois et de chantiers.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={addPeriod}
+              style={actionButtonStyle(acc.accent, "#111")}
+            >
+              <Icon as={CalendarPlus} size={14} />
+              Ajouter un mois
+            </button>
+
+            <button
+              onClick={addRow}
+              style={actionButtonStyle(T.card, T.text, T.border)}
+            >
+              <Icon as={Plus} size={14} />
+              Ajouter un chantier
+            </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            overflowX: "auto",
+            paddingBottom: 2,
+          }}
+        >
+          {periods.map(period => {
+            const isActive = period.id === currentPeriodId;
+
+            return (
+              <button
+                key={period.id}
+                onClick={() => setActivePeriodId(period.id)}
+                className="ef-subtab"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  whiteSpace: "nowrap",
+                  padding: "8px 12px",
+                  borderRadius: RADIUS.pill,
+                  border: `1px solid ${isActive ? acc.accent : T.border}`,
+                  background: isActive ? `${acc.accent}18` : T.card,
+                  color: isActive ? acc.accent : T.textSub,
+                  fontFamily: "inherit",
+                  fontSize: 12.5,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                <Icon as={FileSpreadsheet} size={13} />
+                {period.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        className="ef-kpis"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 14,
+          marginBottom: 16,
+        }}
+      >
+        <KpiCard
+          T={T}
+          icon={FileSpreadsheet}
+          iconColor="#5b9cf6"
+          label="Chantiers suivis"
+          value={String(rows.length)}
+        />
+        <KpiCard
+          T={T}
+          icon={Euro}
+          iconColor="#ff9a4d"
+          label="Total marchés HT"
+          value={fmtEur(totalHT)}
+        />
+        <KpiCard
+          T={T}
+          icon={TrendingUp}
+          iconColor={totalProvisionner >= 0 ? acc.accent : "#ff5c5c"}
+          label="Total à provisionner"
+          value={fmtEur(totalProvisionner)}
+          highlight
+        />
+      </div>
+
+      <div
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg,
+          padding: 18,
+          marginBottom: 16,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            marginBottom: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ fontSize: 13, color: T.textSub }}>
+            Mois affiché : <strong style={{ color: T.text }}>{activePeriod?.label || "Aucun mois"}</strong>
+          </div>
+
+          <button
+            onClick={() => removePeriod(currentPeriodId)}
+            disabled={!currentPeriodId || periods.length <= 1}
+            style={{
+              ...actionButtonStyle("rgba(255,92,92,0.12)", "#ff5c5c", "rgba(255,92,92,0.28)"),
+              opacity: !currentPeriodId || periods.length <= 1 ? 0.45 : 1,
+              cursor: !currentPeriodId || periods.length <= 1 ? "not-allowed" : "pointer",
+            }}
+          >
+            <Icon as={Trash2} size={14} />
+            Supprimer le mois
+          </button>
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: 1320, borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                <AvancementTh T={T} align="left">Devis</AvancementTh>
+                <AvancementTh T={T} align="left">Nom du chantier</AvancementTh>
+                <AvancementTh T={T}>Montant total HT</AvancementTh>
+                <AvancementTh T={T}>Montant total TTC</AvancementTh>
+                <AvancementTh T={T}>Avancement précédent</AvancementTh>
+                <AvancementTh T={T}>Avancement réel</AvancementTh>
+                <AvancementTh T={T}>% facturé</AvancementTh>
+                <AvancementTh T={T}>% à provisionner</AvancementTh>
+                <AvancementTh T={T}>CA HT à provisionner</AvancementTh>
+                <AvancementTh T={T}>% acompte mois</AvancementTh>
+                <AvancementTh T={T}>% acompte précédent</AvancementTh>
+                <AvancementTh T={T}>Action</AvancementTh>
+              </tr>
+            </thead>
+
+            <tbody>
+              {computedRows.length === 0 && (
+                <tr>
+                  <td colSpan={12} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
+                    Aucun chantier saisi pour le moment. Clique sur <strong style={{ color: T.text }}>Ajouter un chantier</strong> pour commencer.
+                  </td>
+                </tr>
+              )}
+
+              {computedRows.map(({ row, values, pctProvisionner, caProvisionner }) => (
+                <tr key={row.id} className="ef-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                  <td style={{ padding: "7px 8px", width: 120 }}>
+                    <input
+                      className="ef-input"
+                      value={row.devis ?? ""}
+                      onChange={e => updateRow(row.id, "devis", e.target.value)}
+                      placeholder="D-250000"
+                      style={textInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 230 }}>
+                    <input
+                      className="ef-input"
+                      value={row.chantier ?? ""}
+                      onChange={e => updateRow(row.id, "chantier", e.target.value)}
+                      placeholder="Nom du chantier"
+                      style={{ ...textInput, minWidth: 210 }}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 130 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={row.montantHT ?? ""}
+                      onChange={e => updateRow(row.id, "montantHT", e.target.value)}
+                      placeholder="0"
+                      style={numberInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 130 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={row.montantTTC ?? ""}
+                      onChange={e => updateRow(row.id, "montantTTC", e.target.value)}
+                      placeholder="0"
+                      style={numberInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 120 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={values.avancementPrecedent ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "avancementPrecedent", e.target.value)}
+                      placeholder="0,50"
+                      style={numberInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 120 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={values.avancementReel ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "avancementReel", e.target.value)}
+                      placeholder="0,69"
+                      style={numberInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 115 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={values.pctFacture ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "pctFacture", e.target.value)}
+                      placeholder="0,68"
+                      style={numberInput}
+                    />
+                  </td>
+
+                  <td
+                    style={{
+                      padding: "7px 8px",
+                      width: 120,
+                      textAlign: "right",
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: pctProvisionner >= 0 ? acc.accent : "#ff5c5c",
+                    }}
+                  >
+                    {fmtPct(pctProvisionner)}
+                  </td>
+
+                  <td
+                    style={{
+                      padding: "7px 8px",
+                      width: 140,
+                      textAlign: "right",
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: caProvisionner >= 0 ? T.text : "#ff5c5c",
+                    }}
+                  >
+                    {fmtEur(caProvisionner)}
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 120 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={values.acompteMois ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "acompteMois", e.target.value)}
+                      placeholder="0,70"
+                      style={numberInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 130 }}>
+                    <input
+                      className="ef-input"
+                      type="number"
+                      step="0.01"
+                      value={values.acomptePrecedent ?? ""}
+                      onChange={e => updateValue(row.id, currentPeriodId, "acomptePrecedent", e.target.value)}
+                      placeholder="0,70"
+                      style={numberInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 70, textAlign: "center" }}>
+                    <button
+                      onClick={() => removeRow(row.id)}
+                      title="Supprimer le chantier"
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 9,
+                        border: `1px solid rgba(255,92,92,0.28)`,
+                        background: "rgba(255,92,92,0.10)",
+                        color: "#ff5c5c",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Icon as={Trash2} size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+
+            <tfoot>
+              <tr style={{ background: T.card }}>
+                <td colSpan={2} style={{ padding: "12px", fontSize: 12, fontWeight: 800, color: T.textSub, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Total avancement
+                </td>
+                <td style={{ padding: "12px", textAlign: "right", fontSize: 13, fontWeight: 800, color: T.text }}>
+                  {fmtEur(totalHT)}
+                </td>
+                <td colSpan={5} style={{ padding: "12px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.textSub }}>
+                  Avancement moyen : {fmtPct(moyenneAvancement)}
+                </td>
+                <td style={{ padding: "12px", textAlign: "right", fontSize: 13, fontWeight: 900, color: totalProvisionner >= 0 ? acc.accent : "#ff5c5c" }}>
+                  {fmtEur(totalProvisionner)}
+                </td>
+                <td colSpan={3}></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 10,
+          padding: "12px 14px",
+          borderRadius: RADIUS.md,
+          background: T.card,
+          border: `1px solid ${T.border}`,
+          fontSize: 12.5,
+          color: T.textSub,
+          lineHeight: 1.55,
+        }}
+      >
+        <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
+        <div>
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est calculé comme <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé comme <em>montant HT × % à provisionner</em>. Tu peux saisir les pourcentages au format <strong style={{ color: T.text }}>0,69</strong> ou <strong style={{ color: T.text }}>69</strong>.
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AvancementTh({ T, children, align = "right" }) {
+  return (
+    <th
+      style={{
+        textAlign: align,
+        padding: "10px 8px",
+        fontSize: 10.5,
+        fontWeight: 800,
+        letterSpacing: 1,
+        textTransform: "uppercase",
+        color: T.textSub,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </th>
+  );
+}
+
+function actionButtonStyle(background, color, border = "transparent") {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
+    borderRadius: RADIUS.md,
+    border: `1px solid ${border}`,
+    background,
+    color,
+    fontFamily: "inherit",
+    fontSize: 12.5,
+    fontWeight: 800,
+    cursor: "pointer",
+  };
 }
 
 // ─── ONGLET EN ATTENTE DE STRUCTURATION ───────────────────────────────────────
