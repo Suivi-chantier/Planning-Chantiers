@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
-  Users, Ruler, ListChecks, BookOpen, Layers, Search, IdCard, FileText, Settings,
+  Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator,
 } from "lucide-react";
@@ -26,7 +26,7 @@ const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
     "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
-    "visite","info-client","etats-financiers","admin"
+    "visite","info-client","etats-financiers","guide-ouvrages","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
@@ -61,6 +61,7 @@ const ALL_NAV_ITEMS = [
   { id:"info-client",      icon:IdCard,          label:"Client",     longLabel:"Infos Client"        },
   { id:"dashboard-analyse",icon:TrendingUp,      label:"Analyse",    longLabel:"Dashboard Analyse"   },
   { id:"etats-financiers", icon:Calculator,      label:"États fin.", longLabel:"États financiers"    },
+  { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide",      longLabel:"Guide ouvrages"      },
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
 ];
 
@@ -253,6 +254,7 @@ function Sidebar({
     { id:"info-client",      icon:IdCard,          label:"Infos Client"     },
     { id:"dashboard-analyse",icon:TrendingUp,      label:"Dashboard Analyse"  },
     { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
+    { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide ouvrages"   },
     { id:"admin",            icon:Settings,        label:"Réglages"         },
   ];
 

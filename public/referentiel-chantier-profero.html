@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Référentiel chantier — Profero Rénovation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#efe9dd;
+    --paper-2:#e6dfd0;
+    --card:#f7f3ea;
+    --ink:#17150f;
+    --ink-soft:#4a463c;
+    --line:#ccc3ad;
+    --amber:#d6480a;
+    --amber-soft:#f3e3d2;
+    --slate:#2f5d72;
+    --slate-soft:#dde7ec;
+    --green:#2c7a4b;
+    --green-soft:#dcebdf;
+    --red:#b22914;
+    --red-soft:#f3ddd6;
+    --display:"Bricolage Grotesque","Hanken Grotesk",sans-serif;
+    --body:"Hanken Grotesk",-apple-system,system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--body);
+    color:var(--ink);
+    background-color:var(--paper);
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:26px 26px;
+    background-position:-1px -1px;
+    line-height:1.5;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(120% 80% at 50% -10%,transparent 40%,rgba(23,21,15,.06) 100%);
+  }
+  .wrap{position:relative;z-index:1;max-width:760px;margin:0 auto;padding:0 16px 64px}
+
+  /* ---------- HEADER ---------- */
+  header.top{padding:26px 0 18px;border-bottom:2px solid var(--ink);margin-bottom:22px}
+  .brand{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.32em;text-transform:uppercase;color:var(--amber)}
+  .brand .grp{color:var(--ink-soft)}
+  h1.title{font-family:var(--display);font-weight:800;font-size:clamp(30px,8vw,46px);line-height:.98;letter-spacing:-.02em;margin:6px 0 8px}
+  .sub{font-size:14px;color:var(--ink-soft);max-width:46ch}
+  .sub b{color:var(--ink)}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .chip{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+    border:1px solid var(--line);background:var(--card);padding:5px 9px;border-radius:2px;color:var(--ink-soft)}
+
+  /* ---------- LIST / TIMELINE ---------- */
+  .section-label{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);margin:26px 2px 12px;display:flex;align-items:center;gap:10px}
+  .section-label::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .steps{display:flex;flex-direction:column;gap:10px}
+  .step-card{
+    display:grid;grid-template-columns:54px 1fr;gap:0;
+    background:var(--card);border:1.5px solid var(--ink);border-radius:4px;
+    cursor:pointer;overflow:hidden;position:relative;
+    transition:transform .12s ease, box-shadow .12s ease;
+    opacity:0;transform:translateY(10px);
+    animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  @keyframes rise{to{opacity:1;transform:none}}
+  .step-card:hover{transform:translateY(-2px);box-shadow:5px 5px 0 var(--ink)}
+  .step-card:active{transform:translateY(0);box-shadow:2px 2px 0 var(--ink)}
+  .sc-num{background:var(--ink);color:var(--paper);font-family:var(--mono);font-weight:700;font-size:18px;
+    display:flex;align-items:center;justify-content:center}
+  .step-card.phase-r .sc-num{background:var(--amber)}
+  .step-card.phase-f .sc-num{background:var(--slate)}
+  .sc-body{padding:13px 14px}
+  .sc-phase{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+  .step-card.phase-f .sc-phase{color:var(--slate)}
+  .sc-title{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.1;letter-spacing:-.01em;margin:2px 0 3px}
+  .sc-when{font-size:12.5px;color:var(--ink-soft)}
+  .sc-dossier{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:9px;font-weight:700;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--slate);border:1px solid var(--slate);
+    background:var(--slate-soft);padding:3px 6px;border-radius:2px}
+
+  /* ---------- DETAIL ---------- */
+  #detail,#dossier{display:none}
+  .nav{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .btn{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    border:1.5px solid var(--ink);background:var(--card);color:var(--ink);padding:8px 12px;border-radius:3px;cursor:pointer;
+    transition:background .12s,color .12s}
+  .btn:hover{background:var(--ink);color:var(--paper)}
+  .btn.ghost{border-color:var(--line)}
+  .btn:disabled{opacity:.35;cursor:not-allowed}
+  .btn:disabled:hover{background:var(--card);color:var(--ink)}
+  .spacer{flex:1}
+
+  .d-head{border-left:5px solid var(--amber);padding-left:14px;margin-bottom:6px}
+  .d-head.phase-f{border-color:var(--slate)}
+  .d-phase{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+  .d-head.phase-f .d-phase{color:var(--slate)}
+  .d-title{font-family:var(--display);font-weight:800;font-size:clamp(26px,6.5vw,38px);line-height:1;letter-spacing:-.02em;margin:4px 0 8px}
+  .d-when{display:inline-block;font-size:13px;color:var(--ink-soft);background:var(--card);border:1px solid var(--line);
+    padding:6px 11px;border-radius:3px}
+  .d-when b{color:var(--ink);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-right:6px}
+
+  .tabs{display:flex;gap:6px;margin:22px 0 16px;flex-wrap:wrap}
+  .tab{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    border:1.5px solid var(--ink);background:transparent;color:var(--ink);padding:8px 13px;border-radius:3px;cursor:pointer}
+  .tab.active{background:var(--ink);color:var(--paper)}
+  .tab.dossier{border-color:var(--slate);color:var(--slate)}
+  .tab.dossier.active{background:var(--slate);color:#fff}
+
+  .pane{display:none;animation:fade .25s ease}
+  .pane.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* tasks */
+  ol.tasks{list-style:none;counter-reset:t;display:flex;flex-direction:column;gap:9px}
+  ol.tasks li{counter-increment:t;position:relative;padding:12px 14px 12px 46px;background:var(--card);
+    border:1px solid var(--line);border-radius:4px;font-size:15px}
+  ol.tasks li::before{content:counter(t,decimal-leading-zero);position:absolute;left:12px;top:11px;
+    font-family:var(--mono);font-weight:700;font-size:13px;color:var(--amber)}
+
+  /* controls (checkable) */
+  ul.controls{list-style:none;display:flex;flex-direction:column;gap:8px}
+  ul.controls li{display:flex;gap:12px;align-items:flex-start;background:var(--card);border:1px solid var(--line);
+    border-radius:4px;padding:12px 14px;font-size:15px;cursor:pointer;transition:background .12s}
+  ul.controls li:hover{background:var(--green-soft)}
+  .box{flex:0 0 22px;height:22px;border:2px solid var(--green);border-radius:4px;margin-top:1px;position:relative;transition:background .12s}
+  ul.controls li.done .box{background:var(--green)}
+  ul.controls li.done .box::after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px}
+  ul.controls li.done .ctxt{text-decoration:line-through;color:var(--ink-soft)}
+
+  /* callouts */
+  .callout{border:1px solid var(--line);border-left-width:5px;border-radius:4px;padding:12px 14px;margin-bottom:9px;font-size:14.5px;background:var(--card)}
+  .callout .ctag{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;display:block;margin-bottom:4px}
+  .callout.tip{border-left-color:var(--slate);background:var(--slate-soft)} .callout.tip .ctag{color:var(--slate)}
+  .callout.warn{border-left-color:var(--amber);background:var(--amber-soft)} .callout.warn .ctag{color:var(--amber)}
+  .callout.danger{border-left-color:var(--red);background:var(--red-soft)} .callout.danger .ctag{color:var(--red)}
+
+  .ask{margin-top:18px;border:1.5px dashed var(--ink);border-radius:5px;padding:14px;background:repeating-linear-gradient(45deg,var(--card),var(--card) 10px,var(--paper-2) 10px,var(--paper-2) 20px)}
+  .ask h4{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:9px}
+  .ask ul{list-style:none;display:flex;flex-direction:column;gap:7px}
+  .ask li{font-size:15px;font-style:italic;padding-left:18px;position:relative}
+  .ask li::before{content:"»";position:absolute;left:0;color:var(--amber);font-weight:700;font-style:normal}
+  .dossier-link{margin-top:18px;display:flex;align-items:center;gap:12px;background:var(--slate);color:#fff;border-radius:5px;padding:14px 16px;cursor:pointer;border:none;width:100%;text-align:left;transition:transform .12s}
+  .dossier-link:hover{transform:translateY(-2px)}
+  .dossier-link .dl-i{font-size:20px}
+  .dossier-link .dl-t{font-family:var(--display);font-weight:700;font-size:16px;line-height:1.1}
+  .dossier-link .dl-s{font-size:11px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;opacity:.8}
+
+  /* ---------- DOSSIER ---------- */
+  .dos-head{border-left:5px solid var(--slate);padding-left:14px;margin-bottom:18px}
+  .dos-kicker{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--slate)}
+  .dos-title{font-family:var(--display);font-weight:800;font-size:clamp(24px,6vw,34px);line-height:1.02;letter-spacing:-.02em;margin-top:4px}
+  .pager{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .pager .dots{display:flex;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--slate);background:transparent}
+  .dot.on{background:var(--slate)}
+  .pg-label{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase}
+  .dos-page{background:var(--card);border:1.5px solid var(--ink);border-radius:5px;padding:18px 16px;animation:fade .25s ease}
+  .dos-page h3{font-family:var(--display);font-weight:700;font-size:21px;letter-spacing:-.01em;margin-bottom:12px;color:var(--ink)}
+  .dos-block{margin-bottom:13px}
+  .dos-block .bh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);margin-bottom:4px}
+  .dos-block p{font-size:15px;color:var(--ink)}
+  .dos-block.note{border-left:4px solid var(--slate);background:var(--slate-soft);padding:11px 13px;border-radius:3px}
+  .dos-block.note .bh{color:var(--slate)}
+  .dos-block.flag{border-left:4px solid var(--red);background:var(--red-soft);padding:11px 13px;border-radius:3px}
+  .dos-block.flag .bh{color:var(--red)}
+
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-soft)}
+  footer b{color:var(--ink)}
+
+  @media print{
+    body{background:#fff}
+    .nav,.tabs,.dossier-link,.pager .arrows{display:none!important}
+    .pane{display:block!important;page-break-inside:avoid}
+    #list,#detail,#dossier{display:block!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">PROFERO <span class="grp">RÉNOVATION · GROUPE PROFERO</span></div>
+    <h1 class="title">Référentiel<br>chantier</h1>
+    <p class="sub">Le déroulé d'un chantier de rénovation, étape par étape. Pour chaque étape : <b>les tâches</b>, <b>les points à contrôler</b>, les <b>pièges</b> et <b>les questions à poser à l'ouvrier</b>. Certaines étapes ouvrent un <b>dossier détaillé</b>.</p>
+    <div class="meta-row">
+      <span class="chip">v1 — à affiner sur le terrain</span>
+      <span class="chip">durées indicatives</span>
+      <span class="chip">normes à vérifier</span>
+    </div>
+  </header>
+
+  <!-- LIST -->
+  <main id="list"></main>
+
+  <!-- DETAIL -->
+  <section id="detail"></section>
+
+  <!-- DOSSIER -->
+  <section id="dossier"></section>
+
+  <footer>
+    Outil interne <b>Profero</b> — base de travail à valider avec tes équipes. Les lots <b>électricité</b> et <b>plomberie</b> touchent à la sécurité : intervention qualifiée et contrôle (Consuel) selon les cas. Les durées sont des ordres de grandeur (base T2/T3).
+  </footer>
+</div>
+
+<script>
+/* ============ DONNÉES ============ */
+const STEPS = [
+  {
+    n:1, phase:"Préparation", pclass:"",
+    title:"Protection & préparation",
+    when:"Tout début, avant de toucher à quoi que ce soit.",
+    tasks:[
+      "Protéger intégralement les sols conservés (plaques, film, cartons).",
+      "Protéger ou déposer ce qui reste (menuiseries gardées, radiateurs, plans de travail).",
+      "Confiner et baliser la zone de démolition (poussière).",
+      "Couper et condamner les énergies dans la zone (élec, eau, gaz) avant de casser."
+    ],
+    controls:[
+      "Tous les sols conservés sont protégés — aucune zone oubliée.",
+      "Énergies coupées ET condamnées avant démolition.",
+      "Protection stable, qui ne glisse pas au passage."
+    ],
+    infos:[
+      {t:"danger",h:"Sécurité",x:"Couper et condamner l'élec et l'eau AVANT de démolir. Risque d'électrocution et de dégât des eaux."},
+      {t:"tip",h:"Économie",x:"La protection coûte peu et évite des reprises chères : un sol conservé rayé, c'est un sol à refaire."}
+    ],
+    ask:[],
+    dossier:"protection"
+  },
+  {
+    n:2, phase:"Préparation", pclass:"",
+    title:"Démolition, ouvertures, menuiseries",
+    when:"Après la mise en protection.",
+    tasks:[
+      "Déposer ce qui doit partir (cloisons, anciens revêtements, sanitaires, menuiseries à changer).",
+      "Créer les ouvertures et reprises de maçonnerie (linteau si nécessaire).",
+      "Poser les menuiseries extérieures neuves (mise hors d'eau/air) puis les protéger aussitôt.",
+      "Évacuer et trier les gravats."
+    ],
+    controls:[
+      "Ouvertures aux bonnes dimensions et d'aplomb.",
+      "Si un mur porteur est touché : étaiement / linteau validé.",
+      "Menuiseries neuves protégées avant la suite des travaux.",
+      "Aucun gravat laissé qui gênera les corps suivants."
+    ],
+    infos:[
+      {t:"danger",h:"Structure",x:"Ne jamais abattre un mur sans avoir vérifié qu'il n'est pas porteur. Au moindre doute : étude structure. C'est un risque d'effondrement."},
+      {t:"tip",h:"Anticipation",x:"Repérer dès maintenant le tracé des futurs réseaux : ça conditionne les saignées à venir."}
+    ],
+    ask:["Ce mur, on est certains qu'il n'est pas porteur ?"],
+    dossier:"demolition"
+  },
+  {
+    n:3, phase:"Réseaux", pclass:"phase-r",
+    title:"Réseaux plomberie",
+    when:"Second œuvre, avant l'ossature et le placo.",
+    tasks:[
+      "Implanter les points d'eau et les évacuations selon le plan.",
+      "Saignées / percements, passage des tubes d'alimentation et des PVC d'évacuation.",
+      "Poser les alimentations eau froide / eau chaude (nourrice / collecteur).",
+      "Poser les évacuations avec une pente suffisante (≈ 1 à 3 cm/m).",
+      "Mises en attente bouchonnées et repérées.",
+      "Réaliser l'ESSAI DE PRESSION avant de refermer quoi que ce soit."
+    ],
+    controls:[
+      "Essai de pression réalisé et concluant AVANT fermeture (garder la trace).",
+      "Pentes d'évacuation correctes, aucune contre-pente.",
+      "Tubes bien fixés (pas de coups de bélier).",
+      "Eau chaude / froide repérées ; robinet d'arrêt général accessible.",
+      "Réservations pour trappes de visite prévues."
+    ],
+    infos:[
+      {t:"danger",h:"Non négociable",x:"Pas d'essai de pression avant le placo = fuite découverte mur fermé, donc mur à rouvrir."},
+      {t:"tip",h:"Traçabilité",x:"Photographier les réseaux avant fermeture : repérage pour plus tard + preuve en cas de litige."}
+    ],
+    ask:["Essai de pression : à combien de bars, pendant combien de temps ?","Où est le robinet d'arrêt général ?"],
+    dossier:"plomberie"
+  },
+  {
+    n:4, phase:"Réseaux", pclass:"phase-r",
+    title:"Ossature & réseaux élec",
+    when:"Après la plomberie, avant isolation et placo.",
+    tasks:[
+      "Poser l'ossature métallique (rails + montants, entraxe 60 cm).",
+      "Implanter prises, interrupteurs, points lumineux et tableau (minimums NF C 15-100).",
+      "Enfiler gaines ICTA + câbles dans les montants, poser les boîtes d'encastrement.",
+      "Câbler le tableau (différentiels 30 mA, répartition des circuits)."
+    ],
+    controls:[
+      "Sections de câble adaptées (ex. 2,5 mm² sur circuit prises) ; terre raccordée.",
+      "Différentiels 30 mA présents et bien répartis.",
+      "Volumes de sécurité salle de bain respectés.",
+      "Boîtes d'encastrement alignées et de niveau."
+    ],
+    infos:[
+      {t:"tip",h:"Bon réflexe",x:"Ossature avant élec : on enfile les gaines dans les passages des montants en une fois, sans repasser après."},
+      {t:"danger",h:"Sécurité",x:"L'élec touche à la sécurité des personnes. Lot réalisé par un qualifié ; Consuel si mise en service complète."}
+    ],
+    ask:["Le tableau est bien protégé par des différentiels 30 mA ?","Les volumes de la salle de bain sont respectés pour ce point ?"],
+    dossier:"elec"
+  },
+  {
+    n:5, phase:"Réseaux", pclass:"phase-r",
+    title:"Isolation & plaquage",
+    when:"Après le passage des réseaux dans l'ossature.",
+    tasks:[
+      "Poser l'isolant dans l'ossature (laine).",
+      "Visser les plaques : hydrofuge (verte) en pièces humides, standard ailleurs.",
+      "Poser et coffrer les gaines VMC, en laissant les bouts accessibles pour le raccordement du caisson.",
+      "Poser les cornières d'angle, réserver les trappes et accès."
+    ],
+    controls:[
+      "Plaques hydrofuges dans TOUTES les zones humides.",
+      "Surfaces planes (règle de 2 m), cloisons d'aplomb.",
+      "Vis ni trop enfoncées (carton déchiré) ni saillantes.",
+      "Gaines VMC posées et coffrées, bouts laissés accessibles pour le caisson.",
+      "Réservations et trappes (dont accès VMC) en place."
+    ],
+    infos:[
+      {t:"tip",h:"Astuce de pro",x:"Passer la lampe en lumière rasante le long des murs pour repérer les défauts avant bandes et peinture."}
+    ],
+    ask:["C'est bien de l'hydrofuge dans la salle de bain ?"],
+    dossier:"placo"
+  },
+  {
+    n:6, phase:"Réseaux", pclass:"phase-r",
+    title:"Bandes & enduit (3 passes)",
+    when:"Après le plaquage.",
+    tasks:[
+      "Bande à joint sur les jonctions de plaques.",
+      "Garnissage (2e passe).",
+      "Finition (3e passe), en respectant le séchage entre chaque passe.",
+      "Ponçage → support prêt à peindre."
+    ],
+    controls:[
+      "Joints lisses, sans surépaisseur (contrôle en lumière rasante).",
+      "Aucune fissure naissante.",
+      "Angles protégés, ponçage homogène, pas de poussière résiduelle."
+    ],
+    infos:[
+      {t:"warn",h:"Étape clé",x:"90 % de la qualité d'une peinture se joue ici. Une bande ratée se voit à vie sous la peinture."}
+    ],
+    ask:["Combien de passes sur les bandes ?","On passe la lampe rasante ensemble ?"],
+    dossier:"bandes"
+  },
+  {
+    n:7, phase:"Réseaux", pclass:"phase-r",
+    title:"Étanchéité & douche (Dumawall)",
+    when:"Zone humide, avant peinture, sur placo hydro.",
+    tasks:[
+      "Vérifier que le support est bien hydrofuge (verte) en zone douche.",
+      "Appliquer l'enduit d'étanchéité (SEL) : continu, remontées en angle, raccordé au receveur.",
+      "Poser le Dumawall (colle compatible avec la SEL), grands formats si possible.",
+      "Profilés de finition + silicone sur tous les points singuliers."
+    ],
+    controls:[
+      "SEL continue et raccordée au receveur (cuve étanche, pas de rupture en pied).",
+      "Colle compatible avec la SEL (vérifié sur la notice fabricant).",
+      "Silicone : périphérie, jonction receveur, autour du mitigeur et du bras.",
+      "Aucun point bas où l'eau stagne ; pente vers le siphon OK."
+    ],
+    infos:[
+      {t:"danger",h:"Le piège",x:"Ne jamais compter sur le Dumawall seul pour l'étanchéité. La SEL derrière est ta vraie protection quand un joint lâche."},
+      {t:"warn",h:"Cadre franchise",x:"Produit non-DTU → vérifier la couverture décennale et suivre l'Avis Technique du fabricant. Important pour standardiser sur plusieurs agences."}
+    ],
+    ask:["La colle accroche bien sur l'enduit d'étanchéité ?"],
+    dossier:"douche"
+  },
+  {
+    n:8, phase:"Finitions", pclass:"phase-f",
+    title:"Protection & peinture",
+    when:"Après bandes/enduit, avant la pose du sol.",
+    tasks:[
+      "Protéger entièrement (sols, menuiseries, éléments déjà finis) et masquer.",
+      "Appliquer l'impression sur le placo neuf.",
+      "2 couches de finition croisées au pistolet.",
+      "Retirer les protections, faire les raccords."
+    ],
+    controls:[
+      "Lumière rasante : pas de trace, de manque ni de surépaisseur.",
+      "Opacité homogène, découpes nettes (murs/plafond, interrupteurs).",
+      "Aucune coulure, aucun débordement sur menuiseries/sol."
+    ],
+    infos:[
+      {t:"tip",h:"Inspection",x:"Regarder à plusieurs lumières (jour + artificiel). Garder un pot pour les retouches de fin de chantier."}
+    ],
+    ask:["Une impression a bien été mise sur le placo neuf ?","Combien de couches de finition ?"],
+    dossier:"peinture"
+  },
+  {
+    n:9, phase:"Finitions", pclass:"phase-f",
+    title:"Sol",
+    when:"Après la peinture.",
+    tasks:[
+      "Diagnostiquer le support : plan ? sain ? sec ?",
+      "RÈGLE : sol sain et plan → pose directe. Tommettes ou cloison déposée → rebouchage/ragréage localisé d'abord.",
+      "Contrôle d'humidité sur les sols anciens (tommettes).",
+      "Poser le revêtement (balatum ou lames SPC clipsables)."
+    ],
+    controls:[
+      "Pas de ressaut visible à l'emplacement d'une ancienne cloison.",
+      "Aucun relief de tommette qui ressort en surface.",
+      "Support sec — pas de piège à humidité sous un revêtement étanche.",
+      "Seuils et jonctions propres."
+    ],
+    infos:[
+      {t:"warn",h:"Fausse économie",x:"Lino fin posé sur tommettes ou ressaut : il recopie les défauts, s'use et se déchire aux points hauts → rappel et reprise."},
+      {t:"danger",h:"Humidité",x:"Coller un revêtement étanche sur tommettes humides (souvent sans coupure de capillarité) → odeur et moisissure. Contrôler avant."},
+      {t:"tip",h:"Alternative",x:"Lames SPC : tolèrent mieux les petits défauts, s'usent moins, se remplacent lame par lame. Souvent rentable en locatif qui tourne."}
+    ],
+    ask:["Le support est sec et plan ?","On a une ancienne cloison à reboucher avant pose ?"],
+    dossier:"sol"
+  },
+  {
+    n:10, phase:"Finitions", pclass:"phase-f",
+    title:"Menuiseries",
+    when:"Extérieures tôt (mise hors d'eau/air) ; intérieures en fin, après peinture et sol.",
+    tasks:[
+      "Poser tôt les menuiseries extérieures : fenêtres (PVC ou bois), portes d'entrée, baies vitrées — pour la mise hors d'eau/air, puis les protéger.",
+      "Poser les portes palières (EI30, serrure 3 points) selon le planning.",
+      "Régler aplomb / niveau / jeux sur chaque ouvrant ; soigner l'étanchéité des menuiseries extérieures.",
+      "Poser les portes intérieures et les plinthes en fin de chantier.",
+      "Plancher bois : selon le type — parquet de finition à l'étape sol, structure (solives) bien plus tôt."
+    ],
+    controls:[
+      "Ouverture / fermeture fluide, sans forcer ni frotter ; jeux réguliers.",
+      "Aplomb et niveau OK ; la porte ne s'ouvre / ne se ferme pas seule.",
+      "Étanchéité extérieure : pas de courant d'air, joints continus.",
+      "Portes palières EI30 : bloc certifié, posé conforme au PV, serrure 3 points qui verrouille sans forcer.",
+      "Serrures, poignées et clés fonctionnent."
+    ],
+    infos:[
+      {t:"danger",h:"Sécurité incendie",x:"Une porte EI30 ne tient sa résistance au feu que si tout le bloc (porte + bâti + joint intumescent + quincaillerie) est posé conformément à son PV. Une pose ou une modif approximative annule le classement."},
+      {t:"warn",h:"Étanchéité fenêtre",x:"Une étanchéité extérieure bâclée = infiltrations d'air et d'eau. C'est le défaut le plus coûteux en menuiserie."},
+      {t:"tip",h:"Protéger",x:"Menuiseries extérieures posées tôt = à protéger pendant tout le reste du chantier (poussière, chocs, peinture)."}
+    ],
+    ask:["La porte tient en position ou elle bouge toute seule ?","L'étanchéité de la fenêtre est faite comment ?"],
+    dossier:"menuiserie"
+  },
+  {
+    n:11, phase:"Finitions", pclass:"phase-f",
+    title:"Finitions techniques",
+    when:"Après le sol — pose des appareils.",
+    tasks:[
+      "Appareillage élec : prises, interrupteurs, plaques, luminaires.",
+      "VMC : pose du caisson, raccordement des gaines + alimentation élec, pose des bouches.",
+      "Plomberie : pose du receveur, sanitaires, robinetterie, raccordements.",
+      "Chauffage : pose des radiateurs / sèche-serviette (à caler selon le chantier)."
+    ],
+    controls:[
+      "Chaque point élec testé ; tableau étiqueté.",
+      "VMC : aspiration effective à chaque bouche.",
+      "Plomberie : aucune fuite après mise en eau, évacuations OK.",
+      "Appareils de chauffage fixés et fonctionnels."
+    ],
+    infos:[
+      {t:"warn",h:"À préciser",x:"Le chauffage est à caler selon vos chantiers : radiateurs/sèche-serviette ici, mais un plancher chauffant se poserait bien plus tôt (avant chape)."},
+      {t:"tip",h:"Test simple",x:"VMC : approcher une feuille de papier d'une bouche — elle doit être aspirée."}
+    ],
+    ask:["Toutes les bouches VMC aspirent bien ?"],
+    dossier:"finitions"
+  },
+  {
+    n:12, phase:"Finitions", pclass:"phase-f",
+    title:"Réception",
+    when:"Tout à la fin.",
+    tasks:[
+      "Nettoyage de fin de chantier.",
+      "Mises en service et tests : élec, eau, VMC.",
+      "Joints silicone (sanitaires, plans, périphéries).",
+      "Plinthes, seuils, derniers ajustements.",
+      "Retouches de peinture (après pose des appareils et plinthes).",
+      "Tour de réception pièce par pièce, checklist en main."
+    ],
+    controls:[
+      "Tout fonctionne : eau, élec, ventilation.",
+      "Aucune fuite, aucune odeur.",
+      "Finitions propres : joints, plinthes, retouches faites.",
+      "Logement nettoyé, prêt à livrer / louer."
+    ],
+    infos:[
+      {t:"tip",h:"Vraie dernière étape",x:"La retouche peinture vient en dernier : poser appareils et plinthes marque toujours les murs."},
+      {t:"tip",h:"Pour la location",x:"Photos de réception pièce par pièce = preuve de l'état + base directe pour l'annonce."}
+    ],
+    ask:[],
+    dossier:"reception"
+  }
+];
+
+const DOSSIERS = {
+  plomberie:{
+    kicker:"Dossier · derrière la fiche Réseaux plomberie",
+    title:"Quel raccord PER choisir",
+    pages:[
+      { h:"La règle « nourrice »",
+        blocks:[
+          {h:"Le principe",x:"En PER, tu tires une longueur continue depuis la nourrice (le collecteur) jusqu'à chaque point. Un tube = un point, sans coupure → aucun raccord enterré dans le mur ou la chape."},
+          {h:"Conséquence",x:"Tes seuls raccords sont à la nourrice et au niveau de l'appareil, tous les deux accessibles. C'est ça qui rend le choix simple.",t:"note"},
+          {h:"Pourquoi c'est la base",x:"Un raccord noyé qui fuit = mur ou chape à rouvrir. La nourrice évite ça, et te laisse couper l'eau point par point.",t:"flag"}
+        ]},
+      { h:"Deux mesures à ne JAMAIS confondre",
+        blocks:[
+          {h:"① Le tube PER → un Ø en mm",x:"Ø12, Ø16, Ø20, Ø25. C'est le côté qui pince le tube. Il se choisit selon le point à alimenter (débit, distance)."},
+          {h:"② Le filetage → une dimension « gaz »",x:"12/17, 15/21, 20/27, 26/34… C'est le côté qui se VISSE sur un composant (robinet, nourrice, vanne, flexible). Il se choisit selon CE QUI EST EN FACE, jamais selon le tube."},
+          {h:"Un raccord mixte combine les deux",x:"Ex. « PER Ø16 à glissement / mâle 15/21 ». Tu commandes toujours les DEUX infos : le Ø du tube ET la dimension du filetage.",t:"note"},
+          {h:"Notation",x:"15x21 ou 15/21 = exactement la même chose. Et c'est bien 20/27, pas 20/28."}
+        ]},
+      { h:"① Le tube : quel Ø",
+        blocks:[
+          {h:"Ø16 — le standard",x:"La distribution depuis la nourrice vers chaque point courant : lavabo, WC, évier, douche. Si tu hésites pour un point, c'est du Ø16."},
+          {h:"Ø12",x:"Petites alimentations courtes, points à faible débit."},
+          {h:"Ø20 / Ø25",x:"Pour amener l'eau jusqu'à la nourrice, l'arrivée générale, le gros débit ou les longues distances."},
+          {h:"La logique",x:"Gros tube pour amener l'eau à la nourrice, Ø16 pour repartir vers chaque point.",t:"note"}
+        ]},
+      { h:"② Le filetage : 15/21, 20/27…",
+        blocks:[
+          {h:"15/21 (1/2\") — LE standard",x:"La grande majorité des points : robinets et mitigeurs sanitaires, robinets d'arrêt, sorties de cloison / appliques, WC. Dans le doute, c'est très souvent du 15/21."},
+          {h:"20/27 (3/4\")",x:"Chauffe-eau / ballon (eau froide + eau chaude), groupe de sécurité, robinet de machine à laver / lave-vaisselle, arrivées à plus gros débit, parfois l'entrée de nourrice."},
+          {h:"12/17 (3/8\")",x:"Petits raccordements : certains robinets d'arrêt d'appareils, flexibles fins. Peu courant en alimentation."},
+          {h:"26/34 (1\")",x:"Arrivée générale, compteur, nourrice principale, gros débit."},
+          {h:"La règle simple",x:"Le filetage se lit sur le composant d'en face. Sanitaire courant → 15/21. Gros débit / gros appareil → 20/27.",t:"note"}
+        ]},
+      { h:"Les 4 systèmes de raccord",
+        blocks:[
+          {h:"À glissement",x:"Bague glissée à l'outil (expandeur). Indémontable, très fiable, encastrable."},
+          {h:"À sertir",x:"Bague sertie à la pince ; profil de mâchoire à respecter. Indémontable, encastrable."},
+          {h:"Automatique (instantané)",x:"Tube enfoncé, verrouillage seul. Rapide, sans outil. Pour aller vite et pour le dépannage, en zone accessible."},
+          {h:"À compression (à visser)",x:"Écrou + bague + douille de soutien dans le tube, serrés à la clé. Démontable. Accessible uniquement."},
+          {h:"Le réflexe",x:"Encastré ou enterré → glissement ou sertissage. Accessible → libre. Et standardise UN seul système pour toute la boîte (un outil, achats groupés, franchisable).",t:"note"}
+        ]},
+      { h:"Les formes de base",
+        blocks:[
+          {h:"Manchon droit (union)",x:"Relie deux tubes en ligne droite, même diamètre. La jonction simple."},
+          {h:"Coude (90° ou 45°)",x:"Change la direction. Existe aussi avec un filetage à une extrémité (coude mâle ou femelle)."},
+          {h:"Té",x:"Crée une dérivation : 3 voies. Té égal (mêmes Ø partout) ou té réduit (la dérivation a un Ø plus petit). La croix (4 voies) existe mais est rare."},
+          {h:"Réduction (raccord réduit)",x:"Relie deux tailles différentes. Deux cas : réduction de tube (ex. Ø20 → Ø16) ou réduction de filetage (ex. 20/27 → 15/21)."},
+          {h:"Mamelon",x:"Petit raccord fileté MÂLE des deux côtés (double mâle). Pour visser deux composants femelles entre eux, ou rallonger. Existe en réduit (ex. 20/27 d'un côté, 15/21 de l'autre)."},
+          {h:"Manchon femelle / femelle",x:"L'inverse du mamelon : filetage femelle des deux côtés, pour relier deux mâles."}
+        ]},
+      { h:"Les raccords à connaître",
+        blocks:[
+          {h:"Sortie de cloison / applique",x:"Se fixe dans le mur, filetage femelle côté visible, pour y visser le robinet. La double applique sert au mitigeur mural (entraxe fixe, souvent 150 mm)."},
+          {h:"Raccord union (écrou libre)",x:"Joint démontable grâce à un écrou tournant : on déconnecte sans tourner les tuyaux. Indispensable au chauffe-eau, au compteur, sur les flexibles.",t:"note"},
+          {h:"Bouchon / capuchon",x:"Obture une attente : bouchon (mâle) pour fermer un filetage femelle, capuchon (femelle) pour coiffer un mâle. Pour les mises en attente avant pose des appareils."},
+          {h:"Transition PER → cuivre / multicouche",x:"Raccord dédié pour passer d'un matériau à l'autre, ex. reprise sur une installation cuivre existante."},
+          {h:"Raccord diélectrique",x:"Pour relier deux métaux différents (cuivre / acier) sans créer de corrosion galvanique.",t:"flag"},
+          {h:"Nourrice / collecteur",x:"Le répartiteur d'où partent toutes les alimentations, souvent équipé d'une petite vanne par départ."}
+        ]},
+      { h:"Mâle / femelle, joints & exemples",
+        blocks:[
+          {h:"M / F",x:"Mâle (M) = filet extérieur, Femelle (F) = filet intérieur. Tu prends l'inverse du composant : un mâle se visse dans une femelle."},
+          {h:"Étanchéité — attention",x:"Filetage conique → filasse + pâte, ou téflon, dans le sens du vissage. Raccord à joint plat (écrou libre : flexibles, groupe de sécurité, compteur) → joint fibre/caoutchouc, SANS téflon. Ne pas confondre les deux.",t:"flag"},
+          {h:"Ex. lavabo / évier",x:"Tube Ø16 → sortie de cloison filetée 15/21 → flexible 15/21 → mitigeur."},
+          {h:"Ex. chauffe-eau",x:"Raccords eau froide / eau chaude en 20/27, avec groupe de sécurité 20/27."},
+          {h:"Ex. machine à laver",x:"Robinet d'arrêt en 20/27."},
+          {h:"Le réflexe de commande",x:"« PER Ø[tube] [système], [M ou F] [dimension gaz] ». Ex. « PER Ø16 à glissement, mâle 15/21 ».",t:"note"}
+        ]}
+    ]
+  },
+  douche:{
+    kicker:"Dossier · derrière la fiche Étanchéité & douche",
+    title:"Étanchéité douche + Dumawall",
+    pages:[
+      { h:"Le principe : deux barrières",
+        blocks:[
+          {h:"Barrière 1 — la vraie",x:"L'enduit d'étanchéité (SEL) sur support hydrofuge, appliqué en continu et formant une cuve : remontées dans les angles, jonction avec le receveur."},
+          {h:"Barrière 2 — la visible",x:"Le Dumawall + le silicone aux joints. Étanche en façade, mais le silicone vieillit : il se salit et peut se décoller."},
+          {h:"À retenir",x:"Le panneau PVC seul ne suffit pas. C'est la SEL derrière qui te sauve le jour où un joint lâche.",t:"flag"}
+        ]},
+      { h:"Mise en œuvre",
+        blocks:[
+          {h:"Support",x:"Placo hydrofuge (verte) au minimum en zone douche. Jamais de BA13 standard."},
+          {h:"SEL",x:"Deux couches croisées, bande d'étanchéité dans les angles, raccordement franc au receveur."},
+          {h:"Colle",x:"MS polymère en général — VÉRIFIER qu'elle adhère sur la SEL (notice fabricant, primaire éventuel). C'est le piège que beaucoup ratent.",t:"flag"},
+          {h:"Panneaux",x:"Grands formats / XL = moins de joints = moins de chemins de fuite, et pose plus rapide."},
+          {h:"Silicone",x:"Périphérie, jonction receveur, autour du mitigeur et du bras de douche."}
+        ]},
+      { h:"Contrôles & cadre",
+        blocks:[
+          {h:"Continuité",x:"SEL continue et raccordée au receveur, sans rupture en pied de paroi."},
+          {h:"Eau",x:"Aucun point bas où l'eau stagne ; pente vers le siphon. Test : laisser couler, vérifier au pied du receveur."},
+          {h:"Franchise",x:"Produit non-DTU : confirmer la couverture décennale, s'appuyer sur l'Avis Technique Dumaplast, documenter le mode opératoire pour les agences.",t:"note"}
+        ]}
+    ]
+  },
+  elec:{
+    kicker:"Dossier · derrière la fiche Ossature & réseaux élec",
+    title:"Sections de câble & circuits",
+    pages:[
+      { h:"La règle d'or",
+        blocks:[
+          {h:"Section = ampérage",x:"La section du câble (en mm²) doit correspondre au disjoncteur qui le protège. Plus l'appareil tire, plus la section est grosse."},
+          {h:"Jamais l'inverse",x:"Ne JAMAIS mettre un disjoncteur trop gros pour un câble trop fin : le câble chauffe avant que le disjoncteur ne coupe → risque d'incendie. C'est l'erreur grave à éviter.",t:"flag"},
+          {h:"Le trio à retenir",x:"1,5 mm² → 16 A · 2,5 mm² → 20 A · 6 mm² → 32 A. Tout part de là.",t:"note"}
+        ]},
+      { h:"Section / disjoncteur / usage",
+        blocks:[
+          {h:"1,5 mm² — 16 A",x:"Éclairage (8 points max/circuit), volets roulants, VMC, chauffage jusqu'à ~2250 W."},
+          {h:"2,5 mm² — 20 A",x:"Prises de courant (8 max/circuit), circuits spécialisés 16 A (four, lave-linge…), chauffe-eau, chauffage jusqu'à ~4500 W."},
+          {h:"6 mm² — 32 A",x:"Plaque de cuisson / cuisinière (circuit dédié)."},
+          {h:"Au-delà",x:"10 mm² et plus : alimentations à fort courant, rares en logement.",t:"note"}
+        ]},
+      { h:"Les circuits spécialisés",
+        blocks:[
+          {h:"Le principe",x:"Un gros appareil = son propre circuit dédié, directement au tableau. Pas branché sur le circuit prises courant."},
+          {h:"Prise dédiée 16 A (2,5 mm² / 20 A)",x:"Lave-linge, lave-vaisselle, four, congélateur : chacun son circuit."},
+          {h:"Plaque de cuisson",x:"Circuit dédié 32 A en 6 mm²."},
+          {h:"Chauffe-eau",x:"Circuit dédié, en général 2,5 mm² / 20 A."},
+          {h:"VMC",x:"Circuit dédié, 1,5 mm²."}
+        ]},
+      { h:"Combien de points",
+        blocks:[
+          {h:"Par circuit",x:"Éclairage : 8 points lumineux max. Prises : 8 prises max par circuit en 2,5 mm²."},
+          {h:"Séjour",x:"Au moins 5 prises + 1 point lumineux (repère : 1 prise / 4 m²)."},
+          {h:"Chambre",x:"Au moins 3 prises + 1 point lumineux."},
+          {h:"Cuisine",x:"Au moins 6 prises (dont 4 sur le plan de travail) + les circuits spécialisés."},
+          {h:"Salle de bain",x:"Au moins 1 prise (hors volumes) + respect des volumes de sécurité."}
+        ]},
+      { h:"Différentiels & sécurité",
+        blocks:[
+          {h:"30 mA partout",x:"Tous les circuits passent derrière des interrupteurs différentiels 30 mA (protection des personnes)."},
+          {h:"Type A vs AC",x:"Au moins un différentiel Type A pour la plaque de cuisson et le lave-linge ; Type AC pour le reste."},
+          {h:"Salle de bain",x:"Respecter les volumes : pas de matériel non protégé près de l'eau."},
+          {h:"Cadre",x:"Lot à réaliser par un électricien qualifié ; Consuel en cas de mise en service. Valeurs selon NF C 15-100 (vérifier la version en vigueur).",t:"flag"}
+        ]}
+    ]
+  },
+  placo:{
+    kicker:"Dossier · derrière la fiche Isolation & plaquage",
+    title:"Quelle plaque, quelle ossature",
+    pages:[
+      { h:"Les types de plaques",
+        blocks:[
+          {h:"Standard (BA13, grise)",x:"Cloisons et doublages courants en pièce sèche. Le BA13 = 12,5 mm d'épaisseur, le format de base."},
+          {h:"Hydrofuge (verte)",x:"Pièces humides : salle de bain, cuisine, WC. À utiliser dès qu'il y a de l'eau."},
+          {h:"Phonique",x:"Plaque plus dense pour l'isolation acoustique : chambres, murs mitoyens. À coupler avec de la laine."},
+          {h:"Feu (rose)",x:"Résistance au feu : gaines techniques, locaux à risque, protection de structure."},
+          {h:"Haute dureté",x:"Résiste aux chocs et au passage : couloirs, cages d'escalier, logements locatifs qui tournent."}
+        ]},
+      { h:"L'ossature",
+        blocks:[
+          {h:"Rails + montants",x:"Rails fixés au sol et au plafond, montants verticaux clipsés dedans. C'est le squelette de la cloison ou du doublage."},
+          {h:"Entraxe",x:"60 cm en courant. 40 cm pour plus de rigidité ou pour porter des charges / du carrelage."},
+          {h:"Largeur d'ossature",x:"48 / 70 / 90 mm selon la hauteur de la cloison et l'épaisseur d'isolant voulue."},
+          {h:"Cloison vs doublage",x:"Cloison = séparation entre deux pièces (plaque des deux côtés). Doublage = on habille un mur existant (isolation, planéité).",t:"note"}
+        ]},
+      { h:"Quelle plaque où",
+        blocks:[
+          {h:"Pièce sèche courante",x:"BA13 standard."},
+          {h:"Salle de bain / cuisine / WC",x:"Hydrofuge (verte), sans exception en zone d'eau."},
+          {h:"Chambre / mur mitoyen",x:"Phonique + laine, pour le confort acoustique."},
+          {h:"Gaine technique / risque feu",x:"Plaque feu."},
+          {h:"Zone de chocs / passage",x:"Haute dureté."}
+        ]},
+      { h:"Fixations & renforts",
+        blocks:[
+          {h:"La règle",x:"Une plaque seule ne porte pas une charge lourde. Les renforts se prévoient PENDANT l'ossature, pas après.",t:"flag"},
+          {h:"WC suspendu",x:"Bâti-support fixé au sol/mur, jamais accroché à la plaque."},
+          {h:"Meuble haut / ballon / TV / radiateur",x:"Renfort dans l'ossature (traverse, rail, tasseau) à l'emplacement prévu."},
+          {h:"Charges légères",x:"Chevilles adaptées au placo (type Molly) selon le poids."},
+          {h:"Anticiper",x:"Repérer et photographier les renforts avant de fermer : on ne les retrouve plus après.",t:"note"}
+        ]}
+    ]
+  },
+  peinture:{
+    kicker:"Dossier · derrière la fiche Protection & peinture",
+    title:"Quelle peinture où",
+    pages:[
+      { h:"Deux choses à choisir",
+        blocks:[
+          {h:"① Le type (liant)",x:"Acrylique (à l'eau) : le standard intérieur aujourd'hui — faible odeur, sèche vite, se nettoie à l'eau. Glycéro (solvant) : très couvrante et résistante mais odeur forte et séchage lent, de moins en moins utilisée."},
+          {h:"② La finition (aspect)",x:"Du plus mat au plus brillant. Plus c'est mat, plus ça masque les défauts mais moins c'est lavable. Plus c'est brillant, plus c'est résistant et lavable mais ça révèle les défauts.",t:"note"}
+        ]},
+      { h:"Les finitions",
+        blocks:[
+          {h:"Mat",x:"Masque les défauts, rendu doux. Pour les plafonds et les murs peu sollicités. Peu lavable."},
+          {h:"Velours / satiné",x:"Le compromis : lessivable et élégant. Murs des pièces de vie, chambres, couloirs."},
+          {h:"Satin / lessivable",x:"Résiste à l'humidité et au nettoyage. Cuisine, salle de bain, WC."},
+          {h:"Brillant / laque",x:"Très résistant et lavable, mais montre le moindre défaut. Boiseries, portes, plinthes."}
+        ]},
+      { h:"Quelle peinture où",
+        blocks:[
+          {h:"Plafonds",x:"Mat (peinture plafond dédiée, souvent anti-gouttes)."},
+          {h:"Murs séjour / chambre",x:"Mat ou velours."},
+          {h:"Cuisine / salle de bain / WC",x:"Satin ou peinture spéciale pièces humides (lessivable, anti-condensation)."},
+          {h:"Portes, plinthes, boiseries",x:"Acrylique boiseries en satin, ou laque."},
+          {h:"Radiateurs",x:"Peinture spéciale radiateur (tient la chaleur)."}
+        ]},
+      { h:"Préparation & sous-couche",
+        blocks:[
+          {h:"La prépa fait 90 %",x:"Rebouchage, ponçage, dépoussiérage. La peinture ne rattrape aucun défaut du support.",t:"flag"},
+          {h:"Sous-couche / impression",x:"Obligatoire sur placo neuf et surfaces poreuses. Sous-couche spécifique sur bois, métal, ou pour bloquer une tache."},
+          {h:"Finition",x:"2 couches croisées. Garder un fond de pot pour les retouches de fin de chantier."},
+          {h:"Au pistolet",x:"Gain de temps réel, mais protection et masquage encore plus stricts (le brouillard de peinture se dépose partout).",t:"note"}
+        ]}
+    ]
+  },
+  demolition:{
+    kicker:"Dossier · derrière la fiche Démolition & ouvertures",
+    title:"Mur porteur & démolir en sécurité",
+    pages:[
+      { h:"Porteur ou pas : comment savoir",
+        blocks:[
+          {h:"L'épaisseur",x:"Un porteur est souvent épais (≈ 15 cm et plus) ; une cloison de distribution est fine (5 à 10 cm). Indice utile, mais pas une preuve à lui seul."},
+          {h:"Le son / le matériau",x:"Un mur plein (béton, brique pleine, parpaing, pierre) sonne plein ; une cloison légère (placo, carreau de plâtre, brique plâtrière) sonne creux."},
+          {h:"La position",x:"Les porteurs sont souvent alignés d'un étage à l'autre, en façade, ou soutiennent le plancher au-dessus (sens des solives/poutres)."},
+          {h:"La seule certitude",x:"Les plans de structure ou l'avis d'un bureau d'études / architecte. Au moindre doute → étude AVANT de toucher. On ne teste jamais en cassant.",t:"flag"},
+          {h:"L'enjeu",x:"Se tromper sur un porteur = effondrement, blessés, voire pire. Aucune improvisation possible.",t:"flag"}
+        ]},
+      { h:"Si c'est porteur",
+        blocks:[
+          {h:"Étude obligatoire",x:"Une ouverture dans un porteur impose une étude de structure : c'est elle qui dimensionne le linteau / la poutre (IPN, HEB)."},
+          {h:"Étaiement d'abord",x:"On étaie pour reprendre la charge AVANT toute découpe. Jamais l'inverse.",t:"flag"},
+          {h:"Pose de la poutre",x:"Linteau / poutre dimensionné par le BE, avec des appuis suffisants de chaque côté."},
+          {h:"Autorisations",x:"En copropriété : accord de la copro. Sur façade : déclaration / autorisation d'urbanisme selon les cas. Vérifier la couverture d'assurance.",t:"note"},
+          {h:"Le bon intervenant",x:"Ce n'est pas un lot « ouvrier maison » : c'est de la structure, avec bureau d'études et corps qualifié."}
+        ]},
+      { h:"Démolir proprement",
+        blocks:[
+          {h:"Couper avant de casser",x:"Énergies (élec, eau, gaz) coupées ET condamnées dans la zone. Repérer les réseaux qui passent dans/derrière la cloison pour ne pas trancher un câble sous tension ou un tuyau.",t:"flag"},
+          {h:"Amiante / plomb",x:"Bâti ancien : amiante possible (avant 1997), plomb dans les vieilles peintures (avant 1949). Diagnostic AVANT travaux destructifs — obligation réglementaire et enjeu sanitaire grave.",t:"flag"},
+          {h:"EPI",x:"Lunettes, masque anti-poussière, gants, chaussures de sécurité, casque si besoin."},
+          {h:"Poussière & gravats",x:"Confiner la zone, puis évacuer et trier les gravats (benne)."}
+        ]}
+    ]
+  },
+  sol:{
+    kicker:"Dossier · derrière la fiche Sol",
+    title:"Pose directe, ragréage ou revêtement",
+    pages:[
+      { h:"L'arbre de décision",
+        blocks:[
+          {h:"1 · Diagnostiquer",x:"Le sol est-il PLAN, SAIN et SEC ? C'est la première question, toujours."},
+          {h:"2 · Plan + sain + sec",x:"→ Pose directe possible."},
+          {h:"3 · Défauts localisés",x:"Ressaut d'ancienne cloison, creux, tommettes irrégulières → rebouchage / ragréage LOCALISÉ d'abord."},
+          {h:"4 · Sol irrégulier ou poreux",x:"→ Ragréage autolissant pleine surface (avec primaire d'accrochage)."},
+          {h:"5 · Doute humidité",x:"Tommettes, rez-de-chaussée, bâti ancien → contrôle d'humidité avant tout, et ne pas piéger l'humidité sous un revêtement étanche.",t:"flag"}
+        ]},
+      { h:"Préparer le support",
+        blocks:[
+          {h:"Rebouchage localisé",x:"Mortier de réparation / enduit de sol sur la ligne d'ancienne cloison, les trous et les creux. Bien moins cher qu'un ragréage complet."},
+          {h:"Ragréage autolissant",x:"Primaire d'accrochage (surtout sur tommettes, ancien carrelage, support poreux) puis ragréage en fine couche pour égaliser."},
+          {h:"Tommettes",x:"Poreuses et souvent humides : primaire adapté + contrôle d'humidité. Parfois mieux vaut une solution qui laisse respirer plutôt qu'un revêtement étanche collé."},
+          {h:"Séchage",x:"Respecter les temps de séchage avant de poser : un ragréage posé trop tôt cloque."}
+        ]},
+      { h:"Quel revêtement",
+        blocks:[
+          {h:"Balatum / lino PVC",x:"Le moins cher, pose rapide. Mais fin : il recopie les défauts et s'use aux points hauts. OK sur support bien préparé."},
+          {h:"Lames SPC / PVC clipsables",x:"Tolèrent mieux les petits défauts, plus durables, se remplacent lame par lame. Léger surcoût, souvent rentable en locatif qui tourne.",t:"note"},
+          {h:"Stratifié",x:"Aspect bois, économique, mais craint l'eau (à éviter en pièce humide) et exige un support plan + sous-couche."},
+          {h:"Carrelage",x:"Durable, pièces humides OK, mais pose plus longue et plus chère, avec préparation et étanchéité."}
+        ]},
+      { h:"La règle Profero",
+        blocks:[
+          {h:"Sol plan + sain + sec",x:"Pose directe."},
+          {h:"Tommettes ou cloison déposée",x:"Rebouchage / ragréage localisé obligatoire."},
+          {h:"Doute humidité",x:"Contrôle avant pose, systématiquement."},
+          {h:"Standardiser",x:"Fixer un revêtement par gamme (ex. SPC en standard locatif) et figer la règle dans l'appli. Un sol homogène d'une agence à l'autre, c'est ce qui se voit le plus.",t:"note"}
+        ]}
+    ]
+  },
+  reception:{
+    kicker:"Dossier · derrière la fiche Réception",
+    title:"Checklist de réception",
+    pages:[
+      { h:"Avant de réceptionner",
+        blocks:[
+          {h:"Pré-requis",x:"Logement nettoyé, et toutes les mises en service faites : eau, élec, VMC, chauffage."},
+          {h:"Ton kit",x:"Lampe (lumière rasante), testeur de prise, de quoi noter, appareil photo."},
+          {h:"La méthode",x:"Tour pièce par pièce, méthodique, à la lumière du jour ET en lumière artificielle.",t:"note"}
+        ]},
+      { h:"Cuisine",
+        blocks:[
+          {h:"Eau",x:"Arrivées EF/EC, évier, évacuation rapide, aucune fuite sous l'évier."},
+          {h:"Élec",x:"Prises du plan de travail testées, circuits spécialisés (four, plaque, lave-vaisselle), hotte."},
+          {h:"Finitions",x:"Fixation des meubles, joints silicone plan de travail / crédence."},
+          {h:"VMC",x:"La bouche cuisine aspire (test de la feuille)."}
+        ]},
+      { h:"Salle de bain / WC",
+        blocks:[
+          {h:"Étanchéité douche",x:"Pente OK (l'eau part au siphon), aucun point bas, silicone en périphérie, jonction receveur et autour du mitigeur."},
+          {h:"Plomberie",x:"Aucune fuite, évacuation rapide, robinetterie sans jeu, eau chaude/froide bien placées."},
+          {h:"Élec",x:"Prise hors volume, volumes de sécurité respectés, VMC qui aspire."},
+          {h:"WC",x:"Fixation, chasse qui fonctionne, aucune fuite au pied."}
+        ]},
+      { h:"Pièces de vie & chambres",
+        blocks:[
+          {h:"Murs / plafonds",x:"Lumière rasante : pas de trace, de manque, de surépaisseur, de bande qui ressort. Découpes nettes."},
+          {h:"Sol",x:"Pas de ressaut ni de relief, jonctions et seuils propres, plinthes ajustées."},
+          {h:"Élec",x:"Chaque prise, interrupteur et point lumineux testé ; tableau étiqueté ; bouton test des différentiels."},
+          {h:"Menuiseries",x:"Portes et fenêtres sans forcer, jeux réguliers, pas de courant d'air, serrures OK."},
+          {h:"Chauffage",x:"Radiateurs / sèche-serviette fixés et fonctionnels."}
+        ]},
+      { h:"Le dossier de réception",
+        blocks:[
+          {h:"Photos",x:"Pièce par pièce : preuve de l'état livré ET base directe pour l'annonce de location."},
+          {h:"Réserves",x:"Lister ce qui reste à reprendre, avec un délai."},
+          {h:"Documents",x:"Attestations (Consuel si applicable), notices et garanties des équipements."},
+          {h:"Pour le groupe",x:"Ces éléments alimentent la mise en location (Profero Invest) et la base de l'appli. Une réception carrée = moins de rappels et un logement loué plus vite.",t:"note"}
+        ]}
+    ]
+  },
+  protection:{
+    kicker:"Dossier · derrière la fiche Protection & préparation",
+    title:"Protéger & installer le chantier",
+    pages:[
+      { h:"Protéger ce qui reste",
+        blocks:[
+          {h:"Sols conservés",x:"Plaques rigides dans les zones de passage et sous les charges ; film ou carton ailleurs. Ruban de masquage qui ne marque pas (jamais de scotch agressif sur parquet ou peinture)."},
+          {h:"Menuiseries gardées",x:"Film de protection + cornières aux angles contre les chocs."},
+          {h:"Éléments lourds en place",x:"Bâcher ce qui reste : radiateurs, plan de travail, sanitaires conservés."},
+          {h:"Parties communes",x:"En immeuble / copro : protéger palier, sol commun, ascenseur. Un dégât en commun = litige et frais immédiats.",t:"flag"}
+        ]},
+      { h:"Couper les énergies & sécuriser",
+        blocks:[
+          {h:"Électricité",x:"Couper au disjoncteur concerné ET condamner avant toute intervention (pour éviter une remise sous tension par erreur)."},
+          {h:"Eau",x:"Fermer la vanne d'arrêt, purger si nécessaire."},
+          {h:"Gaz",x:"Fermer l'arrivée."},
+          {h:"Le principe",x:"Couper ne suffit pas : il faut condamner, pour que personne ne réenclenche pendant qu'on travaille.",t:"flag"},
+          {h:"Besoins du chantier",x:"Si on a besoin d'élec/eau pendant les travaux, prévoir un point provisoire sécurisé (avec différentiel)."}
+        ]},
+      { h:"Installer le chantier",
+        blocks:[
+          {h:"Accès & circulation",x:"Un chemin protégé et dégagé, sans gravats dans les passages."},
+          {h:"Zones",x:"Stockage matériaux au sec, zone de découpe, point d'eau et d'élec de chantier."},
+          {h:"Poussière",x:"Confiner la zone bruyante et poussiéreuse (bâche, porte fermée)."},
+          {h:"Déchets",x:"Benne ou sacs, et tri des gravats au fur et à mesure plutôt qu'en tas."}
+        ]},
+      { h:"L'état des lieux initial",
+        blocks:[
+          {h:"Photos avant travaux",x:"Chaque pièce, l'existant et les défauts déjà présents. C'est ta preuve en cas de litige et ta base avant/après."},
+          {h:"Repérage",x:"Tracer le futur dès maintenant (emplacement nourrice, tableau, réseaux) : ça fait gagner du temps aux étapes suivantes."},
+          {h:"Diagnostics",x:"Vérifier amiante (avant 1997) et plomb (avant 1949) AVANT tout travail destructif. Obligation et enjeu sanitaire.",t:"flag"},
+          {h:"À systématiser",x:"10 minutes de photos évitent des semaines de litige. À stocker dans l'appli, par chantier.",t:"note"}
+        ]}
+    ]
+  },
+  bandes:{
+    kicker:"Dossier · derrière la fiche Bandes & enduit",
+    title:"Réussir & juger une bande",
+    pages:[
+      { h:"Les 3 passes",
+        blocks:[
+          {h:"Passe 1 — la bande",x:"Enduit sur la jonction, bande à joint (papier ou fibre) noyée dedans, puis on chasse l'air et le surplus à la spatule."},
+          {h:"Passe 2 — le garnissage",x:"On recouvre la bande, on élargit, on comble. Laisser sécher."},
+          {h:"Passe 3 — la finition",x:"Fine couche large pour fondre le joint dans la plaque. Puis ponçage léger → support prêt à peindre."},
+          {h:"Le séchage",x:"Respecter le séchage entre chaque passe. Enchaîner trop vite ou charger trop d'enduit d'un coup → fissures de retrait.",t:"flag"}
+        ]},
+      { h:"Angles & points particuliers",
+        blocks:[
+          {h:"Angle rentrant",x:"Bande pliée dans l'angle."},
+          {h:"Angle sortant",x:"Cornière (métal ou PVC) pour protéger des chocs et garder une ligne droite."},
+          {h:"Têtes de vis",x:"À enduire aussi, pas seulement les joints entre plaques."},
+          {h:"Jonction avec un autre matériau",x:"Plaque contre maçonnerie : bande armée / fond de joint pour absorber les mouvements."}
+        ]},
+      { h:"Comment juger une bande",
+        blocks:[
+          {h:"La lumière rasante",x:"Passer une lampe le long du mur : ça révèle bosses, creux, bande qui ressort et manques. C'est LE test, avant peinture.",t:"note"},
+          {h:"À la main",x:"Aucune surépaisseur sentie, aucune tête de vis qui dépasse."},
+          {h:"Pas de fissure",x:"Aucune fissure naissante sur les joints."},
+          {h:"Le ponçage",x:"Surface homogène, sans rayure de ponçage, dépoussiérée."},
+          {h:"La règle",x:"Ce qui se voit ici se verra DOUBLE sous la peinture. On ne laisse rien passer.",t:"flag"}
+        ]},
+      { h:"Pièges classiques",
+        blocks:[
+          {h:"Bande mal noyée",x:"Elle cloque ou se décolle plus tard."},
+          {h:"Trop d'enduit d'un coup",x:"Fissures de retrait et séchage interminable."},
+          {h:"Ponçage trop agressif",x:"Le carton de la plaque s'arrache."},
+          {h:"Pas d'impression ensuite",x:"Peindre directement sur l'enduit sans impression → embus (différences d'absorption visibles).",t:"note"}
+        ]}
+    ]
+  },
+  finitions:{
+    kicker:"Dossier · derrière la fiche Finitions techniques",
+    title:"Poser les équipements",
+    pages:[
+      { h:"L'ordre & la protection",
+        blocks:[
+          {h:"Pourquoi en fin",x:"On pose les équipements APRÈS peinture et sol, pour ne pas les salir ni les abîmer."},
+          {h:"L'ordre conseillé",x:"Appareillage élec → VMC → plomberie (sanitaires) → chauffage. Coordonner pour ne pas se gêner."},
+          {h:"Protéger le sol fini",x:"On traîne des outils, des appareils lourds et de l'eau : protéger le sol neuf pendant toute la phase.",t:"flag"}
+        ]},
+      { h:"Élec",
+        blocks:[
+          {h:"Appareillage",x:"Prises, interrupteurs et plaques de finition posés et bien alignés."},
+          {h:"Luminaires",x:"Raccordés et fixés."},
+          {h:"Tableau",x:"Étiqueté ; tester chaque circuit ; vérifier le bouton test des différentiels."},
+          {h:"Mise en service",x:"Mise sous tension et tests. Consuel si mise en service complète.",t:"note"}
+        ]},
+      { h:"VMC",
+        blocks:[
+          {h:"Caisson",x:"Posé en zone accessible (sur trappe), raccordé aux gaines laissées au plaquage + à l'alimentation élec."},
+          {h:"Bouches",x:"Bouches d'extraction (cuisine, SdB, WC) et entrées d'air posées."},
+          {h:"Test",x:"La feuille de papier doit être aspirée à chaque bouche.",t:"note"},
+          {h:"Vérif",x:"Les gaines doivent être raccordées sans être écrasées ni pincées."}
+        ]},
+      { h:"Plomberie & chauffage",
+        blocks:[
+          {h:"Receveur",x:"Posé (l'étanchéité et la jonction ont été traitées en amont, à l'étape douche)."},
+          {h:"Sanitaires",x:"WC, lavabo, évier, robinetterie, raccordements aux attentes."},
+          {h:"Mise en eau",x:"Laisser tourner, revérifier CHAQUE raccord, contrôler les évacuations.",t:"flag"},
+          {h:"Chauffage",x:"Radiateurs / sèche-serviette posés et raccordés ici. (Un plancher chauffant, lui, se pose bien plus tôt, avant chape — donc pas à cette étape.)",t:"note"}
+        ]}
+    ]
+  },
+  menuiserie:{
+    kicker:"Dossier · derrière la fiche Menuiseries",
+    title:"Menuiseries & planchers bois",
+    pages:[
+      { h:"Quand poser quoi",
+        blocks:[
+          {h:"Extérieures → tôt",x:"Fenêtres, portes d'entrée, baies vitrées : posées tôt pour la mise hors d'eau/air, puis protégées jusqu'à la fin."},
+          {h:"Portes palières → planning",x:"EI30 serrure 3 points : souvent un peu plus tard pour éviter les chocs, mais avant la fin."},
+          {h:"Intérieures → en fin",x:"Portes intérieures et plinthes : après peinture et sol."},
+          {h:"Plancher bois → ça dépend",x:"Parquet / finition = à l'étape sol. Structure (solives + platelage) = bien plus tôt, c'est de la structure, pas de la finition.",t:"note"}
+        ]},
+      { h:"Fenêtres PVC ou bois",
+        blocks:[
+          {h:"PVC",x:"Économique, sans entretien, bonne isolation. Le standard en locatif."},
+          {h:"Bois",x:"Esthétique et isolant, mais entretien périodique (lasure/peinture). Souvent imposé en secteur protégé / abords Bâtiments de France."},
+          {h:"Type de pose",x:"Dépose totale (neuf sur tableau) ou rénovation (sur dormant existant : plus rapide, mais réduit un peu le clair de vitrage)."},
+          {h:"Le point critique",x:"L'étanchéité : calfeutrement continu, bavette / appui, joints. C'est là que se jouent les infiltrations.",t:"flag"},
+          {h:"Réglages",x:"Ouvrants et quincaillerie réglés ; vérifier l'absence de courant d'air."}
+        ]},
+      { h:"Portes d'entrée & baies",
+        blocks:[
+          {h:"Porte d'entrée",x:"Sécurité (serrure multipoints), isolation, étanchéité. Seuil PMR si l'accessibilité est requise."},
+          {h:"Baie vitrée",x:"Poids et étanchéité importants : rail propre, roulements réglés, et trous de drainage en bas du rail NON bouchés (sinon l'eau s'accumule)."},
+          {h:"Aplomb / niveau",x:"Essentiels : une baie de travers ne coulisse plus et ne s'étanche plus."},
+          {h:"Si on agrandit",x:"Bien dimensionner l'appui et la reprise de charge au-dessus (linteau) — voir le dossier Démolition.",t:"note"}
+        ]},
+      { h:"Portes palières EI30 & 3 points",
+        blocks:[
+          {h:"EI30, c'est quoi",x:"Bloc-porte coupe-feu : étanche aux flammes et gaz chauds pendant 30 minutes. Souvent exigé sur palier en collectif."},
+          {h:"Le classement est global",x:"Il ne vaut que pour le BLOC COMPLET posé selon son PV : porte + bâti + joint intumescent + quincaillerie (+ ferme-porte si requis). Percer ou modifier hors préconisations annule le classement.",t:"flag"},
+          {h:"Serrure 3 points",x:"Verrouillage haut / centre / bas pour la sécurité anti-effraction. Vérifier l'alignement des gâches et un verrouillage sans forcer."},
+          {h:"À contrôler",x:"Sens d'ouverture correct, joint intumescent continu, ferme-porte fonctionnel le cas échéant."}
+        ]},
+      { h:"Portes intérieures & finitions",
+        blocks:[
+          {h:"Le bloc-porte",x:"Vérifier l'aplomb du bâti : si la porte s'ouvre ou se ferme seule, c'est un défaut d'aplomb."},
+          {h:"Jeux & quincaillerie",x:"Jeux réguliers tout autour ; charnières, serrure et poignée qui fonctionnent sans frotter."},
+          {h:"Détalonnage",x:"Un jour sous la porte est parfois voulu (passage d'air pour la VMC), sinon il reste limité."},
+          {h:"Plinthes",x:"Coupes d'angle nettes, pas de jour."}
+        ]},
+      { h:"Plancher bois",
+        blocks:[
+          {h:"Parquet / finition",x:"Massif, contrecollé, ou stratifié (imitation). Pose collée, clouée ou flottante selon le type ; support plan et sec ; sous-couche pour le flottant. → c'est l'étape sol."},
+          {h:"Plancher structurel",x:"Vieux bâti : solives + platelage. C'est de la structure — vérifier l'état des solives (humidité, insectes, flèche) et reprendre si besoin. → bien plus tôt, pas en finition.",t:"flag"},
+          {h:"Le bois bouge",x:"Contrôler l'hygrométrie du support et acclimater le bois sur place avant pose."},
+          {h:"Dilatation",x:"Laisser un jeu périphérique, sinon le plancher tuile ou se soulève.",t:"note"}
+        ]}
+    ]
+  }
+};
+
+/* ============ ÉTAT ============ */
+let idx = 0, dosPage = 0;
+const checked = new Set();
+
+/* ============ RENDU LISTE ============ */
+const elList = document.getElementById('list');
+const elDetail = document.getElementById('detail');
+const elDossier = document.getElementById('dossier');
+
+function renderList(){
+  let phase = "";
+  let html = "";
+  STEPS.forEach((s,i)=>{
+    if(s.phase!==phase){ phase=s.phase; html += `<div class="section-label">${phase}</div>`; }
+    html += `
+      <div class="step-card ${s.pclass}" style="animation-delay:${i*45}ms" onclick="openDetail(${i})">
+        <div class="sc-num">${String(s.n).padStart(2,'0')}</div>
+        <div class="sc-body">
+          <div class="sc-phase">${s.phase}</div>
+          <div class="sc-title">${s.title}</div>
+          <div class="sc-when">${s.when}</div>
+        </div>
+        ${s.dossier?`<div class="sc-dossier">+ Dossier</div>`:""}
+      </div>`;
+  });
+  elList.innerHTML = html;
+}
+
+/* ============ RENDU DÉTAIL ============ */
+function renderDetail(){
+  const s = STEPS[idx];
+  const tasks = s.tasks.map(t=>`<li>${t}</li>`).join("");
+  const controls = s.controls.map((c,ci)=>{
+    const key = idx+":"+ci;
+    return `<li class="${checked.has(key)?'done':''}" onclick="toggleCtrl('${key}',this)"><span class="box"></span><span class="ctxt">${c}</span></li>`;
+  }).join("");
+  const infos = s.infos.map(o=>`<div class="callout ${o.t}"><span class="ctag">${o.h}</span>${o.x}</div>`).join("");
+  const askBlock = s.ask.length?`
+    <div class="ask"><h4>À demander à l'ouvrier</h4><ul>${s.ask.map(q=>`<li>${q}</li>`).join("")}</ul></div>`:"";
+  const dossierLink = s.dossier?`
+    <button class="dossier-link" onclick="openDossier()">
+      <span class="dl-i">📁</span>
+      <span><span class="dl-t">${DOSSIERS[s.dossier].title}</span><br><span class="dl-s">Ouvrir le dossier détaillé</span></span>
+    </button>`:"";
+
+  elDetail.innerHTML = `
+    <div class="nav">
+      <button class="btn" onclick="goList()">← Étapes</button>
+      <div class="spacer"></div>
+      <button class="btn ghost" onclick="step(-1)" ${idx===0?'disabled':''}>Préc.</button>
+      <button class="btn ghost" onclick="step(1)" ${idx===STEPS.length-1?'disabled':''}>Suiv.</button>
+    </div>
+    <div class="d-head ${s.pclass}">
+      <div class="d-phase">Étape ${String(s.n).padStart(2,'0')} · ${s.phase}</div>
+      <div class="d-title">${s.title}</div>
+      <span class="d-when"><b>Quand</b>${s.when}</span>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-p="0" onclick="tab(0,this)">Tâches</button>
+      <button class="tab" data-p="1" onclick="tab(1,this)">À contrôler</button>
+      <button class="tab" data-p="2" onclick="tab(2,this)">Infos & pièges</button>
+    </div>
+    <div class="pane active" data-pane="0"><ol class="tasks">${tasks}</ol></div>
+    <div class="pane" data-pane="1"><ul class="controls">${controls}</ul></div>
+    <div class="pane" data-pane="2">${infos}${askBlock}${dossierLink}</div>
+  `;
+}
+
+function tab(p,el){
+  el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  elDetail.querySelectorAll('.pane').forEach(pn=>pn.classList.toggle('active', pn.dataset.pane==String(p)));
+}
+function toggleCtrl(key,el){
+  if(checked.has(key)){checked.delete(key);el.classList.remove('done');}
+  else{checked.add(key);el.classList.add('done');}
+}
+
+/* ============ RENDU DOSSIER ============ */
+function renderDossier(){
+  const s = STEPS[idx];
+  const d = DOSSIERS[s.dossier];
+  dosPage = Math.max(0,Math.min(dosPage,d.pages.length-1));
+  const pg = d.pages[dosPage];
+  const blocks = pg.blocks.map(b=>{
+    const cls = b.t==="note"?"dos-block note":b.t==="flag"?"dos-block flag":"dos-block";
+    return `<div class="${cls}"><div class="bh">${b.h}</div><p>${b.x}</p></div>`;
+  }).join("");
+  const dots = d.pages.map((_,i)=>`<span class="dot ${i===dosPage?'on':''}"></span>`).join("");
+  elDossier.innerHTML = `
+    <div class="nav">
+      <button class="btn" onclick="openDetail(${idx})">← Fiche</button>
+      <div class="spacer"></div>
+      <button class="btn ghost" onclick="dpage(-1)" ${dosPage===0?'disabled':''}>◂ Page</button>
+      <button class="btn ghost" onclick="dpage(1)" ${dosPage===d.pages.length-1?'disabled':''}>Page ▸</button>
+    </div>
+    <div class="dos-head">
+      <div class="dos-kicker">${d.kicker}</div>
+      <div class="dos-title">${d.title}</div>
+    </div>
+    <div class="pager">
+      <div class="dots arrows">${dots}</div>
+      <span class="pg-label">Page ${dosPage+1} / ${d.pages.length}</span>
+    </div>
+    <div class="dos-page">
+      <h3>${pg.h}</h3>
+      ${blocks}
+    </div>
+  `;
+}
+function dpage(dir){ dosPage+=dir; renderDossier(); }
+
+/* ============ NAVIGATION VUES ============ */
+function show(view){
+  elList.style.display    = view==='list'?'block':'none';
+  elDetail.style.display  = view==='detail'?'block':'none';
+  elDossier.style.display = view==='dossier'?'block':'none';
+  window.scrollTo({top:0,behavior:'instant'});
+}
+function openDetail(i){ idx=i; renderDetail(); show('detail'); }
+function openDossier(){ dosPage=0; renderDossier(); show('dossier'); }
+function goList(){ show('list'); }
+function step(dir){ idx=Math.max(0,Math.min(idx+dir,STEPS.length-1)); renderDetail(); show('detail'); }
+
+/* init */
+renderList();
+show('list');
+</script>
+</body>
+</html>
