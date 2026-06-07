@@ -13,6 +13,8 @@ import {
   Trash2,
   CalendarPlus,
   FileSpreadsheet,
+  Lock,
+  Unlock,
 } from "lucide-react";
 
 const KEY = "etats_financiers";
@@ -3083,6 +3085,8 @@ function emptyAvancementValue() {
     acomptePrecedent: "",
     note: "",
     sourceRow: 9999,
+    lockedFields: {},
+    inheritedFromPeriodId: "",
   };
 }
 
@@ -3099,6 +3103,47 @@ function createAvancementRow(periodId) {
   }
 
   return row;
+}
+
+const AVANCEMENT_INHERITED_LOCKED_FIELDS = [
+  "devis",
+  "chantier",
+  "montantHT",
+  "montantTTC",
+  "avancementPrecedent",
+  "acomptePrecedent",
+];
+
+function createLockedFields(fields = AVANCEMENT_INHERITED_LOCKED_FIELDS) {
+  return fields.reduce((acc, field) => ({ ...acc, [field]: true }), {});
+}
+
+function createInheritedAvancementValue(previousValue = {}, previousPeriodId = "") {
+  const previousAvancementReel = previousValue?.avancementReel ?? "";
+  const previousAcompteMois = previousValue?.acompteMois ?? previousValue?.acomptePrecedent ?? "";
+
+  return {
+    ...emptyAvancementValue(),
+    devis: previousValue?.devis ?? "",
+    chantier: previousValue?.chantier ?? "",
+    montantHT: previousValue?.montantHT ?? "",
+    montantTTC: previousValue?.montantTTC ?? "",
+    // L'avancement précédent du nouveau mois reprend l'avancement réel du mois précédent.
+    avancementPrecedent: previousAvancementReel,
+    // On initialise l'avancement réel avec la dernière valeur connue, mais il reste modifiable.
+    avancementReel: previousAvancementReel,
+    pctFacture: previousValue?.pctFacture ?? "",
+    acompteMois: previousValue?.acompteMois ?? "",
+    acomptePrecedent: previousAcompteMois,
+    note: "",
+    sourceRow: previousValue?.sourceRow ?? 9999,
+    inheritedFromPeriodId: previousPeriodId,
+    lockedFields: createLockedFields(),
+  };
+}
+
+function isAvancementFieldLocked(values, field) {
+  return Boolean(values?.lockedFields?.[field]);
 }
 
 function normalizeAvancement(raw) {
@@ -3130,6 +3175,8 @@ function normalizeAvancement(raw) {
               acomptePrecedent: value?.acomptePrecedent ?? "",
               note: value?.note ?? "",
               sourceRow: value?.sourceRow ?? 9999,
+              lockedFields: value?.lockedFields ?? {},
+              inheritedFromPeriodId: value?.inheritedFromPeriodId ?? "",
             },
           ])
         );
@@ -3318,6 +3365,34 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
     setDirty(true);
   };
 
+  const toggleAvancementLock = (rowId, periodId, field) => {
+    setAvancement(prev => ({
+      ...prev,
+      rows: prev.rows.map(row => {
+        if (row.id !== rowId) return row;
+
+        const currentValue = row.values?.[periodId] || emptyAvancementValue();
+        const currentLocks = currentValue.lockedFields || {};
+        const nextLocks = {
+          ...currentLocks,
+          [field]: !currentLocks[field],
+        };
+
+        return {
+          ...row,
+          values: {
+            ...row.values,
+            [periodId]: {
+              ...currentValue,
+              lockedFields: nextLocks,
+            },
+          },
+        };
+      }),
+    }));
+    setDirty(true);
+  };
+
   const addAvancementPeriod = () => {
     const label = window.prompt("Nom du nouvel onglet d'avancement", "30/06/26");
     if (!label || !label.trim()) return;
@@ -3327,10 +3402,56 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
       label: label.trim(),
     };
 
-    setAvancement(prev => ({
-      ...prev,
-      periods: [newPeriod, ...prev.periods],
-    }));
+    setAvancement(prev => {
+      const previousPeriodId = activeAvancementPeriodId || prev.periods[0]?.id;
+      const previousRows = prev.rows.filter(row => Boolean(row.values?.[previousPeriodId]));
+      const maxSourceRow = previousRows.reduce((max, row) => {
+        const sourceRow = parseNumber(row.values?.[previousPeriodId]?.sourceRow) || 0;
+        return Math.max(max, sourceRow);
+      }, 0);
+
+      const existingWithoutPreviousData = prev.rows.filter(row => !row.values?.[previousPeriodId]);
+      const inheritedRows = previousRows.map((row, index) => {
+        const previousValue = row.values?.[previousPeriodId] || emptyAvancementValue();
+
+        return {
+          ...row,
+          values: {
+            ...row.values,
+            [newPeriod.id]: createInheritedAvancementValue(
+              {
+                ...previousValue,
+                sourceRow: previousValue.sourceRow ?? index + 1,
+              },
+              previousPeriodId
+            ),
+          },
+        };
+      });
+
+      const nextRows = [
+        ...inheritedRows,
+        ...existingWithoutPreviousData.map((row, index) => ({
+          ...row,
+          values: {
+            ...row.values,
+            [newPeriod.id]: {
+              ...emptyAvancementValue(),
+              devis: row.devis ?? "",
+              chantier: row.chantier ?? "",
+              sourceRow: maxSourceRow + index + 1,
+            },
+          },
+        })),
+      ];
+
+      return {
+        ...prev,
+        periods: [newPeriod, ...prev.periods],
+        rows: nextRows,
+      };
+    });
+
     setActiveAvancementPeriodId(newPeriod.id);
     setDirty(true);
   };
@@ -3670,6 +3791,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             removeRow={removeAvancementRow}
             updateRow={updateAvancementRow}
             updateValue={updateAvancementValue}
+            toggleLock={toggleAvancementLock}
           />
         )}
 
@@ -3932,6 +4054,7 @@ function AvancementChantierTab({
   removeRow,
   updateRow,
   updateValue,
+  toggleLock,
 }) {
   const periods = avancement.periods || [];
   const rows = avancement.rows || [];
@@ -4004,11 +4127,15 @@ function AvancementChantierTab({
         pctFacture,
         pctProvisionner,
         caProvisionner,
+        isCompleted: avancementReel >= 1,
         sourceRow: parseNumber(values.sourceRow) || 9999,
       };
     })
     .filter(item => item.hasPeriodData)
-    .sort((a, b) => a.sourceRow - b.sourceRow);
+    .sort((a, b) => {
+      if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+      return a.sourceRow - b.sourceRow;
+    });
 
   const totalHT = computedRows.reduce((sum, item) => sum + item.montantHT, 0);
   const totalProvisionner = computedRows.reduce((sum, item) => sum + item.caProvisionner, 0);
@@ -4042,7 +4169,7 @@ function AvancementChantierTab({
               Avancement de chantier
             </div>
             <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>
-              Onglets repris du fichier Excel d'avancement 2026, avec ajout libre de mois et de chantiers.
+              À la création d'un nouveau mois, les chantiers du mois précédent sont repris automatiquement. Les lignes à 100 % d'avancement sont classées en bas.
             </div>
           </div>
 
@@ -4136,6 +4263,21 @@ function AvancementChantierTab({
               gap: 6,
               padding: "5px 9px",
               borderRadius: RADIUS.pill,
+              background: "rgba(245,166,35,0.10)",
+              border: "1px solid rgba(245,166,35,0.30)",
+              color: "#f5a623",
+              fontWeight: 900,
+            }}
+          >
+            <Icon as={Lock} size={12} /> Valeurs reprises du mois précédent
+          </span>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 9px",
+              borderRadius: RADIUS.pill,
               background: `${acc.accent}12`,
               border: `1px solid ${acc.accent}44`,
               color: acc.accent,
@@ -4144,7 +4286,7 @@ function AvancementChantierTab({
           >
             Colonnes calculées automatiquement
           </span>
-          <span>Survole les en-têtes ou les cellules calculées pour lire les formules.</span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise.</span>
         </div>
       </div>
 
@@ -4227,7 +4369,7 @@ function AvancementChantierTab({
             boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
           }}
         >
-          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 1850, borderCollapse: "separate", borderSpacing: 0 }}>
+          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2020, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
@@ -4259,61 +4401,94 @@ function AvancementChantierTab({
                 </tr>
               )}
 
-              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, pctProvisionner, caProvisionner }) => (
-                <tr key={row.id} className="ef-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, pctProvisionner, caProvisionner, isCompleted }) => (
+                <tr
+                  key={row.id}
+                  className="ef-row"
+                  title={isCompleted ? "Chantier terminé à 100 % : classé automatiquement en bas de tableau" : undefined}
+                  style={{
+                    borderBottom: `1px solid ${T.border}`,
+                    opacity: isCompleted ? 0.72 : 1,
+                  }}
+                >
                   <td style={{ padding: "7px 8px", width: 120 }}>
-                    <input
-                      className="ef-input"
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
                       value={values.devis ?? row.devis ?? ""}
                       onChange={e => updateValue(row.id, currentPeriodId, "devis", e.target.value)}
                       placeholder="D-250000"
                       style={textInput}
+                      locked={isAvancementFieldLocked(values, "devis")}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "devis")}
                     />
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 230 }}>
-                    <input
-                      className="ef-input"
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
                       value={values.chantier ?? row.chantier ?? ""}
                       onChange={e => updateValue(row.id, currentPeriodId, "chantier", e.target.value)}
                       placeholder="Nom du chantier"
                       style={{ ...textInput, minWidth: 210 }}
+                      locked={isAvancementFieldLocked(values, "chantier")}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "chantier")}
                     />
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 130 }}>
-                    <input
-                      className="ef-input"
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
                       type="number"
                       step="0.01"
                       value={values.montantHT ?? ""}
                       onChange={e => updateValue(row.id, currentPeriodId, "montantHT", e.target.value)}
                       placeholder="0"
                       style={numberInput}
+                      locked={isAvancementFieldLocked(values, "montantHT")}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "montantHT")}
                     />
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 130 }}>
-                    <input
-                      className="ef-input"
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
                       type="number"
                       step="0.01"
                       value={values.montantTTC ?? ""}
                       onChange={e => updateValue(row.id, currentPeriodId, "montantTTC", e.target.value)}
                       placeholder="0"
                       style={numberInput}
+                      locked={isAvancementFieldLocked(values, "montantTTC")}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "montantTTC")}
                     />
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 120 }}>
-                    <input
-                      className="ef-input"
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
                       type="number"
                       step="0.01"
                       value={values.avancementPrecedent ?? ""}
                       onChange={e => updateValue(row.id, currentPeriodId, "avancementPrecedent", e.target.value)}
                       placeholder="0,50"
                       style={numberInput}
+                      locked={isAvancementFieldLocked(values, "avancementPrecedent")}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "avancementPrecedent")}
                     />
                   </td>
 
@@ -4379,14 +4554,19 @@ function AvancementChantierTab({
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 130 }}>
-                    <input
-                      className="ef-input"
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
                       type="number"
                       step="0.01"
                       value={values.acomptePrecedent ?? ""}
                       onChange={e => updateValue(row.id, currentPeriodId, "acomptePrecedent", e.target.value)}
                       placeholder="0,70"
                       style={numberInput}
+                      locked={isAvancementFieldLocked(values, "acomptePrecedent")}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "acomptePrecedent")}
                     />
                   </td>
 
@@ -4458,10 +4638,68 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est maintenant automatique : <em>avancement réel - % facturé</em>, comme dans le fichier Excel. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé automatiquement : <em>montant HT × % à provisionner</em>. Tu peux modifier les données sources, les deux colonnes calculées se mettent à jour instantanément.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé automatiquement : <em>montant HT × % à provisionner</em>. Lorsqu'un nouveau mois est créé, les chantiers du mois précédent sont repris, l'avancement précédent reprend l'avancement réel du mois précédent, et les valeurs héritées peuvent être modifiées en cliquant sur le cadenas.
         </div>
       </div>
     </>
+  );
+}
+
+function LockedInput({
+  T,
+  acc,
+  iconLocked,
+  iconUnlocked,
+  locked = false,
+  onToggleLock,
+  style,
+  ...inputProps
+}) {
+  const canToggle = typeof onToggleLock === "function";
+  const icon = locked ? iconLocked : iconUnlocked;
+
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      <input
+        className="ef-input"
+        {...inputProps}
+        disabled={locked}
+        style={{
+          ...style,
+          paddingRight: canToggle ? 34 : style?.paddingRight,
+          background: locked ? "rgba(245,166,35,0.08)" : style?.background,
+          border: locked ? "1px solid rgba(245,166,35,0.38)" : style?.border,
+          color: locked ? T.textSub : style?.color,
+          cursor: locked ? "not-allowed" : "text",
+        }}
+      />
+
+      {canToggle && (
+        <button
+          type="button"
+          onClick={onToggleLock}
+          title={locked ? "Valeur reprise du mois précédent — cliquer pour déverrouiller" : "Valeur déverrouillée — cliquer pour reverrouiller"}
+          style={{
+            position: "absolute",
+            top: "50%",
+            right: 6,
+            transform: "translateY(-50%)",
+            width: 24,
+            height: 24,
+            borderRadius: 7,
+            border: locked ? "1px solid rgba(245,166,35,0.42)" : `1px solid ${T.border}`,
+            background: locked ? "rgba(245,166,35,0.13)" : T.card,
+            color: locked ? "#f5a623" : T.textMuted,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <Icon as={icon} size={12} />
+        </button>
+      )}
+    </div>
   );
 }
 
