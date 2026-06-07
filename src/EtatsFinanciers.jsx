@@ -4537,7 +4537,7 @@ function AvancementChantierTab({
           >
             Couleurs prédéfinies par ligne
           </span>
-          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Attrape la poignée dans la colonne Déplacer pour réordonner les lignes par client. Utilise la colonne Couleur pour choisir une teinte prédéfinie ou réinitialiser une ligne.</span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Utilise la colonne Couleur à gauche pour choisir une teinte prédéfinie via le menu déroulant. Attrape la poignée dans la colonne Déplacer pour réordonner les lignes par client.</span>
         </div>
       </div>
 
@@ -4620,11 +4620,11 @@ function AvancementChantierTab({
             boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
           }}
         >
-          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2360, borderCollapse: "separate", borderSpacing: 0 }}>
+          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2240, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                <AvancementTh T={T}>Déplacer</AvancementTh>
                 <AvancementTh T={T}>Couleur</AvancementTh>
+                <AvancementTh T={T}>Déplacer</AvancementTh>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
                 <AvancementTh T={T} align="left">Nom du chantier</AvancementTh>
                 <AvancementTh T={T}>Montant total HT</AvancementTh>
@@ -4681,6 +4681,14 @@ function AvancementChantierTab({
                     ...(rowColor ? { "--ef-row-color": rowColor } : {}),
                   }}
                 >
+                  <td style={{ padding: "7px 8px", width: 150, textAlign: "center" }}>
+                    <RowColorSelect
+                      T={T}
+                      value={rowColor}
+                      onChange={color => updateValue(row.id, currentPeriodId, "rowColor", color)}
+                    />
+                  </td>
+
                   <td style={{ padding: "7px 8px", width: 92, textAlign: "center" }}>
                     <div
                       className="ef-drag-handle"
@@ -4699,14 +4707,6 @@ function AvancementChantierTab({
                       <Icon as={GripVertical} size={15} />
                       <span>Glisser</span>
                     </div>
-                  </td>
-
-                  <td style={{ padding: "7px 8px", width: 210, textAlign: "center" }}>
-                    <RowColorPalette
-                      T={T}
-                      value={rowColor}
-                      onChange={color => updateValue(row.id, currentPeriodId, "rowColor", color)}
-                    />
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 120 }}>
@@ -4961,7 +4961,7 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client. La colonne <strong style={{ color: T.text }}>Couleur</strong> permet de choisir une teinte prédéfinie parmi une vingtaine de couleurs ou de réinitialiser la ligne.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client. La colonne <strong style={{ color: T.text }}>Couleur</strong>, désormais placée tout à gauche, permet de choisir une teinte prédéfinie dans un menu déroulant compact ou de revenir à “Aucune”.
         </div>
       </div>
     </>
@@ -4973,61 +4973,57 @@ function normalizeRowColor(value) {
   return /^#[0-9A-Fa-f]{6}$/.test(color) ? color : "";
 }
 
-function RowColorPalette({ T, value, onChange }) {
+function RowColorSelect({ T, value, onChange }) {
+  const selectedColor = AVANCEMENT_ROW_COLOR_PALETTE.find(color => color.value === value);
+
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(5, 22px) 30px",
-        gap: 5,
+        display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
+        gap: 6,
+        width: "100%",
       }}
     >
-      {AVANCEMENT_ROW_COLOR_PALETTE.map(color => {
-        const selected = value === color.value;
-
-        return (
-          <button
-            key={color.value}
-            type="button"
-            className="ef-color-dot"
-            onClick={() => onChange(color.value)}
-            title={selected ? `${color.label} — couleur active` : color.label}
-            aria-label={`Colorier la ligne en ${color.label}`}
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 999,
-              border: `2px solid ${selected ? T.text : "rgba(0,0,0,0.18)"}`,
-              background: color.value,
-              boxShadow: selected ? `0 0 0 2px ${T.bg}, 0 0 0 4px ${T.text}22` : "none",
-              cursor: "pointer",
-              transition: "transform .12s, box-shadow .12s, border-color .12s",
-            }}
-          />
-        );
-      })}
-
-      <button
-        type="button"
-        onClick={() => onChange("")}
-        title="Réinitialiser la couleur"
-        aria-label="Réinitialiser la couleur de la ligne"
+      <span
+        title={selectedColor ? selectedColor.label : "Aucune couleur"}
         style={{
-          width: 30,
-          height: 30,
-          borderRadius: 9,
-          border: `1px solid ${T.border}`,
+          width: 18,
+          height: 18,
+          borderRadius: 999,
+          background: selectedColor ? selectedColor.value : "transparent",
+          border: selectedColor ? `2px solid ${T.text}33` : `1px dashed ${T.border}`,
+          flexShrink: 0,
+        }}
+      />
+
+      <select
+        value={value || ""}
+        onChange={e => onChange(e.target.value)}
+        title="Choisir une couleur prédéfinie"
+        aria-label="Choisir une couleur prédéfinie pour la ligne"
+        style={{
+          width: 104,
           background: T.bg,
-          color: T.textSub,
-          cursor: "pointer",
+          border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.md,
+          padding: "6px 8px",
+          color: T.text,
+          fontFamily: "inherit",
           fontSize: 12,
-          fontWeight: 900,
+          fontWeight: 700,
+          outline: "none",
+          cursor: "pointer",
         }}
       >
-        ×
-      </button>
+        <option value="">Aucune</option>
+        {AVANCEMENT_ROW_COLOR_PALETTE.map(color => (
+          <option key={color.value} value={color.value}>
+            {color.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
