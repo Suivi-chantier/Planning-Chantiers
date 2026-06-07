@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   Lock,
   Unlock,
+  GripVertical,
 } from "lucide-react";
 
 const KEY = "etats_financiers";
@@ -3414,52 +3415,38 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
     setDirty(true);
   };
 
-  const moveAvancementRow = (rowId, periodId, direction) => {
-    if (!periodId) return;
+  const reorderAvancementRows = (draggedRowId, targetRowId, periodId) => {
+    if (!periodId || !draggedRowId || !targetRowId || draggedRowId === targetRowId) return;
 
     setAvancement(prev => {
       const orderedItems = getOrderedAvancementItems(prev.rows, periodId);
-      const target = orderedItems.find(item => item.row.id === rowId);
-      if (!target) return prev;
+      const dragged = orderedItems.find(item => item.row.id === draggedRowId);
+      const target = orderedItems.find(item => item.row.id === targetRowId);
+
+      if (!dragged || !target) return prev;
 
       const activeItems = orderedItems.filter(item => !item.isCompleted);
       const completedItems = orderedItems.filter(item => item.isCompleted);
-      const group = target.isCompleted ? completedItems : activeItems;
-      const groupIndex = group.findIndex(item => item.row.id === rowId);
-      const nextIndex = groupIndex + direction;
+      const draggedGroup = dragged.isCompleted ? completedItems : activeItems;
+      const targetGroup = target.isCompleted ? completedItems : activeItems;
 
-      if (groupIndex < 0 || nextIndex < 0 || nextIndex >= group.length) return prev;
+      // Les chantiers terminés restent dans le bloc du bas.
+      // Le drag & drop réorganise donc les lignes à l'intérieur du même bloc.
+      if (dragged.isCompleted !== target.isCompleted) return prev;
 
-      const nextGroup = [...group];
-      [nextGroup[groupIndex], nextGroup[nextIndex]] = [nextGroup[nextIndex], nextGroup[groupIndex]];
+      const fromIndex = draggedGroup.findIndex(item => item.row.id === draggedRowId);
+      const toIndex = targetGroup.findIndex(item => item.row.id === targetRowId);
 
-      const nextOrderedItems = target.isCompleted
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev;
+
+      const nextGroup = [...draggedGroup];
+      const [movedItem] = nextGroup.splice(fromIndex, 1);
+      nextGroup.splice(toIndex, 0, movedItem);
+
+      const nextOrderedItems = dragged.isCompleted
         ? [...activeItems, ...nextGroup]
         : [...nextGroup, ...completedItems];
       const nextOrderedIds = nextOrderedItems.map(item => item.row.id);
-
-      return {
-        ...prev,
-        rows: resequenceAvancementRows(prev.rows, periodId, nextOrderedIds),
-      };
-    });
-
-    setDirty(true);
-  };
-
-  const sortAvancementRowsByClient = (periodId) => {
-    if (!periodId) return;
-
-    setAvancement(prev => {
-      const orderedItems = getOrderedAvancementItems(prev.rows, periodId);
-      const compareByClient = (a, b) => {
-        const byClient = a.clientLabel.localeCompare(b.clientLabel, "fr-FR", { sensitivity: "base", numeric: true });
-        return byClient !== 0 ? byClient : a.sourceRow - b.sourceRow;
-      };
-
-      const activeItems = orderedItems.filter(item => !item.isCompleted).sort(compareByClient);
-      const completedItems = orderedItems.filter(item => item.isCompleted).sort(compareByClient);
-      const nextOrderedIds = [...activeItems, ...completedItems].map(item => item.row.id);
 
       return {
         ...prev,
@@ -3749,6 +3736,20 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         .ef-avancement-table tbody tr.ef-completed-row:hover td {
           background: rgba(255, 226, 128, 0.32) !important;
         }
+        .ef-avancement-table tbody tr.ef-dragging td {
+          opacity: 0.55;
+        }
+        .ef-avancement-table tbody tr.ef-drag-over td {
+          background: ${acc.accent}18 !important;
+          box-shadow: inset 0 2px 0 ${acc.accent};
+        }
+        .ef-drag-handle {
+          cursor: grab;
+          user-select: none;
+        }
+        .ef-drag-handle:active {
+          cursor: grabbing;
+        }
         .ef-formula-head {
           position: relative;
         }
@@ -3957,8 +3958,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             removePeriod={removeAvancementPeriod}
             addRow={addAvancementRow}
             removeRow={removeAvancementRow}
-            moveRow={moveAvancementRow}
-            sortRowsByClient={sortAvancementRowsByClient}
+            reorderRows={reorderAvancementRows}
             updateRow={updateAvancementRow}
             updateValue={updateAvancementValue}
             toggleLock={toggleAvancementLock}
@@ -4222,8 +4222,7 @@ function AvancementChantierTab({
   removePeriod,
   addRow,
   removeRow,
-  moveRow,
-  sortRowsByClient,
+  reorderRows,
   updateRow,
   updateValue,
   toggleLock,
@@ -4232,6 +4231,7 @@ function AvancementChantierTab({
   const rows = avancement.rows || [];
   const activePeriod = periods.find(period => period.id === activePeriodId) || periods[0];
   const currentPeriodId = activePeriod?.id;
+  const [draggedRowId, setDraggedRowId] = useState(null);
 
   const inputBase = {
     width: "100%",
@@ -4374,18 +4374,6 @@ function AvancementChantierTab({
               Ajouter un chantier
             </button>
 
-            <button
-              onClick={() => sortRowsByClient(currentPeriodId)}
-              disabled={!currentPeriodId}
-              style={{
-                ...actionButtonStyle(T.card, T.text, T.border),
-                opacity: !currentPeriodId ? 0.45 : 1,
-                cursor: !currentPeriodId ? "not-allowed" : "pointer",
-              }}
-              title="Trier les chantiers par client A→Z en conservant les chantiers terminés en bas"
-            >
-              Trier par client A→Z
-            </button>
           </div>
         </div>
 
@@ -4498,7 +4486,7 @@ function AvancementChantierTab({
           >
             Ligne jaune pâle = chantier terminé / 100 %
           </span>
-          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Utilise les flèches pour déplacer les lignes, ou le bouton de tri pour classer les clients par ordre alphabétique.</span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Attrape la poignée dans la colonne Déplacer pour réordonner les lignes par client.</span>
         </div>
       </div>
 
@@ -4584,7 +4572,7 @@ function AvancementChantierTab({
           <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2130, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                <AvancementTh T={T}>Ordre</AvancementTh>
+                <AvancementTh T={T}>Déplacer</AvancementTh>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
                 <AvancementTh T={T} align="left">Nom du chantier</AvancementTh>
                 <AvancementTh T={T}>Montant total HT</AvancementTh>
@@ -4617,30 +4605,44 @@ function AvancementChantierTab({
               {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, autoPctProvisionner, pctProvisionner, autoCaProvisionner, caProvisionner, pctProvisionnerLocked, caProvisionnerLocked, isCompleted }) => (
                 <tr
                   key={row.id}
-                  className={isCompleted ? "ef-row ef-completed-row" : "ef-row"}
+                  className={`${isCompleted ? "ef-row ef-completed-row" : "ef-row"}${draggedRowId === row.id ? " ef-dragging" : ""}`}
                   title={isCompleted ? "Chantier terminé à 100 % : classé automatiquement en bas de tableau" : undefined}
+                  onDragOver={e => {
+                    e.preventDefault();
+                    e.currentTarget.classList.add("ef-drag-over");
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDragLeave={e => e.currentTarget.classList.remove("ef-drag-over")}
+                  onDrop={e => {
+                    e.preventDefault();
+                    e.currentTarget.classList.remove("ef-drag-over");
+                    const sourceId = e.dataTransfer.getData("text/plain") || draggedRowId;
+                    if (sourceId && sourceId !== row.id) {
+                      reorderRows(sourceId, row.id, currentPeriodId);
+                    }
+                    setDraggedRowId(null);
+                  }}
                   style={{
                     borderBottom: `1px solid ${T.border}`,
                   }}
                 >
-                  <td style={{ padding: "7px 8px", width: 82, textAlign: "center" }}>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <button
-                        type="button"
-                        onClick={() => moveRow(row.id, currentPeriodId, -1)}
-                        title={isCompleted ? "Monter ce chantier dans le bloc des chantiers terminés" : "Monter ce chantier"}
-                        style={moveRowButtonStyle(T)}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveRow(row.id, currentPeriodId, 1)}
-                        title={isCompleted ? "Descendre ce chantier dans le bloc des chantiers terminés" : "Descendre ce chantier"}
-                        style={moveRowButtonStyle(T)}
-                      >
-                        ↓
-                      </button>
+                  <td style={{ padding: "7px 8px", width: 92, textAlign: "center" }}>
+                    <div
+                      className="ef-drag-handle"
+                      draggable
+                      onDragStart={e => {
+                        setDraggedRowId(row.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", row.id);
+                      }}
+                      onDragEnd={() => setDraggedRowId(null)}
+                      title={isCompleted
+                        ? "Déplacer ce chantier dans le bloc des chantiers terminés"
+                        : "Déplacer ce chantier"}
+                      style={dragHandleStyle(T)}
+                    >
+                      <Icon as={GripVertical} size={15} />
+                      <span>Glisser</span>
                     </div>
                   </td>
 
@@ -4895,25 +4897,29 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Les flèches permettent de déplacer une ligne dans son bloc, et le bouton de tri classe les clients par ordre alphabétique tout en gardant les terminés en bas.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client.
         </div>
       </div>
     </>
   );
 }
 
-function moveRowButtonStyle(T) {
+function dragHandleStyle(T) {
   return {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    minWidth: 74,
+    padding: "7px 8px",
+    borderRadius: 9,
     border: `1px solid ${T.border}`,
-    background: T.card,
+    background: T.bg,
     color: T.textSub,
-    cursor: "pointer",
-    fontSize: 14,
+    fontFamily: "inherit",
+    fontSize: 11,
     fontWeight: 900,
-    lineHeight: 1,
+    letterSpacing: 0.2,
   };
 }
 
