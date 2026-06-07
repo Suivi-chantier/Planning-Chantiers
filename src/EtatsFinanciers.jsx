@@ -3906,6 +3906,28 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
     setDirty(true);
   };
 
+  const reorderAchatPeriods = (sourcePeriodId, targetPeriodId) => {
+    if (!sourcePeriodId || !targetPeriodId || sourcePeriodId === targetPeriodId) return;
+
+    setAchat(prev => {
+      const periods = [...(prev.periods || [])];
+      const sourceIndex = periods.findIndex(period => period.id === sourcePeriodId);
+      const targetIndex = periods.findIndex(period => period.id === targetPeriodId);
+
+      if (sourceIndex === -1 || targetIndex === -1) return prev;
+
+      const [movedPeriod] = periods.splice(sourceIndex, 1);
+      periods.splice(targetIndex, 0, movedPeriod);
+
+      return {
+        ...prev,
+        periods,
+      };
+    });
+
+    setDirty(true);
+  };
+
   const importAchatFiles = (fileList, periodId = activeAchatPeriodId) => {
     const files = Array.from(fileList || []).filter(file => file?.name && isAchatAcceptedFile(file));
     if (!files.length) {
@@ -4360,6 +4382,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             setActivePeriodId={setActiveAchatPeriodId}
             addPeriod={addAchatPeriod}
             removePeriod={removeAchatPeriod}
+            reorderPeriods={reorderAchatPeriods}
             importFiles={importAchatFiles}
             addInvoice={addAchatInvoice}
             updateInvoice={updateAchatInvoice}
@@ -5548,6 +5571,7 @@ function AchatTab({
   setActivePeriodId,
   addPeriod,
   removePeriod,
+  reorderPeriods,
   importFiles,
   addInvoice,
   updateInvoice,
@@ -5557,6 +5581,7 @@ function AchatTab({
   const folderInputRef = useRef(null);
   const filesInputRef = useRef(null);
   const periods = achat?.periods?.length ? achat.periods : DEFAULT_ACHAT_PERIODS;
+  const [draggedPeriodId, setDraggedPeriodId] = useState(null);
   const currentPeriodId = activePeriodId || periods[0]?.id || DEFAULT_ACHAT_PERIODS[0].id;
   const currentPeriod = periods.find(period => period.id === currentPeriodId) || periods[0] || DEFAULT_ACHAT_PERIODS[0];
   const invoicesByPeriod = achat?.invoicesByPeriod || {};
@@ -5626,15 +5651,40 @@ function AchatTab({
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {periods.map(period => {
             const isActive = period.id === currentPeriodId;
+            const isDragged = draggedPeriodId === period.id;
             const count = (invoicesByPeriod[period.id] || []).length;
 
             return (
               <button
                 key={period.id}
                 type="button"
+                draggable
                 onClick={() => setActivePeriodId(period.id)}
-                style={isActive ? activeTabStyle : buttonStyle}
+                onDragStart={e => {
+                  setDraggedPeriodId(period.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", period.id);
+                }}
+                onDragOver={e => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={e => {
+                  e.preventDefault();
+                  const sourcePeriodId = e.dataTransfer.getData("text/plain") || draggedPeriodId;
+                  reorderPeriods(sourcePeriodId, period.id);
+                  setDraggedPeriodId(null);
+                }}
+                onDragEnd={() => setDraggedPeriodId(null)}
+                title="Glisser-déposer pour changer l'ordre des mois"
+                style={{
+                  ...(isActive ? activeTabStyle : buttonStyle),
+                  opacity: isDragged ? 0.55 : 1,
+                  cursor: "grab",
+                  userSelect: "none",
+                }}
               >
+                <Icon as={GripVertical} size={14} style={{ opacity: 0.7 }} />
                 <Icon as={CalendarPlus} size={14} />
                 {period.label}
                 <span
@@ -5713,7 +5763,7 @@ function AchatTab({
             Import et analyse des factures · {currentPeriod.label}
           </div>
           <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.5, maxWidth: 850 }}>
-            Les factures sont classées par mois. Tu peux importer un dossier ou plusieurs factures dans le mois actif, puis modifier fournisseur, typologie, date, numéro, montants HT/TTC, contrôle et règlement. Total tous mois confondus : {allInvoicesCount} facture{allInvoicesCount > 1 ? "s" : ""}.
+            Les factures sont classées par mois. Tu peux importer un dossier ou plusieurs factures dans le mois actif, déplacer les mois par glisser-déposer, puis modifier fournisseur, typologie, date, numéro, montants HT/TTC, contrôle et règlement. Total tous mois confondus : {allInvoicesCount} facture{allInvoicesCount > 1 ? "s" : ""}.
           </div>
         </div>
 
