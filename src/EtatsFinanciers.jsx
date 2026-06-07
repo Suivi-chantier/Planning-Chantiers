@@ -3754,18 +3754,18 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         .ef-avancement-table tbody tr:hover td {
           background: ${T.cardHover} !important;
         }
-        .ef-avancement-table tbody tr.ef-completed-row td {
+        .ef-avancement-table tbody tr.ef-completed-row td:nth-child(-n+6) {
           background: rgba(255, 226, 128, 0.22) !important;
           border-top: 1px solid rgba(245, 166, 35, 0.34);
           border-bottom: 1px solid rgba(245, 166, 35, 0.34);
         }
-        .ef-avancement-table tbody tr.ef-completed-row:hover td {
+        .ef-avancement-table tbody tr.ef-completed-row:hover td:nth-child(-n+6) {
           background: rgba(255, 226, 128, 0.32) !important;
         }
-        .ef-avancement-table tbody tr.ef-custom-color-row td {
+        .ef-avancement-table tbody tr.ef-custom-color-row td:nth-child(-n+6) {
           background: var(--ef-row-color) !important;
         }
-        .ef-avancement-table tbody tr.ef-custom-color-row:hover td {
+        .ef-avancement-table tbody tr.ef-custom-color-row:hover td:nth-child(-n+6) {
           background: var(--ef-row-color) !important;
           filter: brightness(0.98);
         }
@@ -4961,7 +4961,7 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client. La colonne <strong style={{ color: T.text }}>Couleur</strong>, désormais placée tout à gauche, permet de choisir une teinte prédéfinie dans un menu déroulant compact ou de revenir à “Aucune”.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client. La colonne <strong style={{ color: T.text }}>Couleur</strong>, désormais placée tout à gauche, applique la teinte uniquement sur les 6 premières colonnes, de <strong style={{ color: T.text }}>Couleur</strong> à <strong style={{ color: T.text }}>Montant total TTC</strong>.
         </div>
       </div>
     </>
