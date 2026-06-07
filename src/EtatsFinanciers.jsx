@@ -3081,12 +3081,29 @@ function emptyAvancementValue() {
     avancementReel: "",
     pctFacture: "",
     pctProvisionner: "",
+    caProvisionner: "",
     acompteMois: "",
     acomptePrecedent: "",
     note: "",
     sourceRow: 9999,
     lockedFields: {},
     inheritedFromPeriodId: "",
+  };
+}
+
+function createNewAvancementValue() {
+  return {
+    ...emptyAvancementValue(),
+    montantHT: 0,
+    montantTTC: 0,
+    avancementPrecedent: 0,
+    avancementReel: 0,
+    pctFacture: 0,
+    pctProvisionner: 0,
+    caProvisionner: 0,
+    acompteMois: 0,
+    acomptePrecedent: 0,
+    lockedFields: createLockedFields(AVANCEMENT_AUTOMATED_LOCKED_FIELDS),
   };
 }
 
@@ -3099,7 +3116,7 @@ function createAvancementRow(periodId) {
   };
 
   if (periodId) {
-    row.values[periodId] = emptyAvancementValue();
+    row.values[periodId] = createNewAvancementValue();
   }
 
   return row;
@@ -3112,6 +3129,16 @@ const AVANCEMENT_INHERITED_LOCKED_FIELDS = [
   "montantTTC",
   "avancementPrecedent",
   "acomptePrecedent",
+];
+
+const AVANCEMENT_AUTOMATED_LOCKED_FIELDS = [
+  "pctProvisionner",
+  "caProvisionner",
+];
+
+const AVANCEMENT_INHERITED_DEFAULT_LOCKED_FIELDS = [
+  ...AVANCEMENT_INHERITED_LOCKED_FIELDS,
+  ...AVANCEMENT_AUTOMATED_LOCKED_FIELDS,
 ];
 
 function createLockedFields(fields = AVANCEMENT_INHERITED_LOCKED_FIELDS) {
@@ -3138,11 +3165,14 @@ function createInheritedAvancementValue(previousValue = {}, previousPeriodId = "
     note: "",
     sourceRow: previousValue?.sourceRow ?? 9999,
     inheritedFromPeriodId: previousPeriodId,
-    lockedFields: createLockedFields(),
+    lockedFields: createLockedFields(AVANCEMENT_INHERITED_DEFAULT_LOCKED_FIELDS),
   };
 }
 
 function isAvancementFieldLocked(values, field) {
+  if (AVANCEMENT_AUTOMATED_LOCKED_FIELDS.includes(field)) {
+    return values?.lockedFields?.[field] !== false;
+  }
   return Boolean(values?.lockedFields?.[field]);
 }
 
@@ -3175,7 +3205,10 @@ function normalizeAvancement(raw) {
               acomptePrecedent: value?.acomptePrecedent ?? "",
               note: value?.note ?? "",
               sourceRow: value?.sourceRow ?? 9999,
-              lockedFields: value?.lockedFields ?? {},
+              lockedFields: {
+                ...createLockedFields(AVANCEMENT_AUTOMATED_LOCKED_FIELDS),
+                ...(value?.lockedFields ?? {}),
+              },
               inheritedFromPeriodId: value?.inheritedFromPeriodId ?? "",
             },
           ])
@@ -3373,19 +3406,41 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
 
         const currentValue = row.values?.[periodId] || emptyAvancementValue();
         const currentLocks = currentValue.lockedFields || {};
+        const wasLocked = isAvancementFieldLocked(currentValue, field);
         const nextLocks = {
           ...currentLocks,
-          [field]: !currentLocks[field],
+          [field]: !wasLocked,
         };
+
+        const montantHT = parseNumber(currentValue.montantHT);
+        const avancementReel = parsePercent(currentValue.avancementReel);
+        const pctFacture = parsePercent(currentValue.pctFacture);
+        const autoPctProvisionner = avancementReel - pctFacture;
+        const effectivePctProvisionner = isAvancementFieldLocked(currentValue, "pctProvisionner")
+          ? autoPctProvisionner
+          : parsePercent(currentValue.pctProvisionner);
+        const autoCaProvisionner = montantHT * effectivePctProvisionner;
+
+        const nextValue = {
+          ...currentValue,
+          lockedFields: nextLocks,
+        };
+
+        // Quand on déverrouille une valeur calculée, on inscrit la valeur automatique actuelle
+        // pour pouvoir la modifier manuellement sans repartir d'un champ vide.
+        if (wasLocked && field === "pctProvisionner") {
+          nextValue.pctProvisionner = autoPctProvisionner;
+        }
+
+        if (wasLocked && field === "caProvisionner") {
+          nextValue.caProvisionner = autoCaProvisionner;
+        }
 
         return {
           ...row,
           values: {
             ...row.values,
-            [periodId]: {
-              ...currentValue,
-              lockedFields: nextLocks,
-            },
+            [periodId]: nextValue,
           },
         };
       }),
@@ -3436,7 +3491,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
           values: {
             ...row.values,
             [newPeriod.id]: {
-              ...emptyAvancementValue(),
+              ...createNewAvancementValue(),
               devis: row.devis ?? "",
               chantier: row.chantier ?? "",
               sourceRow: maxSourceRow + index + 1,
@@ -3580,6 +3635,14 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         }
         .ef-avancement-table tbody tr:hover td {
           background: ${T.cardHover} !important;
+        }
+        .ef-avancement-table tbody tr.ef-completed-row td {
+          background: rgba(255, 226, 128, 0.22) !important;
+          border-top: 1px solid rgba(245, 166, 35, 0.34);
+          border-bottom: 1px solid rgba(245, 166, 35, 0.34);
+        }
+        .ef-avancement-table tbody tr.ef-completed-row:hover td {
+          background: rgba(255, 226, 128, 0.32) !important;
         }
         .ef-formula-head {
           position: relative;
@@ -4112,11 +4175,19 @@ function AvancementChantierTab({
       const montantHT = parseNumber(values.montantHT);
       const avancementReel = parsePercent(values.avancementReel);
       const pctFacture = parsePercent(values.pctFacture);
+      const pctProvisionnerLocked = isAvancementFieldLocked(values, "pctProvisionner");
+      const caProvisionnerLocked = isAvancementFieldLocked(values, "caProvisionner");
       // Colonnes automatisées comme dans le fichier Excel :
       // H = avancement réel - % facturé
       // I = montant total HT × % à provisionner
-      const pctProvisionner = avancementReel - pctFacture;
-      const caProvisionner = montantHT * pctProvisionner;
+      const autoPctProvisionner = avancementReel - pctFacture;
+      const pctProvisionner = pctProvisionnerLocked
+        ? autoPctProvisionner
+        : parsePercent(values.pctProvisionner);
+      const autoCaProvisionner = montantHT * pctProvisionner;
+      const caProvisionner = caProvisionnerLocked
+        ? autoCaProvisionner
+        : parseNumber(values.caProvisionner);
 
       return {
         row,
@@ -4125,8 +4196,12 @@ function AvancementChantierTab({
         montantHT,
         avancementReel,
         pctFacture,
+        autoPctProvisionner,
         pctProvisionner,
+        autoCaProvisionner,
         caProvisionner,
+        pctProvisionnerLocked,
+        caProvisionnerLocked,
         isCompleted: avancementReel >= 1,
         sourceRow: parseNumber(values.sourceRow) || 9999,
       };
@@ -4284,9 +4359,24 @@ function AvancementChantierTab({
               fontWeight: 900,
             }}
           >
-            Colonnes calculées automatiquement
+            <Icon as={Lock} size={12} /> Colonnes calculées figées
           </span>
-          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise.</span>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 9px",
+              borderRadius: RADIUS.pill,
+              background: "rgba(255, 226, 128, 0.22)",
+              border: "1px solid rgba(245,166,35,0.34)",
+              color: "#f5a623",
+              fontWeight: 900,
+            }}
+          >
+            Ligne jaune pâle = chantier terminé / 100 %
+          </span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée.</span>
         </div>
       </div>
 
@@ -4401,14 +4491,13 @@ function AvancementChantierTab({
                 </tr>
               )}
 
-              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, pctProvisionner, caProvisionner, isCompleted }) => (
+              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, autoPctProvisionner, pctProvisionner, autoCaProvisionner, caProvisionner, pctProvisionnerLocked, caProvisionnerLocked, isCompleted }) => (
                 <tr
                   key={row.id}
-                  className="ef-row"
+                  className={isCompleted ? "ef-row ef-completed-row" : "ef-row"}
                   title={isCompleted ? "Chantier terminé à 100 % : classé automatiquement en bas de tableau" : undefined}
                   style={{
                     borderBottom: `1px solid ${T.border}`,
-                    opacity: isCompleted ? 0.72 : 1,
                   }}
                 >
                   <td style={{ padding: "7px 8px", width: 120 }}>
@@ -4516,29 +4605,53 @@ function AvancementChantierTab({
                     />
                   </td>
 
-                  <td style={{ padding: "7px 8px", width: 120 }}>
-                    <div
-                      title={`Formule : ${fmtPct(avancementReel)} - ${fmtPct(pctFacture)} = ${fmtPct(pctProvisionner)}`}
+                  <td style={{ padding: "7px 8px", width: 140 }}>
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
+                      type={pctProvisionnerLocked ? "text" : "number"}
+                      step="0.01"
+                      value={pctProvisionnerLocked ? fmtPct(pctProvisionner) : (values.pctProvisionner ?? "")}
+                      onChange={e => updateValue(row.id, currentPeriodId, "pctProvisionner", e.target.value)}
+                      placeholder="0"
                       style={{
                         ...calculatedCell,
                         color: pctProvisionner >= 0 ? acc.accent : "#ff5c5c",
+                        background: pctProvisionnerLocked ? calculatedCell.background : T.bg,
                       }}
-                    >
-                      {fmtPct(pctProvisionner)}
-                    </div>
+                      locked={pctProvisionnerLocked}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "pctProvisionner")}
+                      title={pctProvisionnerLocked
+                        ? `Formule figée : ${fmtPct(avancementReel)} - ${fmtPct(pctFacture)} = ${fmtPct(autoPctProvisionner)}`
+                        : "Valeur déverrouillée : saisie manuelle"}
+                    />
                   </td>
 
-                  <td style={{ padding: "7px 8px", width: 150 }}>
-                    <div
-                      title={`Formule : ${fmtEur(montantHT)} × ${fmtPct(pctProvisionner)} = ${fmtEur(caProvisionner)}`}
+                  <td style={{ padding: "7px 8px", width: 170 }}>
+                    <LockedInput
+                      T={T}
+                      acc={acc}
+                      iconLocked={Lock}
+                      iconUnlocked={Unlock}
+                      type={caProvisionnerLocked ? "text" : "number"}
+                      step="0.01"
+                      value={caProvisionnerLocked ? fmtEur(caProvisionner) : (values.caProvisionner ?? "")}
+                      onChange={e => updateValue(row.id, currentPeriodId, "caProvisionner", e.target.value)}
+                      placeholder="0"
                       style={{
                         ...calculatedCell,
-                        minWidth: 130,
+                        minWidth: 150,
                         color: caProvisionner >= 0 ? T.text : "#ff5c5c",
+                        background: caProvisionnerLocked ? calculatedCell.background : T.bg,
                       }}
-                    >
-                      {fmtEur(caProvisionner)}
-                    </div>
+                      locked={caProvisionnerLocked}
+                      onToggleLock={() => toggleLock(row.id, currentPeriodId, "caProvisionner")}
+                      title={caProvisionnerLocked
+                        ? `Formule figée : ${fmtEur(montantHT)} × ${fmtPct(pctProvisionner)} = ${fmtEur(autoCaProvisionner)}`
+                        : "Valeur déverrouillée : saisie manuelle"}
+                    />
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 120 }}>
@@ -4638,7 +4751,7 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé automatiquement : <em>montant HT × % à provisionner</em>. Lorsqu'un nouveau mois est créé, les chantiers du mois précédent sont repris, l'avancement précédent reprend l'avancement réel du mois précédent, et les valeurs héritées peuvent être modifiées en cliquant sur le cadenas.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et classés en bas du tableau.
         </div>
       </div>
     </>
