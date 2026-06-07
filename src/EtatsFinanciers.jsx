@@ -3086,6 +3086,7 @@ function emptyAvancementValue() {
     acompteMois: "",
     acomptePrecedent: "",
     note: "",
+    rowColor: "",
     sourceRow: 9999,
     lockedFields: {},
     inheritedFromPeriodId: "",
@@ -3163,6 +3164,7 @@ function createInheritedAvancementValue(previousValue = {}, previousPeriodId = "
     pctFacture: previousValue?.pctFacture ?? "",
     acompteMois: previousValue?.acompteMois ?? "",
     acomptePrecedent: previousAcompteMois,
+    rowColor: previousValue?.rowColor ?? "",
     note: "",
     sourceRow: previousValue?.sourceRow ?? 9999,
     inheritedFromPeriodId: previousPeriodId,
@@ -3254,6 +3256,7 @@ function normalizeAvancement(raw) {
               acompteMois: value?.acompteMois ?? "",
               acomptePrecedent: value?.acomptePrecedent ?? "",
               note: value?.note ?? "",
+              rowColor: value?.rowColor ?? "",
               sourceRow: value?.sourceRow ?? 9999,
               lockedFields: {
                 ...createLockedFields(AVANCEMENT_AUTOMATED_LOCKED_FIELDS),
@@ -3735,6 +3738,13 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         }
         .ef-avancement-table tbody tr.ef-completed-row:hover td {
           background: rgba(255, 226, 128, 0.32) !important;
+        }
+        .ef-avancement-table tbody tr.ef-custom-color-row td {
+          background: var(--ef-row-color) !important;
+        }
+        .ef-avancement-table tbody tr.ef-custom-color-row:hover td {
+          background: var(--ef-row-color) !important;
+          filter: brightness(0.98);
         }
         .ef-avancement-table tbody tr.ef-dragging td {
           opacity: 0.55;
@@ -4353,7 +4363,7 @@ function AvancementChantierTab({
               Avancement de chantier
             </div>
             <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>
-              À la création d'un nouveau mois, les chantiers du mois précédent sont repris automatiquement. Les lignes à 100 % d'avancement restent classées en bas. Tu peux déplacer les lignes ou trier les chantiers par client.
+              À la création d'un nouveau mois, les chantiers du mois précédent sont repris automatiquement. Les lignes à 100 % d'avancement restent classées en bas. Tu peux déplacer les lignes par glisser-déposer, colorier les lignes de ton choix et classer les chantiers par client.
             </div>
           </div>
 
@@ -4486,7 +4496,22 @@ function AvancementChantierTab({
           >
             Ligne jaune pâle = chantier terminé / 100 %
           </span>
-          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Attrape la poignée dans la colonne Déplacer pour réordonner les lignes par client.</span>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 9px",
+              borderRadius: RADIUS.pill,
+              background: "rgba(91,156,246,0.10)",
+              border: "1px solid rgba(91,156,246,0.30)",
+              color: "#5b9cf6",
+              fontWeight: 900,
+            }}
+          >
+            Couleur personnalisée possible par ligne
+          </span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Attrape la poignée dans la colonne Déplacer pour réordonner les lignes par client. Utilise la colonne Couleur pour colorier ou réinitialiser une ligne.</span>
         </div>
       </div>
 
@@ -4569,10 +4594,11 @@ function AvancementChantierTab({
             boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
           }}
         >
-          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2130, borderCollapse: "separate", borderSpacing: 0 }}>
+          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2260, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 <AvancementTh T={T}>Déplacer</AvancementTh>
+                <AvancementTh T={T}>Couleur</AvancementTh>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
                 <AvancementTh T={T} align="left">Nom du chantier</AvancementTh>
                 <AvancementTh T={T}>Montant total HT</AvancementTh>
@@ -4596,16 +4622,18 @@ function AvancementChantierTab({
             <tbody>
               {computedRows.length === 0 && (
                 <tr>
-                  <td colSpan={14} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
+                  <td colSpan={15} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
                     Aucun chantier saisi pour ce mois. Clique sur <strong style={{ color: T.text }}>Ajouter un chantier</strong> pour commencer.
                   </td>
                 </tr>
               )}
 
-              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, autoPctProvisionner, pctProvisionner, autoCaProvisionner, caProvisionner, pctProvisionnerLocked, caProvisionnerLocked, isCompleted }) => (
+              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, autoPctProvisionner, pctProvisionner, autoCaProvisionner, caProvisionner, pctProvisionnerLocked, caProvisionnerLocked, isCompleted }) => {
+                const rowColor = normalizeRowColor(values.rowColor);
+                return (
                 <tr
                   key={row.id}
-                  className={`${isCompleted ? "ef-row ef-completed-row" : "ef-row"}${draggedRowId === row.id ? " ef-dragging" : ""}`}
+                  className={`${isCompleted ? "ef-row ef-completed-row" : "ef-row"}${rowColor ? " ef-custom-color-row" : ""}${draggedRowId === row.id ? " ef-dragging" : ""}`}
                   title={isCompleted ? "Chantier terminé à 100 % : classé automatiquement en bas de tableau" : undefined}
                   onDragOver={e => {
                     e.preventDefault();
@@ -4624,6 +4652,7 @@ function AvancementChantierTab({
                   }}
                   style={{
                     borderBottom: `1px solid ${T.border}`,
+                    ...(rowColor ? { "--ef-row-color": rowColor } : {}),
                   }}
                 >
                   <td style={{ padding: "7px 8px", width: 92, textAlign: "center" }}>
@@ -4643,6 +4672,44 @@ function AvancementChantierTab({
                     >
                       <Icon as={GripVertical} size={15} />
                       <span>Glisser</span>
+                    </div>
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 110, textAlign: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <input
+                        type="color"
+                        value={rowColor || "#fff3bf"}
+                        onChange={e => updateValue(row.id, currentPeriodId, "rowColor", e.target.value)}
+                        title="Choisir une couleur pour cette ligne"
+                        style={{
+                          width: 34,
+                          height: 30,
+                          padding: 0,
+                          border: `1px solid ${T.border}`,
+                          borderRadius: 8,
+                          background: T.bg,
+                          cursor: "pointer",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateValue(row.id, currentPeriodId, "rowColor", "")}
+                        title="Réinitialiser la couleur"
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: 8,
+                          border: `1px solid ${T.border}`,
+                          background: T.bg,
+                          color: T.textSub,
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontWeight: 900,
+                        }}
+                      >
+                        ×
+                      </button>
                     </div>
                   </td>
 
@@ -4857,12 +4924,13 @@ function AvancementChantierTab({
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
 
             <tfoot>
               <tr style={{ background: T.card }}>
-                <td colSpan={2} style={{ padding: "12px", fontSize: 12, fontWeight: 800, color: T.textSub, textTransform: "uppercase", letterSpacing: 1 }}>
+                <td colSpan={4} style={{ padding: "12px", fontSize: 12, fontWeight: 800, color: T.textSub, textTransform: "uppercase", letterSpacing: 1 }}>
                   Total avancement
                 </td>
                 <td style={{ padding: "12px", textAlign: "right", fontSize: 13, fontWeight: 800, color: T.text }}>
@@ -4897,11 +4965,16 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client. La colonne <strong style={{ color: T.text }}>Couleur</strong> permet de colorier manuellement une ligne ou de la réinitialiser.
         </div>
       </div>
     </>
   );
+}
+
+function normalizeRowColor(value) {
+  const color = String(value || "").trim();
+  return /^#[0-9A-Fa-f]{6}$/.test(color) ? color : "";
 }
 
 function dragHandleStyle(T) {
