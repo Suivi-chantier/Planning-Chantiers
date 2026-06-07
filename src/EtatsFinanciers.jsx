@@ -3437,6 +3437,55 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         .ef-input:focus { border-color: ${acc.accent} !important; }
         .ef-tab:hover { background: ${T.cardHover}; }
         .ef-subtab:hover { background: ${T.cardHover}; }
+        .ef-avancement-table th {
+          position: sticky;
+          top: 0;
+          z-index: 3;
+          box-shadow: 0 1px 0 ${T.border};
+        }
+        .ef-avancement-table th,
+        .ef-avancement-table td {
+          border-right: 1px solid ${T.border};
+        }
+        .ef-avancement-table th:last-child,
+        .ef-avancement-table td:last-child {
+          border-right: none;
+        }
+        .ef-avancement-table tbody tr:nth-child(even) td {
+          background: ${T.card};
+        }
+        .ef-avancement-table tbody tr:nth-child(odd) td {
+          background: ${T.surface};
+        }
+        .ef-avancement-table tbody tr:hover td {
+          background: ${T.cardHover} !important;
+        }
+        .ef-formula-head {
+          position: relative;
+        }
+        .ef-formula-tooltip {
+          display: none;
+          position: absolute;
+          top: calc(100% + 8px);
+          right: 0;
+          min-width: 260px;
+          max-width: 340px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: 1px solid ${T.border};
+          background: ${T.surface};
+          color: ${T.text};
+          box-shadow: 0 12px 28px rgba(0,0,0,.22);
+          text-transform: none;
+          letter-spacing: 0;
+          font-size: 12px;
+          line-height: 1.45;
+          white-space: normal;
+          z-index: 20;
+        }
+        .ef-formula-head:hover .ef-formula-tooltip {
+          display: block;
+        }
         @media (max-width: 767px) {
           .ef-wrap { padding: 14px 12px !important; }
           .ef-kpis { grid-template-columns: 1fr !important; }
@@ -3892,15 +3941,17 @@ function AvancementChantierTab({
   const inputBase = {
     width: "100%",
     minWidth: 90,
-    background: T.card,
+    background: T.bg,
     border: `1px solid ${T.border}`,
     borderRadius: RADIUS.md,
-    padding: "7px 9px",
+    padding: "8px 10px",
     color: T.text,
     fontFamily: "inherit",
     fontSize: 13,
     outline: "none",
-    transition: "border-color .12s",
+    transition: "border-color .12s, box-shadow .12s, background .12s",
+    boxSizing: "border-box",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
   };
 
   const numberInput = {
@@ -3916,14 +3967,15 @@ function AvancementChantierTab({
   const calculatedCell = {
     width: "100%",
     minWidth: 90,
-    background: T.card,
-    border: `1px solid ${T.border}`,
+    background: `${acc.accent}12`,
+    border: `1px solid ${acc.accent}44`,
     borderRadius: RADIUS.md,
-    padding: "7px 9px",
+    padding: "8px 10px",
     fontSize: 13,
     fontWeight: 900,
     textAlign: "right",
     boxSizing: "border-box",
+    boxShadow: `inset 0 0 0 1px ${acc.accent}12`,
   };
 
   const computedRows = rows
@@ -4051,6 +4103,49 @@ function AvancementChantierTab({
             );
           })}
         </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            marginTop: 12,
+            fontSize: 12,
+            color: T.textSub,
+          }}
+        >
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 9px",
+              borderRadius: RADIUS.pill,
+              background: T.bg,
+              border: `1px solid ${T.border}`,
+              fontWeight: 800,
+            }}
+          >
+            Champs modifiables
+          </span>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 9px",
+              borderRadius: RADIUS.pill,
+              background: `${acc.accent}12`,
+              border: `1px solid ${acc.accent}44`,
+              color: acc.accent,
+              fontWeight: 900,
+            }}
+          >
+            Colonnes calculées automatiquement
+          </span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules.</span>
+        </div>
       </div>
 
       <div
@@ -4123,8 +4218,16 @@ function AvancementChantierTab({
           </button>
         </div>
 
-        <div style={{ overflowX: "auto", width: "100%" }}>
-          <table style={{ width: "100%", minWidth: 1720, borderCollapse: "collapse" }}>
+        <div
+          style={{
+            overflowX: "auto",
+            width: "100%",
+            border: `1px solid ${T.border}`,
+            borderRadius: RADIUS.lg,
+            boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
+          }}
+        >
+          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 1850, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
@@ -4134,8 +4237,12 @@ function AvancementChantierTab({
                 <AvancementTh T={T}>Avancement précédent</AvancementTh>
                 <AvancementTh T={T}>Avancement réel</AvancementTh>
                 <AvancementTh T={T}>% facturé</AvancementTh>
-                <AvancementTh T={T}>% à provisionner</AvancementTh>
-                <AvancementTh T={T}>CA HT à provisionner</AvancementTh>
+                <AvancementTh T={T} calculated accentColor={acc.accent} formula="Avancement réel - % facturé">
+                  % à provisionner
+                </AvancementTh>
+                <AvancementTh T={T} calculated accentColor={acc.accent} formula="Montant total HT × % à provisionner">
+                  CA HT à provisionner
+                </AvancementTh>
                 <AvancementTh T={T}>% acompte mois</AvancementTh>
                 <AvancementTh T={T}>% acompte précédent</AvancementTh>
                 <AvancementTh T={T} align="left">Commentaire</AvancementTh>
@@ -4152,7 +4259,7 @@ function AvancementChantierTab({
                 </tr>
               )}
 
-              {computedRows.map(({ row, values, pctProvisionner, caProvisionner }) => (
+              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, pctProvisionner, caProvisionner }) => (
                 <tr key={row.id} className="ef-row" style={{ borderBottom: `1px solid ${T.border}` }}>
                   <td style={{ padding: "7px 8px", width: 120 }}>
                     <input
@@ -4236,7 +4343,7 @@ function AvancementChantierTab({
 
                   <td style={{ padding: "7px 8px", width: 120 }}>
                     <div
-                      title="Calcul automatique : avancement réel - % facturé"
+                      title={`Formule : ${fmtPct(avancementReel)} - ${fmtPct(pctFacture)} = ${fmtPct(pctProvisionner)}`}
                       style={{
                         ...calculatedCell,
                         color: pctProvisionner >= 0 ? acc.accent : "#ff5c5c",
@@ -4248,7 +4355,7 @@ function AvancementChantierTab({
 
                   <td style={{ padding: "7px 8px", width: 150 }}>
                     <div
-                      title="Calcul automatique : montant total HT × % à provisionner"
+                      title={`Formule : ${fmtEur(montantHT)} × ${fmtPct(pctProvisionner)} = ${fmtEur(caProvisionner)}`}
                       style={{
                         ...calculatedCell,
                         minWidth: 130,
@@ -4358,21 +4465,60 @@ function AvancementChantierTab({
   );
 }
 
-function AvancementTh({ T, children, align = "right" }) {
+function AvancementTh({ T, children, align = "right", formula = null, calculated = false, accentColor = "#d7b46a" }) {
+  const alignItems = align === "left" ? "flex-start" : "flex-end";
+
   return (
     <th
+      className={formula ? "ef-formula-head" : undefined}
+      title={formula ? `Formule : ${formula}` : undefined}
       style={{
         textAlign: align,
-        padding: "10px 8px",
+        padding: "11px 9px",
         fontSize: 10.5,
-        fontWeight: 800,
-        letterSpacing: 1,
+        fontWeight: 900,
+        letterSpacing: 0.8,
         textTransform: "uppercase",
-        color: T.textSub,
+        color: calculated ? accentColor : T.textSub,
         whiteSpace: "nowrap",
+        background: calculated ? `${accentColor}16` : T.card,
+        borderBottom: `1px solid ${T.border}`,
+        verticalAlign: "top",
       }}
     >
-      {children}
+      <div style={{ display: "flex", flexDirection: "column", alignItems, gap: 4 }}>
+        <span>{children}</span>
+
+        {formula && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 6px",
+              borderRadius: RADIUS.pill,
+              background: `${accentColor}18`,
+              border: `1px solid ${accentColor}40`,
+              color: accentColor,
+              fontSize: 9.5,
+              fontWeight: 900,
+              letterSpacing: 0.4,
+              textTransform: "uppercase",
+            }}
+          >
+            fx · survol
+          </span>
+        )}
+
+        {formula && (
+          <div className="ef-formula-tooltip">
+            <div style={{ fontSize: 11, fontWeight: 900, color: accentColor, marginBottom: 3 }}>
+              Formule automatique
+            </div>
+            <div>{formula}</div>
+          </div>
+        )}
+      </div>
     </th>
   );
 }
