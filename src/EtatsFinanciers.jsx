@@ -3176,6 +3176,55 @@ function isAvancementFieldLocked(values, field) {
   return Boolean(values?.lockedFields?.[field]);
 }
 
+function getAvancementClientLabel(row, periodId) {
+  const values = row.values?.[periodId] || {};
+  return String(values.chantier ?? row.chantier ?? "")
+    .trim()
+    .toLocaleLowerCase("fr-FR");
+}
+
+function getOrderedAvancementItems(rows, periodId) {
+  if (!periodId) return [];
+
+  return rows
+    .filter(row => Boolean(row.values?.[periodId]))
+    .map(row => {
+      const values = row.values?.[periodId] || {};
+      const avancementReel = parsePercent(values.avancementReel);
+
+      return {
+        row,
+        values,
+        isCompleted: avancementReel >= 1,
+        sourceRow: parseNumber(values.sourceRow) || 9999,
+        clientLabel: getAvancementClientLabel(row, periodId),
+      };
+    })
+    .sort((a, b) => {
+      if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+      return a.sourceRow - b.sourceRow;
+    });
+}
+
+function resequenceAvancementRows(rows, periodId, orderedIds) {
+  const sourceRowById = new Map(orderedIds.map((id, index) => [id, index + 1]));
+
+  return rows.map(row => {
+    if (!row.values?.[periodId]) return row;
+
+    return {
+      ...row,
+      values: {
+        ...row.values,
+        [periodId]: {
+          ...row.values[periodId],
+          sourceRow: sourceRowById.get(row.id) ?? row.values[periodId].sourceRow ?? 9999,
+        },
+      },
+    };
+  });
+}
+
 function normalizeAvancement(raw) {
   const source = Array.isArray(raw?.rows) && raw.rows.length > 0
     ? raw
@@ -3362,6 +3411,62 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
       ...prev,
       rows: prev.rows.filter(row => row.id !== rowId),
     }));
+    setDirty(true);
+  };
+
+  const moveAvancementRow = (rowId, periodId, direction) => {
+    if (!periodId) return;
+
+    setAvancement(prev => {
+      const orderedItems = getOrderedAvancementItems(prev.rows, periodId);
+      const target = orderedItems.find(item => item.row.id === rowId);
+      if (!target) return prev;
+
+      const activeItems = orderedItems.filter(item => !item.isCompleted);
+      const completedItems = orderedItems.filter(item => item.isCompleted);
+      const group = target.isCompleted ? completedItems : activeItems;
+      const groupIndex = group.findIndex(item => item.row.id === rowId);
+      const nextIndex = groupIndex + direction;
+
+      if (groupIndex < 0 || nextIndex < 0 || nextIndex >= group.length) return prev;
+
+      const nextGroup = [...group];
+      [nextGroup[groupIndex], nextGroup[nextIndex]] = [nextGroup[nextIndex], nextGroup[groupIndex]];
+
+      const nextOrderedItems = target.isCompleted
+        ? [...activeItems, ...nextGroup]
+        : [...nextGroup, ...completedItems];
+      const nextOrderedIds = nextOrderedItems.map(item => item.row.id);
+
+      return {
+        ...prev,
+        rows: resequenceAvancementRows(prev.rows, periodId, nextOrderedIds),
+      };
+    });
+
+    setDirty(true);
+  };
+
+  const sortAvancementRowsByClient = (periodId) => {
+    if (!periodId) return;
+
+    setAvancement(prev => {
+      const orderedItems = getOrderedAvancementItems(prev.rows, periodId);
+      const compareByClient = (a, b) => {
+        const byClient = a.clientLabel.localeCompare(b.clientLabel, "fr-FR", { sensitivity: "base", numeric: true });
+        return byClient !== 0 ? byClient : a.sourceRow - b.sourceRow;
+      };
+
+      const activeItems = orderedItems.filter(item => !item.isCompleted).sort(compareByClient);
+      const completedItems = orderedItems.filter(item => item.isCompleted).sort(compareByClient);
+      const nextOrderedIds = [...activeItems, ...completedItems].map(item => item.row.id);
+
+      return {
+        ...prev,
+        rows: resequenceAvancementRows(prev.rows, periodId, nextOrderedIds),
+      };
+    });
+
     setDirty(true);
   };
 
@@ -3852,6 +3957,8 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             removePeriod={removeAvancementPeriod}
             addRow={addAvancementRow}
             removeRow={removeAvancementRow}
+            moveRow={moveAvancementRow}
+            sortRowsByClient={sortAvancementRowsByClient}
             updateRow={updateAvancementRow}
             updateValue={updateAvancementValue}
             toggleLock={toggleAvancementLock}
@@ -4115,6 +4222,8 @@ function AvancementChantierTab({
   removePeriod,
   addRow,
   removeRow,
+  moveRow,
+  sortRowsByClient,
   updateRow,
   updateValue,
   toggleLock,
@@ -4244,7 +4353,7 @@ function AvancementChantierTab({
               Avancement de chantier
             </div>
             <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>
-              À la création d'un nouveau mois, les chantiers du mois précédent sont repris automatiquement. Les lignes à 100 % d'avancement sont classées en bas.
+              À la création d'un nouveau mois, les chantiers du mois précédent sont repris automatiquement. Les lignes à 100 % d'avancement restent classées en bas. Tu peux déplacer les lignes ou trier les chantiers par client.
             </div>
           </div>
 
@@ -4263,6 +4372,19 @@ function AvancementChantierTab({
             >
               <Icon as={Plus} size={14} />
               Ajouter un chantier
+            </button>
+
+            <button
+              onClick={() => sortRowsByClient(currentPeriodId)}
+              disabled={!currentPeriodId}
+              style={{
+                ...actionButtonStyle(T.card, T.text, T.border),
+                opacity: !currentPeriodId ? 0.45 : 1,
+                cursor: !currentPeriodId ? "not-allowed" : "pointer",
+              }}
+              title="Trier les chantiers par client A→Z en conservant les chantiers terminés en bas"
+            >
+              Trier par client A→Z
             </button>
           </div>
         </div>
@@ -4376,7 +4498,7 @@ function AvancementChantierTab({
           >
             Ligne jaune pâle = chantier terminé / 100 %
           </span>
-          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée.</span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Utilise les flèches pour déplacer les lignes, ou le bouton de tri pour classer les clients par ordre alphabétique.</span>
         </div>
       </div>
 
@@ -4459,9 +4581,10 @@ function AvancementChantierTab({
             boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
           }}
         >
-          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2020, borderCollapse: "separate", borderSpacing: 0 }}>
+          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2130, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                <AvancementTh T={T}>Ordre</AvancementTh>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
                 <AvancementTh T={T} align="left">Nom du chantier</AvancementTh>
                 <AvancementTh T={T}>Montant total HT</AvancementTh>
@@ -4485,7 +4608,7 @@ function AvancementChantierTab({
             <tbody>
               {computedRows.length === 0 && (
                 <tr>
-                  <td colSpan={13} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
+                  <td colSpan={14} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
                     Aucun chantier saisi pour ce mois. Clique sur <strong style={{ color: T.text }}>Ajouter un chantier</strong> pour commencer.
                   </td>
                 </tr>
@@ -4500,6 +4623,27 @@ function AvancementChantierTab({
                     borderBottom: `1px solid ${T.border}`,
                   }}
                 >
+                  <td style={{ padding: "7px 8px", width: 82, textAlign: "center" }}>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => moveRow(row.id, currentPeriodId, -1)}
+                        title={isCompleted ? "Monter ce chantier dans le bloc des chantiers terminés" : "Monter ce chantier"}
+                        style={moveRowButtonStyle(T)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveRow(row.id, currentPeriodId, 1)}
+                        title={isCompleted ? "Descendre ce chantier dans le bloc des chantiers terminés" : "Descendre ce chantier"}
+                        style={moveRowButtonStyle(T)}
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </td>
+
                   <td style={{ padding: "7px 8px", width: 120 }}>
                     <LockedInput
                       T={T}
@@ -4751,11 +4895,26 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et classés en bas du tableau.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Les flèches permettent de déplacer une ligne dans son bloc, et le bouton de tri classe les clients par ordre alphabétique tout en gardant les terminés en bas.
         </div>
       </div>
     </>
   );
+}
+
+function moveRowButtonStyle(T) {
+  return {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    border: `1px solid ${T.border}`,
+    background: T.card,
+    color: T.textSub,
+    cursor: "pointer",
+    fontSize: 14,
+    fontWeight: 900,
+    lineHeight: 1,
+  };
 }
 
 function LockedInput({
