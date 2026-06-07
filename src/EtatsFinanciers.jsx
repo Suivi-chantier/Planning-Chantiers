@@ -3061,6 +3061,29 @@ const DEFAULT_AVANCEMENT = {
 
 const DEFAULT_AVANCEMENT_PERIODS = DEFAULT_AVANCEMENT.periods;
 
+const AVANCEMENT_ROW_COLOR_PALETTE = [
+  { value: "#FEF3C7", label: "Jaune pâle" },
+  { value: "#FFE4B5", label: "Abricot" },
+  { value: "#FED7AA", label: "Orange doux" },
+  { value: "#FECACA", label: "Rouge pâle" },
+  { value: "#FBCFE8", label: "Rose" },
+  { value: "#E9D5FF", label: "Violet pâle" },
+  { value: "#DDD6FE", label: "Lavande" },
+  { value: "#C7D2FE", label: "Indigo pâle" },
+  { value: "#BFDBFE", label: "Bleu clair" },
+  { value: "#BAE6FD", label: "Bleu ciel" },
+  { value: "#A5F3FC", label: "Cyan" },
+  { value: "#CCFBF1", label: "Turquoise" },
+  { value: "#BBF7D0", label: "Vert clair" },
+  { value: "#D9F99D", label: "Vert anis" },
+  { value: "#ECFCCB", label: "Citron vert" },
+  { value: "#FDE68A", label: "Or doux" },
+  { value: "#E5E7EB", label: "Gris clair" },
+  { value: "#D1D5DB", label: "Gris moyen" },
+  { value: "#FAE8FF", label: "Magenta pâle" },
+  { value: "#E0F2FE", label: "Bleu glacier" },
+];
+
 function createId(prefix = "item") {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return `${prefix}_${crypto.randomUUID()}`;
@@ -3759,6 +3782,9 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         }
         .ef-drag-handle:active {
           cursor: grabbing;
+        }
+        .ef-color-dot:hover {
+          transform: translateY(-1px) scale(1.06);
         }
         .ef-formula-head {
           position: relative;
@@ -4509,9 +4535,9 @@ function AvancementChantierTab({
               fontWeight: 900,
             }}
           >
-            Couleur personnalisée possible par ligne
+            Couleurs prédéfinies par ligne
           </span>
-          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Attrape la poignée dans la colonne Déplacer pour réordonner les lignes par client. Utilise la colonne Couleur pour colorier ou réinitialiser une ligne.</span>
+          <span>Survole les en-têtes ou les cellules calculées pour lire les formules. Clique sur un cadenas pour modifier une valeur reprise ou une valeur calculée. Attrape la poignée dans la colonne Déplacer pour réordonner les lignes par client. Utilise la colonne Couleur pour choisir une teinte prédéfinie ou réinitialiser une ligne.</span>
         </div>
       </div>
 
@@ -4594,7 +4620,7 @@ function AvancementChantierTab({
             boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
           }}
         >
-          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2260, borderCollapse: "separate", borderSpacing: 0 }}>
+          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2360, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 <AvancementTh T={T}>Déplacer</AvancementTh>
@@ -4675,42 +4701,12 @@ function AvancementChantierTab({
                     </div>
                   </td>
 
-                  <td style={{ padding: "7px 8px", width: 110, textAlign: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      <input
-                        type="color"
-                        value={rowColor || "#fff3bf"}
-                        onChange={e => updateValue(row.id, currentPeriodId, "rowColor", e.target.value)}
-                        title="Choisir une couleur pour cette ligne"
-                        style={{
-                          width: 34,
-                          height: 30,
-                          padding: 0,
-                          border: `1px solid ${T.border}`,
-                          borderRadius: 8,
-                          background: T.bg,
-                          cursor: "pointer",
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateValue(row.id, currentPeriodId, "rowColor", "")}
-                        title="Réinitialiser la couleur"
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: 8,
-                          border: `1px solid ${T.border}`,
-                          background: T.bg,
-                          color: T.textSub,
-                          cursor: "pointer",
-                          fontSize: 12,
-                          fontWeight: 900,
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
+                  <td style={{ padding: "7px 8px", width: 210, textAlign: "center" }}>
+                    <RowColorPalette
+                      T={T}
+                      value={rowColor}
+                      onChange={color => updateValue(row.id, currentPeriodId, "rowColor", color)}
+                    />
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 120 }}>
@@ -4965,7 +4961,7 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client. La colonne <strong style={{ color: T.text }}>Couleur</strong> permet de colorier manuellement une ligne ou de la réinitialiser.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est automatique et figé par défaut : <em>avancement réel - % facturé</em>. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est aussi figé par défaut : <em>montant HT × % à provisionner</em>. Clique sur le cadenas pour déverrouiller une valeur héritée ou une valeur calculée. Les chantiers avec un avancement réel de 1, soit 100 %, sont affichés en jaune pâle et conservés en bas du tableau. Utilise la poignée <strong style={{ color: T.text }}>Glisser</strong> pour déplacer les lignes et classer les chantiers par client. La colonne <strong style={{ color: T.text }}>Couleur</strong> permet de choisir une teinte prédéfinie parmi une vingtaine de couleurs ou de réinitialiser la ligne.
         </div>
       </div>
     </>
@@ -4975,6 +4971,65 @@ function AvancementChantierTab({
 function normalizeRowColor(value) {
   const color = String(value || "").trim();
   return /^#[0-9A-Fa-f]{6}$/.test(color) ? color : "";
+}
+
+function RowColorPalette({ T, value, onChange }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(5, 22px) 30px",
+        gap: 5,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {AVANCEMENT_ROW_COLOR_PALETTE.map(color => {
+        const selected = value === color.value;
+
+        return (
+          <button
+            key={color.value}
+            type="button"
+            className="ef-color-dot"
+            onClick={() => onChange(color.value)}
+            title={selected ? `${color.label} — couleur active` : color.label}
+            aria-label={`Colorier la ligne en ${color.label}`}
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 999,
+              border: `2px solid ${selected ? T.text : "rgba(0,0,0,0.18)"}`,
+              background: color.value,
+              boxShadow: selected ? `0 0 0 2px ${T.bg}, 0 0 0 4px ${T.text}22` : "none",
+              cursor: "pointer",
+              transition: "transform .12s, box-shadow .12s, border-color .12s",
+            }}
+          />
+        );
+      })}
+
+      <button
+        type="button"
+        onClick={() => onChange("")}
+        title="Réinitialiser la couleur"
+        aria-label="Réinitialiser la couleur de la ligne"
+        style={{
+          width: 30,
+          height: 30,
+          borderRadius: 9,
+          border: `1px solid ${T.border}`,
+          background: T.bg,
+          color: T.textSub,
+          cursor: "pointer",
+          fontSize: 12,
+          fontWeight: 900,
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
 }
 
 function dragHandleStyle(T) {
