@@ -16,9 +16,7 @@ import {
   Lock,
   Unlock,
   GripVertical,
-  UploadCloud,
   FileText,
-  CheckCircle,
   AlertTriangle,
   CreditCard,
 } from "lucide-react";
@@ -4387,7 +4385,6 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             addInvoice={addAchatInvoice}
             updateInvoice={updateAchatInvoice}
             removeInvoice={removeAchatInvoice}
-            preAnalyseInvoices={preAnalyseAchatInvoices}
           />
         )}
 
@@ -5576,9 +5573,7 @@ function AchatTab({
   addInvoice,
   updateInvoice,
   removeInvoice,
-  preAnalyseInvoices,
 }) {
-  const folderInputRef = useRef(null);
   const filesInputRef = useRef(null);
   const periods = achat?.periods?.length ? achat.periods : DEFAULT_ACHAT_PERIODS;
   const [draggedPeriodId, setDraggedPeriodId] = useState(null);
@@ -5763,24 +5758,11 @@ function AchatTab({
             Import et analyse des factures · {currentPeriod.label}
           </div>
           <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.5, maxWidth: 850 }}>
-            Les factures sont classées par mois. Tu peux importer un dossier ou plusieurs factures dans le mois actif, déplacer les mois par glisser-déposer, puis modifier fournisseur, typologie, date, numéro, montants HT/TTC, contrôle et règlement. Total tous mois confondus : {allInvoicesCount} facture{allInvoicesCount > 1 ? "s" : ""}.
+            Les factures sont classées par mois. Tu peux importer plusieurs factures dans le mois actif, déplacer les mois par glisser-déposer, puis modifier fournisseur, typologie, date, numéro, montants HT/TTC, contrôle et règlement. Total tous mois confondus : {allInvoicesCount} facture{allInvoicesCount > 1 ? "s" : ""}.
           </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <input
-            ref={folderInputRef}
-            type="file"
-            multiple
-            webkitdirectory=""
-            directory=""
-            onChange={e => {
-              importFiles(e.target.files, currentPeriodId);
-              e.target.value = "";
-            }}
-            style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, opacity: 0 }}
-          />
-
           <input
             ref={filesInputRef}
             type="file"
@@ -5795,25 +5777,11 @@ function AchatTab({
 
           <button
             type="button"
-            onClick={() => folderInputRef.current?.click()}
-            style={{ ...buttonStyle, background: acc.accent, color: "#111", borderColor: acc.accent }}
-          >
-            <Icon as={UploadCloud} size={14} />
-            Importer un dossier
-          </button>
-
-          <button
-            type="button"
             onClick={() => filesInputRef.current?.click()}
-            style={buttonStyle}
+            style={{ ...buttonStyle, background: acc.accent, color: "#111", borderColor: acc.accent }}
           >
             <Icon as={FileText} size={14} />
             Importer des factures
-          </button>
-
-          <button type="button" onClick={() => preAnalyseInvoices(currentPeriodId)} style={buttonStyle}>
-            <Icon as={CheckCircle} size={14} />
-            Pré-analyser
           </button>
 
           <button type="button" onClick={() => addInvoice(currentPeriodId)} style={buttonStyle}>
@@ -5839,7 +5807,7 @@ function AchatTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, color: acc.accent, flexShrink: 0 }} />
         <div>
-          <strong style={{ color: T.text }}>Important :</strong> le mois actif est celui dans lequel les factures seront importées. Le navigateur peut créer les lignes depuis un dossier ou plusieurs fichiers, mais il ne lit pas encore le contenu des factures. Pour obtenir une vraie analyse automatique, il faudra ajouter une fonction serveur qui lit les PDF/images, extrait les champs, puis renvoie un JSON fiable avec un score de confiance.
+          <strong style={{ color: T.text }}>Important :</strong> le mois actif est celui dans lequel les factures seront importées. Le navigateur peut créer les lignes depuis les fichiers sélectionnés, mais il ne lit pas encore le contenu des factures. Pour obtenir une vraie analyse automatique, il faudra ajouter une fonction serveur qui lit les PDF/images, extrait les champs, puis renvoie un JSON fiable avec un score de confiance.
         </div>
       </div>
 
@@ -5873,7 +5841,7 @@ function AchatTab({
               {invoices.length === 0 && (
                 <tr>
                   <td colSpan={11} style={{ padding: 28, textAlign: "center", color: T.textSub, fontSize: 13 }}>
-                    Aucune facture importée sur le mois “{currentPeriod.label}”. Utilise “Importer un dossier” ou “Importer des factures”.
+                    Aucune facture importée sur le mois “{currentPeriod.label}”. Utilise “Importer des factures” ou “Ajouter une ligne”.
                   </td>
                 </tr>
               )}
