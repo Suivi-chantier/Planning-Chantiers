@@ -3124,8 +3124,31 @@ function isAchatAcceptedFile(file) {
   return ACHAT_ACCEPTED_EXTENSIONS.some(ext => name.endsWith(ext));
 }
 
+function getAchatPeriodIdFromDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function getAchatPeriodLabelFromDate(date = new Date()) {
+  const label = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(date);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function createAchatPeriodFromDate(date = new Date()) {
+  return {
+    id: getAchatPeriodIdFromDate(date),
+    label: getAchatPeriodLabelFromDate(date),
+  };
+}
+
+const DEFAULT_ACHAT_PERIODS = [createAchatPeriodFromDate()];
+
 const DEFAULT_ACHAT = {
-  invoices: [],
+  periods: DEFAULT_ACHAT_PERIODS,
+  invoicesByPeriod: {
+    [DEFAULT_ACHAT_PERIODS[0].id]: [],
+  },
 };
 
 
@@ -3164,28 +3187,60 @@ function createEmptyAchatInvoice(file = null) {
   };
 }
 
+function normalizeAchatInvoice(invoice) {
+  return {
+    id: invoice?.id || createId("facture"),
+    fileName: invoice?.fileName ?? "",
+    fileSize: invoice?.fileSize ?? 0,
+    fileType: invoice?.fileType ?? "",
+    importedAt: invoice?.importedAt ?? "",
+    fournisseur: invoice?.fournisseur ?? "",
+    typologie: invoice?.typologie ?? "",
+    date: invoice?.date ?? "",
+    numeroFacture: invoice?.numeroFacture ?? "",
+    montantHT: invoice?.montantHT ?? "0",
+    montantTTC: invoice?.montantTTC ?? "0",
+    controle: invoice?.controle ?? "a_controler",
+    reglement: invoice?.reglement ?? "a_regler",
+    analysisStatus: invoice?.analysisStatus ?? "importee",
+    confidence: invoice?.confidence ?? "",
+    note: invoice?.note ?? "",
+  };
+}
+
 function normalizeAchat(raw) {
-  const source = Array.isArray(raw?.invoices) ? raw : DEFAULT_ACHAT;
+  const rawPeriods = Array.isArray(raw?.periods) && raw.periods.length
+    ? raw.periods
+    : DEFAULT_ACHAT_PERIODS;
+
+  const periods = rawPeriods.map((period, index) => ({
+    id: period?.id || (index === 0 ? DEFAULT_ACHAT_PERIODS[0].id : createId("achat_mois")),
+    label: period?.label || `Mois ${index + 1}`,
+  }));
+
+  const invoicesByPeriod = {};
+
+  if (raw?.invoicesByPeriod && typeof raw.invoicesByPeriod === "object") {
+    Object.entries(raw.invoicesByPeriod).forEach(([periodId, invoices]) => {
+      invoicesByPeriod[periodId] = Array.isArray(invoices)
+        ? invoices.map(normalizeAchatInvoice)
+        : [];
+    });
+  } else if (Array.isArray(raw?.invoices)) {
+    // Compatibilité avec l'ancienne version : les factures non classées
+    // sont automatiquement placées dans le premier mois disponible.
+    invoicesByPeriod[periods[0].id] = raw.invoices.map(normalizeAchatInvoice);
+  }
+
+  periods.forEach(period => {
+    if (!Array.isArray(invoicesByPeriod[period.id])) {
+      invoicesByPeriod[period.id] = [];
+    }
+  });
 
   return {
-    invoices: source.invoices.map(invoice => ({
-      id: invoice?.id || createId("facture"),
-      fileName: invoice?.fileName ?? "",
-      fileSize: invoice?.fileSize ?? 0,
-      fileType: invoice?.fileType ?? "",
-      importedAt: invoice?.importedAt ?? "",
-      fournisseur: invoice?.fournisseur ?? "",
-      typologie: invoice?.typologie ?? "",
-      date: invoice?.date ?? "",
-      numeroFacture: invoice?.numeroFacture ?? "",
-      montantHT: invoice?.montantHT ?? "0",
-      montantTTC: invoice?.montantTTC ?? "0",
-      controle: invoice?.controle ?? "a_controler",
-      reglement: invoice?.reglement ?? "a_regler",
-      analysisStatus: invoice?.analysisStatus ?? "importee",
-      confidence: invoice?.confidence ?? "",
-      note: invoice?.note ?? "",
-    })),
+    periods,
+    invoicesByPeriod,
   };
 }
 
@@ -3480,6 +3535,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
 
   const [activeTab, setActiveTab] = useState("frais_generaux");
   const [activeAvancementPeriodId, setActiveAvancementPeriodId] = useState(DEFAULT_AVANCEMENT_PERIODS[0].id);
+  const [activeAchatPeriodId, setActiveAchatPeriodId] = useState(DEFAULT_ACHAT_PERIODS[0].id);
   const [months, setMonths] = useState(emptyMonths());
   const [avancement, setAvancement] = useState(() => normalizeAvancement());
   const [achat, setAchat] = useState(() => normalizeAchat());
@@ -3513,7 +3569,10 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
       const nextAvancement = normalizeAvancement(data?.value?.avancement);
       setAvancement(nextAvancement);
       setActiveAvancementPeriodId(nextAvancement.periods[0]?.id || DEFAULT_AVANCEMENT_PERIODS[0].id);
-      setAchat(normalizeAchat(data?.value?.achat));
+
+      const nextAchat = normalizeAchat(data?.value?.achat);
+      setAchat(nextAchat);
+      setActiveAchatPeriodId(nextAchat.periods[0]?.id || DEFAULT_ACHAT_PERIODS[0].id);
 
       setDirty(false);
     } catch (e) {
@@ -3800,73 +3859,150 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   };
 
 
-  const importAchatFiles = (fileList) => {
+  const addAchatPeriod = () => {
+    const label = window.prompt("Nom du nouveau mois d'achat", getAchatPeriodLabelFromDate(new Date()));
+    if (!label || !label.trim()) return;
+
+    const newPeriod = {
+      id: createId("achat_mois"),
+      label: label.trim(),
+    };
+
+    setAchat(prev => ({
+      ...prev,
+      periods: [newPeriod, ...(prev.periods || [])],
+      invoicesByPeriod: {
+        ...(prev.invoicesByPeriod || {}),
+        [newPeriod.id]: [],
+      },
+    }));
+
+    setActiveAchatPeriodId(newPeriod.id);
+    setDirty(true);
+  };
+
+  const removeAchatPeriod = (periodId) => {
+    if ((achat.periods || []).length <= 1) {
+      alert("Impossible de supprimer le dernier mois d'achat.");
+      return;
+    }
+
+    if (!window.confirm("Supprimer ce mois d'achat et toutes les factures associées ?")) return;
+
+    setAchat(prev => {
+      const nextPeriods = (prev.periods || []).filter(period => period.id !== periodId);
+      const nextInvoicesByPeriod = { ...(prev.invoicesByPeriod || {}) };
+      delete nextInvoicesByPeriod[periodId];
+
+      setActiveAchatPeriodId(nextPeriods[0]?.id || DEFAULT_ACHAT_PERIODS[0].id);
+
+      return {
+        ...prev,
+        periods: nextPeriods,
+        invoicesByPeriod: nextInvoicesByPeriod,
+      };
+    });
+
+    setDirty(true);
+  };
+
+  const importAchatFiles = (fileList, periodId = activeAchatPeriodId) => {
     const files = Array.from(fileList || []).filter(file => file?.name && isAchatAcceptedFile(file));
     if (!files.length) {
       alert("Aucune facture compatible détectée. Formats acceptés : PDF, PNG, JPG, JPEG, WEBP.");
       return;
     }
 
+    const safePeriodId = periodId || achat.periods?.[0]?.id || DEFAULT_ACHAT_PERIODS[0].id;
     const nextInvoices = files.map(file => createEmptyAchatInvoice(file));
 
     setAchat(prev => ({
       ...prev,
-      invoices: [...nextInvoices, ...prev.invoices],
+      invoicesByPeriod: {
+        ...(prev.invoicesByPeriod || {}),
+        [safePeriodId]: [
+          ...nextInvoices,
+          ...((prev.invoicesByPeriod || {})[safePeriodId] || []),
+        ],
+      },
     }));
     setDirty(true);
   };
 
-  const addAchatInvoice = () => {
+  const addAchatInvoice = (periodId = activeAchatPeriodId) => {
+    const safePeriodId = periodId || achat.periods?.[0]?.id || DEFAULT_ACHAT_PERIODS[0].id;
+
     setAchat(prev => ({
       ...prev,
-      invoices: [createEmptyAchatInvoice(), ...prev.invoices],
+      invoicesByPeriod: {
+        ...(prev.invoicesByPeriod || {}),
+        [safePeriodId]: [
+          createEmptyAchatInvoice(),
+          ...((prev.invoicesByPeriod || {})[safePeriodId] || []),
+        ],
+      },
     }));
     setDirty(true);
   };
 
-  const updateAchatInvoice = (invoiceId, field, raw) => {
+  const updateAchatInvoice = (invoiceId, field, raw, periodId = activeAchatPeriodId) => {
+    const safePeriodId = periodId || achat.periods?.[0]?.id || DEFAULT_ACHAT_PERIODS[0].id;
+
     setAchat(prev => ({
       ...prev,
-      invoices: prev.invoices.map(invoice => (
-        invoice.id === invoiceId
-          ? { ...invoice, [field]: raw }
-          : invoice
-      )),
+      invoicesByPeriod: {
+        ...(prev.invoicesByPeriod || {}),
+        [safePeriodId]: ((prev.invoicesByPeriod || {})[safePeriodId] || []).map(invoice => (
+          invoice.id === invoiceId
+            ? { ...invoice, [field]: raw }
+            : invoice
+        )),
+      },
     }));
     setDirty(true);
   };
 
-  const removeAchatInvoice = (invoiceId) => {
+  const removeAchatInvoice = (invoiceId, periodId = activeAchatPeriodId) => {
     if (!window.confirm("Supprimer cette facture de l'onglet Achat ?")) return;
 
+    const safePeriodId = periodId || achat.periods?.[0]?.id || DEFAULT_ACHAT_PERIODS[0].id;
+
     setAchat(prev => ({
       ...prev,
-      invoices: prev.invoices.filter(invoice => invoice.id !== invoiceId),
+      invoicesByPeriod: {
+        ...(prev.invoicesByPeriod || {}),
+        [safePeriodId]: ((prev.invoicesByPeriod || {})[safePeriodId] || []).filter(invoice => invoice.id !== invoiceId),
+      },
     }));
     setDirty(true);
   };
 
-  const preAnalyseAchatInvoices = () => {
-    // Pré-analyse front : exploite uniquement le nom des fichiers importés.
-    // Pour lire le contenu réel des PDF/images, il faudra brancher ici une Edge Function
-    // avec OCR + IA, puis réinjecter le JSON structuré dans les mêmes champs.
+  const preAnalyseAchatInvoices = (periodId = activeAchatPeriodId) => {
+    // Pré-analyse front : exploite uniquement le nom des fichiers importés
+    // du mois actif. Pour lire le contenu réel des PDF/images, il faudra
+    // brancher ici une Edge Function avec OCR + IA.
+    const safePeriodId = periodId || achat.periods?.[0]?.id || DEFAULT_ACHAT_PERIODS[0].id;
+
     setAchat(prev => ({
       ...prev,
-      invoices: prev.invoices.map(invoice => {
-        if (!invoice.fileName) return invoice;
-        const draft = extractAchatDraftFromFile({ name: invoice.fileName });
+      invoicesByPeriod: {
+        ...(prev.invoicesByPeriod || {}),
+        [safePeriodId]: ((prev.invoicesByPeriod || {})[safePeriodId] || []).map(invoice => {
+          if (!invoice.fileName) return invoice;
+          const draft = extractAchatDraftFromFile({ name: invoice.fileName });
 
-        return {
-          ...invoice,
-          fournisseur: invoice.fournisseur || draft.fournisseur || "",
-          date: invoice.date || draft.date || "",
-          numeroFacture: invoice.numeroFacture || draft.numeroFacture || "",
-          montantTTC: parseNumber(invoice.montantTTC) > 0 ? invoice.montantTTC : draft.montantTTC || "0",
-          typologie: invoice.typologie || draft.typologie || "",
-          analysisStatus: "pre_analyse_nom_fichier",
-          confidence: invoice.confidence || "35",
-        };
-      }),
+          return {
+            ...invoice,
+            fournisseur: invoice.fournisseur || draft.fournisseur || "",
+            date: invoice.date || draft.date || "",
+            numeroFacture: invoice.numeroFacture || draft.numeroFacture || "",
+            montantTTC: parseNumber(invoice.montantTTC) > 0 ? invoice.montantTTC : draft.montantTTC || "0",
+            typologie: invoice.typologie || draft.typologie || "",
+            analysisStatus: "pre_analyse_nom_fichier",
+            confidence: invoice.confidence || "35",
+          };
+        }),
+      },
     }));
     setDirty(true);
   };
@@ -4220,6 +4356,10 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             T={T}
             acc={acc}
             achat={achat}
+            activePeriodId={activeAchatPeriodId}
+            setActivePeriodId={setActiveAchatPeriodId}
+            addPeriod={addAchatPeriod}
+            removePeriod={removeAchatPeriod}
             importFiles={importAchatFiles}
             addInvoice={addAchatInvoice}
             updateInvoice={updateAchatInvoice}
@@ -5400,10 +5540,28 @@ function actionButtonStyle(background, color, border = "transparent") {
 
 
 // ─── ONGLET ACHAT ─────────────────────────────────────────────────────────────
-function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, removeInvoice, preAnalyseInvoices }) {
+function AchatTab({
+  T,
+  acc,
+  achat,
+  activePeriodId,
+  setActivePeriodId,
+  addPeriod,
+  removePeriod,
+  importFiles,
+  addInvoice,
+  updateInvoice,
+  removeInvoice,
+  preAnalyseInvoices,
+}) {
   const folderInputRef = useRef(null);
   const filesInputRef = useRef(null);
-  const invoices = achat?.invoices || [];
+  const periods = achat?.periods?.length ? achat.periods : DEFAULT_ACHAT_PERIODS;
+  const currentPeriodId = activePeriodId || periods[0]?.id || DEFAULT_ACHAT_PERIODS[0].id;
+  const currentPeriod = periods.find(period => period.id === currentPeriodId) || periods[0] || DEFAULT_ACHAT_PERIODS[0];
+  const invoicesByPeriod = achat?.invoicesByPeriod || {};
+  const invoices = invoicesByPeriod[currentPeriodId] || [];
+  const allInvoicesCount = Object.values(invoicesByPeriod).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
   const totalHT = invoices.reduce((sum, invoice) => sum + parseNumber(invoice.montantHT), 0);
   const totalTTC = invoices.reduce((sum, invoice) => sum + parseNumber(invoice.montantTTC), 0);
   const nbAControler = invoices.filter(invoice => invoice.controle === "a_controler").length;
@@ -5443,8 +5601,87 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
     cursor: "pointer",
   };
 
+  const activeTabStyle = {
+    ...buttonStyle,
+    background: `${acc.accent}14`,
+    color: acc.accent,
+    borderColor: `${acc.accent}66`,
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg,
+          padding: 12,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {periods.map(period => {
+            const isActive = period.id === currentPeriodId;
+            const count = (invoicesByPeriod[period.id] || []).length;
+
+            return (
+              <button
+                key={period.id}
+                type="button"
+                onClick={() => setActivePeriodId(period.id)}
+                style={isActive ? activeTabStyle : buttonStyle}
+              >
+                <Icon as={CalendarPlus} size={14} />
+                {period.label}
+                <span
+                  style={{
+                    minWidth: 20,
+                    height: 20,
+                    padding: "0 6px",
+                    borderRadius: RADIUS.pill,
+                    background: isActive ? `${acc.accent}22` : T.surface,
+                    border: `1px solid ${isActive ? `${acc.accent}44` : T.border}`,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 11,
+                    fontWeight: 900,
+                  }}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" onClick={addPeriod} style={{ ...buttonStyle, background: acc.accent, borderColor: acc.accent, color: "#111" }}>
+            <Icon as={Plus} size={14} />
+            Ajouter un mois
+          </button>
+
+          <button
+            type="button"
+            onClick={() => removePeriod(currentPeriodId)}
+            disabled={periods.length <= 1}
+            style={{
+              ...buttonStyle,
+              color: periods.length <= 1 ? T.textMuted : "#ef4444",
+              opacity: periods.length <= 1 ? 0.55 : 1,
+              cursor: periods.length <= 1 ? "not-allowed" : "pointer",
+            }}
+          >
+            <Icon as={Trash2} size={14} />
+            Supprimer le mois
+          </button>
+        </div>
+      </div>
+
       <div
         style={{
           display: "grid",
@@ -5452,9 +5689,9 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
           gap: 14,
         }}
       >
-        <KpiCard T={T} icon={FileText} iconColor="#5b9cf6" label="Factures importées" value={String(invoices.length)} />
-        <KpiCard T={T} icon={Euro} iconColor="#ff9a4d" label="Total HT" value={fmtEur(totalHT)} />
-        <KpiCard T={T} icon={CreditCard} iconColor="#a78bfa" label="Total TTC" value={fmtEur(totalTTC)} />
+        <KpiCard T={T} icon={FileText} iconColor="#5b9cf6" label={`Factures ${currentPeriod.label}`} value={String(invoices.length)} />
+        <KpiCard T={T} icon={Euro} iconColor="#ff9a4d" label="Total HT du mois" value={fmtEur(totalHT)} />
+        <KpiCard T={T} icon={CreditCard} iconColor="#a78bfa" label="Total TTC du mois" value={fmtEur(totalTTC)} />
         <KpiCard T={T} icon={AlertTriangle} iconColor="#f5a623" label="À contrôler / payer" value={`${nbAControler} / ${nbAPayer}`} highlight />
       </div>
 
@@ -5472,9 +5709,11 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: T.text }}>Import et analyse des factures</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: T.text }}>
+            Import et analyse des factures · {currentPeriod.label}
+          </div>
           <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.5, maxWidth: 850 }}>
-            L’onglet est prêt pour classer les factures par fournisseur, typologie de charge, date, numéro, montants HT/TTC, contrôle et règlement. La lecture réelle du contenu des PDF/images devra être branchée ensuite à une fonction OCR/IA.
+            Les factures sont classées par mois. Tu peux importer un dossier ou plusieurs factures dans le mois actif, puis modifier fournisseur, typologie, date, numéro, montants HT/TTC, contrôle et règlement. Total tous mois confondus : {allInvoicesCount} facture{allInvoicesCount > 1 ? "s" : ""}.
           </div>
         </div>
 
@@ -5486,7 +5725,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
             webkitdirectory=""
             directory=""
             onChange={e => {
-              importFiles(e.target.files);
+              importFiles(e.target.files, currentPeriodId);
               e.target.value = "";
             }}
             style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, opacity: 0 }}
@@ -5498,7 +5737,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
             multiple
             accept={ACHAT_ACCEPTED_FILES}
             onChange={e => {
-              importFiles(e.target.files);
+              importFiles(e.target.files, currentPeriodId);
               e.target.value = "";
             }}
             style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, opacity: 0 }}
@@ -5522,12 +5761,12 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
             Importer des factures
           </button>
 
-          <button type="button" onClick={preAnalyseInvoices} style={buttonStyle}>
+          <button type="button" onClick={() => preAnalyseInvoices(currentPeriodId)} style={buttonStyle}>
             <Icon as={CheckCircle} size={14} />
             Pré-analyser
           </button>
 
-          <button type="button" onClick={addInvoice} style={buttonStyle}>
+          <button type="button" onClick={() => addInvoice(currentPeriodId)} style={buttonStyle}>
             <Icon as={Plus} size={14} />
             Ajouter une ligne
           </button>
@@ -5550,7 +5789,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, color: acc.accent, flexShrink: 0 }} />
         <div>
-          <strong style={{ color: T.text }}>Important :</strong> le navigateur peut créer les lignes depuis un dossier ou plusieurs fichiers, mais il ne lit pas encore le contenu des factures. Pour obtenir une vraie analyse automatique, il faudra ajouter une fonction serveur qui lit les PDF/images, extrait les champs, puis renvoie un JSON fiable avec un score de confiance.
+          <strong style={{ color: T.text }}>Important :</strong> le mois actif est celui dans lequel les factures seront importées. Le navigateur peut créer les lignes depuis un dossier ou plusieurs fichiers, mais il ne lit pas encore le contenu des factures. Pour obtenir une vraie analyse automatique, il faudra ajouter une fonction serveur qui lit les PDF/images, extrait les champs, puis renvoie un JSON fiable avec un score de confiance.
         </div>
       </div>
 
@@ -5584,7 +5823,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
               {invoices.length === 0 && (
                 <tr>
                   <td colSpan={11} style={{ padding: 28, textAlign: "center", color: T.textSub, fontSize: 13 }}>
-                    Aucune facture importée pour le moment. Utilise “Importer un dossier” ou “Importer des factures”.
+                    Aucune facture importée sur le mois “{currentPeriod.label}”. Utilise “Importer un dossier” ou “Importer des factures”.
                   </td>
                 </tr>
               )}
@@ -5605,7 +5844,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                   <AchatTd T={T} width={190}>
                     <input
                       value={invoice.fournisseur ?? ""}
-                      onChange={e => updateInvoice(invoice.id, "fournisseur", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "fournisseur", e.target.value, currentPeriodId)}
                       placeholder="Fournisseur"
                       style={inputStyle}
                     />
@@ -5614,7 +5853,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                   <AchatTd T={T} width={190}>
                     <select
                       value={invoice.typologie ?? ""}
-                      onChange={e => updateInvoice(invoice.id, "typologie", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "typologie", e.target.value, currentPeriodId)}
                       style={selectStyle}
                     >
                       <option value="">À classifier</option>
@@ -5628,7 +5867,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                     <input
                       type="date"
                       value={invoice.date ?? ""}
-                      onChange={e => updateInvoice(invoice.id, "date", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "date", e.target.value, currentPeriodId)}
                       style={inputStyle}
                     />
                   </AchatTd>
@@ -5636,7 +5875,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                   <AchatTd T={T} width={160}>
                     <input
                       value={invoice.numeroFacture ?? ""}
-                      onChange={e => updateInvoice(invoice.id, "numeroFacture", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "numeroFacture", e.target.value, currentPeriodId)}
                       placeholder="N° facture"
                       style={inputStyle}
                     />
@@ -5648,7 +5887,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                       min="0"
                       step="0.01"
                       value={invoice.montantHT ?? "0"}
-                      onChange={e => updateInvoice(invoice.id, "montantHT", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "montantHT", e.target.value, currentPeriodId)}
                       style={{ ...inputStyle, textAlign: "right" }}
                     />
                   </AchatTd>
@@ -5659,7 +5898,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                       min="0"
                       step="0.01"
                       value={invoice.montantTTC ?? "0"}
-                      onChange={e => updateInvoice(invoice.id, "montantTTC", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "montantTTC", e.target.value, currentPeriodId)}
                       style={{ ...inputStyle, textAlign: "right" }}
                     />
                   </AchatTd>
@@ -5667,7 +5906,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                   <AchatTd T={T} width={170}>
                     <select
                       value={invoice.controle ?? "a_controler"}
-                      onChange={e => updateInvoice(invoice.id, "controle", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "controle", e.target.value, currentPeriodId)}
                       style={selectStyle}
                     >
                       {ACHAT_CONTROLES.map(option => (
@@ -5679,7 +5918,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                   <AchatTd T={T} width={160}>
                     <select
                       value={invoice.reglement ?? "a_regler"}
-                      onChange={e => updateInvoice(invoice.id, "reglement", e.target.value)}
+                      onChange={e => updateInvoice(invoice.id, "reglement", e.target.value, currentPeriodId)}
                       style={selectStyle}
                     >
                       {ACHAT_REGLEMENTS.map(option => (
@@ -5708,7 +5947,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
                   <AchatTd T={T} width={90} align="center">
                     <button
                       type="button"
-                      onClick={() => removeInvoice(invoice.id)}
+                      onClick={() => removeInvoice(invoice.id, currentPeriodId)}
                       title="Supprimer la facture"
                       style={{
                         width: 30,
@@ -5731,7 +5970,7 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
               <tfoot>
                 <tr style={{ background: T.card }}>
                   <td colSpan={5} style={{ padding: "12px 10px", fontSize: 12, fontWeight: 900, color: T.textSub, textTransform: "uppercase", letterSpacing: 1 }}>
-                    Total achats
+                    Total achats · {currentPeriod.label}
                   </td>
                   <td style={{ padding: "12px 10px", textAlign: "right", fontSize: 13, fontWeight: 900, color: T.text }}>
                     {fmtEur(totalHT)}
