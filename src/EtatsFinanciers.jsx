@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase";
 import { FONT, RADIUS, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
@@ -3117,6 +3117,12 @@ const ACHAT_REGLEMENTS = [
 ];
 
 const ACHAT_ACCEPTED_FILES = ".pdf,.png,.jpg,.jpeg,.webp";
+const ACHAT_ACCEPTED_EXTENSIONS = ACHAT_ACCEPTED_FILES.split(",").map(ext => ext.trim().toLowerCase());
+
+function isAchatAcceptedFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  return ACHAT_ACCEPTED_EXTENSIONS.some(ext => name.endsWith(ext));
+}
 
 const DEFAULT_ACHAT = {
   invoices: [],
@@ -3795,8 +3801,11 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
 
 
   const importAchatFiles = (fileList) => {
-    const files = Array.from(fileList || []).filter(file => file?.name);
-    if (!files.length) return;
+    const files = Array.from(fileList || []).filter(file => file?.name && isAchatAcceptedFile(file));
+    if (!files.length) {
+      alert("Aucune facture compatible détectée. Formats acceptés : PDF, PNG, JPG, JPEG, WEBP.");
+      return;
+    }
 
     const nextInvoices = files.map(file => createEmptyAchatInvoice(file));
 
@@ -5392,6 +5401,8 @@ function actionButtonStyle(background, color, border = "transparent") {
 
 // ─── ONGLET ACHAT ─────────────────────────────────────────────────────────────
 function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, removeInvoice, preAnalyseInvoices }) {
+  const folderInputRef = useRef(null);
+  const filesInputRef = useRef(null);
   const invoices = achat?.invoices || [];
   const totalHT = invoices.reduce((sum, invoice) => sum + parseNumber(invoice.montantHT), 0);
   const totalTTC = invoices.reduce((sum, invoice) => sum + parseNumber(invoice.montantTTC), 0);
@@ -5468,37 +5479,48 @@ function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, remov
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <label style={{ ...buttonStyle, background: acc.accent, color: "#111", borderColor: acc.accent }}>
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            webkitdirectory=""
+            directory=""
+            onChange={e => {
+              importFiles(e.target.files);
+              e.target.value = "";
+            }}
+            style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, opacity: 0 }}
+          />
+
+          <input
+            ref={filesInputRef}
+            type="file"
+            multiple
+            accept={ACHAT_ACCEPTED_FILES}
+            onChange={e => {
+              importFiles(e.target.files);
+              e.target.value = "";
+            }}
+            style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, opacity: 0 }}
+          />
+
+          <button
+            type="button"
+            onClick={() => folderInputRef.current?.click()}
+            style={{ ...buttonStyle, background: acc.accent, color: "#111", borderColor: acc.accent }}
+          >
             <Icon as={UploadCloud} size={14} />
             Importer un dossier
-            <input
-              type="file"
-              multiple
-              webkitdirectory=""
-              directory=""
-              accept={ACHAT_ACCEPTED_FILES}
-              onChange={e => {
-                importFiles(e.target.files);
-                e.target.value = "";
-              }}
-              style={{ display: "none" }}
-            />
-          </label>
+          </button>
 
-          <label style={buttonStyle}>
+          <button
+            type="button"
+            onClick={() => filesInputRef.current?.click()}
+            style={buttonStyle}
+          >
             <Icon as={FileText} size={14} />
             Importer des factures
-            <input
-              type="file"
-              multiple
-              accept={ACHAT_ACCEPTED_FILES}
-              onChange={e => {
-                importFiles(e.target.files);
-                e.target.value = "";
-              }}
-              style={{ display: "none" }}
-            />
-          </label>
+          </button>
 
           <button type="button" onClick={preAnalyseInvoices} style={buttonStyle}>
             <Icon as={CheckCircle} size={14} />
