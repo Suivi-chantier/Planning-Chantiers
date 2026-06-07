@@ -3446,7 +3446,16 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         }
       `}</style>
 
-      <div className="ef-wrap" style={{ padding: "24px 32px", maxWidth: 1220, margin: "0 auto" }}>
+      <div
+        className="ef-wrap"
+        style={{
+          padding: activeTab === "avancement_chantier" ? "24px 20px" : "24px 32px",
+          maxWidth: activeTab === "avancement_chantier" ? "none" : 1220,
+          width: "100%",
+          margin: "0 auto",
+          boxSizing: "border-box",
+        }}
+      >
         {/* ─── Header ─────────────────────────────────────────────────────────── */}
         <div
           style={{
@@ -3904,6 +3913,19 @@ function AvancementChantierTab({
     textAlign: "left",
   };
 
+  const calculatedCell = {
+    width: "100%",
+    minWidth: 90,
+    background: T.card,
+    border: `1px solid ${T.border}`,
+    borderRadius: RADIUS.md,
+    padding: "7px 9px",
+    fontSize: 13,
+    fontWeight: 900,
+    textAlign: "right",
+    boxSizing: "border-box",
+  };
+
   const computedRows = rows
     .map(row => {
       const hasPeriodData = Boolean(
@@ -3915,10 +3937,10 @@ function AvancementChantierTab({
       const montantHT = parseNumber(values.montantHT);
       const avancementReel = parsePercent(values.avancementReel);
       const pctFacture = parsePercent(values.pctFacture);
-      const hasPctProvisionner = values.pctProvisionner !== "" && values.pctProvisionner !== null && values.pctProvisionner !== undefined;
-      const pctProvisionner = hasPctProvisionner
-        ? parsePercent(values.pctProvisionner)
-        : avancementReel - pctFacture;
+      // Colonnes automatisées comme dans le fichier Excel :
+      // H = avancement réel - % facturé
+      // I = montant total HT × % à provisionner
+      const pctProvisionner = avancementReel - pctFacture;
       const caProvisionner = montantHT * pctProvisionner;
 
       return {
@@ -4101,8 +4123,8 @@ function AvancementChantierTab({
           </button>
         </div>
 
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", minWidth: 1580, borderCollapse: "collapse" }}>
+        <div style={{ overflowX: "auto", width: "100%" }}>
+          <table style={{ width: "100%", minWidth: 1720, borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
@@ -4213,32 +4235,28 @@ function AvancementChantierTab({
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 120 }}>
-                    <input
-                      className="ef-input"
-                      type="number"
-                      step="0.01"
-                      value={values.pctProvisionner ?? ""}
-                      onChange={e => updateValue(row.id, currentPeriodId, "pctProvisionner", e.target.value)}
-                      placeholder="0,18"
+                    <div
+                      title="Calcul automatique : avancement réel - % facturé"
                       style={{
-                        ...numberInput,
+                        ...calculatedCell,
                         color: pctProvisionner >= 0 ? acc.accent : "#ff5c5c",
-                        fontWeight: 800,
                       }}
-                    />
+                    >
+                      {fmtPct(pctProvisionner)}
+                    </div>
                   </td>
 
-                  <td
-                    style={{
-                      padding: "7px 8px",
-                      width: 140,
-                      textAlign: "right",
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color: caProvisionner >= 0 ? T.text : "#ff5c5c",
-                    }}
-                  >
-                    {fmtEur(caProvisionner)}
+                  <td style={{ padding: "7px 8px", width: 150 }}>
+                    <div
+                      title="Calcul automatique : montant total HT × % à provisionner"
+                      style={{
+                        ...calculatedCell,
+                        minWidth: 130,
+                        color: caProvisionner >= 0 ? T.text : "#ff5c5c",
+                      }}
+                    >
+                      {fmtEur(caProvisionner)}
+                    </div>
                   </td>
 
                   <td style={{ padding: "7px 8px", width: 120 }}>
@@ -4333,7 +4351,7 @@ function AvancementChantierTab({
       >
         <Icon as={Info} size={14} style={{ marginTop: 2, flexShrink: 0, color: T.textMuted }} />
         <div>
-          Le <strong style={{ color: T.text }}>% à provisionner</strong> est repris depuis le fichier Excel lorsqu'il existe, puis reste modifiable. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé comme <em>montant HT × % à provisionner</em>. Tu peux saisir les pourcentages au format <strong style={{ color: T.text }}>0,69</strong> ou <strong style={{ color: T.text }}>69</strong>.
+          Le <strong style={{ color: T.text }}>% à provisionner</strong> est maintenant automatique : <em>avancement réel - % facturé</em>, comme dans le fichier Excel. Le <strong style={{ color: T.text }}>CA HT à provisionner</strong> est calculé automatiquement : <em>montant HT × % à provisionner</em>. Tu peux modifier les données sources, les deux colonnes calculées se mettent à jour instantanément.
         </div>
       </div>
     </>
