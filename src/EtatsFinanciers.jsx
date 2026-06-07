@@ -16,6 +16,11 @@ import {
   Lock,
   Unlock,
   GripVertical,
+  UploadCloud,
+  FileText,
+  CheckCircle,
+  AlertTriangle,
+  CreditCard,
 } from "lucide-react";
 
 const KEY = "etats_financiers";
@@ -3084,6 +3089,40 @@ const AVANCEMENT_ROW_COLOR_PALETTE = [
   { value: "#E0F2FE", label: "Bleu glacier" },
 ];
 
+const ACHAT_TYPOLOGIES = [
+  { value: "materiaux", label: "Matériaux" },
+  { value: "sous_traitance", label: "Sous-traitance" },
+  { value: "outillage", label: "Outillage" },
+  { value: "location_materiel", label: "Location matériel" },
+  { value: "carburant_deplacement", label: "Carburant / déplacement" },
+  { value: "fournitures_chantier", label: "Fournitures chantier" },
+  { value: "frais_generaux", label: "Frais généraux" },
+  { value: "assurance_banque", label: "Assurance / banque" },
+  { value: "honoraires", label: "Honoraires" },
+  { value: "autre", label: "Autre" },
+];
+
+const ACHAT_CONTROLES = [
+  { value: "a_controler", label: "À contrôler" },
+  { value: "conforme", label: "Conforme" },
+  { value: "ecart", label: "Écart détecté" },
+  { value: "doublon_possible", label: "Doublon possible" },
+];
+
+const ACHAT_REGLEMENTS = [
+  { value: "a_regler", label: "À régler" },
+  { value: "regle", label: "Réglée" },
+  { value: "partiel", label: "Partiel" },
+  { value: "litige", label: "Litige" },
+];
+
+const ACHAT_ACCEPTED_FILES = ".pdf,.png,.jpg,.jpeg,.webp";
+
+const DEFAULT_ACHAT = {
+  invoices: [],
+};
+
+
 function createId(prefix = "item") {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return `${prefix}_${crypto.randomUUID()}`;
@@ -3093,6 +3132,101 @@ function createId(prefix = "item") {
 
 function emptyMonths() {
   return MOIS.reduce((acc, m) => ({ ...acc, [m.id]: { fg: "", heures: "" } }), {});
+}
+
+
+function createEmptyAchatInvoice(file = null) {
+  const draft = file ? extractAchatDraftFromFile(file) : {};
+
+  return {
+    id: createId("facture"),
+    fileName: file?.name ?? "",
+    fileSize: file?.size ?? 0,
+    fileType: file?.type ?? "",
+    importedAt: new Date().toISOString(),
+    fournisseur: draft.fournisseur ?? "",
+    typologie: draft.typologie ?? "",
+    date: draft.date ?? "",
+    numeroFacture: draft.numeroFacture ?? "",
+    montantHT: draft.montantHT ?? "0",
+    montantTTC: draft.montantTTC ?? "0",
+    controle: "a_controler",
+    reglement: "a_regler",
+    analysisStatus: file ? "importee" : "saisie_manuelle",
+    confidence: "",
+    note: "",
+  };
+}
+
+function normalizeAchat(raw) {
+  const source = Array.isArray(raw?.invoices) ? raw : DEFAULT_ACHAT;
+
+  return {
+    invoices: source.invoices.map(invoice => ({
+      id: invoice?.id || createId("facture"),
+      fileName: invoice?.fileName ?? "",
+      fileSize: invoice?.fileSize ?? 0,
+      fileType: invoice?.fileType ?? "",
+      importedAt: invoice?.importedAt ?? "",
+      fournisseur: invoice?.fournisseur ?? "",
+      typologie: invoice?.typologie ?? "",
+      date: invoice?.date ?? "",
+      numeroFacture: invoice?.numeroFacture ?? "",
+      montantHT: invoice?.montantHT ?? "0",
+      montantTTC: invoice?.montantTTC ?? "0",
+      controle: invoice?.controle ?? "a_controler",
+      reglement: invoice?.reglement ?? "a_regler",
+      analysisStatus: invoice?.analysisStatus ?? "importee",
+      confidence: invoice?.confidence ?? "",
+      note: invoice?.note ?? "",
+    })),
+  };
+}
+
+function extractAchatDraftFromFile(file) {
+  const fileName = file?.name || "";
+  const cleanName = fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const dateMatch = cleanName.match(/(20\d{2})[ .-]?(0[1-9]|1[0-2])[ .-]?([0-2]\d|3[01])/) ||
+    cleanName.match(/([0-2]\d|3[01])[ .-]?(0[1-9]|1[0-2])[ .-]?(20\d{2})/);
+
+  let date = "";
+  if (dateMatch) {
+    if (dateMatch[1]?.startsWith("20")) {
+      date = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+    } else {
+      date = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+    }
+  }
+
+  const invoiceMatch = cleanName.match(/(?:facture|fac|invoice|fa|f)[\s-]*([a-z0-9-]{3,})/i);
+  const amountMatch = cleanName.match(/(\d+[,.]\d{2})\s*(?:eur|€)?/i);
+  const supplier = cleanName
+    .replace(/facture|invoice|fac|devis/gi, "")
+    .replace(/20\d{2}[ .-]?(0[1-9]|1[0-2])[ .-]?([0-2]\d|3[01])/g, "")
+    .replace(/([0-2]\d|3[01])[ .-]?(0[1-9]|1[0-2])[ .-]?(20\d{2})/g, "")
+    .replace(/\d+[,.]\d{2}\s*(eur|€)?/gi, "")
+    .replace(/[0-9]{3,}/g, "")
+    .trim();
+
+  return {
+    fournisseur: supplier.slice(0, 60),
+    date,
+    numeroFacture: invoiceMatch?.[1] ?? "",
+    montantTTC: amountMatch ? amountMatch[1].replace(",", ".") : "0",
+    typologie: "",
+  };
+}
+
+function formatFileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n <= 0) return "";
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
+  return `${(n / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;
 }
 
 function emptyAvancementValue() {
@@ -3342,6 +3476,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   const [activeAvancementPeriodId, setActiveAvancementPeriodId] = useState(DEFAULT_AVANCEMENT_PERIODS[0].id);
   const [months, setMonths] = useState(emptyMonths());
   const [avancement, setAvancement] = useState(() => normalizeAvancement());
+  const [achat, setAchat] = useState(() => normalizeAchat());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -3372,6 +3507,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
       const nextAvancement = normalizeAvancement(data?.value?.avancement);
       setAvancement(nextAvancement);
       setActiveAvancementPeriodId(nextAvancement.periods[0]?.id || DEFAULT_AVANCEMENT_PERIODS[0].id);
+      setAchat(normalizeAchat(data?.value?.achat));
 
       setDirty(false);
     } catch (e) {
@@ -3393,7 +3529,7 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
       .upsert(
         {
           key: KEY,
-          value: { months, avancement },
+          value: { months, avancement, achat },
           updated_at: new Date().toISOString(),
         },
         { onConflict: "key" }
@@ -3657,6 +3793,75 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
     setDirty(true);
   };
 
+
+  const importAchatFiles = (fileList) => {
+    const files = Array.from(fileList || []).filter(file => file?.name);
+    if (!files.length) return;
+
+    const nextInvoices = files.map(file => createEmptyAchatInvoice(file));
+
+    setAchat(prev => ({
+      ...prev,
+      invoices: [...nextInvoices, ...prev.invoices],
+    }));
+    setDirty(true);
+  };
+
+  const addAchatInvoice = () => {
+    setAchat(prev => ({
+      ...prev,
+      invoices: [createEmptyAchatInvoice(), ...prev.invoices],
+    }));
+    setDirty(true);
+  };
+
+  const updateAchatInvoice = (invoiceId, field, raw) => {
+    setAchat(prev => ({
+      ...prev,
+      invoices: prev.invoices.map(invoice => (
+        invoice.id === invoiceId
+          ? { ...invoice, [field]: raw }
+          : invoice
+      )),
+    }));
+    setDirty(true);
+  };
+
+  const removeAchatInvoice = (invoiceId) => {
+    if (!window.confirm("Supprimer cette facture de l'onglet Achat ?")) return;
+
+    setAchat(prev => ({
+      ...prev,
+      invoices: prev.invoices.filter(invoice => invoice.id !== invoiceId),
+    }));
+    setDirty(true);
+  };
+
+  const preAnalyseAchatInvoices = () => {
+    // Pré-analyse front : exploite uniquement le nom des fichiers importés.
+    // Pour lire le contenu réel des PDF/images, il faudra brancher ici une Edge Function
+    // avec OCR + IA, puis réinjecter le JSON structuré dans les mêmes champs.
+    setAchat(prev => ({
+      ...prev,
+      invoices: prev.invoices.map(invoice => {
+        if (!invoice.fileName) return invoice;
+        const draft = extractAchatDraftFromFile({ name: invoice.fileName });
+
+        return {
+          ...invoice,
+          fournisseur: invoice.fournisseur || draft.fournisseur || "",
+          date: invoice.date || draft.date || "",
+          numeroFacture: invoice.numeroFacture || draft.numeroFacture || "",
+          montantTTC: parseNumber(invoice.montantTTC) > 0 ? invoice.montantTTC : draft.montantTTC || "0",
+          typologie: invoice.typologie || draft.typologie || "",
+          analysisStatus: "pre_analyse_nom_fichier",
+          confidence: invoice.confidence || "35",
+        };
+      }),
+    }));
+    setDirty(true);
+  };
+
   // ── Avertir avant de quitter avec des modifs non sauvegardées ──────────────
   useEffect(() => {
     if (!dirty) return;
@@ -3824,8 +4029,8 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
       <div
         className="ef-wrap"
         style={{
-          padding: activeTab === "avancement_chantier" ? "24px 20px" : "24px 32px",
-          maxWidth: activeTab === "avancement_chantier" ? "none" : 1220,
+          padding: activeTab === "avancement_chantier" || activeTab === "achat" ? "24px 20px" : "24px 32px",
+          maxWidth: activeTab === "avancement_chantier" || activeTab === "achat" ? "none" : 1220,
           width: "100%",
           margin: "0 auto",
           boxSizing: "border-box",
@@ -4002,11 +4207,15 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
         )}
 
         {activeTab === "achat" && (
-          <PlaceholderTab
+          <AchatTab
             T={T}
-            icon={Euro}
-            title="Achat"
-            description="Cet onglet servira à suivre les achats liés aux chantiers : fournisseurs, matériaux, montants engagés, factures reçues, factures payées, reste à payer et écarts avec les budgets prévus."
+            acc={acc}
+            achat={achat}
+            importFiles={importAchatFiles}
+            addInvoice={addAchatInvoice}
+            updateInvoice={updateAchatInvoice}
+            removeInvoice={removeAchatInvoice}
+            preAnalyseInvoices={preAnalyseAchatInvoices}
           />
         )}
 
@@ -5178,6 +5387,387 @@ function actionButtonStyle(background, color, border = "transparent") {
     fontWeight: 800,
     cursor: "pointer",
   };
+}
+
+
+// ─── ONGLET ACHAT ─────────────────────────────────────────────────────────────
+function AchatTab({ T, acc, achat, importFiles, addInvoice, updateInvoice, removeInvoice, preAnalyseInvoices }) {
+  const invoices = achat?.invoices || [];
+  const totalHT = invoices.reduce((sum, invoice) => sum + parseNumber(invoice.montantHT), 0);
+  const totalTTC = invoices.reduce((sum, invoice) => sum + parseNumber(invoice.montantTTC), 0);
+  const nbAControler = invoices.filter(invoice => invoice.controle === "a_controler").length;
+  const nbAPayer = invoices.filter(invoice => invoice.reglement === "a_regler" || invoice.reglement === "partiel").length;
+
+  const inputStyle = {
+    width: "100%",
+    background: T.card,
+    border: `1px solid ${T.border}`,
+    borderRadius: RADIUS.sm,
+    padding: "7px 8px",
+    color: T.text,
+    fontFamily: "inherit",
+    fontSize: 12.5,
+    outline: "none",
+    boxSizing: "border-box",
+  };
+
+  const selectStyle = {
+    ...inputStyle,
+    cursor: "pointer",
+  };
+
+  const buttonStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: "9px 12px",
+    borderRadius: RADIUS.md,
+    border: `1px solid ${T.border}`,
+    background: T.card,
+    color: T.text,
+    fontFamily: "inherit",
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
+          gap: 14,
+        }}
+      >
+        <KpiCard T={T} icon={FileText} iconColor="#5b9cf6" label="Factures importées" value={String(invoices.length)} />
+        <KpiCard T={T} icon={Euro} iconColor="#ff9a4d" label="Total HT" value={fmtEur(totalHT)} />
+        <KpiCard T={T} icon={CreditCard} iconColor="#a78bfa" label="Total TTC" value={fmtEur(totalTTC)} />
+        <KpiCard T={T} icon={AlertTriangle} iconColor="#f5a623" label="À contrôler / payer" value={`${nbAControler} / ${nbAPayer}`} highlight />
+      </div>
+
+      <div
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg,
+          padding: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 14,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: T.text }}>Import et analyse des factures</div>
+          <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.5, maxWidth: 850 }}>
+            L’onglet est prêt pour classer les factures par fournisseur, typologie de charge, date, numéro, montants HT/TTC, contrôle et règlement. La lecture réelle du contenu des PDF/images devra être branchée ensuite à une fonction OCR/IA.
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <label style={{ ...buttonStyle, background: acc.accent, color: "#111", borderColor: acc.accent }}>
+            <Icon as={UploadCloud} size={14} />
+            Importer un dossier
+            <input
+              type="file"
+              multiple
+              webkitdirectory=""
+              directory=""
+              accept={ACHAT_ACCEPTED_FILES}
+              onChange={e => {
+                importFiles(e.target.files);
+                e.target.value = "";
+              }}
+              style={{ display: "none" }}
+            />
+          </label>
+
+          <label style={buttonStyle}>
+            <Icon as={FileText} size={14} />
+            Importer des factures
+            <input
+              type="file"
+              multiple
+              accept={ACHAT_ACCEPTED_FILES}
+              onChange={e => {
+                importFiles(e.target.files);
+                e.target.value = "";
+              }}
+              style={{ display: "none" }}
+            />
+          </label>
+
+          <button type="button" onClick={preAnalyseInvoices} style={buttonStyle}>
+            <Icon as={CheckCircle} size={14} />
+            Pré-analyser
+          </button>
+
+          <button type="button" onClick={addInvoice} style={buttonStyle}>
+            <Icon as={Plus} size={14} />
+            Ajouter une ligne
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 10,
+          padding: "12px 14px",
+          borderRadius: RADIUS.md,
+          background: `${acc.accent}10`,
+          border: `1px solid ${acc.accent}33`,
+          color: T.textSub,
+          fontSize: 12.5,
+          lineHeight: 1.55,
+        }}
+      >
+        <Icon as={Info} size={14} style={{ marginTop: 2, color: acc.accent, flexShrink: 0 }} />
+        <div>
+          <strong style={{ color: T.text }}>Important :</strong> le navigateur peut créer les lignes depuis un dossier ou plusieurs fichiers, mais il ne lit pas encore le contenu des factures. Pour obtenir une vraie analyse automatique, il faudra ajouter une fonction serveur qui lit les PDF/images, extrait les champs, puis renvoie un JSON fiable avec un score de confiance.
+        </div>
+      </div>
+
+      <div
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderRadius: RADIUS.lg,
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ overflowX: "auto", maxHeight: "68vh" }}>
+          <table style={{ width: "100%", minWidth: 1550, borderCollapse: "separate", borderSpacing: 0 }}>
+            <thead>
+              <tr>
+                <AchatTh T={T}>Fichier</AchatTh>
+                <AchatTh T={T}>Fournisseur</AchatTh>
+                <AchatTh T={T}>Typologie de charge</AchatTh>
+                <AchatTh T={T}>Date</AchatTh>
+                <AchatTh T={T}>N° facture</AchatTh>
+                <AchatTh T={T} align="right">€ HT</AchatTh>
+                <AchatTh T={T} align="right">€ TTC</AchatTh>
+                <AchatTh T={T}>Contrôle</AchatTh>
+                <AchatTh T={T}>Règlement</AchatTh>
+                <AchatTh T={T}>Analyse</AchatTh>
+                <AchatTh T={T}>Actions</AchatTh>
+              </tr>
+            </thead>
+
+            <tbody>
+              {invoices.length === 0 && (
+                <tr>
+                  <td colSpan={11} style={{ padding: 28, textAlign: "center", color: T.textSub, fontSize: 13 }}>
+                    Aucune facture importée pour le moment. Utilise “Importer un dossier” ou “Importer des factures”.
+                  </td>
+                </tr>
+              )}
+
+              {invoices.map((invoice, index) => (
+                <tr key={invoice.id} style={{ background: index % 2 ? T.card : T.surface }}>
+                  <AchatTd T={T} width={240}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }} title={invoice.fileName}>
+                        {invoice.fileName || "Saisie manuelle"}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textMuted }}>
+                        {formatFileSize(invoice.fileSize)}
+                      </div>
+                    </div>
+                  </AchatTd>
+
+                  <AchatTd T={T} width={190}>
+                    <input
+                      value={invoice.fournisseur ?? ""}
+                      onChange={e => updateInvoice(invoice.id, "fournisseur", e.target.value)}
+                      placeholder="Fournisseur"
+                      style={inputStyle}
+                    />
+                  </AchatTd>
+
+                  <AchatTd T={T} width={190}>
+                    <select
+                      value={invoice.typologie ?? ""}
+                      onChange={e => updateInvoice(invoice.id, "typologie", e.target.value)}
+                      style={selectStyle}
+                    >
+                      <option value="">À classifier</option>
+                      {ACHAT_TYPOLOGIES.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </AchatTd>
+
+                  <AchatTd T={T} width={140}>
+                    <input
+                      type="date"
+                      value={invoice.date ?? ""}
+                      onChange={e => updateInvoice(invoice.id, "date", e.target.value)}
+                      style={inputStyle}
+                    />
+                  </AchatTd>
+
+                  <AchatTd T={T} width={160}>
+                    <input
+                      value={invoice.numeroFacture ?? ""}
+                      onChange={e => updateInvoice(invoice.id, "numeroFacture", e.target.value)}
+                      placeholder="N° facture"
+                      style={inputStyle}
+                    />
+                  </AchatTd>
+
+                  <AchatTd T={T} width={130} align="right">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={invoice.montantHT ?? "0"}
+                      onChange={e => updateInvoice(invoice.id, "montantHT", e.target.value)}
+                      style={{ ...inputStyle, textAlign: "right" }}
+                    />
+                  </AchatTd>
+
+                  <AchatTd T={T} width={130} align="right">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={invoice.montantTTC ?? "0"}
+                      onChange={e => updateInvoice(invoice.id, "montantTTC", e.target.value)}
+                      style={{ ...inputStyle, textAlign: "right" }}
+                    />
+                  </AchatTd>
+
+                  <AchatTd T={T} width={170}>
+                    <select
+                      value={invoice.controle ?? "a_controler"}
+                      onChange={e => updateInvoice(invoice.id, "controle", e.target.value)}
+                      style={selectStyle}
+                    >
+                      {ACHAT_CONTROLES.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </AchatTd>
+
+                  <AchatTd T={T} width={160}>
+                    <select
+                      value={invoice.reglement ?? "a_regler"}
+                      onChange={e => updateInvoice(invoice.id, "reglement", e.target.value)}
+                      style={selectStyle}
+                    >
+                      {ACHAT_REGLEMENTS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </AchatTd>
+
+                  <AchatTd T={T} width={170}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 11.5, color: T.textSub }}>
+                        {invoice.analysisStatus === "pre_analyse_nom_fichier"
+                          ? "Pré-analyse nom fichier"
+                          : invoice.analysisStatus === "saisie_manuelle"
+                            ? "Saisie manuelle"
+                            : "Importée"}
+                      </span>
+                      {invoice.confidence && (
+                        <span style={{ fontSize: 11, color: T.textMuted }}>
+                          Confiance : {invoice.confidence} %
+                        </span>
+                      )}
+                    </div>
+                  </AchatTd>
+
+                  <AchatTd T={T} width={90} align="center">
+                    <button
+                      type="button"
+                      onClick={() => removeInvoice(invoice.id)}
+                      title="Supprimer la facture"
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 8,
+                        border: `1px solid ${T.border}`,
+                        background: T.card,
+                        color: "#ef4444",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Icon as={Trash2} size={14} />
+                    </button>
+                  </AchatTd>
+                </tr>
+              ))}
+            </tbody>
+
+            {invoices.length > 0 && (
+              <tfoot>
+                <tr style={{ background: T.card }}>
+                  <td colSpan={5} style={{ padding: "12px 10px", fontSize: 12, fontWeight: 900, color: T.textSub, textTransform: "uppercase", letterSpacing: 1 }}>
+                    Total achats
+                  </td>
+                  <td style={{ padding: "12px 10px", textAlign: "right", fontSize: 13, fontWeight: 900, color: T.text }}>
+                    {fmtEur(totalHT)}
+                  </td>
+                  <td style={{ padding: "12px 10px", textAlign: "right", fontSize: 13, fontWeight: 900, color: T.text }}>
+                    {fmtEur(totalTTC)}
+                  </td>
+                  <td colSpan={4}></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AchatTh({ T, children, align = "left" }) {
+  return (
+    <th
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 2,
+        padding: "11px 10px",
+        background: T.card,
+        borderBottom: `1px solid ${T.border}`,
+        borderRight: `1px solid ${T.border}`,
+        textAlign: align,
+        fontSize: 11,
+        fontWeight: 900,
+        letterSpacing: 1.2,
+        textTransform: "uppercase",
+        color: T.textSub,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </th>
+  );
+}
+
+function AchatTd({ T, children, width, align = "left" }) {
+  return (
+    <td
+      style={{
+        width,
+        padding: "8px 10px",
+        borderBottom: `1px solid ${T.border}`,
+        borderRight: `1px solid ${T.border}`,
+        textAlign: align,
+        verticalAlign: "middle",
+      }}
+    >
+      {children}
+    </td>
+  );
 }
 
 // ─── ONGLET EN ATTENTE DE STRUCTURATION ───────────────────────────────────────
