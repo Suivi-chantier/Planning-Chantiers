@@ -3604,6 +3604,30 @@ function DashboardFinancier({ profil, T=THEMES_INV.dark }) {
   }, []);
 
   useEffect(() => { charger(); }, [charger]);
+  useEffect(() => {
+    let alive = true;
+    if (!isConfigured) {
+      setGoogleReady(false);
+      setGoogleLoading(false);
+      return () => { alive = false; };
+    }
+    setGoogleLoading(true);
+    ensureGoogleDriveLibrariesLoaded()
+      .then(() => {
+        if (!alive) return;
+        setGoogleReady(true);
+        setGoogleLoading(false);
+        setErr(prev => prev && prev.includes("Google Drive") ? "" : prev);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setGoogleReady(false);
+        setGoogleLoading(false);
+        setErr(e?.message || "Impossible de préparer Google Drive");
+      });
+    return () => { alive = false; };
+  }, [isConfigured]);
+
 
   const maxPerf = 100;
   const maxBusiness = Math.max(1, stats?.caPipelineBrut || 0, stats?.montantOffresCours || 0, stats?.budgetClientsActifs || 0);
@@ -4531,6 +4555,8 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
+  const [googleReady, setGoogleReady] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [err, setErr] = useState("");
   const tokenRef = useRef("");
   const tokenClientRef = useRef(null);
@@ -4579,49 +4605,61 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     await charger();
   };
 
-  const ouvrirPicker = async () => {
+  const ouvrirPicker = () => {
     if (!isConfigured) {
       setErr("Configuration Google Drive incomplète : ajoutez VITE_GOOGLE_DRIVE_API_KEY et VITE_GOOGLE_DRIVE_CLIENT_ID.");
       return;
     }
+    if (!googleReady) {
+      setErr("Google Drive est encore en préparation. Patientez quelques secondes puis recliquez sur “Lier depuis Drive”.");
+      return;
+    }
     setWorking(true);
     setErr("");
+    let authTimer = null;
     try {
-      await ensureGoogleDriveLibrariesLoaded();
-      if (!tokenClientRef.current) {
-        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-          client_id: cfg.clientId,
-          scope: GOOGLE_DRIVE_SCOPE,
-          callback: (tokenResponse) => {
-            if (tokenResponse?.error) {
-              setErr(tokenResponse.error_description || tokenResponse.error);
-              setWorking(false);
-              return;
-            }
-            tokenRef.current = tokenResponse.access_token;
-            const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
-              .setIncludeFolders(true)
-              .setSelectFolderEnabled(false);
-            const picker = new window.google.picker.PickerBuilder()
-              .addView(view)
-              .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
-              .setOAuthToken(tokenRef.current)
-              .setDeveloperKey(cfg.apiKey)
-              .setCallback(async (data) => {
-                if (data.action === window.google.picker.Action.PICKED) {
-                  await enregistrerDriveDocs(data.docs || []);
-                }
-                if (data.action === window.google.picker.Action.PICKED || data.action === window.google.picker.Action.CANCEL) {
-                  setWorking(false);
-                }
-              });
-            if (cfg.appId) picker.setAppId(cfg.appId);
-            picker.build().setVisible(true);
-          },
-        });
-      }
+      authTimer = window.setTimeout(() => {
+        setWorking(false);
+        setErr("La fenêtre Google ne s'est pas ouverte ou l'autorisation n'a pas abouti. Vérifiez que les pop-ups sont autorisés pour planning-chantiers.vercel.app, puis réessayez.");
+      }, 18000);
+
+      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: cfg.clientId,
+        scope: GOOGLE_DRIVE_SCOPE,
+        callback: (tokenResponse) => {
+          if (authTimer) window.clearTimeout(authTimer);
+          if (tokenResponse?.error) {
+            setErr(tokenResponse.error_description || tokenResponse.error);
+            setWorking(false);
+            return;
+          }
+          tokenRef.current = tokenResponse.access_token;
+          const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(false);
+          const picker = new window.google.picker.PickerBuilder()
+            .addView(view)
+            .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+            .setOAuthToken(tokenRef.current)
+            .setDeveloperKey(cfg.apiKey)
+            .setCallback(async (data) => {
+              if (data.action === window.google.picker.Action.PICKED) {
+                await enregistrerDriveDocs(data.docs || []);
+              }
+              if (data.action === window.google.picker.Action.PICKED || data.action === window.google.picker.Action.CANCEL) {
+                setWorking(false);
+              }
+            });
+          if (cfg.appId) picker.setAppId(cfg.appId);
+          picker.build().setVisible(true);
+        },
+      });
+
+      // Important : cet appel doit être déclenché directement par le clic utilisateur.
+      // On précharge donc les bibliothèques Google au montage du composant, au lieu de les charger ici.
       tokenClientRef.current.requestAccessToken({ prompt: tokenRef.current ? "" : "consent" });
     } catch (e) {
+      if (authTimer) window.clearTimeout(authTimer);
       setErr(e?.message || "Impossible d'ouvrir Google Drive");
       setWorking(false);
     }
@@ -4664,7 +4702,9 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
           <button className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={ajouterLienManuel}>Coller un lien</button>
-          <button className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirPicker} disabled={working}>{working ? "Connexion…" : "Lier depuis Drive"}</button>
+          <button className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirPicker} disabled={working || googleLoading || (isConfigured && !googleReady)}>
+            {working ? "Connexion…" : googleLoading ? "Préparation…" : "Lier depuis Drive"}
+          </button>
         </div>
       </div>
 
