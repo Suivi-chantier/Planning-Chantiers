@@ -4608,6 +4608,11 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   const [status, setStatus] = useState("");
   const [folderContents, setFolderContents] = useState({});
   const [folderLoadingId, setFolderLoadingId] = useState("");
+  const [driveExplorerOpen, setDriveExplorerOpen] = useState(false);
+  const [driveExplorerLoading, setDriveExplorerLoading] = useState(false);
+  const [driveExplorerItems, setDriveExplorerItems] = useState([]);
+  const [driveExplorerFolderId, setDriveExplorerFolderId] = useState("root");
+  const [driveExplorerPath, setDriveExplorerPath] = useState([{ id:"root", name:"Mon Drive" }]);
   const tokenRef = useRef("");
   const tokenClientRef = useRef(null);
 
@@ -4730,6 +4735,90 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     const token = tokenRef.current || await demanderTokenGoogle();
     tokenRef.current = token;
     return token;
+  };
+
+  const fetchDriveFolderItems = async (folderId = "root") => {
+    const token = await obtenirToken();
+    const safeFolderId = String(folderId || "root").replace(/'/g, "\\'");
+    const params = new URLSearchParams({
+      q: `'${safeFolderId}' in parents and trashed = false`,
+      pageSize: "100",
+      orderBy: "folder,name_natural",
+      fields: "files(id,name,mimeType,webViewLink,iconLink,size,modifiedTime)",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true",
+    });
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || `Erreur Drive ${res.status}`);
+    return json.files || [];
+  };
+
+  const openDriveExplorerAt = async (folderId = "root", path = [{ id:"root", name:"Mon Drive" }]) => {
+    if (!checkReadyOrExplain()) return;
+    setDriveExplorerOpen(true);
+    setDriveExplorerLoading(true);
+    setErr("");
+    setStatus("Connexion à Google Drive…");
+    try {
+      const items = await fetchDriveFolderItems(folderId);
+      setDriveExplorerFolderId(folderId);
+      setDriveExplorerPath(path);
+      setDriveExplorerItems(items);
+      setStatus(items.length ? "" : "Dossier Drive ouvert : aucun fichier visible dans ce dossier.");
+    } catch (e) {
+      setErr(e?.message || "Impossible de lire Google Drive");
+      setStatus("");
+    } finally {
+      setDriveExplorerLoading(false);
+    }
+  };
+
+  const ouvrirExplorateurDrive = async (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    await openDriveExplorerAt("root", [{ id:"root", name:"Mon Drive" }]);
+  };
+
+  const ouvrirDossierExplorateur = async (item) => {
+    if (!item?.id) return;
+    await openDriveExplorerAt(item.id, [...driveExplorerPath, { id:item.id, name:item.name || "Dossier" }]);
+  };
+
+  const allerBreadcrumbDrive = async (index) => {
+    const path = driveExplorerPath.slice(0, index + 1);
+    const target = path[path.length - 1] || { id:"root", name:"Mon Drive" };
+    await openDriveExplorerAt(target.id, path);
+  };
+
+  const lierDossierExplorateur = async () => {
+    const current = driveExplorerPath[driveExplorerPath.length - 1] || { id:"root", name:"Mon Drive" };
+    if (!current?.id) return;
+    setWorking(true);
+    setStatus("Liaison du dossier Drive…");
+    try {
+      await enregistrerDriveDocs([{
+        id: current.id,
+        name: current.name || "Dossier Google Drive",
+        mimeType: GOOGLE_DRIVE_FOLDER_MIME,
+        webViewLink: getDriveUrlForDoc(current.id, GOOGLE_DRIVE_FOLDER_MIME),
+      }], "google_drive_explorer_folder");
+      setStatus("Dossier Drive lié. Vous pouvez maintenant l’ouvrir depuis la fiche et lier ses fichiers.");
+      window.setTimeout(() => setStatus(""), 3500);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const lierTousLesFichiersExplorateur = async () => {
+    const files = (driveExplorerItems || []).filter(f => !isGoogleDriveFolderMime(f.mimeType));
+    if (!files.length) {
+      setErr("Aucun fichier à lier dans ce dossier. Ouvrez un autre dossier Drive.");
+      return;
+    }
+    await lierFichiersDuDossier(files);
   };
 
   const checkReadyOrExplain = () => {
@@ -4981,11 +5070,11 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
           <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={ajouterLienManuel}>Coller un lien</button>
-          <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={choisirDossierDrive} disabled={working || googleLoading || (isConfigured && !googleReady)}>
-            {working ? "Connexion…" : googleLoading ? "Préparation…" : "Choisir dossier Drive"}
+          <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirExplorateurDrive} disabled={working || googleLoading || driveExplorerLoading || (isConfigured && !googleReady)}>
+            {driveExplorerLoading ? "Lecture Drive…" : working ? "Connexion…" : googleLoading ? "Préparation…" : "Explorer Google Drive"}
           </button>
-          <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirPicker} disabled={working || googleLoading || (isConfigured && !googleReady)}>
-            {working ? "Connexion…" : googleLoading ? "Préparation…" : "Lier fichier Drive"}
+          <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={choisirDossierDrive} disabled={working || googleLoading || (isConfigured && !googleReady)}>
+            Choisir dossier via Picker
           </button>
         </div>
       </div>
@@ -4997,6 +5086,61 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
       )}
       {status && <div style={{ fontSize:12, color:T.accent || "#2563eb", background:T.accentBg || "rgba(37,99,235,.08)", border:`1px solid ${T.accentBorder || "rgba(37,99,235,.22)"}`, borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>ℹ {status}</div>}
       {err && <div style={{ fontSize:12, color:"#e05c5c", background:"rgba(224,92,92,.08)", border:"1px solid rgba(224,92,92,.2)", borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>⚠ {err}</div>}
+
+      {driveExplorerOpen && (
+        <div style={{ border:`1px solid ${T.border}`, background:T.card, borderRadius:RADIUS.lg, padding:10, marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:8 }}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ color:T.text, fontSize:12, fontWeight:900 }}>Explorateur Google Drive</div>
+              <div style={{ display:"flex", alignItems:"center", gap:4, flexWrap:"wrap", marginTop:4 }}>
+                {driveExplorerPath.map((p, idx) => (
+                  <React.Fragment key={`${p.id}-${idx}`}>
+                    {idx > 0 && <span style={{ color:T.textMuted, fontSize:11 }}>›</span>}
+                    <button type="button" onClick={() => allerBreadcrumbDrive(idx)} style={{ border:"none", background:"transparent", padding:0, color:idx === driveExplorerPath.length - 1 ? T.text : T.accent, fontSize:11, fontWeight:800, cursor:"pointer" }}>
+                      {p.name}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"flex-end" }}>
+              <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={() => openDriveExplorerAt(driveExplorerFolderId, driveExplorerPath)} disabled={driveExplorerLoading}>Actualiser</button>
+              <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={lierDossierExplorateur} disabled={working || driveExplorerFolderId === "root"}>Lier ce dossier</button>
+              <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={lierTousLesFichiersExplorateur} disabled={working || driveExplorerLoading}>Lier tous les fichiers</button>
+              <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={() => setDriveExplorerOpen(false)}>Masquer</button>
+            </div>
+          </div>
+          {driveExplorerLoading ? (
+            <div style={{ color:T.textSub, fontSize:12, padding:"10px 0" }}>Lecture du dossier Google Drive…</div>
+          ) : driveExplorerItems.length === 0 ? (
+            <div style={{ color:T.textMuted, fontSize:12, padding:"10px 0", fontStyle:"italic" }}>Aucun fichier ou dossier visible ici.</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:360, overflowY:"auto", paddingRight:4 }}>
+              {driveExplorerItems.map((item, idx) => {
+                const isFolder = isGoogleDriveFolderMime(item.mimeType);
+                const alreadyLinked = linkedIds.has(item.id);
+                return (
+                  <div key={`${item.id || idx}-explorer`} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 9px", borderRadius:RADIUS.md, background:T.input, border:`1px solid ${T.border}` }}>
+                    {item.iconLink ? <img src={item.iconLink} alt="" style={{ width:16, height:16 }} /> : <span>{isFolder ? "📁" : getFileIcon(item.name)}</span>}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ color:T.text, fontSize:12, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
+                      <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? "Dossier" : (item.mimeType || "Fichier")}{item.size ? ` · ${fmtSize(Number(item.size))}` : ""}</div>
+                    </div>
+                    {isFolder ? (
+                      <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => ouvrirDossierExplorateur(item)}>Ouvrir</button>
+                    ) : (
+                      <>
+                        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(item.webViewLink || getDriveUrlForDoc(item.id, item.mimeType), "_blank")}>Voir</button>
+                        <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked} onClick={() => enregistrerDriveDocs([item], "google_drive_explorer_file")}>{alreadyLinked ? "Déjà lié" : "Lier"}</button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ color:T.textSub, fontSize:13, padding:"8px 0" }}>Chargement des liens Drive…</div>
