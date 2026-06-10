@@ -5667,14 +5667,17 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               </div>
             </div>
           )}
-          {/* Documents */}
-          <DocumentsSection folder={`clients/${id}`} T={T} />
         </div>
 
-        {/* Notes */}
-        <div className="inv-card">
-          <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique des notes ({notes.length})</span></div>
-          <div className="inv-card-bd">
+        {/* Colonne droite : Documents puis Notes */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          {/* Documents */}
+          <DocumentsSection folder={`clients/${id}`} T={T} />
+
+          {/* Notes */}
+          <div className="inv-card">
+            <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique des notes ({notes.length})</span></div>
+            <div className="inv-card-bd">
             {/* Ajouter une note */}
             <div style={{ marginBottom:16, padding:"12px 14px", background:"#f8f9fb", borderRadius:8, border:"1px solid #eef0f5" }}>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
@@ -5709,6 +5712,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       {showEdit && <FormulaireClient client={client} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
