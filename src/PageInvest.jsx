@@ -4,7 +4,7 @@ import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranc
 import { Icon } from "./ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "./access";
 import { OngletAcces } from "./Admin";
-import {
+import { 
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
   X, Check, Phone, Calendar, MessageSquare, FileText, Mail, Home,
