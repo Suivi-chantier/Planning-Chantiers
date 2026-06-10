@@ -5131,9 +5131,6 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
           <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirExplorateurDrive} disabled={working || googleLoading || driveExplorerLoading || (isConfigured && !googleReady)}>
             {driveExplorerLoading ? "Lecture Drive…" : working ? "Connexion…" : googleLoading ? "Préparation…" : "Explorer Google Drive"}
           </button>
-          <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={choisirDossierDrive} disabled={working || googleLoading || (isConfigured && !googleReady)}>
-            Choisir dossier via Picker
-          </button>
         </div>
       </div>
 
