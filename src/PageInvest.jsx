@@ -4561,12 +4561,26 @@ async function ensureGoogleDriveLibrariesLoaded() {
   return GOOGLE_DRIVE_LIBRARIES_PROMISE;
 }
 
+const GOOGLE_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+
+function isGoogleDriveFolderMime(mimeType) {
+  return String(mimeType || "").toLowerCase() === GOOGLE_DRIVE_FOLDER_MIME;
+}
+
+function getDriveUrlForDoc(id, mimeType, fallbackUrl = "") {
+  if (fallbackUrl) return fallbackUrl;
+  if (!id || String(id).startsWith("manual_")) return "";
+  return isGoogleDriveFolderMime(mimeType)
+    ? `https://drive.google.com/drive/folders/${id}`
+    : `https://drive.google.com/open?id=${id}`;
+}
+
 function normalizeDriveDoc(doc) {
-  const id = doc?.id || doc?.[window.google?.picker?.Document?.ID] || `manual_${Date.now()}`;
-  const name = doc?.name || doc?.[window.google?.picker?.Document?.NAME] || "Document Google Drive";
-  const mimeType = doc?.mimeType || doc?.[window.google?.picker?.Document?.MIME_TYPE] || "";
-  const url = doc?.url || doc?.[window.google?.picker?.Document?.URL] || (id && !String(id).startsWith("manual_") ? `https://drive.google.com/open?id=${id}` : "");
-  const iconUrl = doc?.iconUrl || doc?.[window.google?.picker?.Document?.ICON_URL] || "";
+  const id = doc?.id || doc?.fileId || doc?.[window.google?.picker?.Document?.ID] || `manual_${Date.now()}`;
+  const name = doc?.name || doc?.title || doc?.[window.google?.picker?.Document?.NAME] || "Document Google Drive";
+  const mimeType = doc?.mimeType || doc?.mime_type || doc?.[window.google?.picker?.Document?.MIME_TYPE] || "";
+  const url = getDriveUrlForDoc(id, mimeType, doc?.url || doc?.webViewLink || doc?.[window.google?.picker?.Document?.URL] || "");
+  const iconUrl = doc?.iconUrl || doc?.iconLink || doc?.[window.google?.picker?.Document?.ICON_URL] || "";
   const sizeBytes = Number(doc?.sizeBytes || doc?.size || 0) || null;
   return { id, name, mimeType, url, iconUrl, sizeBytes };
 }
@@ -4592,6 +4606,8 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   const [googleLoading, setGoogleLoading] = useState(false);
   const [err, setErr] = useState("");
   const [status, setStatus] = useState("");
+  const [folderContents, setFolderContents] = useState({});
+  const [folderLoadingId, setFolderLoadingId] = useState("");
   const tokenRef = useRef("");
   const tokenClientRef = useRef(null);
 
@@ -4646,7 +4662,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
 
   useEffect(() => { charger(); }, [charger]);
 
-  const enregistrerDriveDocs = async (docs) => {
+  const enregistrerDriveDocs = async (docs, source = "google_drive") => {
     const cleanDocs = (docs || []).map(normalizeDriveDoc).filter(d => d.id && d.name);
     if (!cleanDocs.length) return;
     const rows = cleanDocs.map(d => ({
@@ -4654,60 +4670,17 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
       file_id: d.id,
       name: d.name,
       mime_type: d.mimeType || null,
-      url: d.url || `https://drive.google.com/open?id=${d.id}`,
+      url: d.url || getDriveUrlForDoc(d.id, d.mimeType),
       icon_url: d.iconUrl || null,
       size_bytes: d.sizeBytes || null,
       created_by: profil?.email || profil?.nom || null,
-      metadata: { source:"google_picker" },
+      metadata: { source, kind: isGoogleDriveFolderMime(d.mimeType) ? "folder" : "file" },
     }));
     const { error } = await supabase
       .from(GOOGLE_DRIVE_LINKS_TABLE)
       .upsert(rows, { onConflict:"folder,file_id" });
     if (error) { setErr(error.message); return; }
     await charger();
-  };
-
-  const ouvrirPickerAvecToken = (accessToken) => {
-    if (!window.google?.picker) throw new Error("Google Picker n'est pas disponible.");
-    setStatus("Ouverture de Google Drive…");
-
-    const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
-      .setIncludeFolders(true)
-      .setSelectFolderEnabled(false);
-
-    const builder = new window.google.picker.PickerBuilder()
-      .addView(view)
-      .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
-      .setOAuthToken(accessToken)
-      .setDeveloperKey(cfg.apiKey)
-      .setOrigin(window.location.origin)
-      .setCallback(async (data) => {
-        const action = data?.[window.google.picker.Response?.ACTION] || data?.action;
-        const docs = data?.[window.google.picker.Response?.DOCUMENTS] || data?.docs || [];
-
-        if (action === window.google.picker.Action.PICKED || action === "picked") {
-          setWorking(true);
-          setStatus("Enregistrement des liens Drive…");
-          try {
-            await enregistrerDriveDocs(docs);
-            setStatus("");
-          } finally {
-            setWorking(false);
-          }
-          return;
-        }
-
-        if (action === window.google.picker.Action.CANCEL || action === "cancel") {
-          setStatus("");
-          setWorking(false);
-        }
-      });
-
-    if (cfg.appId) builder.setAppId(cfg.appId);
-    const picker = builder.build();
-    picker.setVisible(true);
-    setWorking(false);
-    window.setTimeout(() => setStatus(prev => prev === "Ouverture de Google Drive…" ? "" : prev), 2500);
   };
 
   const demanderTokenGoogle = () => new Promise((resolve, reject) => {
@@ -4750,35 +4723,131 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
       },
     });
 
-    // Important : doit être appelé directement après le clic utilisateur.
     tokenClientRef.current.requestAccessToken({ prompt: tokenRef.current ? "" : "consent" });
   });
+
+  const obtenirToken = async () => {
+    const token = tokenRef.current || await demanderTokenGoogle();
+    tokenRef.current = token;
+    return token;
+  };
+
+  const checkReadyOrExplain = () => {
+    if (!isConfigured) {
+      setErr("Configuration Google Drive incomplète : ajoutez VITE_GOOGLE_DRIVE_API_KEY et VITE_GOOGLE_DRIVE_CLIENT_ID.");
+      return false;
+    }
+    if (!googleReady) {
+      setErr("Google Drive est encore en préparation. Attendez 2 secondes puis réessayez.");
+      return false;
+    }
+    if (!window.google?.accounts?.oauth2 || !window.google?.picker) {
+      setErr("Les librairies Google Drive ne sont pas prêtes. Rechargez la page puis réessayez.");
+      return false;
+    }
+    return true;
+  };
+
+  const ouvrirPickerFichiersAvecToken = (accessToken) => {
+    if (!window.google?.picker) throw new Error("Google Picker n'est pas disponible.");
+    setStatus("Ouverture du sélecteur de fichiers Google Drive…");
+
+    const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false);
+
+    const builder = new window.google.picker.PickerBuilder()
+      .addView(view)
+      .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(cfg.apiKey)
+      .setOrigin(window.location.origin)
+      .setCallback(async (data) => {
+        const action = data?.[window.google.picker.Response?.ACTION] || data?.action;
+        const docs = data?.[window.google.picker.Response?.DOCUMENTS] || data?.docs || [];
+
+        if (action === window.google.picker.Action.PICKED || action === "picked") {
+          setWorking(true);
+          setStatus("Enregistrement des liens Drive…");
+          try {
+            await enregistrerDriveDocs(docs, "google_picker_files");
+            setStatus("");
+          } finally {
+            setWorking(false);
+          }
+          return;
+        }
+
+        if (action === window.google.picker.Action.CANCEL || action === "cancel") {
+          setStatus("");
+          setWorking(false);
+        }
+      });
+
+    if (cfg.appId) builder.setAppId(cfg.appId);
+    const picker = builder.build();
+    picker.setVisible(true);
+    setWorking(false);
+    window.setTimeout(() => setStatus(prev => prev === "Ouverture du sélecteur de fichiers Google Drive…" ? "" : prev), 2500);
+  };
+
+  const ouvrirPickerDossiersAvecToken = (accessToken) => {
+    if (!window.google?.picker) throw new Error("Google Picker n'est pas disponible.");
+    setStatus("Ouverture du sélecteur de dossiers Google Drive…");
+
+    const view = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(true);
+
+    const builder = new window.google.picker.PickerBuilder()
+      .addView(view)
+      .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(cfg.apiKey)
+      .setOrigin(window.location.origin)
+      .setCallback(async (data) => {
+        const action = data?.[window.google.picker.Response?.ACTION] || data?.action;
+        const docs = data?.[window.google.picker.Response?.DOCUMENTS] || data?.docs || [];
+
+        if (action === window.google.picker.Action.PICKED || action === "picked") {
+          setWorking(true);
+          setStatus("Liaison du dossier Drive…");
+          try {
+            const folders = (docs || []).map(d => ({ ...d, mimeType: d?.mimeType || GOOGLE_DRIVE_FOLDER_MIME }));
+            await enregistrerDriveDocs(folders, "google_picker_folders");
+            setStatus("Dossier Drive lié. Cliquez sur “Voir fichiers” pour afficher son contenu.");
+            window.setTimeout(() => setStatus(""), 3500);
+          } finally {
+            setWorking(false);
+          }
+          return;
+        }
+
+        if (action === window.google.picker.Action.CANCEL || action === "cancel") {
+          setStatus("");
+          setWorking(false);
+        }
+      });
+
+    if (cfg.appId) builder.setAppId(cfg.appId);
+    const picker = builder.build();
+    picker.setVisible(true);
+    setWorking(false);
+    window.setTimeout(() => setStatus(prev => prev === "Ouverture du sélecteur de dossiers Google Drive…" ? "" : prev), 2500);
+  };
 
   const ouvrirPicker = async (event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
-
-    if (!isConfigured) {
-      setErr("Configuration Google Drive incomplète : ajoutez VITE_GOOGLE_DRIVE_API_KEY et VITE_GOOGLE_DRIVE_CLIENT_ID.");
-      return;
-    }
-    if (!googleReady) {
-      setErr("Google Drive est encore en préparation. Attendez 2 secondes puis réessayez.");
-      return;
-    }
+    if (!checkReadyOrExplain()) return;
 
     setWorking(true);
     setErr("");
     setStatus("Ouverture de l'autorisation Google…");
 
     try {
-      if (!window.google?.accounts?.oauth2 || !window.google?.picker) {
-        throw new Error("Les librairies Google Drive ne sont pas prêtes. Rechargez la page puis réessayez.");
-      }
-
-      const token = tokenRef.current || await demanderTokenGoogle();
-      tokenRef.current = token;
-      ouvrirPickerAvecToken(token);
+      const token = await obtenirToken();
+      ouvrirPickerFichiersAvecToken(token);
     } catch (e) {
       setErr(e?.message || "Impossible d'ouvrir Google Drive");
       setStatus("");
@@ -4786,24 +4855,87 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     }
   };
 
+  const choisirDossierDrive = async (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (!checkReadyOrExplain()) return;
+
+    setWorking(true);
+    setErr("");
+    setStatus("Ouverture de l'autorisation Google…");
+
+    try {
+      const token = await obtenirToken();
+      ouvrirPickerDossiersAvecToken(token);
+    } catch (e) {
+      setErr(e?.message || "Impossible d'ouvrir les dossiers Google Drive");
+      setStatus("");
+      setWorking(false);
+    }
+  };
+
+  const listerContenuDossier = async (driveFolder) => {
+    if (!driveFolder?.file_id) return;
+    setErr("");
+    setStatus("Lecture du dossier Drive…");
+    setFolderLoadingId(driveFolder.file_id);
+    try {
+      const token = await obtenirToken();
+      const params = new URLSearchParams({
+        q: `'${String(driveFolder.file_id).replace(/'/g, "\\'")}' in parents and trashed = false`,
+        pageSize: "100",
+        orderBy: "folder,name_natural",
+        fields: "files(id,name,mimeType,webViewLink,iconLink,size,modifiedTime)",
+        supportsAllDrives: "true",
+        includeItemsFromAllDrives: "true",
+      });
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || `Erreur Drive ${res.status}`);
+      setFolderContents(prev => ({ ...prev, [driveFolder.file_id]: json.files || [] }));
+      setStatus("");
+    } catch (e) {
+      setErr(e?.message || "Impossible de lire le dossier Drive");
+      setStatus("");
+    } finally {
+      setFolderLoadingId("");
+    }
+  };
+
+  const lierFichiersDuDossier = async (files) => {
+    const onlyFiles = (files || []).filter(f => !isGoogleDriveFolderMime(f.mimeType));
+    if (!onlyFiles.length) return;
+    setWorking(true);
+    setStatus("Liaison des fichiers du dossier…");
+    try {
+      await enregistrerDriveDocs(onlyFiles, "google_drive_folder_content");
+      setStatus("");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const ajouterLienManuel = async (event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
-    const url = window.prompt("Collez le lien Google Drive du document :");
+    const url = window.prompt("Collez le lien Google Drive du document ou du dossier :");
     if (!url) return;
-    const name = window.prompt("Nom du document :", "Document Google Drive") || "Document Google Drive";
-    const fileMatch = String(url).match(/\/d\/([^/]+)|id=([^&]+)/);
-    const fileId = fileMatch?.[1] || fileMatch?.[2] || `manual_${Date.now()}`;
+    const isFolderUrl = /\/folders\//.test(String(url));
+    const name = window.prompt("Nom du document ou du dossier :", isFolderUrl ? "Dossier Google Drive" : "Document Google Drive") || (isFolderUrl ? "Dossier Google Drive" : "Document Google Drive");
+    const fileMatch = String(url).match(/\/folders\/([^/?#]+)|\/d\/([^/]+)|id=([^&]+)/);
+    const fileId = fileMatch?.[1] || fileMatch?.[2] || fileMatch?.[3] || `manual_${Date.now()}`;
     const { error } = await supabase.from(GOOGLE_DRIVE_LINKS_TABLE).upsert([{
       folder,
       file_id: fileId,
       name,
-      mime_type: null,
+      mime_type: isFolderUrl ? GOOGLE_DRIVE_FOLDER_MIME : null,
       url,
       icon_url: null,
       size_bytes: null,
       created_by: profil?.email || profil?.nom || null,
-      metadata: { source:"manual_link" },
+      metadata: { source:"manual_link", kind: isFolderUrl ? "folder" : "file" },
     }], { onConflict:"folder,file_id" });
     if (error) setErr(error.message);
     else charger();
@@ -4816,17 +4948,44 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     else charger();
   };
 
+  const linkedIds = useMemo(() => new Set((links || []).map(l => l.file_id)), [links]);
+  const folders = links.filter(l => isGoogleDriveFolderMime(l.mime_type) || l.metadata?.kind === "folder");
+  const files = links.filter(l => !(isGoogleDriveFolderMime(l.mime_type) || l.metadata?.kind === "folder"));
+
+  const renderDriveFileRow = (file, idx, fromFolderId = "") => {
+    const isFolder = isGoogleDriveFolderMime(file.mimeType);
+    const alreadyLinked = linkedIds.has(file.id);
+    return (
+      <div key={`${file.id || idx}-${fromFolderId}`} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 8px", borderRadius:RADIUS.md, background:T.input, border:`1px solid ${T.border}` }}>
+        {file.iconLink ? <img src={file.iconLink} alt="" style={{ width:16, height:16 }} /> : <span>{isFolder ? "📁" : getFileIcon(file.name)}</span>}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ color:T.text, fontSize:12, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{file.name}</div>
+          <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? "Dossier" : (file.mimeType || "Fichier")}{file.size ? ` · ${fmtSize(Number(file.size))}` : ""}</div>
+        </div>
+        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(file.webViewLink || getDriveUrlForDoc(file.id, file.mimeType), "_blank")}>Ouvrir</button>
+        {isFolder ? null : (
+          <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked} onClick={() => enregistrerDriveDocs([file], "google_drive_folder_content")}>
+            {alreadyLinked ? "Déjà lié" : "Lier"}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ marginTop:18, borderTop:`1px solid ${T.border}`, paddingTop:14 }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:10 }}>
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
         <div>
           <div style={{ color:T.text, fontWeight:900, fontSize:FONT.sm.size }}>Google Drive</div>
-          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1 }}>Liez les documents Drive au même dossier sans les dupliquer dans l'app.</div>
+          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1 }}>Liez un dossier Drive client, puis sélectionnez les fichiers à rattacher à cette fiche.</div>
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
           <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={ajouterLienManuel}>Coller un lien</button>
+          <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={choisirDossierDrive} disabled={working || googleLoading || (isConfigured && !googleReady)}>
+            {working ? "Connexion…" : googleLoading ? "Préparation…" : "Choisir dossier Drive"}
+          </button>
           <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirPicker} disabled={working || googleLoading || (isConfigured && !googleReady)}>
-            {working ? "Connexion…" : googleLoading ? "Préparation…" : "Lier depuis Drive"}
+            {working ? "Connexion…" : googleLoading ? "Préparation…" : "Lier fichier Drive"}
           </button>
         </div>
       </div>
@@ -4838,23 +4997,70 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
       )}
       {status && <div style={{ fontSize:12, color:T.accent || "#2563eb", background:T.accentBg || "rgba(37,99,235,.08)", border:`1px solid ${T.accentBorder || "rgba(37,99,235,.22)"}`, borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>ℹ {status}</div>}
       {err && <div style={{ fontSize:12, color:"#e05c5c", background:"rgba(224,92,92,.08)", border:"1px solid rgba(224,92,92,.2)", borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>⚠ {err}</div>}
+
       {loading ? (
         <div style={{ color:T.textSub, fontSize:13, padding:"8px 0" }}>Chargement des liens Drive…</div>
       ) : links.length === 0 ? (
-        <div style={{ color:T.textMuted, fontSize:13, padding:"8px 0", fontStyle:"italic" }}>Aucun document Google Drive lié.</div>
+        <div style={{ color:T.textMuted, fontSize:13, padding:"8px 0", fontStyle:"italic" }}>
+          Aucun document Google Drive lié. Commencez par <strong style={{ color:T.text }}>Choisir dossier Drive</strong> pour rattacher le dossier client, puis affichez ses fichiers.
+        </div>
       ) : (
-        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-          {links.map(link => (
-            <div key={link.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:RADIUS.md, background:T.card, border:`1px solid ${T.border}` }}>
-              {link.icon_url ? <img src={link.icon_url} alt="" style={{ width:18, height:18 }} /> : <span style={{ fontSize:18 }}>📁</span>}
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ color:T.text, fontSize:13, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{link.name}</div>
-                <div style={{ color:T.textSub, fontSize:11 }}>{link.created_at ? new Date(link.created_at).toLocaleDateString("fr-FR") : "Drive"}{link.mime_type ? ` · ${link.mime_type}` : ""}</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {folders.length > 0 && (
+            <div>
+              <div style={{ color:T.text, fontSize:12, fontWeight:900, marginBottom:6 }}>Dossiers Drive liés</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                {folders.map(link => {
+                  const content = folderContents[link.file_id] || [];
+                  const filesOnly = content.filter(f => !isGoogleDriveFolderMime(f.mimeType));
+                  return (
+                    <div key={link.id} style={{ padding:10, borderRadius:RADIUS.md, background:T.card, border:`1px solid ${T.border}` }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                        {link.icon_url ? <img src={link.icon_url} alt="" style={{ width:18, height:18 }} /> : <span style={{ fontSize:18 }}>📁</span>}
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ color:T.text, fontSize:13, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{link.name}</div>
+                          <div style={{ color:T.textSub, fontSize:11 }}>Dossier Drive · lié le {link.created_at ? new Date(link.created_at).toLocaleDateString("fr-FR") : "-"}</div>
+                        </div>
+                        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={() => window.open(link.url, "_blank")}>Ouvrir</button>
+                        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={() => listerContenuDossier(link)} disabled={folderLoadingId === link.file_id}>
+                          {folderLoadingId === link.file_id ? "Lecture…" : content.length ? "Actualiser" : "Voir fichiers"}
+                        </button>
+                        <button type="button" className="inv-btn inv-btn-sm" style={{ background:"rgba(225,90,90,.08)", color:"#e15a5a", border:"1px solid rgba(225,90,90,.25)" }} onClick={() => supprimerLien(link.id, link.name)}>Retirer</button>
+                      </div>
+                      {content.length > 0 && (
+                        <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:6 }}>
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                            <div style={{ color:T.textSub, fontSize:11 }}>{content.length} élément(s) trouvé(s) dans ce dossier</div>
+                            {filesOnly.length > 0 && <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={() => lierFichiersDuDossier(filesOnly)}>Lier tous les fichiers</button>}
+                          </div>
+                          {content.map((file, idx) => renderDriveFileRow(file, idx, link.file_id))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={() => window.open(link.url, "_blank")}>Ouvrir</button>
-              <button type="button" className="inv-btn inv-btn-sm" style={{ background:"rgba(225,90,90,.08)", color:"#e15a5a", border:"1px solid rgba(225,90,90,.25)" }} onClick={() => supprimerLien(link.id, link.name)}>Retirer</button>
             </div>
-          ))}
+          )}
+
+          {files.length > 0 && (
+            <div>
+              <div style={{ color:T.text, fontSize:12, fontWeight:900, marginBottom:6 }}>Documents Drive liés à la fiche</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {files.map(link => (
+                  <div key={link.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:RADIUS.md, background:T.card, border:`1px solid ${T.border}` }}>
+                    {link.icon_url ? <img src={link.icon_url} alt="" style={{ width:18, height:18 }} /> : <span style={{ fontSize:18 }}>{getFileIcon(link.name)}</span>}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ color:T.text, fontSize:13, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{link.name}</div>
+                      <div style={{ color:T.textSub, fontSize:11 }}>{link.created_at ? new Date(link.created_at).toLocaleDateString("fr-FR") : "Drive"}{link.mime_type ? ` · ${link.mime_type}` : ""}{link.size_bytes ? ` · ${fmtSize(Number(link.size_bytes))}` : ""}</div>
+                    </div>
+                    <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={() => window.open(link.url, "_blank")}>Ouvrir</button>
+                    <button type="button" className="inv-btn inv-btn-sm" style={{ background:"rgba(225,90,90,.08)", color:"#e15a5a", border:"1px solid rgba(225,90,90,.25)" }} onClick={() => supprimerLien(link.id, link.name)}>Retirer</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
