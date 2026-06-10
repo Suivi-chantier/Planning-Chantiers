@@ -4562,9 +4562,30 @@ async function ensureGoogleDriveLibrariesLoaded() {
 }
 
 const GOOGLE_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+const GOOGLE_DRIVE_SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
 
 function isGoogleDriveFolderMime(mimeType) {
   return String(mimeType || "").toLowerCase() === GOOGLE_DRIVE_FOLDER_MIME;
+}
+
+function isGoogleDriveShortcutMime(mimeType) {
+  return String(mimeType || "").toLowerCase() === GOOGLE_DRIVE_SHORTCUT_MIME;
+}
+
+function getDriveEffectiveId(doc) {
+  return doc?.shortcutDetails?.targetId || doc?.shortcut_details?.targetId || doc?.targetId || doc?.id || doc?.fileId || doc?.file_id || doc?.[window.google?.picker?.Document?.ID] || "";
+}
+
+function getDriveEffectiveMimeType(doc) {
+  return doc?.shortcutDetails?.targetMimeType || doc?.shortcut_details?.targetMimeType || doc?.targetMimeType || doc?.mimeType || doc?.mime_type || doc?.[window.google?.picker?.Document?.MIME_TYPE] || "";
+}
+
+function isGoogleDriveFolderItem(doc) {
+  return isGoogleDriveFolderMime(getDriveEffectiveMimeType(doc));
+}
+
+function isGoogleDriveShortcutItem(doc) {
+  return isGoogleDriveShortcutMime(doc?.mimeType || doc?.mime_type);
 }
 
 function getDriveUrlForDoc(id, mimeType, fallbackUrl = "") {
@@ -4576,9 +4597,10 @@ function getDriveUrlForDoc(id, mimeType, fallbackUrl = "") {
 }
 
 function normalizeDriveDoc(doc) {
-  const id = doc?.id || doc?.fileId || doc?.[window.google?.picker?.Document?.ID] || `manual_${Date.now()}`;
+  const rawId = doc?.id || doc?.fileId || doc?.file_id || doc?.[window.google?.picker?.Document?.ID] || `manual_${Date.now()}`;
+  const id = getDriveEffectiveId(doc) || rawId;
   const name = doc?.name || doc?.title || doc?.[window.google?.picker?.Document?.NAME] || "Document Google Drive";
-  const mimeType = doc?.mimeType || doc?.mime_type || doc?.[window.google?.picker?.Document?.MIME_TYPE] || "";
+  const mimeType = getDriveEffectiveMimeType(doc);
   const url = getDriveUrlForDoc(id, mimeType, doc?.url || doc?.webViewLink || doc?.[window.google?.picker?.Document?.URL] || "");
   const iconUrl = doc?.iconUrl || doc?.iconLink || doc?.[window.google?.picker?.Document?.ICON_URL] || "";
   const sizeBytes = Number(doc?.sizeBytes || doc?.size || 0) || null;
@@ -4744,7 +4766,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
       q: `'${safeFolderId}' in parents and trashed = false`,
       pageSize: "100",
       orderBy: "folder,name_natural",
-      fields: "files(id,name,mimeType,webViewLink,iconLink,size,modifiedTime)",
+      fields: "files(id,name,mimeType,webViewLink,iconLink,size,modifiedTime,shortcutDetails(targetId,targetMimeType))",
       supportsAllDrives: "true",
       includeItemsFromAllDrives: "true",
     });
@@ -4783,8 +4805,9 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   };
 
   const ouvrirDossierExplorateur = async (item) => {
-    if (!item?.id) return;
-    await openDriveExplorerAt(item.id, [...driveExplorerPath, { id:item.id, name:item.name || "Dossier" }]);
+    const targetId = getDriveEffectiveId(item);
+    if (!targetId) return;
+    await openDriveExplorerAt(targetId, [...driveExplorerPath, { id:targetId, name:item.name || "Dossier" }]);
   };
 
   const allerBreadcrumbDrive = async (index) => {
@@ -4813,7 +4836,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   };
 
   const lierTousLesFichiersExplorateur = async () => {
-    const files = (driveExplorerItems || []).filter(f => !isGoogleDriveFolderMime(f.mimeType));
+    const files = (driveExplorerItems || []).filter(f => !isGoogleDriveFolderItem(f));
     if (!files.length) {
       setErr("Aucun fichier à lier dans ce dossier. Ouvrez un autre dossier Drive.");
       return;
@@ -4974,7 +4997,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
         q: `'${String(driveFolder.file_id).replace(/'/g, "\\'")}' in parents and trashed = false`,
         pageSize: "100",
         orderBy: "folder,name_natural",
-        fields: "files(id,name,mimeType,webViewLink,iconLink,size,modifiedTime)",
+        fields: "files(id,name,mimeType,webViewLink,iconLink,size,modifiedTime,shortcutDetails(targetId,targetMimeType))",
         supportsAllDrives: "true",
         includeItemsFromAllDrives: "true",
       });
@@ -4994,7 +5017,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   };
 
   const lierFichiersDuDossier = async (files) => {
-    const onlyFiles = (files || []).filter(f => !isGoogleDriveFolderMime(f.mimeType));
+    const onlyFiles = (files || []).filter(f => !isGoogleDriveFolderItem(f));
     if (!onlyFiles.length) return;
     setWorking(true);
     setStatus("Liaison des fichiers du dossier…");
@@ -5042,16 +5065,19 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   const files = links.filter(l => !(isGoogleDriveFolderMime(l.mime_type) || l.metadata?.kind === "folder"));
 
   const renderDriveFileRow = (file, idx, fromFolderId = "") => {
-    const isFolder = isGoogleDriveFolderMime(file.mimeType);
-    const alreadyLinked = linkedIds.has(file.id);
+    const isFolder = isGoogleDriveFolderItem(file);
+    const effectiveId = getDriveEffectiveId(file);
+    const effectiveMimeType = getDriveEffectiveMimeType(file);
+    const isShortcut = isGoogleDriveShortcutItem(file);
+    const alreadyLinked = linkedIds.has(effectiveId || file.id);
     return (
       <div key={`${file.id || idx}-${fromFolderId}`} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 8px", borderRadius:RADIUS.md, background:T.input, border:`1px solid ${T.border}` }}>
         {file.iconLink ? <img src={file.iconLink} alt="" style={{ width:16, height:16 }} /> : <span>{isFolder ? "📁" : getFileIcon(file.name)}</span>}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ color:T.text, fontSize:12, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{file.name}</div>
-          <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? "Dossier" : (file.mimeType || "Fichier")}{file.size ? ` · ${fmtSize(Number(file.size))}` : ""}</div>
+          <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? (isShortcut ? "Raccourci dossier" : "Dossier") : (isShortcut ? "Raccourci fichier" : (file.mimeType || "Fichier"))}{file.size ? ` · ${fmtSize(Number(file.size))}` : ""}</div>
         </div>
-        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(file.webViewLink || getDriveUrlForDoc(file.id, file.mimeType), "_blank")}>Ouvrir</button>
+        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(file.webViewLink || getDriveUrlForDoc(effectiveId || file.id, effectiveMimeType || file.mimeType), "_blank")}>Ouvrir</button>
         {isFolder ? null : (
           <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked} onClick={() => enregistrerDriveDocs([file], "google_drive_folder_content")}>
             {alreadyLinked ? "Déjà lié" : "Lier"}
@@ -5066,7 +5092,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
         <div>
           <div style={{ color:T.text, fontWeight:900, fontSize:FONT.sm.size }}>Google Drive</div>
-          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1 }}>Liez un dossier Drive client, puis sélectionnez les fichiers à rattacher à cette fiche.</div>
+          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1 }}>Naviguez dans les dossiers Drive, ouvrez uniquement le dossier choisi, puis liez les fichiers utiles à cette fiche.</div>
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
           <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={ajouterLienManuel}>Coller un lien</button>
@@ -5117,20 +5143,23 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:360, overflowY:"auto", paddingRight:4 }}>
               {driveExplorerItems.map((item, idx) => {
-                const isFolder = isGoogleDriveFolderMime(item.mimeType);
-                const alreadyLinked = linkedIds.has(item.id);
+                const isFolder = isGoogleDriveFolderItem(item);
+                const effectiveId = getDriveEffectiveId(item);
+                const effectiveMimeType = getDriveEffectiveMimeType(item);
+                const isShortcut = isGoogleDriveShortcutItem(item);
+                const alreadyLinked = linkedIds.has(effectiveId || item.id);
                 return (
                   <div key={`${item.id || idx}-explorer`} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 9px", borderRadius:RADIUS.md, background:T.input, border:`1px solid ${T.border}` }}>
                     {item.iconLink ? <img src={item.iconLink} alt="" style={{ width:16, height:16 }} /> : <span>{isFolder ? "📁" : getFileIcon(item.name)}</span>}
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ color:T.text, fontSize:12, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
-                      <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? "Dossier" : (item.mimeType || "Fichier")}{item.size ? ` · ${fmtSize(Number(item.size))}` : ""}</div>
+                      <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? (isShortcut ? "Raccourci dossier" : "Dossier") : (isShortcut ? "Raccourci fichier" : (item.mimeType || "Fichier"))}{item.size ? ` · ${fmtSize(Number(item.size))}` : ""}</div>
                     </div>
                     {isFolder ? (
                       <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => ouvrirDossierExplorateur(item)}>Ouvrir</button>
                     ) : (
                       <>
-                        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(item.webViewLink || getDriveUrlForDoc(item.id, item.mimeType), "_blank")}>Voir</button>
+                        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(item.webViewLink || getDriveUrlForDoc(effectiveId || item.id, effectiveMimeType || item.mimeType), "_blank")}>Voir</button>
                         <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked} onClick={() => enregistrerDriveDocs([item], "google_drive_explorer_file")}>{alreadyLinked ? "Déjà lié" : "Lier"}</button>
                       </>
                     )}
@@ -5146,7 +5175,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
         <div style={{ color:T.textSub, fontSize:13, padding:"8px 0" }}>Chargement des liens Drive…</div>
       ) : links.length === 0 ? (
         <div style={{ color:T.textMuted, fontSize:13, padding:"8px 0", fontStyle:"italic" }}>
-          Aucun document Google Drive lié. Commencez par <strong style={{ color:T.text }}>Choisir dossier Drive</strong> pour rattacher le dossier client, puis affichez ses fichiers.
+          Aucun document Google Drive lié. Cliquez sur <strong style={{ color:T.text }}>Explorer Google Drive</strong>, ouvrez le dossier client souhaité, puis liez ce dossier ou uniquement ses fichiers.
         </div>
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -5156,7 +5185,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
               <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
                 {folders.map(link => {
                   const content = folderContents[link.file_id] || [];
-                  const filesOnly = content.filter(f => !isGoogleDriveFolderMime(f.mimeType));
+                  const filesOnly = content.filter(f => !isGoogleDriveFolderItem(f));
                   return (
                     <div key={link.id} style={{ padding:10, borderRadius:RADIUS.md, background:T.card, border:`1px solid ${T.border}` }}>
                       <div style={{ display:"flex", alignItems:"center", gap:10 }}>
