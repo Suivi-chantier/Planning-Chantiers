@@ -5777,7 +5777,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
             <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
           </div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(112px,1fr))",gap:6,paddingBottom:8,marginBottom:8,maxWidth:"100%"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:6,paddingBottom:8,marginBottom:8,maxWidth:"100%"}}>
           {MISSION_STEPS_INVEST.map((s, idx) => {
             const p = stepProgress(s.key);
             const active = selected.key === s.key;
@@ -5789,7 +5789,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
                 textAlign:"left",
               }}>
                 <div style={{fontSize:10,fontWeight:900,opacity:.75}}>#{idx+1}</div>
-                <div style={{fontSize:11,fontWeight:900,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.label}</div>
+                <div style={{fontSize:11,fontWeight:900,whiteSpace:"normal",overflow:"visible",textOverflow:"clip",lineHeight:1.2,minHeight:26}}>{s.label}</div>
                 <div style={{height:4,borderRadius:999,background:"rgba(0,0,0,.08)",overflow:"hidden",marginTop:6}}><div style={{height:"100%",width:`${p.pct}%`,background:active ? T.accent : "#16a34a"}}/></div>
               </button>
             );
@@ -5812,10 +5812,10 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
               const meta = missionStatusMeta(a.status);
               const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
               return (
-                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(0,1fr) minmax(88px,112px) minmax(96px,122px) minmax(96px,112px)",gap:7,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%"}}>
+                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(220px,1.5fr) minmax(115px,.55fr) minmax(140px,.7fr) minmax(130px,.55fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%"}}>
                   <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
                   <div style={{minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.action_title}</div>
+                    <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"visible",textOverflow:"clip",whiteSpace:"normal",lineHeight:1.35}}>{a.action_title}</div>
                     <div style={{fontSize:10,color:T.textMuted,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
                       {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
                       {a.document_drive_attendu && <span style={{color:T.accent,fontWeight:800}}>📁 Drive</span>}
@@ -5977,7 +5977,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   if (!client) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
   return (
-    <div style={{ padding:"24px 28px", maxWidth:1100, margin:"0 auto" }}>
+    <div style={{ padding:"24px 28px", maxWidth:1280, margin:"0 auto", width:"100%" }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24, flexWrap:"wrap" }}>
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← CRM</button>
         <div style={{ flex:"1 1 260px", minWidth:0 }}>
@@ -6002,92 +6002,99 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
         }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>
 
-      <div className="inv-page-safe" style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
-        {/* Infos */}
-        <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
-          <div className="inv-card">
-            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
-            <div className="inv-card-bd">
-              <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
-              <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : T.text }}>{fmtDate(client.date_prochaine_action)}</span></div>
-              {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
-            </div>
+      <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
+        {/* Prochaine action */}
+        <div className="inv-card">
+          <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
+          <div className="inv-card-bd">
+            <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
+            <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : T.text }}>{fmtDate(client.date_prochaine_action)}</span></div>
+            {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
           </div>
+        </div>
 
-          <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} />
+        {/* Parcours Mission en pleine largeur */}
+        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} />
 
-          <div className="inv-card">
-            <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
-            <div className="inv-card-bd">
-              {[["Conseiller", client.conseiller],["Source", client.source],["Budget", fmtBudget(client.budget)],["Étape", client.etape||"—"],["Date signature", fmtDate(client.date_signature)],["Avancement", client.avancement ? client.avancement+"%" : "—"]].map(([l,v])=>(
+        {/* Informations en pleine largeur au-dessus des documents */}
+        <div className="inv-card">
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
+          <div className="inv-card-bd">
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:"0 18px",maxWidth:"100%"}}>
+              {[ ["Conseiller", client.conseiller],["Source", client.source],["Budget", fmtBudget(client.budget)],["Étape", client.etape||"—"],["Date signature", fmtDate(client.date_signature)],["Avancement", client.avancement ? client.avancement+"%" : "—"]].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
-              ))}
-            </div>
-          </div>
-          <ClientStrategyCard client={client} T={T} onSaved={charger} />
-          {/* Propositions */}
-          <div className="inv-card">
-            <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-              <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Biens proposés ({props.length})</span>
-              <button className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:"black", border:`1px solid ${T.accentBorder}` }} onClick={() => setShowProp(true)}>＋ Proposer</button>
-            </div>
-            <div className="inv-card-bd">
-              {props.length === 0 ? (
-                <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun bien proposé</div>
-              ) : props.map(p => (
-                <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
-                  <div style={{ fontWeight:600, fontSize:13, color:T.text }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
-                  <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
-                    {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
-                    {p.commentaire && ` · ${p.commentaire}`}
-                  </div>
-                  {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent, display:"inline-flex", alignItems:"center", gap:3 }}><Icon as={FileText} size={10} strokeWidth={2.2}/> Dossier présenté <Icon as={ExternalLink} size={9}/></a>}
-                </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Colonne droite : Documents puis Notes */}
-        <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
-          {/* Documents */}
-          <DocumentsSection folder={`clients/${id}`} T={T} />
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
+          {/* Colonne gauche */}
+          <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
+            <ClientStrategyCard client={client} T={T} onSaved={charger} />
 
-          {/* Notes */}
-          <div className="inv-card">
-            <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique des notes ({notes.length})</span></div>
-            <div className="inv-card-bd">
-            {/* Ajouter une note */}
-            <div style={{ marginBottom:16, padding:"12px 14px", background:"#f8f9fb", borderRadius:8, border:"1px solid #eef0f5" }}>
-              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <select className="inv-sel" value={newNote.type} onChange={e=>setNewNote({...newNote,type:e.target.value})} style={{ fontSize:12 }}>
-                  {TYPES_NOTE.map(t=><option key={t}>{t}</option>)}
-                </select>
+            {/* Propositions */}
+            <div className="inv-card">
+              <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Biens proposés ({props.length})</span>
+                <button className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:"black", border:`1px solid ${T.accentBorder}` }} onClick={() => setShowProp(true)}>＋ Proposer</button>
               </div>
-              <textarea className="inv-textarea" rows={3} placeholder="Ajouter une note…" value={newNote.contenu}
-                onChange={e=>setNewNote({...newNote,contenu:e.target.value})}/>
-              <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
-                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={ajouterNote} disabled={savingNote}>
-                  {savingNote ? "…" : "＋ Ajouter"}
-                </button>
+              <div className="inv-card-bd">
+                {props.length === 0 ? (
+                  <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun bien proposé</div>
+                ) : props.map(p => (
+                  <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <div style={{ fontWeight:600, fontSize:13, color:T.text }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
+                    <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
+                      {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
+                      {p.commentaire && ` · ${p.commentaire}`}
+                    </div>
+                    {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent, display:"inline-flex", alignItems:"center", gap:3 }}><Icon as={FileText} size={10} strokeWidth={2.2}/> Dossier présenté <Icon as={ExternalLink} size={9}/></a>}
+                  </div>
+                ))}
               </div>
             </div>
-            {/* Liste notes */}
-            <div style={{ maxHeight:500, overflowY:"auto" }}>
-              {notes.length === 0 ? (
-                <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucune note</div>
-              ) : notes.map(n => (
-                <div key={n.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                    <span style={{ fontSize:16 }}>{NOTE_ICONS[n.type]||"📝"}</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:T.accent, textTransform:"uppercase" }}>{n.type}</span>
-                    <span style={{ fontSize:11, color:T.textMuted, marginLeft:"auto" }}>
-                      {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
-                    </span>
-                  </div>
-                  <div style={{ fontSize:13, color:T.text, lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
+          </div>
+
+          {/* Colonne droite : Documents puis Notes */}
+          <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
+            <DocumentsSection folder={`clients/${id}`} T={T} />
+
+            <div className="inv-card">
+              <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique des notes ({notes.length})</span></div>
+              <div className="inv-card-bd">
+              {/* Ajouter une note */}
+              <div style={{ marginBottom:16, padding:"12px 14px", background:"#f8f9fb", borderRadius:8, border:"1px solid #eef0f5" }}>
+                <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                  <select className="inv-sel" value={newNote.type} onChange={e=>setNewNote({...newNote,type:e.target.value})} style={{ fontSize:12 }}>
+                    {TYPES_NOTE.map(t=><option key={t}>{t}</option>)}
+                  </select>
                 </div>
-              ))}
+                <textarea className="inv-textarea" rows={3} placeholder="Ajouter une note…" value={newNote.contenu}
+                  onChange={e=>setNewNote({...newNote,contenu:e.target.value})}/>
+                <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
+                  <button className="inv-btn inv-btn-blue inv-btn-sm" style={{color:"black"}} onClick={ajouterNote} disabled={savingNote}>
+                    {savingNote ? "…" : "＋ Ajouter"}
+                  </button>
+                </div>
+              </div>
+              {/* Liste notes */}
+              <div style={{ maxHeight:500, overflowY:"auto" }}>
+                {notes.length === 0 ? (
+                  <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucune note</div>
+                ) : notes.map(n => (
+                  <div key={n.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                      <span style={{ fontSize:16 }}>{NOTE_ICONS[n.type]||"📝"}</span>
+                      <span style={{ fontSize:11, fontWeight:700, color:T.accent, textTransform:"uppercase" }}>{n.type}</span>
+                      <span style={{ fontSize:11, color:T.textMuted, marginLeft:"auto" }}>
+                        {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize:13, color:T.text, lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
