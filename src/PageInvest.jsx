@@ -4591,6 +4591,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   const [googleReady, setGoogleReady] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [status, setStatus] = useState("");
   const tokenRef = useRef("");
   const tokenClientRef = useRef(null);
 
@@ -4602,20 +4603,24 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     if (!isConfigured) {
       setGoogleReady(false);
       setGoogleLoading(false);
+      setStatus("");
       return () => { alive = false; };
     }
     setGoogleLoading(true);
+    setStatus("Préparation Google Drive…");
     setErr(prev => prev && prev.includes("Google Drive") ? "" : prev);
     ensureGoogleDriveLibrariesLoaded()
       .then(() => {
         if (!alive) return;
         setGoogleReady(true);
         setGoogleLoading(false);
+        setStatus("");
       })
       .catch((e) => {
         if (!alive) return;
         setGoogleReady(false);
         setGoogleLoading(false);
+        setStatus("");
         setErr(e?.message || "Impossible de préparer Google Drive");
       });
     return () => { alive = false; };
@@ -4662,99 +4667,128 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     await charger();
   };
 
-  const ouvrirPicker = async () => {
+  const ouvrirPickerAvecToken = (accessToken) => {
+    if (!window.google?.picker) throw new Error("Google Picker n'est pas disponible.");
+    setStatus("Ouverture de Google Drive…");
+
+    const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false);
+
+    const builder = new window.google.picker.PickerBuilder()
+      .addView(view)
+      .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(cfg.apiKey)
+      .setOrigin(window.location.origin)
+      .setCallback(async (data) => {
+        const action = data?.[window.google.picker.Response?.ACTION] || data?.action;
+        const docs = data?.[window.google.picker.Response?.DOCUMENTS] || data?.docs || [];
+
+        if (action === window.google.picker.Action.PICKED || action === "picked") {
+          setWorking(true);
+          setStatus("Enregistrement des liens Drive…");
+          try {
+            await enregistrerDriveDocs(docs);
+            setStatus("");
+          } finally {
+            setWorking(false);
+          }
+          return;
+        }
+
+        if (action === window.google.picker.Action.CANCEL || action === "cancel") {
+          setStatus("");
+          setWorking(false);
+        }
+      });
+
+    if (cfg.appId) builder.setAppId(cfg.appId);
+    const picker = builder.build();
+    picker.setVisible(true);
+    setWorking(false);
+    window.setTimeout(() => setStatus(prev => prev === "Ouverture de Google Drive…" ? "" : prev), 2500);
+  };
+
+  const demanderTokenGoogle = () => new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error("Google Identity Services n'est pas disponible."));
+      return;
+    }
+
+    let finished = false;
+    const timer = window.setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      reject(new Error("Aucune réponse de Google. Autorisez les pop-ups pour planning-chantiers.vercel.app et vérifiez que votre email est dans les utilisateurs de test OAuth."));
+    }, 9000);
+
+    const finish = (fn, value) => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timer);
+      fn(value);
+    };
+
+    tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+      client_id: cfg.clientId,
+      scope: GOOGLE_DRIVE_SCOPE,
+      callback: (tokenResponse) => {
+        if (tokenResponse?.error) {
+          finish(reject, new Error(tokenResponse.error_description || tokenResponse.error));
+          return;
+        }
+        if (!tokenResponse?.access_token) {
+          finish(reject, new Error("Google n'a pas renvoyé de jeton d'accès. Vérifiez les utilisateurs de test OAuth et les pop-ups."));
+          return;
+        }
+        finish(resolve, tokenResponse.access_token);
+      },
+      error_callback: (error) => {
+        const type = error?.type || error?.message || "popup_closed_or_failed";
+        finish(reject, new Error(type === "popup_failed_to_open" ? "La fenêtre Google a été bloquée par le navigateur. Autorisez les pop-ups pour ce site." : `Connexion Google interrompue : ${type}`));
+      },
+    });
+
+    // Important : doit être appelé directement après le clic utilisateur.
+    tokenClientRef.current.requestAccessToken({ prompt: tokenRef.current ? "" : "consent" });
+  });
+
+  const ouvrirPicker = async (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+
     if (!isConfigured) {
       setErr("Configuration Google Drive incomplète : ajoutez VITE_GOOGLE_DRIVE_API_KEY et VITE_GOOGLE_DRIVE_CLIENT_ID.");
       return;
     }
+    if (!googleReady) {
+      setErr("Google Drive est encore en préparation. Attendez 2 secondes puis réessayez.");
+      return;
+    }
+
     setWorking(true);
     setErr("");
-
-    const resetTimer = window.setTimeout(() => {
-      setWorking(false);
-      setErr("La connexion Google Drive prend trop de temps. Rechargez la page, vérifiez que les pop-ups sont autorisés, puis réessayez.");
-    }, 20000);
-
-    const clearResetTimer = () => {
-      if (resetTimer) window.clearTimeout(resetTimer);
-    };
-
-    const openPickerWithToken = (accessToken) => {
-      const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
-        .setIncludeFolders(true)
-        .setSelectFolderEnabled(false);
-
-      const picker = new window.google.picker.PickerBuilder()
-        .addView(view)
-        .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
-        .setOAuthToken(accessToken)
-        .setDeveloperKey(cfg.apiKey)
-        .setCallback(async (data) => {
-          const action = data?.[window.google.picker.Response?.ACTION] || data?.action;
-          const docs = data?.[window.google.picker.Response?.DOCUMENTS] || data?.docs || [];
-          if (action === window.google.picker.Action.PICKED) {
-            setWorking(true);
-            try {
-              await enregistrerDriveDocs(docs);
-            } finally {
-              setWorking(false);
-            }
-          }
-          if (action === window.google.picker.Action.CANCEL) {
-            setWorking(false);
-          }
-        });
-
-      if (cfg.appId) picker.setAppId(cfg.appId);
-      picker.build().setVisible(true);
-      clearResetTimer();
-      setWorking(false);
-    };
+    setStatus("Ouverture de l'autorisation Google…");
 
     try {
-      if (!googleReady) {
-        setGoogleLoading(true);
-        await ensureGoogleDriveLibrariesLoaded();
-        setGoogleReady(true);
-        setGoogleLoading(false);
-      }
-
       if (!window.google?.accounts?.oauth2 || !window.google?.picker) {
         throw new Error("Les librairies Google Drive ne sont pas prêtes. Rechargez la page puis réessayez.");
       }
 
-      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-        client_id: cfg.clientId,
-        scope: GOOGLE_DRIVE_SCOPE,
-        prompt: "",
-        callback: (tokenResponse) => {
-          if (tokenResponse?.error) {
-            clearResetTimer();
-            setErr(tokenResponse.error_description || tokenResponse.error);
-            setWorking(false);
-            return;
-          }
-          if (!tokenResponse?.access_token) {
-            clearResetTimer();
-            setErr("Google n'a pas renvoyé de jeton d'accès. Vérifiez les utilisateurs de test OAuth et les pop-ups.");
-            setWorking(false);
-            return;
-          }
-          tokenRef.current = tokenResponse.access_token;
-          openPickerWithToken(tokenRef.current);
-        },
-      });
-
-      tokenClientRef.current.requestAccessToken({ prompt: tokenRef.current ? "" : "consent" });
+      const token = tokenRef.current || await demanderTokenGoogle();
+      tokenRef.current = token;
+      ouvrirPickerAvecToken(token);
     } catch (e) {
-      clearResetTimer();
-      setGoogleLoading(false);
       setErr(e?.message || "Impossible d'ouvrir Google Drive");
+      setStatus("");
       setWorking(false);
     }
   };
 
-  const ajouterLienManuel = async () => {
+  const ajouterLienManuel = async (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     const url = window.prompt("Collez le lien Google Drive du document :");
     if (!url) return;
     const name = window.prompt("Nom du document :", "Document Google Drive") || "Document Google Drive";
@@ -4790,8 +4824,8 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
           <div style={{ color:T.textSub, fontSize:FONT.xs.size+1 }}>Liez les documents Drive au même dossier sans les dupliquer dans l'app.</div>
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
-          <button className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={ajouterLienManuel}>Coller un lien</button>
-          <button className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirPicker} disabled={working || googleLoading || (isConfigured && !googleReady)}>
+          <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={ajouterLienManuel}>Coller un lien</button>
+          <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirPicker} disabled={working || googleLoading || (isConfigured && !googleReady)}>
             {working ? "Connexion…" : googleLoading ? "Préparation…" : "Lier depuis Drive"}
           </button>
         </div>
@@ -4802,6 +4836,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
           Configuration requise : <strong style={{ color:T.text }}>VITE_GOOGLE_DRIVE_API_KEY</strong> et <strong style={{ color:T.text }}>VITE_GOOGLE_DRIVE_CLIENT_ID</strong> dans Vercel / .env.
         </div>
       )}
+      {status && <div style={{ fontSize:12, color:T.accent || "#2563eb", background:T.accentBg || "rgba(37,99,235,.08)", border:`1px solid ${T.accentBorder || "rgba(37,99,235,.22)"}`, borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>ℹ {status}</div>}
       {err && <div style={{ fontSize:12, color:"#e05c5c", background:"rgba(224,92,92,.08)", border:"1px solid rgba(224,92,92,.2)", borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>⚠ {err}</div>}
       {loading ? (
         <div style={{ color:T.textSub, fontSize:13, padding:"8px 0" }}>Chargement des liens Drive…</div>
@@ -4816,8 +4851,8 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
                 <div style={{ color:T.text, fontSize:13, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{link.name}</div>
                 <div style={{ color:T.textSub, fontSize:11 }}>{link.created_at ? new Date(link.created_at).toLocaleDateString("fr-FR") : "Drive"}{link.mime_type ? ` · ${link.mime_type}` : ""}</div>
               </div>
-              <button className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={() => window.open(link.url, "_blank")}>Ouvrir</button>
-              <button className="inv-btn inv-btn-sm" style={{ background:"rgba(225,90,90,.08)", color:"#e15a5a", border:"1px solid rgba(225,90,90,.25)" }} onClick={() => supprimerLien(link.id, link.name)}>Retirer</button>
+              <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={() => window.open(link.url, "_blank")}>Ouvrir</button>
+              <button type="button" className="inv-btn inv-btn-sm" style={{ background:"rgba(225,90,90,.08)", color:"#e15a5a", border:"1px solid rgba(225,90,90,.25)" }} onClick={() => supprimerLien(link.id, link.name)}>Retirer</button>
             </div>
           ))}
         </div>
