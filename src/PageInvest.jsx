@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useImperativeHandle } from "react";
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, useMemo } from "react";
 import { supabase } from "./supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "./constants";
 import { Icon } from "./ui";
