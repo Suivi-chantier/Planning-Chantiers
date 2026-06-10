@@ -357,14 +357,14 @@ const getCSS = (T) => `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
 /* ─── BASE ─────────────────────────────────────────────────────────────── */
-.inv{font-family:'Barlow Condensed','Arial Narrow',sans-serif;background:${T.bg};color:${T.text};font-size:${FONT.base.size}px;}
+.inv{font-family:'Barlow Condensed','Arial Narrow',sans-serif;background:${T.bg};color:${T.text};font-size:${FONT.base.size}px;max-width:100%;overflow-x:hidden;}
 .inv *{box-sizing:border-box;margin:0;padding:0;}
 .inv ::-webkit-scrollbar{width:6px;height:6px;}
 .inv ::-webkit-scrollbar-thumb{background:${T.scrollThumb};border-radius:${RADIUS.sm}px;}
 .inv ::-webkit-scrollbar-track{background:transparent;}
 
 /* ─── CARDS ────────────────────────────────────────────────────────────── */
-.inv-card{background:${T.card};border-radius:${RADIUS.xl}px;border:1px solid ${T.border};overflow:hidden;box-shadow:${T.shadowSm};transition:border-color .18s, box-shadow .18s;}
+.inv-card{background:${T.card};border-radius:${RADIUS.xl}px;border:1px solid ${T.border};overflow:hidden;box-shadow:${T.shadowSm};transition:border-color .18s, box-shadow .18s;min-width:0;}
 .inv-card:hover{border-color:${T.borderHover};}
 .inv-card-hd{background:${T.sectionHd};color:${T.text};padding:${SPACING.md}px ${SPACING.lg}px;font-size:${FONT.xs.size}px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;gap:${SPACING.sm}px;border-bottom:1px solid ${T.border};}
 .inv-card-hd.accent{background:${T.accentBg};color:${T.accent};border-bottom-color:${T.accentBorder};}
@@ -417,12 +417,15 @@ const getCSS = (T) => `
 /* ─── BUTTONS ──────────────────────────────────────────────────────────── */
 .inv-btn{display:inline-flex;align-items:center;gap:${SPACING.xs+2}px;padding:${SPACING.sm}px ${SPACING.lg}px;border-radius:${RADIUS.md}px;font-family:'Barlow Condensed',sans-serif;font-size:${FONT.sm.size+1}px;font-weight:700;cursor:pointer;border:none;white-space:nowrap;letter-spacing:0.5px;transition:all .15s;}
 .inv-btn:disabled{opacity:.5;cursor:not-allowed;}
-.inv-btn-accent{background:${T.accent};color:${T.onAccent};}.inv-btn-accent:hover:not(:disabled){background:${T.accentHover};}
+.inv-btn-accent{background:${T.accent};color:#0f172a;}.inv-btn-accent:hover:not(:disabled){background:${T.accentHover};}
 .inv-btn-blue{background:${T.accentBg};color:${T.accent};border:1px solid ${T.accentBorder};}.inv-btn-blue:hover:not(:disabled){background:${T.accentBg20};}
-.inv-btn-gold{background:${T.accent};color:${T.onAccent};}.inv-btn-gold:hover:not(:disabled){background:${T.accentHover};}
+.inv-btn-gold{background:${T.accent};color:#0f172a;}.inv-btn-gold:hover:not(:disabled){background:${T.accentHover};}
 .inv-btn-out{background:transparent;color:${T.textSub};border:1px solid ${T.border};}.inv-btn-out:hover:not(:disabled){background:${T.cardHover};color:${T.text};border-color:${T.borderHover};}
 .inv-btn-danger{background:${SEMANTIC.danger.bg};color:${DA};border:1px solid ${SEMANTIC.danger.border};}.inv-btn-danger:hover:not(:disabled){background:rgba(225,90,90,0.20);}
 .inv-btn-sm{font-size:${FONT.xs.size+1}px;padding:${SPACING.xs+1}px ${SPACING.md-1}px;}
+.inv-card-hd .inv-btn{color:#0f172a !important;}
+.inv-page-safe{max-width:100%;overflow-x:hidden;}
+.inv-grid-safe{min-width:0;max-width:100%;}
 .inv-rm{background:none;border:none;cursor:pointer;color:${T.textMuted};font-size:18px;padding:0 ${SPACING.xs-1}px;line-height:1;transition:color .15s;}
 .inv-rm:hover{color:${DA};}
 
@@ -5343,7 +5346,7 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
         <span>📎 Documents ({fichiers.length})</span>
         <button
           className="inv-btn inv-btn-sm"
-          style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }}
+          style={{ background:"rgba(255,255,255,0.65)", color:"black", border:`1px solid ${T.border}` }}
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
         >
@@ -5748,10 +5751,10 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   return (
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V9.1</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V9.2</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.15)",color:"white",border:"none"}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
-          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.15)",color:"white",border:"none"}} onClick={genererTout} disabled={saving}>Tout générer</button>
+          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
+          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
         </div>
       </div>
       <div className="inv-card-bd">
@@ -5774,13 +5777,13 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
             <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
           </div>
         </div>
-        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(112px,1fr))",gap:6,paddingBottom:8,marginBottom:8,maxWidth:"100%"}}>
           {MISSION_STEPS_INVEST.map((s, idx) => {
             const p = stepProgress(s.key);
             const active = selected.key === s.key;
             return (
               <button key={s.key} onClick={() => setSelectedStep(s.key)} style={{
-                minWidth:116,padding:"8px 9px",borderRadius:10,cursor:"pointer",
+                minWidth:0,padding:"8px 9px",borderRadius:10,cursor:"pointer",
                 border:`1px solid ${active ? T.accent : T.border}`,
                 background:active ? T.accentBg : T.input,color:active ? T.accent : T.text,
                 textAlign:"left",
@@ -5809,7 +5812,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
               const meta = missionStatusMeta(a.status);
               const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
               return (
-                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px 1fr 112px 122px 112px",gap:7,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff"}}>
+                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(0,1fr) minmax(88px,112px) minmax(96px,122px) minmax(96px,112px)",gap:7,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%"}}>
                   <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.action_title}</div>
@@ -5858,7 +5861,7 @@ function MissionActionsCollaborateursDashboard({ T=THEMES_INV.dark, onNavigate }
     <div className="inv-card" style={{marginBottom:SPACING.xxl-2}}>
       <div className="inv-card-hd" style={{justifyContent:"space-between"}}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Bell} size={13} strokeWidth={2.2}/>Actions automatisées collaborateurs</span>
-        <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.15)",color:"white",border:"none"}} onClick={charger}><Icon as={RefreshCw} size={12}/> Actualiser</button>
+        <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={charger}><Icon as={RefreshCw} size={12}/> Actualiser</button>
       </div>
       <div className="inv-card-bd">
         {error && <div style={{padding:"8px 10px",borderRadius:8,background:"#fff1f2",border:"1px solid #fecdd3",color:"#be123c",fontSize:12}}>⚠ {error}</div>}
@@ -5975,9 +5978,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1100, margin:"0 auto" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24, flexWrap:"wrap" }}>
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onRetour}>← CRM</button>
-        <div style={{ flex:1 }}>
+        <div style={{ flex:"1 1 260px", minWidth:0 }}>
           <div style={{ fontSize:22, fontWeight:800, color:T.text }}>{client.prenom} {client.nom}</div>
           <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>{client.email} {client.telephone ? `· ${client.telephone}` : ""}</div>
         </div>
@@ -5999,9 +6002,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
         }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+      <div className="inv-page-safe" style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
         {/* Infos */}
-        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+        <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
           <div className="inv-card">
             <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
             <div className="inv-card-bd">
@@ -6022,12 +6025,11 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             </div>
           </div>
           <ClientStrategyCard client={client} T={T} onSaved={charger} />
-          <ChecklistDocumentsClientCard client={client} T={T} onSaved={charger} />
           {/* Propositions */}
           <div className="inv-card">
             <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
               <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Biens proposés ({props.length})</span>
-              <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"black", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+              <button className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:"black", border:`1px solid ${T.accentBorder}` }} onClick={() => setShowProp(true)}>＋ Proposer</button>
             </div>
             <div className="inv-card-bd">
               {props.length === 0 ? (
@@ -6044,59 +6046,10 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               ))}
             </div>
           </div>
-          {/* Simulations liées au client */}
-          {onOuvrirSimulation && (
-            <div className="inv-card">
-              <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-                <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={BarChart3} size={13} strokeWidth={2.2}/>Simulations ({simulations.length})</span>
-                <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"none" }}
-                  onClick={() => onOuvrirSimulation({ client_id: id })}>
-                  ＋ Nouvelle simulation
-                </button>
-              </div>
-              <div className="inv-card-bd">
-                {simulations.length === 0 ? (
-                  <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>
-                    Aucune simulation liée
-                  </div>
-                ) : simulations.map(s => {
-                  const k = (() => {
-                    const d = s.donnees;
-                    if (!d?.inputs) return null;
-                    const pN = d.inputs.prixNegocie || 0;
-                    const fn = pN * (d.inputs.tauxNotaire || 0.08);
-                    const total = pN + fn + (d.inputs.honoraires || 0) + (d.inputs.enedis || 0);
-                    const lots = (d.lots || []).filter(l => l.type !== "Sélectionner");
-                    const loyer = lots.reduce((sum, l) => sum + (l.loyer || 0), 0);
-                    return { total, loyer, nbLots: lots.length };
-                  })();
-                  return (
-                    <div key={s.id}
-                      onClick={() => onOuvrirSimulation(s)}
-                      style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer", transition:"background .12s" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "rgba(77,184,255,0.05)"}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                        <div style={{ fontWeight:600, fontSize:13, color:T.text, display:"inline-flex", alignItems:"center", gap:6 }}><Icon as={FileText} size={13} strokeWidth={2.2}/> {s.nom}</div>
-                        <span style={{ fontSize:11, color:"#4db8ff", fontWeight:700 }}>Ouvrir →</span>
-                      </div>
-                      <div style={{ fontSize:11, color:T.textMuted, marginTop:3 }}>
-                        Mise à jour {fmtDate(s.updated_at)} · Par {s.created_by}
-                        {k && k.total > 0 && (
-                          <> · <span style={{ color:T.accent, fontWeight:600 }}>{new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(k.total)} €</span></>
-                        )}
-                        {k && k.nbLots > 0 && <> · {k.nbLots} lot{k.nbLots>1?"s":""}</>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Colonne droite : Documents puis Notes */}
-        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+        <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
           {/* Documents */}
           <DocumentsSection folder={`clients/${id}`} T={T} />
 
@@ -8263,7 +8216,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Clients associés ({props.length})</span>
-        <button className="inv-btn inv-btn-sm" style={{ background:"rgba(255,255,255,0.15)", color:"black", border:"none" }} onClick={() => setShowProp(true)}>＋ Proposer</button>
+        <button className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:"black", border:`1px solid ${T.accentBorder}` }} onClick={() => setShowProp(true)}>＋ Proposer</button>
       </div>
       <div className="inv-card-bd">
         {props.length === 0 ? (
@@ -8284,9 +8237,9 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1420, margin:"0 auto" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24, flexWrap:"wrap" }}>
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={quitterFicheBien}>← Stock de biens</button>
-        <div style={{ flex:1 }}>
+        <div style={{ flex:"1 1 260px", minWidth:0 }}>
           <div style={{ fontSize:22, fontWeight:800, color:T.text }}>{bien.adresse||"Bien sans adresse"}</div>
           <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>
             {bien.reference_interne ? <span style={{color:T.accent,fontWeight:800,marginRight:8}}>{bien.reference_interne}</span> : null}
@@ -8414,7 +8367,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         <ModeVisiteTerrainOnglet bien={bien} profil={profil} T={T} onSaved={charger} />
       ) : (
       <div style={{ display:"grid", gridTemplateColumns:"0.82fr 1.18fr", gap:16, alignItems:"start" }}>
-        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+        <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
           <ClientsAssociesCard />
           <AutoScoreBienCard bien={bien} T={T} />
           <AnalyseRapideBienCard bien={bien} T={T} onSaved={charger} />
