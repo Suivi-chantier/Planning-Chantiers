@@ -4,7 +4,7 @@ import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranc
 import { Icon } from "./ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "./access";
 import { OngletAcces } from "./Admin";
-import { 
+import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
   X, Check, Phone, Calendar, MessageSquare, FileText, Mail, Home,
@@ -5577,7 +5577,15 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         {/* Infos */}
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-          <ClientScoreCard client={client} propositions={props} biens={biens} T={T} />
+          <div className="inv-card">
+            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
+            <div className="inv-card-bd">
+              <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
+              <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : T.text }}>{fmtDate(client.date_prochaine_action)}</span></div>
+              {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
+            </div>
+          </div>
+
           <div className="inv-card">
             <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
             <div className="inv-card-bd">
@@ -5588,15 +5596,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
           </div>
           <ClientStrategyCard client={client} T={T} onSaved={charger} />
           <ChecklistDocumentsClientCard client={client} T={T} onSaved={charger} />
-          <MatchingBiensClientCard client={client} biens={biens} propositions={props} T={T} onProposer={proposerBienDirect} />
-          <div className="inv-card">
-            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
-            <div className="inv-card-bd">
-              <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
-              <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : T.text }}>{fmtDate(client.date_prochaine_action)}</span></div>
-              {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
-            </div>
-          </div>
           {/* Propositions */}
           <div className="inv-card">
             <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
