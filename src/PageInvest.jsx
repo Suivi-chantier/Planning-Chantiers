@@ -4706,7 +4706,14 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     const { error } = await supabase
       .from(GOOGLE_DRIVE_LINKS_TABLE)
       .upsert(rows, { onConflict:"folder,file_id" });
-    if (error) { setErr(error.message); return; }
+    if (error) {
+      const msg = String(error.message || "");
+      setErr(msg.includes("row-level security")
+        ? "Supabase bloque l’enregistrement Drive (RLS). Lancez le correctif SQL invest_drive_links_rls_fix_v2.sql, puis réessayez."
+        : msg
+      );
+      return;
+    }
     await charger();
   };
 
@@ -4820,15 +4827,36 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     const current = driveExplorerPath[driveExplorerPath.length - 1] || { id:"root", name:"Mon Drive" };
     if (!current?.id) return;
     setWorking(true);
-    setStatus("Liaison du dossier Drive…");
+    setStatus("Sauvegarde du dossier Drive sur cette fiche…");
     try {
       await enregistrerDriveDocs([{
         id: current.id,
         name: current.name || "Dossier Google Drive",
         mimeType: GOOGLE_DRIVE_FOLDER_MIME,
         webViewLink: getDriveUrlForDoc(current.id, GOOGLE_DRIVE_FOLDER_MIME),
-      }], "google_drive_explorer_folder");
-      setStatus("Dossier Drive lié. Vous pouvez maintenant l’ouvrir depuis la fiche et lier ses fichiers.");
+      }], "google_drive_explorer_folder_saved_to_record");
+      setStatus("Dossier Drive sauvegardé sur cette fiche. Il restera visible après rechargement.");
+      window.setTimeout(() => setStatus(""), 4500);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const lierDossierDepuisItem = async (item, source = "google_drive_explorer_folder_item") => {
+    const folderId = getDriveEffectiveId(item);
+    const folderName = item?.name || "Dossier Google Drive";
+    if (!folderId) return;
+    setWorking(true);
+    setStatus("Sauvegarde du dossier Drive sur cette fiche…");
+    try {
+      await enregistrerDriveDocs([{
+        id: folderId,
+        name: folderName,
+        mimeType: GOOGLE_DRIVE_FOLDER_MIME,
+        webViewLink: item?.webViewLink || getDriveUrlForDoc(folderId, GOOGLE_DRIVE_FOLDER_MIME),
+        iconLink: item?.iconLink || null,
+      }], source);
+      setStatus("Dossier Drive sauvegardé sur cette fiche.");
       window.setTimeout(() => setStatus(""), 3500);
     } finally {
       setWorking(false);
@@ -5078,8 +5106,12 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
           <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? (isShortcut ? "Raccourci dossier" : "Dossier") : (isShortcut ? "Raccourci fichier" : (file.mimeType || "Fichier"))}{file.size ? ` · ${fmtSize(Number(file.size))}` : ""}</div>
         </div>
         <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(file.webViewLink || getDriveUrlForDoc(effectiveId || file.id, effectiveMimeType || file.mimeType), "_blank")}>Ouvrir</button>
-        {isFolder ? null : (
-          <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked} onClick={() => enregistrerDriveDocs([file], "google_drive_folder_content")}>
+        {isFolder ? (
+          <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked || working} onClick={() => lierDossierDepuisItem(file, "google_drive_subfolder_from_linked_folder")}>
+            {alreadyLinked ? "Dossier lié" : "Lier dossier"}
+          </button>
+        ) : (
+          <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked || working} onClick={() => enregistrerDriveDocs([file], "google_drive_folder_content")}>
             {alreadyLinked ? "Déjà lié" : "Lier"}
           </button>
         )}
@@ -5131,7 +5163,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
             </div>
             <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"flex-end" }}>
               <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={() => openDriveExplorerAt(driveExplorerFolderId, driveExplorerPath)} disabled={driveExplorerLoading}>Actualiser</button>
-              <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={lierDossierExplorateur} disabled={working || driveExplorerFolderId === "root"}>Lier ce dossier</button>
+              <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={lierDossierExplorateur} disabled={working || driveExplorerFolderId === "root"}>Lier ce dossier à la fiche</button>
               <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" onClick={lierTousLesFichiersExplorateur} disabled={working || driveExplorerLoading}>Lier tous les fichiers</button>
               <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={() => setDriveExplorerOpen(false)}>Masquer</button>
             </div>
@@ -5156,11 +5188,16 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
                       <div style={{ color:T.textSub, fontSize:10 }}>{isFolder ? (isShortcut ? "Raccourci dossier" : "Dossier") : (isShortcut ? "Raccourci fichier" : (item.mimeType || "Fichier"))}{item.size ? ` · ${fmtSize(Number(item.size))}` : ""}</div>
                     </div>
                     {isFolder ? (
-                      <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => ouvrirDossierExplorateur(item)}>Ouvrir</button>
+                      <>
+                        <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => ouvrirDossierExplorateur(item)}>Ouvrir</button>
+                        <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked || working} onClick={() => lierDossierDepuisItem(item, "google_drive_explorer_folder_item_saved_to_record")}>
+                          {alreadyLinked ? "Dossier lié" : "Lier dossier"}
+                        </button>
+                      </>
                     ) : (
                       <>
                         <button type="button" className="inv-btn inv-btn-sm" style={{ background:T.card, color:T.text, border:`1px solid ${T.border}` }} onClick={() => window.open(item.webViewLink || getDriveUrlForDoc(effectiveId || item.id, effectiveMimeType || item.mimeType), "_blank")}>Voir</button>
-                        <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked} onClick={() => enregistrerDriveDocs([item], "google_drive_explorer_file")}>{alreadyLinked ? "Déjà lié" : "Lier"}</button>
+                        <button type="button" className="inv-btn inv-btn-sm inv-btn-blue" disabled={alreadyLinked || working} onClick={() => enregistrerDriveDocs([item], "google_drive_explorer_file")}>{alreadyLinked ? "Déjà lié" : "Lier"}</button>
                       </>
                     )}
                   </div>
@@ -5175,7 +5212,7 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
         <div style={{ color:T.textSub, fontSize:13, padding:"8px 0" }}>Chargement des liens Drive…</div>
       ) : links.length === 0 ? (
         <div style={{ color:T.textMuted, fontSize:13, padding:"8px 0", fontStyle:"italic" }}>
-          Aucun document Google Drive lié. Cliquez sur <strong style={{ color:T.text }}>Explorer Google Drive</strong>, ouvrez le dossier client souhaité, puis liez ce dossier ou uniquement ses fichiers.
+          Aucun document Google Drive lié. Cliquez sur <strong style={{ color:T.text }}>Explorer Google Drive</strong>, ouvrez ou sélectionnez le dossier client souhaité, puis cliquez sur <strong style={{ color:T.text }}>Lier dossier</strong> ou <strong style={{ color:T.text }}>Lier ce dossier à la fiche</strong>. Le dossier restera sauvegardé sur cette fiche.
         </div>
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
