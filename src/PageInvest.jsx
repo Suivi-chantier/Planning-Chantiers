@@ -4088,6 +4088,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
           </div>
 
           <ActionsPrioritairesDashboard clients={clientsDash} biens={biensDash} planning={planningDash} T={T} onNavigate={go} />
+          <MissionActionsCollaborateursDashboard T={T} onNavigate={go} />
           <OpportunitesChaudesDashboard biens={biensDash} T={T} onNavigate={go} />
           <DossiersRelanceDashboard clients={clientsDash} biens={biensDash} propositions={propsDash} T={T} onNavigate={go} />
 
@@ -5464,6 +5465,430 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
   );
 }
 
+// ─── PARCOURS MISSION / AUTOMATISATIONS CLIENTS ─────────────────────────────
+const MISSION_COLLABORATEURS = [
+  "Matthieu", "Tom", "Quentin", "Camille", "Loris", "François",
+  "Client", "Courtier / Banque", "Notaire", "Agence", "Enedis", "Gestion locative",
+];
+const MISSION_STATUTS_ACTION = [
+  { key:"a_faire", label:"À faire", color:"#f59e0b" },
+  { key:"en_cours", label:"En cours", color:"#2563eb" },
+  { key:"fait", label:"Fait", color:"#16a34a" },
+  { key:"bloque", label:"Bloqué", color:"#dc2626" },
+  { key:"non_concerne", label:"N/C", color:"#64748b" },
+];
+const missionStatusMeta = (status) => MISSION_STATUTS_ACTION.find(s => s.key === status) || MISSION_STATUTS_ACTION[0];
+const missionActionDone = (a) => ["fait", "non_concerne"].includes(a?.status);
+const missionAddDaysIso = (days=2) => {
+  const d = new Date();
+  d.setDate(d.getDate() + Number(days || 0));
+  return d.toISOString().slice(0,10);
+};
+const MISSION_STEPS_INVEST = [
+  {
+    key:"signature", label:"Signature", crmHints:["signature contrat", "signature"], owner:"Camille",
+    objectif:"Transformer le prospect en client opérationnel et créer une base documentaire propre.",
+    actions:[
+      { title:"Archiver le contrat signé dans le Drive", owner:"Camille", due:1, drive:true, relance:"J+1 si contrat absent du Drive" },
+      { title:"Envoyer la facture d'honoraires", owner:"Camille", due:1, relance:"J+2 si facture non envoyée" },
+      { title:"Demander la CNI", owner:"Camille", due:2, drive:true, relance:"J+2 puis J+5 si non reçue" },
+      { title:"Demander la fiche patrimoniale", owner:"Camille", due:2, drive:true, relance:"J+2 puis J+5 si non reçue" },
+      { title:"Demander les justificatifs financiers", owner:"Camille", due:2, drive:true, relance:"J+2 puis J+5 si non reçus" },
+      { title:"Classer les documents dans le Drive", owner:"Camille", due:3, drive:true, relance:"Alerte si documents reçus non classés" },
+    ],
+  },
+  {
+    key:"lancement", label:"Lancement mission", crmHints:["envoi des documents", "stratégie", "définition"], owner:"Matthieu",
+    objectif:"Valider que le dossier est complet et que le cahier des charges de recherche est exploitable.",
+    actions:[
+      { title:"Vérifier la complétude du dossier", owner:"Camille", due:2, relance:"Alerte si pièce essentielle manquante" },
+      { title:"Vérifier la réception des fonds", owner:"Camille", due:2, relance:"J+3 si règlement absent" },
+      { title:"Valider le cahier des charges de recherche", owner:"Matthieu", due:3, relance:"Relance conseiller si stratégie non validée" },
+      { title:"Lancer officiellement les recherches", owner:"Tom", due:4, relance:"Alerte si aucune action recherche après lancement" },
+    ],
+  },
+  {
+    key:"recherche", label:"Recherche & suivi", crmHints:["recherche", "visites", "analyse"], owner:"Tom",
+    objectif:"Rendre visible le travail de recherche et maintenir un suivi régulier du client.",
+    actions:[
+      { title:"Mettre en place les alertes immobilières", owner:"Tom", due:1, relance:"J+2 si aucune alerte créée" },
+      { title:"Créer les actions de prospection", owner:"Tom", due:2, relance:"Alerte si aucune prospection active" },
+      { title:"Suivre les biens identifiés", owner:"Tom", due:7, relance:"Hebdomadaire" },
+      { title:"Suivre les visites réalisées", owner:"Tom", due:7, relance:"Hebdomadaire" },
+      { title:"Suivre les offres effectuées", owner:"Matthieu", due:7, relance:"Hebdomadaire" },
+      { title:"Rédiger le compte-rendu des actions menées", owner:"Tom", due:7, relance:"Chaque semaine si aucun bien présenté" },
+    ],
+  },
+  {
+    key:"presentation_bien", label:"Présentation bien", crmHints:["présentation", "projets"], owner:"Matthieu",
+    objectif:"Présenter une opportunité claire au client avec rentabilité, risques et contraintes.",
+    actions:[
+      { title:"Réaliser l'analyse de rentabilité", owner:"Matthieu", due:1, relance:"Avant envoi dossier client" },
+      { title:"Analyser les risques et contraintes", owner:"Matthieu", due:1, relance:"Avant décision client" },
+      { title:"Envoyer le dossier de présentation", owner:"Matthieu", due:1, drive:true, relance:"Relance client J+2" },
+      { title:"Réaliser les plans iMapper si client intéressé", owner:"François", due:3, drive:true, relance:"J+3 si plans non réalisés" },
+      { title:"Réaliser les plans HomeByMe si nécessaire", owner:"François", due:4, drive:true, relance:"J+4 si plans non réalisés" },
+      { title:"Obtenir un devis travaux réel", owner:"François", due:5, drive:true, relance:"Alerte si devis non reçu" },
+      { title:"Valider la stratégie du projet", owner:"Matthieu", due:5, relance:"Avant offre / compromis" },
+      { title:"Planifier une visite client sur place si nécessaire", owner:"Tom", due:3, relance:"J+3 si visite à organiser" },
+    ],
+  },
+  {
+    key:"acquisition", label:"Acquisition", crmHints:["offre", "compromis"], owner:"Matthieu",
+    objectif:"Sécuriser le passage offre / compromis et anticiper travaux et gestion.",
+    actions:[
+      { title:"Suivre la signature du compromis", owner:"Matthieu", due:3, relance:"J+3 si compromis non signé" },
+      { title:"Archiver le compromis dans le Drive", owner:"Camille", due:1, drive:true, relance:"Dès réception du compromis" },
+      { title:"Vérifier les conditions suspensives", owner:"Matthieu", due:2, relance:"Alerte avant échéance" },
+      { title:"Informer François du futur chantier à prévoir", owner:"François", due:2, relance:"Alerte planning travaux" },
+      { title:"Informer Loris du futur chantier et de la relation commerciale rénovation", owner:"Loris", due:2, relance:"Alerte passation rénovation" },
+      { title:"Informer la gestion locative à anticiper", owner:"Gestion locative", due:3, relance:"Alerte mise en location" },
+    ],
+  },
+  {
+    key:"financement", label:"Financement", crmHints:["dossier bancaire", "financement"], owner:"Camille",
+    objectif:"Constituer, transmettre et relancer le dossier bancaire jusqu'à obtention du financement.",
+    actions:[
+      { title:"Mettre à jour les informations financières dans l'application", owner:"Camille", due:1, relance:"Avant transmission bancaire" },
+      { title:"Constituer le dossier bancaire", owner:"Camille", due:3, drive:true, relance:"J+3 si incomplet" },
+      { title:"Transmettre le dossier au client / courtier / banque", owner:"Camille", due:4, relance:"J+5 si aucun retour" },
+      { title:"Suivre l'avancement du financement", owner:"Camille", due:7, relance:"J+5 / J+10 / J+15" },
+      { title:"Relancer les interlocuteurs si nécessaire", owner:"Camille", due:10, relance:"Selon statut bancaire" },
+    ],
+  },
+  {
+    key:"urbanisme", label:"Urbanisme & administratif", crmHints:["urbanisme", "conditions suspensives", "d'urbanisme"], owner:"François",
+    objectif:"Cadrer les demandes administratives et suivre l'instruction jusqu'à accord.",
+    actions:[
+      { title:"Définir les Velux : dimensions et emplacements", owner:"François", due:3, relance:"Avant dépôt urbanisme" },
+      { title:"Définir le stationnement / dérogation", owner:"François", due:3, relance:"Avant dépôt urbanisme" },
+      { title:"Définir les modifications de menuiseries", owner:"François", due:3, relance:"Avant dépôt urbanisme" },
+      { title:"Vérifier le changement de destination", owner:"François", due:3, relance:"Avant stratégie projet" },
+      { title:"Calculer surface de plancher et emprise au sol créées", owner:"François", due:4, relance:"Avant dépôt urbanisme" },
+      { title:"Créer le dossier et les plans d'urbanisme", owner:"François", due:7, drive:true, relance:"J+7 si plans absents" },
+      { title:"Déposer la demande d'urbanisme", owner:"Camille", due:8, drive:true, relance:"J+8 si non déposé" },
+      { title:"Suivre l'instruction", owner:"Camille", due:15, relance:"Relance mairie selon délai" },
+      { title:"Archiver l'accord d'urbanisme", owner:"Camille", due:30, drive:true, relance:"Dès réception accord" },
+    ],
+  },
+  {
+    key:"enedis", label:"Raccordement Enedis", crmHints:["enedis", "raccordement"], owner:"Camille",
+    objectif:"Piloter le mandat, la demande de raccordement et le devis Enedis.",
+    actions:[
+      { title:"Envoyer le mandat de représentation au client", owner:"Camille", due:1, drive:true, relance:"J+3 si mandat non signé" },
+      { title:"Suivre la signature du mandat", owner:"Camille", due:3, relance:"J+3 si mandat absent" },
+      { title:"Déposer la demande de raccordement", owner:"Camille", due:4, relance:"J+7 si demande non déposée" },
+      { title:"Planifier le RDV Enedis", owner:"Camille", due:10, relance:"J+10 si pas de RDV" },
+      { title:"Faire valider le devis Enedis", owner:"Matthieu", due:15, drive:true, relance:"Alerte devis à valider" },
+      { title:"Préparer les plans techniques Enedis", owner:"François", due:15, drive:true, relance:"Après validation devis" },
+    ],
+  },
+  {
+    key:"signature_definitive", label:"Signature définitive", crmHints:["obtention du financement", "signature notaire", "notaire"], owner:"Matthieu",
+    objectif:"Finaliser l'acquisition et sécuriser la facturation des honoraires.",
+    actions:[
+      { title:"Suivre la signature chez le notaire", owner:"Matthieu", due:2, relance:"Avant date acte" },
+      { title:"Archiver l'acte / attestation de propriété", owner:"Camille", due:1, drive:true, relance:"Dès réception acte" },
+      { title:"Envoyer la facture d'honoraires", owner:"Camille", due:1, relance:"Dès signature définitive" },
+      { title:"Vérifier l'encaissement des honoraires", owner:"Camille", due:5, relance:"J+5 si non réglé" },
+    ],
+  },
+  {
+    key:"travaux", label:"Travaux", crmHints:["réalisation", "travaux"], owner:"Loris",
+    objectif:"Passer proprement le relais à Profero Rénovation et lancer le chantier.",
+    actions:[
+      { title:"Envoyer la facture d'acompte travaux", owner:"Camille", due:1, relance:"Avant démarrage chantier" },
+      { title:"Transmettre le dossier complet à Loris", owner:"Loris", due:2, drive:true, relance:"Avant réunion passation" },
+      { title:"Organiser la réunion de passation", owner:"Loris", due:3, relance:"J+3 si réunion non calée" },
+      { title:"Archiver le compte-rendu de passation", owner:"Loris", due:4, drive:true, relance:"Après réunion" },
+      { title:"Basculer le suivi travaux vers Loris", owner:"Loris", due:4, relance:"Après passation validée" },
+    ],
+  },
+  {
+    key:"apres_travaux", label:"Après travaux", crmHints:["terminé", "après travaux"], owner:"Matthieu",
+    objectif:"Fidéliser le client, ouvrir un nouveau projet ou déclencher du parrainage.",
+    actions:[
+      { title:"Programmer le message de suivi à 2 mois", owner:"Tom", due:60, relance:"J+60 après fin travaux" },
+      { title:"Demander le retour d'expérience client", owner:"Tom", due:60, relance:"Après livraison" },
+      { title:"Proposer un nouveau projet", owner:"Matthieu", due:65, relance:"Selon satisfaction client" },
+      { title:"Proposer le parrainage", owner:"Tom", due:65, relance:"Après retour positif" },
+      { title:"Identifier opportunité gestion / revente / structuration", owner:"Matthieu", due:70, relance:"Revue post-projet" },
+    ],
+  },
+];
+function missionDetectStepKey(client = {}) {
+  const etape = String(client?.etape || "").toLowerCase();
+  const statut = String(client?.statut || "").toLowerCase();
+  const found = MISSION_STEPS_INVEST.find(s => (s.crmHints || []).some(h => etape.includes(String(h).toLowerCase())));
+  if (found) return found.key;
+  if (statut.includes("termin")) return "apres_travaux";
+  return "signature";
+}
+function missionStepIndex(key) {
+  return Math.max(0, MISSION_STEPS_INVEST.findIndex(s => s.key === key));
+}
+function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated }) {
+  const [actions, setActions] = useState([]);
+  const [selectedStep, setSelectedStep] = useState(missionDetectStepKey(client));
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const today = new Date().toISOString().slice(0,10);
+  const charger = useCallback(async () => {
+    if (!client?.id) return;
+    setLoading(true); setError("");
+    const { data, error } = await supabase
+      .from("invest_mission_actions")
+      .select("*")
+      .eq("client_id", client.id)
+      .order("step_index", { ascending:true })
+      .order("sort_order", { ascending:true })
+      .order("due_date", { ascending:true });
+    if (error) {
+      console.warn("invest_mission_actions:", error);
+      setError(error.code === "42P01" ? "Table invest_mission_actions absente : lance la migration SQL Parcours Mission." : error.message);
+      setActions([]);
+    } else {
+      setActions(data || []);
+    }
+    setLoading(false);
+  }, [client?.id]);
+  useEffect(() => { setSelectedStep(missionDetectStepKey(client)); }, [client?.id, client?.etape, client?.statut]);
+  useEffect(() => { charger(); }, [charger]);
+
+  const selected = MISSION_STEPS_INVEST.find(s => s.key === selectedStep) || MISSION_STEPS_INVEST[0];
+  const stats = useMemo(() => {
+    const total = actions.length;
+    const done = actions.filter(missionActionDone).length;
+    const late = actions.filter(a => !missionActionDone(a) && a.due_date && a.due_date < today).length;
+    const weekLimit = missionAddDaysIso(7);
+    const week = actions.filter(a => !missionActionDone(a) && a.due_date && a.due_date >= today && a.due_date <= weekLimit).length;
+    const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0] || null;
+    return { total, done, late, week, progress:total ? Math.round(done/total*100) : 0, next };
+  }, [actions, today]);
+  const stepProgress = (key) => {
+    const list = actions.filter(a => a.step_key === key);
+    return { total:list.length, done:list.filter(missionActionDone).length, pct:list.length ? Math.round(list.filter(missionActionDone).length/list.length*100) : 0 };
+  };
+  const actionsStep = actions.filter(a => a.step_key === selected.key);
+
+  const genererActions = async (stepKey = selected.key) => {
+    const step = MISSION_STEPS_INVEST.find(s => s.key === stepKey);
+    if (!step || !client?.id) return;
+    setSaving(true); setError("");
+    const existing = new Set(actions.filter(a => a.step_key === step.key).map(a => a.action_title));
+    const payload = step.actions
+      .filter(a => !existing.has(a.title))
+      .map((a, idx) => ({
+        client_id: client.id,
+        step_key: step.key,
+        step_label: step.label,
+        step_index: missionStepIndex(step.key) + 1,
+        sort_order: idx + 1,
+        action_title: a.title,
+        responsable: a.owner || step.owner || null,
+        status: "a_faire",
+        due_date: missionAddDaysIso(a.due || 2),
+        relance_rule: a.relance || null,
+        document_drive_attendu: !!a.drive,
+        drive_folder: `clients/${client.id}`,
+        created_by: profil?.email || profil?.nom || null,
+        metadata: { objectif: step.objectif || "" },
+      }));
+    if (!payload.length) { setSaving(false); return; }
+    const { error } = await supabase.from("invest_mission_actions").insert(payload);
+    setSaving(false);
+    if (error) { setError(error.message); return; }
+    charger();
+  };
+  const genererTout = async () => {
+    setSaving(true); setError("");
+    const existingKeys = new Set(actions.map(a => `${a.step_key}|||${a.action_title}`));
+    const payload = [];
+    MISSION_STEPS_INVEST.forEach(step => {
+      step.actions.forEach((a, idx) => {
+        const k = `${step.key}|||${a.title}`;
+        if (!existingKeys.has(k)) payload.push({
+          client_id: client.id,
+          step_key: step.key,
+          step_label: step.label,
+          step_index: missionStepIndex(step.key) + 1,
+          sort_order: idx + 1,
+          action_title: a.title,
+          responsable: a.owner || step.owner || null,
+          status: "a_faire",
+          due_date: missionAddDaysIso(a.due || 2),
+          relance_rule: a.relance || null,
+          document_drive_attendu: !!a.drive,
+          drive_folder: `clients/${client.id}`,
+          created_by: profil?.email || profil?.nom || null,
+          metadata: { objectif: step.objectif || "" },
+        });
+      });
+    });
+    if (!payload.length) { setSaving(false); return; }
+    const { error } = await supabase.from("invest_mission_actions").insert(payload);
+    setSaving(false);
+    if (error) { setError(error.message); return; }
+    charger();
+  };
+  const updateAction = async (action, patch) => {
+    const optimistic = { ...action, ...patch, completed_at: patch.status === "fait" ? new Date().toISOString() : action.completed_at };
+    setActions(prev => prev.map(a => a.id === action.id ? optimistic : a));
+    const { error } = await supabase.from("invest_mission_actions").update({ ...patch, completed_at: patch.status === "fait" ? new Date().toISOString() : action.completed_at, updated_at:new Date().toISOString() }).eq("id", action.id);
+    if (error) { setError(error.message); charger(); }
+  };
+  const syncNextAction = async () => {
+    const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
+    if (!next) return;
+    const { error } = await supabase.from("invest_clients").update({ prochaine_action: next.action_title, date_prochaine_action: next.due_date || null }).eq("id", client.id);
+    if (error) setError(error.message); else onClientUpdated?.();
+  };
+
+  return (
+    <div className="inv-card">
+      <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V9.1</span></span>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.15)",color:"white",border:"none"}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
+          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.15)",color:"white",border:"none"}} onClick={genererTout} disabled={saving}>Tout générer</button>
+        </div>
+      </div>
+      <div className="inv-card-bd">
+        {error && <div style={{marginBottom:10,padding:"8px 10px",borderRadius:8,background:"#fff1f2",border:"1px solid #fecdd3",color:"#be123c",fontSize:12}}>⚠ {error}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+          {[ ["Progression", `${stats.progress}%`], ["Actions", `${stats.done}/${stats.total}`], ["En retard", stats.late], ["Cette semaine", stats.week] ].map(([l,v]) => (
+            <div key={l} style={{border:`1px solid ${T.border}`,background:T.input,borderRadius:10,padding:"8px 10px"}}>
+              <div style={{fontSize:10,color:T.textMuted,fontWeight:800,textTransform:"uppercase",letterSpacing:.8}}>{l}</div>
+              <div style={{fontSize:16,color:l==="En retard" && Number(v)>0 ? "#dc2626" : T.text,fontWeight:900,marginTop:2}}>{v}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1.1fr .9fr",gap:10,marginBottom:12}}>
+          <div style={{padding:"9px 10px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:10,color:T.textMuted,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,marginBottom:3}}>Prochaine action mission</div>
+            <div style={{fontSize:13,color:T.text,fontWeight:800}}>{stats.next?.action_title || "Aucune action en attente"}</div>
+            {stats.next && <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{stats.next.responsable || "—"} · échéance {stats.next.due_date ? new Date(stats.next.due_date).toLocaleDateString("fr-FR") : "—"}</div>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexWrap:"wrap",padding:"9px 10px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb"}}>
+            <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:8}}>
+          {MISSION_STEPS_INVEST.map((s, idx) => {
+            const p = stepProgress(s.key);
+            const active = selected.key === s.key;
+            return (
+              <button key={s.key} onClick={() => setSelectedStep(s.key)} style={{
+                minWidth:116,padding:"8px 9px",borderRadius:10,cursor:"pointer",
+                border:`1px solid ${active ? T.accent : T.border}`,
+                background:active ? T.accentBg : T.input,color:active ? T.accent : T.text,
+                textAlign:"left",
+              }}>
+                <div style={{fontSize:10,fontWeight:900,opacity:.75}}>#{idx+1}</div>
+                <div style={{fontSize:11,fontWeight:900,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.label}</div>
+                <div style={{height:4,borderRadius:999,background:"rgba(0,0,0,.08)",overflow:"hidden",marginTop:6}}><div style={{height:"100%",width:`${p.pct}%`,background:active ? T.accent : "#16a34a"}}/></div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{padding:"9px 11px",borderRadius:10,background:T.input,border:`1px solid ${T.border}`,marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:900,color:T.text}}>{selected.label}</div>
+              <div style={{fontSize:11,color:T.textMuted,lineHeight:1.5,marginTop:2}}>{selected.objectif}</div>
+            </div>
+            <span style={{fontSize:11,fontWeight:900,color:T.accent,background:T.accentBg,border:`1px solid ${T.accent}33`,borderRadius:99,padding:"3px 8px",whiteSpace:"nowrap"}}>{actionsStep.filter(missionActionDone).length}/{actionsStep.length || selected.actions.length}</span>
+          </div>
+        </div>
+        {loading ? <div style={{padding:16,textAlign:"center",color:T.textMuted}}>Chargement du parcours…</div> : actionsStep.length === 0 ? (
+          <div style={{padding:14,textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:10,color:T.textMuted,fontSize:13}}>Aucune action générée pour cette étape. Clique sur “Générer étape”.</div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:420,overflowY:"auto"}}>
+            {actionsStep.map(a => {
+              const meta = missionStatusMeta(a.status);
+              const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
+              return (
+                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px 1fr 112px 122px 112px",gap:7,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff"}}>
+                  <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.action_title}</div>
+                    <div style={{fontSize:10,color:T.textMuted,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
+                      {a.document_drive_attendu && <span style={{color:T.accent,fontWeight:800}}>📁 Drive</span>}
+                    </div>
+                  </div>
+                  <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"5px 6px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
+                  <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
+                  <input className="inv-inp" type="date" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MissionActionsCollaborateursDashboard({ T=THEMES_INV.dark, onNavigate }) {
+  const [actions, setActions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const today = new Date().toISOString().slice(0,10);
+  const charger = useCallback(async () => {
+    setLoading(true); setError("");
+    const { data, error } = await supabase
+      .from("invest_mission_actions")
+      .select("*, client:invest_clients(id,nom,prenom,statut,etape)")
+      .in("status", ["a_faire", "en_cours", "bloque"])
+      .order("due_date", { ascending:true, nullsFirst:false })
+      .limit(80);
+    if (error) {
+      if (error.code !== "42P01") setError(error.message);
+      setActions([]);
+    } else setActions(data || []);
+    setLoading(false);
+  }, []);
+  useEffect(() => { charger(); }, [charger]);
+  const grouped = MISSION_COLLABORATEURS.reduce((acc, name) => ({ ...acc, [name]: actions.filter(a => (a.responsable || "") === name) }), {});
+  const late = actions.filter(a => a.due_date && a.due_date < today).length;
+  if (!loading && !actions.length && !error) return null;
+  return (
+    <div className="inv-card" style={{marginBottom:SPACING.xxl-2}}>
+      <div className="inv-card-hd" style={{justifyContent:"space-between"}}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Bell} size={13} strokeWidth={2.2}/>Actions automatisées collaborateurs</span>
+        <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.15)",color:"white",border:"none"}} onClick={charger}><Icon as={RefreshCw} size={12}/> Actualiser</button>
+      </div>
+      <div className="inv-card-bd">
+        {error && <div style={{padding:"8px 10px",borderRadius:8,background:"#fff1f2",border:"1px solid #fecdd3",color:"#be123c",fontSize:12}}>⚠ {error}</div>}
+        {loading ? <div style={{padding:14,textAlign:"center",color:T.textMuted}}>Chargement…</div> : (
+          <>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8,marginBottom:12}}>
+              <div style={{border:`1px solid ${T.border}`,background:T.input,borderRadius:10,padding:"9px 11px"}}><div style={{fontSize:10,color:T.textMuted,fontWeight:800,textTransform:"uppercase"}}>Actions ouvertes</div><div style={{fontSize:18,fontWeight:900,color:T.text}}>{actions.length}</div></div>
+              <div style={{border:`1px solid ${late ? "#fecdd3" : T.border}`,background:late ? "#fff1f2" : T.input,borderRadius:10,padding:"9px 11px"}}><div style={{fontSize:10,color:T.textMuted,fontWeight:800,textTransform:"uppercase"}}>En retard</div><div style={{fontSize:18,fontWeight:900,color:late ? "#dc2626" : T.text}}>{late}</div></div>
+              <div style={{border:`1px solid ${T.border}`,background:T.input,borderRadius:10,padding:"9px 11px"}}><div style={{fontSize:10,color:T.textMuted,fontWeight:800,textTransform:"uppercase"}}>Bloquées</div><div style={{fontSize:18,fontWeight:900,color:"#dc2626"}}>{actions.filter(a=>a.status==="bloque").length}</div></div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:8}}>
+              {Object.entries(grouped).filter(([,list]) => list.length).slice(0,8).map(([owner,list]) => (
+                <div key={owner} style={{border:`1px solid ${T.border}`,background:"#fff",borderRadius:10,padding:"9px 10px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:6}}><div style={{fontSize:13,fontWeight:900,color:T.text}}>{owner}</div><span style={{fontSize:11,fontWeight:900,color:T.accent,background:T.accentBg,borderRadius:99,padding:"2px 7px"}}>{list.length}</span></div>
+                  {list.slice(0,4).map(a => (
+                    <div key={a.id} style={{padding:"6px 0",borderTop:`1px solid ${T.border}`}}>
+                      <div style={{fontSize:11,fontWeight:800,color:a.due_date && a.due_date < today ? "#dc2626" : T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.action_title}</div>
+                      <div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client"} · {a.step_label} · {a.due_date ? new Date(a.due_date).toLocaleDateString("fr-FR") : "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
@@ -5585,6 +6010,8 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
             </div>
           </div>
+
+          <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} />
 
           <div className="inv-card">
             <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
