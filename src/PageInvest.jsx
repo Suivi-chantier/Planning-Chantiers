@@ -3604,30 +3604,6 @@ function DashboardFinancier({ profil, T=THEMES_INV.dark }) {
   }, []);
 
   useEffect(() => { charger(); }, [charger]);
-  useEffect(() => {
-    let alive = true;
-    if (!isConfigured) {
-      setGoogleReady(false);
-      setGoogleLoading(false);
-      return () => { alive = false; };
-    }
-    setGoogleLoading(true);
-    ensureGoogleDriveLibrariesLoaded()
-      .then(() => {
-        if (!alive) return;
-        setGoogleReady(true);
-        setGoogleLoading(false);
-        setErr(prev => prev && prev.includes("Google Drive") ? "" : prev);
-      })
-      .catch((e) => {
-        if (!alive) return;
-        setGoogleReady(false);
-        setGoogleLoading(false);
-        setErr(e?.message || "Impossible de préparer Google Drive");
-      });
-    return () => { alive = false; };
-  }, [isConfigured]);
-
 
   const maxPerf = 100;
   const maxBusiness = Math.max(1, stats?.caPipelineBrut || 0, stats?.montantOffresCours || 0, stats?.budgetClientsActifs || 0);
@@ -4503,29 +4479,86 @@ function getGoogleDriveConfig() {
   };
 }
 
-function loadExternalScriptOnce(src, id) {
-  return new Promise((resolve, reject) => {
-    if (typeof window === "undefined") return reject(new Error("Navigateur indisponible"));
-    if (id && document.getElementById(id)) return resolve();
-    if ([...document.scripts].some(s => s.src === src)) return resolve();
+const GOOGLE_DRIVE_SCRIPT_PROMISES = {};
+let GOOGLE_DRIVE_LIBRARIES_PROMISE = null;
+
+function loadExternalScriptOnce(src, id, isReady) {
+  if (typeof window === "undefined") return Promise.reject(new Error("Navigateur indisponible"));
+  if (typeof isReady === "function" && isReady()) return Promise.resolve();
+  const key = id || src;
+  if (GOOGLE_DRIVE_SCRIPT_PROMISES[key]) return GOOGLE_DRIVE_SCRIPT_PROMISES[key];
+
+  GOOGLE_DRIVE_SCRIPT_PROMISES[key] = new Promise((resolve, reject) => {
+    const existing = (id && document.getElementById(id)) || [...document.scripts].find(s => s.src === src);
+    const finish = () => {
+      const start = Date.now();
+      const check = () => {
+        if (!isReady || isReady()) return resolve();
+        if (Date.now() - start > 10000) return reject(new Error(`Chargement Google incomplet : ${src}`));
+        window.setTimeout(check, 80);
+      };
+      check();
+    };
+
+    if (existing) {
+      existing.addEventListener?.("load", finish, { once:true });
+      existing.addEventListener?.("error", () => reject(new Error(`Impossible de charger ${src}`)), { once:true });
+      finish();
+      return;
+    }
+
     const script = document.createElement("script");
     if (id) script.id = id;
     script.src = src;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve();
+    script.onload = finish;
     script.onerror = () => reject(new Error(`Impossible de charger ${src}`));
     document.head.appendChild(script);
+  }).catch((e) => {
+    delete GOOGLE_DRIVE_SCRIPT_PROMISES[key];
+    throw e;
   });
+
+  return GOOGLE_DRIVE_SCRIPT_PROMISES[key];
 }
 
 async function ensureGoogleDriveLibrariesLoaded() {
-  await loadExternalScriptOnce("https://accounts.google.com/gsi/client", "google-gsi-client");
-  await loadExternalScriptOnce("https://apis.google.com/js/api.js", "google-api-js");
-  await new Promise((resolve, reject) => {
-    if (!window.gapi) return reject(new Error("Google API indisponible"));
-    window.gapi.load("picker", { callback: resolve, onerror: () => reject(new Error("Google Picker indisponible")) });
+  if (typeof window !== "undefined" && window.google?.accounts?.oauth2 && window.google?.picker) return;
+  if (GOOGLE_DRIVE_LIBRARIES_PROMISE) return GOOGLE_DRIVE_LIBRARIES_PROMISE;
+
+  GOOGLE_DRIVE_LIBRARIES_PROMISE = (async () => {
+    await loadExternalScriptOnce(
+      "https://accounts.google.com/gsi/client",
+      "google-gsi-client",
+      () => !!window.google?.accounts?.oauth2
+    );
+    await loadExternalScriptOnce(
+      "https://apis.google.com/js/api.js",
+      "google-api-js",
+      () => !!window.gapi
+    );
+    if (!window.gapi) throw new Error("Google API indisponible");
+    if (!window.google?.picker) {
+      await new Promise((resolve, reject) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; window.clearTimeout(timer); resolve(); } };
+        const fail = (msg) => { if (!done) { done = true; window.clearTimeout(timer); reject(new Error(msg)); } };
+        const timer = window.setTimeout(() => fail("Google Picker ne répond pas. Rechargez la page puis réessayez."), 12000);
+        window.gapi.load("picker", {
+          callback: finish,
+          onerror: () => fail("Google Picker indisponible"),
+          ontimeout: () => fail("Google Picker indisponible"),
+          timeout: 12000,
+        });
+      });
+    }
+  })().catch((e) => {
+    GOOGLE_DRIVE_LIBRARIES_PROMISE = null;
+    throw e;
   });
+
+  return GOOGLE_DRIVE_LIBRARIES_PROMISE;
 }
 
 function normalizeDriveDoc(doc) {
@@ -4563,6 +4596,30 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
 
   const cfg = getGoogleDriveConfig();
   const isConfigured = !!cfg.apiKey && !!cfg.clientId;
+
+  useEffect(() => {
+    let alive = true;
+    if (!isConfigured) {
+      setGoogleReady(false);
+      setGoogleLoading(false);
+      return () => { alive = false; };
+    }
+    setGoogleLoading(true);
+    setErr(prev => prev && prev.includes("Google Drive") ? "" : prev);
+    ensureGoogleDriveLibrariesLoaded()
+      .then(() => {
+        if (!alive) return;
+        setGoogleReady(true);
+        setGoogleLoading(false);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setGoogleReady(false);
+        setGoogleLoading(false);
+        setErr(e?.message || "Impossible de préparer Google Drive");
+      });
+    return () => { alive = false; };
+  }, [isConfigured]);
 
   const charger = useCallback(async () => {
     if (!folder) return;
@@ -4605,61 +4662,93 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
     await charger();
   };
 
-  const ouvrirPicker = () => {
+  const ouvrirPicker = async () => {
     if (!isConfigured) {
       setErr("Configuration Google Drive incomplète : ajoutez VITE_GOOGLE_DRIVE_API_KEY et VITE_GOOGLE_DRIVE_CLIENT_ID.");
       return;
     }
-    if (!googleReady) {
-      setErr("Google Drive est encore en préparation. Patientez quelques secondes puis recliquez sur “Lier depuis Drive”.");
-      return;
-    }
     setWorking(true);
     setErr("");
-    let authTimer = null;
+
+    const resetTimer = window.setTimeout(() => {
+      setWorking(false);
+      setErr("La connexion Google Drive prend trop de temps. Rechargez la page, vérifiez que les pop-ups sont autorisés, puis réessayez.");
+    }, 20000);
+
+    const clearResetTimer = () => {
+      if (resetTimer) window.clearTimeout(resetTimer);
+    };
+
+    const openPickerWithToken = (accessToken) => {
+      const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+        .setIncludeFolders(true)
+        .setSelectFolderEnabled(false);
+
+      const picker = new window.google.picker.PickerBuilder()
+        .addView(view)
+        .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+        .setOAuthToken(accessToken)
+        .setDeveloperKey(cfg.apiKey)
+        .setCallback(async (data) => {
+          const action = data?.[window.google.picker.Response?.ACTION] || data?.action;
+          const docs = data?.[window.google.picker.Response?.DOCUMENTS] || data?.docs || [];
+          if (action === window.google.picker.Action.PICKED) {
+            setWorking(true);
+            try {
+              await enregistrerDriveDocs(docs);
+            } finally {
+              setWorking(false);
+            }
+          }
+          if (action === window.google.picker.Action.CANCEL) {
+            setWorking(false);
+          }
+        });
+
+      if (cfg.appId) picker.setAppId(cfg.appId);
+      picker.build().setVisible(true);
+      clearResetTimer();
+      setWorking(false);
+    };
+
     try {
-      authTimer = window.setTimeout(() => {
-        setWorking(false);
-        setErr("La fenêtre Google ne s'est pas ouverte ou l'autorisation n'a pas abouti. Vérifiez que les pop-ups sont autorisés pour planning-chantiers.vercel.app, puis réessayez.");
-      }, 18000);
+      if (!googleReady) {
+        setGoogleLoading(true);
+        await ensureGoogleDriveLibrariesLoaded();
+        setGoogleReady(true);
+        setGoogleLoading(false);
+      }
+
+      if (!window.google?.accounts?.oauth2 || !window.google?.picker) {
+        throw new Error("Les librairies Google Drive ne sont pas prêtes. Rechargez la page puis réessayez.");
+      }
 
       tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
         client_id: cfg.clientId,
         scope: GOOGLE_DRIVE_SCOPE,
+        prompt: "",
         callback: (tokenResponse) => {
-          if (authTimer) window.clearTimeout(authTimer);
           if (tokenResponse?.error) {
+            clearResetTimer();
             setErr(tokenResponse.error_description || tokenResponse.error);
             setWorking(false);
             return;
           }
+          if (!tokenResponse?.access_token) {
+            clearResetTimer();
+            setErr("Google n'a pas renvoyé de jeton d'accès. Vérifiez les utilisateurs de test OAuth et les pop-ups.");
+            setWorking(false);
+            return;
+          }
           tokenRef.current = tokenResponse.access_token;
-          const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
-            .setIncludeFolders(true)
-            .setSelectFolderEnabled(false);
-          const picker = new window.google.picker.PickerBuilder()
-            .addView(view)
-            .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
-            .setOAuthToken(tokenRef.current)
-            .setDeveloperKey(cfg.apiKey)
-            .setCallback(async (data) => {
-              if (data.action === window.google.picker.Action.PICKED) {
-                await enregistrerDriveDocs(data.docs || []);
-              }
-              if (data.action === window.google.picker.Action.PICKED || data.action === window.google.picker.Action.CANCEL) {
-                setWorking(false);
-              }
-            });
-          if (cfg.appId) picker.setAppId(cfg.appId);
-          picker.build().setVisible(true);
+          openPickerWithToken(tokenRef.current);
         },
       });
 
-      // Important : cet appel doit être déclenché directement par le clic utilisateur.
-      // On précharge donc les bibliothèques Google au montage du composant, au lieu de les charger ici.
       tokenClientRef.current.requestAccessToken({ prompt: tokenRef.current ? "" : "consent" });
     } catch (e) {
-      if (authTimer) window.clearTimeout(authTimer);
+      clearResetTimer();
+      setGoogleLoading(false);
       setErr(e?.message || "Impossible d'ouvrir Google Drive");
       setWorking(false);
     }
