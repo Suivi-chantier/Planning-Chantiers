@@ -4452,6 +4452,68 @@ const DOCUMENT_CATEGORIES_BIEN = [
   { id:"autres", label:"Autres", icon:"📎" },
 ];
 
+
+const GOOGLE_DRIVE_API_KEY = (
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_GOOGLE_DRIVE_API_KEY)
+  || (typeof process !== "undefined" && process.env && process.env.REACT_APP_GOOGLE_DRIVE_API_KEY)
+  || ""
+);
+const GOOGLE_DRIVE_CLIENT_ID = (
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID)
+  || (typeof process !== "undefined" && process.env && process.env.REACT_APP_GOOGLE_DRIVE_CLIENT_ID)
+  || ""
+);
+const GOOGLE_DRIVE_APP_ID = (
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_GOOGLE_DRIVE_APP_ID)
+  || (typeof process !== "undefined" && process.env && process.env.REACT_APP_GOOGLE_DRIVE_APP_ID)
+  || ""
+);
+const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const GOOGLE_DRIVE_LINKS_TABLE = "invest_drive_links";
+
+function getGoogleDriveConfig() {
+  return {
+    apiKey: (GOOGLE_DRIVE_API_KEY || "").trim(),
+    clientId: (GOOGLE_DRIVE_CLIENT_ID || "").trim(),
+    appId: (GOOGLE_DRIVE_APP_ID || "").trim(),
+  };
+}
+
+function loadExternalScriptOnce(src, id) {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") return reject(new Error("Navigateur indisponible"));
+    if (id && document.getElementById(id)) return resolve();
+    if ([...document.scripts].some(s => s.src === src)) return resolve();
+    const script = document.createElement("script");
+    if (id) script.id = id;
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Impossible de charger ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureGoogleDriveLibrariesLoaded() {
+  await loadExternalScriptOnce("https://accounts.google.com/gsi/client", "google-gsi-client");
+  await loadExternalScriptOnce("https://apis.google.com/js/api.js", "google-api-js");
+  await new Promise((resolve, reject) => {
+    if (!window.gapi) return reject(new Error("Google API indisponible"));
+    window.gapi.load("picker", { callback: resolve, onerror: () => reject(new Error("Google Picker indisponible")) });
+  });
+}
+
+function normalizeDriveDoc(doc) {
+  const id = doc?.id || doc?.[window.google?.picker?.Document?.ID] || `manual_${Date.now()}`;
+  const name = doc?.name || doc?.[window.google?.picker?.Document?.NAME] || "Document Google Drive";
+  const mimeType = doc?.mimeType || doc?.[window.google?.picker?.Document?.MIME_TYPE] || "";
+  const url = doc?.url || doc?.[window.google?.picker?.Document?.URL] || (id && !String(id).startsWith("manual_") ? `https://drive.google.com/open?id=${id}` : "");
+  const iconUrl = doc?.iconUrl || doc?.[window.google?.picker?.Document?.ICON_URL] || "";
+  const sizeBytes = Number(doc?.sizeBytes || doc?.size || 0) || null;
+  return { id, name, mimeType, url, iconUrl, sizeBytes };
+}
+
 function getFileIcon(name) {
   const ext = (name || "").split(".").pop().toLowerCase();
   return FILE_ICONS[ext] || "📎";
@@ -4462,6 +4524,177 @@ function fmtSize(bytes) {
   if (bytes < 1024) return bytes + " o";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " Ko";
   return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
+}
+
+
+function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null }) {
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+  const [err, setErr] = useState("");
+  const tokenRef = useRef("");
+  const tokenClientRef = useRef(null);
+
+  const cfg = getGoogleDriveConfig();
+  const isConfigured = !!cfg.apiKey && !!cfg.clientId;
+
+  const charger = useCallback(async () => {
+    if (!folder) return;
+    setLoading(true);
+    const { data, error } = await supabase
+      .from(GOOGLE_DRIVE_LINKS_TABLE)
+      .select("*")
+      .eq("folder", folder)
+      .order("created_at", { ascending:false });
+    if (error) {
+      setErr(error.code === "42P01" ? "Table invest_drive_links introuvable. Lancez la migration SQL Google Drive." : error.message);
+      setLinks([]);
+    } else {
+      setLinks(data || []);
+      setErr("");
+    }
+    setLoading(false);
+  }, [folder]);
+
+  useEffect(() => { charger(); }, [charger]);
+
+  const enregistrerDriveDocs = async (docs) => {
+    const cleanDocs = (docs || []).map(normalizeDriveDoc).filter(d => d.id && d.name);
+    if (!cleanDocs.length) return;
+    const rows = cleanDocs.map(d => ({
+      folder,
+      file_id: d.id,
+      name: d.name,
+      mime_type: d.mimeType || null,
+      url: d.url || `https://drive.google.com/open?id=${d.id}`,
+      icon_url: d.iconUrl || null,
+      size_bytes: d.sizeBytes || null,
+      created_by: profil?.email || profil?.nom || null,
+      metadata: { source:"google_picker" },
+    }));
+    const { error } = await supabase
+      .from(GOOGLE_DRIVE_LINKS_TABLE)
+      .upsert(rows, { onConflict:"folder,file_id" });
+    if (error) { setErr(error.message); return; }
+    await charger();
+  };
+
+  const ouvrirPicker = async () => {
+    if (!isConfigured) {
+      setErr("Configuration Google Drive incomplète : ajoutez VITE_GOOGLE_DRIVE_API_KEY et VITE_GOOGLE_DRIVE_CLIENT_ID.");
+      return;
+    }
+    setWorking(true);
+    setErr("");
+    try {
+      await ensureGoogleDriveLibrariesLoaded();
+      if (!tokenClientRef.current) {
+        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+          client_id: cfg.clientId,
+          scope: GOOGLE_DRIVE_SCOPE,
+          callback: (tokenResponse) => {
+            if (tokenResponse?.error) {
+              setErr(tokenResponse.error_description || tokenResponse.error);
+              setWorking(false);
+              return;
+            }
+            tokenRef.current = tokenResponse.access_token;
+            const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+              .setIncludeFolders(true)
+              .setSelectFolderEnabled(false);
+            const picker = new window.google.picker.PickerBuilder()
+              .addView(view)
+              .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+              .setOAuthToken(tokenRef.current)
+              .setDeveloperKey(cfg.apiKey)
+              .setCallback(async (data) => {
+                if (data.action === window.google.picker.Action.PICKED) {
+                  await enregistrerDriveDocs(data.docs || []);
+                }
+                if (data.action === window.google.picker.Action.PICKED || data.action === window.google.picker.Action.CANCEL) {
+                  setWorking(false);
+                }
+              });
+            if (cfg.appId) picker.setAppId(cfg.appId);
+            picker.build().setVisible(true);
+          },
+        });
+      }
+      tokenClientRef.current.requestAccessToken({ prompt: tokenRef.current ? "" : "consent" });
+    } catch (e) {
+      setErr(e?.message || "Impossible d'ouvrir Google Drive");
+      setWorking(false);
+    }
+  };
+
+  const ajouterLienManuel = async () => {
+    const url = window.prompt("Collez le lien Google Drive du document :");
+    if (!url) return;
+    const name = window.prompt("Nom du document :", "Document Google Drive") || "Document Google Drive";
+    const fileMatch = String(url).match(/\/d\/([^/]+)|id=([^&]+)/);
+    const fileId = fileMatch?.[1] || fileMatch?.[2] || `manual_${Date.now()}`;
+    const { error } = await supabase.from(GOOGLE_DRIVE_LINKS_TABLE).upsert([{
+      folder,
+      file_id: fileId,
+      name,
+      mime_type: null,
+      url,
+      icon_url: null,
+      size_bytes: null,
+      created_by: profil?.email || profil?.nom || null,
+      metadata: { source:"manual_link" },
+    }], { onConflict:"folder,file_id" });
+    if (error) setErr(error.message);
+    else charger();
+  };
+
+  const supprimerLien = async (id, name) => {
+    if (!window.confirm(`Retirer le lien Drive « ${name} » de l'application ?\nLe fichier ne sera pas supprimé de Google Drive.`)) return;
+    const { error } = await supabase.from(GOOGLE_DRIVE_LINKS_TABLE).delete().eq("id", id);
+    if (error) setErr(error.message);
+    else charger();
+  };
+
+  return (
+    <div style={{ marginTop:18, borderTop:`1px solid ${T.border}`, paddingTop:14 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:10 }}>
+        <div>
+          <div style={{ color:T.text, fontWeight:900, fontSize:FONT.sm.size }}>Google Drive</div>
+          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1 }}>Liez les documents Drive au même dossier sans les dupliquer dans l'app.</div>
+        </div>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
+          <button className="inv-btn inv-btn-sm" style={{ background:T.input, color:T.text, border:`1px solid ${T.border}` }} onClick={ajouterLienManuel}>Coller un lien</button>
+          <button className="inv-btn inv-btn-sm inv-btn-blue" onClick={ouvrirPicker} disabled={working}>{working ? "Connexion…" : "Lier depuis Drive"}</button>
+        </div>
+      </div>
+
+      {!isConfigured && (
+        <div style={{ fontSize:12, color:T.textSub, background:T.input, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>
+          Configuration requise : <strong style={{ color:T.text }}>VITE_GOOGLE_DRIVE_API_KEY</strong> et <strong style={{ color:T.text }}>VITE_GOOGLE_DRIVE_CLIENT_ID</strong> dans Vercel / .env.
+        </div>
+      )}
+      {err && <div style={{ fontSize:12, color:"#e05c5c", background:"rgba(224,92,92,.08)", border:"1px solid rgba(224,92,92,.2)", borderRadius:RADIUS.md, padding:"8px 10px", marginBottom:10 }}>⚠ {err}</div>}
+      {loading ? (
+        <div style={{ color:T.textSub, fontSize:13, padding:"8px 0" }}>Chargement des liens Drive…</div>
+      ) : links.length === 0 ? (
+        <div style={{ color:T.textMuted, fontSize:13, padding:"8px 0", fontStyle:"italic" }}>Aucun document Google Drive lié.</div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          {links.map(link => (
+            <div key={link.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:RADIUS.md, background:T.card, border:`1px solid ${T.border}` }}>
+              {link.icon_url ? <img src={link.icon_url} alt="" style={{ width:18, height:18 }} /> : <span style={{ fontSize:18 }}>📁</span>}
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ color:T.text, fontSize:13, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{link.name}</div>
+                <div style={{ color:T.textSub, fontSize:11 }}>{link.created_at ? new Date(link.created_at).toLocaleDateString("fr-FR") : "Drive"}{link.mime_type ? ` · ${link.mime_type}` : ""}</div>
+              </div>
+              <button className="inv-btn inv-btn-sm" style={{ background:T.accentBg, color:T.accent, border:`1px solid ${T.accentBorder}` }} onClick={() => window.open(link.url, "_blank")}>Ouvrir</button>
+              <button className="inv-btn inv-btn-sm" style={{ background:"rgba(225,90,90,.08)", color:"#e15a5a", border:"1px solid rgba(225,90,90,.25)" }} onClick={() => supprimerLien(link.id, link.name)}>Retirer</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
@@ -4648,6 +4881,7 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
             ))}
           </div>
         )}
+        <GoogleDriveLinksSection folder={currentFolder} T={T} profil={null} />
       </div>
     </div>
   );
