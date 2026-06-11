@@ -5342,6 +5342,12 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
 
   return (
     <div className="inv-card">
+      <input
+        ref={missionJustificatifFileRef}
+        type="file"
+        style={{ display:"none" }}
+        onChange={handleMissionJustificatifComputerFile}
+      />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span>📎 Documents ({fichiers.length})</span>
         <button
@@ -5561,6 +5567,22 @@ const missionExtractDriveIdFromUrl = (url = "") => {
   return "";
 };
 const missionIsDriveFolderUrl = (url = "") => String(url || "").includes("/folders/");
+const MISSION_LOCAL_JUSTIFICATIF_BUCKET = "invest-documents";
+const MISSION_LOCAL_JUSTIFICATIF_PREFIX = "supabase-storage://";
+const missionSafeFileName = (name = "piece") => {
+  const clean = String(name || "piece").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_").slice(0, 90);
+  return clean || "piece";
+};
+const missionStorageUrlFromPath = (bucket, path) => `${MISSION_LOCAL_JUSTIFICATIF_PREFIX}${bucket}/${path}`;
+const missionParseStorageUrl = (url = "") => {
+  const clean = String(url || "");
+  if (!clean.startsWith(MISSION_LOCAL_JUSTIFICATIF_PREFIX)) return null;
+  const rest = clean.slice(MISSION_LOCAL_JUSTIFICATIF_PREFIX.length);
+  const firstSlash = rest.indexOf("/");
+  if (firstSlash <= 0) return null;
+  return { bucket: rest.slice(0, firstSlash), path: rest.slice(firstSlash + 1) };
+};
+const missionIsLocalStorageUrl = (url = "") => !!missionParseStorageUrl(url);
 const MISSION_STEPS_INVEST = [
   {
     key:"signature", label:"Signature", crmHints:["signature contrat", "signature"], owner:"Camille",
@@ -5724,6 +5746,8 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const missionJustificatifFileRef = useRef(null);
+  const missionJustificatifActionIdRef = useRef(null);
   const today = new Date().toISOString().slice(0,10);
   const charger = useCallback(async () => {
     if (!client?.id) return;
@@ -5856,10 +5880,41 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     if (error) { setError(error.message); charger(); }
   };
 
-  const addMissionJustificatif = async (action) => {
+  const openMissionJustificatif = async (action) => {
+    const url = action?.justificatif_drive_url;
+    if (!url) return;
+    const local = missionParseStorageUrl(url);
+    if (local?.bucket && local?.path) {
+      const { data, error } = await supabase.storage.from(local.bucket).createSignedUrl(local.path, 600);
+      if (error || !data?.signedUrl) {
+        setError(error?.message || "Impossible d'ouvrir la pièce justificative stockée dans l'application.");
+        return;
+      }
+      window.open(data.signedUrl, "_blank");
+      return;
+    }
+    window.open(url, "_blank");
+  };
+
+  const saveMissionJustificatif = async (action, patch, driveLinkRow = null) => {
+    if (!action?.id) return;
+    const finalPatch = { ...patch, document_drive_attendu:true, updated_at:new Date().toISOString() };
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...finalPatch } : a));
+
+    const { error } = await supabase.from("invest_mission_actions").update(finalPatch).eq("id", action.id);
+    if (error) { setError(error.message); charger(); return; }
+
+    if (driveLinkRow) {
+      try {
+        await supabase.from("invest_drive_links").upsert(driveLinkRow, { onConflict:"folder,file_id" });
+      } catch {}
+    }
+  };
+
+  const addMissionJustificatifFromDrive = async (action) => {
     if (!action?.id) return;
     setError("");
-    const url = window.prompt("Colle le lien Google Drive de la pièce justificative :", action.justificatif_drive_url || "");
+    const url = window.prompt("Colle le lien Google Drive de la pièce justificative :", action.justificatif_drive_url && !missionIsLocalStorageUrl(action.justificatif_drive_url) ? action.justificatif_drive_url : "");
     if (!url) return;
     const cleanUrl = String(url || "").trim();
     if (!/^https?:\/\//i.test(cleanUrl)) {
@@ -5872,39 +5927,87 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     const driveId = missionExtractDriveIdFromUrl(cleanUrl) || `mission-${action.id}-${Date.now()}`;
     const mimeType = missionIsDriveFolderUrl(cleanUrl) ? GOOGLE_DRIVE_FOLDER_MIME : "application/vnd.google-apps.unknown";
     const patch = {
-      document_drive_attendu: true,
       justificatif_drive_file_id: driveId,
       justificatif_drive_name: String(name || "Pièce justificative").trim(),
       justificatif_drive_url: cleanUrl,
       justificatif_drive_mime_type: mimeType,
       justificatif_drive_linked_at: nowIso,
-      updated_at: nowIso,
     };
+    await saveMissionJustificatif(action, patch, {
+      folder: `clients/${client.id}/mission/${action.id}`,
+      file_id: driveId,
+      name: patch.justificatif_drive_name,
+      mime_type: mimeType,
+      url: cleanUrl,
+      created_by: profil?.email || profil?.nom || null,
+      metadata: {
+        source: "mission_action_justificatif_drive",
+        kind: mimeType === GOOGLE_DRIVE_FOLDER_MIME ? "folder" : "file",
+        action_id: action.id,
+        client_id: client.id,
+        step_key: action.step_key,
+        action_title: action.action_title,
+      },
+    });
+  };
 
-    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...patch } : a));
+  const chooseMissionJustificatifFromComputer = (action) => {
+    if (!action?.id) return;
+    setError("");
+    missionJustificatifActionIdRef.current = action.id;
+    if (missionJustificatifFileRef.current) missionJustificatifFileRef.current.value = "";
+    missionJustificatifFileRef.current?.click();
+  };
 
-    const { error } = await supabase.from("invest_mission_actions").update(patch).eq("id", action.id);
-    if (error) { setError(error.message); charger(); return; }
-
-    // On ajoute aussi la pièce dans la table des liens Drive pour qu'elle reste visible et retrouvable.
-    try {
-      await supabase.from("invest_drive_links").upsert({
-        folder: `clients/${client.id}/mission/${action.id}`,
-        file_id: driveId,
-        name: patch.justificatif_drive_name,
-        mime_type: mimeType,
-        url: cleanUrl,
-        created_by: profil?.email || profil?.nom || null,
-        metadata: {
-          source: "mission_action_justificatif",
-          kind: mimeType === GOOGLE_DRIVE_FOLDER_MIME ? "folder" : "file",
-          action_id: action.id,
-          client_id: client.id,
-          step_key: action.step_key,
-          action_title: action.action_title,
-        },
-      }, { onConflict:"folder,file_id" });
-    } catch {}
+  const handleMissionJustificatifComputerFile = async (event) => {
+    const file = event?.target?.files?.[0];
+    const actionId = missionJustificatifActionIdRef.current;
+    if (!file || !actionId) return;
+    const action = actions.find(a => a.id === actionId);
+    if (!action) return;
+    setError("");
+    if (file.size > 50 * 1024 * 1024) {
+      setError(`${file.name} dépasse 50 Mo.`);
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const safeName = missionSafeFileName(file.name || "piece_justificative");
+    const path = `clients/${client.id}/mission/${action.id}/justificatifs/${Date.now()}_${safeName}`;
+    const { error: uploadError } = await supabase.storage
+      .from(MISSION_LOCAL_JUSTIFICATIF_BUCKET)
+      .upload(path, file, { upsert:false, contentType:file.type || undefined });
+    if (uploadError) {
+      setError(uploadError.message || "Impossible d'ajouter la pièce depuis l'ordinateur.");
+      return;
+    }
+    const storageUrl = missionStorageUrlFromPath(MISSION_LOCAL_JUSTIFICATIF_BUCKET, path);
+    const fileId = `storage:${path}`;
+    const patch = {
+      justificatif_drive_file_id: fileId,
+      justificatif_drive_name: file.name || "Pièce justificative",
+      justificatif_drive_url: storageUrl,
+      justificatif_drive_mime_type: file.type || "application/octet-stream",
+      justificatif_drive_linked_at: nowIso,
+    };
+    await saveMissionJustificatif(action, patch, {
+      folder: `clients/${client.id}/mission/${action.id}`,
+      file_id: fileId,
+      name: patch.justificatif_drive_name,
+      mime_type: patch.justificatif_drive_mime_type,
+      url: storageUrl,
+      size_bytes: file.size || null,
+      created_by: profil?.email || profil?.nom || null,
+      metadata: {
+        source: "mission_action_justificatif_upload_local",
+        kind: "storage_file",
+        bucket: MISSION_LOCAL_JUSTIFICATIF_BUCKET,
+        path,
+        action_id: action.id,
+        client_id: client.id,
+        step_key: action.step_key,
+        action_title: action.action_title,
+      },
+    });
   };
 
 
@@ -5914,6 +6017,8 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     setError("");
     const nowIso = new Date().toISOString();
     const previousFileId = action.justificatif_drive_file_id;
+    const previousUrl = action.justificatif_drive_url;
+    const previousLocal = missionParseStorageUrl(previousUrl);
     const patch = {
       justificatif_drive_file_id: null,
       justificatif_drive_name: null,
@@ -5942,6 +6047,11 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
           .eq("folder", `clients/${client.id}/mission/${action.id}`)
           .eq("file_id", previousFileId);
       } catch {}
+    }
+    // Si la pièce vient de l'ordinateur, on supprime aussi le fichier stocké dans Supabase Storage.
+    // Si elle vient de Google Drive, le fichier Drive n'est jamais supprimé.
+    if (previousLocal?.bucket && previousLocal?.path) {
+      try { await supabase.storage.from(previousLocal.bucket).remove([previousLocal.path]); } catch {}
     }
   };
 
@@ -6128,11 +6238,14 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
                   {a.document_drive_attendu ? (
                     a.justificatif_drive_url ? (
                       <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
-                        <button className="inv-btn inv-btn-sm" onClick={() => window.open(a.justificatif_drive_url, "_blank")} title="Ouvrir la pièce justificative liée" style={{fontSize:11,padding:"5px 7px",background:"#dcfce7",border:"1px solid #86efac",color:"black",justifyContent:"center",minWidth:0}}><Icon as={ExternalLink} size={12}/> Ouvrir</button>
+                        <button className="inv-btn inv-btn-sm" onClick={() => openMissionJustificatif(a)} title="Ouvrir la pièce justificative liée" style={{fontSize:11,padding:"5px 7px",background:"#dcfce7",border:"1px solid #86efac",color:"black",justifyContent:"center",minWidth:0}}><Icon as={ExternalLink} size={12}/> Ouvrir</button>
                         <button className="inv-btn inv-btn-sm" onClick={() => removeMissionJustificatif(a)} title="Supprimer le lien de la pièce justificative" style={{fontSize:11,padding:"5px 7px",background:"#fff1f2",border:"1px solid #fecdd3",color:"black",justifyContent:"center",minWidth:0}}><Icon as={Trash2} size={12}/> Supprimer</button>
                       </div>
                     ) : (
-                      <button className="inv-btn inv-btn-sm" onClick={() => addMissionJustificatif(a)} title="Ajouter la pièce justificative Drive" style={{fontSize:11,padding:"5px 7px",background:"#fff7ed",border:"1px solid #fed7aa",color:"black",justifyContent:"center"}}><Icon as={Upload} size={12}/> Ajouter pièce</button>
+                      <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
+                        <button className="inv-btn inv-btn-sm" onClick={() => chooseMissionJustificatifFromComputer(a)} title="Ajouter une pièce justificative depuis l’ordinateur" style={{fontSize:11,padding:"5px 7px",background:"#fff7ed",border:"1px solid #fed7aa",color:"black",justifyContent:"center",minWidth:0}}><Icon as={Upload} size={12}/> Ordinateur</button>
+                        <button className="inv-btn inv-btn-sm" onClick={() => addMissionJustificatifFromDrive(a)} title="Ajouter une pièce justificative depuis Google Drive" style={{fontSize:11,padding:"5px 7px",background:"#eff6ff",border:"1px solid #bfdbfe",color:"black",justifyContent:"center",minWidth:0}}>Drive</button>
+                      </div>
                     )
                   ) : <span style={{fontSize:11,color:T.textMuted,textAlign:"center"}}>—</span>}
                   <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Envoyer</button>
