@@ -5342,12 +5342,6 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
 
   return (
     <div className="inv-card">
-      <input
-        ref={missionJustificatifFileRef}
-        type="file"
-        style={{ display:"none" }}
-        onChange={handleMissionJustificatifComputerFile}
-      />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span>📎 Documents ({fichiers.length})</span>
         <button
@@ -6157,8 +6151,14 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
 
   return (
     <div className="inv-card">
+      <input
+        ref={missionJustificatifFileRef}
+        type="file"
+        style={{ display:"none" }}
+        onChange={handleMissionJustificatifComputerFile}
+      />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12 relances + pièces</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.4 relances + pièces</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
