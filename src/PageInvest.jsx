@@ -5473,6 +5473,36 @@ const MISSION_COLLABORATEURS = [
   "Matthieu", "Tom", "Quentin", "Camille", "Loris", "François",
   "Client", "Courtier / Banque", "Notaire", "Agence", "Enedis", "Gestion locative",
 ];
+const MISSION_COLLABORATEURS_EMAILS = {
+  Tom: "tom.fourmond@groupe-profero.com",
+  Camille: "camille.landais@groupe-profero.com",
+  // Les emails de Matthieu, Quentin, Loris et François pourront être ajoutés ici après validation.
+};
+const missionEmailForOwner = (owner) => MISSION_COLLABORATEURS_EMAILS[String(owner || "").trim()] || "";
+const missionClientDisplayName = (client = {}) => `${client?.prenom || ""} ${client?.nom || ""}`.trim() || client?.email || "Client";
+const missionBuildNotificationEmail = (action = {}, client = {}) => {
+  const clientName = missionClientDisplayName(client);
+  const due = action?.due_date ? new Date(action.due_date).toLocaleDateString("fr-FR") : "à définir";
+  const subject = `[Profero Invest] Action à traiter — ${action?.action_title || "Mission client"}`;
+  const body = [
+    `Bonjour ${action?.responsable || ""},`,
+    "",
+    `Une action t'est attribuée dans le Parcours Mission Profero Invest.`,
+    "",
+    `Client : ${clientName}`,
+    `Étape : ${action?.step_label || "—"}`,
+    `Action : ${action?.action_title || "—"}`,
+    `Échéance : ${due}`,
+    action?.relance_rule ? `Relance prévue : ${action.relance_rule}` : null,
+    action?.document_drive_attendu ? `Document / Drive : une pièce est attendue ou doit être archivée.` : null,
+    "",
+    "Merci de traiter cette action ou de mettre à jour son statut dans l'application Profero.",
+    "",
+    "Bonne journée,",
+    "Profero Invest",
+  ].filter(Boolean).join("\n");
+  return { subject, body };
+};
 const MISSION_STATUTS_ACTION = [
   { key:"a_faire", label:"À faire", color:"#f59e0b" },
   { key:"en_cours", label:"En cours", color:"#2563eb" },
@@ -5690,6 +5720,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         sort_order: idx + 1,
         action_title: a.title,
         responsable: a.owner || step.owner || null,
+        responsable_email: missionEmailForOwner(a.owner || step.owner) || null,
         status: "a_faire",
         due_date: missionAddDaysIso(a.due || 2),
         relance_rule: a.relance || null,
@@ -5719,6 +5750,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
           sort_order: idx + 1,
           action_title: a.title,
           responsable: a.owner || step.owner || null,
+          responsable_email: missionEmailForOwner(a.owner || step.owner) || null,
           status: "a_faire",
           due_date: missionAddDaysIso(a.due || 2),
           relance_rule: a.relance || null,
@@ -5741,6 +5773,29 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     const { error } = await supabase.from("invest_mission_actions").update({ ...patch, completed_at: patch.status === "fait" ? new Date().toISOString() : action.completed_at, updated_at:new Date().toISOString() }).eq("id", action.id);
     if (error) { setError(error.message); charger(); }
   };
+  const notifyActionByEmail = async (action) => {
+    if (!action) return;
+    const email = action.responsable_email || missionEmailForOwner(action.responsable);
+    const { subject, body } = missionBuildNotificationEmail(action, client);
+    const mailto = `mailto:${encodeURIComponent(email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    try {
+      window.location.href = mailto;
+    } catch (e) {
+      console.warn("Ouverture mailto impossible", e);
+    }
+    const patch = {
+      responsable_email: email || action.responsable_email || null,
+      notification_status: email ? "preparee" : "preparee_sans_email",
+      notification_subject: subject,
+      notification_body: body,
+      notification_prepared_at: new Date().toISOString(),
+      notification_count: Number(action.notification_count || 0) + 1,
+      updated_at: new Date().toISOString(),
+    };
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...patch } : a));
+    const { error } = await supabase.from("invest_mission_actions").update(patch).eq("id", action.id);
+    if (error) setError(error.message);
+  };
   const syncNextAction = async () => {
     const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
     if (!next) return;
@@ -5751,7 +5806,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   return (
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V9.2</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V10 email</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -5812,18 +5867,20 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
               const meta = missionStatusMeta(a.status);
               const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
               return (
-                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(220px,1.5fr) minmax(115px,.55fr) minmax(140px,.7fr) minmax(130px,.55fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%"}}>
+                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(250px,1.6fr) minmax(115px,.5fr) minmax(150px,.65fr) minmax(130px,.5fr) minmax(110px,.45fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%"}}>
                   <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"visible",textOverflow:"clip",whiteSpace:"normal",lineHeight:1.35}}>{a.action_title}</div>
                     <div style={{fontSize:10,color:T.textMuted,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
                       {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
                       {a.document_drive_attendu && <span style={{color:T.accent,fontWeight:800}}>📁 Drive</span>}
+                      {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:800}}>✉️ mail préparé {new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}</span>}
                     </div>
                   </div>
                   <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"5px 6px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
-                  <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
+                  <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value) || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
                   <input className="inv-inp" type="date" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
+                  <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable) ? `Préparer un email à ${a.responsable_email || missionEmailForOwner(a.responsable)}` : "Préparer un email sans destinataire prédéfini"} style={{fontSize:11,padding:"5px 7px",background:a.notification_prepared_at ? "#dcfce7" : "#fff",border:`1px solid ${a.notification_prepared_at ? "#86efac" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Mail</button>
                 </div>
               );
             })}
