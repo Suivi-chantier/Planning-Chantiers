@@ -5849,8 +5849,23 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
       },
     });
 
+    let edgeDetail = "";
+    if (error?.context) {
+      try {
+        const txt = await error.context.text();
+        if (txt) {
+          try {
+            const parsed = JSON.parse(txt);
+            edgeDetail = parsed?.error || parsed?.message || parsed?.hint || txt;
+          } catch {
+            edgeDetail = txt;
+          }
+        }
+      } catch {}
+    }
+
     if (error || data?.error) {
-      const msg = error?.message || data?.error || "Erreur inconnue lors de l'envoi Gmail";
+      const msg = data?.error || edgeDetail || error?.message || "Erreur inconnue lors de l'envoi Gmail";
       const failPatch = {
         responsable_email: email,
         notification_status: "erreur_envoi",
