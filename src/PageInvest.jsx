@@ -5517,7 +5517,7 @@ const missionBuildNotificationEmail = (action = {}, client = {}) => {
     `Client : ${clientName}`,
     `Étape : ${action?.step_label || "—"}`,
     `Action : ${action?.action_title || "—"}`,
-    `Échéance : ${due}`,
+    `Date échéance : ${due}`,
     action?.relance_rule ? `Relance prévue : ${action.relance_rule}` : null,
     action?.document_drive_attendu ? `Document / Drive : une pièce est attendue ou doit être archivée.` : null,
     "",
@@ -5542,6 +5542,25 @@ const missionAddDaysIso = (days=2) => {
   d.setDate(d.getDate() + Number(days || 0));
   return d.toISOString().slice(0,10);
 };
+const missionFormatDateFr = (value) => value ? new Date(value).toLocaleDateString("fr-FR") : "—";
+const missionExtractDriveIdFromUrl = (url = "") => {
+  const clean = String(url || "").trim();
+  if (!clean) return "";
+  const patterns = [
+    /\/folders\/([a-zA-Z0-9_-]+)/,
+    /\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /[?&]id=([a-zA-Z0-9_-]+)/,
+    /\/document\/d\/([a-zA-Z0-9_-]+)/,
+    /\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/,
+    /\/presentation\/d\/([a-zA-Z0-9_-]+)/,
+  ];
+  for (const pattern of patterns) {
+    const found = clean.match(pattern);
+    if (found?.[1]) return found[1];
+  }
+  return "";
+};
+const missionIsDriveFolderUrl = (url = "") => String(url || "").includes("/folders/");
 const MISSION_STEPS_INVEST = [
   {
     key:"signature", label:"Signature", crmHints:["signature contrat", "signature"], owner:"Camille",
@@ -5750,6 +5769,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         due_date: missionAddDaysIso(a.due || 2),
         relance_rule: a.relance || null,
         document_drive_attendu: !!a.drive,
+        due_reminder_enabled: true,
         drive_folder: `clients/${client.id}`,
         created_by: profil?.email || profil?.nom || null,
         metadata: { objectif: step.objectif || "" },
@@ -5780,6 +5800,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
           due_date: missionAddDaysIso(a.due || 2),
           relance_rule: a.relance || null,
           document_drive_attendu: !!a.drive,
+          due_reminder_enabled: true,
           drive_folder: `clients/${client.id}`,
           created_by: profil?.email || profil?.nom || null,
           metadata: { objectif: step.objectif || "" },
@@ -5793,11 +5814,78 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     charger();
   };
   const updateAction = async (action, patch) => {
-    const optimistic = { ...action, ...patch, completed_at: patch.status === "fait" ? new Date().toISOString() : action.completed_at };
+    const nowIso = new Date().toISOString();
+    const cleanPatch = { ...patch };
+
+    // La date saisie dans la tâche reste la DATE D'ÉCHÉANCE.
+    // Quand la tâche est validée, on enregistre automatiquement la date du jour.
+    if (Object.prototype.hasOwnProperty.call(cleanPatch, "status")) {
+      if (cleanPatch.status === "fait") cleanPatch.completed_at = nowIso;
+      else if (action.status === "fait") cleanPatch.completed_at = null;
+    }
+
+    const optimistic = { ...action, ...cleanPatch };
     setActions(prev => prev.map(a => a.id === action.id ? optimistic : a));
-    const { error } = await supabase.from("invest_mission_actions").update({ ...patch, completed_at: patch.status === "fait" ? new Date().toISOString() : action.completed_at, updated_at:new Date().toISOString() }).eq("id", action.id);
+
+    const { error } = await supabase
+      .from("invest_mission_actions")
+      .update({ ...cleanPatch, updated_at:nowIso })
+      .eq("id", action.id);
+
     if (error) { setError(error.message); charger(); }
   };
+
+  const addMissionJustificatif = async (action) => {
+    if (!action?.id) return;
+    setError("");
+    const url = window.prompt("Colle le lien Google Drive de la pièce justificative :", action.justificatif_drive_url || "");
+    if (!url) return;
+    const cleanUrl = String(url || "").trim();
+    if (!/^https?:\/\//i.test(cleanUrl)) {
+      setError("Lien invalide. Colle un lien Google Drive complet commençant par https://");
+      return;
+    }
+    const defaultName = action.justificatif_drive_name || action.action_title || "Pièce justificative";
+    const name = window.prompt("Nom de la pièce justificative :", defaultName) || defaultName;
+    const nowIso = new Date().toISOString();
+    const driveId = missionExtractDriveIdFromUrl(cleanUrl) || `mission-${action.id}-${Date.now()}`;
+    const mimeType = missionIsDriveFolderUrl(cleanUrl) ? GOOGLE_DRIVE_FOLDER_MIME : "application/vnd.google-apps.unknown";
+    const patch = {
+      document_drive_attendu: true,
+      justificatif_drive_file_id: driveId,
+      justificatif_drive_name: String(name || "Pièce justificative").trim(),
+      justificatif_drive_url: cleanUrl,
+      justificatif_drive_mime_type: mimeType,
+      justificatif_drive_linked_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...patch } : a));
+
+    const { error } = await supabase.from("invest_mission_actions").update(patch).eq("id", action.id);
+    if (error) { setError(error.message); charger(); return; }
+
+    // On ajoute aussi la pièce dans la table des liens Drive pour qu'elle reste visible et retrouvable.
+    try {
+      await supabase.from("invest_drive_links").upsert({
+        folder: `clients/${client.id}/mission/${action.id}`,
+        file_id: driveId,
+        name: patch.justificatif_drive_name,
+        mime_type: mimeType,
+        url: cleanUrl,
+        created_by: profil?.email || profil?.nom || null,
+        metadata: {
+          source: "mission_action_justificatif",
+          kind: mimeType === GOOGLE_DRIVE_FOLDER_MIME ? "folder" : "file",
+          action_id: action.id,
+          client_id: client.id,
+          step_key: action.step_key,
+          action_title: action.action_title,
+        },
+      }, { onConflict:"folder,file_id" });
+    } catch {}
+  };
+
   const notifyActionByEmail = async (action) => {
     if (!action) return;
     setError("");
@@ -5901,7 +5989,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   return (
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V11 Gmail auto</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12 relances + pièces</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -5962,19 +6050,25 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
               const meta = missionStatusMeta(a.status);
               const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
               return (
-                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(250px,1.6fr) minmax(115px,.5fr) minmax(150px,.65fr) minmax(130px,.5fr) minmax(110px,.45fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%"}}>
+                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(270px,1.7fr) minmax(112px,.5fr) minmax(145px,.6fr) minmax(130px,.5fr) minmax(125px,.55fr) minmax(105px,.45fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%",overflow:"hidden"}}>
                   <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"visible",textOverflow:"clip",whiteSpace:"normal",lineHeight:1.35}}>{a.action_title}</div>
                     <div style={{fontSize:10,color:T.textMuted,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
                       {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
-                      {a.document_drive_attendu && <span style={{color:T.accent,fontWeight:800}}>📁 Drive</span>}
+                      {a.due_reminder_enabled !== false && !missionActionDone(a) && <span>⏱ Relance quotidienne dès échéance</span>}
+                      {a.last_reminder_sent_at && <span style={{color:"#2563eb",fontWeight:800}}>🔁 relancé le {missionFormatDateFr(a.last_reminder_sent_at)}</span>}
+                      {a.completed_at && <span style={{color:"#16a34a",fontWeight:900}}>✅ fait le {missionFormatDateFr(a.completed_at)}</span>}
+                      {a.justificatif_drive_url && <span style={{color:T.accent,fontWeight:800}}>📎 pièce : {a.justificatif_drive_name || "justificatif"}</span>}
                       {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:800}}>✉️ {a.notification_sent_at ? `envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}` : a.notification_prepared_at ? `préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}` : ""}</span>}
                     </div>
                   </div>
                   <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"5px 6px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
                   <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value, client) || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
-                  <input className="inv-inp" type="date" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
+                  <input className="inv-inp" type="date" title="Date échéance de la tâche" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
+                  {a.document_drive_attendu ? (
+                    <button className="inv-btn inv-btn-sm" onClick={() => a.justificatif_drive_url ? window.open(a.justificatif_drive_url, "_blank") : addMissionJustificatif(a)} title={a.justificatif_drive_url ? "Ouvrir la pièce justificative liée" : "Ajouter la pièce justificative Drive"} style={{fontSize:11,padding:"5px 7px",background:a.justificatif_drive_url ? "#dcfce7" : "#fff7ed",border:`1px solid ${a.justificatif_drive_url ? "#86efac" : "#fed7aa"}`,color:"black",justifyContent:"center"}}><Icon as={a.justificatif_drive_url ? ExternalLink : Upload} size={12}/> {a.justificatif_drive_url ? "Ouvrir pièce" : "Ajouter pièce"}</button>
+                  ) : <span style={{fontSize:11,color:T.textMuted,textAlign:"center"}}>—</span>}
                   <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Envoyer</button>
                 </div>
               );
@@ -5990,6 +6084,7 @@ function MissionActionsCollaborateursDashboard({ T=THEMES_INV.dark, onNavigate }
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reminderStatus, setReminderStatus] = useState("");
   const today = new Date().toISOString().slice(0,10);
   const charger = useCallback(async () => {
     setLoading(true); setError("");
@@ -6005,7 +6100,29 @@ function MissionActionsCollaborateursDashboard({ T=THEMES_INV.dark, onNavigate }
     } else setActions(data || []);
     setLoading(false);
   }, []);
-  useEffect(() => { charger(); }, [charger]);
+  const lancerRelancesDuJour = useCallback(async (manual=false) => {
+    const storageKey = `profero_mission_daily_reminders_${today}`;
+    if (!manual) {
+      try {
+        if (window.localStorage.getItem(storageKey) === "done") return;
+      } catch {}
+    }
+    if (manual) setReminderStatus("Envoi des relances du jour…");
+    const { data, error } = await supabase.functions.invoke("send-mission-daily-reminders", {
+      body: { source: manual ? "manual" : "app_daily", date: today },
+    });
+    if (error || data?.error) {
+      const msg = data?.error || error?.message || "Relances quotidiennes non disponibles";
+      if (manual) setReminderStatus(`⚠ ${msg}`);
+      return;
+    }
+    try { window.localStorage.setItem(storageKey, "done"); } catch {}
+    if (manual) {
+      setReminderStatus(`✅ ${data?.sent || 0} relance(s) envoyée(s), ${data?.skipped || 0} ignorée(s)`);
+      charger();
+    }
+  }, [today, charger]);
+  useEffect(() => { charger(); lancerRelancesDuJour(false); }, [charger, lancerRelancesDuJour]);
   const grouped = MISSION_COLLABORATEURS.reduce((acc, name) => ({ ...acc, [name]: actions.filter(a => (a.responsable || "") === name) }), {});
   const late = actions.filter(a => a.due_date && a.due_date < today).length;
   if (!loading && !actions.length && !error) return null;
@@ -6013,10 +6130,12 @@ function MissionActionsCollaborateursDashboard({ T=THEMES_INV.dark, onNavigate }
     <div className="inv-card" style={{marginBottom:SPACING.xxl-2}}>
       <div className="inv-card-hd" style={{justifyContent:"space-between"}}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Bell} size={13} strokeWidth={2.2}/>Actions automatisées collaborateurs</span>
+        <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => lancerRelancesDuJour(true)}><Icon as={Send} size={12}/> Relances du jour</button>
         <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={charger}><Icon as={RefreshCw} size={12}/> Actualiser</button>
       </div>
       <div className="inv-card-bd">
         {error && <div style={{padding:"8px 10px",borderRadius:8,background:"#fff1f2",border:"1px solid #fecdd3",color:"#be123c",fontSize:12}}>⚠ {error}</div>}
+        {reminderStatus && <div style={{padding:"8px 10px",borderRadius:8,background:"#eff6ff",border:"1px solid #bfdbfe",color:"#1d4ed8",fontSize:12,marginBottom:8}}>{reminderStatus}</div>}
         {loading ? <div style={{padding:14,textAlign:"center",color:T.textMuted}}>Chargement…</div> : (
           <>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8,marginBottom:12}}>
