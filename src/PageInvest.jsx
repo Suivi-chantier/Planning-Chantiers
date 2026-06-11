@@ -5907,6 +5907,44 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     } catch {}
   };
 
+
+  const removeMissionJustificatif = async (action) => {
+    if (!action?.id || !action.justificatif_drive_url) return;
+    if (!window.confirm("Supprimer la pièce justificative liée à cette tâche ?\n\nLe fichier restera dans Google Drive. Seul le lien dans l’application sera supprimé.")) return;
+    setError("");
+    const nowIso = new Date().toISOString();
+    const previousFileId = action.justificatif_drive_file_id;
+    const patch = {
+      justificatif_drive_file_id: null,
+      justificatif_drive_name: null,
+      justificatif_drive_url: null,
+      justificatif_drive_mime_type: null,
+      justificatif_drive_linked_at: null,
+      updated_at: nowIso,
+    };
+
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...patch } : a));
+
+    const { error } = await supabase
+      .from("invest_mission_actions")
+      .update(patch)
+      .eq("id", action.id);
+
+    if (error) { setError(error.message); charger(); return; }
+
+    // On retire aussi le lien de la table Drive de l'application.
+    // Le fichier Google Drive lui-même n'est pas supprimé.
+    if (previousFileId) {
+      try {
+        await supabase
+          .from("invest_drive_links")
+          .delete()
+          .eq("folder", `clients/${client.id}/mission/${action.id}`)
+          .eq("file_id", previousFileId);
+      } catch {}
+    }
+  };
+
   const notifyActionByEmail = async (action) => {
     if (!action) return;
     setError("");
@@ -6088,7 +6126,14 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
                   <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value, client) || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
                   <input className="inv-inp" type="date" title="Date échéance de la tâche" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
                   {a.document_drive_attendu ? (
-                    <button className="inv-btn inv-btn-sm" onClick={() => a.justificatif_drive_url ? window.open(a.justificatif_drive_url, "_blank") : addMissionJustificatif(a)} title={a.justificatif_drive_url ? "Ouvrir la pièce justificative liée" : "Ajouter la pièce justificative Drive"} style={{fontSize:11,padding:"5px 7px",background:a.justificatif_drive_url ? "#dcfce7" : "#fff7ed",border:`1px solid ${a.justificatif_drive_url ? "#86efac" : "#fed7aa"}`,color:"black",justifyContent:"center"}}><Icon as={a.justificatif_drive_url ? ExternalLink : Upload} size={12}/> {a.justificatif_drive_url ? "Ouvrir pièce" : "Ajouter pièce"}</button>
+                    a.justificatif_drive_url ? (
+                      <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
+                        <button className="inv-btn inv-btn-sm" onClick={() => window.open(a.justificatif_drive_url, "_blank")} title="Ouvrir la pièce justificative liée" style={{fontSize:11,padding:"5px 7px",background:"#dcfce7",border:"1px solid #86efac",color:"black",justifyContent:"center",minWidth:0}}><Icon as={ExternalLink} size={12}/> Ouvrir</button>
+                        <button className="inv-btn inv-btn-sm" onClick={() => removeMissionJustificatif(a)} title="Supprimer le lien de la pièce justificative" style={{fontSize:11,padding:"5px 7px",background:"#fff1f2",border:"1px solid #fecdd3",color:"black",justifyContent:"center",minWidth:0}}><Icon as={Trash2} size={12}/> Supprimer</button>
+                      </div>
+                    ) : (
+                      <button className="inv-btn inv-btn-sm" onClick={() => addMissionJustificatif(a)} title="Ajouter la pièce justificative Drive" style={{fontSize:11,padding:"5px 7px",background:"#fff7ed",border:"1px solid #fed7aa",color:"black",justifyContent:"center"}}><Icon as={Upload} size={12}/> Ajouter pièce</button>
+                    )
                   ) : <span style={{fontSize:11,color:T.textMuted,textAlign:"center"}}>—</span>}
                   <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Envoyer</button>
                 </div>
