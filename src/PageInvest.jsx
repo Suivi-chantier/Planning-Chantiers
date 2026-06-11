@@ -5478,7 +5478,32 @@ const MISSION_COLLABORATEURS_EMAILS = {
   Camille: "camille.landais@groupe-profero.com",
   // Les emails de Matthieu, Quentin, Loris et François pourront être ajoutés ici après validation.
 };
-const missionEmailForOwner = (owner) => MISSION_COLLABORATEURS_EMAILS[String(owner || "").trim()] || "";
+const MISSION_EMAILS_STORAGE_KEY = "profero_mission_collaborateurs_emails_v1";
+const missionStoredEmails = () => {
+  try {
+    if (typeof window === "undefined") return {};
+    return JSON.parse(window.localStorage.getItem(MISSION_EMAILS_STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+};
+const missionRememberOwnerEmail = (owner, email) => {
+  const cleanOwner = String(owner || "").trim();
+  const cleanEmail = String(email || "").trim();
+  if (!cleanOwner || !cleanEmail) return;
+  try {
+    const current = missionStoredEmails();
+    window.localStorage.setItem(MISSION_EMAILS_STORAGE_KEY, JSON.stringify({ ...current, [cleanOwner]: cleanEmail }));
+  } catch {}
+};
+const missionLooksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+const missionEmailForOwner = (owner, client = {}) => {
+  const cleanOwner = String(owner || "").trim();
+  if (!cleanOwner) return "";
+  if (cleanOwner === "Client") return String(client?.email || "").trim();
+  const stored = missionStoredEmails();
+  return stored[cleanOwner] || MISSION_COLLABORATEURS_EMAILS[cleanOwner] || "";
+};
 const missionClientDisplayName = (client = {}) => `${client?.prenom || ""} ${client?.nom || ""}`.trim() || client?.email || "Client";
 const missionBuildNotificationEmail = (action = {}, client = {}) => {
   const clientName = missionClientDisplayName(client);
@@ -5720,7 +5745,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         sort_order: idx + 1,
         action_title: a.title,
         responsable: a.owner || step.owner || null,
-        responsable_email: missionEmailForOwner(a.owner || step.owner) || null,
+        responsable_email: missionEmailForOwner(a.owner || step.owner, client) || null,
         status: "a_faire",
         due_date: missionAddDaysIso(a.due || 2),
         relance_rule: a.relance || null,
@@ -5750,7 +5775,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
           sort_order: idx + 1,
           action_title: a.title,
           responsable: a.owner || step.owner || null,
-          responsable_email: missionEmailForOwner(a.owner || step.owner) || null,
+          responsable_email: missionEmailForOwner(a.owner || step.owner, client) || null,
           status: "a_faire",
           due_date: missionAddDaysIso(a.due || 2),
           relance_rule: a.relance || null,
@@ -5776,8 +5801,24 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   const notifyActionByEmail = async (action) => {
     if (!action) return;
     setError("");
-    const email = action.responsable_email || missionEmailForOwner(action.responsable);
-    const { subject, body } = missionBuildNotificationEmail(action, client);
+    let email = action.responsable_email || missionEmailForOwner(action.responsable, client);
+    if (!email && action.responsable) {
+      const asked = window.prompt(`Aucun email n’est renseigné pour ${action.responsable}.\nIndique l’email à utiliser pour cet envoi :`, "");
+      if (!asked) return;
+      if (!missionLooksLikeEmail(asked)) {
+        setError("Email invalide. Vérifie le format de l’adresse email.");
+        return;
+      }
+      email = asked.trim();
+      missionRememberOwnerEmail(action.responsable, email);
+      await supabase
+        .from("invest_mission_actions")
+        .update({ responsable_email: email, updated_at:new Date().toISOString() })
+        .eq("client_id", client.id)
+        .eq("responsable", action.responsable);
+      setActions(prev => prev.map(a => a.responsable === action.responsable ? { ...a, responsable_email: email } : a));
+    }
+    const { subject, body } = missionBuildNotificationEmail({ ...action, responsable_email: email }, client);
     const preparingPatch = {
       responsable_email: email || action.responsable_email || null,
       notification_status: email ? "envoi_en_cours" : "bloque_sans_email",
@@ -5792,7 +5833,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
 
     if (!email) {
       await supabase.from("invest_mission_actions").update(preparingPatch).eq("id", action.id);
-      setError("Aucun email n'est renseigné pour ce responsable. Ajoute l'email dans la table ou dans la constante MISSION_COLLABORATEURS_EMAILS.");
+      setError("Aucun email n'est renseigné pour ce responsable.");
       return;
     }
 
@@ -5917,9 +5958,9 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
                     </div>
                   </div>
                   <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"5px 6px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
-                  <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value) || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
+                  <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value, client) || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
                   <input className="inv-inp" type="date" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
-                  <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Envoyer</button>
+                  <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Envoyer</button>
                 </div>
               );
             })}
