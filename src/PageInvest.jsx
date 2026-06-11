@@ -6935,7 +6935,7 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
         <a href="${googleMapsSearchUrl(point.address)}" target="_blank" rel="noreferrer" style="display:inline-block;margin-top:9px;color:#4070e8;text-decoration:none;font-weight:700;font-size:12px">Ouvrir dans Google Maps →</a>
       </div>`;
     infoWindowRef.current.setContent(html);
-    if (marker) infoWindowRef.current.open({ anchor: marker, map: mapInstanceRef.current });
+    if (marker) infoWindowRef.current.open({ anchor: marker, map: mapInstanceRef.current, shouldFocus: false });
   }, [fmtEur]);
 
   useEffect(() => {
