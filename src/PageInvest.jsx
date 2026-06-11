@@ -5775,26 +5775,65 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   };
   const notifyActionByEmail = async (action) => {
     if (!action) return;
+    setError("");
     const email = action.responsable_email || missionEmailForOwner(action.responsable);
     const { subject, body } = missionBuildNotificationEmail(action, client);
-    const mailto = `mailto:${encodeURIComponent(email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    try {
-      window.location.href = mailto;
-    } catch (e) {
-      console.warn("Ouverture mailto impossible", e);
-    }
-    const patch = {
+    const preparingPatch = {
       responsable_email: email || action.responsable_email || null,
-      notification_status: email ? "preparee" : "preparee_sans_email",
+      notification_status: email ? "envoi_en_cours" : "bloque_sans_email",
       notification_subject: subject,
       notification_body: body,
       notification_prepared_at: new Date().toISOString(),
       notification_count: Number(action.notification_count || 0) + 1,
+      notification_error: email ? null : "Aucun email renseigné pour le responsable",
       updated_at: new Date().toISOString(),
     };
-    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...patch } : a));
-    const { error } = await supabase.from("invest_mission_actions").update(patch).eq("id", action.id);
-    if (error) setError(error.message);
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...preparingPatch } : a));
+
+    if (!email) {
+      await supabase.from("invest_mission_actions").update(preparingPatch).eq("id", action.id);
+      setError("Aucun email n'est renseigné pour ce responsable. Ajoute l'email dans la table ou dans la constante MISSION_COLLABORATEURS_EMAILS.");
+      return;
+    }
+
+    const { data, error } = await supabase.functions.invoke("send-mission-email", {
+      body: {
+        actionId: action.id,
+        clientId: client.id,
+        to: email,
+        subject,
+        body,
+        responsable: action.responsable || "",
+        clientName: missionClientDisplayName(client),
+      },
+    });
+
+    if (error || data?.error) {
+      const msg = error?.message || data?.error || "Erreur inconnue lors de l'envoi Gmail";
+      const failPatch = {
+        responsable_email: email,
+        notification_status: "erreur_envoi",
+        notification_error: msg,
+        updated_at: new Date().toISOString(),
+      };
+      setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...failPatch } : a));
+      await supabase.from("invest_mission_actions").update(failPatch).eq("id", action.id);
+      setError(msg);
+      return;
+    }
+
+    const sentPatch = {
+      responsable_email: email,
+      notification_status: "envoyee",
+      notification_subject: subject,
+      notification_body: body,
+      notification_prepared_at: preparingPatch.notification_prepared_at,
+      notification_sent_at: data?.sentAt || new Date().toISOString(),
+      notification_error: null,
+      gmail_message_id: data?.gmailMessageId || null,
+      updated_at: new Date().toISOString(),
+    };
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...sentPatch } : a));
   };
   const syncNextAction = async () => {
     const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
@@ -5806,7 +5845,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   return (
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V10 email</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V11 Gmail auto</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -5874,13 +5913,13 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
                     <div style={{fontSize:10,color:T.textMuted,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
                       {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
                       {a.document_drive_attendu && <span style={{color:T.accent,fontWeight:800}}>📁 Drive</span>}
-                      {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:800}}>✉️ mail préparé {new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}</span>}
+                      {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:800}}>✉️ {a.notification_sent_at ? `envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}` : a.notification_prepared_at ? `préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}` : ""}</span>}
                     </div>
                   </div>
                   <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"5px 6px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
                   <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value) || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
                   <input className="inv-inp" type="date" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
-                  <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable) ? `Préparer un email à ${a.responsable_email || missionEmailForOwner(a.responsable)}` : "Préparer un email sans destinataire prédéfini"} style={{fontSize:11,padding:"5px 7px",background:a.notification_prepared_at ? "#dcfce7" : "#fff",border:`1px solid ${a.notification_prepared_at ? "#86efac" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Mail</button>
+                  <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Envoyer</button>
                 </div>
               );
             })}
