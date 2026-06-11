@@ -5704,7 +5704,21 @@ function missionDetectStepKey(client = {}) {
 function missionStepIndex(key) {
   return Math.max(0, MISSION_STEPS_INVEST.findIndex(s => s.key === key));
 }
-function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated }) {
+function missionCurrentStepKeyFromActions(actions = [], client = {}) {
+  const safeActions = Array.isArray(actions) ? actions : [];
+  if (!safeActions.length) return missionDetectStepKey(client);
+  for (const step of MISSION_STEPS_INVEST) {
+    const list = safeActions.filter(a => a.step_key === step.key);
+    if (list.length && !list.every(missionActionDone)) return step.key;
+  }
+  const withActions = MISSION_STEPS_INVEST.filter(step => safeActions.some(a => a.step_key === step.key));
+  return withActions.length ? withActions[withActions.length - 1].key : missionDetectStepKey(client);
+}
+function missionCurrentStepLabelFromActions(actions = [], client = {}) {
+  const key = missionCurrentStepKeyFromActions(actions, client);
+  return MISSION_STEPS_INVEST.find(s => s.key === key)?.label || client?.etape || "—";
+}
+function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated, onMissionStageChange }) {
   const [actions, setActions] = useState([]);
   const [selectedStep, setSelectedStep] = useState(missionDetectStepKey(client));
   const [loading, setLoading] = useState(true);
@@ -5743,6 +5757,13 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0] || null;
     return { total, done, late, week, progress:total ? Math.round(done/total*100) : 0, next };
   }, [actions, today]);
+  useEffect(() => {
+    onMissionStageChange?.({
+      key: missionCurrentStepKeyFromActions(actions, client),
+      label: missionCurrentStepLabelFromActions(actions, client),
+    });
+  }, [actions, client?.id, client?.etape, client?.statut, onMissionStageChange]);
+
   const stepProgress = (key) => {
     const list = actions.filter(a => a.step_key === key);
     return { total:list.length, done:list.filter(missionActionDone).length, pct:list.length ? Math.round(list.filter(missionActionDone).length/list.length*100) : 0 };
@@ -6175,6 +6196,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const [showProp, setShowProp] = useState(false);
   const [newProp, setNewProp] = useState({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
   const [savingProp, setSavingProp] = useState(false);
+  const [missionStageInfo, setMissionStageInfo] = useState({ key:"", label:"" });
 
   const charger = async () => {
     const [{ data: c }, { data: n }, { data: p }, { data: b }] = await Promise.all([
@@ -6197,7 +6219,13 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       setSimulations(sRes.data || []);
     }
   };
-  useEffect(() => { charger(); }, [id]);
+  useEffect(() => { charger(); setMissionStageInfo({ key:"", label:"" }); }, [id]);
+
+  const updateClientPatch = async (patch) => {
+    setClient(prev => prev ? { ...prev, ...patch } : prev);
+    const { error } = await supabase.from("invest_clients").update(patch).eq("id", id);
+    if (error) { alert("Impossible d'enregistrer : " + error.message); charger(); }
+  };
 
   const ajouterNote = async () => {
     if (!newNote.contenu.trim()) return;
@@ -6274,30 +6302,30 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       </div>
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
-        {/* Prochaine action */}
-        <div className="inv-card">
-          <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13} strokeWidth={2.2}/>Prochaine Action</span></div>
-          <div className="inv-card-bd">
-            <div className="inv-row"><span className="inv-lbl">Action</span><span className="inv-val calc">{client.prochaine_action||"—"}</span></div>
-            <div className="inv-row"><span className="inv-lbl">Date</span><span className="inv-val calc" style={{ color: client.date_prochaine_action < new Date().toISOString().slice(0,10) ? "#e05c5c" : T.text }}>{fmtDate(client.date_prochaine_action)}</span></div>
-            {client.notes_rapides && <div style={{ marginTop:10, padding:"8px 10px", background:"#f8f9fb", borderRadius:7, fontSize:12, color:"#5a6070", lineHeight:1.6 }}>{client.notes_rapides}</div>}
-          </div>
-        </div>
-
-        {/* Parcours Mission en pleine largeur */}
-        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} />
-
-        {/* Informations en pleine largeur au-dessus des documents */}
+        {/* Informations en pleine largeur en haut de fiche */}
         <div className="inv-card">
           <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
           <div className="inv-card-bd">
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:"0 18px",maxWidth:"100%"}}>
-              {[ ["Conseiller", client.conseiller],["Source", client.source],["Budget", fmtBudget(client.budget)],["Étape", client.etape||"—"],["Date signature", fmtDate(client.date_signature)],["Avancement", client.avancement ? client.avancement+"%" : "—"]].map(([l,v])=>(
+              {[ ["Conseiller", client.conseiller], ["Source", client.source], ["Budget", fmtBudget(client.budget)], ["Étape mission", missionStageInfo.label || missionCurrentStepLabelFromActions([], client)] ].map(([l,v])=>(
                 <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
               ))}
+              <div className="inv-row" style={{alignItems:"center",gap:10}}>
+                <span className="inv-lbl">Date signature contrat</span>
+                <input
+                  className="inv-inp"
+                  type="date"
+                  value={String(client.date_signature || "").slice(0,10)}
+                  onChange={e => updateClientPatch({ date_signature:e.target.value || null })}
+                  style={{maxWidth:180,textAlign:"left",padding:"6px 8px",fontSize:12}}
+                />
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Parcours Mission en pleine largeur */}
+        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} />
 
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
           {/* Colonne gauche */}
