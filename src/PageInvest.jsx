@@ -5473,6 +5473,7 @@ const MISSION_COLLABORATEURS = [
   "Matthieu", "Tom", "Quentin", "Camille", "Loris", "François",
   "Client", "Courtier / Banque", "Notaire", "Agence", "Enedis", "Gestion locative",
 ];
+const MISSION_AUTOMATION_ACCOUNT_EMAIL = "og@groupe-profero.com";
 const MISSION_COLLABORATEURS_EMAILS = {
   Matthieu: "matthieu.fumoleau@groupe-profero.com",
   Tom: "tom.fourmond@groupe-profero.com",
@@ -6154,6 +6155,8 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         body,
         responsable: action.responsable || "",
         clientName: missionClientDisplayName(client),
+        senderEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
+        fromEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
       },
     });
 
@@ -6292,6 +6295,8 @@ Laisse vide pour créer un événement en journée entière.`,
         endTime: calendarEvent.endTime,
         hasTime: calendarEvent.hasTime,
         timeZone: calendarEvent.timeZone,
+        sourceEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
+        automationEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
       },
     });
 
@@ -6354,7 +6359,7 @@ Laisse vide pour créer un événement en journée entière.`,
         onChange={handleMissionJustificatifComputerFile}
       />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.9 mail + agenda Matthieu</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.10 mail + agenda via og</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
