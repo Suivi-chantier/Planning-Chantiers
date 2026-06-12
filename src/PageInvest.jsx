@@ -5529,6 +5529,7 @@ const missionBuildNotificationEmail = (action = {}, client = {}) => {
   return { subject, body };
 };
 const MISSION_CALENDAR_TIMEZONE = "Europe/Paris";
+const MISSION_CALENDAR_DEFAULT_DURATION_MINUTES = 60;
 const missionCalendarAddOneDay = (isoDate = "") => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoDate || ""))) return "";
   const d = new Date(`${isoDate}T12:00:00`);
@@ -5536,16 +5537,33 @@ const missionCalendarAddOneDay = (isoDate = "") => {
   return d.toISOString().slice(0,10);
 };
 const missionLooksLikeIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
-const missionBuildCalendarEvent = (action = {}, client = {}) => {
+const missionLooksLikeHour = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || "").trim());
+const missionCalendarEndTime = (date, hour, durationMinutes = MISSION_CALENDAR_DEFAULT_DURATION_MINUTES) => {
+  if (!missionLooksLikeIsoDate(date) || !missionLooksLikeHour(hour)) return "";
+  const d = new Date(`${date}T${hour}:00`);
+  d.setMinutes(d.getMinutes() + Number(durationMinutes || MISSION_CALENDAR_DEFAULT_DURATION_MINUTES));
+  return d.toTimeString().slice(0,5);
+};
+const missionFormatCalendarDateFr = (date, hour = "") => {
+  const d = missionFormatDateFr(date);
+  return hour ? `${d} à ${hour}` : `${d} · journée entière`;
+};
+const missionBuildCalendarEvent = (action = {}, client = {}, options = {}) => {
   const clientName = missionClientDisplayName(client);
-  const dueDate = action?.due_date || new Date().toISOString().slice(0,10);
-  const endDate = missionCalendarAddOneDay(dueDate) || dueDate;
-  const summary = `[Profero Invest] ${action?.action_title || "Action mission"}`;
+  const missionLabel = action?.step_label || action?.mission_label || "Mission client";
+  const calendarDate = options.calendarDate || action?.calendar_date || action?.due_date || new Date().toISOString().slice(0,10);
+  const calendarTime = String(options.calendarTime || action?.calendar_time || "").trim();
+  const hasTime = !!calendarTime;
+  const endDate = missionCalendarAddOneDay(calendarDate) || calendarDate;
+  const endTime = hasTime ? missionCalendarEndTime(calendarDate, calendarTime) : "";
+  const summary = `[Profero Invest] ${clientName} — ${missionLabel} — ${action?.action_title || "Action"}`;
   const description = [
-    `Client : ${clientName}`,
-    `Étape : ${action?.step_label || "—"}`,
+    `Client concerné : ${clientName}`,
+    `Mission : ${missionLabel}`,
     `Action : ${action?.action_title || "—"}`,
     `Responsable : ${action?.responsable || "—"}`,
+    `Créneau agenda : ${missionFormatCalendarDateFr(calendarDate, calendarTime)}`,
+    action?.due_date ? `Date d'échéance initiale : ${missionFormatDateFr(action.due_date)}` : null,
     action?.relance_rule ? `Relance : ${action.relance_rule}` : null,
     action?.document_drive_attendu ? `Pièce / Drive attendu : oui` : null,
     "",
@@ -5554,8 +5572,13 @@ const missionBuildCalendarEvent = (action = {}, client = {}) => {
   return {
     summary,
     description,
-    dueDate,
+    dueDate: calendarDate,
     endDate,
+    calendarDate,
+    calendarTime,
+    startTime: hasTime ? `${calendarDate}T${calendarTime}:00` : "",
+    endTime: hasTime ? `${calendarDate}T${endTime}:00` : "",
+    hasTime,
     timeZone: MISSION_CALENDAR_TIMEZONE,
   };
 };
@@ -6195,33 +6218,57 @@ Indique l’email Google Agenda à utiliser :`, "");
       setActions(prev => prev.map(a => a.responsable === action.responsable ? { ...a, responsable_email: email } : a));
     }
 
-    let dueDate = action.due_date || "";
-    if (!dueDate) {
-      const askedDate = window.prompt("Cette action n’a pas de date d’échéance. Indique la date à ajouter à l’agenda au format AAAA-MM-JJ :", today);
-      if (!askedDate) return;
-      if (!missionLooksLikeIsoDate(askedDate)) {
-        setError("Date invalide. Utilise le format AAAA-MM-JJ, par exemple 2026-06-12.");
-        return;
-      }
-      dueDate = askedDate.trim();
-    }
-
     if (!email) {
       setError("Aucun email Google Agenda n'est renseigné pour ce responsable.");
       return;
     }
 
-    const calendarEvent = missionBuildCalendarEvent({ ...action, due_date:dueDate, responsable_email:email }, client);
+    const defaultDate = action.calendar_date || action.due_date || today;
+    const askedDate = window.prompt(
+      `Jour à ajouter à l'agenda pour :
+${missionClientDisplayName(client)} — ${action.step_label || "Mission"}
+${action.action_title || "Action"}
+
+Format attendu : AAAA-MM-JJ`,
+      defaultDate,
+    );
+    if (!askedDate) return;
+    const calendarDate = askedDate.trim();
+    if (!missionLooksLikeIsoDate(calendarDate)) {
+      setError("Date invalide. Utilise le format AAAA-MM-JJ, par exemple 2026-06-12.");
+      return;
+    }
+
+    const askedTime = window.prompt(
+      `Heure facultative au format HH:MM.
+Laisse vide pour créer un événement en journée entière.`,
+      action.calendar_time || "",
+    );
+    if (askedTime === null) return;
+    const calendarTime = String(askedTime || "").trim();
+    if (calendarTime && !missionLooksLikeHour(calendarTime)) {
+      setError("Heure invalide. Utilise le format HH:MM, par exemple 09:30, ou laisse vide pour une journée entière.");
+      return;
+    }
+
+    const calendarEvent = missionBuildCalendarEvent({ ...action, responsable_email:email }, client, { calendarDate, calendarTime });
     const preparingPatch = {
       responsable_email: email,
-      due_date: dueDate,
+      due_date: action.due_date || calendarDate,
+      calendar_date: calendarDate,
+      calendar_time: calendarTime || null,
       calendar_status: "creation_en_cours",
       calendar_error: null,
       calendar_prepared_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
     setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...preparingPatch } : a));
-    await supabase.from("invest_mission_actions").update(preparingPatch).eq("id", action.id);
+    const { error: prepareError } = await supabase.from("invest_mission_actions").update(preparingPatch).eq("id", action.id);
+    if (prepareError) {
+      setError(prepareError.message);
+      charger();
+      return;
+    }
 
     const { data, error } = await supabase.functions.invoke("create-mission-calendar-event", {
       body: {
@@ -6230,10 +6277,17 @@ Indique l’email Google Agenda à utiliser :`, "");
         calendarEmail: email,
         responsable: action.responsable || "",
         clientName: missionClientDisplayName(client),
+        missionLabel: action.step_label || "Mission client",
+        actionTitle: action.action_title || "Action mission",
         summary: calendarEvent.summary,
         description: calendarEvent.description,
         dueDate: calendarEvent.dueDate,
         endDate: calendarEvent.endDate,
+        calendarDate: calendarEvent.calendarDate,
+        calendarTime: calendarEvent.calendarTime,
+        startTime: calendarEvent.startTime,
+        endTime: calendarEvent.endTime,
+        hasTime: calendarEvent.hasTime,
         timeZone: calendarEvent.timeZone,
       },
     });
@@ -6268,6 +6322,8 @@ Indique l’email Google Agenda à utiliser :`, "");
 
     const donePatch = {
       calendar_status: "cree",
+      calendar_date: data?.calendarDate || calendarDate,
+      calendar_time: data?.calendarTime || calendarTime || null,
       calendar_event_id: data?.eventId || null,
       calendar_html_link: data?.htmlLink || null,
       calendar_created_at: data?.createdAt || new Date().toISOString(),
@@ -6295,7 +6351,7 @@ Indique l’email Google Agenda à utiliser :`, "");
         onChange={handleMissionJustificatifComputerFile}
       />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.7 relances + pièces + agenda</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.8 relances + pièces + agenda horaire</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -6367,7 +6423,7 @@ Indique l’email Google Agenda à utiliser :`, "");
                       {a.completed_at && <span style={{color:"#16a34a",fontWeight:900}}>✅ fait le {missionFormatDateFr(a.completed_at)}</span>}
                       {a.justificatif_drive_url && <span style={{color:T.accent,fontWeight:800}}>📎 pièce : {a.justificatif_drive_name || "justificatif"}</span>}
                       {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:800}}>✉️ {a.notification_sent_at ? `envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}` : a.notification_prepared_at ? `préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}` : ""}</span>}
-                      {a.calendar_created_at && <span style={{color:"#7c3aed",fontWeight:800}}>📅 agenda {new Date(a.calendar_created_at).toLocaleDateString("fr-FR")}</span>}
+                      {a.calendar_created_at && <span style={{color:"#7c3aed",fontWeight:800}}>📅 agenda {missionFormatCalendarDateFr(a.calendar_date || a.due_date, a.calendar_time || "")}</span>}
                       {a.calendar_status === "erreur_creation" && <span style={{color:"#dc2626",fontWeight:800}}>📅 agenda erreur</span>}
                     </div>
                   </div>
@@ -6389,7 +6445,7 @@ Indique l’email Google Agenda à utiliser :`, "");
                   ) : <span style={{fontSize:11,color:T.textMuted,textAlign:"center"}}>—</span>}
                   <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
                     <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Mail} size={12}/> Mail</button>
-                    <button className="inv-btn inv-btn-sm" onClick={() => addActionToAgenda(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Ajouter cette action à l’agenda Google de ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’ajouter à l’agenda : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.calendar_created_at ? "#ede9fe" : a.calendar_status === "creation_en_cours" ? "#fef3c7" : "#fff",border:`1px solid ${a.calendar_created_at ? "#c4b5fd" : a.calendar_status === "creation_en_cours" ? "#fcd34d" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Calendar} size={12}/> Agenda</button>
+                    <button className="inv-btn inv-btn-sm" onClick={() => addActionToAgenda(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Choisir le jour / l’heure et ajouter cette action à l’agenda Google de ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’ajouter à l’agenda : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.calendar_created_at ? "#ede9fe" : a.calendar_status === "creation_en_cours" ? "#fef3c7" : "#fff",border:`1px solid ${a.calendar_created_at ? "#c4b5fd" : a.calendar_status === "creation_en_cours" ? "#fcd34d" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Calendar} size={12}/> Agenda</button>
                   </div>
                 </div>
               );
