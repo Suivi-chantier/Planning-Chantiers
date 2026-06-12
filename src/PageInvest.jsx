@@ -5474,9 +5474,10 @@ const MISSION_COLLABORATEURS = [
   "Client", "Courtier / Banque", "Notaire", "Agence", "Enedis", "Gestion locative",
 ];
 const MISSION_COLLABORATEURS_EMAILS = {
+  Matthieu: "matthieu.fumoleau@groupe-profero.com",
   Tom: "tom.fourmond@groupe-profero.com",
   Camille: "camille.landais@groupe-profero.com",
-  // Les emails de Matthieu, Quentin, Loris et François pourront être ajoutés ici après validation.
+  // Les emails de Quentin, Loris et François pourront être ajoutés ici après validation.
 };
 const MISSION_EMAILS_STORAGE_KEY = "profero_mission_collaborateurs_emails_v1";
 const missionStoredEmails = () => {
@@ -5502,7 +5503,9 @@ const missionEmailForOwner = (owner, client = {}) => {
   if (!cleanOwner) return "";
   if (cleanOwner === "Client") return String(client?.email || "").trim();
   const stored = missionStoredEmails();
-  return stored[cleanOwner] || MISSION_COLLABORATEURS_EMAILS[cleanOwner] || "";
+  // Priorité aux emails officiels codés en dur : cela évite qu'une ancienne adresse
+  // mémorisée dans le navigateur continue de bloquer les actions Mail / Agenda.
+  return MISSION_COLLABORATEURS_EMAILS[cleanOwner] || stored[cleanOwner] || "";
 };
 const missionClientDisplayName = (client = {}) => `${client?.prenom || ""} ${client?.nom || ""}`.trim() || client?.email || "Client";
 const missionBuildNotificationEmail = (action = {}, client = {}) => {
@@ -6351,7 +6354,7 @@ Laisse vide pour créer un événement en journée entière.`,
         onChange={handleMissionJustificatifComputerFile}
       />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.8 relances + pièces + agenda horaire</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.9 mail + agenda Matthieu</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
