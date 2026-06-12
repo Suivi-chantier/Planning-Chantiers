@@ -4141,7 +4141,7 @@ const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
 const STATUTS_PROP    = ["proposé","intéressé","refusé","en analyse","offre en cours"];
 
-function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, initialFilter }) {
+function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien, initialFilter }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
@@ -4203,7 +4203,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
   const gridCols = "1.55fr .85fr .85fr .9fr .85fr .95fr 1.35fr 1.25fr 75px";
 
-  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} />;
+  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} />;
 
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1600, margin:"0 auto" }}>
@@ -6342,7 +6342,7 @@ function MissionActionsCollaborateursDashboard({ T=THEMES_INV.dark, onNavigate }
   );
 }
 
-function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration }) {
+function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
   const [props, setProps]     = useState([]);
@@ -6360,7 +6360,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
     const [{ data: c }, { data: n }, { data: p }, { data: b }] = await Promise.all([
       supabase.from("invest_clients").select("*").eq("id", id).single(),
       supabase.from("invest_notes").select("*").eq("client_id", id).order("date", { ascending: false }),
-      supabase.from("invest_propositions").select("*, bien:invest_biens(adresse,ville,statut)").eq("client_id", id).order("created_at", { ascending: false }),
+      supabase.from("invest_propositions").select("*, bien:invest_biens(id,adresse,ville,statut)").eq("client_id", id).order("created_at", { ascending: false }),
       supabase.from("invest_biens").select("id,adresse,ville,code_postal,statut,prix_vente,prix_travaux,cout_total,montant_offre,rendement_brut,cashflow_estime,visite_data").order("adresse"),
     ]);
     setClient(c); setNotes(n||[]); setProps(p||[]); setBiens(b||[]);
@@ -6499,16 +6499,41 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               <div className="inv-card-bd">
                 {props.length === 0 ? (
                   <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucun bien proposé</div>
-                ) : props.map(p => (
-                  <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
-                    <div style={{ fontWeight:600, fontSize:13, color:T.text }}>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</div>
-                    <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
-                      {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
-                      {p.commentaire && ` · ${p.commentaire}`}
+                ) : props.map(p => {
+                  const bienId = p.bien_id || p.bien?.id;
+                  return (
+                    <div key={p.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
+                      <button
+                        type="button"
+                        onClick={() => bienId && onOpenBien?.(bienId)}
+                        disabled={!bienId || !onOpenBien}
+                        title={bienId && onOpenBien ? "Ouvrir la fiche du bien" : "Fiche du bien indisponible"}
+                        style={{
+                          border:0,
+                          background:"transparent",
+                          padding:0,
+                          margin:0,
+                          fontWeight:700,
+                          fontSize:13,
+                          color:bienId && onOpenBien ? T.accent : T.text,
+                          textAlign:"left",
+                          cursor:bienId && onOpenBien ? "pointer" : "default",
+                          display:"inline-flex",
+                          alignItems:"center",
+                          gap:5,
+                        }}
+                      >
+                        <span>{p.bien?.adresse||"Bien"} {p.bien?.ville ? `— ${p.bien.ville}` : ""}</span>
+                        {bienId && onOpenBien && <Icon as={ExternalLink} size={10} strokeWidth={2.2}/>} 
+                      </button>
+                      <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>
+                        {new Date(p.date_proposition).toLocaleDateString("fr-FR")} · <span style={{ fontWeight:600, color:T.accent }}>{p.statut}</span>
+                        {p.commentaire && ` · ${p.commentaire}`}
+                      </div>
+                      {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent, display:"inline-flex", alignItems:"center", gap:3 }}><Icon as={FileText} size={10} strokeWidth={2.2}/> Dossier présenté <Icon as={ExternalLink} size={9}/></a>}
                     </div>
-                    {p.lien_dossier && <a href={p.lien_dossier} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T.accent, display:"inline-flex", alignItems:"center", gap:3 }}><Icon as={FileText} size={10} strokeWidth={2.2}/> Dossier présenté <Icon as={ExternalLink} size={9}/></a>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -7144,6 +7169,7 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
   useEffect(() => {
     if (!initialFilter) return;
     setFiltreStatut(""); setFiltreVille(""); setSpecialFilter(""); setSearch("");
+    if (initialFilter.type === "open_bien" && initialFilter.bien_id) { setFicheId(initialFilter.bien_id); return; }
     if (initialFilter.type === "statut") setFiltreStatut(initialFilter.value || "");
     if (initialFilter.type === "a_relancer") { setSpecialFilter("a_relancer"); setSortConfig({ key:"date_relance", direction:"asc" }); }
     if (initialFilter.type === "all") setSortConfig({ key:"created_at", direction:"desc" });
@@ -12202,6 +12228,11 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     setStructInitialClientId(clientId);
     setPage("structuration");
   };
+  const ouvrirBienDepuisClient = (bienId) => {
+    if (!bienId) return;
+    setBiensInitialFilter({ type:"open_bien", bien_id:bienId, _ts: Date.now() });
+    setPage("biens");
+  };
   const fermerSim = () => {
     setVueSim("liste");
     if (simOrigine === "crm") setPage("crm");
@@ -12242,7 +12273,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguerDepuisDashboard} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
-        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} onOpenStructuration={ouvrirStructurationDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
+        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
         {page === "structuration" && (canSee("structuration") ? <StructurationPatrimoniale profil={profil} T={T} initialClientId={structInitialClientId} /> : <AccesRefuseInvest T={T} page="structuration"/>)}
         {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
