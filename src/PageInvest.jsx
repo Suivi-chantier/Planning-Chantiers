@@ -5528,6 +5528,37 @@ const missionBuildNotificationEmail = (action = {}, client = {}) => {
   ].filter(Boolean).join("\n");
   return { subject, body };
 };
+const MISSION_CALENDAR_TIMEZONE = "Europe/Paris";
+const missionCalendarAddOneDay = (isoDate = "") => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoDate || ""))) return "";
+  const d = new Date(`${isoDate}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0,10);
+};
+const missionLooksLikeIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+const missionBuildCalendarEvent = (action = {}, client = {}) => {
+  const clientName = missionClientDisplayName(client);
+  const dueDate = action?.due_date || new Date().toISOString().slice(0,10);
+  const endDate = missionCalendarAddOneDay(dueDate) || dueDate;
+  const summary = `[Profero Invest] ${action?.action_title || "Action mission"}`;
+  const description = [
+    `Client : ${clientName}`,
+    `Étape : ${action?.step_label || "—"}`,
+    `Action : ${action?.action_title || "—"}`,
+    `Responsable : ${action?.responsable || "—"}`,
+    action?.relance_rule ? `Relance : ${action.relance_rule}` : null,
+    action?.document_drive_attendu ? `Pièce / Drive attendu : oui` : null,
+    "",
+    "Événement créé depuis le Parcours Mission Profero Invest.",
+  ].filter(Boolean).join("\n");
+  return {
+    summary,
+    description,
+    dueDate,
+    endDate,
+    timeZone: MISSION_CALENDAR_TIMEZONE,
+  };
+};
 const MISSION_STATUTS_ACTION = [
   { key:"a_faire", label:"À faire", color:"#f59e0b" },
   { key:"en_cours", label:"En cours", color:"#2563eb" },
@@ -6142,6 +6173,112 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     };
     setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...sentPatch } : a));
   };
+  const addActionToAgenda = async (action) => {
+    if (!action) return;
+    setError("");
+    let email = action.responsable_email || missionEmailForOwner(action.responsable, client);
+    if (!email && action.responsable) {
+      const asked = window.prompt(`Aucun email n’est renseigné pour ${action.responsable}.
+Indique l’email Google Agenda à utiliser :`, "");
+      if (!asked) return;
+      if (!missionLooksLikeEmail(asked)) {
+        setError("Email invalide. Vérifie le format de l’adresse email Google Agenda.");
+        return;
+      }
+      email = asked.trim();
+      missionRememberOwnerEmail(action.responsable, email);
+      await supabase
+        .from("invest_mission_actions")
+        .update({ responsable_email: email, updated_at:new Date().toISOString() })
+        .eq("client_id", client.id)
+        .eq("responsable", action.responsable);
+      setActions(prev => prev.map(a => a.responsable === action.responsable ? { ...a, responsable_email: email } : a));
+    }
+
+    let dueDate = action.due_date || "";
+    if (!dueDate) {
+      const askedDate = window.prompt("Cette action n’a pas de date d’échéance. Indique la date à ajouter à l’agenda au format AAAA-MM-JJ :", today);
+      if (!askedDate) return;
+      if (!missionLooksLikeIsoDate(askedDate)) {
+        setError("Date invalide. Utilise le format AAAA-MM-JJ, par exemple 2026-06-12.");
+        return;
+      }
+      dueDate = askedDate.trim();
+    }
+
+    if (!email) {
+      setError("Aucun email Google Agenda n'est renseigné pour ce responsable.");
+      return;
+    }
+
+    const calendarEvent = missionBuildCalendarEvent({ ...action, due_date:dueDate, responsable_email:email }, client);
+    const preparingPatch = {
+      responsable_email: email,
+      due_date: dueDate,
+      calendar_status: "creation_en_cours",
+      calendar_error: null,
+      calendar_prepared_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...preparingPatch } : a));
+    await supabase.from("invest_mission_actions").update(preparingPatch).eq("id", action.id);
+
+    const { data, error } = await supabase.functions.invoke("create-mission-calendar-event", {
+      body: {
+        actionId: action.id,
+        clientId: client.id,
+        calendarEmail: email,
+        responsable: action.responsable || "",
+        clientName: missionClientDisplayName(client),
+        summary: calendarEvent.summary,
+        description: calendarEvent.description,
+        dueDate: calendarEvent.dueDate,
+        endDate: calendarEvent.endDate,
+        timeZone: calendarEvent.timeZone,
+      },
+    });
+
+    let edgeDetail = "";
+    if (error?.context) {
+      try {
+        const txt = await error.context.text();
+        if (txt) {
+          try {
+            const parsed = JSON.parse(txt);
+            edgeDetail = parsed?.error || parsed?.message || parsed?.hint || txt;
+          } catch {
+            edgeDetail = txt;
+          }
+        }
+      } catch {}
+    }
+
+    if (error || data?.error) {
+      const msg = data?.error || edgeDetail || error?.message || "Erreur inconnue lors de la création Google Agenda";
+      const failPatch = {
+        calendar_status: "erreur_creation",
+        calendar_error: msg,
+        updated_at: new Date().toISOString(),
+      };
+      setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...failPatch } : a));
+      await supabase.from("invest_mission_actions").update(failPatch).eq("id", action.id);
+      setError(msg);
+      return;
+    }
+
+    const donePatch = {
+      calendar_status: "cree",
+      calendar_event_id: data?.eventId || null,
+      calendar_html_link: data?.htmlLink || null,
+      calendar_created_at: data?.createdAt || new Date().toISOString(),
+      calendar_error: null,
+      updated_at: new Date().toISOString(),
+    };
+    setActions(prev => prev.map(a => a.id === action.id ? { ...a, ...donePatch } : a));
+    await supabase.from("invest_mission_actions").update(donePatch).eq("id", action.id);
+    if (donePatch.calendar_html_link) window.open(donePatch.calendar_html_link, "_blank");
+  };
+
   const syncNextAction = async () => {
     const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
     if (!next) return;
@@ -6158,7 +6295,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         onChange={handleMissionJustificatifComputerFile}
       />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.4 relances + pièces</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.7 relances + pièces + agenda</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -6219,7 +6356,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
               const meta = missionStatusMeta(a.status);
               const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
               return (
-                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(270px,1.7fr) minmax(112px,.5fr) minmax(145px,.6fr) minmax(130px,.5fr) minmax(125px,.55fr) minmax(105px,.45fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%",overflow:"hidden"}}>
+                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(270px,1.7fr) minmax(112px,.5fr) minmax(145px,.6fr) minmax(130px,.5fr) minmax(125px,.55fr) minmax(175px,.75fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%",overflow:"hidden"}}>
                   <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"visible",textOverflow:"clip",whiteSpace:"normal",lineHeight:1.35}}>{a.action_title}</div>
@@ -6230,6 +6367,8 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
                       {a.completed_at && <span style={{color:"#16a34a",fontWeight:900}}>✅ fait le {missionFormatDateFr(a.completed_at)}</span>}
                       {a.justificatif_drive_url && <span style={{color:T.accent,fontWeight:800}}>📎 pièce : {a.justificatif_drive_name || "justificatif"}</span>}
                       {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:800}}>✉️ {a.notification_sent_at ? `envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}` : a.notification_prepared_at ? `préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}` : ""}</span>}
+                      {a.calendar_created_at && <span style={{color:"#7c3aed",fontWeight:800}}>📅 agenda {new Date(a.calendar_created_at).toLocaleDateString("fr-FR")}</span>}
+                      {a.calendar_status === "erreur_creation" && <span style={{color:"#dc2626",fontWeight:800}}>📅 agenda erreur</span>}
                     </div>
                   </div>
                   <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"5px 6px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
@@ -6248,7 +6387,10 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
                       </div>
                     )
                   ) : <span style={{fontSize:11,color:T.textMuted,textAlign:"center"}}>—</span>}
-                  <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center"}}><Icon as={Mail} size={12}/> Envoyer</button>
+                  <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
+                    <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Mail} size={12}/> Mail</button>
+                    <button className="inv-btn inv-btn-sm" onClick={() => addActionToAgenda(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Ajouter cette action à l’agenda Google de ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’ajouter à l’agenda : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.calendar_created_at ? "#ede9fe" : a.calendar_status === "creation_en_cours" ? "#fef3c7" : "#fff",border:`1px solid ${a.calendar_created_at ? "#c4b5fd" : a.calendar_status === "creation_en_cours" ? "#fcd34d" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Calendar} size={12}/> Agenda</button>
+                  </div>
                 </div>
               );
             })}
