@@ -14,6 +14,55 @@ import {
 // ─── HEURES PAR JOUR ─────────────────────────────────────────────────────────
 const HEURES_PAR_JOUR = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9 };
 
+// Priorité des statuts de tâche pour le bilan : la version "la plus avancée"
+// l'emporte si la même tâche est déclarée plusieurs fois dans la semaine.
+const STATUT_PRIORITE_BILAN = { "faite": 3, "en_cours": 2, "non_faite": 1 };
+const normTexteBilan = (s) => (s || "").toString().toLowerCase().replace(/\s+/g, " ").trim();
+
+// Une même tâche peut être déclarée plusieurs fois (plusieurs ouvriers, ou un
+// même ouvrier sur plusieurs jours), parfois avec des statuts différents — par
+// ex. "non faite" mardi puis "faite" jeudi. Pour le bilan, on ne garde qu'une
+// seule version par texte de tâche : celle au statut le plus avancé
+// (faite > en_cours > non_faite). Évite qu'une tâche apparaisse à la fois dans
+// "Réalisé" et "Non faites".
+const filtrerStatutDominant = (taches) => {
+  const meilleur = {};
+  taches.forEach(t => {
+    const key = normTexteBilan(t.planifie || t.text || "");
+    if (!key) return;
+    const p = STATUT_PRIORITE_BILAN[t.statut] || 0;
+    if (meilleur[key] == null || p > meilleur[key]) meilleur[key] = p;
+  });
+  return taches.filter(t => {
+    const key = normTexteBilan(t.planifie || t.text || "");
+    if (!key) return true;
+    return (STATUT_PRIORITE_BILAN[t.statut] || 0) === meilleur[key];
+  });
+};
+
+// Fusionne les doublons restants (même texte de tâche, même statut, mais
+// déclarés par plusieurs ouvriers ou sur plusieurs jours). Concatène les
+// ouvriers et les remarques en évitant les répétitions.
+const fusionnerTachesBilan = (taches) => {
+  const groupes = {};
+  const sansTexte = [];
+  taches.forEach(t => {
+    const key = normTexteBilan(t.planifie || t.text || "");
+    if (!key) { sansTexte.push(t); return; }
+    if (!groupes[key]) groupes[key] = { ...t, _ouvriers: new Set(), _remarques: new Set() };
+    if (t.ouvrier) groupes[key]._ouvriers.add(t.ouvrier);
+    if (t.remarque && t.remarque.trim()) groupes[key]._remarques.add(t.remarque.trim());
+  });
+  return [
+    ...Object.values(groupes).map(g => ({
+      ...g,
+      ouvrier:  [...g._ouvriers].join(", "),
+      remarque: [...g._remarques].join(" · "),
+    })),
+    ...sansTexte,
+  ];
+};
+
 // ─── MODAL BILAN SEMAINE ──────────────────────────────────────────────────────
 function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, T }) {
   const [creatingDraft, setCreatingDraft] = useState(false);
@@ -125,7 +174,6 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
 
   const heuresParChantier = etape === "bilan" ? calcHeuresParChantier() : {};
   const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
-  const totalFaites = rapports.reduce((a, r) => a + (r.taches||[]).filter(t => t.statut==="faite").length, 0);
 
   // ── Regroupement rapports par chantier ───────────────────────────────────────
   const parChantier = {};
@@ -134,6 +182,16 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     if (!parChantier[key]) parChantier[key] = { rapports: [], nom: r.chantier_nom || "Divers" };
     parChantier[key].rapports.push(r);
   });
+
+  // Comptage des tâches "faites" en cohérence avec le PDF : on déduplique par
+  // chantier (statut dominant + fusion des doublons), sinon le KPI gonflerait
+  // chaque fois qu'une tâche est déclarée par plusieurs ouvriers ou plusieurs
+  // jours.
+  const totalFaites = Object.values(parChantier).reduce((acc, grp) => {
+    const tachesRaw = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier: r.ouvrier})));
+    const taches = filtrerStatutDominant(tachesRaw);
+    return acc + fusionnerTachesBilan(taches.filter(t => t.statut === "faite")).length;
+  }, 0);
 
   // ── Progression hebdomadaire par chantier ───────────────────────────────────
   // Pour chaque chantier ayant un rapport cette semaine, on récupère le dernier
@@ -270,7 +328,11 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       // Construire les données structurées pour le document
       const chantierData = Object.entries(parChantier).map(([cId, grp]) => {
         const hCh = hpc[cId] || 0;
-        const taches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier: r.ouvrier})));
+        const tachesRaw = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier: r.ouvrier})));
+        // Une tâche déclarée "non faite" puis "faite" plus tard dans la
+        // semaine ne doit apparaître que dans "Réalisé". On filtre par statut
+        // dominant avant de partitionner.
+        const taches = filtrerStatutDominant(tachesRaw);
         const presences = [];
         Object.keys(HEURES_PAR_JOUR).forEach(jour => {
           const cell = cells[`${cId}_${jour}`];
@@ -338,10 +400,16 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       const ch = chantiers.find(c => c.id === cId);
       const couleur = ch?.couleur || "#5b8af5";
       const heures = heuresParChantier[cId] || 0;
-      const taches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
-      const faites    = taches.filter(t => t.statut === "faite");
-      const enCours   = taches.filter(t => t.statut === "en_cours");
-      const nonFaites = taches.filter(t => t.statut === "non_faite");
+      const tachesRaw = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
+      // 1) On ne garde qu'une seule version de chaque tâche, au statut le plus
+      //    avancé (faite > en_cours > non_faite) — sinon une tâche "non faite"
+      //    mardi puis "faite" jeudi apparaîtrait dans les deux sections.
+      // 2) On fusionne ensuite les doublons restants (même texte/même statut
+      //    mais déclarés par plusieurs ouvriers ou sur plusieurs jours).
+      const taches    = filtrerStatutDominant(tachesRaw);
+      const faites    = fusionnerTachesBilan(taches.filter(t => t.statut === "faite"));
+      const enCours   = fusionnerTachesBilan(taches.filter(t => t.statut === "en_cours"));
+      const nonFaites = fusionnerTachesBilan(taches.filter(t => t.statut === "non_faite"));
       const remarques = grp.rapports.filter(r => r.remarque?.trim());
       const presences = [];
       Object.keys(HEURES_PAR_JOUR).forEach(jour => {
