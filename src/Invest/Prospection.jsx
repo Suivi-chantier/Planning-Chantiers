@@ -25,6 +25,7 @@ import {
   MessageSquare,
   Mail,
   Euro,
+  BarChart3,
   AlertTriangle,
   Check,
 } from "lucide-react";
@@ -162,6 +163,48 @@ const MATURITES = ["", "Prêt à agir", "Projet dans les 3 mois", "Projet dans l
 const TYPES_ACTION = ["note", "appel", "sms", "email", "whatsapp", "rdv_visio", "rdv_physique", "envoi_document", "envoi_contrat", "relance"];
 const RESULTATS_ACTION = ["", "Répondu", "Pas répondu", "Message laissé", "Intéressé", "À relancer", "Refus", "Signature prévue", "Contrat envoyé", "Contrat signé"];
 
+
+const STATUT_OPTIONS = [
+  ["nouveau", "Nouveau"],
+  ["qualification", "À qualifier"],
+  ["contact", "Contact / relance"],
+  ["rdv", "RDV planifié"],
+  ["proposition", "Proposition envoyée"],
+  ["signe", "Signé"],
+  ["converti", "Converti client"],
+  ["perdu", "Perdu"],
+  ["sommeil", "En sommeil"],
+  ["hors_cible", "Hors cible"],
+];
+
+const OFFRE_STATUTS = [
+  "",
+  "À préparer",
+  "Envoyée",
+  "En attente",
+  "À relancer",
+  "Acceptée",
+  "Refusée",
+];
+
+const PROSPECT_DOCUMENTS = [
+  { id: "questionnaire", label: "Questionnaire découverte" },
+  { id: "simulation", label: "Simulation patrimoniale" },
+  { id: "proposition", label: "Proposition commerciale" },
+  { id: "contrat", label: "Contrat / lettre de mission" },
+  { id: "identite", label: "Pièce d'identité" },
+  { id: "domicile", label: "Justificatif de domicile" },
+  { id: "bancaire", label: "Documents bancaires" },
+  { id: "autres", label: "Autres documents" },
+];
+
+const RELANCE_PRESETS = [
+  { label: "J+2", days: 2, action: "Relance proposition / prise de nouvelles" },
+  { label: "J+7", days: 7, action: "Relance commerciale" },
+  { label: "J+15", days: 15, action: "Relance longue" },
+  { label: "1 mois", days: 30, action: "Relance prospect en sommeil" },
+];
+
 const EMPTY_PROSPECT = {
   civilite: "",
   nom: "",
@@ -225,6 +268,7 @@ const EMPTY_PROSPECT = {
   raison_perte: "",
 
   commentaire: "",
+  donnees: {},
 };
 
 const EMPTY_ACTION = {
@@ -280,6 +324,56 @@ function formatDateTime(v) {
   } catch {
     return "—";
   }
+}
+
+
+function addDaysIso(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+function diffDaysFromToday(date) {
+  if (!date) return null;
+  const a = new Date(todayIso());
+  const b = new Date(isoDate(date));
+  if (Number.isNaN(b.getTime())) return null;
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+function daysBetween(a, b) {
+  if (!a || !b) return null;
+  const da = new Date(a);
+  const db = new Date(b);
+  if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return null;
+  return Math.round((db.getTime() - da.getTime()) / 86400000);
+}
+
+function safeObj(v) {
+  return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+}
+
+function getProspectData(p = {}) {
+  return safeObj(p.donnees);
+}
+
+function getDocumentsChecklist(p = {}) {
+  return safeObj(getProspectData(p).documents_checklist);
+}
+
+function documentsProgress(p = {}) {
+  const docs = getDocumentsChecklist(p);
+  if (!PROSPECT_DOCUMENTS.length) return 0;
+  const done = PROSPECT_DOCUMENTS.filter((d) => docs[d.id] === "recu" || docs[d.id] === "na").length;
+  return Math.round((done / PROSPECT_DOCUMENTS.length) * 100);
+}
+
+function getOfferValue(p = {}) {
+  return Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0;
+}
+
+function getSourceLabel(v) {
+  return v || "Source non renseignée";
 }
 
 function isLate(date) {
@@ -384,6 +478,7 @@ function prospectToForm(p) {
     date_proposition: isoDate(p.date_proposition),
     date_signature: isoDate(p.date_signature),
     date_perte: isoDate(p.date_perte),
+    donnees: getProspectData(p),
   };
 }
 
@@ -451,6 +546,7 @@ function buildProspectPayload(form, profil, isNew = false) {
     raison_perte: safeText(form.raison_perte),
 
     commentaire: safeText(form.commentaire),
+    donnees: safeObj(form.donnees),
     updated_by: getAuteur(profil),
     is_deleted: false,
   };
@@ -829,6 +925,240 @@ function ProspectsTable({ prospects, selectedId, onSelect, T }) {
   );
 }
 
+
+function RelancesView({ prospects, selectedId, onSelect, T }) {
+  const items = [...prospects].sort((a, b) => {
+    const da = a.date_prochaine_action || a.date_relance || "9999-12-31";
+    const db = b.date_prochaine_action || b.date_relance || "9999-12-31";
+    return da.localeCompare(db);
+  });
+
+  const activeItems = items.filter((p) => !["perdu", "hors_cible", "converti"].includes(p.statut));
+
+  return (
+    <div className="inv-card" style={{ overflow: "hidden" }}>
+      <div className="inv-card-hd gold" style={{ justifyContent: "space-between" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon as={Clock} size={13} />
+          Relances et actions à venir
+        </span>
+        <span style={{ fontFamily: "'DM Mono', monospace", color: T.accent }}>
+          {activeItems.length}
+        </span>
+      </div>
+
+      <div className="inv-card-bd">
+        {activeItems.length === 0 ? (
+          <div style={{ padding: 24, textAlign: "center", color: T.textMuted }}>
+            Aucune relance à afficher.
+          </div>
+        ) : (
+          activeItems.map((p) => {
+            const actionDate = p.date_prochaine_action || p.date_relance;
+            const delta = diffDaysFromToday(actionDate);
+            const late = delta !== null && delta < 0;
+            const today = delta === 0;
+            const stage = getStageForStatus(p.statut);
+            const auto = computeProspectAutoScore(p);
+
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onSelect(p)}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  padding: 12,
+                  marginBottom: 8,
+                  borderRadius: RADIUS.md,
+                  border: `1px solid ${selectedId === p.id ? T.accent : T.border}`,
+                  background: selectedId === p.id ? T.accentBg : T.cardHover,
+                  cursor: "pointer",
+                  color: T.text,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 900, fontSize: FONT.sm.size + 1 }}>{getProspectName(p)}</div>
+                    <div style={{ marginTop: 3, color: T.textMuted, fontSize: FONT.xs.size + 1 }}>
+                      {p.prochaine_action || "Aucune action renseignée"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <Badge color={stage.color} T={T}>{stage.short}</Badge>
+                    <Badge color={auto.color} T={T}>{auto.score}%</Badge>
+                    <Badge color={late ? DA : today ? WA : SU} T={T}>
+                      {actionDate ? (late ? `Retard ${Math.abs(delta)}j` : today ? "Aujourd'hui" : `Dans ${delta}j`) : "Sans date"}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10, color: T.textSub, fontSize: FONT.xs.size + 1 }}>
+                  <div><strong style={{ color: T.text }}>Date :</strong> {formatDate(actionDate)}</div>
+                  <div><strong style={{ color: T.text }}>Resp. :</strong> {p.responsable || "—"}</div>
+                  <div><strong style={{ color: T.text }}>CA :</strong> {getOfferValue(p) ? fmtDashboardEur(getOfferValue(p)) : "—"}</div>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatsView({ prospects, T }) {
+  const total = prospects.length;
+  const signed = prospects.filter((p) => ["signe", "converti"].includes(p.statut)).length;
+  const lost = prospects.filter((p) => ["perdu", "hors_cible"].includes(p.statut)).length;
+  const proposals = prospects.filter((p) => ["proposition", "signe", "converti"].includes(p.statut) || p.date_proposition).length;
+  const caPotential = prospects.reduce((s, p) => s + getOfferValue(p), 0);
+  const caWeighted = prospects.reduce((s, p) => s + computeWeightedValue(p), 0);
+  const conversionRate = total ? Math.round((signed / total) * 100) : 0;
+  const proposalRate = total ? Math.round((proposals / total) * 100) : 0;
+
+  const bySource = Object.entries(
+    prospects.reduce((acc, p) => {
+      const key = getSourceLabel(p.source);
+      acc[key] = acc[key] || { count: 0, signed: 0, ca: 0 };
+      acc[key].count += 1;
+      acc[key].ca += getOfferValue(p);
+      if (["signe", "converti"].includes(p.statut)) acc[key].signed += 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b[1].count - a[1].count).slice(0, 8);
+
+  const byResponsable = Object.entries(
+    prospects.reduce((acc, p) => {
+      const key = p.responsable || "Non attribué";
+      acc[key] = acc[key] || { count: 0, signed: 0, late: 0, ca: 0 };
+      acc[key].count += 1;
+      acc[key].ca += getOfferValue(p);
+      if (["signe", "converti"].includes(p.statut)) acc[key].signed += 1;
+      if (isLate(p.date_prochaine_action || p.date_relance)) acc[key].late += 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b[1].count - a[1].count);
+
+  const averageDelayItems = prospects
+    .map((p) => daysBetween(p.created_at, p.date_signature || p.converted_at))
+    .filter((v) => Number.isFinite(v) && v >= 0);
+  const averageDelay = averageDelayItems.length
+    ? Math.round(averageDelayItems.reduce((s, v) => s + v, 0) / averageDelayItems.length)
+    : null;
+
+  const statCards = [
+    { label: "Prospects", value: total, icon: Users, color: "#60A5FA" },
+    { label: "Propositions", value: proposals, icon: FileText, color: "#C9A84C" },
+    { label: "Signés", value: signed, icon: CheckCircle2, color: SU },
+    { label: "Perdus", value: lost, icon: XCircle, color: DA },
+    { label: "Taux conversion", value: `${conversionRate}%`, icon: TrendingUp, color: conversionRate >= 25 ? SU : WA },
+    { label: "Taux proposition", value: `${proposalRate}%`, icon: BarChart3, color: "#8B5CF6" },
+    { label: "CA potentiel HT", value: fmtDashboardEur(caPotential), icon: Euro, color: SU },
+    { label: "CA pondéré HT", value: fmtDashboardEur(caWeighted), icon: Euro, color: "#C9A84C" },
+  ];
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+        {statCards.map((item) => <KpiCard key={item.label} item={item} T={T} />)}
+      </div>
+
+      <div className="inv-card" style={{ padding: 16 }}>
+        <div style={{ fontSize: FONT.md.size, fontWeight: 900, color: T.text, marginBottom: 8 }}>
+          Synthèse commerciale
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, color: T.textSub, fontSize: FONT.sm.size }}>
+          <div>Temps moyen prospect → signature : <strong style={{ color: T.text }}>{averageDelay !== null ? `${averageDelay} jours` : "—"}</strong></div>
+          <div>CA moyen par prospect : <strong style={{ color: T.text }}>{total ? fmtDashboardEur(caPotential / total) : "—"}</strong></div>
+          <div>CA moyen par signé : <strong style={{ color: T.text }}>{signed ? fmtDashboardEur(caPotential / signed) : "—"}</strong></div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="inv-card" style={{ overflow: "hidden" }}>
+          <div className="inv-card-hd blue">Analyse par source</div>
+          <div className="inv-card-bd">
+            {bySource.length === 0 ? <div style={{ color: T.textMuted }}>Aucune donnée.</div> : bySource.map(([source, d]) => (
+              <div key={source} style={{ padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <strong style={{ color: T.text }}>{source}</strong>
+                  <span style={{ color: T.textMuted }}>{d.count} prospect{d.count > 1 ? "s" : ""}</span>
+                </div>
+                <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                  {d.signed} signé{d.signed > 1 ? "s" : ""} · {fmtDashboardEur(d.ca)} potentiel
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="inv-card" style={{ overflow: "hidden" }}>
+          <div className="inv-card-hd gold">Analyse par responsable</div>
+          <div className="inv-card-bd">
+            {byResponsable.length === 0 ? <div style={{ color: T.textMuted }}>Aucune donnée.</div> : byResponsable.map(([resp, d]) => (
+              <div key={resp} style={{ padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <strong style={{ color: T.text }}>{resp}</strong>
+                  <span style={{ color: d.late ? DA : T.textMuted }}>{d.late} retard{d.late > 1 ? "s" : ""}</span>
+                </div>
+                <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                  {d.count} prospect{d.count > 1 ? "s" : ""} · {d.signed} signé{d.signed > 1 ? "s" : ""} · {fmtDashboardEur(d.ca)} potentiel
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentsChecklist({ form, T, onChange }) {
+  const docs = getDocumentsChecklist(form);
+  const pct = documentsProgress(form);
+
+  const setDoc = (docId, value) => {
+    const nextData = {
+      ...safeObj(form.donnees),
+      documents_checklist: {
+        ...docs,
+        [docId]: value,
+      },
+    };
+    onChange(nextData);
+  };
+
+  return (
+    <div style={{ marginTop: 14, padding: 12, borderRadius: RADIUS.lg, border: `1px solid ${T.border}`, background: T.cardHover }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <div style={{ fontWeight: 900, color: T.text, display: "flex", alignItems: "center", gap: 6 }}>
+          <Icon as={FileText} size={15} /> Documents prospect
+        </div>
+        <Badge color={pct >= 75 ? SU : pct >= 40 ? WA : DA} T={T}>{pct}%</Badge>
+      </div>
+      <div style={{ height: 6, borderRadius: 999, overflow: "hidden", background: T.border, marginBottom: 10 }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: pct >= 75 ? SU : pct >= 40 ? WA : DA }} />
+      </div>
+      <div style={{ display: "grid", gap: 7 }}>
+        {PROSPECT_DOCUMENTS.map((doc) => (
+          <div key={doc.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 8, alignItems: "center" }}>
+            <div style={{ color: T.textSub, fontSize: FONT.xs.size + 1 }}>{doc.label}</div>
+            <select className="inv-sel" value={docs[doc.id] || ""} onChange={(e) => setDoc(doc.id, e.target.value)} style={{ width: "100%" }}>
+              <option value="">À demander</option>
+              <option value="demande">Demandé</option>
+              <option value="recu">Reçu</option>
+              <option value="verifier">À vérifier</option>
+              <option value="na">N/A</option>
+            </select>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [prospects, setProspects] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -947,6 +1277,58 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   }, [prospects]);
 
   const selectedAutoScore = useMemo(() => computeProspectAutoScore(form), [form]);
+
+  const showFormPanel = !!(
+    selected ||
+    form.nom ||
+    form.prenom ||
+    form.societe ||
+    form.responsable ||
+    form.telephone ||
+    form.email
+  );
+
+  const attentionProspects = useMemo(() => {
+    return prospects
+      .filter((p) => !["perdu", "hors_cible", "converti"].includes(p.statut))
+      .filter((p) => {
+        const actionDate = p.date_prochaine_action || p.date_relance;
+        const updatedGap = daysBetween(p.updated_at, new Date().toISOString());
+        return isLate(actionDate) || (!actionDate && updatedGap !== null && updatedGap > 7);
+      })
+      .slice(0, 5);
+  }, [prospects]);
+
+  const copyText = async (text, success = "Texte copié.") => {
+    try {
+      await navigator.clipboard?.writeText(text);
+      setMsg(success);
+      setTimeout(() => setMsg(""), 2200);
+    } catch {
+      setError("Impossible de copier automatiquement. Tu peux copier le texte manuellement.");
+    }
+  };
+
+  const copyMailConfirmation = () => {
+    const name = getProspectName(form);
+    const date = form.date_rdv ? formatDate(form.date_rdv) : "[date à compléter]";
+    const heure = form.heure_rdv || "[heure à compléter]";
+    const lieu = form.lieu_rdv || "[lien visio / lieu à compléter]";
+    const texte = `Bonjour ${form.prenom || name},\n\nJe vous confirme notre rendez-vous du ${date} à ${heure}.\n\nLieu / lien : ${lieu}\n\nL'objectif sera de faire le point sur votre projet, votre stratégie d'investissement et les prochaines étapes possibles avec Profero Invest.\n\nBien cordialement,\nProfero Invest`;
+    copyText(texte, "Mail de confirmation copié.");
+  };
+
+  const copyRelanceMessage = () => {
+    const texte = `Bonjour ${form.prenom || ""},\n\nJe me permets de revenir vers vous concernant votre projet d'investissement immobilier.\n\nAvez-vous pu avancer de votre côté ? Je reste disponible pour faire un point et définir les prochaines étapes.\n\nBien cordialement,\nProfero Invest`;
+    copyText(texte, "Message de relance copié.");
+  };
+
+  const scheduleRelance = (days, action) => {
+    const date = addDaysIso(days);
+    setField("prochaine_action", action);
+    setField("date_prochaine_action", date);
+    setField("date_relance", date);
+  };
 
   const setQuickStatus = (statut) => {
     setField("statut", statut);
@@ -1106,9 +1488,30 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
     const prospect = { ...selected, ...buildProspectPayload(form, profil, false) };
 
-    if (!prospect.nom && !prospect.prenom) {
-      setError("Impossible de convertir : le nom ou prénom du client est manquant.");
+    const missing = [];
+    if (!prospect.nom && !prospect.prenom) missing.push("nom ou prénom");
+    if (!prospect.email && !prospect.telephone) missing.push("email ou téléphone");
+    if (!prospect.offre_recommandee && !prospect.honoraires_estimes_ht && !prospect.ca_potentiel_ht) missing.push("offre / honoraires");
+    if (!prospect.date_signature) missing.push("date de signature");
+    if (!prospect.responsable) missing.push("responsable du dossier");
+
+    if (missing.length > 0) {
+      setError(`Impossible de convertir ce prospect en client : informations manquantes (${missing.join(", ")}).`);
       return;
+    }
+
+    if (prospect.email) {
+      const { data: existingClient, error: duplicateError } = await supabase
+        .from("invest_clients")
+        .select("id,nom,prenom,email")
+        .eq("email", prospect.email)
+        .limit(1)
+        .maybeSingle();
+
+      if (!duplicateError && existingClient?.id) {
+        const ok = window.confirm("Un client avec cet email existe déjà dans le CRM Client. Veux-tu quand même créer une nouvelle fiche client ?");
+        if (!ok) return;
+      }
     }
 
     if (!window.confirm("Convertir ce prospect en client dans le CRM Client ?")) return;
@@ -1327,6 +1730,29 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         </div>
       )}
 
+      {attentionProspects.length > 0 && (
+        <div
+          className="inv-card"
+          style={{
+            padding: 14,
+            marginBottom: 18,
+            borderLeft: `4px solid ${DA}`,
+            background: `${DA}10`,
+          }}
+        >
+          <div style={{ fontWeight: 900, color: DA, marginBottom: 8, display: "flex", alignItems: "center", gap: 7 }}>
+            <Icon as={AlertTriangle} size={16} /> Prospects à traiter en priorité
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {attentionProspects.map((p) => (
+              <button key={p.id} type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => selectProspect(p)}>
+                {getProspectName(p)} · {p.date_prochaine_action || p.date_relance ? formatDate(p.date_prochaine_action || p.date_relance) : "sans action"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div
         style={{
           display: "grid",
@@ -1380,7 +1806,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             </select>
           </Field>
 
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
             <button className={view === "pipeline" ? "inv-btn inv-btn-blue" : "inv-btn inv-btn-out"} type="button" onClick={() => setView("pipeline")}>
               <Icon as={Filter} size={14} />
               Pipeline
@@ -1389,6 +1815,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
               <Icon as={FileText} size={14} />
               Tableau
             </button>
+            <button className={view === "relances" ? "inv-btn inv-btn-blue" : "inv-btn inv-btn-out"} type="button" onClick={() => setView("relances")}>
+              <Icon as={Clock} size={14} />
+              Relances
+            </button>
+            <button className={view === "stats" ? "inv-btn inv-btn-blue" : "inv-btn inv-btn-out"} type="button" onClick={() => setView("stats")}>
+              <Icon as={BarChart3} size={14} />
+              Statistiques
+            </button>
           </div>
         </div>
       </div>
@@ -1396,7 +1830,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: selected || form !== EMPTY_PROSPECT ? "minmax(0, 1fr) 460px" : "1fr",
+          gridTemplateColumns: showFormPanel ? "minmax(0, 1fr) 460px" : "1fr",
           gap: 18,
           alignItems: "start",
         }}
@@ -1427,17 +1861,26 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                 />
               ))}
             </div>
-          ) : (
+          ) : view === "table" ? (
             <ProspectsTable
               prospects={filteredProspects}
               selectedId={selected?.id}
               onSelect={selectProspect}
               T={T}
             />
+          ) : view === "relances" ? (
+            <RelancesView
+              prospects={filteredProspects}
+              selectedId={selected?.id}
+              onSelect={selectProspect}
+              T={T}
+            />
+          ) : (
+            <StatsView prospects={filteredProspects} T={T} />
           )}
         </div>
 
-        {(selected || form.nom || form.prenom || form.societe || form.responsable) && (
+        {showFormPanel && (
           <div className="inv-card" style={{ position: "sticky", top: 16 }}>
             <div className="inv-card-hd blue" style={{ justifyContent: "space-between" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -1501,6 +1944,20 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <a className="inv-btn inv-btn-out inv-btn-sm" href={whatsappHref(form.telephone)} target="_blank" rel="noreferrer" style={{ textDecoration: "none", pointerEvents: form.telephone ? "auto" : "none", opacity: form.telephone ? 1 : .45 }}>
                     <Icon as={MessageSquare} size={12} /> WhatsApp
                   </a>
+                  <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={copyMailConfirmation}>
+                    <Icon as={Mail} size={12} /> Copier mail RDV
+                  </button>
+                  <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={copyRelanceMessage}>
+                    <Icon as={MessageSquare} size={12} /> Copier relance
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                  {RELANCE_PRESETS.map((r) => (
+                    <button key={r.label} type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => scheduleRelance(r.days, r.action)}>
+                      Relance {r.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1620,6 +2077,44 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <TextInput type="number" value={form.probabilite_signature} onChange={(v) => setField("probabilite_signature", v)} />
                 </Field>
               </div>
+
+              <div style={{ height: 1, background: T.border, margin: "18px 0" }} />
+
+              <div style={{ fontSize: FONT.md.size, fontWeight: 900, color: T.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon as={FileText} size={15} /> Proposition commerciale
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="Offre proposée" wide>
+                  <TextInput value={form.offre_recommandee} onChange={(v) => setField("offre_recommandee", v)} placeholder="Ex : Accompagnement Invest, Structuration, Mission complète..." />
+                </Field>
+
+                <Field label="Honoraires HT">
+                  <TextInput type="number" value={form.honoraires_estimes_ht} onChange={(v) => setField("honoraires_estimes_ht", v)} />
+                </Field>
+
+                <Field label="Honoraires TTC">
+                  <TextInput type="number" value={form.honoraires_estimes_ttc} onChange={(v) => setField("honoraires_estimes_ttc", v)} />
+                </Field>
+
+                <Field label="CA potentiel HT">
+                  <TextInput type="number" value={form.ca_potentiel_ht} onChange={(v) => setField("ca_potentiel_ht", v)} />
+                </Field>
+
+                <Field label="Statut proposition">
+                  <SelectInput value={form.statut_proposition} onChange={(v) => setField("statut_proposition", v)} options={OFFRE_STATUTS} />
+                </Field>
+
+                <Field label="Date proposition">
+                  <TextInput type="date" value={form.date_proposition} onChange={(v) => setField("date_proposition", v)} />
+                </Field>
+
+                <Field label="Date signature">
+                  <TextInput type="date" value={form.date_signature} onChange={(v) => setField("date_signature", v)} />
+                </Field>
+              </div>
+
+              <DocumentsChecklist form={form} T={T} onChange={(nextData) => setField("donnees", nextData)} />
 
               <div style={{ height: 1, background: T.border, margin: "18px 0" }} />
 
