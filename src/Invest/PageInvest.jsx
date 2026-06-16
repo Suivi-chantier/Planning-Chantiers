@@ -5,7 +5,7 @@ import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { OngletAcces } from "../Renovation/Admin";
 import {
-  LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
+  LayoutDashboard, Users, UserPlus, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
   X, Check, Phone, Calendar, MessageSquare, FileText, Mail, Home,
   TrendingUp, Wallet, Euro, MapPin, ExternalLink, Filter, ArrowLeft,
