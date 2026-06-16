@@ -15,23 +15,9 @@ import {
 } from "lucide-react";
 
 import {
-  INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection
+  INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection, MISSION_COLLABORATEURS, HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT, STATUTS_PROP, CompletionBar
 } from "./_shared";
 import Simulateur from "./Simulateur";
-
-function CompletionBar({ label, value, color, T=THEMES_INV.dark }) {
-  const pct = Math.max(0, Math.min(100, Number(value || 0)));
-  return (
-    <div style={{marginBottom:8}}>
-      <div style={{display:"flex", justifyContent:"space-between", gap:8, marginBottom:4, fontSize:FONT.xs.size+1, color:T.textSub, fontWeight:700}}>
-        <span>{label}</span><span style={{color}}>{pct}%</span>
-      </div>
-      <div style={{height:7, borderRadius:RADIUS.pill, background:T.input, border:`1px solid ${T.border}`, overflow:"hidden"}}>
-        <div style={{height:"100%", width:`${pct}%`, background:color, borderRadius:RADIUS.pill}} />
-      </div>
-    </div>
-  );
-}
 
 function ClientStrategyCard({ client, T=THEMES_INV.dark, onSaved }) {
   const [data, setData] = useState(() => clientStrategy(client));
@@ -180,7 +166,6 @@ function ClientScoreCard({ client, propositions=[], biens=[], T=THEMES_INV.dark 
 const STATUTS_CLIENT  = ["Prospect","Actif","Inactif","Terminé"];
 const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
-const STATUTS_PROP    = ["proposé","intéressé","refusé","en analyse","offre en cours"];
 
 function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien, initialFilter }) {
   const [clients, setClients]     = useState([]);
@@ -485,10 +470,6 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
 // Chemin des fichiers : clients/{client_id}/{filename} ou biens/{bien_id}/{filename}
 
 
-const MISSION_COLLABORATEURS = [
-  "Matthieu", "Tom", "Quentin", "Camille", "Loris", "François",
-  "Client", "Courtier / Banque", "Notaire", "Agence", "Enedis", "Gestion locative",
-];
 const MISSION_AUTOMATION_ACCOUNT_EMAIL = "og@groupe-profero.com";
 const MISSION_COLLABORATEURS_EMAILS = {
   Matthieu: "matthieu.fumoleau@groupe-profero.com",

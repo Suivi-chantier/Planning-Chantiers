@@ -1833,7 +1833,44 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
   );
 }
 
+// Liste des collaborateurs Profero Invest utilisée par MissionParcoursClientCard
+// (CRM.jsx) et MissionActionsCollaborateursDashboard (Dashboard.jsx).
+const MISSION_COLLABORATEURS = [
+  "Matthieu", "Tom", "Quentin", "Camille", "Loris", "François",
+  "Client", "Courtier / Banque", "Notaire", "Agence", "Enedis", "Gestion locative",
+];
+
+// Honoraires de référence Profero Invest — utilisés par DirectionPilotageDashboard
+// (Dashboard.jsx) et DashboardFinancier (Finance.jsx) pour les calculs prévisionnels.
+const HONORAIRE_BASE_CONTRAT_HT = 1583;
+const HONORAIRE_CONSEIL_MOYEN_HT = 7500;
+
+// Statuts possibles d'une proposition (bien proposé à un client) — référencé par
+// CRM.jsx (sélecteur dans FicheClient) et Biens.jsx (sélecteur dans FicheBien).
+const STATUTS_PROP = ["proposé","intéressé","refusé","en analyse","offre en cours"];
+
+// Barre de complétude réutilisable — utilisée par FicheClient (CRM.jsx) et
+// FicheBien (Biens.jsx).
+function CompletionBar({ label, value, color, T=THEMES_INV.dark }) {
+  const pct = Math.max(0, Math.min(100, Number(value || 0)));
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{display:"flex", justifyContent:"space-between", gap:8, marginBottom:4, fontSize:FONT.xs.size+1, color:T.textSub, fontWeight:700}}>
+        <span>{label}</span><span style={{color}}>{pct}%</span>
+      </div>
+      <div style={{height:7, borderRadius:RADIUS.pill, background:T.input, border:`1px solid ${T.border}`, overflow:"hidden"}}>
+        <div style={{height:"100%", width:`${pct}%`, background:color, borderRadius:RADIUS.pill}} />
+      </div>
+    </div>
+  );
+}
+
 export {
+  MISSION_COLLABORATEURS,
+  HONORAIRE_BASE_CONTRAT_HT,
+  HONORAIRE_CONSEIL_MOYEN_HT,
+  STATUTS_PROP,
+  CompletionBar,
   INVEST_ACC,
   LOT_TYPES,
   NIVEAUX,
