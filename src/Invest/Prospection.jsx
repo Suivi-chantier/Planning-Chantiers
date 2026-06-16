@@ -23,6 +23,7 @@ import {
   Filter,
   Users,
   MessageSquare,
+  Mail,
   Euro,
   AlertTriangle,
   Check,
@@ -293,6 +294,72 @@ function getProspectName(p) {
 
 function getStageForStatus(statut) {
   return STATUTS_PROSPECTION.find((s) => s.aliases.includes(statut)) || STATUTS_PROSPECTION[0];
+}
+
+function computeProspectAutoScore(p = {}) {
+  let score = 0;
+  const reasons = [];
+
+  const hasIdentity = !!(p.nom || p.prenom || p.societe);
+  const hasContact = !!(p.telephone || p.email);
+  const hasProject = !!(p.objectif || p.zone_recherche || p.type_bien || p.strategie);
+  const budget = Number(p.budget_global || 0) || 0;
+  const apport = Number(p.apport || 0) || 0;
+  const honoraires = Number(p.honoraires_estimes_ht || p.ca_potentiel_ht || 0) || 0;
+  const proba = Number(p.probabilite_signature || 0) || 0;
+
+  if (hasIdentity) { score += 10; reasons.push("identité renseignée"); }
+  if (hasContact) { score += 15; reasons.push("contact disponible"); }
+  if (hasProject) { score += 15; reasons.push("projet identifié"); }
+  if (budget > 0) { score += budget >= 150000 ? 15 : 10; reasons.push("budget indiqué"); }
+  if (apport > 0) { score += apport >= 15000 ? 10 : 6; reasons.push("apport indiqué"); }
+  if (honoraires > 0) { score += 10; reasons.push("CA potentiel renseigné"); }
+  if (p.motivation === "Très fort") score += 15;
+  else if (p.motivation === "Fort") score += 10;
+  else if (p.motivation === "Moyen") score += 5;
+  if (p.maturite === "Prêt à agir") score += 15;
+  else if (p.maturite === "Projet dans les 3 mois") score += 10;
+  else if (p.maturite === "Projet dans les 6 mois") score += 6;
+  if (proba >= 80) score += 10;
+  else if (proba >= 50) score += 6;
+  else if (proba >= 25) score += 3;
+  if (p.date_prochaine_action || p.date_relance) { score += 5; reasons.push("prochaine action prévue"); }
+  if (["perdu", "sommeil", "hors_cible"].includes(p.statut)) score = Math.min(score, 35);
+  if (["signe", "converti"].includes(p.statut)) score = Math.max(score, 90);
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  let label = "Froid";
+  let color = DA;
+  if (score >= 75) { label = "Chaud"; color = SU; }
+  else if (score >= 50) { label = "Tiède"; color = WA; }
+
+  return { score, label, color, reasons };
+}
+
+function computeWeightedValue(p = {}) {
+  const ca = Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0;
+  const proba = Number(p.probabilite_signature || 0) || 0;
+  const auto = computeProspectAutoScore(p).score;
+  const weight = proba > 0 ? proba / 100 : auto / 100;
+  return ca * Math.max(0, Math.min(1, weight));
+}
+
+function phoneHref(phone) {
+  const cleaned = String(phone || "").replace(/[^+0-9]/g, "");
+  return cleaned ? `tel:${cleaned}` : "#";
+}
+
+function mailHref(email) {
+  const cleaned = String(email || "").trim();
+  return cleaned ? `mailto:${cleaned}` : "#";
+}
+
+function whatsappHref(phone) {
+  const digits = String(phone || "").replace(/[^0-9]/g, "");
+  if (!digits) return "#";
+  const normalized = digits.startsWith("0") ? `33${digits.slice(1)}` : digits;
+  return `https://wa.me/${normalized}`;
 }
 
 function prospectToForm(p) {
@@ -572,6 +639,21 @@ function ProspectMiniCard({ prospect, selected, onClick, T }) {
           {prospect.ca_potentiel_ht ? fmtDashboardEur(prospect.ca_potentiel_ht) : "—"}
         </div>
       </div>
+
+      {(() => {
+        const auto = computeProspectAutoScore(prospect);
+        return (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ height: 5, borderRadius: 999, background: T.border, overflow: "hidden" }}>
+              <div style={{ width: `${auto.score}%`, height: "100%", background: auto.color }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: FONT.xs.size, color: T.textMuted }}>
+              <span>{auto.label}</span>
+              <span>{auto.score}%</span>
+            </div>
+          </div>
+        );
+      })()}
     </button>
   );
 }
@@ -660,7 +742,7 @@ function ProspectsTable({ prospects, selectedId, onSelect, T }) {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 950 }}>
           <thead>
             <tr style={{ background: T.cardHover }}>
-              {["Prospect", "Statut", "Responsable", "Source", "Prochaine action", "CA potentiel", "Priorité", "Action"].map((h) => (
+              {["Prospect", "Statut", "Score", "Responsable", "Source", "Prochaine action", "CA potentiel", "Priorité", "Action"].map((h) => (
                 <th
                   key={h}
                   style={{
@@ -683,6 +765,7 @@ function ProspectsTable({ prospects, selectedId, onSelect, T }) {
             {prospects.map((p) => {
               const stage = getStageForStatus(p.statut);
               const late = isLate(p.date_prochaine_action || p.date_relance);
+              const auto = computeProspectAutoScore(p);
 
               return (
                 <tr
@@ -700,6 +783,9 @@ function ProspectsTable({ prospects, selectedId, onSelect, T }) {
                   </td>
                   <td style={{ padding: "10px 12px" }}>
                     <Badge color={stage.color} T={T}>{stage.short}</Badge>
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    <Badge color={auto.color} T={T}>{auto.label} · {auto.score}%</Badge>
                   </td>
                   <td style={{ padding: "10px 12px", color: T.textSub, fontSize: FONT.sm.size }}>
                     {p.responsable || "—"}
@@ -731,7 +817,7 @@ function ProspectsTable({ prospects, selectedId, onSelect, T }) {
 
             {prospects.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ padding: 24, textAlign: "center", color: T.textMuted }}>
+                <td colSpan={9} style={{ padding: 24, textAlign: "center", color: T.textMuted }}>
                   Aucun prospect dans cette vue.
                 </td>
               </tr>
@@ -849,14 +935,22 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     const rdv = prospects.filter((p) => p.date_rdv && isoDate(p.date_rdv) >= todayIso()).length;
     const retard = prospects.filter((p) => isLate(p.date_prochaine_action || p.date_relance) && !["perdu", "converti"].includes(p.statut)).length;
     const ca = prospects.reduce((s, p) => s + (Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0), 0);
+    const caPondere = prospects.reduce((s, p) => s + computeWeightedValue(p), 0);
 
     return [
       { label: "Prospects actifs", value: actifs, icon: UserPlus, color: "#60A5FA" },
       { label: "RDV à venir", value: rdv, icon: Calendar, color: "#8B5CF6" },
       { label: "Relances en retard", value: retard, icon: Clock, color: retard > 0 ? DA : SU },
       { label: "CA potentiel HT", value: fmtDashboardEur(ca), icon: TrendingUp, color: SU },
+      { label: "CA pondéré HT", value: fmtDashboardEur(caPondere), icon: Euro, color: "#C9A84C" },
     ];
   }, [prospects]);
+
+  const selectedAutoScore = useMemo(() => computeProspectAutoScore(form), [form]);
+
+  const setQuickStatus = (statut) => {
+    setField("statut", statut);
+  };
 
   const startNew = () => {
     setSelected(null);
@@ -1090,7 +1184,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
       lastError = err;
 
-      // 42703 = colonne inexistante. On retente avec un payload plus simple..
+      // 42703 = colonne inexistante. On retente avec un payload plus simple.
       if (err.code !== "42703") break;
     }
 
@@ -1236,7 +1330,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
           gap: 12,
           marginBottom: 18,
         }}
@@ -1364,6 +1458,52 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             </div>
 
             <div className="inv-card-bd" style={{ maxHeight: "calc(100vh - 170px)", overflowY: "auto" }}>
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: RADIUS.lg,
+                  border: `1px solid ${T.border}`,
+                  background: T.cardHover,
+                  marginBottom: 14,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: .7, fontWeight: 900 }}>
+                      Score automatique
+                    </div>
+                    <div style={{ fontSize: FONT.lg.size, color: selectedAutoScore.color, fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>
+                      {selectedAutoScore.score}% · {selectedAutoScore.label}
+                    </div>
+                  </div>
+                  <Badge color={getStageForStatus(form.statut).color} T={T}>{getStageForStatus(form.statut).short}</Badge>
+                </div>
+
+                <div style={{ height: 7, borderRadius: 999, background: T.border, overflow: "hidden", marginBottom: 10 }}>
+                  <div style={{ width: `${selectedAutoScore.score}%`, height: "100%", background: selectedAutoScore.color }} />
+                </div>
+
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
+                  <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickStatus("qualification")}>À qualifier</button>
+                  <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickStatus("contact")}>Contact</button>
+                  <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickStatus("rdv")}>RDV</button>
+                  <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickStatus("proposition")}>Proposition</button>
+                  <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickStatus("signe")}>Signé</button>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <a className="inv-btn inv-btn-out inv-btn-sm" href={phoneHref(form.telephone)} style={{ textDecoration: "none", pointerEvents: form.telephone ? "auto" : "none", opacity: form.telephone ? 1 : .45 }}>
+                    <Icon as={Phone} size={12} /> Appeler
+                  </a>
+                  <a className="inv-btn inv-btn-out inv-btn-sm" href={mailHref(form.email)} style={{ textDecoration: "none", pointerEvents: form.email ? "auto" : "none", opacity: form.email ? 1 : .45 }}>
+                    <Icon as={Mail} size={12} /> Email
+                  </a>
+                  <a className="inv-btn inv-btn-out inv-btn-sm" href={whatsappHref(form.telephone)} target="_blank" rel="noreferrer" style={{ textDecoration: "none", pointerEvents: form.telephone ? "auto" : "none", opacity: form.telephone ? 1 : .45 }}>
+                    <Icon as={MessageSquare} size={12} /> WhatsApp
+                  </a>
+                </div>
+              </div>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Field label="Prénom">
                   <TextInput value={form.prenom} onChange={(v) => setField("prenom", v)} />
