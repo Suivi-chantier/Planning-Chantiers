@@ -24,7 +24,7 @@ import { supabase } from "./supabase";
 import { Icon } from "./ui";
 import {
   CheckCircle2, AlertTriangle, Clock, User as UserIcon, X,
-  Plus, Trash2, Split, PlusCircle,
+  Plus, Trash2, Split, PlusCircle, Lock, LockOpen,
 } from "lucide-react";
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "./constants";
 
@@ -123,6 +123,14 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const [openedId, setOpenedId] = useState(null);
   const [validating, setValidating] = useState(false);
   const [statutColManquante, setStatutColManquante] = useState(false);
+  // P6 : clôture de journée — null si pas encore chargé, false si aucune entrée,
+  // sinon l'objet { statut, historique, ... } pour la date filtrée.
+  const [cloture, setCloture] = useState(null);
+  const [reopenMotif, setReopenMotif] = useState(""); // saisie quand on rouvre
+  const [showReopenModal, setShowReopenModal] = useState(false);
+  const [showHistorique, setShowHistorique] = useState(false);
+  const [clotureBusy, setClotureBusy] = useState(false);
+  const [clotureTableManquante, setClotureTableManquante] = useState(false);
 
   const valideur = profil?.nom || profil?.email || "Conducteur";
 
@@ -153,6 +161,24 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       setCellsJour(cells || []);
     } else {
       setCellsJour([]);
+    }
+
+    // P6 : charge la clôture (globale) pour cette date
+    {
+      const { data: clot, error: clotErr } = await supabase
+        .from("clotures_journee").select("*")
+        .eq("date", dateFilter).is("chantier_id", null)
+        .maybeSingle();
+      if (clotErr?.code === "42P01") {
+        setClotureTableManquante(true);
+        setCloture(false);
+      } else if (clotErr) {
+        console.warn("Chargement clôture:", clotErr.message);
+        setCloture(false);
+      } else {
+        setClotureTableManquante(false);
+        setCloture(clot || false);
+      }
     }
 
     const chIds = [...new Set((rs || []).map(r => r.chantier_id).filter(Boolean))];
@@ -268,6 +294,67 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   }, [rapports]);
 
   const opened = openedId ? rapports.find(r => r.id === openedId) : null;
+
+  // ── P6 : Clôture / Réouverture ────────────────────────────────────────────
+  // Une journée est "clôturée" si une ligne existe pour la date avec statut='cloture'.
+  // "reouverte" = ligne présente mais explicitement rouverte.
+  const journeeCloturee = cloture && cloture.statut === "cloture";
+
+  async function cloturerJournee() {
+    if (clotureBusy) return;
+    const enAttente = rapports.filter(r => r.statut !== "valide");
+    if (enAttente.length > 0) {
+      const ok = window.confirm(
+        `${enAttente.length} rapport${enAttente.length > 1 ? "s ne sont" : " n'est"} pas encore validé${enAttente.length > 1 ? "s" : ""}.\n\n`
+        + `Clôturer la journée du ${dateLabel(dateFilter)} malgré tout ?\n\n`
+        + `(Tu pourras toujours rouvrir la journée plus tard, avec motif.)`
+      );
+      if (!ok) return;
+    }
+    setClotureBusy(true);
+    const now = new Date().toISOString();
+    const entry = { action: "cloture", par: valideur, le: now };
+    try {
+      if (cloture && cloture.id) {
+        const newHist = [...(cloture.historique || []), entry];
+        const { error } = await supabase.from("clotures_journee")
+          .update({ statut: "cloture", historique: newHist, cloture_par: valideur, cloture_le: now, updated_at: now })
+          .eq("id", cloture.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("clotures_journee")
+          .insert({ date: dateFilter, chantier_id: null, statut: "cloture", historique: [entry], cloture_par: valideur });
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error("Clôture:", e);
+      alert(`Erreur clôture : ${e.message || e}`);
+    }
+    setClotureBusy(false);
+    await load();
+  }
+
+  async function rouvrirJournee() {
+    if (clotureBusy || !cloture?.id) return;
+    if (!reopenMotif.trim()) { alert("Indique un motif de réouverture."); return; }
+    setClotureBusy(true);
+    const now = new Date().toISOString();
+    const entry = { action: "reouverture", par: valideur, le: now, motif: reopenMotif.trim() };
+    const newHist = [...(cloture.historique || []), entry];
+    try {
+      const { error } = await supabase.from("clotures_journee")
+        .update({ statut: "reouverte", historique: newHist, updated_at: now })
+        .eq("id", cloture.id);
+      if (error) throw error;
+    } catch (e) {
+      console.error("Réouverture:", e);
+      alert(`Erreur réouverture : ${e.message || e}`);
+    }
+    setClotureBusy(false);
+    setReopenMotif("");
+    setShowReopenModal(false);
+    await load();
+  }
 
   // ── Création d'une nouvelle tâche dans plan_travaux ───────────────────────
   // Insère dans la base et met à jour le state local. Retourne { tache_id, phase_id }.
@@ -442,7 +529,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         <h1 style={{ margin: 0, fontSize: 22, color: T.text, fontWeight: 700 }}>
           Validation de fin de journée
         </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <label style={{ fontSize: 13, color: T.textSub }}>Date :</label>
           <input
             type="date"
@@ -454,8 +541,61 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
               fontSize: 14, fontFamily: "inherit",
             }}
           />
+          {/* P6 : Clôture / Réouverture (caché si la table n'existe pas encore) */}
+          {!clotureTableManquante && (
+            journeeCloturee ? (
+              <button onClick={() => setShowReopenModal(true)} disabled={clotureBusy} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px", borderRadius: RADIUS.md,
+                border: "1px solid rgba(245,166,35,0.4)",
+                background: "rgba(245,166,35,0.10)", color: "#b27416",
+                fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}>
+                <Icon as={LockOpen} size={14}/> Rouvrir
+              </button>
+            ) : (
+              <button onClick={cloturerJournee} disabled={clotureBusy} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px", borderRadius: RADIUS.md,
+                border: `1px solid ${acc.border}`,
+                background: acc.bg10, color: acc.accent,
+                fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}>
+                <Icon as={Lock} size={14}/> Clôturer la journée
+              </button>
+            )
+          )}
         </div>
       </div>
+
+      {/* P6 : Bandeau d'information si journée clôturée */}
+      {journeeCloturee && (
+        <div style={{
+          padding: "10px 14px", borderRadius: RADIUS.md, marginBottom: 12,
+          background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.30)",
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        }}>
+          <Icon as={Lock} size={16} color="#b27416"/>
+          <div style={{ flex: 1, minWidth: 0, color: "#b27416", fontSize: 13 }}>
+            <strong>Journée clôturée</strong>{cloture?.cloture_par ? ` par ${cloture.cloture_par}` : ""}
+            {cloture?.cloture_le ? ` le ${new Date(cloture.cloture_le).toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}
+            {" · "}validation des rapports verrouillée.
+          </div>
+          {(cloture?.historique || []).length > 0 && (
+            <button onClick={() => setShowHistorique(true)} style={{
+              padding: "4px 10px", borderRadius: RADIUS.md,
+              border: "1px solid rgba(178,116,22,0.4)", background: "transparent", color: "#b27416",
+              fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+            }}>Historique ({cloture.historique.length})</button>
+          )}
+        </div>
+      )}
+
+      {clotureTableManquante && (
+        <div style={{ marginBottom: 12 }}>
+          <AlerteBox text="La table `clotures_journee` n'a pas encore été créée — exécute le SQL du P6 pour activer la clôture de journée." T={T}/>
+        </div>
+      )}
 
       <div style={{ fontSize: 13, color: T.textSub, marginBottom: 16 }}>
         {dateLabel(dateFilter)} — {rapports.length} rapport{rapports.length > 1 ? "s" : ""}
@@ -535,11 +675,110 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           tachesPlan={tachesPlanParChantier[opened.chantier_id] || []}
           phases={phases}
           ouvriersDispo={ouvriers}
+          journeeCloturee={!!journeeCloturee}
           onCreerTache={(args) => creerTacheDansPlan({ ...args, chantier_id: opened.chantier_id })}
           onClose={() => setOpenedId(null)}
           onValider={({ lignes, indirectes }) => validerRapport({ rapport: opened, lignes, indirectes })}
           validating={validating}
         />
+      )}
+
+      {/* P6 : Modale de réouverture */}
+      {showReopenModal && (
+        <div onClick={() => setShowReopenModal(false)} style={{
+          position: "fixed", inset: 0, zIndex: 250, background: "rgba(0,0,0,0.55)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.surface, color: T.text,
+            borderRadius: RADIUS.lg || 12, width: "100%", maxWidth: 480,
+            border: `1px solid ${T.border}`,
+          }}>
+            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon as={LockOpen} size={16} color="#b27416"/>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Rouvrir la journée du {dateLabel(dateFilter)}</span>
+            </div>
+            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.5 }}>
+                La réouverture sera tracée dans l'historique. Précise un motif (sera visible aux autres conducteurs).
+              </div>
+              <input
+                type="text" autoFocus placeholder="Ex: ouvrier en retard, rapport oublié, correction d'erreur…"
+                value={reopenMotif}
+                onChange={e => setReopenMotif(e.target.value)}
+                style={{
+                  width: "100%", padding: "8px 12px", borderRadius: RADIUS.md,
+                  border: `1px solid ${T.border}`, background: T.inputBg || T.surface, color: T.text,
+                  fontSize: 14, fontFamily: "inherit", outline: "none",
+                }}
+              />
+            </div>
+            <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => { setShowReopenModal(false); setReopenMotif(""); }} style={{
+                padding: "8px 16px", borderRadius: RADIUS.md,
+                border: `1px solid ${T.border}`, background: "transparent", color: T.text,
+                cursor: "pointer", fontFamily: "inherit", fontSize: 13,
+              }}>Annuler</button>
+              <button onClick={rouvrirJournee} disabled={clotureBusy || !reopenMotif.trim()} style={{
+                padding: "8px 16px", borderRadius: RADIUS.md,
+                border: "none", background: "#b27416", color: "#fff",
+                cursor: clotureBusy ? "wait" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+                opacity: (clotureBusy || !reopenMotif.trim()) ? 0.6 : 1,
+              }}>{clotureBusy ? "Réouverture…" : "Rouvrir la journée"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P6 : Modale historique des clôtures/réouvertures */}
+      {showHistorique && cloture && (
+        <div onClick={() => setShowHistorique(false)} style={{
+          position: "fixed", inset: 0, zIndex: 250, background: "rgba(0,0,0,0.55)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.surface, color: T.text,
+            borderRadius: RADIUS.lg || 12, width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto",
+            border: `1px solid ${T.border}`,
+          }}>
+            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Historique — {dateLabel(dateFilter)}</span>
+              <button onClick={() => setShowHistorique(false)} style={{
+                background: "transparent", border: "none", cursor: "pointer", padding: 4,
+                color: T.textSub, display: "flex", alignItems: "center",
+              }}><Icon as={X} size={18}/></button>
+            </div>
+            <div style={{ padding: 16 }}>
+              {(cloture.historique || []).length === 0 ? (
+                <div style={{ color: T.textSub, fontSize: 13 }}>Aucun événement.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[...cloture.historique].reverse().map((h, i) => (
+                    <div key={i} style={{
+                      padding: "10px 12px", borderRadius: RADIUS.md,
+                      background: T.widgetBg || T.bg, border: `1px solid ${T.border}`,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <Icon as={h.action === "cloture" ? Lock : LockOpen} size={13} color={h.action === "cloture" ? acc.accent : "#b27416"}/>
+                        <strong style={{ fontSize: 13, color: T.text }}>
+                          {h.action === "cloture" ? "Clôture" : "Réouverture"}
+                        </strong>
+                        <span style={{ fontSize: 12, color: T.textSub }}>
+                          {h.par || "?"} · {h.le ? new Date(h.le).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "?"}
+                        </span>
+                      </div>
+                      {h.motif && (
+                        <div style={{ fontSize: 12, color: T.text, marginLeft: 21, fontStyle: "italic" }}>
+                          « {h.motif} »
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -549,7 +788,8 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 
 function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
-  tachesPlan, phases, ouvriersDispo, onCreerTache, onClose, onValider, validating,
+  tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
+  onCreerTache, onClose, onValider, validating,
 }) {
   // État local éditable : copie indépendante de rapport.taches[] pour ne pas
   // toucher au déclaratif d'origine de l'ouvrier (trace préservée).
@@ -557,7 +797,9 @@ function ModaleRapport({
   const [indirectes, setIndirectes] = useState([]);
   const [creerTacheState, setCreerTacheState] = useState(null); // { ligneRowId, nom?, phase_id? }
 
+  // P6 : verrouille toute action si la journée est clôturée (sauf consultation).
   const valide = rapport.statut === "valide";
+  const verrouille = valide || journeeCloturee;
 
   useEffect(() => {
     const init = (rapport.taches || []).map((t, i) => ({
@@ -701,7 +943,7 @@ function ModaleRapport({
                   key={li.rowId}
                   ligne={li}
                   T={T} acc={acc}
-                  valide={valide}
+                  valide={verrouille}
                   tachesPlan={tachesPlan}
                   phases={phases}
                   avancementActuel={li.tache_id ? avancementParTache[String(li.tache_id)] : null}
@@ -727,7 +969,7 @@ function ModaleRapport({
             <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: .5, color: T.textSub }}>
               Heures indirectes (optionnel)
             </h3>
-            {!valide && (
+            {!verrouille && (
               <button onClick={ajouterIndirect} style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
                 padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
@@ -753,18 +995,18 @@ function ModaleRapport({
                     type="text" placeholder="Motif (ex: intempéries)"
                     value={li.motif}
                     onChange={e => updateIndirect(i, { motif: e.target.value })}
-                    disabled={valide}
+                    disabled={verrouille}
                     style={inputStyle(T)}
                   />
                   <input
                     type="number" placeholder="Heures"
                     value={li.heures}
                     onChange={e => updateIndirect(i, { heures: e.target.value })}
-                    disabled={valide}
+                    disabled={verrouille}
                     step="0.25" min="0"
                     style={{ ...inputStyle(T), textAlign: "right" }}
                   />
-                  <button onClick={() => removeIndirect(i)} disabled={valide} style={{
+                  <button onClick={() => removeIndirect(i)} disabled={verrouille} style={{
                     background: "transparent", border: "none", cursor: "pointer",
                     color: "#e05c5c", padding: 4, display: "flex", alignItems: "center", justifyContent: "center",
                   }}>
@@ -795,7 +1037,15 @@ function ModaleRapport({
             }}>
               Fermer
             </button>
-            {!valide ? (
+            {valide ? (
+              <span style={{ fontSize: 12, color: T.textSub, fontStyle: "italic" }}>
+                Rapport déjà validé{rapport.valide_par ? ` par ${rapport.valide_par}` : ""}
+              </span>
+            ) : journeeCloturee ? (
+              <span style={{ fontSize: 12, color: "#b27416", fontStyle: "italic", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={Lock} size={12}/> Journée clôturée — rouvre pour valider
+              </span>
+            ) : (
               <button
                 onClick={() => onValider({ lignes, indirectes })}
                 disabled={validating}
@@ -808,10 +1058,6 @@ function ModaleRapport({
               >
                 {validating ? "Validation…" : "Valider le rapport"}
               </button>
-            ) : (
-              <span style={{ fontSize: 12, color: T.textSub, fontStyle: "italic" }}>
-                Rapport déjà validé{rapport.valide_par ? ` par ${rapport.valide_par}` : ""}
-              </span>
             )}
           </div>
         </div>
