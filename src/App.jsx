@@ -36,6 +36,7 @@ import PageNotesEtTodo        from "./NotesEtTodo";
 import PageCommandes          from "./Commandes";
 import PagePlanningCommandes  from "./PagePlanningCommandes";
 import PageEquipe             from "./Equipe";
+import PageValidation         from "./Validation";
 import PagePlans              from "./Plans";
 import PagePhasage            from "./Phasage";
 import PagePhasageV2          from "./PhasageV2";
@@ -613,6 +614,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
           {page==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
           {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/> : <AccesRefuse T={T} page="equipe"/>)}
+          {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="validation"/>)}
           {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {page==="phasage"            && (canAccess(role,"phasage")            ? <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage"/>)}
           {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage-v2"/>)}

@@ -3,7 +3,7 @@ import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
-  TrendingUp, Calculator,
+  TrendingUp, Calculator, CheckCircle2,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "./constants";
 import { Icon } from "./ui";
@@ -25,12 +25,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","etats-financiers","guide-ouvrages","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client"
   ],
   commercial: [
@@ -52,6 +52,7 @@ const ALL_NAV_ITEMS = [
   { id:"commandes",        icon:Package,         label:"Cmd.",       longLabel:"Commandes"           },
   { id:"planning-commandes", icon:ShoppingCart,  label:"Cmd. 5S",    longLabel:"Planning commandes (5 sem.)" },
   { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
+  { id:"validation",       icon:CheckCircle2,    label:"Valid.",     longLabel:"Validation de fin de journée" },
   { id:"plans",            icon:Ruler,           label:"Plans",      longLabel:"Plans"               },
   { id:"phasage",          icon:ListChecks,      label:"Phasage",    longLabel:"Phasage"             },
   { id:"phasage-v2",       icon:ListChecks,      label:"Phasage v2", longLabel:"Phasage v2 (refonte)" },
@@ -245,6 +246,7 @@ function Sidebar({
     { id:"commandes",        icon:Package,         label:"Commandes"        },
     { id:"planning-commandes", icon:ShoppingCart,  label:"Planning commandes" },
     { id:"equipe",           icon:Users,           label:"Équipe"           },
+    { id:"validation",       icon:CheckCircle2,    label:"Validation fin de journée" },
     { id:"plans",            icon:Ruler,           label:"Plans"            },
     { id:"phasage",          icon:ListChecks,      label:"Phasage"          },
     { id:"phasage-v2",       icon:ListChecks,      label:"Phasage v2 (refonte)" },

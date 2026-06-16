@@ -26,6 +26,7 @@ export const PAGES_RENOVATION = [
   { id: "commandes",          label: "Commandes"                 },
   { id: "planning-commandes", label: "Planning commandes (5 sem.)" },
   { id: "equipe",             label: "Équipe"                    },
+  { id: "validation",         label: "Validation fin de journée" },
   { id: "plans",              label: "Plans"                     },
   { id: "phasage",            label: "Phasage"                   },
   { id: "phasage-v2",         label: "Phasage v2 (refonte)"      },
@@ -63,12 +64,12 @@ export const ROLES_DEFAULT_INVEST = [
 export const ROLE_PAGES_DEFAULT_RENOVATION = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","dashboard-analyse","etats-financiers","guide-ouvrages","admin",
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
-    "equipe","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client",
   ],
   commercial: [
