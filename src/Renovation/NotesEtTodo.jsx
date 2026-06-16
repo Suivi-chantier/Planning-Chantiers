@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "./supabase";
-import { getBranchAccent, FONT, RADIUS, SPACING } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { getBranchAccent, FONT, RADIUS, SPACING } from "../constants";
+import { Icon } from "../ui";
 import {
   ClipboardList, ListTodo, User, Trash2, Pencil, X, Plus, Check,
   Calendar, AlarmClock, FileText, CircleCheck, Circle, HardHat, ListChecks,

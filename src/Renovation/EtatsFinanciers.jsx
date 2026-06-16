@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { FONT, RADIUS, getBranchAccent } from "../constants";
+import { Icon } from "../ui";
 import {
   Calculator,
   Euro,

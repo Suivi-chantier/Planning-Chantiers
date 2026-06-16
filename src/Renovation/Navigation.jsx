@@ -5,8 +5,8 @@ import {
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator, CheckCircle2,
 } from "lucide-react";
-import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "./constants";
-import { Icon } from "./ui";
+import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
+import { Icon } from "../ui";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
 function useIsMobile() {

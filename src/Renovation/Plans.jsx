@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "./supabase";
-import { COULEURS_PALETTE, THEMES, DEFAULT_CHANTIERS, FONT, RADIUS, SPACING, getBranchAccent } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { COULEURS_PALETTE, THEMES, DEFAULT_CHANTIERS, FONT, RADIUS, SPACING, getBranchAccent } from "../constants";
+import { Icon } from "../ui";
 import {
   Ruler, Plus, Copy, Trash2, FolderOpen, Building2, ImageOff, Search,
   Layers, AlertTriangle,

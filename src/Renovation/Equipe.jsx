@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import html2pdf from "html2pdf.js";
-import { supabase, photoTransform } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "./constants";
-import { Icon } from "./ui";
+import { supabase, photoTransform } from "../supabase";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
+import { Icon } from "../ui";
 import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
   Check, X, RefreshCw, MessageSquare, Pencil, Camera, FileDown, Trash2,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "./supabase";
+import { supabase } from "../supabase";
 
 const STYLE_INJECTED = { current: false };
 function injectStyles() {

@@ -17,9 +17,9 @@
 // remplacée par les variables du theme T.
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
-import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
-import { indexPointagesParTache, coutMOEff, sumLibreEtIndirect } from "./pointages";
+import { supabase } from "../supabase";
+import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "../constants";
+import { indexPointagesParTache, coutMOEff, sumLibreEtIndirect } from "../pointages";
 import {
   ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip as RTooltip, Legend,

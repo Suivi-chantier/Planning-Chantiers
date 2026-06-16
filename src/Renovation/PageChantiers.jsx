@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { supabase, photoTransform, getClientId } from "./supabase";
-import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
-import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "./pointages";
-import { Icon } from "./ui";
+import { supabase, photoTransform, getClientId } from "../supabase";
+import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "../constants";
+import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
+import { Icon } from "../ui";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,

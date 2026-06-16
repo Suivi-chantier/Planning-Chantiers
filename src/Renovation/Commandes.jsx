@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "./supabase";
-import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS } from "../constants";
+import { Icon } from "../ui";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
   ExternalLink, AlertTriangle, Search, Bell, User, Building2,

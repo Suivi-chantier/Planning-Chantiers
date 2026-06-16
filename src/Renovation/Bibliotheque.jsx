@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "./supabase";
-import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "../constants";
+import { Icon } from "../ui";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "../constants";
+import { Icon } from "../ui";
 import {
   ClipboardCheck, Plus, Trash2, ChevronLeft as ChevronLeftIcon,
   ChevronRight, ChevronUp, ChevronDown, Check, X, AlertTriangle,

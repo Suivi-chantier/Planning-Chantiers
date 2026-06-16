@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
-import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId, LOGO_RENO_H } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
+import { Icon } from "../ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
 } from "lucide-react";
-import { parseDevisExcel } from "./devisImport";
+import { parseDevisExcel } from "../devisImport";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un

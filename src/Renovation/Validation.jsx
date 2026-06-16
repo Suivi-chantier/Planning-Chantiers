@@ -20,13 +20,13 @@
 //          plan_travaux, conservation du déclaré dans pointages.avancement_declare.
 
 import React, { useState, useEffect, useMemo } from "react";
-import { supabase } from "./supabase";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { Icon } from "../ui";
 import {
   CheckCircle2, AlertTriangle, Clock, User as UserIcon, X,
   Plus, Trash2, Split, PlusCircle, Lock, LockOpen,
 } from "lucide-react";
-import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "./constants";
+import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
 
 // ─── Helpers date ────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { supabase, photoTransform } from "./supabase";
-import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie } from "./constants";
+import { supabase, photoTransform } from "../supabase";
+import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie } from "../constants";
 
 function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,onClose,T,weekId,year,week}){
   if(!chantier)return null;

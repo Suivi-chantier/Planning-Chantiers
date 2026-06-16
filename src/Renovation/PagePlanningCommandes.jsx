@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { supabase } from "./supabase";
-import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "../constants";
+import { Icon } from "../ui";
 import {
   ShoppingCart, Package, Calendar, Check, AlertTriangle, Building2,
   Clock, ArrowRight, Info, X, Mail, Plus, Trash2, Copy, ChevronLeft,

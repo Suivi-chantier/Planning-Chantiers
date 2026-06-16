@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "./supabase";
-import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING } from "../constants";
+import { Icon } from "../ui";
 import {
   HardHat, TriangleAlert, Users, Building2, Package, ClipboardCheck,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap, Wind,

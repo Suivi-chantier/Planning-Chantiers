@@ -28,29 +28,29 @@ function AccesRefuse({ T, page }) {
   );
 }
 
-import { Sidebar, BottomNav } from "./Navigation";
-import PageDashboard          from "./Dashboard";
-import PagePlanning           from "./Planning";
-import PagePlanningMensuel    from "./PlanningMensuel";
-import PageNotesEtTodo        from "./NotesEtTodo";
-import PageCommandes          from "./Commandes";
-import PagePlanningCommandes  from "./PagePlanningCommandes";
-import PageEquipe             from "./Equipe";
-import PageValidation         from "./Validation";
-import PagePlans              from "./Plans";
-import PagePhasage            from "./Phasage";
-import PagePhasageV2          from "./PhasageV2";
-import PageBibliotheque       from "./Bibliotheque";
-import PageBibliothequeMateriaux from "./PageBibliothequeMateriaux";
-import PageGuideOuvrages      from "./PageGuideOuvrages";
-import PageAdmin              from "./Admin";
-import PageRapportMobile      from "./RapportMobile";
+import { Sidebar, BottomNav } from "./Renovation/Navigation";
+import PageDashboard          from "./Renovation/Dashboard";
+import PagePlanning           from "./Renovation/Planning";
+import PagePlanningMensuel    from "./Renovation/PlanningMensuel";
+import PageNotesEtTodo        from "./Renovation/NotesEtTodo";
+import PageCommandes          from "./Renovation/Commandes";
+import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
+import PageEquipe             from "./Renovation/Equipe";
+import PageValidation         from "./Renovation/Validation";
+import PagePlans              from "./Renovation/Plans";
+import PagePhasage            from "./Renovation/Phasage";
+import PagePhasageV2          from "./Renovation/PhasageV2";
+import PageBibliotheque       from "./Renovation/Bibliotheque";
+import PageBibliothequeMateriaux from "./Renovation/PageBibliothequeMateriaux";
+import PageGuideOuvrages      from "./Renovation/PageGuideOuvrages";
+import PageAdmin              from "./Renovation/Admin";
+import PageRapportMobile      from "./Renovation/RapportMobile";
 import PageInvest             from "./PageInvest";
-import PageVisiteChantier     from "./VisiteChantier";
-import PageInfoClient         from "./PageInfoClient";
-import PageChantiers          from "./PageChantiers";
-import PageDashboardAnalyse   from "./DashboardAnalyse";
-import PageEtatsFinanciers    from "./EtatsFinanciers";
+import PageVisiteChantier     from "./Renovation/VisiteChantier";
+import PageInfoClient         from "./Renovation/PageInfoClient";
+import PageChantiers          from "./Renovation/PageChantiers";
+import PageDashboardAnalyse   from "./Renovation/DashboardAnalyse";
+import PageEtatsFinanciers    from "./Renovation/EtatsFinanciers";
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 // Centralisé dans src/access.js. App.jsx charge la config au mount et propage.

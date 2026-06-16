@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
-import { supabase, getClientId } from "./supabase";
-import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
-import { indexPointagesParTache, heuresEff as heuresEffShared, coutMOEff as coutMOEffShared, sumLibreEtIndirect } from "./pointages";
-import { Icon } from "./ui";
+import { supabase, getClientId } from "../supabase";
+import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "../constants";
+import { indexPointagesParTache, heuresEff as heuresEffShared, coutMOEff as coutMOEffShared, sumLibreEtIndirect } from "../pointages";
+import { Icon } from "../ui";
 import {
   ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
   Building2, Hammer, Clock, Euro, TrendingUp, AlertTriangle, Search, FileSpreadsheet,

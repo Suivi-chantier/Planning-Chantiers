@@ -1,9 +1,9 @@
 import CellModal from "./CellModal";
 import React, { useState, useEffect, useMemo } from "react";
-import { supabase } from "./supabase";
-import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "./constants";
+import { supabase } from "../supabase";
+import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
 import { useIsMobile } from "./Navigation";
-import { Icon } from "./ui";
+import { Icon } from "../ui";
 import {
   ChevronLeft, ChevronRight, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft,

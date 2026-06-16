@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { supabase } from "./supabase";
-import { getBranchAccent, FONT, RADIUS } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { getBranchAccent, FONT, RADIUS } from "../constants";
+import { Icon } from "../ui";
 import {
   CalendarDays, Target, TriangleAlert, StickyNote,
   ChevronLeft, ChevronRight, ChevronsRight, ChevronDown,

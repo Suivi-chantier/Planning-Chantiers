@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "./supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT } from "../constants";
+import { Icon } from "../ui";
 import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
@@ -14,7 +14,7 @@ import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
   ROLES_DEFAULT_RENOVATION, ROLES_DEFAULT_INVEST,
   ROLE_PAGES_DEFAULT_RENOVATION, ROLE_PAGES_DEFAULT_INVEST,
-} from "./access";
+} from "../access";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
 const callAdminUsers = async (payload) => {

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { PHASES_DEFAUT, loadPhases } from "./constants";
+import { PHASES_DEFAUT, loadPhases } from "../constants";
 import { useIsMobile } from "./Navigation";
 
 // PHASES dynamiques : init avec les défauts, mise à jour async au mount
