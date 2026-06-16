@@ -484,7 +484,28 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         motif_indirect: li.motif.trim(),
       }));
 
-    const lignesPointages = [...lignesTaches, ...lignesIndirectes];
+    // Trajet matin + soir → pointage indirect dédié (motif="Trajet"), pour qu'il
+    // apparaisse dans le coût MO du chantier et soit affiché à part dans la
+    // carte "Trajets" du PlanTravaux.
+    const trajetMin = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
+    const trajetH = trajetMin / 60;
+    const lignesTrajet = trajetH > 0 ? [{
+      chantier_id: rapport.chantier_id,
+      phasage_id,
+      phase_id: null,
+      tache_id: null,
+      ouvrier: rapport.ouvrier,
+      date: dateISO,
+      heures: trajetH,
+      taux_horaire: taux,
+      rapport_id: rapport.id,
+      avancement_declare: null,
+      valide_par: valideur,
+      type_pointage: "indirect",
+      motif_indirect: "Trajet",
+    }] : [];
+
+    const lignesPointages = [...lignesTaches, ...lignesIndirectes, ...lignesTrajet];
 
     if (lignesPointages.length > 0) {
       const { error: insErr } = await supabase.from("pointages").insert(lignesPointages);
@@ -856,7 +877,9 @@ function ModaleRapport({
 
   const totalHTaches = lignes.reduce((s, l) => s + (parseFloat(l.heures) || 0), 0);
   const totalHIndirect = indirectes.reduce((s, t) => s + (parseFloat(t.heures) || 0), 0);
-  const totalCout = (totalHTaches + totalHIndirect) * taux;
+  const trajetMin = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
+  const totalHTrajet = trajetMin / 60;
+  const totalCout = (totalHTaches + totalHIndirect + totalHTrajet) * taux;
 
   const updateLigne = (rowId, patch) => setLignes(prev => prev.map(l => l.rowId === rowId ? { ...l, ...patch } : l));
   const splitLigne = (rowId) => setLignes(prev => {
@@ -873,7 +896,9 @@ function ModaleRapport({
   // Réaffectation : on capture la sélection (tache_id du plan, "__libre__", ou "__creer__")
   const onChangeTache = (rowId, value) => {
     if (value === "__creer__") {
-      setCreerTacheState({ rowId, nom: "", phase_id: phases[0]?.id || "" });
+      // Pré-remplit le nom avec ce que l'ouvrier avait déclaré (modifiable).
+      const ligne = lignes.find(l => l.rowId === rowId);
+      setCreerTacheState({ rowId, nom: ligne?.planifie || "", phase_id: phases[0]?.id || "" });
       return;
     }
     if (value === "__libre__" || !value) {
@@ -935,6 +960,9 @@ function ModaleRapport({
             </div>
             <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>
               {dateLabel(rapport.date_rapport)} · {fmtH(totalHTaches)}h tâches · taux {taux}€/h
+              {trajetMin > 0 && (
+                <span> · 🚗 Trajet {fmtH(totalHTrajet)}h ({parseInt(rapport.trajet_matin_min) || 0}min matin / {parseInt(rapport.trajet_soir_min) || 0}min soir)</span>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1044,6 +1072,25 @@ function ModaleRapport({
           )}
         </div>
 
+        {/* Photos générales du chantier */}
+        {Array.isArray(rapport.photos_chantier) && rapport.photos_chantier.length > 0 && (
+          <div style={{ padding: "0 20px 16px" }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: .5, color: T.textSub }}>
+              Photos générales ({rapport.photos_chantier.length})
+            </h3>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {rapport.photos_chantier.map((url, i) => (
+                <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{
+                  width: 72, height: 72, borderRadius: 8, overflow: "hidden",
+                  border: `1px solid ${T.border}`, background: T.bg, flexShrink: 0,
+                }}>
+                  <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div style={{
           padding: "12px 20px", borderTop: `1px solid ${T.border}`,
@@ -1051,7 +1098,8 @@ function ModaleRapport({
           position: "sticky", bottom: 0, background: T.surface,
         }}>
           <div style={{ fontSize: 13, color: T.textSub }}>
-            Total : <strong style={{ color: T.text }}>{fmtH(totalHTaches + totalHIndirect)}h</strong>
+            Total : <strong style={{ color: T.text }}>{fmtH(totalHTaches + totalHIndirect + totalHTrajet)}h</strong>
+            {totalHTrajet > 0 && <span style={{ color: T.textSub }}> (dont {fmtH(totalHTrajet)}h trajet)</span>}
             {" · "}
             Coût MO : <strong style={{ color: T.text }}>{totalCout.toFixed(2)}€</strong>
           </div>
@@ -1192,7 +1240,25 @@ function LigneEditable({
               ))}
             </span>
           )}
+          {ligne.remarque && (
+            <span style={{ fontSize: 11, color: T.text, fontStyle: "italic" }}>
+              💬 {ligne.remarque}
+            </span>
+          )}
         </div>
+        {/* Photos déclarées par l'ouvrier pour cette tâche (clic = ouvre en plein) */}
+        {Array.isArray(ligne.photos) && ligne.photos.length > 0 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+            {ligne.photos.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{
+                width: 48, height: 48, borderRadius: 6, overflow: "hidden",
+                border: `1px solid ${T.border}`, background: T.bg, flexShrink: 0,
+              }}>
+                <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Heures */}

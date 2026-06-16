@@ -8,7 +8,7 @@ import {
   ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
   Building2, Hammer, Clock, Euro, TrendingUp, AlertTriangle, Search, FileSpreadsheet,
   CalendarPlus, Check, GripVertical, X, ChevronDown, ChevronUp,
-  Info, Unlink, Link2, SplitSquareHorizontal, HardHat, Package, CalendarCheck,
+  Info, Unlink, Link2, SplitSquareHorizontal, HardHat, Package, CalendarCheck, Car,
 } from "lucide-react";
 import GanttView from "./GanttView";
 import { useIsMobile } from "./Navigation";
@@ -1155,11 +1155,26 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
     return m;
   }, [pointages]);
 
-  // Heures + coût MO indirects (au niveau chantier, hors tâches)
+  // Pointages "indirect" séparés en deux catégories :
+  // - Trajets (motif_indirect = "Trajet" — auto-créés à la validation)
+  // - Autres heures indirectes (intempéries, SAV, nettoyage…)
   const indirectStats = useMemo(() => {
     let heures = 0, cout = 0;
     pointages.forEach(p => {
       if (p.type_pointage !== "indirect") return;
+      if (/trajet/i.test(p.motif_indirect || "")) return; // exclu, va dans trajetStats
+      const h = parseFloat(p.heures) || 0;
+      heures += h;
+      cout += h * (parseFloat(p.taux_horaire) || 0);
+    });
+    return { heures, cout };
+  }, [pointages]);
+
+  const trajetStats = useMemo(() => {
+    let heures = 0, cout = 0;
+    pointages.forEach(p => {
+      if (p.type_pointage !== "indirect") return;
+      if (!/trajet/i.test(p.motif_indirect || "")) return;
       const h = parseFloat(p.heures) || 0;
       heures += h;
       cout += h * (parseFloat(p.taux_horaire) || 0);
@@ -1532,10 +1547,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const totalHVenduTaches   = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
   const totalHVenduGlobal = totalHVenduOuvrages > 0 ? totalHVenduOuvrages : totalHVenduTaches;
   const totalHEstimeeGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-  // P8 : heures réelles dérivées du registre + heures libres / indirectes
+  // P8 : heures réelles dérivées du registre + heures libres / indirectes / trajets
   // (qui n'appartiennent à aucune tâche du plan mais comptent au chantier).
   const totalHReelGlobal = allTaches.reduce((s, t) => s + heuresEff(t), 0)
-                         + libreStats.heures + indirectStats.heures;
+                         + libreStats.heures + indirectStats.heures + trajetStats.heures;
 
   // ── Date prévue de fin : la dernière date_prevue parmi toutes les tâches
   const dateFin = (() => {
@@ -1556,9 +1571,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const avgAv = calcAvancementPondere(ouvrages, allTaches);
 
   // P8 : coût MO global dérivé du registre (heures × taux figé par ouvrier),
-  // + coût des heures libres et des heures indirectes du chantier.
+  // + coût des heures libres, indirectes et trajets du chantier.
   const totalMO = allTaches.reduce((s, t) => s + coutMOEff(t), 0)
-                + libreStats.cout + indirectStats.cout;
+                + libreStats.cout + indirectStats.cout + trajetStats.cout;
   // Coût matériel = somme des prix HT des commandes AYANT phase_id rempli.
   // Cohérent avec phCoutMat (filtré par phase). Les commandes sans phase_id
   // (= non attribuées) ne sont pas comptées ici → on signale leur nb plus bas.
@@ -1888,6 +1903,11 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
               { label: "Main d'œuvre", value: `${Math.round(totalMO).toLocaleString("fr-FR")} €`, icon: HardHat,
                 color: totalMO > pVendu && pVendu > 0 ? "#e15a5a" : "#5b9cf6",
                 subtext: enAttenteCout > 0 ? `+ ${Math.round(enAttenteCout).toLocaleString("fr-FR")} € en attente de validation` : null },
+              { label: "Trajets",
+                value: trajetStats.heures > 0
+                  ? `${trajetStats.heures.toFixed(1)}h · ${Math.round(trajetStats.cout).toLocaleString("fr-FR")} €`
+                  : "—",
+                icon: Car, color: trajetStats.heures > 0 ? "#06b6d4" : T.textMuted },
               { label: "Matériaux", value: totalMat > 0 ? `${Math.round(totalMat).toLocaleString("fr-FR")} €` : "—",
                 icon: Package, color: totalMat > 0 ? "#a78bfa" : T.textMuted },
               { label: totalHVenduGlobal > 0 ? `Heures · ${ratioH.toFixed(0)}%` : "Heures réelles",
