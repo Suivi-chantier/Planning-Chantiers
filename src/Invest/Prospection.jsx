@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { Icon } from "../ui";
-import { FONT, RADIUS, SPACING } from "../constants";
+import { FONT, RADIUS } from "../constants";
 import { THEMES_INV, SU, WA, DA, fmtDashboardEur } from "./_shared";
 import {
   UserPlus,
@@ -259,9 +259,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
               lineHeight: 1.5,
             }}
           >
-            Suivi des prospects avant signature. Cette page est indépendante du
-            CRM Client et servira ensuite à qualifier, relancer, signer puis
-            convertir les prospects en clients.
+            Suivi des prospects avant signature. Cette page est indépendante du CRM Client et servira ensuite à qualifier, relancer,
+            signer puis convertir les prospects en clients.
           </div>
         </div>
 
@@ -318,11 +317,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             lineHeight: 1.6,
           }}
         >
-          La page Prospection va devenir le point d’entrée commercial de
-          Profero Invest. Elle doit contenir les prospects avant signature, avec
-          leurs informations, leur niveau de qualification, leurs relances,
-          leurs rendez-vous, leurs propositions commerciales et un bouton de
-          conversion vers le CRM Client une fois le contrat signé.
+          La page Prospection va devenir le point d’entrée commercial de Profero Invest. Elle doit contenir les prospects avant
+          signature, avec leurs informations, leur niveau de qualification, leurs relances, leurs rendez-vous, leurs propositions
+          commerciales et un bouton de conversion vers le CRM Client une fois le contrat signé.
         </div>
       </div>
 
@@ -352,10 +349,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
           lineHeight: 1.55,
         }}
       >
-        <strong style={{ color: T.text }}>Étape suivante :</strong> création de
-        la table Supabase <code>invest_prospects</code>, puis ajout des fonctions
-        d’ajout, modification, suppression logique, pipeline, historique des
-        actions et conversion vers <code>invest_clients</code>.
+        <strong style={{ color: T.text }}>Étape suivante :</strong> création de la table Supabase <code>invest_prospects</code>,
+        puis ajout des fonctions d’ajout, modification, suppression logique, pipeline, historique des actions et conversion vers
+        <code> invest_clients</code>.
       </div>
     </div>
   );
