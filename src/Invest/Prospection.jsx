@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { Icon } from "../ui";
 import { FONT, RADIUS } from "../constants";
@@ -26,10 +26,11 @@ import {
   Copy,
   Flame,
   AlertTriangle,
+  Upload,
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version simple + Drag & Drop + relances + conversion sécurisée
+ * CRM Prospection — Version simple + Drag & Drop + relances + conversion sécurisée + import
  *
  * Objectif :
  * - CRM volontairement simple
@@ -269,6 +270,297 @@ function messageConfirmationRdv(p) {
 function messageProposition(p) {
   const prenom = p?.prenom || "";
   return `Bonjour ${prenom},\n\nSuite à nos échanges, je vous confirme que votre projet semble cohérent avec l'accompagnement Profero Invest.\n\nNous pouvons vous accompagner sur la stratégie, la recherche du bien, l'analyse de rentabilité, la négociation, le financement et le suivi du projet.\n\nJe reste disponible pour vous présenter la proposition d'accompagnement.\n\nBien cordialement,\nProfero Invest`;
+}
+
+function stripAccents(v) {
+  return String(v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeImportKey(k) {
+  const key = stripAccents(k)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  const aliases = {
+    prenom: "prenom",
+    first_name: "prenom",
+    firstname: "prenom",
+    nom: "nom",
+    last_name: "nom",
+    lastname: "nom",
+    name: "nom",
+    full_name: "nom_complet",
+    nom_complet: "nom_complet",
+    prospect: "nom_complet",
+    societe: "societe",
+    entreprise: "societe",
+    telephone: "telephone",
+    tel: "telephone",
+    phone: "telephone",
+    mobile: "telephone",
+    email: "email",
+    mail: "email",
+    source: "source",
+    origine: "source",
+    responsable: "responsable",
+    commercial: "responsable",
+    objectif: "objectif",
+    projet: "objectif",
+    budget: "budget_global",
+    budget_global: "budget_global",
+    zone: "zone_recherche",
+    ville: "zone_recherche",
+    secteur: "zone_recherche",
+    zone_recherche: "zone_recherche",
+    prochaine_action: "prochaine_action",
+    action: "prochaine_action",
+    relance: "date_prochaine_action",
+    date_relance: "date_prochaine_action",
+    date_prochaine_action: "date_prochaine_action",
+    rdv: "date_rdv",
+    date_rdv: "date_rdv",
+    rendez_vous: "date_rdv",
+    honoraires: "honoraires_estimes_ht",
+    honoraires_ht: "honoraires_estimes_ht",
+    honoraires_estimes_ht: "honoraires_estimes_ht",
+    commentaire: "commentaire",
+    note: "commentaire",
+    notes: "commentaire",
+    statut: "statut",
+  };
+
+  return aliases[key] || key;
+}
+
+function parseCSVLine(line, delimiter) {
+  const out = [];
+  let cur = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    const next = line[i + 1];
+
+    if (ch === '"' && inQuotes && next === '"') {
+      cur += '"';
+      i += 1;
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (ch === delimiter && !inQuotes) {
+      out.push(cur.trim());
+      cur = "";
+      continue;
+    }
+
+    cur += ch;
+  }
+
+  out.push(cur.trim());
+  return out;
+}
+
+function normalizeImportedRow(row) {
+  const normalized = {};
+
+  Object.entries(row || {}).forEach(([key, value]) => {
+    const cleanKey = normalizeImportKey(key);
+    const cleanValue = typeof value === "string" ? value.trim() : value;
+
+    if (cleanValue !== undefined && cleanValue !== null && String(cleanValue).trim() !== "") {
+      normalized[cleanKey] = cleanValue;
+    }
+  });
+
+  if (normalized.nom_complet && !normalized.nom && !normalized.prenom) {
+    const parts = String(normalized.nom_complet).trim().split(/\s+/);
+    normalized.prenom = parts.shift() || "";
+    normalized.nom = parts.join(" ");
+  }
+
+  if (!normalized.nom && !normalized.prenom && normalized.email) {
+    normalized.nom = String(normalized.email).split("@")[0];
+  }
+
+  if (!normalized.nom && !normalized.prenom && normalized.telephone) {
+    normalized.nom = "Prospect importé";
+  }
+
+  if (normalized.statut) {
+    const status = stripAccents(normalized.statut).toLowerCase();
+    if (status.includes("contact")) normalized.statut = "contact";
+    else if (status.includes("rdv") || status.includes("rendez")) normalized.statut = "rdv";
+    else if (status.includes("proposition")) normalized.statut = "proposition";
+    else if (status.includes("sign")) normalized.statut = "signe";
+    else if (status.includes("perdu")) normalized.statut = "perdu";
+    else normalized.statut = "nouveau";
+  }
+
+  return normalized;
+}
+
+function parseCSV(content) {
+  const lines = String(content || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return [];
+
+  const firstLine = lines[0];
+  const delimiter = (firstLine.match(/;/g) || []).length >= (firstLine.match(/,/g) || []).length ? ";" : ",";
+  const headers = parseCSVLine(firstLine, delimiter).map(normalizeImportKey);
+
+  return lines.slice(1)
+    .map((line) => {
+      const values = parseCSVLine(line, delimiter);
+      const row = {};
+      headers.forEach((h, i) => {
+        row[h] = values[i] || "";
+      });
+      return normalizeImportedRow(row);
+    })
+    .filter((p) => p.nom || p.prenom || p.societe || p.email || p.telephone);
+}
+
+function extractLabeledValue(content, labels) {
+  for (const label of labels) {
+    const rx = new RegExp(`(?:^|\\n)\\s*${label}\\s*[:\\-]\\s*(.+)`, "i");
+    const match = String(content || "").match(rx);
+    if (match?.[1]) return match[1].split(/\n/)[0].trim();
+  }
+  return "";
+}
+
+function parseTextProspect(content) {
+  const raw = String(content || "");
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const email = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+  const telephone = raw.match(/(?:\+33|0033|0)[\d\s.\-()]{8,}/)?.[0] || "";
+
+  const explicitPrenom = extractLabeledValue(raw, ["prenom", "prénom", "first name"]);
+  const explicitNom = extractLabeledValue(raw, ["nom", "name", "last name"]);
+  const explicitFullName = extractLabeledValue(raw, ["prospect", "client", "nom complet"]);
+
+  let prenom = explicitPrenom;
+  let nom = explicitNom;
+
+  if (!prenom && !nom) {
+    const nameLine = explicitFullName || lines.find((line) => {
+      const l = stripAccents(line).toLowerCase();
+      return !l.includes("@")
+        && !l.includes("tel")
+        && !l.includes("mail")
+        && !l.includes("budget")
+        && !l.includes("source")
+        && !l.includes("objectif")
+        && !l.includes("zone")
+        && !l.includes("note")
+        && !/^begin:vcard/i.test(l)
+        && !/^version:/i.test(l)
+        && !/^fn:/i.test(l)
+        && line.length <= 80;
+    }) || "";
+
+    const cleaned = nameLine.replace(/^(nom|prospect|client)\s*[:\-]\s*/i, "").trim();
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    prenom = parts.shift() || "";
+    nom = parts.join(" ");
+  }
+
+  const prospect = normalizeImportedRow({
+    prenom,
+    nom,
+    telephone,
+    email,
+    source: extractLabeledValue(raw, ["source", "origine"]),
+    responsable: extractLabeledValue(raw, ["responsable", "commercial"]),
+    objectif: extractLabeledValue(raw, ["objectif", "projet"]),
+    budget_global: extractLabeledValue(raw, ["budget", "budget global"]),
+    zone_recherche: extractLabeledValue(raw, ["zone", "ville", "secteur"]),
+    prochaine_action: extractLabeledValue(raw, ["prochaine action", "action"]),
+    date_prochaine_action: extractLabeledValue(raw, ["date relance", "relance"]),
+    date_rdv: extractLabeledValue(raw, ["rdv", "date rdv", "rendez-vous"]),
+    honoraires_estimes_ht: extractLabeledValue(raw, ["honoraires", "honoraires ht"]),
+    commentaire: extractLabeledValue(raw, ["note", "commentaire"]) || raw.slice(0, 1200),
+  });
+
+  return prospect.nom || prospect.prenom || prospect.email || prospect.telephone ? [prospect] : [];
+}
+
+function parseVCard(content) {
+  const cards = String(content || "")
+    .split(/BEGIN:VCARD/i)
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  const prospects = cards.map((card) => {
+    const fn = card.match(/^FN:(.+)$/im)?.[1]?.trim() || "";
+    const email = card.match(/^EMAIL[^:]*:(.+)$/im)?.[1]?.trim() || "";
+    const telephone = card.match(/^TEL[^:]*:(.+)$/im)?.[1]?.trim() || "";
+
+    const parts = fn.split(/\s+/).filter(Boolean);
+    const prenom = parts.shift() || "";
+    const nom = parts.join(" ");
+
+    return normalizeImportedRow({
+      prenom,
+      nom,
+      email,
+      telephone,
+      source: "Import contact",
+      prochaine_action: "Appeler",
+    });
+  });
+
+  return prospects.filter((p) => p.nom || p.prenom || p.email || p.telephone);
+}
+
+function parseImportedProspects(content, fileName = "") {
+  const lower = String(fileName || "").toLowerCase();
+  const raw = String(content || "").trim();
+
+  if (!raw) return [];
+
+  if (lower.endsWith(".vcf") || raw.includes("BEGIN:VCARD")) {
+    const vcards = parseVCard(raw);
+    if (vcards.length) return vcards;
+  }
+
+  if (lower.endsWith(".json") || raw.startsWith("{") || raw.startsWith("[")) {
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.prospects)
+        ? parsed.prospects
+        : Array.isArray(parsed.data)
+          ? parsed.data
+          : [parsed];
+
+    return arr
+      .map(normalizeImportedRow)
+      .filter((p) => p.nom || p.prenom || p.societe || p.email || p.telephone);
+  }
+
+  if (lower.endsWith(".csv") || raw.split(/\r?\n/)[0]?.includes(";") || raw.split(/\r?\n/)[0]?.includes(",")) {
+    const csv = parseCSV(raw);
+    if (csv.length) return csv;
+  }
+
+  return parseTextProspect(raw);
 }
 
 function Badge({ children, color, T }) {
@@ -660,6 +952,7 @@ function ActionRow({ action, T }) {
 export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [prospects, setProspects] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [actions, setActions] = useState([]);
   const [actionForm, setActionForm] = useState({ ...EMPTY_ACTION });
@@ -668,6 +961,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [quickFilter, setQuickFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef(null);
 
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverStatus, setDragOverStatus] = useState(null);
@@ -776,6 +1071,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   }, [filtered]);
 
   const selectProspect = (p) => {
+    setIsCreating(false);
     setSelected(p);
     setForm(prospectToForm(p));
     setActionForm({ ...EMPTY_ACTION });
@@ -784,6 +1080,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   };
 
   const newProspect = () => {
+    setIsCreating(true);
     setSelected(null);
     setForm({
       ...EMPTY_FORM,
@@ -795,6 +1092,88 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setActionForm({ ...EMPTY_ACTION });
     setMsg("");
     setError("");
+  };
+
+  const handleImportProspects = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setError("");
+    setMsg("");
+
+    try {
+      const content = await file.text();
+      const parsed = parseImportedProspects(content, file.name);
+
+      if (!parsed.length) {
+        setError("Import impossible : aucun prospect reconnu dans le fichier.");
+        setImporting(false);
+        event.target.value = "";
+        return;
+      }
+
+      if (parsed.length > 1) {
+        const ok = window.confirm(`${parsed.length} prospects détectés. Souhaites-tu les importer ?`);
+        if (!ok) {
+          setImporting(false);
+          event.target.value = "";
+          return;
+        }
+      }
+
+      const payloads = parsed.map((p) => {
+        const merged = {
+          ...EMPTY_FORM,
+          ...p,
+          statut: p.statut || "nouveau",
+          responsable: p.responsable || profil?.prenom || profil?.nom || "",
+          prochaine_action: p.prochaine_action || "Appeler",
+          date_prochaine_action: p.date_prochaine_action || todayIso(),
+        };
+
+        const payload = formToPayload(merged, profil, true);
+
+        if (!payload.nom && !payload.prenom && !payload.societe) {
+          payload.nom = "Prospect importé";
+        }
+
+        payload.donnees = {
+          import_source_file: file.name,
+          import_date: new Date().toISOString(),
+        };
+
+        return payload;
+      });
+
+      const { data, error: err } = await supabase
+        .from("invest_prospects")
+        .insert(payloads)
+        .select("*");
+
+      if (err) {
+        setError(err.message || "Erreur pendant l'import.");
+        setImporting(false);
+        event.target.value = "";
+        return;
+      }
+
+      await loadProspects();
+
+      if (data?.length === 1) {
+        setIsCreating(false);
+        setSelected(data[0]);
+        setForm(prospectToForm(data[0]));
+      }
+
+      setMsg(data?.length > 1 ? `${data.length} prospects importés.` : "Prospect importé.");
+      setTimeout(() => setMsg(""), 2400);
+    } catch (err) {
+      setError(err?.message || "Erreur de lecture du fichier.");
+    }
+
+    setImporting(false);
+    event.target.value = "";
   };
 
   const saveProspect = async () => {
@@ -834,6 +1213,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       return;
     }
 
+    setIsCreating(false);
     setSelected(res.data);
     setForm(prospectToForm(res.data));
     await loadProspects();
@@ -1011,6 +1391,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       return;
     }
 
+    setIsCreating(false);
     setSelected(null);
     setForm({ ...EMPTY_FORM });
     setActions([]);
@@ -1276,6 +1657,26 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             <Icon as={RefreshCw} size={14} />
             Actualiser
           </button>
+
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,.json,.txt,.vcf,text/csv,application/json,text/plain"
+            onChange={handleImportProspects}
+            style={{ display: "none" }}
+          />
+
+          <button
+            className="inv-btn inv-btn-out"
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+            disabled={importing}
+            title="Importer un prospect depuis CSV, JSON, TXT ou contact VCF"
+          >
+            <Icon as={Upload} size={14} />
+            {importing ? "Import..." : "Importer"}
+          </button>
+
           <button className="inv-btn inv-btn-blue" type="button" onClick={newProspect}>
             <Icon as={UserPlus} size={14} />
             Nouveau prospect
@@ -1303,6 +1704,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       </div>
 
       <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
+        <div style={{ color: T.textMuted, fontSize: 11, marginBottom: 7 }}>
+          Import accepté : CSV, JSON, TXT ou VCF. Champs reconnus automatiquement : prénom, nom, téléphone, email, source, responsable, objectif, budget, zone, relance, note.
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1fr) auto", gap: 10, alignItems: "center" }}>
           <div style={{ position: "relative" }}>
             <Icon as={Search} size={14} style={{ position: "absolute", left: 10, top: 10, color: T.textMuted }} />
@@ -1397,7 +1801,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
           >
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Icon as={selected?.id ? Pencil : UserPlus} size={13} />
-              {selected?.id ? prospectName(selected) : "Fiche prospect"}
+              {selected?.id ? prospectName(selected) : isCreating ? "Nouveau prospect" : "Fiche prospect"}
             </span>
 
             <div style={{ display: "flex", gap: 6 }}>
@@ -1406,6 +1810,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                 className="inv-btn inv-btn-out inv-btn-sm"
                 type="button"
                 onClick={() => {
+                  setIsCreating(false);
                   setSelected(null);
                   setForm({ ...EMPTY_FORM });
                   setActions([]);
@@ -1417,7 +1822,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
           </div>
 
           <div className="inv-card-bd" style={{ padding: 12 }}>
-            {!selected && !form.nom && !form.prenom && !form.societe ? (
+            {!selected && !isCreating ? (
               <div style={{ textAlign: "center", padding: 50, color: T.textMuted }}>
                 Sélectionne un prospect ou clique sur “Nouveau prospect”.
               </div>
