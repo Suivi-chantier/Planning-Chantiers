@@ -1090,7 +1090,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
       lastError = err;
 
-      // 42703 = colonne inexistante. On retente avec un payload plus simple.
+      // 42703 = colonne inexistante. On retente avec un payload plus simple..
       if (err.code !== "42703") break;
     }
 
