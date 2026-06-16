@@ -1623,11 +1623,20 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     await loadProspects();
   };
 
-  const missingTable = error && (
-    error.includes("invest_prospects") ||
-    error.includes("Could not find the table") ||
-    error.includes("relation") ||
-    error.includes("schema cache")
+  const normalizedError = String(error || "").toLowerCase();
+
+  const missingTable = Boolean(error) && (
+    normalizedError.includes("could not find the table") ||
+    normalizedError.includes('relation "public.invest_prospects" does not exist') ||
+    normalizedError.includes('relation "invest_prospects" does not exist') ||
+    normalizedError.includes("undefined_table") ||
+    normalizedError.includes("42p01")
+  );
+
+  const schemaConfigError = Boolean(error) && !missingTable && (
+    normalizedError.includes("schema cache") ||
+    normalizedError.includes("pgrst204") ||
+    normalizedError.includes("could not find")
   );
 
   return (
@@ -1700,7 +1709,32 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         </div>
       )}
 
-      {error && !missingTable && (
+      {schemaConfigError && (
+        <div
+          style={{
+            padding: 16,
+            borderRadius: RADIUS.lg,
+            border: `1px solid ${WA}`,
+            background: `${WA}12`,
+            color: T.text,
+            marginBottom: 18,
+            lineHeight: 1.55,
+          }}
+        >
+          <div style={{ fontWeight: 900, color: WA, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+            <Icon as={AlertTriangle} size={17} />
+            Configuration Supabase à mettre à jour
+          </div>
+          La table existe probablement, mais une colonne utilisée par le CRM Prospection manque encore
+          ou le cache Supabase n'est pas à jour. Exécute le fichier SQL
+          <strong> supabase_prospection_v1_1_patch.sql</strong>, puis actualise la page.
+          <div style={{ marginTop: 8, fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+            Détail technique : {error}
+          </div>
+        </div>
+      )}
+
+      {error && !missingTable && !schemaConfigError && (
         <div
           style={{
             padding: 12,
