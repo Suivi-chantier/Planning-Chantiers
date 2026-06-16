@@ -19,6 +19,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "./constants";
+import { indexPointagesParTache, coutMOEff, sumLibreEtIndirect } from "./pointages";
 import {
   ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip as RTooltip, Legend,
@@ -229,12 +230,13 @@ function calcBudgetMO(plan, phasesConfig, tauxHoraires = {}) {
   return sumPoids * (sumPoids > 0 ? sumPond / sumPoids : 0);
 }
 
-function calcMOConsommee(plan, phasesConfig, tauxHoraires = {}) {
+function calcMOConsommee(plan, phasesConfig, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}) {
+  // P9 : coût MO réel dérivé du registre de pointage. Repli legacy par tâche
+  // si aucun pointage. Les coûts "libres" et "indirects" (au niveau chantier)
+  // sont ajoutés via extraStats.
   const allTaches = phasesConfig.flatMap(ph => (plan?.[ph.id] || []));
-  return allTaches.reduce((s, t) => {
-    const pO = (t.ouvriers || [])[0] || "";
-    return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (parseFloat(tauxHoraires[pO]) || 0) : 0));
-  }, 0);
+  const coutTaches = allTaches.reduce((s, t) => s + coutMOEff(t, pointagesIndexes, tauxHoraires), 0);
+  return coutTaches + (extraStats.coutLibre || 0) + (extraStats.coutIndirect || 0);
 }
 
 function calcBudgetMat(plan, phasesConfig) {
@@ -303,14 +305,18 @@ function calcCRStatut(lastCRDate) {
   return                  { status: 'retard',   label: `En retard (${semCR.label})`, date: lastCRDate, semaine: semCR.label };
 }
 
-function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCRByChantier = {}) {
+function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCRByChantier = {}, pointagesParChantier = {}) {
   const plan = phasage?.plan_travaux || {};
   const meta = plan.meta || {};
   const avR  = calcAvancementReel(plan, phasesConfig);
   const avP  = calcAvancementTheorique(plan, phasesConfig);
   const phase = calcPhaseCourante(plan, phasesConfig);
   const budMO = calcBudgetMO(plan, phasesConfig, tauxHoraires);
-  const moC   = calcMOConsommee(plan, phasesConfig, tauxHoraires);
+  // P9 : index local des pointages de ce chantier + extras libres/indirects
+  const ptsCh   = pointagesParChantier[phasage?.chantier_id] || [];
+  const ptsIdx  = indexPointagesParTache(ptsCh);
+  const extras  = sumLibreEtIndirect(ptsCh);
+  const moC   = calcMOConsommee(plan, phasesConfig, tauxHoraires, ptsIdx, extras);
   const budMat = calcBudgetMat(plan, phasesConfig);
   const matC   = calcMatConsomme(plan, phasesConfig);
   // prix_vendu stocké dans plan_travaux.meta (pas une colonne phasages).
@@ -1677,6 +1683,9 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   const [phasagesRaw, setPhasagesRaw] = useState([]);
   const [chantiersRaw, setChantiersRaw] = useState([]);
   const [tauxHoraires, setTauxHoraires] = useState({});
+  // P9 : pointages tous chantiers, regroupés en map { chantier_id: [pointages] }
+  // pour dériver le coût MO réel dans calcMOConsommee.
+  const [pointagesByChantier, setPointagesByChantier] = useState({});
   // Date du dernier CR (cr_comptes_rendus) par chantier_id, pour calcul statut hebdo
   const [lastCRByChantier, setLastCRByChantier] = useState({});
   const [loading, setLoading] = useState(true);
@@ -1730,7 +1739,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [pCfg, phQ, cfgQ, crQ] = await Promise.all([
+      const [pCfg, phQ, cfgQ, crQ, ptsQ] = await Promise.all([
         loadPhases(),
         supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at"),
         supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
@@ -1738,7 +1747,17 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         // On essaie d'inclure `validateur` ; si la colonne n'existe pas (42703),
         // on retombe sur le select sans validateur (fallback gracieux).
         supabase.from("cr_comptes_rendus").select("chantier_id, date_visite, validateur").order("date_visite", { ascending: false }).limit(200),
+        // P9 : pointages tous chantiers. Si la table n'existe pas (P2 non joué),
+        // on tombe sur le repli legacy automatiquement.
+        supabase.from("pointages").select("chantier_id,tache_id,heures,taux_horaire,type_pointage,motif_indirect"),
       ]);
+      // Regroupement par chantier_id (repli vide si erreur)
+      const byCh = {};
+      if (!ptsQ?.error) (ptsQ.data || []).forEach(p => {
+        const k = p.chantier_id;
+        if (!byCh[k]) byCh[k] = [];
+        byCh[k].push(p);
+      });
       if (cancelled) return;
       // Fallback : si la colonne validateur n'existe pas en base, on retente sans
       let crRows = crQ.data;
@@ -1760,6 +1779,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         }
       });
       setLastCRByChantier(crMap);
+      setPointagesByChantier(byCh);
       setLoading(false);
     })();
     // Channel realtime : recharger les phasages dès qu'un est mis à jour
@@ -1778,8 +1798,8 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   const chantiers = useMemo(() => {
     if (!phasagesRaw.length) return [];
     const byChantier = Object.fromEntries(chantiersRaw.map(c => [c.id, c]));
-    return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig, lastCRByChantier));
-  }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig, lastCRByChantier]);
+    return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier));
+  }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier]);
 
   // Archives : pour l'instant on n'a pas de notion d'archivage des phasages,
   // donc on laisse vide. PR3+ : pourrait lire un flag phasage.archive.

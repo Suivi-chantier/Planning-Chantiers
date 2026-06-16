@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { supabase, getClientId } from "./supabase";
 import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
+import { indexPointagesParTache, heuresEff as heuresEffShared, coutMOEff as coutMOEffShared, sumLibreEtIndirect } from "./pointages";
 import { Icon } from "./ui";
 import {
   ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
@@ -2986,7 +2987,7 @@ function PhasageDetail({ phasage, bibliotheque, T, chantiers, ouvriers, tauxHora
 }
 
 // ─── RAPPORT MODAL ────────────────────────────────────────────────────────────
-function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
+function RapportModal({ phasages, chantiers, tauxHoraires, pointagesByChantier = {}, onFermer }) {
   const dateStr = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 
   const donneesChantiers = phasages.map(p => {
@@ -3000,17 +3001,20 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
     // Avancement pondéré par prix HT au niveau ouvrage (cf. calcAvancementPondere)
     const avgAv = calcAvancementPondere(p.ouvrages || [], tPlan);
 
-    const coutMO = tPlan.reduce((s, t) => {
-      const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
-      return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0));
-    }, 0);
+    // P9 : coût MO + heures réelles dérivés du registre (repli legacy par tâche)
+    const ptsCh = pointagesByChantier[p.chantier_id] || [];
+    const ptsIdx = indexPointagesParTache(ptsCh);
+    const extras = sumLibreEtIndirect(ptsCh);
+    const coutMOTaches = tPlan.reduce((s, t) => s + coutMOEffShared(t, ptsIdx, tauxHoraires), 0);
+    const coutMO = coutMOTaches + (extras.coutLibre || 0) + (extras.coutIndirect || 0);
     const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
     const coutTotal = coutMO + coutMat;
     const prixVendu = parseFloat(p.plan_travaux?.meta?.prix_vendu) || 0;
     const marge = prixVendu - coutTotal;
     const margePct = prixVendu > 0 ? (marge / prixVendu) * 100 : null;
     const terminees = tPlan.filter(t => (parseFloat(t.avancement) || 0) === 100).length;
-    const totalHReel = tPlan.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+    const totalHReel = tPlan.reduce((s, t) => s + heuresEffShared(t, ptsIdx), 0)
+                     + (extras.heuresLibre || 0) + (extras.heuresIndirect || 0);
 
     return {
       nom: p.chantier_nom,
@@ -3240,6 +3244,8 @@ function RapportModal({ phasages, chantiers, tauxHoraires, onFermer }) {
 function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages] = useState([]);
+  // P9 : pointages tous chantiers, regroupés en map { chantier_id: [pointages] }
+  const [pointagesByChantier, setPointagesByChantier] = useState({});
   const [bibliotheque, setBibliotheque] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -3288,11 +3294,20 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
   useEffect(() => { loadAll(); }, []);
   async function loadAll() {
     setLoading(true);
-    const [{ data: p }, { data: b }, { data: cfg }] = await Promise.all([
+    const [{ data: p }, { data: b }, { data: cfg }, ptsQ] = await Promise.all([
       supabase.from("phasages").select("*").order("created_at", { ascending: false }),
       supabase.from("bibliotheque_ratios").select("*").order("libelle"),
       supabase.from("planning_config").select("value").eq("key", "phasage_templates").maybeSingle(),
+      supabase.from("pointages").select("chantier_id,tache_id,heures,taux_horaire,type_pointage,motif_indirect"),
     ]);
+    // P9 : regroupe les pointages par chantier (repli vide si table absente)
+    const byCh = {};
+    if (!ptsQ?.error) (ptsQ.data || []).forEach(pt => {
+      const k = pt.chantier_id;
+      if (!byCh[k]) byCh[k] = [];
+      byCh[k].push(pt);
+    });
+    setPointagesByChantier(byCh);
     setPhasages(p || []); setBibliotheque(b || []); setLoading(false);
     if (cfg?.value?.items && Array.isArray(cfg.value.items)) setPhasageTemplates(cfg.value.items);
   }
@@ -3396,18 +3411,21 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
 
   if (selected) return <PhasageDetail phasage={selected} bibliotheque={bibliotheque} T={T} chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} onBack={() => setSelected(null)} onSave={savePhasage} onDelete={() => supprimerPhasage(selected.id)} />;
 
-  // ── Stats globales : on calcule en parcourant les phasages
+  // ── Stats globales : on calcule en parcourant les phasages (P9 : registre)
   const calcsByPhasage = phasages.map(p => {
     const tPlan = p.plan_travaux ? Object.values(p.plan_travaux).filter(arr => Array.isArray(arr)).flat() : [];
     const totalHVendu   = tPlan.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
     const totalHEstimee = tPlan.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-    const totalHReel    = tPlan.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+    // P9 : pointages du chantier → index + extras (libres / indirects)
+    const ptsCh = pointagesByChantier[p.chantier_id] || [];
+    const ptsIdx = indexPointagesParTache(ptsCh);
+    const extras = sumLibreEtIndirect(ptsCh);
+    const totalHReel = tPlan.reduce((s, t) => s + heuresEffShared(t, ptsIdx), 0)
+                     + (extras.heuresLibre || 0) + (extras.heuresIndirect || 0);
     // Avancement pondéré par prix HT au niveau ouvrage (cf. calcAvancementPondere)
     const avgAv = calcAvancementPondere(p.ouvrages || [], tPlan);
-    const coutMO = tPlan.reduce((s, t) => {
-      const pO = (t.ouvriers || (t.ouvrier ? [t.ouvrier] : []))[0] || "";
-      return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0));
-    }, 0);
+    const coutMOTaches = tPlan.reduce((s, t) => s + coutMOEffShared(t, ptsIdx, tauxHoraires), 0);
+    const coutMO = coutMOTaches + (extras.coutLibre || 0) + (extras.coutIndirect || 0);
     const coutMat = tPlan.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
     const coutTotal = coutMO + coutMat;
     const prixVendu = p.plan_travaux?.meta?.prix_vendu || 0;
@@ -3460,6 +3478,7 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
           phasages={phasages}
           chantiers={chantiers}
           tauxHoraires={tauxHoraires}
+          pointagesByChantier={pointagesByChantier}
           onFermer={() => setShowRapport(false)}
         />
       )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform, getClientId } from "./supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
+import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "./pointages";
 import { Icon } from "./ui";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
@@ -50,13 +51,15 @@ function ProgressBar({ value, color, height = 6 }) {
 }
 
 // ─── CALCULS ─────────────────────────────────────────────────────────────────
-function calcFinances(phasage, tauxHoraires = {}) {
+// P9 : coût MO dérivé du registre de pointage. Si le chantier n'a aucun pointage
+// (legacy), on retombe sur l'ancien calcul heures_reelles × ouvriers[0].
+// Le caller passe pointagesIndexes (résultat de indexPointagesParTache) et
+// extraStats ({coutLibre, coutIndirect}) pour ajouter les heures hors-tâches.
+function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}) {
   if (!phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0 };
   const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
-  const coutMO   = allTaches.reduce((s, t) => {
-    const pO = (t.ouvriers || [])[0] || "";
-    return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires[pO] || 0) : 0));
-  }, 0);
+  const coutMOTaches = allTaches.reduce((s, t) => s + coutMOEff(t, pointagesIndexes, tauxHoraires), 0);
+  const coutMO   = coutMOTaches + (extraStats.coutLibre || 0) + (extraStats.coutIndirect || 0);
   const coutMat  = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = coutMO + coutMat;
   const prixVendu = parseFloat(phasage.prix_vendu) || 0;
@@ -377,6 +380,9 @@ function NotesChantier({ chantierId, T, accent }) {
 export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
+  // P9 : pointages globaux (tous chantiers) pour dériver heures réelles + coût MO
+  // dans calcFinances, suivi par ouvrage et totaux par tâche.
+  const [pointages, setPointages]       = useState([]);
   const [loading, setLoading]           = useState(true);
   const [selected, setSelected]         = useState(initialSelectedId);
   const [statutFilter, setStatutFilter] = useState("tous");
@@ -438,6 +444,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     const load = async () => {
       setLoading(true);
       const { data, error } = await supabase.from("phasages").select("*");
+      // Charge les pointages en parallèle. Si la table n'existe pas, on garde []
+      // — calcFinances retombera sur le repli legacy automatiquement.
+      const { data: pts, error: ptsErr } = await supabase.from("pointages").select("*");
+      if (ptsErr?.code === "42P01") setPointages([]);
+      else setPointages(pts || []);
       if (error) {
         console.warn("Chargement phasages :", error.message);
         setPhasages([]);
@@ -669,7 +680,13 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const selectedChantier = chantiers.find(c => c.id === selected);
   const selectedPhasage  = trouverPhasage(phasages, selectedChantier);
   const avancement       = selectedPhasage ? calcAvancement(selectedPhasage) : 0;
-  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires) : null;
+  // P9 : pointages du chantier sélectionné → index pour heuresEff/coutMOEff + extras (libre/indirect)
+  const pointagesChantierSelected = selectedPhasage
+    ? pointages.filter(p => p.chantier_id === selectedPhasage.chantier_id)
+    : [];
+  const ptsIndexSelected = indexPointagesParTache(pointagesChantierSelected);
+  const extraSelected = sumLibreEtIndirect(pointagesChantierSelected);
+  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // Heures vendues vs réelles par OUVRAGE (suivi des dérives).
@@ -683,7 +700,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     const orphan = { reelles: 0, vendues: 0 };
     PHASES.forEach(ph => {
       (selectedPhasage.plan_travaux?.[ph.id] || []).forEach(t => {
-        const hR = parseFloat(t.heures_reelles)  || 0;
+        const hR = heuresEff(t, ptsIndexSelected); // P9 : dérivé du registre, repli legacy
         const hV = parseFloat(t.heures_vendues) || 0;
         if (t.ouvrage_id) {
           if (!tachesParOuvrage.has(t.ouvrage_id)) tachesParOuvrage.set(t.ouvrage_id, { reelles: 0, phasesCount: {} });
@@ -845,7 +862,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             {chantiersFiltres.map(chantier => {
               const phasage = trouverPhasage(phasages, chantier);
               const av      = phasage ? calcAvancement(phasage) : null;
-              const fin     = phasage ? calcFinances(phasage, tauxHoraires) : null;
+              const ptsCh   = phasage ? pointages.filter(p => p.chantier_id === phasage.chantier_id) : [];
+              const ptsIdx  = indexPointagesParTache(ptsCh);
+              const extras  = sumLibreEtIndirect(ptsCh);
+              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras) : null;
               const photo   = photoMap[chantier.id];
               const statut  = getStatut(chantier, phasage);
 

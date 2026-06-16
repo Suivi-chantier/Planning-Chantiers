@@ -71,6 +71,64 @@ export function sumCoutMO(pts) {
   );
 }
 
+// ── Helpers d'agrégation par tâche (P8/P9) ────────────────────────────────
+//
+// Ces helpers permettent à chaque écran qui affichait heures_reelles × ouvriers[0]
+// de basculer sur le registre tout en gardant un REPLI legacy : si une tâche
+// n'a aucun pointage, on retombe sur l'ancien calcul (heures_reelles × taux
+// du premier ouvrier), le temps que les pointages remplacent l'historique.
+
+// Indexe les pointages "tâche" (productifs, non-indirects, avec tache_id) par tache_id
+export function indexPointagesParTache(points) {
+  const m = {};
+  (points || []).forEach(p => {
+    if (p.type_pointage === "indirect") return;
+    if (!p.tache_id) return; // tâche libre : pas d'imputation au plan
+    const k = String(p.tache_id);
+    if (!m[k]) m[k] = [];
+    m[k].push(p);
+  });
+  return m;
+}
+
+// Heures réelles effectives d'une tâche : somme des pointages si présents,
+// sinon ancienne valeur du plan (repli legacy).
+export function heuresEff(tache, pointagesParTache) {
+  if (!tache) return 0;
+  const pts = pointagesParTache?.[String(tache.id)];
+  if (pts && pts.length > 0) {
+    return pts.reduce((s, p) => s + (parseFloat(p.heures) || 0), 0);
+  }
+  return parseFloat(tache.heures_reelles) || 0;
+}
+
+// Coût MO effectif d'une tâche : somme des pointages × taux figé si présents,
+// sinon legacy heures_reelles × taux[ouvriers[0]]. Le repli reproduit l'ancien
+// comportement faux (1 seul ouvrier) — mais c'est juste pour préserver l'historique
+// affiché tant que les anciens chantiers n'ont pas de pointages.
+export function coutMOEff(tache, pointagesParTache, tauxHoraires) {
+  if (!tache) return 0;
+  const pts = pointagesParTache?.[String(tache.id)];
+  if (pts && pts.length > 0) {
+    return pts.reduce((s, p) => s + ((parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0)), 0);
+  }
+  const pO = (tache.ouvriers || (tache.ouvrier ? [tache.ouvrier] : []))[0] || "";
+  return (parseFloat(tache.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0);
+}
+
+// Sommes des heures et coûts pour les pointages "libres" (tache_id null, type tache)
+// et "indirects" (type indirect) — au niveau chantier, hors tâches du plan.
+export function sumLibreEtIndirect(points) {
+  let heuresLibre = 0, coutLibre = 0, heuresIndirect = 0, coutIndirect = 0;
+  (points || []).forEach(p => {
+    const h = parseFloat(p.heures) || 0;
+    const c = h * (parseFloat(p.taux_horaire) || 0);
+    if (p.type_pointage === "indirect") { heuresIndirect += h; coutIndirect += c; }
+    else if (!p.tache_id) { heuresLibre += h; coutLibre += c; }
+  });
+  return { heuresLibre, coutLibre, heuresIndirect, coutIndirect };
+}
+
 // ── Stats composées (récupération + agrégation en un appel) ───────────────
 
 export async function statsTache({ chantier_id, tache_id }) {
