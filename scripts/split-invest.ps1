@@ -89,8 +89,8 @@ $sharedRanges = @(
 )
 $sharedExportBlock = "export {`n  " + ($sharedNames -join ",`n  ") + ",`n};`n"
 $sharedContent = $commonHeader + "`n`n" + (Slices $sharedRanges) + "`n`n" + $sharedExportBlock
-[System.IO.File]::WriteAllText("$dstDir\_shared.js", $sharedContent, $utf8NoBom)
-Write-Output ("_shared.js : " + ($sharedContent -split "`n").Length + " lignes")
+[System.IO.File]::WriteAllText("$dstDir\_shared.jsx", $sharedContent, $utf8NoBom)
+Write-Output ("_shared.jsx : " + ($sharedContent -split "`n").Length + " lignes")
 
 # ════════════════════════════════════════════════════════════════════════════
 # 2) src/Invest/Simulateur.jsx — ListeProjets + Simulateur
