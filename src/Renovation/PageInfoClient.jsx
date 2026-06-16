@@ -474,7 +474,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
     else{ ctx.strokeStyle=accent; ctx.lineWidth=2; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(p.x,p.y); ctx.stroke(); }
     lastPos.current=p;
   }
-  function onUp(){ isDrawing.current=false; debounce(()=>savePlan(),1500); }
+  function onUp(){ isDrawing.current=false; debounce("plan", () => savePlan(), 1500); }
   function togDraw(){ drawMode.current=!drawMode.current; eraseMode.current=false; setDrawActive(drawMode.current); setEraseActive(false); }
   function togErase(){ eraseMode.current=!eraseMode.current; drawMode.current=false; setEraseActive(eraseMode.current); setDrawActive(false); }
   function clearCanvas(){ if(!window.confirm("Effacer le plan ?")) return; grille(canvasRef.current.getContext("2d")); savePlan(); }
