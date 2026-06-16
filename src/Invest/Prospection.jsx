@@ -22,18 +22,18 @@ import {
   Users,
   Pencil,
   X,
+  GripVertical,
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version simplifiée
+ * CRM Prospection — Version simple + Drag & Drop
  *
- * Logique retenue :
- * - Peu de champs obligatoires
- * - Une fiche courte et exploitable
- * - Un statut clair
- * - Une prochaine action obligatoire dans l'idéal
- * - Un historique simple
- * - Conversion vers CRM Client
+ * Objectif :
+ * - CRM volontairement simple
+ * - Statuts en colonnes
+ * - Déplacement des prospects par drag & drop
+ * - Sauvegarde automatique du statut dans Supabase
+ * - Fiche prospect compacte à droite
  *
  * Tables utilisées :
  * - public.invest_prospects
@@ -408,33 +408,41 @@ function StatusPills({ value, onChange }) {
   );
 }
 
-function ProspectRow({ p, selected, onClick, T }) {
-  const st = statusOf(p.statut);
+function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
   const temp = temperature(p);
   const late = isLate(p.date_prochaine_action);
 
   return (
     <button
       type="button"
+      draggable
+      onDragStart={(e) => onDragStart(e, p)}
+      onDragEnd={onDragEnd}
       onClick={onClick}
+      title="Glisser-déposer dans une autre colonne pour changer le statut"
       style={{
         width: "100%",
         border: `1px solid ${selected ? T.accent : T.border}`,
         background: selected ? T.accentBg : T.card,
         borderRadius: RADIUS.md,
-        padding: "9px 10px",
-        cursor: "pointer",
+        padding: "8px 8px",
+        cursor: "grab",
         textAlign: "left",
         marginBottom: 7,
+        boxShadow: selected ? `0 0 0 1px ${T.accent}30` : "none",
       }}
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "16px 1fr", gap: 6, alignItems: "start" }}>
+        <div style={{ color: T.textMuted, paddingTop: 2 }}>
+          <Icon as={GripVertical} size={13} />
+        </div>
+
         <div style={{ minWidth: 0 }}>
           <div
             style={{
               color: T.text,
               fontWeight: 900,
-              fontSize: 13,
+              fontSize: 12,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -442,10 +450,11 @@ function ProspectRow({ p, selected, onClick, T }) {
           >
             {prospectName(p)}
           </div>
+
           <div
             style={{
               color: T.textMuted,
-              fontSize: 11,
+              fontSize: 10.5,
               marginTop: 2,
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -454,29 +463,127 @@ function ProspectRow({ p, selected, onClick, T }) {
           >
             {[p.telephone, p.email].filter(Boolean).join(" · ") || "Coordonnées à compléter"}
           </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              gap: 6,
+              alignItems: "center",
+              marginTop: 7,
+            }}
+          >
+            <div style={{ color: late ? DA : T.textSub, fontSize: 10.5, display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+              <Icon as={Clock} size={10} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.prochaine_action || "Aucune action"}
+                {p.date_prochaine_action ? ` · ${fmtDate(p.date_prochaine_action)}` : ""}
+              </span>
+            </div>
+
+            <Badge color={temp.color} T={T}>{temp.label}</Badge>
+          </div>
         </div>
-
-        <Badge color={st.color} T={T}>{st.label}</Badge>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: 8,
-          marginTop: 8,
-          alignItems: "center",
-        }}
-      >
-        <div style={{ color: late ? DA : T.textSub, fontSize: 11, display: "flex", alignItems: "center", gap: 5 }}>
-          <Icon as={Clock} size={11} />
-          {p.prochaine_action || "Aucune action"}
-          {p.date_prochaine_action ? ` · ${fmtDate(p.date_prochaine_action)}` : ""}
-        </div>
-
-        <Badge color={temp.color} T={T}>{temp.label}</Badge>
       </div>
     </button>
+  );
+}
+
+function PipelineColumn({
+  statut,
+  prospects,
+  selectedId,
+  dragOverStatus,
+  onSelect,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  T,
+}) {
+  const IconStatus = statut.icon;
+  const activeDrop = dragOverStatus === statut.id;
+
+  return (
+    <div
+      onDragOver={(e) => onDragOver(e, statut.id)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, statut.id)}
+      style={{
+        background: activeDrop ? `${statut.color}14` : T.cardHover,
+        border: `1px solid ${activeDrop ? statut.color : T.border}`,
+        borderTop: `3px solid ${statut.color}`,
+        borderRadius: RADIUS.lg,
+        padding: 8,
+        minHeight: 182,
+        transition: "all .12s ease",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <div
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: RADIUS.md,
+              background: `${statut.color}18`,
+              color: statut.color,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Icon as={IconStatus} size={13} />
+          </div>
+
+          <div
+            style={{
+              color: T.text,
+              fontSize: 12,
+              fontWeight: 900,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {statut.label}
+          </div>
+        </div>
+
+        <Badge color={statut.color} T={T}>{prospects.length}</Badge>
+      </div>
+
+      <div style={{ minHeight: 112 }}>
+        {prospects.length === 0 ? (
+          <div
+            style={{
+              border: `1px dashed ${activeDrop ? statut.color : T.border}`,
+              borderRadius: RADIUS.md,
+              color: activeDrop ? statut.color : T.textMuted,
+              fontSize: 11,
+              textAlign: "center",
+              padding: "18px 8px",
+            }}
+          >
+            Déposer ici
+          </div>
+        ) : (
+          prospects.map((p) => (
+            <ProspectDragCard
+              key={p.id}
+              p={p}
+              selected={selectedId === p.id}
+              onClick={() => onSelect(p)}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              T={T}
+            />
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -506,9 +613,11 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [actionForm, setActionForm] = useState({ ...EMPTY_ACTION });
 
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOverStatus, setDragOverStatus] = useState(null);
 
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
@@ -575,12 +684,16 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         p.zone_recherche,
       ].join(" ").toLowerCase();
 
-      const okQ = !q || haystack.includes(q);
-      const okStatus = !statusFilter || p.statut === statusFilter || (statusFilter === "signe" && p.statut === "converti");
-
-      return okQ && okStatus;
+      return !q || haystack.includes(q);
     });
-  }, [prospects, query, statusFilter]);
+  }, [prospects, query]);
+
+  const grouped = useMemo(() => {
+    return STATUTS.map((s) => ({
+      statut: s,
+      prospects: filtered.filter((p) => p.statut === s.id || (s.id === "signe" && p.statut === "converti")),
+    }));
+  }, [filtered]);
 
   const stats = useMemo(() => {
     const actifs = prospects.filter((p) => !["perdu", "converti", "signe"].includes(p.statut)).length;
@@ -659,29 +772,91 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setTimeout(() => setMsg(""), 2000);
   };
 
-  const quickStatus = async (statut) => {
-    setField("statut", statut);
+  const updateProspectStatus = async (prospectId, newStatus) => {
+    const prospect = prospects.find((p) => p.id === prospectId);
+    if (!prospect || prospect.statut === newStatus) return;
 
-    if (!selected?.id) return;
+    setError("");
+    setMsg("");
+
+    // Mise à jour optimiste pour une sensation fluide.
+    setProspects((prev) =>
+      prev.map((p) =>
+        p.id === prospectId
+          ? { ...p, statut: newStatus, updated_at: new Date().toISOString() }
+          : p
+      )
+    );
+
+    if (selected?.id === prospectId) {
+      setSelected((prev) => (prev ? { ...prev, statut: newStatus } : prev));
+      setForm((prev) => ({ ...prev, statut: newStatus }));
+    }
 
     const { data, error: err } = await supabase
       .from("invest_prospects")
       .update({
-        statut,
+        statut: newStatus,
         updated_by: auteur(profil),
       })
-      .eq("id", selected.id)
+      .eq("id", prospectId)
       .select("*")
       .single();
 
     if (err) {
-      setError(err.message);
+      setError(err.message || "Impossible de déplacer le prospect.");
+      await loadProspects();
       return;
     }
 
-    setSelected(data);
-    setForm(prospectToForm(data));
-    await loadProspects();
+    if (selected?.id === prospectId) {
+      setSelected(data);
+      setForm(prospectToForm(data));
+    }
+
+    setMsg(`Prospect déplacé dans “${statusOf(newStatus).label}”.`);
+    setTimeout(() => setMsg(""), 1600);
+  };
+
+  const quickStatus = async (statut) => {
+    setField("statut", statut);
+
+    if (!selected?.id) return;
+    await updateProspectStatus(selected.id, statut);
+  };
+
+  const handleDragStart = (e, prospect) => {
+    setDraggingId(prospect.id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", prospect.id);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingId(null);
+    setDragOverStatus(null);
+  };
+
+  const handleDragOver = (e, statutId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverStatus(statutId);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverStatus(null);
+  };
+
+  const handleDrop = async (e, statutId) => {
+    e.preventDefault();
+
+    const idFromData = e.dataTransfer.getData("text/plain");
+    const prospectId = idFromData || draggingId;
+
+    setDraggingId(null);
+    setDragOverStatus(null);
+
+    if (!prospectId) return;
+    await updateProspectStatus(prospectId, statutId);
   };
 
   const setQuickFollowUp = (label, days) => {
@@ -886,7 +1061,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const waLink = form.telephone ? `https://wa.me/${String(form.telephone).replace(/\D/g, "")}` : null;
 
   return (
-    <div style={{ padding: "16px 18px", maxWidth: 1500, margin: "0 auto" }}>
+    <div style={{ padding: "16px 18px", maxWidth: 1580, margin: "0 auto" }}>
       <div
         style={{
           display: "grid",
@@ -901,7 +1076,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             CRM Prospection
           </div>
           <div style={{ color: T.textSub, fontSize: 13 }}>
-            Simple, rapide, orienté action : qui est le prospect, où il en est, quelle est la prochaine action.
+            Glisse les fiches prospects dans la bonne colonne pour mettre à jour leur statut.
           </div>
         </div>
 
@@ -937,80 +1112,42 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       </div>
 
       <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 190px", gap: 10 }}>
-          <div style={{ position: "relative" }}>
-            <Icon as={Search} size={14} style={{ position: "absolute", left: 10, top: 10, color: T.textMuted }} />
-            <input
-              className="inv-inp"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Rechercher un prospect..."
-              style={{ width: "100%", height: 34, paddingLeft: 32 }}
-            />
-          </div>
-
-          <select
-            className="inv-sel"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{ width: "100%", height: 34 }}
-          >
-            <option value="">Tous les statuts</option>
-            {STATUTS.map((s) => (
-              <option key={s.id} value={s.id}>{s.label}</option>
-            ))}
-          </select>
+        <div style={{ position: "relative" }}>
+          <Icon as={Search} size={14} style={{ position: "absolute", left: 10, top: 10, color: T.textMuted }} />
+          <input
+            className="inv-inp"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Rechercher un prospect..."
+            style={{ width: "100%", height: 34, paddingLeft: 32 }}
+          />
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 14, alignItems: "start" }}>
-        <div className="inv-card" style={{ padding: 10 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 5, marginBottom: 10 }}>
-            {STATUTS.map((s) => {
-              const IconStatus = s.icon;
-              const count = filtered.filter((p) => p.statut === s.id || (s.id === "signe" && p.statut === "converti")).length;
-              const active = statusFilter === s.id;
-
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setStatusFilter(active ? "" : s.id)}
-                  title={s.label}
-                  style={{
-                    border: `1px solid ${active ? s.color : T.border}`,
-                    background: active ? `${s.color}20` : T.cardHover,
-                    borderRadius: RADIUS.md,
-                    color: active ? s.color : T.textMuted,
-                    cursor: "pointer",
-                    padding: "7px 4px",
-                    minWidth: 0,
-                  }}
-                >
-                  <Icon as={IconStatus} size={14} />
-                  <div style={{ fontSize: 10, fontWeight: 900, marginTop: 2 }}>{count}</div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ maxHeight: "calc(100vh - 258px)", overflowY: "auto", paddingRight: 2 }}>
-            {loading ? (
-              <div style={{ color: T.textMuted, textAlign: "center", padding: 18 }}>Chargement...</div>
-            ) : filtered.length === 0 ? (
-              <div style={{ color: T.textMuted, textAlign: "center", padding: 18 }}>Aucun prospect</div>
-            ) : (
-              filtered.map((p) => (
-                <ProspectRow
-                  key={p.id}
-                  p={p}
-                  selected={selected?.id === p.id}
-                  onClick={() => selectProspect(p)}
-                  T={T}
-                />
-              ))
-            )}
-          </div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 520px", gap: 14, alignItems: "start" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(190px, 1fr))",
+            gap: 10,
+          }}
+        >
+          {grouped.map(({ statut, prospects: items }) => (
+            <PipelineColumn
+              key={statut.id}
+              statut={statut}
+              prospects={items}
+              selectedId={selected?.id}
+              dragOverStatus={dragOverStatus}
+              onSelect={selectProspect}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              T={T}
+            />
+          ))}
         </div>
 
         <div className="inv-card" style={{ padding: 0, minHeight: 500 }}>
