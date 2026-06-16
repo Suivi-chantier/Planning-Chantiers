@@ -27,10 +27,12 @@ import {
   Flame,
   AlertTriangle,
   Upload,
+  CalendarDays,
+  ListChecks,
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version simple + Drag & Drop + relances + conversion sécurisée + import
+ * CRM Prospection — Version simple + Drag & Drop + relances + conversion sécurisée + import + planning
  *
  * Objectif :
  * - CRM volontairement simple
@@ -170,6 +172,16 @@ function isLate(v) {
 
 function isTodayOrLate(v) {
   return !!v && dateOnly(v) <= todayIso();
+}
+
+function isActiveProspect(p) {
+  return !["perdu", "converti", "signe"].includes(p?.statut);
+}
+
+function compareActionDate(a, b) {
+  const da = a?.date_prochaine_action ? new Date(a.date_prochaine_action).getTime() : Number.MAX_SAFE_INTEGER;
+  const db = b?.date_prochaine_action ? new Date(b.date_prochaine_action).getTime() : Number.MAX_SAFE_INTEGER;
+  return da - db;
 }
 
 function prospectName(p) {
@@ -931,6 +943,161 @@ function PipelineColumn({
   );
 }
 
+function PlanningMiniCard({ p, onClick, selected, T }) {
+  const temp = temperature(p);
+  const late = isLate(p.date_prochaine_action);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(p)}
+      style={{
+        width: "100%",
+        border: `1px solid ${selected ? T.accent : T.border}`,
+        background: selected ? T.accentBg : T.card,
+        borderRadius: RADIUS.md,
+        padding: "7px 8px",
+        cursor: "pointer",
+        textAlign: "left",
+        marginBottom: 6,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+        <div
+          style={{
+            color: T.text,
+            fontSize: 12,
+            fontWeight: 900,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {prospectName(p)}
+        </div>
+        <Badge color={temp.color} T={T}>{temp.label}</Badge>
+      </div>
+
+      <div
+        style={{
+          color: late ? DA : T.textSub,
+          fontSize: 10.5,
+          marginTop: 4,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          minWidth: 0,
+        }}
+      >
+        <Icon as={ListChecks} size={10} />
+        <span style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+          {p.prochaine_action || "Action à définir"}
+          {p.date_prochaine_action ? ` · ${fmtDate(p.date_prochaine_action)}` : ""}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function PlanningBucket({ title, subtitle, icon, color, items, onSelect, selectedId, T }) {
+  const IconBucket = icon;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${T.border}`,
+        background: T.cardHover,
+        borderRadius: RADIUS.lg,
+        padding: 9,
+        minHeight: 130,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: RADIUS.md,
+                background: `${color}18`,
+                color,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <Icon as={IconBucket} size={13} />
+            </span>
+            <span style={{ color: T.text, fontSize: 12, fontWeight: 900 }}>{title}</span>
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 10.5, marginTop: 3 }}>{subtitle}</div>
+        </div>
+
+        <Badge color={color} T={T}>{items.length}</Badge>
+      </div>
+
+      <div style={{ maxHeight: 128, overflowY: "auto", paddingRight: 2 }}>
+        {items.length === 0 ? (
+          <div
+            style={{
+              color: T.textMuted,
+              fontSize: 11,
+              border: `1px dashed ${T.border}`,
+              borderRadius: RADIUS.md,
+              padding: "18px 8px",
+              textAlign: "center",
+            }}
+          >
+            Rien à faire
+          </div>
+        ) : (
+          items.slice(0, 6).map((p) => (
+            <PlanningMiniCard
+              key={p.id}
+              p={p}
+              onClick={onSelect}
+              selected={selectedId === p.id}
+              T={T}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlanningPanel({ buckets, onSelect, selectedId, T }) {
+  return (
+    <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 9 }}>
+        <div>
+          <div style={{ color: T.text, fontSize: 14, fontWeight: 900, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon as={CalendarDays} size={15} />
+            Planning commercial
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2 }}>
+            Visualisation rapide des personnes à contacter et des prochaines actions
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+        {buckets.map((bucket) => (
+          <PlanningBucket
+            key={bucket.id}
+            {...bucket}
+            onSelect={onSelect}
+            selectedId={selectedId}
+            T={T}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ActionRow({ action, T }) {
   return (
     <div style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
@@ -1025,6 +1192,55 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     const ca = prospects.reduce((s, p) => s + (Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0), 0);
 
     return { actifs, rdv, relances, today, hot, ca };
+  }, [prospects]);
+
+  const planningBuckets = useMemo(() => {
+    const today = todayIso();
+    const tomorrow = addDays(1);
+    const week = addDays(7);
+
+    const active = prospects
+      .filter(isActiveProspect)
+      .slice()
+      .sort(compareActionDate);
+
+    return [
+      {
+        id: "late",
+        title: "En retard",
+        subtitle: "À traiter en priorité",
+        icon: AlertTriangle,
+        color: DA,
+        items: active.filter((p) => p.date_prochaine_action && dateOnly(p.date_prochaine_action) < today),
+      },
+      {
+        id: "today",
+        title: "Aujourd'hui",
+        subtitle: "À contacter maintenant",
+        icon: Clock,
+        color: WA,
+        items: active.filter((p) => dateOnly(p.date_prochaine_action) === today),
+      },
+      {
+        id: "tomorrow",
+        title: "Demain",
+        subtitle: "Actions prévues demain",
+        icon: Calendar,
+        color: "#8B5CF6",
+        items: active.filter((p) => dateOnly(p.date_prochaine_action) === tomorrow),
+      },
+      {
+        id: "week",
+        title: "7 prochains jours",
+        subtitle: "À anticiper",
+        icon: CalendarDays,
+        color: SU,
+        items: active.filter((p) => {
+          const d = dateOnly(p.date_prochaine_action);
+          return d > tomorrow && d <= week;
+        }),
+      },
+    ];
   }, [prospects]);
 
   const filtered = useMemo(() => {
@@ -1316,61 +1532,80 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
   const addAction = async () => {
     if (!selected?.id) {
-      setError("Sauvegarde d'abord le prospect.");
+      setError("Sauvegarde d'abord le prospect avant d'ajouter une action.");
       return;
     }
 
-    if (!actionForm.resume.trim()) {
+    const resume = String(actionForm.resume || "").trim();
+
+    if (!resume) {
       setError("Écris une courte note d'action.");
       return;
     }
 
     setSaving(true);
     setError("");
+    setMsg("");
 
-    const payload = {
+    const nextAction = actionForm.prochaine_action || form.prochaine_action || selected.prochaine_action || "";
+    const nextDate = actionForm.date_prochaine_action || form.date_prochaine_action || selected.date_prochaine_action || null;
+
+    const actionPayload = {
       prospect_id: selected.id,
       created_by: auteur(profil),
+      date_action: new Date().toISOString(),
       type_action: actionForm.type_action || "note",
-      resume: actionForm.resume.trim(),
-      prochaine_action: actionForm.prochaine_action || "",
-      date_prochaine_action: actionForm.date_prochaine_action || null,
+      resume,
+      resultat: "",
+      prochaine_action: nextAction,
+      date_prochaine_action: nextDate || null,
+      donnees: {
+        source: "CRM Prospection",
+      },
     };
 
-    const { error: err } = await supabase
+    const { data: insertedAction, error: err } = await supabase
       .from("invest_prospect_actions")
-      .insert(payload);
+      .insert(actionPayload)
+      .select("*")
+      .single();
 
     if (err) {
-      setError(err.message);
+      setError(`Action non ajoutée : ${err.message}`);
       setSaving(false);
       return;
     }
 
-    if (payload.prochaine_action || payload.date_prochaine_action) {
-      const { data } = await supabase
-        .from("invest_prospects")
-        .update({
-          prochaine_action: payload.prochaine_action || selected.prochaine_action,
-          date_prochaine_action: payload.date_prochaine_action || selected.date_prochaine_action,
-          updated_by: auteur(profil),
-        })
-        .eq("id", selected.id)
-        .select("*")
-        .single();
+    const prospectPatch = {
+      prochaine_action: nextAction,
+      date_prochaine_action: nextDate || null,
+      updated_by: auteur(profil),
+    };
 
-      if (data) {
-        setSelected(data);
-        setForm(prospectToForm(data));
-      }
+    const { data: updatedProspect, error: updateErr } = await supabase
+      .from("invest_prospects")
+      .update(prospectPatch)
+      .eq("id", selected.id)
+      .select("*")
+      .single();
+
+    if (updateErr) {
+      setError(`Action ajoutée, mais la prochaine relance n'a pas été mise à jour : ${updateErr.message}`);
     }
 
+    if (updatedProspect) {
+      setSelected(updatedProspect);
+      setForm(prospectToForm(updatedProspect));
+    }
+
+    setActions((prev) => [insertedAction, ...prev].filter(Boolean).slice(0, 6));
     setActionForm({ ...EMPTY_ACTION });
+
     await loadActions(selected.id);
     await loadProspects();
 
     setSaving(false);
-    setMsg("Action ajoutée.");
+    setMsg("Action ajoutée au prospect.");
     setTimeout(() => setMsg(""), 1800);
   };
 
@@ -1768,6 +2003,13 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         </div>
       </div>
 
+      <PlanningPanel
+        buckets={planningBuckets}
+        onSelect={selectProspect}
+        selectedId={selected?.id}
+        T={T}
+      />
+
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 520px", gap: 14, alignItems: "start" }}>
         <div
           style={{
@@ -2022,10 +2264,49 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                           onChange={(e) => setActionForm((p) => ({ ...p, resume: e.target.value }))}
                           placeholder="Ex : Appel effectué, prospect intéressé, relance prévue..."
                           style={{ height: 34 }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addAction();
+                            }
+                          }}
                         />
 
                         <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={addAction} disabled={saving}>
                           Ajouter
+                        </button>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 52px 52px 52px", gap: 7, marginTop: 7 }}>
+                        <select
+                          className="inv-sel"
+                          value={actionForm.prochaine_action}
+                          onChange={(e) => setActionForm((p) => ({ ...p, prochaine_action: e.target.value }))}
+                          style={{ height: 32, fontSize: 12 }}
+                        >
+                          {PROCHAINES_ACTIONS.map((o) => (
+                            <option key={o || "empty-action"} value={o}>
+                              {o || "Prochaine action"}
+                            </option>
+                          ))}
+                        </select>
+
+                        <input
+                          className="inv-inp"
+                          type="date"
+                          value={actionForm.date_prochaine_action}
+                          onChange={(e) => setActionForm((p) => ({ ...p, date_prochaine_action: e.target.value }))}
+                          style={{ height: 32, fontSize: 12 }}
+                        />
+
+                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setActionForm((p) => ({ ...p, prochaine_action: p.prochaine_action || "Relancer", date_prochaine_action: todayIso() }))}>
+                          J
+                        </button>
+                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setActionForm((p) => ({ ...p, prochaine_action: p.prochaine_action || "Relancer", date_prochaine_action: addDays(2) }))}>
+                          J+2
+                        </button>
+                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setActionForm((p) => ({ ...p, prochaine_action: p.prochaine_action || "Relancer", date_prochaine_action: addDays(7) }))}>
+                          J+7
                         </button>
                       </div>
                     </div>
