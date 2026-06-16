@@ -29,10 +29,14 @@ import {
   Upload,
   CalendarDays,
   ListChecks,
+  BarChart3,
+  PieChart,
+  TrendingUp,
+  Bell,
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning + KPI + notification mail
  *
  * Objectif :
  * - CRM volontairement simple
@@ -573,6 +577,195 @@ function parseImportedProspects(content, fileName = "") {
   }
 
   return parseTextProspect(raw);
+}
+
+
+const NEW_PROSPECT_NOTIFICATION_EMAIL = "matthieu.fumoleau@groupe-profero.com";
+
+function monthKey(dateValue) {
+  const d = dateValue ? new Date(dateValue) : new Date();
+  if (Number.isNaN(d.getTime())) return "Non daté";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key) {
+  if (!key || key === "Non daté") return "Non daté";
+  const [year, month] = key.split("-");
+  const d = new Date(Number(year), Number(month) - 1, 1);
+  return d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+}
+
+function groupCount(items, getKey, fallback = "Non renseigné") {
+  const map = new Map();
+  (items || []).forEach((item) => {
+    const key = String(getKey(item) || fallback).trim() || fallback;
+    map.set(key, (map.get(key) || 0) + 1);
+  });
+  return Array.from(map.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+}
+
+function groupSum(items, getKey, getValue, fallback = "Non renseigné") {
+  const map = new Map();
+  (items || []).forEach((item) => {
+    const key = String(getKey(item) || fallback).trim() || fallback;
+    const value = Number(getValue(item) || 0) || 0;
+    map.set(key, (map.get(key) || 0) + value);
+  });
+  return Array.from(map.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+}
+
+function ChartBar({ label, value, max, color, T, valueLabel }) {
+  const pct = max > 0 ? Math.max(4, Math.min(100, (value / max) * 100)) : 0;
+
+  return (
+    <div style={{ marginBottom: 9 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+        <div
+          style={{
+            color: T.textSub,
+            fontSize: 11.5,
+            fontWeight: 800,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </div>
+        <div style={{ color: T.text, fontSize: 11.5, fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>
+          {valueLabel || value}
+        </div>
+      </div>
+      <div style={{ height: 8, borderRadius: 999, background: "rgba(148,163,184,.16)", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: color || T.accent }} />
+      </div>
+    </div>
+  );
+}
+
+function MiniBarChart({ title, subtitle, icon, color, data, T, money = false }) {
+  const IconChart = icon;
+  const max = Math.max(1, ...data.map((d) => Number(d.value || 0)));
+
+  return (
+    <div className="inv-card" style={{ padding: 12, minHeight: 230 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+        <div>
+          <div style={{ color: T.text, fontSize: 14, fontWeight: 900, display: "flex", alignItems: "center", gap: 7 }}>
+            <Icon as={IconChart} size={15} />
+            {title}
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 11, marginTop: 3 }}>{subtitle}</div>
+        </div>
+      </div>
+
+      {data.length === 0 ? (
+        <div style={{ color: T.textMuted, fontSize: 12, border: `1px dashed ${T.border}`, borderRadius: RADIUS.md, padding: 16, textAlign: "center" }}>
+          Pas encore assez de données
+        </div>
+      ) : (
+        data.slice(0, 8).map((row) => (
+          <ChartBar
+            key={row.label}
+            label={row.label}
+            value={row.value}
+            max={max}
+            color={color}
+            T={T}
+            valueLabel={money ? fmtDashboardEur(row.value) : String(row.value)}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function FunnelStep({ label, count, total, color, T }) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+
+  return (
+    <div style={{ border: `1px solid ${T.border}`, background: T.cardHover, borderRadius: RADIUS.md, padding: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ color: T.text, fontSize: 12, fontWeight: 900 }}>{label}</div>
+        <div style={{ color, fontSize: 12, fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>{count}</div>
+      </div>
+      <div style={{ height: 7, borderRadius: 999, background: "rgba(148,163,184,.16)", overflow: "hidden", marginBottom: 6 }}>
+        <div style={{ width: `${Math.max(4, pct)}%`, height: "100%", background: color, borderRadius: 999 }} />
+      </div>
+      <div style={{ color: T.textMuted, fontSize: 10.5 }}>{pct}% du total</div>
+    </div>
+  );
+}
+
+function KpiAnalysisView({ prospects, stats, T }) {
+  const total = prospects.length;
+  const signed = prospects.filter((p) => ["signe", "converti"].includes(p.statut)).length;
+  const lost = prospects.filter((p) => p.statut === "perdu").length;
+  const propositions = prospects.filter((p) => ["proposition", "signe", "converti"].includes(p.statut)).length;
+  const conversionRate = total > 0 ? Math.round((signed / total) * 100) : 0;
+  const proposalRate = total > 0 ? Math.round((propositions / total) * 100) : 0;
+  const caSigned = prospects
+    .filter((p) => ["signe", "converti"].includes(p.statut))
+    .reduce((sum, p) => sum + (Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0), 0);
+
+  const byStatus = STATUTS.map((s) => ({
+    label: s.label,
+    value: prospects.filter((p) => p.statut === s.id || (s.id === "signe" && p.statut === "converti")).length,
+    color: s.color,
+  }));
+
+  const bySource = groupCount(prospects, (p) => p.source).slice(0, 8);
+  const byResponsable = groupCount(prospects, (p) => p.responsable).slice(0, 8);
+  const caByStatus = groupSum(prospects, (p) => statusOf(p.statut).label, (p) => p.ca_potentiel_ht || p.honoraires_estimes_ht).slice(0, 8);
+
+  const byMonth = groupCount(prospects, (p) => monthKey(p.created_at || p.date_premier_contact || p.updated_at), "Non daté")
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .slice(-8)
+    .map((row) => ({ ...row, label: monthLabel(row.label) }));
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+        <Kpi icon={Users} label="Total prospects" value={total} color="#60A5FA" T={T} />
+        <Kpi icon={TrendingUp} label="Taux conversion" value={`${conversionRate}%`} color={conversionRate >= 25 ? SU : WA} T={T} />
+        <Kpi icon={Target} label="Taux proposition" value={`${proposalRate}%`} color="#8B5CF6" T={T} />
+        <Kpi icon={Euro} label="CA signé" value={fmtDashboardEur(caSigned)} color={SU} T={T} />
+      </div>
+
+      <div className="inv-card" style={{ padding: 12 }}>
+        <div style={{ color: T.text, fontSize: 14, fontWeight: 900, display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+          <Icon as={BarChart3} size={15} />
+          Tunnel commercial
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8 }}>
+          {byStatus.map((s) => (
+            <FunnelStep key={s.label} label={s.label} count={s.value} total={total} color={s.color} T={T} />
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+        <MiniBarChart title="Prospects par source" subtitle="Origine des contacts entrants" icon={PieChart} color="#60A5FA" data={bySource} T={T} />
+        <MiniBarChart title="Prospects par responsable" subtitle="Répartition commerciale" icon={Users} color="#8B5CF6" data={byResponsable} T={T} />
+        <MiniBarChart title="Nouveaux prospects par mois" subtitle="Évolution du volume de prospection" icon={TrendingUp} color={SU} data={byMonth} T={T} />
+        <MiniBarChart title="CA potentiel par statut" subtitle="Honoraires estimés par étape" icon={Euro} color={WA} data={caByStatus} T={T} money />
+      </div>
+
+      <div className="inv-card" style={{ padding: 12 }}>
+        <div style={{ color: T.text, fontSize: 14, fontWeight: 900, marginBottom: 8 }}>Lecture rapide</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+          <div style={{ color: T.textSub, fontSize: 12 }}>Prospects actifs : <strong style={{ color: T.text }}>{stats.actifs}</strong></div>
+          <div style={{ color: T.textSub, fontSize: 12 }}>Relances en retard : <strong style={{ color: stats.relances > 0 ? DA : SU }}>{stats.relances}</strong></div>
+          <div style={{ color: T.textSub, fontSize: 12 }}>Prospects perdus : <strong style={{ color: T.text }}>{lost}</strong></div>
+          <div style={{ color: T.textSub, fontSize: 12 }}>CA potentiel : <strong style={{ color: T.text }}>{fmtDashboardEur(stats.ca)}</strong></div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Badge({ children, color, T }) {
@@ -1424,6 +1617,48 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setActions(data || []);
   }, []);
 
+  const notifyNewProspectByEmail = useCallback(async (prospect, mode = "création") => {
+    if (!prospect?.id) return false;
+
+    try {
+      const { error: notifyErr } = await supabase.functions.invoke("notify-new-prospect", {
+        body: {
+          to: NEW_PROSPECT_NOTIFICATION_EMAIL,
+          mode,
+          prospect: {
+            id: prospect.id,
+            nom: prospect.nom || "",
+            prenom: prospect.prenom || "",
+            societe: prospect.societe || "",
+            telephone: prospect.telephone || "",
+            email: prospect.email || "",
+            source: prospect.source || "",
+            responsable: prospect.responsable || "",
+            objectif: prospect.objectif || "",
+            budget_global: prospect.budget_global || null,
+            zone_recherche: prospect.zone_recherche || "",
+            prochaine_action: prospect.prochaine_action || "",
+            date_prochaine_action: prospect.date_prochaine_action || null,
+            date_rdv: prospect.date_rdv || null,
+            honoraires_estimes_ht: prospect.honoraires_estimes_ht || prospect.ca_potentiel_ht || null,
+            commentaire: prospect.commentaire || "",
+            created_at: prospect.created_at || new Date().toISOString(),
+          },
+        },
+      });
+
+      if (notifyErr) {
+        console.warn("Notification nouveau prospect non envoyée", notifyErr);
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.warn("Notification nouveau prospect non envoyée", err);
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     loadProspects();
   }, [loadProspects]);
@@ -1625,14 +1860,17 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
       await loadProspects();
 
+      const notificationResults = await Promise.allSettled((data || []).map((p) => notifyNewProspectByEmail(p, "import")));
+      const notifiedCount = notificationResults.filter((r) => r.status === "fulfilled" && r.value).length;
+
       if (data?.length === 1) {
         setIsCreating(false);
         setSelected(data[0]);
         setForm(prospectToForm(data[0]));
       }
 
-      setMsg(data?.length > 1 ? `${data.length} prospects importés.` : "Prospect importé.");
-      setTimeout(() => setMsg(""), 2400);
+      setMsg(data?.length > 1 ? `${data.length} prospects importés${notifiedCount ? ` · ${notifiedCount} mails envoyés` : ""}.` : `Prospect importé${notifiedCount ? " + mail envoyé" : ""}.`);
+      setTimeout(() => setMsg(""), 2600);
     } catch (err) {
       setError(err?.message || "Erreur de lecture du fichier.");
     }
@@ -1683,9 +1921,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setForm(prospectToForm(res.data));
     await loadProspects();
 
+    let notificationSent = false;
+    if (isNew) {
+      notificationSent = await notifyNewProspectByEmail(res.data, "création manuelle");
+    }
+
     setSaving(false);
-    setMsg(isNew ? "Prospect créé." : "Prospect sauvegardé.");
-    setTimeout(() => setMsg(""), 2000);
+    setMsg(isNew ? `Prospect créé${notificationSent ? " + mail envoyé" : ""}.` : "Prospect sauvegardé.");
+    setTimeout(() => setMsg(""), 2200);
   };
 
   const updateProspectStatus = async (prospectId, newStatus) => {
@@ -2253,7 +2496,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       </div>
 
       <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
           <ViewButton
             active={viewMode === "pipeline"}
             icon={Target}
@@ -2278,12 +2521,26 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             onClick={() => setViewMode("planning")}
             T={T}
           />
+          <ViewButton
+            active={viewMode === "analyse"}
+            icon={BarChart3}
+            label="Analyse"
+            helper="KPI, sources et conversion"
+            onClick={() => setViewMode("analyse")}
+            T={T}
+          />
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 520px", gap: 14, alignItems: "start" }}>
         <div>
-          {viewMode === "planning" ? (
+          {viewMode === "analyse" ? (
+            <KpiAnalysisView
+              prospects={filtered}
+              stats={stats}
+              T={T}
+            />
+          ) : viewMode === "planning" ? (
             <PlanningPanel
               buckets={planningBuckets}
               onSelect={selectProspect}
