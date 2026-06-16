@@ -35,6 +35,27 @@ function dateKey(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Les rapports stockent date_rapport au format français "DD/MM/YYYY"
+// (cf. RapportMobile.jsx : new Date().toLocaleDateString("fr-FR")).
+// L'input <date> nous donne du ISO "YYYY-MM-DD" — on convertit pour le filtre.
+function isoToFR(iso) {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+// Inverse : convertit "16/06/2026" → "2026-06-16" (pour les colonnes Postgres
+// de type date, comme pointages.date qui n'accepte que l'ISO).
+function frToISO(fr) {
+  if (!fr) return "";
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(fr);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  // Déjà ISO ?
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fr)) return fr;
+  return fr;
+}
+
 function dateLabel(dateStr) {
   if (!dateStr) return "";
   const d = new Date(dateStr + "T00:00:00");
@@ -139,13 +160,16 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const load = async () => {
     setLoading(true);
     setStatutColManquante(false);
+    // Les rapports peuvent être stockés au format FR (DD/MM/YYYY, ancien) ou
+    // ISO (YYYY-MM-DD, plus récent). On match les deux pour ne rien rater.
+    const dateFR = isoToFR(dateFilter);
     let { data: rs, error } = await supabase
       .from("rapports").select("*")
-      .eq("date_rapport", dateFilter).order("ouvrier");
+      .in("date_rapport", [dateFilter, dateFR]).order("ouvrier");
     if (error && /statut/.test(error.message || "")) {
       setStatutColManquante(true);
       const r2 = await supabase.from("rapports").select("*")
-        .eq("date_rapport", dateFilter).order("ouvrier");
+        .in("date_rapport", [dateFilter, dateFR]).order("ouvrier");
       rs = r2.data || [];
     } else if (error) {
       console.error("Validation.load rapports:", error);
@@ -418,6 +442,8 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     setValidating(true);
     const taux = parseFloat(tauxHoraires?.[rapport.ouvrier]) || 0;
     const phasage_id = phasageIdParChantier[rapport.chantier_id] || null;
+    // pointages.date est de type Postgres date → on convertit le format FR si besoin
+    const dateISO = frToISO(rapport.date_rapport);
 
     // 1) Pointages à insérer : tâches (heures > 0) + heures indirectes
     const lignesTaches = lignes
@@ -428,7 +454,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         phase_id: li.phase_id || null,
         tache_id: li.tache_id || null,
         ouvrier: rapport.ouvrier,
-        date: rapport.date_rapport,
+        date: dateISO,
         heures: parseFloat(li.heures) || 0,
         taux_horaire: taux,
         rapport_id: rapport.id,
@@ -448,7 +474,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         phase_id: null,
         tache_id: null,
         ouvrier: rapport.ouvrier,
-        date: rapport.date_rapport,
+        date: dateISO,
         heures: parseFloat(li.heures),
         taux_horaire: taux,
         rapport_id: rapport.id,
