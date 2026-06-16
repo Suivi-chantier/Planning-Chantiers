@@ -27,6 +27,83 @@ import StructurationPatrimoniale from "./Structuration";
 import AdminInvest from "./Admin";
 import Simulateur, { ListeProjets } from "./Simulateur";
 
+const INVEST_PAGES_BASE = [
+  { id: "dashboard", label: "Tableau de bord" },
+  { id: "prospection", label: "Prospection" },
+  { id: "crm", label: "CRM Clients" },
+  { id: "biens", label: "Biens" },
+  { id: "simulateur", label: "Simulateur" },
+  { id: "structuration", label: "Structuration" },
+  { id: "finance", label: "Finance" },
+  { id: "suivi_financier", label: "Suivi financier" },
+  { id: "admin", label: "Admin" },
+];
+
+const INVEST_PAGES_FALLBACK = INVEST_PAGES_BASE.map(p => p.id);
+
+function getInvestPagesList() {
+  const existing = Array.isArray(PAGES_INVEST) ? PAGES_INVEST : [];
+  const byId = new Map();
+
+  for (const p of existing) {
+    if (p?.id) byId.set(p.id, { ...p });
+  }
+
+  for (const p of INVEST_PAGES_BASE) {
+    if (!byId.has(p.id)) byId.set(p.id, { ...p });
+  }
+
+  const order = INVEST_PAGES_BASE.map(p => p.id);
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const ia = order.indexOf(a.id);
+    const ib = order.indexOf(b.id);
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
+function uniquePages(pages = []) {
+  return Array.from(new Set((Array.isArray(pages) ? pages : []).filter(Boolean)));
+}
+
+function getInvestAllowedPages(rolePages, role) {
+  const pagesFromConfig = rolePages?.[role];
+  const pagesFromDefaultRole = ROLE_PAGES_DEFAULT_INVEST?.[role];
+  const pagesFromAdmin = ROLE_PAGES_DEFAULT_INVEST?.admin;
+
+  let allowed = null;
+
+  if (Array.isArray(pagesFromConfig)) allowed = pagesFromConfig;
+  else if (Array.isArray(pagesFromDefaultRole)) allowed = pagesFromDefaultRole;
+  else if (Array.isArray(pagesFromAdmin)) allowed = pagesFromAdmin;
+  else allowed = INVEST_PAGES_FALLBACK;
+
+  const normalized = uniquePages(allowed);
+
+  // Sécurité : l'admin doit toujours pouvoir voir la nouvelle page Prospection,
+  // même si l'ancienne configuration Supabase access_pages_invest ne la contient pas encore.
+  if (role === "admin" && !normalized.includes("prospection")) {
+    normalized.splice(1, 0, "prospection");
+  }
+
+  return normalized;
+}
+
+function canSeeInvestPage(rolePages, role, pageId) {
+  const allowed = getInvestAllowedPages(rolePages, role);
+
+  if (allowed.includes(pageId)) return true;
+
+  try {
+    return !!canAccessInvest(rolePages, role, pageId);
+  } catch {
+    return false;
+  }
+}
+
 function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null }) {
   const role = profil?.role || "admin";
   const T = THEMES_INV[theme];
@@ -39,23 +116,23 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   };
 
   // Icônes par page Invest (utilisé pour mapper la liste PAGES_INVEST)
-const ICONS = {
-  dashboard:  LayoutDashboard,
-  prospection: UserPlus,
-  crm:        Users,
-  biens:      Building2,
-  simulateur: BarChart3,
-  finance:    Wallet,
-  suivi_financier: Euro,
-  structuration: Briefcase,
-  admin:      Settings,
-};
+  const ICONS = {
+    dashboard:  LayoutDashboard,
+    prospection: UserPlus,
+    crm:        Users,
+    biens:      Building2,
+    simulateur: BarChart3,
+    finance:    Wallet,
+    suivi_financier: Euro,
+    structuration: Briefcase,
+    admin:      Settings,
+  };
 
   // Construction de la nav depuis PAGES_INVEST, filtrée par les pages autorisées
   // pour le rôle courant (config dynamique avec fallback ROLE_PAGES_DEFAULT_INVEST).
-  const allowed = (rolePages && rolePages[role]) || ROLE_PAGES_DEFAULT_INVEST[role] || ROLE_PAGES_DEFAULT_INVEST.admin;
-  const NAV = PAGES_INVEST
-    .filter(p => allowed.includes(p.id))
+  const allowed = getInvestAllowedPages(rolePages, role);
+  const NAV = getInvestPagesList()
+    .filter(p => p?.id && allowed.includes(p.id))
     .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard }));
 
   const W = collapsed ? 64 : 220;
@@ -243,7 +320,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, []);
-  const canSee = (p) => canAccessInvest(rolePages, role, p);
+  const canSee = (p) => canSeeInvestPage(rolePages, role, p);
   // Origine de l'ouverture du Simulateur : "liste" (depuis Simulateur) ou "crm"
   // (depuis FicheClient). Détermine où on retombe au "← Retour".
   const [simOrigine, setSimOrigine]     = useState("liste");
