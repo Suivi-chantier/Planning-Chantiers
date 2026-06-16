@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning + KPI + notification mail
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning + KPI + notification mail visible
  *
  * Objectif :
  * - CRM volontairement simple
@@ -1578,8 +1578,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [mailNotice, setMailNotice] = useState(null);
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  const showMailNotice = useCallback((type, text) => {
+    setMailNotice({ type, text });
+    window.setTimeout(() => setMailNotice(null), 5200);
+  }, []);
 
   const loadProspects = useCallback(async () => {
     setLoading(true);
@@ -1777,6 +1783,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setActionForm({ ...EMPTY_ACTION });
     setMsg("");
     setError("");
+    setMailNotice(null);
   };
 
   const newProspect = () => {
@@ -1792,6 +1799,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setActionForm({ ...EMPTY_ACTION });
     setMsg("");
     setError("");
+    setMailNotice(null);
   };
 
   const handleImportProspects = async (event) => {
@@ -1801,6 +1809,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setImporting(true);
     setError("");
     setMsg("");
+    setMailNotice(null);
 
     try {
       const content = await file.text();
@@ -1862,6 +1871,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
       const notificationResults = await Promise.allSettled((data || []).map((p) => notifyNewProspectByEmail(p, "import")));
       const notifiedCount = notificationResults.filter((r) => r.status === "fulfilled" && r.value).length;
+      const totalImported = data?.length || 0;
 
       if (data?.length === 1) {
         setIsCreating(false);
@@ -1869,7 +1879,21 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         setForm(prospectToForm(data[0]));
       }
 
-      setMsg(data?.length > 1 ? `${data.length} prospects importés${notifiedCount ? ` · ${notifiedCount} mails envoyés` : ""}.` : `Prospect importé${notifiedCount ? " + mail envoyé" : ""}.`);
+      if (totalImported > 0 && notifiedCount === totalImported) {
+        showMailNotice(
+          "success",
+          totalImported > 1
+            ? `${notifiedCount} mails de notification envoyés à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
+            : `Mail de notification envoyé à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
+        );
+      } else if (totalImported > 0) {
+        showMailNotice(
+          "warning",
+          `${totalImported} prospect(s) importé(s), mais seulement ${notifiedCount} mail(s) confirmé(s). Vérifie la fonction notify-new-prospect.`
+        );
+      }
+
+      setMsg(data?.length > 1 ? `${data.length} prospects importés.` : "Prospect importé.");
       setTimeout(() => setMsg(""), 2600);
     } catch (err) {
       setError(err?.message || "Erreur de lecture du fichier.");
@@ -1883,6 +1907,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setSaving(true);
     setMsg("");
     setError("");
+    setMailNotice(null);
 
     const isNew = !selected?.id;
     const payload = formToPayload(form, profil, isNew);
@@ -1924,10 +1949,17 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     let notificationSent = false;
     if (isNew) {
       notificationSent = await notifyNewProspectByEmail(res.data, "création manuelle");
+
+      showMailNotice(
+        notificationSent ? "success" : "warning",
+        notificationSent
+          ? `Mail de notification envoyé à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
+          : `Prospect créé, mais le mail de notification n'a pas été confirmé. Vérifie la fonction notify-new-prospect.`
+      );
     }
 
     setSaving(false);
-    setMsg(isNew ? `Prospect créé${notificationSent ? " + mail envoyé" : ""}.` : "Prospect sauvegardé.");
+    setMsg(isNew ? "Prospect créé." : "Prospect sauvegardé.");
     setTimeout(() => setMsg(""), 2200);
   };
 
@@ -2420,6 +2452,26 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       {msg && (
         <div style={{ background: `${SU}12`, color: SU, borderRadius: RADIUS.md, padding: 10, marginBottom: 10, fontWeight: 900 }}>
           {msg}
+        </div>
+      )}
+
+      {mailNotice && (
+        <div
+          style={{
+            background: `${mailNotice.type === "success" ? SU : WA}12`,
+            color: mailNotice.type === "success" ? SU : WA,
+            border: `1px solid ${(mailNotice.type === "success" ? SU : WA)}35`,
+            borderRadius: RADIUS.md,
+            padding: 10,
+            marginBottom: 10,
+            fontWeight: 900,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <Icon as={Bell} size={15} />
+          {mailNotice.text}
         </div>
       )}
 
