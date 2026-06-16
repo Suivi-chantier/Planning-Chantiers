@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning + KPI + notification mail visible
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning + KPI + notification mail diagnostic
  *
  * Objectif :
  * - CRM volontairement simple
@@ -1624,10 +1624,12 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   }, []);
 
   const notifyNewProspectByEmail = useCallback(async (prospect, mode = "création") => {
-    if (!prospect?.id) return false;
+    if (!prospect?.id) {
+      return { ok: false, message: "Prospect introuvable pour la notification." };
+    }
 
     try {
-      const { error: notifyErr } = await supabase.functions.invoke("notify-new-prospect", {
+      const { data, error: notifyErr } = await supabase.functions.invoke("notify-new-prospect", {
         body: {
           to: NEW_PROSPECT_NOTIFICATION_EMAIL,
           mode,
@@ -1654,14 +1656,22 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       });
 
       if (notifyErr) {
+        const details = notifyErr?.message || JSON.stringify(notifyErr);
         console.warn("Notification nouveau prospect non envoyée", notifyErr);
-        return false;
+        return { ok: false, message: details || "Erreur Edge Function notify-new-prospect." };
       }
 
-      return true;
+      if (!data?.ok) {
+        const details = data?.error || data?.warning || data?.message || "La fonction notify-new-prospect n'a pas confirmé l'envoi du mail.";
+        console.warn("Notification nouveau prospect non confirmée", data);
+        return { ok: false, message: details };
+      }
+
+      return { ok: true, message: `Mail envoyé via ${data.provider || "notification"}.` };
     } catch (err) {
+      const details = err?.message || String(err);
       console.warn("Notification nouveau prospect non envoyée", err);
-      return false;
+      return { ok: false, message: details || "Erreur inconnue pendant l'envoi du mail." };
     }
   }, []);
 
@@ -1870,7 +1880,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       await loadProspects();
 
       const notificationResults = await Promise.allSettled((data || []).map((p) => notifyNewProspectByEmail(p, "import")));
-      const notifiedCount = notificationResults.filter((r) => r.status === "fulfilled" && r.value).length;
+      const notificationValues = notificationResults.map((r) => r.status === "fulfilled" ? r.value : { ok: false, message: r.reason?.message || String(r.reason) });
+      const notifiedCount = notificationValues.filter((r) => r?.ok).length;
+      const firstNotificationError = notificationValues.find((r) => !r?.ok)?.message;
       const totalImported = data?.length || 0;
 
       if (data?.length === 1) {
@@ -1889,7 +1901,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       } else if (totalImported > 0) {
         showMailNotice(
           "warning",
-          `${totalImported} prospect(s) importé(s), mais seulement ${notifiedCount} mail(s) confirmé(s). Vérifie la fonction notify-new-prospect.`
+          `${totalImported} prospect(s) importé(s), mais seulement ${notifiedCount} mail(s) confirmé(s). Détail : ${firstNotificationError || "fonction notify-new-prospect non confirmée"}`
         );
       }
 
@@ -1946,15 +1958,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setForm(prospectToForm(res.data));
     await loadProspects();
 
-    let notificationSent = false;
     if (isNew) {
-      notificationSent = await notifyNewProspectByEmail(res.data, "création manuelle");
+      const notificationResult = await notifyNewProspectByEmail(res.data, "création manuelle");
 
       showMailNotice(
-        notificationSent ? "success" : "warning",
-        notificationSent
+        notificationResult.ok ? "success" : "warning",
+        notificationResult.ok
           ? `Mail de notification envoyé à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
-          : `Prospect créé, mais le mail de notification n'a pas été confirmé. Vérifie la fonction notify-new-prospect.`
+          : `Prospect créé, mais le mail de notification n'a pas été confirmé. Détail : ${notificationResult.message || "fonction notify-new-prospect non confirmée"}`
       );
     }
 
