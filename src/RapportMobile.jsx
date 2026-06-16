@@ -334,6 +334,8 @@ function PageRapportMobile() {
               chantier_nom: ch?.nom || cell.chantier_id,
               chantier_couleur: ch?.couleur || "#c8d8f0",
               planifie: t.text,
+              tache_id: t.tache_id || null,
+              phase_id: t.phase_id || null,
               statut: null, remarque: "",
               pourTout,
             });
@@ -496,6 +498,8 @@ function PageRapportMobile() {
       if (!parChantier[k]) parChantier[k] = { chantier_id:t.chantier_id, chantier_nom:t.chantier_nom||"Divers", taches:[] };
       parChantier[k].taches.push({
         planifie:t.planifie,
+        tache_id: t.tache_id || null,
+        phase_id: t.phase_id || null,
         statut:t.statut||"non_faite",
         remarque:t.remarque,
         heures_reelles:parseFloat(t.heures_reelles)||0,

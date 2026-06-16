@@ -1403,7 +1403,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       const ouvriersAssignes = planifierTask.tache.ouvriers || [];
       const nouveauPlanifieTexte = base.planifie ? `${base.planifie}\n${planifierTask.tache.nom}` : planifierTask.tache.nom;
       const dureeSaisie = parseFloat(planifierDuree) || 0;
-      const upd = [...(base.taches || []), { id: Math.random().toString(36).slice(2), text: planifierTask.tache.nom, duree: dureeSaisie, ouvriers: ouvriersAssignes }];
+      const upd = [...(base.taches || []), { id: Math.random().toString(36).slice(2), text: planifierTask.tache.nom, duree: dureeSaisie, ouvriers: ouvriersAssignes, tache_id: planifierTask.tache.id, phase_id: planifierTask.phaseId }];
       await supabase.from("planning_cells").upsert({ week_id: planifierWeek, chantier_id: phasage.chantier_id, jour: planifierJour, planifie: nouveauPlanifieTexte, taches: upd, reel: base.reel, ouvriers: [...new Set([...(base.ouvriers || []), ...ouvriersAssignes])] }, { onConflict: "week_id,chantier_id,jour" });
       const exactDate = getDateFromWeekAndDay(planifierWeek, planifierJour);
       updateTache(planifierTask.phaseId, planifierTask.tache.id, { date_prevue: exactDate });
