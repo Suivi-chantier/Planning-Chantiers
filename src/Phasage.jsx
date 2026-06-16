@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { supabase, getClientId } from "./supabase";
 import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "./constants";
@@ -1113,6 +1113,114 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
       });
   }, [phasage?.id]);
 
+  // ─── P8 : registre de pointage ──────────────────────────────────────────────
+  // Heures réelles + coût MO sont désormais DÉRIVÉS du registre `pointages`
+  // (table créée au P2, alimentée par la validation des rapports au P3).
+  // Repli : si une tâche n'a aucun pointage (legacy ou pré-bascule), on retombe
+  // sur l'ancien calcul heures_reelles × taux[ouvriers[0]] le temps de la migration P9.
+  const [pointages, setPointages] = useState([]);
+  const [rapportsEnAttente, setRapportsEnAttente] = useState([]);
+  useEffect(() => {
+    if (!phasage?.chantier_id) return;
+    supabase.from("pointages").select("*").eq("chantier_id", phasage.chantier_id)
+      .then(({ data, error }) => {
+        if (error?.code === "42P01") setPointages([]); // table absente (P2 non joué)
+        else setPointages(data || []);
+      });
+    // Sous-total "non validé" : on récupère les rapports en attente du chantier
+    // pour afficher un complément informatif côté bandeau coût/marge.
+    supabase.from("rapports")
+      .select("id,ouvrier,date_rapport,taches,heures_indirectes,statut")
+      .eq("chantier_id", phasage.chantier_id)
+      .neq("statut", "valide")
+      .then(({ data, error }) => {
+        if (error) { setRapportsEnAttente([]); return; }
+        setRapportsEnAttente(data || []);
+      });
+  }, [phasage?.chantier_id]);
+
+  // Index pointages "tâche" par tache_id. Les pointages indirects sont mis à
+  // part : ils n'appartiennent à aucune tâche du plan mais comptent dans le
+  // coût MO du chantier.
+  const pointagesParTache = useMemo(() => {
+    const m = {};
+    pointages.forEach(p => {
+      if (p.type_pointage === "indirect") return;
+      if (!p.tache_id) return; // tâche libre : pas d'imputation au plan
+      const k = String(p.tache_id);
+      if (!m[k]) m[k] = [];
+      m[k].push(p);
+    });
+    return m;
+  }, [pointages]);
+
+  // Heures + coût MO indirects (au niveau chantier, hors tâches)
+  const indirectStats = useMemo(() => {
+    let heures = 0, cout = 0;
+    pointages.forEach(p => {
+      if (p.type_pointage !== "indirect") return;
+      const h = parseFloat(p.heures) || 0;
+      heures += h;
+      cout += h * (parseFloat(p.taux_horaire) || 0);
+    });
+    return { heures, cout };
+  }, [pointages]);
+
+  // Heures + coût MO pour les pointages "tâche libre" (tache_id null, type tache)
+  const libreStats = useMemo(() => {
+    let heures = 0, cout = 0;
+    pointages.forEach(p => {
+      if (p.type_pointage === "indirect") return;
+      if (p.tache_id) return;
+      const h = parseFloat(p.heures) || 0;
+      heures += h;
+      cout += h * (parseFloat(p.taux_horaire) || 0);
+    });
+    return { heures, cout };
+  }, [pointages]);
+
+  // Heures + coût MO des rapports en attente (non validés) — sous-total séparé
+  const enAttenteStats = useMemo(() => {
+    let heures = 0, cout = 0;
+    rapportsEnAttente.forEach(r => {
+      const taux = parseFloat(tauxHoraires?.[r.ouvrier]) || 0;
+      (r.taches || []).forEach(t => {
+        const h = parseFloat(t.heures_reelles) || 0;
+        heures += h;
+        cout += h * taux;
+      });
+      (r.heures_indirectes || []).forEach(li => {
+        const h = parseFloat(li.heures) || 0;
+        heures += h;
+        cout += h * taux;
+      });
+    });
+    return { heures, cout };
+  }, [rapportsEnAttente, tauxHoraires]);
+
+  // Heures réelles effectives d'une tâche : somme des pointages si présents,
+  // sinon ancienne valeur du plan (repli legacy).
+  const heuresEff = (t) => {
+    if (!t) return 0;
+    const pts = pointagesParTache[String(t.id)];
+    if (pts && pts.length > 0) {
+      return pts.reduce((s, p) => s + (parseFloat(p.heures) || 0), 0);
+    }
+    return parseFloat(t.heures_reelles) || 0;
+  };
+
+  // Coût MO effectif d'une tâche : somme des pointages × taux figé si présents,
+  // sinon legacy heures_reelles × taux[ouvriers[0]].
+  const coutMOEff = (t) => {
+    if (!t) return 0;
+    const pts = pointagesParTache[String(t.id)];
+    if (pts && pts.length > 0) {
+      return pts.reduce((s, p) => s + ((parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0)), 0);
+    }
+    const pO = (t.ouvriers || [])[0] || "";
+    return (parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0);
+  };
+
   // ─── MATÉRIAUX PRÉVISIONNELS PAR PHASE ─────────────────────────────────────
   // Stockés à côté des tâches dans plan_travaux :
   //   plan[phaseId + "__materiaux_prevus"] = tableau de matériaux
@@ -1423,7 +1531,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const totalHVenduTaches   = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
   const totalHVenduGlobal = totalHVenduOuvrages > 0 ? totalHVenduOuvrages : totalHVenduTaches;
   const totalHEstimeeGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-  const totalHReelGlobal = allTaches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+  // P8 : heures réelles dérivées du registre + heures libres / indirectes
+  // (qui n'appartiennent à aucune tâche du plan mais comptent au chantier).
+  const totalHReelGlobal = allTaches.reduce((s, t) => s + heuresEff(t), 0)
+                         + libreStats.heures + indirectStats.heures;
 
   // ── Date prévue de fin : la dernière date_prevue parmi toutes les tâches
   const dateFin = (() => {
@@ -1432,10 +1543,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   })();
   const dateFinFmt = dateFin ? new Date(dateFin).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : null;
 
-  // ── Détection dépassements pour bandeau d'alerte
+  // ── Détection dépassements pour bandeau d'alerte (P8 : hR dérivé du registre)
   const depassementsH = allTaches.filter(t => {
     const hV = parseFloat(t.heures_vendues) || 0;
-    const hR = parseFloat(t.heures_reelles) || 0;
+    const hR = heuresEff(t);
     return hV > 0 && hR > hV;
   });
 
@@ -1443,7 +1554,10 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   // avec cascade de fallbacks. Voir calcAvancementPondere() dans constants.js.
   const avgAv = calcAvancementPondere(ouvrages, allTaches);
 
-  const totalMO = allTaches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
+  // P8 : coût MO global dérivé du registre (heures × taux figé par ouvrier),
+  // + coût des heures libres et des heures indirectes du chantier.
+  const totalMO = allTaches.reduce((s, t) => s + coutMOEff(t), 0)
+                + libreStats.cout + indirectStats.cout;
   // Coût matériel = somme des prix HT des commandes AYANT phase_id rempli.
   // Cohérent avec phCoutMat (filtré par phase). Les commandes sans phase_id
   // (= non attribuées) ne sont pas comptées ici → on signale leur nb plus bas.
@@ -1711,7 +1825,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                   <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {depassementsH.slice(0, 5).map(t => {
                       const hV = parseFloat(t.heures_vendues) || 0;
-                      const hR = parseFloat(t.heures_reelles) || 0;
+                      const hR = heuresEff(t);
                       return (
                         <span key={t.id} style={{
                           fontSize: FONT.xs.size, padding: "2px 7px", borderRadius: RADIUS.sm,
@@ -1765,14 +1879,20 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
               : ratioH > 100 ? "#e15a5a"
               : ratioH > 85 ? "#f5a623"
               : "#22c55e";
+            // P8 : sous-total séparé pour les rapports en attente (non encore validés)
+            // — visibilité au conducteur sans fausser le validé.
+            const enAttenteCout = enAttenteStats.cout;
+            const enAttenteH = enAttenteStats.heures;
             return [
               { label: "Main d'œuvre", value: `${Math.round(totalMO).toLocaleString("fr-FR")} €`, icon: HardHat,
-                color: totalMO > pVendu && pVendu > 0 ? "#e15a5a" : "#5b9cf6" },
+                color: totalMO > pVendu && pVendu > 0 ? "#e15a5a" : "#5b9cf6",
+                subtext: enAttenteCout > 0 ? `+ ${Math.round(enAttenteCout).toLocaleString("fr-FR")} € en attente de validation` : null },
               { label: "Matériaux", value: totalMat > 0 ? `${Math.round(totalMat).toLocaleString("fr-FR")} €` : "—",
                 icon: Package, color: totalMat > 0 ? "#a78bfa" : T.textMuted },
               { label: totalHVenduGlobal > 0 ? `Heures · ${ratioH.toFixed(0)}%` : "Heures réelles",
                 value: `${totalHReelGlobal.toFixed(1)}h${totalHVenduGlobal > 0 ? ` / ${totalHVenduGlobal.toFixed(0)}h` : ""}`,
-                icon: Clock, color: heuresColor },
+                icon: Clock, color: heuresColor,
+                subtext: enAttenteH > 0 ? `+ ${enAttenteH.toFixed(1)}h en attente de validation` : null },
               { label: "Marge nette",
                 value: `${marge > 0 ? "+" : ""}${Math.round(marge).toLocaleString("fr-FR")} €${pVendu > 0 ? ` · ${margePct.toFixed(1)}%` : ""}`,
                 icon: TrendingUp, color: marge < 0 ? "#e15a5a" : marge > 0 ? "#22c55e" : T.textMuted },
@@ -1793,6 +1913,11 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600, letterSpacing: .3 }}>{s.label}</div>
                 <div style={{ fontSize: FONT.xl.size - 2, fontWeight: 800, color: s.color, letterSpacing: -.5, marginTop: 2, lineHeight: 1 }}>{s.value}</div>
+                {s.subtext && (
+                  <div style={{ fontSize: FONT.xs.size, color: "#d18a16", fontWeight: 600, marginTop: 4, letterSpacing: .2 }}>
+                    {s.subtext}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -1870,9 +1995,9 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
             const phAv = calcAvancementPondere(ouvrages, taches);
 
             const phVendu = phHVendu;
-            const phReel = taches.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+            const phReel = taches.reduce((s, t) => s + heuresEff(t), 0);
             const phPrixHt = taches.reduce((s, t) => s + (parseFloat(t.prix_ht) || 0), 0);
-            const phCoutMO = taches.reduce((s, t) => { const pO = (t.ouvriers || [])[0] || ""; return s + ((parseFloat(t.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0)); }, 0);
+            const phCoutMO = taches.reduce((s, t) => s + coutMOEff(t), 0);
             // Coût matériel par phase = somme commandes ayant phase_id = cette phase
             const phCmds = commandesPhasage.filter(c => c.phase_id === phase.id);
             const phCoutMat = phCmds.reduce((s, c) => s + (parseFloat(c.prix_ht) || 0), 0);
@@ -1942,7 +2067,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                     {taches.map((tache, ti) => {
                       const av = parseFloat(tache.avancement) || 0;
                       const hV = parseFloat(tache.heures_vendues) || 0;
-                      const hR = parseFloat(tache.heures_reelles) || 0;
+                      const hR = heuresEff(tache); // P8 : dérivé du registre, repli legacy si vide
                       const isDragging = dragActive && dragItem.current?.phaseId === phase.id && dragItem.current?.index === ti;
                       const ouvriersActuels = tache.ouvriers ? tache.ouvriers : (tache.ouvrier ? [tache.ouvrier] : []);
 
@@ -1984,7 +2109,7 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                                   if (ouvParent && tache.ouvrage_id) return t.ouvrage_id === tache.ouvrage_id;
                                   return t.ouvrage_libelle === tache.ouvrage_libelle;
                                 })
-                                .reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+                                .reduce((s, t) => s + heuresEff(t), 0);
                               return (
                                 <div className="ouvrage-tooltip-wrap" style={{ position: "relative", display: "inline-block", marginTop: 1 }}>
                                   <div style={{ fontSize: 10, color: T.textMuted, paddingLeft: 6, cursor: "help" }}>↳ {tache.ouvrage_libelle}</div>
@@ -2017,12 +2142,25 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
                             <OuvriersSelect ouvriers={ouvriers} selected={ouvriersActuels} onChange={next => updateTache(phase.id, tache.id, { ouvriers: next })} T={T} stopDrag={stopDrag} />
                           </div>
 
-                          {[["heures_estimees", BLEU, "Estimé", "e"], ["heures_reelles", hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.text, "Réel", "r"]].map(([field, color, miniLabel, area]) => (
-                            <div key={field} style={{ minWidth: 0, ...ga(area) }}>
-                              <span className="field-mini-label">{miniLabel}</span>
-                              <input type="number" min="0" step="0.5" value={tache[field] || ""} placeholder={field === "heures_estimees" ? "—" : "0"} onPointerDown={stopDrag} onChange={e => updateTache(phase.id, tache.id, { [field]: parseFloat(e.target.value) || (field === "heures_estimees" ? null : 0) })} style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          {/* Estimé : reste éditable manuellement */}
+                          <div style={{ minWidth: 0, ...ga("e") }}>
+                            <span className="field-mini-label">Estimé</span>
+                            <input type="number" min="0" step="0.5" value={tache.heures_estimees || ""} placeholder="—" onPointerDown={stopDrag}
+                              onChange={e => updateTache(phase.id, tache.id, { heures_estimees: parseFloat(e.target.value) || null })}
+                              style={{ width: "100%", padding: "4px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: BLEU, fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }} />
+                          </div>
+                          {/* Réel : P8 → dérivé du registre, plus saisissable. Affichage seul. */}
+                          <div style={{ minWidth: 0, ...ga("r") }} title="Heures réelles cumulées depuis le registre de pointage (validations de fin de journée). Non éditable.">
+                            <span className="field-mini-label">Réel</span>
+                            <div style={{
+                              width: "100%", padding: "4px 4px", borderRadius: 6,
+                              border: `1px dashed ${T.border}`, background: "transparent",
+                              color: hR > hV && hV > 0 ? "#e05c5c" : hR > 0 ? "#50c878" : T.textMuted,
+                              fontFamily: "inherit", fontSize: 13, fontWeight: 700, textAlign: "center",
+                            }}>
+                              {hR > 0 ? (Number.isInteger(hR) ? hR : hR.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")) : "0"}
                             </div>
-                          ))}
+                          </div>
 
                           <div style={{ minWidth: 0, ...ga("date") }}>
                             <span className="field-mini-label">Date prévue</span>
