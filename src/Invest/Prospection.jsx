@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version simple + Drag & Drop + relances + conversion sécurisée + import + planning
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning
  *
  * Objectif :
  * - CRM volontairement simple
@@ -1098,6 +1098,254 @@ function PlanningPanel({ buckets, onSelect, selectedId, T }) {
   );
 }
 
+function ViewButton({ active, icon, label, helper, onClick, T }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: `1px solid ${active ? T.accent : T.border}`,
+        background: active ? T.accentBg : T.cardHover,
+        color: active ? T.accent : T.textSub,
+        borderRadius: RADIUS.md,
+        padding: "8px 10px",
+        cursor: "pointer",
+        textAlign: "left",
+        minHeight: 52,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 900 }}>
+        <Icon as={icon} size={14} />
+        {label}
+      </div>
+      <div style={{ fontSize: 10.5, color: active ? T.textSub : T.textMuted, marginTop: 3 }}>
+        {helper}
+      </div>
+    </button>
+  );
+}
+
+function ListView({ prospects, selectedId, onSelect, onStatusChange, T }) {
+  const sorted = prospects
+    .slice()
+    .sort((a, b) => {
+      const activeA = isActiveProspect(a) ? 0 : 1;
+      const activeB = isActiveProspect(b) ? 0 : 1;
+      if (activeA !== activeB) return activeA - activeB;
+      return compareActionDate(a, b);
+    });
+
+  return (
+    <div className="inv-card" style={{ padding: 0, overflow: "hidden" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.4fr .9fr .75fr .8fr .9fr .65fr",
+          gap: 8,
+          padding: "9px 10px",
+          borderBottom: `1px solid ${T.border}`,
+          color: T.textMuted,
+          fontSize: 10,
+          fontWeight: 900,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+        }}
+      >
+        <div>Prospect</div>
+        <div>Contact</div>
+        <div>Statut</div>
+        <div>Responsable</div>
+        <div>Prochaine action</div>
+        <div style={{ textAlign: "right" }}>CA</div>
+      </div>
+
+      <div style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
+        {sorted.length === 0 ? (
+          <div style={{ padding: 24, color: T.textMuted, textAlign: "center" }}>Aucun prospect</div>
+        ) : (
+          sorted.map((p) => {
+            const st = statusOf(p.statut);
+            const temp = temperature(p);
+            const selected = selectedId === p.id;
+            const late = isLate(p.date_prochaine_action);
+
+            return (
+              <div
+                key={p.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelect(p)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onSelect(p);
+                }}
+                style={{
+                  width: "100%",
+                  display: "grid",
+                  gridTemplateColumns: "1.4fr .9fr .75fr .8fr .9fr .65fr",
+                  gap: 8,
+                  alignItems: "center",
+                  padding: "9px 10px",
+                  border: "none",
+                  borderBottom: `1px solid ${T.border}`,
+                  background: selected ? T.accentBg : "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      color: T.text,
+                      fontSize: 12.5,
+                      fontWeight: 900,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {prospectName(p)}
+                  </div>
+                  <div style={{ display: "flex", gap: 5, marginTop: 4, alignItems: "center" }}>
+                    <Badge color={temp.color} T={T}>{temp.label}</Badge>
+                    {p.source && <span style={{ color: T.textMuted, fontSize: 10.5 }}>{p.source}</span>}
+                  </div>
+                </div>
+
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      color: T.textSub,
+                      fontSize: 11,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {p.telephone || "—"}
+                  </div>
+                  <div
+                    style={{
+                      color: T.textMuted,
+                      fontSize: 10.5,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                      marginTop: 2,
+                    }}
+                  >
+                    {p.email || "—"}
+                  </div>
+                </div>
+
+                <div onClick={(e) => e.stopPropagation()}>
+                  <select
+                    className="inv-sel"
+                    value={p.statut === "converti" ? "signe" : p.statut || "nouveau"}
+                    onChange={(e) => onStatusChange(p.id, e.target.value)}
+                    style={{
+                      height: 30,
+                      fontSize: 11.5,
+                      borderColor: `${st.color}55`,
+                      color: st.color,
+                      fontWeight: 900,
+                    }}
+                  >
+                    {STATUTS.map((s) => (
+                      <option key={s.id} value={s.id}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div
+                  style={{
+                    color: T.textSub,
+                    fontSize: 11.5,
+                    overflow: "hidden",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {p.responsable || "—"}
+                </div>
+
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      color: late ? DA : T.textSub,
+                      fontSize: 11.5,
+                      fontWeight: late ? 900 : 600,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {p.prochaine_action || "À définir"}
+                  </div>
+                  <div style={{ color: late ? DA : T.textMuted, fontSize: 10.5, marginTop: 2 }}>
+                    {p.date_prochaine_action ? fmtDate(p.date_prochaine_action) : "Pas de date"}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    color: T.text,
+                    fontSize: 12,
+                    fontWeight: 900,
+                    textAlign: "right",
+                    fontFamily: "'DM Mono', monospace",
+                  }}
+                >
+                  {fmtDashboardEur(Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0)}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PipelineView({
+  grouped,
+  selectedId,
+  dragOverStatus,
+  onSelect,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  T,
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(3, minmax(190px, 1fr))",
+        gap: 10,
+      }}
+    >
+      {grouped.map(({ statut, prospects: items }) => (
+        <PipelineColumn
+          key={statut.id}
+          statut={statut}
+          prospects={items}
+          selectedId={selectedId}
+          dragOverStatus={dragOverStatus}
+          onSelect={onSelect}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          T={T}
+        />
+      ))}
+    </div>
+  );
+}
+
 function ActionRow({ action, T }) {
   return (
     <div style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
@@ -1126,6 +1374,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
   const [query, setQuery] = useState("");
   const [quickFilter, setQuickFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("pipeline");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -1883,7 +2132,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             CRM Prospection
           </div>
           <div style={{ color: T.textSub, fontSize: 13 }}>
-            Glisse les fiches prospects dans la bonne colonne, puis traite les relances prioritaires.
+            Choisis la vue adaptée : pipeline drag & drop, liste de suivi ou planning commercial.
           </div>
         </div>
 
@@ -2003,26 +2252,55 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         </div>
       </div>
 
-      <PlanningPanel
-        buckets={planningBuckets}
-        onSelect={selectProspect}
-        selectedId={selected?.id}
-        T={T}
-      />
+      <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+          <ViewButton
+            active={viewMode === "pipeline"}
+            icon={Target}
+            label="Pipeline"
+            helper="Drag & drop par statut"
+            onClick={() => setViewMode("pipeline")}
+            T={T}
+          />
+          <ViewButton
+            active={viewMode === "liste"}
+            icon={ListChecks}
+            label="Liste"
+            helper="Lecture détaillée et rapide"
+            onClick={() => setViewMode("liste")}
+            T={T}
+          />
+          <ViewButton
+            active={viewMode === "planning"}
+            icon={CalendarDays}
+            label="Planning"
+            helper="Qui contacter et quand"
+            onClick={() => setViewMode("planning")}
+            T={T}
+          />
+        </div>
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 520px", gap: 14, alignItems: "start" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(190px, 1fr))",
-            gap: 10,
-          }}
-        >
-          {grouped.map(({ statut, prospects: items }) => (
-            <PipelineColumn
-              key={statut.id}
-              statut={statut}
-              prospects={items}
+        <div>
+          {viewMode === "planning" ? (
+            <PlanningPanel
+              buckets={planningBuckets}
+              onSelect={selectProspect}
+              selectedId={selected?.id}
+              T={T}
+            />
+          ) : viewMode === "liste" ? (
+            <ListView
+              prospects={filtered}
+              selectedId={selected?.id}
+              onSelect={selectProspect}
+              onStatusChange={updateProspectStatus}
+              T={T}
+            />
+          ) : (
+            <PipelineView
+              grouped={grouped}
               selectedId={selected?.id}
               dragOverStatus={dragOverStatus}
               onSelect={selectProspect}
@@ -2033,10 +2311,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
               onDrop={handleDrop}
               T={T}
             />
-          ))}
+          )}
         </div>
 
-        <div className="inv-card" style={{ padding: 0, minHeight: 500 }}>
+        <div className="inv-card" style={{ padding: 0, minHeight: 500, position: "sticky", top: 12 }}>
           <div
             className="inv-card-hd blue"
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
