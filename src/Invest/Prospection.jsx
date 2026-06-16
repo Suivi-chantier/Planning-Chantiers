@@ -23,10 +23,13 @@ import {
   Pencil,
   X,
   GripVertical,
+  Copy,
+  Flame,
+  AlertTriangle,
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version simple + Drag & Drop
+ * CRM Prospection — Version simple + Drag & Drop + relances opérationnelles
  *
  * Objectif :
  * - CRM volontairement simple
@@ -34,6 +37,8 @@ import {
  * - Déplacement des prospects par drag & drop
  * - Sauvegarde automatique du statut dans Supabase
  * - Fiche prospect compacte à droite
+ * - Filtres rapides : à traiter, en retard, RDV, prospects chauds
+ * - Messages commerciaux prêts à copier
  *
  * Tables utilisées :
  * - public.invest_prospects
@@ -162,6 +167,10 @@ function isLate(v) {
   return !!v && dateOnly(v) < todayIso();
 }
 
+function isTodayOrLate(v) {
+  return !!v && dateOnly(v) <= todayIso();
+}
+
 function prospectName(p) {
   const full = `${p?.prenom || ""} ${p?.nom || ""}`.trim();
   return full || p?.societe || "Prospect sans nom";
@@ -244,6 +253,22 @@ function formToPayload(form, profil, isNew = false) {
   if (isNew) payload.created_by = auteur(profil);
 
   return payload;
+}
+
+function messageRelance(p) {
+  const prenom = p?.prenom || "";
+  return `Bonjour ${prenom},\n\nJe me permets de revenir vers vous concernant votre projet d'investissement immobilier.\n\nAvez-vous toujours le souhait d'avancer sur ce sujet ?\n\nJe reste disponible pour échanger et vous accompagner dans la structuration du projet.\n\nBien cordialement,\nProfero Invest`;
+}
+
+function messageConfirmationRdv(p) {
+  const prenom = p?.prenom || "";
+  const rdv = p?.date_rdv ? fmtDate(p.date_rdv) : "la date convenue";
+  return `Bonjour ${prenom},\n\nJe vous confirme notre rendez-vous prévu le ${rdv} concernant votre projet d'investissement immobilier.\n\nL'objectif sera de faire le point sur votre situation, vos objectifs, votre budget et la meilleure stratégie à mettre en place.\n\nBien cordialement,\nProfero Invest`;
+}
+
+function messageProposition(p) {
+  const prenom = p?.prenom || "";
+  return `Bonjour ${prenom},\n\nSuite à nos échanges, je vous confirme que votre projet semble cohérent avec l'accompagnement Profero Invest.\n\nNous pouvons vous accompagner sur la stratégie, la recherche du bien, l'analyse de rentabilité, la négociation, le financement et le suivi du projet.\n\nJe reste disponible pour vous présenter la proposition d'accompagnement.\n\nBien cordialement,\nProfero Invest`;
 }
 
 function Badge({ children, color, T }) {
@@ -405,6 +430,33 @@ function StatusPills({ value, onChange }) {
         );
       })}
     </div>
+  );
+}
+
+function QuickFilterButton({ active, icon, label, count, color, onClick, T }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: `1px solid ${active ? color : T.border}`,
+        background: active ? `${color}18` : T.cardHover,
+        color: active ? color : T.textSub,
+        borderRadius: RADIUS.md,
+        padding: "7px 9px",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 900,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Icon as={icon} size={13} />
+      {label}
+      {typeof count === "number" && <span style={{ fontFamily: "'DM Mono', monospace" }}>{count}</span>}
+    </button>
   );
 }
 
@@ -613,6 +665,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [actionForm, setActionForm] = useState({ ...EMPTY_ACTION });
 
   const [query, setQuery] = useState("");
+  const [quickFilter, setQuickFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -668,6 +721,17 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     loadActions(selected?.id);
   }, [selected?.id, loadActions]);
 
+  const stats = useMemo(() => {
+    const actifs = prospects.filter((p) => !["perdu", "converti", "signe"].includes(p.statut)).length;
+    const rdv = prospects.filter((p) => p.date_rdv && dateOnly(p.date_rdv) >= todayIso()).length;
+    const relances = prospects.filter((p) => isLate(p.date_prochaine_action) && !["perdu", "converti"].includes(p.statut)).length;
+    const today = prospects.filter((p) => isTodayOrLate(p.date_prochaine_action) && !["perdu", "converti", "signe"].includes(p.statut)).length;
+    const hot = prospects.filter((p) => temperature(p).label === "Chaud" && !["perdu", "converti", "signe"].includes(p.statut)).length;
+    const ca = prospects.reduce((s, p) => s + (Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0), 0);
+
+    return { actifs, rdv, relances, today, hot, ca };
+  }, [prospects]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
 
@@ -684,9 +748,25 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         p.zone_recherche,
       ].join(" ").toLowerCase();
 
-      return !q || haystack.includes(q);
+      const okQuery = !q || haystack.includes(q);
+
+      let okQuick = true;
+      if (quickFilter === "today") {
+        okQuick = isTodayOrLate(p.date_prochaine_action) && !["perdu", "converti", "signe"].includes(p.statut);
+      }
+      if (quickFilter === "late") {
+        okQuick = isLate(p.date_prochaine_action) && !["perdu", "converti", "signe"].includes(p.statut);
+      }
+      if (quickFilter === "rdv") {
+        okQuick = !!p.date_rdv && dateOnly(p.date_rdv) >= todayIso();
+      }
+      if (quickFilter === "hot") {
+        okQuick = temperature(p).label === "Chaud" && !["perdu", "converti", "signe"].includes(p.statut);
+      }
+
+      return okQuery && okQuick;
     });
-  }, [prospects, query]);
+  }, [prospects, query, quickFilter]);
 
   const grouped = useMemo(() => {
     return STATUTS.map((s) => ({
@@ -694,15 +774,6 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       prospects: filtered.filter((p) => p.statut === s.id || (s.id === "signe" && p.statut === "converti")),
     }));
   }, [filtered]);
-
-  const stats = useMemo(() => {
-    const actifs = prospects.filter((p) => !["perdu", "converti", "signe"].includes(p.statut)).length;
-    const rdv = prospects.filter((p) => p.date_rdv && dateOnly(p.date_rdv) >= todayIso()).length;
-    const relances = prospects.filter((p) => isLate(p.date_prochaine_action) && !["perdu", "converti"].includes(p.statut)).length;
-    const ca = prospects.reduce((s, p) => s + (Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0), 0);
-
-    return { actifs, rdv, relances, ca };
-  }, [prospects]);
 
   const selectProspect = (p) => {
     setSelected(p);
@@ -779,7 +850,6 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setError("");
     setMsg("");
 
-    // Mise à jour optimiste pour une sensation fluide.
     setProspects((prev) =>
       prev.map((p) =>
         p.id === prospectId
@@ -1056,9 +1126,20 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setTimeout(() => setMsg(""), 2200);
   };
 
+  const copyText = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setMsg(`${label} copié.`);
+      setTimeout(() => setMsg(""), 1800);
+    } catch {
+      setError("Impossible de copier le message.");
+    }
+  };
+
   const callLink = form.telephone ? `tel:${form.telephone}` : null;
   const mailLink = form.email ? `mailto:${form.email}` : null;
   const waLink = form.telephone ? `https://wa.me/${String(form.telephone).replace(/\D/g, "")}` : null;
+  const currentProspect = selected ? { ...selected, ...formToPayload(form, profil, false) } : form;
 
   return (
     <div style={{ padding: "16px 18px", maxWidth: 1580, margin: "0 auto" }}>
@@ -1076,7 +1157,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             CRM Prospection
           </div>
           <div style={{ color: T.textSub, fontSize: 13 }}>
-            Glisse les fiches prospects dans la bonne colonne pour mettre à jour leur statut.
+            Glisse les fiches prospects dans la bonne colonne, puis traite les relances prioritaires.
           </div>
         </div>
 
@@ -1107,20 +1188,69 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
         <Kpi icon={Users} label="Prospects actifs" value={stats.actifs} color="#60A5FA" T={T} />
         <Kpi icon={Calendar} label="RDV à venir" value={stats.rdv} color="#8B5CF6" T={T} />
-        <Kpi icon={Clock} label="Relances en retard" value={stats.relances} color={stats.relances > 0 ? DA : SU} T={T} />
+        <Kpi icon={Clock} label="À traiter" value={stats.today} color={stats.today > 0 ? WA : SU} T={T} />
         <Kpi icon={Euro} label="CA potentiel" value={fmtDashboardEur(stats.ca)} color={SU} T={T} />
       </div>
 
       <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
-        <div style={{ position: "relative" }}>
-          <Icon as={Search} size={14} style={{ position: "absolute", left: 10, top: 10, color: T.textMuted }} />
-          <input
-            className="inv-inp"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher un prospect..."
-            style={{ width: "100%", height: 34, paddingLeft: 32 }}
-          />
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1fr) auto", gap: 10, alignItems: "center" }}>
+          <div style={{ position: "relative" }}>
+            <Icon as={Search} size={14} style={{ position: "absolute", left: 10, top: 10, color: T.textMuted }} />
+            <input
+              className="inv-inp"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Rechercher un prospect..."
+              style={{ width: "100%", height: 34, paddingLeft: 32 }}
+            />
+          </div>
+
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <QuickFilterButton
+              active={quickFilter === "all"}
+              icon={Users}
+              label="Tous"
+              color={T.accent}
+              onClick={() => setQuickFilter("all")}
+              T={T}
+            />
+            <QuickFilterButton
+              active={quickFilter === "today"}
+              icon={Clock}
+              label="À traiter"
+              count={stats.today}
+              color={WA}
+              onClick={() => setQuickFilter(quickFilter === "today" ? "all" : "today")}
+              T={T}
+            />
+            <QuickFilterButton
+              active={quickFilter === "late"}
+              icon={AlertTriangle}
+              label="En retard"
+              count={stats.relances}
+              color={DA}
+              onClick={() => setQuickFilter(quickFilter === "late" ? "all" : "late")}
+              T={T}
+            />
+            <QuickFilterButton
+              active={quickFilter === "rdv"}
+              icon={Calendar}
+              label="RDV"
+              count={stats.rdv}
+              color="#8B5CF6"
+              onClick={() => setQuickFilter(quickFilter === "rdv" ? "all" : "rdv")}
+              T={T}
+            />
+            <QuickFilterButton
+              active={quickFilter === "hot"}
+              icon={Flame}
+              label="Chauds"
+              count={stats.hot}
+              color={DA}
+              onClick={() => setQuickFilter(quickFilter === "hot" ? "all" : "hot")}
+              T={T}
+            />
+          </div>
         </div>
       </div>
 
@@ -1281,7 +1411,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     gap: 10,
                     alignItems: "center",
                     marginTop: 10,
-                    marginBottom: 12,
+                    marginBottom: 10,
                   }}
                 >
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -1303,6 +1433,21 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                         WhatsApp
                       </a>
                     )}
+
+                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => copyText(messageRelance(currentProspect), "Relance")}>
+                      <Icon as={Copy} size={12} />
+                      Relance
+                    </button>
+
+                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => copyText(messageConfirmationRdv(currentProspect), "Confirmation RDV")}>
+                      <Icon as={Copy} size={12} />
+                      RDV
+                    </button>
+
+                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => copyText(messageProposition(currentProspect), "Message proposition")}>
+                      <Icon as={Copy} size={12} />
+                      Proposition
+                    </button>
                   </div>
 
                   <div style={{ display: "flex", gap: 7 }}>
