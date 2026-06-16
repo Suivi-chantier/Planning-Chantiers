@@ -227,6 +227,10 @@ function PageRapportMobile() {
   const [taches, setTaches]         = useState([]);
   const [trajetMatin, setTrajetMatin] = useState(""); // minutes (string pour input)
   const [trajetSoir, setTrajetSoir]   = useState(""); // minutes (string pour input)
+  // Heures indirectes (P7) : non productives, rattachées à un chantier mais à
+  // aucune tâche vendue. Format : [{ motif, heures, chantier_id }]. Le conducteur
+  // les retrouve pré-remplies dans l'écran de validation et peut compléter.
+  const [heuresIndirectes, setHeuresIndirectes] = useState([]);
   const [remarque, setRemarque]     = useState("");
   const [paniers, setPaniers]       = useState({});      // { chantier_id: { articleId: {article, qty} } }
   const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
@@ -283,7 +287,7 @@ function PageRapportMobile() {
     if (!nom) return;
     try {
       const payload = {
-        taches, trajetMatin, trajetSoir, remarque,
+        taches, trajetMatin, trajetSoir, heuresIndirectes, remarque,
         paniers, photosChantier, planData,
         ts: Date.now(),
       };
@@ -293,13 +297,14 @@ function PageRapportMobile() {
       // QuotaExceeded ou JSON.stringify circular → on log mais on ne bloque pas
       console.warn("Sauvegarde brouillon:", e);
     }
-  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, remarque, paniers, photosChantier, planData]);
+  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, heuresIndirectes, remarque, paniers, photosChantier, planData]);
 
   const repartirDeZero = () => {
     effacerBrouillon();
     setBrouillonRepris(false);
     setTrajetMatin("");
     setTrajetSoir("");
+    setHeuresIndirectes([]);
     setRemarque("");
     setPaniers({});
     setPhotosChantier({});
@@ -372,6 +377,7 @@ function PageRapportMobile() {
         setTaches(Array.isArray(b.taches) ? b.taches : []);
         setTrajetMatin(b.trajetMatin || "");
         setTrajetSoir(b.trajetSoir || "");
+        setHeuresIndirectes(Array.isArray(b.heuresIndirectes) ? b.heuresIndirectes : []);
         setRemarque(b.remarque || "");
         setPaniers(b.paniers || {});
         setPhotosChantier(b.photosChantier || {});
@@ -388,6 +394,7 @@ function PageRapportMobile() {
     setBrouillonRepris(false);
     setTrajetMatin("");
     setTrajetSoir("");
+    setHeuresIndirectes([]);
     setRemarque("");
     setPaniers({});
     setPhotosChantier({});
@@ -472,30 +479,43 @@ function PageRapportMobile() {
       alert(`📊 Avancement manquant sur ${sansAvancement.length} tâche${sansAvancement.length>1?"s":""}\n${sansAvancement.map(t=>"• "+t.planifie.slice(0,50)).join("\n")}\n\nMerci d'indiquer le pourcentage d'avancement (0% si non réalisé).`);
       return;
     }
-    // Cible exacte : tâches + trajets = 10h Lun-Mer ou 9h Jeu-Ven
+    // Heures indirectes : motif + chantier + heures > 0 obligatoires
+    const indirectesRemplies = (heuresIndirectes || []).filter(h =>
+      (h.motif || "").trim() && (parseFloat(h.heures) || 0) > 0
+    );
+    const indirectesInvalides = (heuresIndirectes || []).filter(h =>
+      ((h.motif || "").trim() || (parseFloat(h.heures) || 0) > 0)
+      && (!(h.motif || "").trim() || !((parseFloat(h.heures) || 0) > 0) || !h.chantier_id)
+    );
+    if (indirectesInvalides.length > 0) {
+      alert(`Heures indirectes incomplètes\n\nChaque ligne d'heure indirecte doit avoir un motif, un chantier et un nombre d'heures > 0.`);
+      return;
+    }
+    // Cible exacte : tâches + trajets + heures indirectes = 10h Lun-Mer ou 9h Jeu-Ven
     const totalTachesHSubmit  = tachesRemplies.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+    const totalIndirectesH    = indirectesRemplies.reduce((s, h) => s + (parseFloat(h.heures) || 0), 0);
     const trajetMin = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
-    const totalSubmit = totalTachesHSubmit + trajetMin / 60;
+    const totalSubmit = totalTachesHSubmit + trajetMin / 60 + totalIndirectesH;
     if (Math.abs(totalSubmit - cibleHeures) > 0.01) {
       const ecart = totalSubmit - cibleHeures;
       const fmtH = (n) => n.toFixed(2).replace(/\.?0+$/, "");
       alert(
         `⏱ Total : ${fmtH(totalSubmit)}h / ${cibleHeures}h attendues\n\n` +
-        `Le total (tâches + trajets) doit faire exactement ${cibleHeures}h ce ${todayJour}.\n\n` +
+        `Le total (tâches + trajets + heures indirectes) doit faire exactement ${cibleHeures}h ce ${todayJour}.\n\n` +
         (ecart < 0
-          ? `Il manque ${fmtH(-ecart)}h — ajoute du temps de tâche ou de trajet.`
-          : `Tu dépasses de ${fmtH(ecart)}h — réduis tes heures de tâche ou de trajet.`)
+          ? `Il manque ${fmtH(-ecart)}h — ajoute du temps de tâche, de trajet ou indirect.`
+          : `Tu dépasses de ${fmtH(ecart)}h — réduis tes heures.`)
       );
       return;
     }
 
     setSubmitting(true);
 
-    // Regrouper par chantier
+    // Regrouper par chantier (tâches + heures indirectes côte à côte sur le même rapport)
     const parChantier = {};
     tachesRemplies.forEach(t => {
       const k = t.chantier_id || "divers";
-      if (!parChantier[k]) parChantier[k] = { chantier_id:t.chantier_id, chantier_nom:t.chantier_nom||"Divers", taches:[] };
+      if (!parChantier[k]) parChantier[k] = { chantier_id:t.chantier_id, chantier_nom:t.chantier_nom||"Divers", taches:[], heures_indirectes:[] };
       parChantier[k].taches.push({
         planifie:t.planifie,
         tache_id: t.tache_id || null,
@@ -505,6 +525,17 @@ function PageRapportMobile() {
         heures_reelles:parseFloat(t.heures_reelles)||0,
         avancement:parseInt(t.avancement)||0,
         photos: t.photos || [],
+      });
+    });
+    indirectesRemplies.forEach(h => {
+      const k = h.chantier_id || "divers";
+      if (!parChantier[k]) {
+        const ch = planData?.chantiersData?.find(c => c.id === h.chantier_id);
+        parChantier[k] = { chantier_id: h.chantier_id, chantier_nom: ch?.nom || h.chantier_id || "Divers", taches: [], heures_indirectes: [] };
+      }
+      parChantier[k].heures_indirectes.push({
+        motif: (h.motif || "").trim(),
+        heures: parseFloat(h.heures) || 0,
       });
     });
 
@@ -518,15 +549,16 @@ function PageRapportMobile() {
         date_rapport: dateKey,
         semaine: weekId,
         taches: grp.taches,
+        heures_indirectes: grp.heures_indirectes || [],
         remarque,
         photos_chantier: photosCh,
         trajet_matin_min: parseInt(trajetMatin) || 0,
         trajet_soir_min: parseInt(trajetSoir) || 0,
       };
       // Insert avec retry : si une colonne optionnelle manque, on la drop
-      // (pattern déjà utilisé pour photos_chantier — ici on étend à trajet_*).
+      // (pattern déjà utilisé pour photos_chantier — ici on étend à trajet_* et heures_indirectes).
       let payload = { ...rapportFull };
-      const optionalCols = ["trajet_matin_min", "trajet_soir_min", "photos_chantier"];
+      const optionalCols = ["trajet_matin_min", "trajet_soir_min", "photos_chantier", "heures_indirectes"];
       let { error: insErr } = await supabase.from("rapports").insert(payload);
       while (insErr && insErr.code === "42703") {
         const dropped = optionalCols.find(c => new RegExp(c).test(insErr.message || ""));
@@ -856,6 +888,113 @@ function PageRapportMobile() {
                 Sauvegardé à {lastSaved.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} — tu peux fermer la page sans perdre tes saisies
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* ── Heures indirectes (P7) ── */}
+      {(() => {
+        // Liste des chantiers proposés pour le rattachement : prioritairement ceux
+        // déjà présents dans les tâches du jour (sans doublons), sinon tous les
+        // chantiers actifs.
+        const chantiersDuJour = Array.from(new Set(taches.map(t => t.chantier_id).filter(Boolean)));
+        const tousChantiers = (planData?.chantiersData || []).filter(c => !c.archive);
+        const chantiersProposes = chantiersDuJour.length > 0
+          ? tousChantiers.filter(c => chantiersDuJour.includes(c.id))
+          : tousChantiers;
+        const presets = ["Intempéries", "Nettoyage", "SAV", "Trajet supp.", "Préparation chantier"];
+        const addIndirect = () => setHeuresIndirectes(prev => [...prev, { motif: "", chantier_id: chantiersProposes[0]?.id || "", heures: "" }]);
+        const removeIndirect = (i) => setHeuresIndirectes(prev => prev.filter((_, idx) => idx !== i));
+        const updateIndirect = (i, patch) => setHeuresIndirectes(prev => prev.map((x, idx) => idx === i ? { ...x, ...patch } : x));
+        return (
+          <div style={{...S.card, borderLeft:`4px solid #b27416`, padding:"14px 16px"}}>
+            <div style={{...S.sectionTitle("#b27416")}}>
+              <Icon as={AlertTriangle} size={13} strokeWidth={2.2}/>
+              Heures indirectes (intempéries, SAV, nettoyage…)
+            </div>
+            {heuresIndirectes.length === 0 ? (
+              <div style={{fontSize:FONT.xs.size+1, color:T.textMuted, marginBottom:8, lineHeight:1.4}}>
+                Optionnel. Pour les heures qui ne tombent sur aucune tâche vendue.
+              </div>
+            ) : (
+              <div style={{display:"flex", flexDirection:"column", gap:8, marginBottom:8}}>
+                {heuresIndirectes.map((h, i) => (
+                  <div key={i} style={{
+                    background: T.surface, border:`1px solid ${T.border}`,
+                    borderRadius: RADIUS.md, padding:"10px 12px",
+                    display:"flex", flexDirection:"column", gap:8,
+                  }}>
+                    <div style={{display:"flex", flexWrap:"wrap", gap:4}}>
+                      {presets.map(p => (
+                        <button key={p} onClick={() => updateIndirect(i, { motif: p })} style={{
+                          padding:"4px 8px", borderRadius:RADIUS.md, cursor:"pointer",
+                          fontFamily:"inherit", fontSize:FONT.xs.size+1, fontWeight:600,
+                          border: "1.5px solid",
+                          borderColor: h.motif === p ? "#b27416" : T.border,
+                          background: h.motif === p ? "rgba(178,116,22,0.10)" : T.bg,
+                          color: h.motif === p ? "#b27416" : T.textMuted,
+                        }}>{p}</button>
+                      ))}
+                    </div>
+                    <input
+                      type="text" placeholder="Motif (ou choisis ci-dessus)"
+                      value={h.motif}
+                      onChange={e => updateIndirect(i, { motif: e.target.value })}
+                      style={{
+                        width:"100%", padding:"8px 10px", borderRadius:RADIUS.md,
+                        border:`1.5px solid ${T.border}`, background:T.bg, color:T.text,
+                        fontSize:FONT.base.size, fontFamily:"inherit", outline:"none",
+                      }}
+                    />
+                    <div style={{display:"grid", gridTemplateColumns:"1fr 90px 28px", gap:6, alignItems:"center"}}>
+                      <select
+                        value={h.chantier_id || ""}
+                        onChange={e => updateIndirect(i, { chantier_id: e.target.value })}
+                        style={{
+                          padding:"8px 10px", borderRadius:RADIUS.md,
+                          border:`1.5px solid ${T.border}`, background:T.bg, color:T.text,
+                          fontSize:FONT.base.size, fontFamily:"inherit", outline:"none",
+                        }}
+                      >
+                        <option value="">— Choisir chantier —</option>
+                        {chantiersProposes.map(c => (
+                          <option key={c.id} value={c.id}>{c.nom || c.id}</option>
+                        ))}
+                      </select>
+                      <div style={{display:"flex", alignItems:"center", gap:4}}>
+                        <input
+                          type="number" min="0" max="12" step="0.25"
+                          value={h.heures}
+                          onChange={e => updateIndirect(i, { heures: e.target.value })}
+                          placeholder="h"
+                          style={{
+                            width:60, padding:"8px 6px", borderRadius:RADIUS.md,
+                            border:`1.5px solid ${T.border}`, background:T.bg, color:T.text,
+                            fontSize:16, fontWeight:700, fontFamily:"inherit", outline:"none",
+                            textAlign:"center",
+                          }}
+                        />
+                        <span style={{fontSize:FONT.xs.size+1, color:T.textMuted, fontWeight:600}}>h</span>
+                      </div>
+                      <button onClick={() => removeIndirect(i)} style={{
+                        background:"transparent", border:"none", cursor:"pointer",
+                        color:T.danger, padding:4, display:"flex", alignItems:"center", justifyContent:"center",
+                      }}>
+                        <Icon as={X} size={14} strokeWidth={2.5}/>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={addIndirect} style={{
+              ...S.btn("#fff", T.text),
+              fontSize: FONT.sm.size,
+              padding: "8px 12px",
+            }}>
+              <Icon as={Plus} size={14} strokeWidth={2.2}/>
+              Ajouter une heure indirecte
+            </button>
           </div>
         );
       })()}

@@ -575,7 +575,15 @@ function ModaleRapport({
       photos: t.photos || [],
     }));
     setLignes(init);
-    setIndirectes([]);
+    // Pré-remplit la zone heures indirectes avec ce que l'ouvrier a déclaré
+    // (P7). Le conducteur peut compléter/corriger/supprimer avant validation.
+    const initIndirectes = Array.isArray(rapport.heures_indirectes)
+      ? rapport.heures_indirectes.map(h => ({
+          motif: h.motif || "",
+          heures: h.heures != null ? h.heures : "",
+        }))
+      : [];
+    setIndirectes(initIndirectes);
   }, [rapport.id]);
 
   const totalHTaches = lignes.reduce((s, l) => s + (parseFloat(l.heures) || 0), 0);
