@@ -41,11 +41,15 @@ export const PAGES_RENOVATION = [
 ];
 
 export const PAGES_INVEST = [
-  { id: "dashboard",  label: "Tableau de bord" },
-  { id: "crm",        label: "CRM Clients"     },
-  { id: "biens",      label: "Stock de biens"  },
-  { id: "simulateur", label: "Simulateur"      },
-  { id: "admin",      label: "Réglages"        },
+  { id: "dashboard", label: "Tableau de bord" },
+  { id: "prospection", label: "Prospection" },
+  { id: "crm", label: "CRM Clients" },
+  { id: "biens", label: "Biens" },
+  { id: "simulateur", label: "Simulateur" },
+  { id: "structuration", label: "Structuration" },
+  { id: "finance", label: "Finance" },
+  { id: "suivi_financier", label: "Suivi financier" },
+  { id: "admin", label: "Admin" },
 ];
 
 // ─── RÔLES PAR DÉFAUT ────────────────────────────────────────────────────────
@@ -81,7 +85,38 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
 };
 
 export const ROLE_PAGES_DEFAULT_INVEST = {
-  admin: PAGES_INVEST.map(p => p.id),
+  "Super Admin": [
+    "dashboard",
+    "prospection",
+    "crm",
+    "biens",
+    "simulateur",
+    "structuration",
+    "finance",
+    "suivi_financier",
+    "admin",
+  ],
+
+  Admin: [
+    "dashboard",
+    "prospection",
+    "crm",
+    "biens",
+    "simulateur",
+    "structuration",
+    "finance",
+    "suivi_financier",
+    "admin",
+  ],
+
+  commercial: [
+    "dashboard",
+    "prospection",
+    "crm",
+    "biens",
+    "simulateur",
+    "structuration",
+  ],
 };
 
 // ─── HELPERS BRANCHE ─────────────────────────────────────────────────────────
