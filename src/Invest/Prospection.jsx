@@ -1,358 +1,164 @@
-import React, { useMemo } from "react";
-import { Icon } from "../ui";
-import { FONT, RADIUS } from "../constants";
-import { THEMES_INV, SU, WA, DA, fmtDashboardEur } from "./_shared";
-import {
-  UserPlus,
-  Search,
-  Phone,
-  Calendar,
-  FileText,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  ArrowRight,
-  TrendingUp,
-} from "lucide-react";
+-- supabase_prospection_v1.sql
+-- Création du CRM Prospection Profero Invest
+-- À exécuter dans Supabase > SQL Editor
 
-const PROSPECTION_STAGES = [
-  {
-    id: "nouveau",
-    label: "Nouveaux prospects",
-    description: "Prospects ajoutés mais pas encore qualifiés",
-    icon: UserPlus,
-    color: "#60A5FA",
-  },
-  {
-    id: "qualification",
-    label: "À qualifier",
-    description: "Analyse du profil, budget, objectif et délai",
-    icon: Search,
-    color: "#C9A84C",
-  },
-  {
-    id: "contact",
-    label: "Contact / relance",
-    description: "Premier échange réalisé ou relance à prévoir",
-    icon: Phone,
-    color: "#F59E0B",
-  },
-  {
-    id: "rdv",
-    label: "RDV planifié",
-    description: "Rendez-vous découverte ou closing prévu",
-    icon: Calendar,
-    color: "#8B5CF6",
-  },
-  {
-    id: "proposition",
-    label: "Proposition envoyée",
-    description: "Offre commerciale ou contrat transmis",
-    icon: FileText,
-    color: "#10B981",
-  },
-  {
-    id: "signe",
-    label: "Signés",
-    description: "Prospects à convertir en clients",
-    icon: CheckCircle2,
-    color: SU,
-  },
-  {
-    id: "perdu",
-    label: "Perdus / sommeil",
-    description: "Prospects non transformés ou à reprendre plus tard",
-    icon: XCircle,
-    color: DA,
-  },
-];
+create extension if not exists pgcrypto;
 
-const PREVIEW_KPIS = [
-  { label: "Prospects actifs", value: "—", icon: UserPlus, color: "#60A5FA" },
-  { label: "RDV à venir", value: "—", icon: Calendar, color: "#8B5CF6" },
-  { label: "Relances en retard", value: "—", icon: Clock, color: WA },
-  { label: "CA potentiel", value: fmtDashboardEur(0), icon: TrendingUp, color: SU },
-];
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 1. Table principale : prospects
+-- ─────────────────────────────────────────────────────────────────────────────
 
-function EmptyStageCard({ stage, T }) {
-  const IconStage = stage.icon;
+create table if not exists public.invest_prospects (
+  id uuid primary key default gen_random_uuid(),
 
-  return (
-    <div
-      className="inv-card"
-      style={{
-        padding: 14,
-        minHeight: 154,
-        borderTop: `3px solid ${stage.color}`,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-      }}
-    >
-      <div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginBottom: 8,
-          }}
-        >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: RADIUS.md,
-              background: `${stage.color}18`,
-              color: stage.color,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <Icon as={IconStage} size={16} strokeWidth={2.2} />
-          </div>
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by text,
+  updated_by text,
 
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: FONT.sm.size + 1,
-                fontWeight: 900,
-                color: T.text,
-                lineHeight: 1.15,
-              }}
-            >
-              {stage.label}
-            </div>
-            <div
-              style={{
-                fontSize: FONT.xs.size + 1,
-                color: T.textMuted,
-                marginTop: 2,
-              }}
-            >
-              0 prospect
-            </div>
-          </div>
-        </div>
+  is_deleted boolean not null default false,
 
-        <div
-          style={{
-            fontSize: FONT.xs.size + 1,
-            color: T.textSub,
-            lineHeight: 1.45,
-          }}
-        >
-          {stage.description}
-        </div>
-      </div>
+  -- Identité
+  civilite text,
+  nom text not null default '',
+  prenom text not null default '',
+  societe text,
+  telephone text,
+  email text,
+  adresse text,
+  ville text,
+  code_postal text,
+  pays text default 'France',
 
-      <div
-        style={{
-          marginTop: 12,
-          paddingTop: 10,
-          borderTop: `1px solid ${T.border}`,
-          fontSize: FONT.xs.size + 1,
-          color: T.textMuted,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-        }}
-      >
-        <span>Pipeline prêt</span>
-        <Icon as={ArrowRight} size={13} />
-      </div>
-    </div>
-  );
-}
+  -- Origine et pilotage
+  source text,
+  responsable text,
+  statut text not null default 'nouveau',
+  priorite text not null default 'moyenne',
+  score text not null default 'B',
 
-function PreviewKpiCard({ item, T }) {
-  const KpiIcon = item.icon;
+  -- Profil prospect
+  profil_investisseur text,
+  experience text,
+  nb_biens integer,
+  situation_professionnelle text,
+  objectif text,
 
-  return (
-    <div
-      className="inv-card"
-      style={{
-        padding: 16,
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-      }}
-    >
-      <div
-        style={{
-          width: 38,
-          height: 38,
-          borderRadius: RADIUS.lg,
-          background: `${item.color}18`,
-          color: item.color,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        <Icon as={KpiIcon} size={18} strokeWidth={2.1} />
-      </div>
+  -- Projet recherché
+  zone_recherche text,
+  type_bien text,
+  strategie text,
+  budget_global numeric,
+  budget_travaux numeric,
+  apport numeric,
+  capacite_emprunt numeric,
+  delai_achat text,
 
-      <div>
-        <div
-          style={{
-            fontSize: FONT.xs.size,
-            color: T.textMuted,
-            textTransform: "uppercase",
-            letterSpacing: 0.7,
-            fontWeight: 800,
-            marginBottom: 2,
-          }}
-        >
-          {item.label}
-        </div>
-        <div
-          style={{
-            fontSize: FONT.lg.size,
-            color: T.text,
-            fontWeight: 900,
-            fontFamily: "'DM Mono', monospace",
-          }}
-        >
-          {item.value}
-        </div>
-      </div>
-    </div>
-  );
-}
+  -- Qualification commerciale
+  motivation text,
+  maturite text,
+  probabilite_signature numeric,
+  offre_recommandee text,
+  honoraires_estimes_ht numeric,
+  honoraires_estimes_ttc numeric,
+  ca_potentiel_ht numeric,
+  objections text,
+  besoins text,
 
-export default function Prospection({ profil, T = THEMES_INV.dark }) {
-  const stages = useMemo(() => PROSPECTION_STAGES, []);
+  -- Suivi commercial
+  prochaine_action text,
+  date_prochaine_action date,
+  date_relance date,
+  date_premier_contact date,
 
-  return (
-    <div style={{ padding: "24px 28px", maxWidth: 1440, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 18,
-          marginBottom: 24,
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: 26,
-              fontWeight: 900,
-              color: T.text,
-              letterSpacing: 0.4,
-              marginBottom: 6,
-            }}
-          >
-            CRM Prospection
-          </div>
-          <div
-            style={{
-              fontSize: 14,
-              color: T.textSub,
-              maxWidth: 760,
-              lineHeight: 1.5,
-            }}
-          >
-            Suivi des prospects avant signature. Cette page est indépendante du CRM Client et servira ensuite à qualifier, relancer,
-            signer puis convertir les prospects en clients.
-          </div>
-        </div>
+  -- Rendez-vous
+  date_rdv date,
+  heure_rdv text,
+  type_rdv text,
+  lieu_rdv text,
+  statut_rdv text,
+  compte_rendu_rdv text,
 
-        <button
-          className="inv-btn inv-btn-blue"
-          type="button"
-          onClick={() =>
-            alert(
-              "La création de prospect sera ajoutée à l'étape suivante avec la table Supabase invest_prospects."
-            )
-          }
-        >
-          <Icon as={UserPlus} size={15} />
-          Nouveau prospect
-        </button>
-      </div>
+  -- Proposition / signature
+  date_proposition date,
+  statut_proposition text,
+  date_signature date,
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 12,
-          marginBottom: 22,
-        }}
-      >
-        {PREVIEW_KPIS.map((item) => (
-          <PreviewKpiCard key={item.label} item={item} T={T} />
-        ))}
-      </div>
+  -- Perte / sommeil
+  date_perte date,
+  raison_perte text,
 
-      <div
-        className="inv-card"
-        style={{
-          padding: 18,
-          marginBottom: 22,
-          background: T.card,
-        }}
-      >
-        <div
-          style={{
-            fontSize: FONT.md.size + 1,
-            fontWeight: 900,
-            color: T.text,
-            marginBottom: 6,
-          }}
-        >
-          Objectif de cette page
-        </div>
+  -- Commentaires et données extensibles
+  commentaire text,
+  donnees jsonb not null default '{}'::jsonb,
 
-        <div
-          style={{
-            fontSize: FONT.sm.size,
-            color: T.textSub,
-            lineHeight: 1.6,
-          }}
-        >
-          La page Prospection va devenir le point d’entrée commercial de Profero Invest. Elle doit contenir les prospects avant
-          signature, avec leurs informations, leur niveau de qualification, leurs relances, leurs rendez-vous, leurs propositions
-          commerciales et un bouton de conversion vers le CRM Client une fois le contrat signé.
-        </div>
-      </div>
+  -- Conversion vers CRM Client
+  converted_client_id uuid,
+  converted_at timestamptz
+);
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, minmax(180px, 1fr))",
-          gap: 12,
-          overflowX: "auto",
-          paddingBottom: 8,
-        }}
-      >
-        {stages.map((stage) => (
-          <EmptyStageCard key={stage.id} stage={stage} T={T} />
-        ))}
-      </div>
+create index if not exists idx_invest_prospects_statut
+  on public.invest_prospects(statut);
 
-      <div
-        style={{
-          marginTop: 24,
-          padding: 16,
-          borderRadius: RADIUS.lg,
-          background: T.cardHover,
-          border: `1px solid ${T.border}`,
-          color: T.textSub,
-          fontSize: FONT.sm.size,
-          lineHeight: 1.55,
-        }}
-      >
-        <strong style={{ color: T.text }}>Étape suivante :</strong> création de la table Supabase <code>invest_prospects</code>,
-        puis ajout des fonctions d’ajout, modification, suppression logique, pipeline, historique des actions et conversion vers
-        <code> invest_clients</code>.
-      </div>
-    </div>
-  );
-}
+create index if not exists idx_invest_prospects_responsable
+  on public.invest_prospects(responsable);
+
+create index if not exists idx_invest_prospects_date_prochaine_action
+  on public.invest_prospects(date_prochaine_action);
+
+create index if not exists idx_invest_prospects_is_deleted
+  on public.invest_prospects(is_deleted);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2. Historique des actions commerciales
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.invest_prospect_actions (
+  id uuid primary key default gen_random_uuid(),
+
+  prospect_id uuid not null references public.invest_prospects(id) on delete cascade,
+
+  created_at timestamptz not null default now(),
+  created_by text,
+
+  date_action timestamptz not null default now(),
+  type_action text not null default 'note',
+  resume text not null default '',
+  resultat text,
+  prochaine_action text,
+  date_prochaine_action date,
+
+  donnees jsonb not null default '{}'::jsonb
+);
+
+create index if not exists idx_invest_prospect_actions_prospect_id
+  on public.invest_prospect_actions(prospect_id);
+
+create index if not exists idx_invest_prospect_actions_date_action
+  on public.invest_prospect_actions(date_action desc);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. Trigger updated_at automatique
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create or replace function public.set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_invest_prospects_updated_at on public.invest_prospects;
+
+create trigger trg_invest_prospects_updated_at
+before update on public.invest_prospects
+for each row
+execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4. Note RLS
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Cette version ne force pas RLS afin d'éviter les blocages d'écriture dans
+-- l'application existante. Si tu actives RLS plus tard, il faudra créer les
+-- policies adaptées aux utilisateurs connectés de Profero App.
