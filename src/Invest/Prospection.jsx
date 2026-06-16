@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version simple + Drag & Drop + relances opérationnelles
+ * CRM Prospection — Version simple + Drag & Drop + relances + conversion sécurisée
  *
  * Objectif :
  * - CRM volontairement simple
@@ -1017,6 +1017,75 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     await loadProspects();
   };
 
+  const findExistingClient = async (prospect) => {
+    const email = String(prospect.email || "").trim();
+    const telephone = String(prospect.telephone || "").replace(/\\D/g, "");
+
+    if (email) {
+      const { data, error: err } = await supabase
+        .from("invest_clients")
+        .select("id, nom, prenom, email, telephone")
+        .eq("email", email)
+        .limit(1)
+        .maybeSingle();
+
+      if (!err && data?.id) return data;
+    }
+
+    if (telephone) {
+      const { data, error: err } = await supabase
+        .from("invest_clients")
+        .select("id, nom, prenom, email, telephone")
+        .eq("telephone", prospect.telephone)
+        .limit(1)
+        .maybeSingle();
+
+      if (!err && data?.id) return data;
+    }
+
+    return null;
+  };
+
+  const markProspectAsConverted = async (clientId, prospect, mode = "créé") => {
+    const convertedAt = new Date().toISOString();
+
+    const { data, error: err } = await supabase
+      .from("invest_prospects")
+      .update({
+        statut: "converti",
+        converted_client_id: clientId,
+        converted_at: convertedAt,
+        date_signature: selected?.date_signature || todayIso(),
+        updated_by: auteur(profil),
+      })
+      .eq("id", selected.id)
+      .select("*")
+      .single();
+
+    if (err) {
+      setError(err.message);
+      return null;
+    }
+
+    await supabase
+      .from("invest_prospect_actions")
+      .insert({
+        prospect_id: selected.id,
+        created_by: auteur(profil),
+        type_action: "conversion",
+        resume: `Prospect converti en client CRM (${mode}). Client ID : ${clientId}`,
+        prochaine_action: "",
+        date_prochaine_action: null,
+      });
+
+    setSelected(data);
+    setForm(prospectToForm(data));
+    await loadActions(selected.id);
+    await loadProspects();
+
+    return data;
+  };
+
   const convertClient = async () => {
     if (!selected?.id) return;
 
@@ -1033,42 +1102,103 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       return;
     }
 
+    if (!prospect.responsable) {
+      setError("Conversion impossible : renseigne le responsable du dossier.");
+      return;
+    }
+
     if (!window.confirm("Convertir ce prospect en client ?")) return;
 
     setSaving(true);
     setError("");
+    setMsg("");
 
+    // 1. On sauvegarde d'abord les dernières informations du prospect.
+    const { data: savedProspect, error: saveErr } = await supabase
+      .from("invest_prospects")
+      .update(payloadProspect)
+      .eq("id", selected.id)
+      .select("*")
+      .single();
+
+    if (saveErr) {
+      setSaving(false);
+      setError(saveErr.message || "Impossible de sauvegarder le prospect avant conversion.");
+      return;
+    }
+
+    const cleanProspect = { ...prospect, ...savedProspect };
+
+    // 2. Détection de doublon CRM client par email ou téléphone.
+    const existingClient = await findExistingClient(cleanProspect);
+
+    if (existingClient?.id) {
+      const existingName = `${existingClient.prenom || ""} ${existingClient.nom || ""}`.trim() || existingClient.email || existingClient.telephone || "client existant";
+      const confirmLink = window.confirm(
+        `Un client existe déjà dans le CRM : ${existingName}.\n\nSouhaites-tu lier ce prospect à cette fiche client au lieu de créer un doublon ?`
+      );
+
+      if (!confirmLink) {
+        setSaving(false);
+        setMsg("Conversion annulée pour éviter un doublon.");
+        setTimeout(() => setMsg(""), 2200);
+        return;
+      }
+
+      await markProspectAsConverted(existingClient.id, cleanProspect, "lié à un client existant");
+      setSaving(false);
+      setMsg("Prospect lié au client existant.");
+      setTimeout(() => setMsg(""), 2400);
+      return;
+    }
+
+    // 3. Création du client CRM avec plusieurs niveaux de compatibilité selon les colonnes disponibles.
     const clientPayloads = [
       {
-        nom: prospect.nom || "",
-        prenom: prospect.prenom || "",
-        telephone: prospect.telephone || "",
-        email: prospect.email || "",
-        source: prospect.source || "CRM Prospection",
+        nom: cleanProspect.nom || "",
+        prenom: cleanProspect.prenom || "",
+        telephone: cleanProspect.telephone || "",
+        email: cleanProspect.email || "",
+        source: cleanProspect.source || "CRM Prospection",
         statut: "actif",
         etape: "1. Signature contrat",
-        budget: prospect.budget_global || null,
+        budget: cleanProspect.budget_global || null,
         date_signature: todayIso(),
         strategie_data: {
           origine: "CRM Prospection",
           prospect_id: selected.id,
-          objectif: prospect.objectif || "",
-          budget_max: prospect.budget_global || null,
-          zones: prospect.zone_recherche || "",
-          remarques: prospect.commentaire || "",
+          objectif: cleanProspect.objectif || "",
+          budget_max: cleanProspect.budget_global || null,
+          zones: cleanProspect.zone_recherche || "",
+          honoraires_estimes_ht: cleanProspect.honoraires_estimes_ht || null,
+          responsable: cleanProspect.responsable || "",
+          remarques: cleanProspect.commentaire || "",
         },
+        notes: [
+          "Créé depuis le CRM Prospection.",
+          cleanProspect.objectif ? `Objectif : ${cleanProspect.objectif}` : null,
+          cleanProspect.zone_recherche ? `Zone : ${cleanProspect.zone_recherche}` : null,
+          cleanProspect.commentaire ? `Note prospection : ${cleanProspect.commentaire}` : null,
+        ].filter(Boolean).join("\n"),
         created_by: auteur(profil),
       },
       {
-        nom: prospect.nom || "",
-        prenom: prospect.prenom || "",
-        telephone: prospect.telephone || "",
-        email: prospect.email || "",
-        budget: prospect.budget_global || null,
+        nom: cleanProspect.nom || "",
+        prenom: cleanProspect.prenom || "",
+        telephone: cleanProspect.telephone || "",
+        email: cleanProspect.email || "",
+        source: cleanProspect.source || "CRM Prospection",
+        budget: cleanProspect.budget_global || null,
       },
       {
-        nom: prospect.nom || "",
-        prenom: prospect.prenom || "",
+        nom: cleanProspect.nom || "",
+        prenom: cleanProspect.prenom || "",
+        telephone: cleanProspect.telephone || "",
+        email: cleanProspect.email || "",
+      },
+      {
+        nom: cleanProspect.nom || "",
+        prenom: cleanProspect.prenom || "",
       },
     ];
 
@@ -1090,6 +1220,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
       lastError = err;
 
+      // Si une colonne n'existe pas, on tente une version plus simple.
       if (err.code !== "42703") break;
     }
 
@@ -1099,31 +1230,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       return;
     }
 
-    const { data, error: err } = await supabase
-      .from("invest_prospects")
-      .update({
-        statut: "converti",
-        converted_client_id: client.id,
-        converted_at: new Date().toISOString(),
-        updated_by: auteur(profil),
-      })
-      .eq("id", selected.id)
-      .select("*")
-      .single();
-
-    if (err) {
-      setSaving(false);
-      setError(err.message);
-      return;
-    }
-
-    setSelected(data);
-    setForm(prospectToForm(data));
-    await loadProspects();
-
+    await markProspectAsConverted(client.id, cleanProspect, "créé");
     setSaving(false);
-    setMsg("Prospect converti en client.");
-    setTimeout(() => setMsg(""), 2200);
+    setMsg("Prospect converti en nouveau client CRM.");
+    setTimeout(() => setMsg(""), 2400);
   };
 
   const copyText = async (text, label) => {
