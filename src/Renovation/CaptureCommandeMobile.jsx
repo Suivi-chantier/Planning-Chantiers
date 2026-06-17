@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase, photoTransform } from "../supabase";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT } from "../constants";
 import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
@@ -11,6 +11,9 @@ const EDGE_ANALYSE_COMMANDE =
   "https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-commande";
 
 const LS_DERNIER_CHANTIER = "capture_cmd_dernier_chantier";
+
+// id de phase -> libellé lisible (ex: "demolition" -> "Démolition")
+const PHASE_LABEL = Object.fromEntries(PHASES_DEFAUT.map(p => [p.id, p.label]));
 
 const TYPES_EVENEMENT = [
   { id: "comptoir",  label: "Comptoir",  icon: ShoppingCart },
@@ -71,13 +74,14 @@ async function analyseCommande(base64, mediaType) {
   return JSON.parse(clean);
 }
 
-const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "" });
+const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", phase_id: "" });
 
 export default function CaptureCommandeMobile({ chantiers = [], T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
   const [step, setStep] = useState("home");      // home | setup | analyzing | verify
   const [recents, setRecents] = useState([]);
   const [loadingRecents, setLoadingRecents] = useState(true);
+  const [phasages, setPhasages] = useState([]);
 
   // Brouillon de saisie
   const [chantierDefaut, setChantierDefaut] = useState(() => localStorage.getItem(LS_DERNIER_CHANTIER) || "");
@@ -113,6 +117,25 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   }, []);
 
   useEffect(() => { loadRecents(); }, [loadRecents]);
+
+  // Phasages (1 par chantier) — pour le sélecteur de phase par ligne
+  useEffect(() => {
+    supabase.from("phasages").select("id, chantier_id, plan_travaux")
+      .then(({ data }) => setPhasages(data || []));
+  }, []);
+
+  const phasageForChantier = useCallback(
+    (cid) => phasages.find(p => String(p.chantier_id) === String(cid)) || null,
+    [phasages]
+  );
+  // Liste des phases (id + libellé) définies dans le plan de travaux du chantier
+  const phasesForChantier = useCallback((cid) => {
+    const ph = phasageForChantier(cid);
+    if (!ph?.plan_travaux) return [];
+    return Object.entries(ph.plan_travaux)
+      .filter(([k, v]) => k !== "meta" && !k.includes("__") && Array.isArray(v) && v.length > 0)
+      .map(([id]) => ({ id, label: PHASE_LABEL[id] || id }));
+  }, [phasageForChantier]);
 
   // ── Démarrer une nouvelle saisie ──
   const nouvelleCommande = () => {
@@ -155,6 +178,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             prix_unitaire: l.prix_unitaire != null ? String(l.prix_unitaire) : "",
             prix_total: l.prix_total != null ? String(l.prix_total) : "",
             chantier_id: "",
+            phase_id: "",
           }))
         : [ligneVide()];
       setForm({
@@ -216,6 +240,9 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         const pu = toNum(l.prix_unitaire);
         const pt = toNum(l.prix_total);
         const q = toNum(l.quantite);
+        const effCh = (repartir ? l.chantier_id : chantierDefaut) || null;
+        const phaseId = l.phase_id || null;
+        const phRow = (phaseId && effCh) ? phasageForChantier(effCh) : null;
         return {
           commande_id: cmd.id,
           libelle: l.libelle.trim() || "",
@@ -224,7 +251,9 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           unite: l.unite || "U",
           prix_unitaire: pu,
           prix_total: pt != null ? pt : (pu != null && q != null ? pu * q : null),
-          chantier_id: (repartir ? l.chantier_id : chantierDefaut) || null,
+          chantier_id: effCh,
+          phasage_id: phRow ? phRow.id : null,
+          phase_id: phRow ? phaseId : null,
         };
       });
 
@@ -491,7 +520,10 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
 
       {/* Lignes */}
       <div style={labelStyle}>Articles ({form.lignes.length})</div>
-      {form.lignes.map((l, i) => (
+      {form.lignes.map((l, i) => {
+        const effCh = repartir ? l.chantier_id : chantierDefaut;
+        const phaseOpts = effCh ? phasesForChantier(effCh) : [];
+        return (
         <div key={i} style={card}>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input value={l.libelle} onChange={e => setLigne(i, { libelle: e.target.value })} placeholder="Désignation" style={{ ...inputStyle, flex: 1 }} />
@@ -505,13 +537,20 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             <input inputMode="decimal" value={l.prix_total} onChange={e => setLigne(i, { prix_total: e.target.value })} placeholder="Total €" style={inputStyle} />
           </div>
           {repartir && (
-            <select value={l.chantier_id} onChange={e => setLigne(i, { chantier_id: e.target.value })} style={inputStyle}>
+            <select value={l.chantier_id} onChange={e => setLigne(i, { chantier_id: e.target.value, phase_id: "" })} style={inputStyle}>
               <option value="">— Chantier de cette ligne —</option>
               {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom || c.id}</option>)}
             </select>
           )}
+          {phaseOpts.length > 0 && (
+            <select value={l.phase_id} onChange={e => setLigne(i, { phase_id: e.target.value })} style={{ ...inputStyle, marginTop: repartir ? 8 : 0 }}>
+              <option value="">— Phase (optionnel) —</option>
+              {phaseOpts.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+          )}
         </div>
-      ))}
+        );
+      })}
 
       <button onClick={addLigne} style={{
         width: "100%", padding: "12px", borderRadius: RADIUS.md, cursor: "pointer",
