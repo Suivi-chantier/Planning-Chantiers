@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + notification mail diagnostic
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + fiche modale + import liste
  *
  * Objectif :
  * - CRM volontairement simple
@@ -577,6 +577,121 @@ function parseImportedProspects(content, fileName = "") {
   }
 
   return parseTextProspect(raw);
+}
+
+function looksLikeHeaderLine(line) {
+  const normalized = stripAccents(line || "").toLowerCase();
+  const headerWords = [
+    "prenom",
+    "nom",
+    "telephone",
+    "email",
+    "source",
+    "responsable",
+    "objectif",
+    "budget",
+    "zone",
+    "note",
+  ];
+
+  return headerWords.filter((w) => normalized.includes(w)).length >= 2;
+}
+
+function splitName(fullName) {
+  const cleaned = String(fullName || "")
+    .replace(/^(prospect|client|nom)\s*[:\-]\s*/i, "")
+    .trim();
+
+  if (!cleaned) return { prenom: "", nom: "" };
+
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+
+  if (parts.length === 1) {
+    return { prenom: "", nom: parts[0] };
+  }
+
+  const prenom = parts.shift() || "";
+  return { prenom, nom: parts.join(" ") };
+}
+
+function parseDirectProspectLine(line) {
+  const raw = String(line || "").trim();
+  if (!raw) return null;
+
+  const delimiter = raw.includes(";")
+    ? ";"
+    : raw.includes("\t")
+      ? "\t"
+      : (raw.match(/,/g) || []).length >= 2
+        ? ","
+        : null;
+
+  if (!delimiter) {
+    const parsed = parseTextProspect(raw)[0];
+    return parsed || null;
+  }
+
+  const cells = parseCSVLine(raw, delimiter).map((c) => String(c || "").trim());
+  const [nameCell = "", telCell = "", emailCell = "", sourceCell = "", objectifCell = "", budgetCell = "", zoneCell = "", ...rest] = cells;
+
+  const emailFromLine = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+  const phoneFromLine = raw.match(/(?:\+33|0033|0)[\d\s.\-()]{8,}/)?.[0] || "";
+
+  const name = splitName(nameCell);
+  const email = emailCell.includes("@") ? emailCell : emailFromLine;
+  const telephone = telCell || phoneFromLine;
+
+  return normalizeImportedRow({
+    prenom: name.prenom,
+    nom: name.nom,
+    telephone,
+    email,
+    source: sourceCell,
+    objectif: objectifCell,
+    budget_global: budgetCell,
+    zone_recherche: zoneCell,
+    commentaire: rest.filter(Boolean).join(" - "),
+  });
+}
+
+function parsePastedProspectList(content) {
+  const raw = String(content || "").trim();
+  if (!raw) return [];
+
+  const firstLine = raw.split(/\r?\n/).find((l) => l.trim()) || "";
+
+  if (
+    raw.startsWith("{") ||
+    raw.startsWith("[") ||
+    raw.includes("BEGIN:VCARD") ||
+    looksLikeHeaderLine(firstLine)
+  ) {
+    const parsed = parseImportedProspects(raw, looksLikeHeaderLine(firstLine) ? "prospects.csv" : "prospects.txt");
+    if (parsed.length) return parsed;
+  }
+
+  const blocks = raw
+    .split(/\n\s*\n/g)
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  if (blocks.length > 1) {
+    const blockProspects = blocks
+      .map((block) => parseTextProspect(block)[0])
+      .filter(Boolean)
+      .map(normalizeImportedRow);
+
+    if (blockProspects.length) return blockProspects;
+  }
+
+  return raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map(parseDirectProspectLine)
+    .filter(Boolean)
+    .map(normalizeImportedRow)
+    .filter((p) => p.nom || p.prenom || p.societe || p.email || p.telephone);
 }
 
 
@@ -1568,6 +1683,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [query, setQuery] = useState("");
   const [quickFilter, setQuickFilter] = useState("all");
   const [viewMode, setViewMode] = useState("pipeline");
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -1848,6 +1965,85 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setMailNotice(null);
   };
 
+  const importParsedProspects = async (parsed, originLabel = "import") => {
+    if (!parsed.length) {
+      setError("Import impossible : aucun prospect reconnu.");
+      return [];
+    }
+
+    if (parsed.length > 1) {
+      const ok = window.confirm(`${parsed.length} prospects détectés. Souhaites-tu les importer ?`);
+      if (!ok) return [];
+    }
+
+    const payloads = parsed.map((p) => {
+      const merged = {
+        ...EMPTY_FORM,
+        ...p,
+        statut: p.statut || "nouveau",
+        responsable: p.responsable || profil?.prenom || profil?.nom || "",
+        prochaine_action: p.prochaine_action || "Appeler",
+        date_prochaine_action: p.date_prochaine_action || todayIso(),
+      };
+
+      const payload = formToPayload(merged, profil, true);
+
+      if (!payload.nom && !payload.prenom && !payload.societe) {
+        payload.nom = "Prospect importé";
+      }
+
+      payload.donnees = {
+        import_source: originLabel,
+        import_date: new Date().toISOString(),
+      };
+
+      return payload;
+    });
+
+    const { data, error: err } = await supabase
+      .from("invest_prospects")
+      .insert(payloads)
+      .select("*");
+
+    if (err) {
+      setError(err.message || "Erreur pendant l'import.");
+      return [];
+    }
+
+    await loadProspects();
+
+    const notificationResults = await Promise.allSettled((data || []).map((p) => notifyNewProspectByEmail(p, originLabel)));
+    const notificationValues = notificationResults.map((r) => r.status === "fulfilled" ? r.value : { ok: false, message: r.reason?.message || String(r.reason) });
+    const notifiedCount = notificationValues.filter((r) => r?.ok).length;
+    const firstNotificationError = notificationValues.find((r) => !r?.ok)?.message;
+    const totalImported = data?.length || 0;
+
+    if (data?.length === 1) {
+      setIsCreating(false);
+      setSelected(data[0]);
+      setForm(prospectToForm(data[0]));
+    }
+
+    if (totalImported > 0 && notifiedCount === totalImported) {
+      showMailNotice(
+        "success",
+        totalImported > 1
+          ? `${notifiedCount} mails de notification envoyés à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
+          : `Mail de notification envoyé à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
+      );
+    } else if (totalImported > 0) {
+      showMailNotice(
+        "warning",
+        `${totalImported} prospect(s) importé(s), mais seulement ${notifiedCount} mail(s) confirmé(s). Détail : ${firstNotificationError || "fonction notify-new-prospect non confirmée"}`
+      );
+    }
+
+    setMsg(data?.length > 1 ? `${data.length} prospects importés.` : "Prospect importé.");
+    setTimeout(() => setMsg(""), 2600);
+
+    return data || [];
+  };
+
   const handleImportProspects = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1860,95 +2056,48 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     try {
       const content = await file.text();
       const parsed = parseImportedProspects(content, file.name);
-
-      if (!parsed.length) {
-        setError("Import impossible : aucun prospect reconnu dans le fichier.");
-        setImporting(false);
-        event.target.value = "";
-        return;
-      }
-
-      if (parsed.length > 1) {
-        const ok = window.confirm(`${parsed.length} prospects détectés. Souhaites-tu les importer ?`);
-        if (!ok) {
-          setImporting(false);
-          event.target.value = "";
-          return;
-        }
-      }
-
-      const payloads = parsed.map((p) => {
-        const merged = {
-          ...EMPTY_FORM,
-          ...p,
-          statut: p.statut || "nouveau",
-          responsable: p.responsable || profil?.prenom || profil?.nom || "",
-          prochaine_action: p.prochaine_action || "Appeler",
-          date_prochaine_action: p.date_prochaine_action || todayIso(),
-        };
-
-        const payload = formToPayload(merged, profil, true);
-
-        if (!payload.nom && !payload.prenom && !payload.societe) {
-          payload.nom = "Prospect importé";
-        }
-
-        payload.donnees = {
-          import_source_file: file.name,
-          import_date: new Date().toISOString(),
-        };
-
-        return payload;
-      });
-
-      const { data, error: err } = await supabase
-        .from("invest_prospects")
-        .insert(payloads)
-        .select("*");
-
-      if (err) {
-        setError(err.message || "Erreur pendant l'import.");
-        setImporting(false);
-        event.target.value = "";
-        return;
-      }
-
-      await loadProspects();
-
-      const notificationResults = await Promise.allSettled((data || []).map((p) => notifyNewProspectByEmail(p, "import")));
-      const notificationValues = notificationResults.map((r) => r.status === "fulfilled" ? r.value : { ok: false, message: r.reason?.message || String(r.reason) });
-      const notifiedCount = notificationValues.filter((r) => r?.ok).length;
-      const firstNotificationError = notificationValues.find((r) => !r?.ok)?.message;
-      const totalImported = data?.length || 0;
-
-      if (data?.length === 1) {
-        setIsCreating(false);
-        setSelected(data[0]);
-        setForm(prospectToForm(data[0]));
-      }
-
-      if (totalImported > 0 && notifiedCount === totalImported) {
-        showMailNotice(
-          "success",
-          totalImported > 1
-            ? `${notifiedCount} mails de notification envoyés à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
-            : `Mail de notification envoyé à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
-        );
-      } else if (totalImported > 0) {
-        showMailNotice(
-          "warning",
-          `${totalImported} prospect(s) importé(s), mais seulement ${notifiedCount} mail(s) confirmé(s). Détail : ${firstNotificationError || "fonction notify-new-prospect non confirmée"}`
-        );
-      }
-
-      setMsg(data?.length > 1 ? `${data.length} prospects importés.` : "Prospect importé.");
-      setTimeout(() => setMsg(""), 2600);
+      await importParsedProspects(parsed, file.name || "import fichier");
     } catch (err) {
       setError(err?.message || "Erreur de lecture du fichier.");
     }
 
     setImporting(false);
     event.target.value = "";
+  };
+
+  const handleBulkImportProspects = async () => {
+    const content = String(bulkImportText || "").trim();
+
+    if (!content) {
+      setError("Colle une liste de prospects avant d'importer.");
+      return;
+    }
+
+    setImporting(true);
+    setError("");
+    setMsg("");
+    setMailNotice(null);
+
+    try {
+      const parsed = parsePastedProspectList(content);
+
+      if (!parsed.length) {
+        setError("Aucun prospect reconnu dans la liste collée.");
+        setImporting(false);
+        return;
+      }
+
+      const imported = await importParsedProspects(parsed, "liste collée");
+
+      if (imported.length) {
+        setBulkImportText("");
+        setBulkImportOpen(false);
+      }
+    } catch (err) {
+      setError(err?.message || "Erreur pendant l'import de la liste.");
+    }
+
+    setImporting(false);
   };
 
   const saveProspect = async () => {
@@ -2454,7 +2603,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             CRM Prospection
           </div>
           <div style={{ color: T.textSub, fontSize: 13 }}>
-            Choisis la vue adaptée : pipeline drag & drop, liste de suivi ou planning commercial.
+            Choisis la vue adaptée : pipeline drag & drop, liste de suivi, planning commercial ou analyse KPI.
           </div>
         </div>
 
@@ -2481,6 +2630,17 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
           >
             <Icon as={Upload} size={14} />
             {importing ? "Import..." : "Importer"}
+          </button>
+
+          <button
+            className="inv-btn inv-btn-out"
+            type="button"
+            onClick={() => setBulkImportOpen(true)}
+            disabled={importing}
+            title="Coller directement une liste de prospects"
+          >
+            <Icon as={ListChecks} size={14} />
+            Coller une liste
           </button>
 
           <button className="inv-btn inv-btn-blue" type="button" onClick={newProspect}>
@@ -2531,7 +2691,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
       <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
         <div style={{ color: T.textMuted, fontSize: 11, marginBottom: 7 }}>
-          Import accepté : CSV, JSON, TXT ou VCF. Champs reconnus automatiquement : prénom, nom, téléphone, email, source, responsable, objectif, budget, zone, relance, note.
+          Import accepté : CSV, JSON, TXT, VCF ou liste collée. Champs reconnus : prénom, nom, téléphone, email, source, responsable, objectif, budget, zone, relance, note.
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1fr) auto", gap: 10, alignItems: "center" }}>
           <div style={{ position: "relative" }}>
@@ -2631,8 +2791,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 520px", gap: 14, alignItems: "start" }}>
-        <div>
+      <div style={{ marginBottom: 14 }}>
           {viewMode === "analyse" ? (
             <KpiAnalysisView
               prospects={filtered}
@@ -2668,9 +2827,33 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
               T={T}
             />
           )}
-        </div>
+      </div>
 
-        <div className="inv-card" style={{ padding: 0, minHeight: 500, position: "sticky", top: 12 }}>
+      {(isCreating || selected) && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsCreating(false);
+              setSelected(null);
+              setForm({ ...EMPTY_FORM });
+              setActions([]);
+            }
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(2,6,23,.72)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div className="inv-card" onMouseDown={(e) => e.stopPropagation()} style={{ padding: 0, width: "min(1100px, 96vw)", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 30px 90px rgba(0,0,0,.45)" }}>
           <div
             className="inv-card-hd blue"
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
@@ -2966,7 +3149,101 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
+
+      {bulkImportOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setBulkImportOpen(false);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9998,
+            background: "rgba(2,6,23,.72)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            className="inv-card"
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              width: "min(960px, 96vw)",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: 0,
+              boxShadow: "0 30px 90px rgba(0,0,0,.45)",
+            }}
+          >
+            <div
+              className="inv-card-hd blue"
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Icon as={ListChecks} size={14} />
+                Intégrer une liste de prospects
+              </span>
+
+              <button
+                className="inv-btn inv-btn-out inv-btn-sm"
+                type="button"
+                onClick={() => setBulkImportOpen(false)}
+              >
+                <Icon as={X} size={12} />
+              </button>
+            </div>
+
+            <div className="inv-card-bd" style={{ padding: 14 }}>
+              <div style={{ color: T.textSub, fontSize: 13, lineHeight: 1.5, marginBottom: 10 }}>
+                Colle une liste de prospects. Tu peux utiliser un CSV avec en-têtes, ou une ligne par prospect au format simple :
+                <br />
+                <strong style={{ color: T.text }}>Nom complet ; Téléphone ; Email ; Source ; Objectif ; Budget ; Zone ; Note</strong>
+              </div>
+
+              <textarea
+                className="inv-textarea"
+                value={bulkImportText}
+                onChange={(e) => setBulkImportText(e.target.value)}
+                placeholder={`prenom;nom;telephone;email;source;responsable;objectif;budget;zone;note\nJean;Dupont;0600000000;jean@email.fr;Fluidify;Matthieu;Créer du patrimoine;250000;Angers;Lead entrant qualifié\nMarie Martin;0611111111;marie@email.fr;Instagram;Cash-flow;200000;Saumur;À rappeler rapidement`}
+                rows={12}
+                style={{ width: "100%", fontSize: 13, fontFamily: "'DM Mono', monospace" }}
+              />
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 10,
+                  marginTop: 12,
+                }}
+              >
+                <div style={{ color: T.textMuted, fontSize: 12 }}>
+                  Formats acceptés : CSV avec en-têtes, liste au séparateur point-virgule, blocs texte avec Téléphone / Email / Budget.
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="inv-btn inv-btn-out" type="button" onClick={() => setBulkImportOpen(false)}>
+                    Annuler
+                  </button>
+                  <button className="inv-btn inv-btn-blue" type="button" onClick={handleBulkImportProspects} disabled={importing}>
+                    <Icon as={Upload} size={14} />
+                    {importing ? "Import..." : "Importer la liste"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
