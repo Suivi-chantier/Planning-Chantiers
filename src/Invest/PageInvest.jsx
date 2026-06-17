@@ -26,11 +26,13 @@ import SuiviFinancier from "./SuiviFinancier";
 import StructurationPatrimoniale from "./Structuration";
 import AdminInvest from "./Admin";
 import Simulateur, { ListeProjets } from "./Simulateur";
+import Sourcing from "./Sourcing";
 
 const INVEST_PAGES_BASE = [
   { id: "dashboard", label: "Tableau de bord" },
   { id: "prospection", label: "Prospection" },
   { id: "crm", label: "CRM Clients" },
+  { id: "sourcing", label: "Sourcing" },
   { id: "biens", label: "Biens" },
   { id: "simulateur", label: "Simulateur" },
   { id: "structuration", label: "Structuration" },
@@ -83,10 +85,14 @@ function getInvestAllowedPages(rolePages, role) {
 
   const normalized = uniquePages(allowed);
 
-  // Sécurité : l'admin doit toujours pouvoir voir la nouvelle page Prospection,
-  // même si l'ancienne configuration Supabase access_pages_invest ne la contient pas encore.
+  // Sécurité : l'admin doit toujours pouvoir voir les nouvelles pages,
+  // même si l'ancienne configuration Supabase access_pages_invest ne les contient pas encore.
   if (role === "admin" && !normalized.includes("prospection")) {
     normalized.splice(1, 0, "prospection");
+  }
+  if (role === "admin" && !normalized.includes("sourcing")) {
+    const insertIndex = normalized.includes("crm") ? normalized.indexOf("crm") + 1 : normalized.length;
+    normalized.splice(insertIndex, 0, "sourcing");
   }
 
   return normalized;
@@ -120,6 +126,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
     dashboard:  LayoutDashboard,
     prospection: UserPlus,
     crm:        Users,
+    sourcing:   Search,
     biens:      Building2,
     simulateur: BarChart3,
     finance:    Wallet,
@@ -385,6 +392,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguerDepuisDashboard} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
         {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
+        {page === "sourcing"   && (canSee("sourcing")   ? <Sourcing profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="sourcing"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
         {page === "structuration" && (canSee("structuration") ? <StructurationPatrimoniale profil={profil} T={T} initialClientId={structInitialClientId} /> : <AccesRefuseInvest T={T} page="structuration"/>)}
         {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
