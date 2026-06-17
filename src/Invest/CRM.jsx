@@ -167,11 +167,197 @@ const STATUTS_CLIENT  = ["Prospect","Actif","Inactif","Terminé"];
 const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
 
+function CRMStatusPill({ statut, T }) {
+  const meta = clientStatutMeta(statut);
+  const IconStatus = meta.icon || Users;
+  return (
+    <span
+      style={{
+        display:"inline-flex",
+        alignItems:"center",
+        gap:5,
+        background:`${meta.color}18`,
+        color:meta.color,
+        border:`1px solid ${meta.color}35`,
+        borderRadius:RADIUS.pill,
+        padding:`${SPACING.xs-2}px ${SPACING.sm+2}px`,
+        fontSize:FONT.xs.size,
+        fontWeight:800,
+        whiteSpace:"nowrap",
+      }}
+    >
+      <Icon as={IconStatus} size={11} strokeWidth={2.4}/>
+      {statut || "—"}
+    </span>
+  );
+}
+
+function CRMViewButton({ active, icon, title, helper, onClick, T }) {
+  const I = icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border:`1px solid ${active ? T.accent : T.border}`,
+        background: active ? `linear-gradient(135deg, ${T.accentBg}, rgba(255,255,255,.045))` : T.card,
+        color: active ? T.accent : T.textSub,
+        borderRadius:18,
+        padding:"12px 13px",
+        cursor:"pointer",
+        textAlign:"left",
+        display:"flex",
+        alignItems:"center",
+        gap:10,
+        boxShadow: active ? `0 16px 36px ${T.accent}14` : "none",
+        transition:"all .12s ease",
+      }}
+    >
+      <span
+        style={{
+          width:34,
+          height:34,
+          borderRadius:13,
+          display:"grid",
+          placeItems:"center",
+          background: active ? `${T.accent}20` : "rgba(255,255,255,.055)",
+          color: active ? T.accent : T.textMuted,
+          flexShrink:0,
+        }}
+      >
+        <Icon as={I} size={16} strokeWidth={2.2}/>
+      </span>
+      <span style={{minWidth:0}}>
+        <span style={{display:"block", fontSize:13, fontWeight:950, color:active ? T.text : T.textSub}}>{title}</span>
+        <span style={{display:"block", marginTop:2, fontSize:11, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{helper}</span>
+      </span>
+    </button>
+  );
+}
+
+function CRMKpi({ icon, label, value, helper, color, T }) {
+  const I = icon;
+  return (
+    <div className="inv-card" style={{ padding:14, background:"linear-gradient(135deg, rgba(255,255,255,.055), rgba(255,255,255,.025))" }}>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10}}>
+        <div>
+          <div style={{color:T.textMuted, fontSize:10.5, fontWeight:850, textTransform:"uppercase", letterSpacing:".08em"}}>{label}</div>
+          <div style={{color:T.text, fontWeight:950, fontSize:24, marginTop:4, lineHeight:1.05}}>{value}</div>
+        </div>
+        <div
+          style={{
+            width:38,
+            height:38,
+            borderRadius:14,
+            display:"grid",
+            placeItems:"center",
+            background:`${color}18`,
+            color,
+            border:`1px solid ${color}35`,
+            flexShrink:0,
+          }}
+        >
+          <Icon as={I} size={18} strokeWidth={2.2}/>
+        </div>
+      </div>
+      {helper && <div style={{color:T.textMuted, fontSize:11, marginTop:8}}>{helper}</div>}
+    </div>
+  );
+}
+
+function CRMClientCard({ client, T, today, onOpen }) {
+  const initials = `${client.prenom?.[0]||""}${client.nom?.[0]||""}`.toUpperCase() || "C";
+  const enRetard = client.date_prochaine_action && client.date_prochaine_action < today;
+  const meta = clientStatutMeta(client.statut);
+  const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
+  const fmtBudget = v => Number(v || 0) > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(Number(v)) + " €" : "—";
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={{
+        width:"100%",
+        textAlign:"left",
+        border:`1px solid ${T.border}`,
+        background:"rgba(255,255,255,.035)",
+        borderRadius:18,
+        padding:12,
+        cursor:"pointer",
+        transition:"all .12s ease",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = T.cardHover; e.currentTarget.style.borderColor = `${meta.color}66`; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.035)"; e.currentTarget.style.borderColor = T.border; }}
+    >
+      <div style={{display:"flex", alignItems:"center", gap:10}}>
+        <div
+          style={{
+            width:38,
+            height:38,
+            borderRadius:"50%",
+            background:`${meta.color}1D`,
+            border:`1px solid ${meta.color}40`,
+            color:meta.color,
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"center",
+            fontSize:FONT.sm.size+1,
+            fontWeight:900,
+            flexShrink:0,
+          }}
+        >
+          {initials}
+        </div>
+        <div style={{minWidth:0, flex:1}}>
+          <div style={{fontWeight:900, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+            {client.prenom} {client.nom}
+          </div>
+          <div style={{fontSize:FONT.xs.size+1, color:T.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+            {client.email || client.telephone || "Coordonnées à compléter"}
+          </div>
+        </div>
+        <Icon as={ChevronRight} size={15} color={T.textMuted} strokeWidth={2.3}/>
+      </div>
+
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginTop:11, flexWrap:"wrap"}}>
+        <CRMStatusPill statut={client.statut} T={T}/>
+        <span style={{fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:850, color:T.accent}}>{fmtBudget(client.budget)}</span>
+      </div>
+
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10, fontSize:11.5, color:T.textMuted}}>
+        <div>
+          <span style={{display:"block", textTransform:"uppercase", letterSpacing:".07em", fontSize:10, color:T.textMuted}}>Étape</span>
+          <span style={{display:"block", color:T.textSub, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{client.etape || "—"}</span>
+        </div>
+        <div>
+          <span style={{display:"block", textTransform:"uppercase", letterSpacing:".07em", fontSize:10, color:T.textMuted}}>Action</span>
+          <span style={{display:"block", color: enRetard ? DA : T.textSub, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+            {enRetard && <Icon as={AlertTriangle} size={10} style={{verticalAlign:-1, marginRight:3}}/>}
+            {fmtDate(client.date_prochaine_action)}
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+const CRM_STATUT_META = {
+  Prospect: { label:"Prospect", color:"#60A5FA", icon:Users, tone:"Nouveau client" },
+  Actif: { label:"Actif", color:SU, icon:Check, tone:"Mission en cours" },
+  Inactif: { label:"Inactif", color:WA, icon:Bell, tone:"À réactiver" },
+  Terminé: { label:"Terminé", color:"#94A3B8", icon:Check, tone:"Mission finalisée" },
+};
+
+function clientStatutMeta(statut) {
+  return CRM_STATUT_META[statut] || { label:statut || "—", color:"#94A3B8", icon:Users, tone:"Suivi client" };
+}
+
 function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien, initialFilter }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
   const [showForm, setShowForm]   = useState(false);
+  const [viewMode, setViewMode]   = useState("liste");
   const [filtreStatut, setFiltreStatut] = useState("");
   const [filtreConseiller, setFiltreConseiller] = useState("");
   const [filtreSource, setFiltreSource] = useState("");
@@ -197,7 +383,13 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   }, [initialFilter]);
 
   const conseillers = [...new Set(clients.map(c => c.conseiller).filter(Boolean))];
+  const sources = [...new Set([...SOURCES_CLIENT, ...clients.map(c => c.source).filter(Boolean)])];
   const today = new Date().toISOString().slice(0,10);
+  const addDays = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0,10);
+  };
 
   const updateColumnFilter = (key, value) => setColumnFilters(prev => ({ ...prev, [key]: value }));
   const handleSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
@@ -224,151 +416,416 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
 
   filtered = [...filtered].sort((a,b) => compareValues(valueForColumn(a, sortConfig.key), valueForColumn(b, sortConfig.key), sortConfig.direction));
 
-  const STATUT_COLORS = { Prospect:"#4db8ff", Actif:"#50c878", Inactif:"#FFC200", Terminé:"rgba(255,255,255,0.3)" };
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
-  const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(v)+" €" : "—";
+  const fmtBudget = v => Number(v || 0) > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(Number(v)) + " €" : "—";
   const gridCols = "1.55fr .85fr .85fr .9fr .85fr .95fr 1.35fr 1.25fr 75px";
 
-  if (ficheId) return <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} />;
+  const stats = useMemo(() => {
+    const active = clients.filter(c => !["Terminé", "Inactif"].includes(c.statut));
+    const due = clients.filter(c => c.date_prochaine_action && c.date_prochaine_action <= today && !["Terminé"].includes(c.statut));
+    const late = clients.filter(c => c.date_prochaine_action && c.date_prochaine_action < today && !["Terminé"].includes(c.statut));
+    const signed = clients.filter(c => c.date_signature || c.statut === "Actif" || c.statut === "Terminé");
+    const potential = active.reduce((s, c) => s + (Number(c.budget || 0) || 0), 0);
+    const noAction = active.filter(c => !c.prochaine_action && !c.date_prochaine_action).length;
+    return { total:clients.length, active:active.length, due:due.length, late:late.length, signed:signed.length, potential, noAction };
+  }, [clients, today]);
+
+  const byStatus = useMemo(() => {
+    const grouped = {};
+    STATUTS_CLIENT.forEach(s => grouped[s] = []);
+    filtered.forEach(c => {
+      const key = STATUTS_CLIENT.includes(c.statut) ? c.statut : "Prospect";
+      grouped[key].push(c);
+    });
+    return grouped;
+  }, [filtered]);
+
+  const planningBuckets = useMemo(() => {
+    const day7 = addDays(7);
+    const day30 = addDays(30);
+    const actionable = filtered
+      .filter(c => c.statut !== "Terminé")
+      .slice()
+      .sort((a,b) => compareValues(a.date_prochaine_action || "9999-99-99", b.date_prochaine_action || "9999-99-99", "asc"));
+
+    return [
+      { id:"late", title:"En retard", helper:"Actions passées", color:DA, icon:AlertTriangle, items: actionable.filter(c => c.date_prochaine_action && c.date_prochaine_action < today) },
+      { id:"today", title:"Aujourd'hui", helper:"À traiter maintenant", color:WA, icon:Bell, items: actionable.filter(c => c.date_prochaine_action === today) },
+      { id:"week", title:"7 jours", helper:"Actions à venir", color:T.accent, icon:Calendar, items: actionable.filter(c => c.date_prochaine_action && c.date_prochaine_action > today && c.date_prochaine_action <= day7) },
+      { id:"month", title:"30 jours", helper:"Suivi à anticiper", color:"#8B5CF6", icon:Calendar, items: actionable.filter(c => c.date_prochaine_action && c.date_prochaine_action > day7 && c.date_prochaine_action <= day30) },
+      { id:"none", title:"Sans action", helper:"À replanifier", color:"#94A3B8", icon:Filter, items: actionable.filter(c => !c.date_prochaine_action && !c.prochaine_action) },
+    ];
+  }, [filtered, today, T.accent]);
+
+  const analysis = useMemo(() => {
+    const bySource = new Map();
+    const byConseiller = new Map();
+    const byEtape = new Map();
+    filtered.forEach(c => {
+      const src = c.source || "Non renseigné";
+      const con = c.conseiller || "Non affecté";
+      const et = c.etape || "Étape non renseignée";
+      const budget = Number(c.budget || 0) || 0;
+      const add = (map, key) => {
+        const prev = map.get(key) || { count:0, budget:0, signed:0, late:0 };
+        prev.count += 1;
+        prev.budget += budget;
+        if (c.date_signature || c.statut === "Actif" || c.statut === "Terminé") prev.signed += 1;
+        if (c.date_prochaine_action && c.date_prochaine_action < today) prev.late += 1;
+        map.set(key, prev);
+      };
+      add(bySource, src);
+      add(byConseiller, con);
+      add(byEtape, et);
+    });
+    const rows = (map) => Array.from(map.entries()).map(([label, v]) => ({ label, ...v })).sort((a,b) => b.count - a.count).slice(0,8);
+    return { sources:rows(bySource), conseillers:rows(byConseiller), etapes:rows(byEtape) };
+  }, [filtered, today]);
+
+  const resetFilters = () => {
+    setFiltreStatut("");
+    setFiltreConseiller("");
+    setFiltreSource("");
+    setSpecialFilter("");
+    setSearch("");
+    setColumnFilters({});
+  };
+
+  const openClient = (id) => setFicheId(id);
+
+  const renderListe = () => (
+    loading ? (
+      <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}>
+        <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
+        Chargement…
+      </div>
+    ) : (
+      <div style={{ background:T.card, borderRadius:22, border:`1px solid ${T.border}`, overflowX:"auto", boxShadow:T.shadowSm }}>
+        <div style={{ minWidth:1280 }}>
+          <div style={{
+            display:"grid", gridTemplateColumns:gridCols,
+            padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
+            borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:800,
+            color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8, gap:10,
+          }}>
+            <SortableHeader label="Contact" sortKey="contact" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <SortableHeader label="Date contact" sortKey="date_premier_contact" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <SortableHeader label="Statut" sortKey="statut" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <SortableHeader label="Source" sortKey="source" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <SortableHeader label="Budget" sortKey="budget" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <SortableHeader label="Conseiller" sortKey="conseiller" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <SortableHeader label="Étape" sortKey="etape" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <SortableHeader label="Prochaine action" sortKey="action" sortConfig={sortConfig} onSort={handleSort} T={T}/>
+            <div/>
+          </div>
+          <div style={{
+            display:"grid", gridTemplateColumns:gridCols, gap:10, padding:`${SPACING.sm}px ${SPACING.lg}px`,
+            background:T.input, borderBottom:`1px solid ${T.border}`,
+          }}>
+            {["contact","date_premier_contact","statut","source","budget","conseiller","etape","action"].map(k => (
+              <input key={k} className="inv-inp" value={columnFilters[k]||""} placeholder="Filtrer…" onChange={e=>updateColumnFilter(k,e.target.value)} style={{width:"100%", textAlign:"left", fontSize:FONT.xs.size+1, padding:"5px 7px"}}/>
+            ))}
+            <div/>
+          </div>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun contact trouvé</div>
+          ) : filtered.map(c => {
+            const initials = `${c.prenom?.[0]||""}${c.nom?.[0]||""}`.toUpperCase();
+            const enRetard = c.date_prochaine_action && c.date_prochaine_action < today;
+            const meta = clientStatutMeta(c.statut);
+            return (
+              <div key={c.id} style={{
+                display:"grid", gridTemplateColumns:gridCols, gap:10,
+                padding:`${SPACING.md+2}px ${SPACING.lg}px`,
+                borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
+                cursor:"pointer", transition:"background .12s",
+              }}
+                onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                onClick={() => openClient(c.id)}>
+                <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
+                  <div style={{
+                    width:36, height:36, borderRadius:"50%", flexShrink:0,
+                    background:`${meta.color}1D`, color:meta.color, border:`1px solid ${meta.color}40`,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:FONT.sm.size+1, fontWeight:900,
+                  }}>{initials || "C"}</div>
+                  <div style={{minWidth:0}}>
+                    <div style={{ fontWeight:800, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.prenom} {c.nom}</div>
+                    <div style={{ fontSize:FONT.xs.size, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.email || c.telephone || "—"}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{fmtDate(c.date_premier_contact)}</div>
+                <div><CRMStatusPill statut={c.statut} T={T}/></div>
+                <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.source||"—"}</div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:700, color:T.accent }}>{fmtBudget(c.budget)}</div>
+                <div style={{ fontSize:FONT.sm.size+1, color:T.textSub }}>{c.conseiller||"—"}</div>
+                <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.etape||"—"}</div>
+                <div style={{ fontSize:FONT.sm.size, color: enRetard ? DA : T.textMuted }}>
+                  {enRetard && <Icon as={AlertTriangle} size={11} strokeWidth={2.2} style={{marginRight:3, verticalAlign:-1}}/>}
+                  {fmtDate(c.date_prochaine_action)}
+                  {c.prochaine_action && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:1, opacity:0.7 }}>{c.prochaine_action.slice(0,42)}</div>}
+                </div>
+                <div style={{ textAlign:"right" }}>
+                  <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:800, display:"inline-flex", alignItems:"center", gap:3 }}>
+                    Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )
+  );
+
+  const renderPipeline = () => (
+    <div className="inv-crm-kanban" style={{display:"grid", gridTemplateColumns:`repeat(${STATUTS_CLIENT.length}, minmax(290px, 1fr))`, gap:12, overflowX:"auto", padding:"2px 2px 12px"}}>
+      {STATUTS_CLIENT.map(statut => {
+        const meta = clientStatutMeta(statut);
+        const items = byStatus[statut] || [];
+        return (
+          <div key={statut} style={{border:`1px solid ${T.border}`, borderTop:`3px solid ${meta.color}`, borderRadius:22, background:"rgba(255,255,255,.03)", minHeight:520, padding:10}}>
+            <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:12, padding:"10px 10px 11px", borderRadius:16, background:`linear-gradient(135deg, ${meta.color}1F, rgba(255,255,255,.035))`, border:`1px solid ${meta.color}35`}}>
+              <div style={{display:"flex", alignItems:"center", gap:9, minWidth:0}}>
+                <div style={{width:32, height:32, borderRadius:12, display:"grid", placeItems:"center", background:`${meta.color}20`, color:meta.color, border:`1px solid ${meta.color}45`, flexShrink:0}}>
+                  <Icon as={meta.icon} size={15} strokeWidth={2.2}/>
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{color:T.text, fontSize:13, fontWeight:950, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{meta.label}</div>
+                  <div style={{color:T.textMuted, fontSize:10.5, marginTop:1}}>{meta.tone}</div>
+                </div>
+              </div>
+              <div style={{textAlign:"right", flexShrink:0}}>
+                <div style={{color:T.text, fontSize:15, fontWeight:950, lineHeight:1}}>{items.length}</div>
+                <div style={{color:T.textMuted, fontSize:10, marginTop:3}}>client(s)</div>
+              </div>
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap:8}}>
+              {items.length === 0 ? (
+                <div style={{padding:"34px 8px", textAlign:"center", color:T.textMuted, fontSize:12, fontStyle:"italic", background:"rgba(255,255,255,.02)", borderRadius:16}}>Aucun client</div>
+              ) : items.map(c => <CRMClientCard key={c.id} client={c} T={T} today={today} onOpen={() => openClient(c.id)}/>) }
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderPlanning = () => (
+    <div>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(230px, 1fr))", gap:10}}>
+        {planningBuckets.map(bucket => (
+          <div key={bucket.id} className="inv-card" style={{padding:0, overflow:"hidden"}}>
+            <div style={{padding:12, borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, background:`linear-gradient(135deg, ${bucket.color}16, rgba(255,255,255,.03))`}}>
+              <div style={{display:"flex", alignItems:"center", gap:8}}>
+                <span style={{width:30, height:30, borderRadius:12, display:"grid", placeItems:"center", background:`${bucket.color}18`, color:bucket.color, border:`1px solid ${bucket.color}35`}}>
+                  <Icon as={bucket.icon} size={14} strokeWidth={2.2}/>
+                </span>
+                <div>
+                  <div style={{color:T.text, fontWeight:950, fontSize:13}}>{bucket.title}</div>
+                  <div style={{color:T.textMuted, fontSize:10.5}}>{bucket.helper}</div>
+                </div>
+              </div>
+              <div style={{color:T.text, fontWeight:950, fontSize:18}}>{bucket.items.length}</div>
+            </div>
+            <div style={{padding:10, display:"flex", flexDirection:"column", gap:8, maxHeight:520, overflowY:"auto"}}>
+              {bucket.items.length === 0 ? (
+                <div style={{padding:"18px 8px", textAlign:"center", color:T.textMuted, fontSize:12, fontStyle:"italic"}}>Aucun client</div>
+              ) : bucket.items.map(c => <CRMClientCard key={c.id} client={c} T={T} today={today} onOpen={() => openClient(c.id)}/>) }
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const BarRow = ({ label, count, budget, signed, late, max }) => {
+    const pct = max ? Math.round((count / max) * 100) : 0;
+    return (
+      <div style={{padding:"10px 0", borderBottom:`1px solid ${T.border}`}}>
+        <div style={{display:"flex", justifyContent:"space-between", gap:12, alignItems:"center", marginBottom:6}}>
+          <div style={{color:T.text, fontWeight:850, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{label}</div>
+          <div style={{display:"flex", gap:10, alignItems:"center", color:T.textMuted, fontSize:11, flexShrink:0}}>
+            <span>{count} client(s)</span>
+            <span>{fmtBudget(budget)}</span>
+            {signed > 0 && <span style={{color:SU}}>{signed} signé(s)</span>}
+            {late > 0 && <span style={{color:DA}}>{late} retard</span>}
+          </div>
+        </div>
+        <div style={{height:8, background:"rgba(255,255,255,.065)", borderRadius:999, overflow:"hidden"}}>
+          <div style={{height:"100%", width:`${pct}%`, background:`linear-gradient(90deg, ${T.accent}, #60A5FA)`, borderRadius:999}}/>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAnalyse = () => {
+    const maxSource = Math.max(1, ...analysis.sources.map(r => r.count));
+    const maxConseiller = Math.max(1, ...analysis.conseillers.map(r => r.count));
+    const maxEtape = Math.max(1, ...analysis.etapes.map(r => r.count));
+    const alerts = [
+      stats.late > 0 ? `${stats.late} client(s) avec une action en retard` : null,
+      stats.noAction > 0 ? `${stats.noAction} client(s) actifs sans prochaine action` : null,
+      clients.filter(c => !c.email && !c.telephone).length > 0 ? `${clients.filter(c => !c.email && !c.telephone).length} fiche(s) sans coordonnées` : null,
+      clients.filter(c => !c.budget).length > 0 ? `${clients.filter(c => !c.budget).length} fiche(s) sans budget renseigné` : null,
+    ].filter(Boolean);
+
+    return (
+      <div style={{display:"grid", gridTemplateColumns:"1.15fr .85fr", gap:12}}>
+        <div style={{display:"grid", gap:12}}>
+          <div className="inv-card">
+            <div className="inv-card-hd blue"><span style={{display:"inline-flex", alignItems:"center", gap:6}}><Icon as={BarChart3} size={13}/>Répartition par source</span></div>
+            <div className="inv-card-bd">
+              {analysis.sources.length === 0 ? <div style={{color:T.textMuted, fontSize:13}}>Aucune donnée</div> : analysis.sources.map(r => <BarRow key={r.label} {...r} max={maxSource}/>) }
+            </div>
+          </div>
+
+          <div className="inv-card">
+            <div className="inv-card-hd mid"><span style={{display:"inline-flex", alignItems:"center", gap:6}}><Icon as={Users} size={13}/>Répartition par conseiller</span></div>
+            <div className="inv-card-bd">
+              {analysis.conseillers.length === 0 ? <div style={{color:T.textMuted, fontSize:13}}>Aucune donnée</div> : analysis.conseillers.map(r => <BarRow key={r.label} {...r} max={maxConseiller}/>) }
+            </div>
+          </div>
+        </div>
+
+        <div style={{display:"grid", gap:12}}>
+          <div className="inv-card">
+            <div className="inv-card-hd"><span style={{display:"inline-flex", alignItems:"center", gap:6}}><Icon as={TrendingUp} size={13}/>Étapes commerciales</span></div>
+            <div className="inv-card-bd">
+              {analysis.etapes.length === 0 ? <div style={{color:T.textMuted, fontSize:13}}>Aucune donnée</div> : analysis.etapes.map(r => <BarRow key={r.label} {...r} max={maxEtape}/>) }
+            </div>
+          </div>
+
+          <div className="inv-card">
+            <div className="inv-card-hd orange"><span style={{display:"inline-flex", alignItems:"center", gap:6}}><Icon as={AlertTriangle} size={13}/>Points d'attention</span></div>
+            <div className="inv-card-bd" style={{display:"grid", gap:8}}>
+              {alerts.length === 0 ? (
+                <div style={{color:SU, fontSize:13, fontWeight:850}}>Aucune alerte prioritaire sur les clients filtrés.</div>
+              ) : alerts.map((a, i) => (
+                <div key={i} style={{padding:10, borderRadius:14, border:`1px solid ${WA}35`, background:`${WA}10`, color:T.textSub, fontSize:13, display:"flex", gap:8}}>
+                  <Icon as={AlertTriangle} size={14} color={WA} style={{flexShrink:0, marginTop:1}}/>
+                  <span>{a}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1600, margin:"0 auto" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:SPACING.xl-4, flexWrap:"wrap", gap:SPACING.sm+2 }}>
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1680, margin:"0 auto" }}>
+      <style>{`
+        .inv-crm-kanban::-webkit-scrollbar { height: 10px; }
+        .inv-crm-kanban::-webkit-scrollbar-thumb { background: rgba(201,163,74,.35); border-radius: 999px; }
+        .inv-crm-kanban::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 999px; }
+      `}</style>
+
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, flexWrap:"wrap", gap:SPACING.sm+2 }}>
         <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}>
           <div style={{
-            width:44, height:44, borderRadius:RADIUS.lg, flexShrink:0,
+            width:46, height:46, borderRadius:16, flexShrink:0,
             background:T.accentBg, color:T.accent,
             display:"flex", alignItems:"center", justifyContent:"center",
+            boxShadow:`0 14px 35px ${T.accent}14`,
           }}>
             <Icon as={Users} size={22} strokeWidth={2}/>
           </div>
           <div>
-            <div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>CRM Clients / Prospects</div>
-            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>{filtered.length} contact{filtered.length!==1?"s":""}</div>
+            <div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text, letterSpacing:-0.3 }}>CRM Clients</div>
+            <div style={{ fontSize:FONT.sm.size+1, color:T.textSub, marginTop:2 }}>Suivi des clients signés, actifs et dossiers à faire avancer</div>
           </div>
         </div>
         <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>
-          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau contact
+          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau client
         </button>
       </div>
 
-      {/* Filtres rapides */}
-      <div style={{ display:"flex", gap:SPACING.sm+2, marginBottom:SPACING.lg, flexWrap:"wrap" }}>
-        <div style={{position:"relative", width:260}}>
-          <Icon as={Search} size={13} color={T.textMuted}
-            style={{position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
-          <input className="inv-inp" placeholder="Rechercher partout…" value={search} onChange={e=>setSearch(e.target.value)}
-            style={{ width:"100%", textAlign:"left", paddingLeft:30, fontSize:FONT.sm.size+1 }}/>
-        </div>
-        <select className="inv-sel" value={filtreStatut} onChange={e=>{setFiltreStatut(e.target.value); setSpecialFilter("");}}>
-          <option value="">Tous statuts</option>
-          {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
-        </select>
-        <select className="inv-sel" value={filtreConseiller} onChange={e=>setFiltreConseiller(e.target.value)}>
-          <option value="">Tous conseillers</option>
-          {conseillers.map(c=><option key={c}>{c}</option>)}
-        </select>
-        <select className="inv-sel" value={filtreSource} onChange={e=>setFiltreSource(e.target.value)}>
-          <option value="">Toutes sources</option>
-          {SOURCES_CLIENT.map(s=><option key={s}>{s}</option>)}
-        </select>
-        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>{setFiltreStatut("");setFiltreConseiller("");setFiltreSource("");setSpecialFilter("");setSearch("");setColumnFilters({});}}>
-          <Icon as={X} size={12} strokeWidth={2.2}/> Réinitialiser
-        </button>
-        {specialFilter && <span style={{fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center"}}>Filtre dashboard actif</span>}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10, marginBottom:12}}>
+        <CRMKpi icon={Users} label="Clients total" value={stats.total} helper={`${filtered.length} affiché(s)`} color="#60A5FA" T={T}/>
+        <CRMKpi icon={Check} label="Clients actifs" value={stats.active} helper="Missions en cours / à suivre" color={SU} T={T}/>
+        <CRMKpi icon={Bell} label="À traiter" value={stats.due} helper={`${stats.late} en retard`} color={stats.due > 0 ? WA : SU} T={T}/>
+        <CRMKpi icon={Euro} label="Budgets suivis" value={fmtBudget(stats.potential)} helper="Budgets clients actifs" color={T.accent} T={T}/>
       </div>
 
-      {/* Liste */}
-      {loading ? (
-        <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}>
-          <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
-          Chargement…
+      <div className="inv-card" style={{ padding:12, marginBottom:12, background:"linear-gradient(135deg, rgba(255,255,255,.055), rgba(255,255,255,.025))" }}>
+        <div style={{ display:"flex", gap:SPACING.sm+2, flexWrap:"wrap", alignItems:"center" }}>
+          <div style={{position:"relative", width:290, maxWidth:"100%"}}>
+            <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
+            <input className="inv-inp" placeholder="Rechercher un client…" value={search} onChange={e=>setSearch(e.target.value)} style={{ width:"100%", textAlign:"left", paddingLeft:30, fontSize:FONT.sm.size+1 }}/>
+          </div>
+          <select className="inv-sel" value={filtreStatut} onChange={e=>{setFiltreStatut(e.target.value); setSpecialFilter("");}}>
+            <option value="">Tous statuts</option>
+            {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
+          </select>
+          <select className="inv-sel" value={filtreConseiller} onChange={e=>setFiltreConseiller(e.target.value)}>
+            <option value="">Tous conseillers</option>
+            {conseillers.map(c=><option key={c}>{c}</option>)}
+          </select>
+          <select className="inv-sel" value={filtreSource} onChange={e=>setFiltreSource(e.target.value)}>
+            <option value="">Toutes sources</option>
+            {sources.map(s=><option key={s}>{s}</option>)}
+          </select>
+          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={resetFilters}>
+            <Icon as={X} size={12} strokeWidth={2.2}/> Réinitialiser
+          </button>
+          {specialFilter && <span style={{fontSize:FONT.sm.size, color:T.accent, fontWeight:800, display:"inline-flex", alignItems:"center"}}>Filtre dashboard actif</span>}
         </div>
-      ) : (
-        <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflowX:"auto", boxShadow:T.shadowSm }}>
-          <div style={{ minWidth:1280 }}>
-            <div style={{
-              display:"grid", gridTemplateColumns:gridCols,
-              padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
-              borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
-              color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8, gap:10,
-            }}>
-              <SortableHeader label="Contact" sortKey="contact" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <SortableHeader label="Date contact" sortKey="date_premier_contact" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <SortableHeader label="Statut" sortKey="statut" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <SortableHeader label="Source" sortKey="source" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <SortableHeader label="Budget" sortKey="budget" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <SortableHeader label="Conseiller" sortKey="conseiller" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <SortableHeader label="Étape" sortKey="etape" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <SortableHeader label="Prochaine action" sortKey="action" sortConfig={sortConfig} onSort={handleSort} T={T}/>
-              <div/>
-            </div>
-            <div style={{
-              display:"grid", gridTemplateColumns:gridCols, gap:10, padding:`${SPACING.sm}px ${SPACING.lg}px`,
-              background:T.input, borderBottom:`1px solid ${T.border}`,
-            }}>
-              {["contact","date_premier_contact","statut","source","budget","conseiller","etape","action"].map(k => (
-                <input key={k} className="inv-inp" value={columnFilters[k]||""} placeholder="Filtrer…" onChange={e=>updateColumnFilter(k,e.target.value)} style={{width:"100%", textAlign:"left", fontSize:FONT.xs.size+1, padding:"5px 7px"}}/>
-              ))}
-              <div/>
-            </div>
-            {filtered.length === 0 ? (
-              <div style={{ textAlign:"center", padding:`${SPACING.xl}px 0`, color:T.textMuted, fontSize:FONT.base.size, fontStyle:"italic" }}>Aucun contact trouvé</div>
-            ) : filtered.map(c => {
-              const initials = `${c.prenom?.[0]||""}${c.nom?.[0]||""}`.toUpperCase();
-              const enRetard = c.date_prochaine_action && c.date_prochaine_action < today;
-              return (
-                <div key={c.id} style={{
-                  display:"grid", gridTemplateColumns:gridCols, gap:10,
-                  padding:`${SPACING.md+2}px ${SPACING.lg}px`,
-                  borderBottom:`1px solid ${T.rowBorder}`, alignItems:"center",
-                  cursor:"pointer", transition:"background .12s",
-                }}
-                  onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-                  onClick={() => setFicheId(c.id)}>
-                  <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
-                    <div style={{
-                      width:34, height:34, borderRadius:"50%", flexShrink:0,
-                      background:T.accentBg, color:T.accent,
-                      display:"flex", alignItems:"center", justifyContent:"center",
-                      fontSize:FONT.sm.size+1, fontWeight:800,
-                    }}>{initials}</div>
-                    <div style={{minWidth:0}}>
-                      <div style={{ fontWeight:700, color:T.text, fontSize:FONT.base.size, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.prenom} {c.nom}</div>
-                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.email || c.telephone || "—"}</div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{fmtDate(c.date_premier_contact)}</div>
-                  <div>
-                    <span style={{
-                      background:`${STATUT_COLORS[c.statut]}18`, color:STATUT_COLORS[c.statut],
-                      border:`1px solid ${STATUT_COLORS[c.statut]}33`, borderRadius:RADIUS.pill,
-                      padding:`${SPACING.xs-2}px ${SPACING.sm+2}px`, fontSize:FONT.xs.size, fontWeight:700,
-                    }}>{c.statut}</span>
-                  </div>
-                  <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.source||"—"}</div>
-                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.sm.size+1, fontWeight:600, color:T.accent }}>{fmtBudget(c.budget)}</div>
-                  <div style={{ fontSize:FONT.sm.size+1, color:T.textSub }}>{c.conseiller||"—"}</div>
-                  <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>{c.etape||"—"}</div>
-                  <div style={{ fontSize:FONT.sm.size, color: enRetard ? DA : T.textMuted }}>
-                    {enRetard && <Icon as={AlertTriangle} size={11} strokeWidth={2.2} style={{marginRight:3, verticalAlign:-1}}/>}
-                    {fmtDate(c.date_prochaine_action)}
-                    {c.prochaine_action && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:1, opacity:0.7 }}>{c.prochaine_action.slice(0,42)}</div>}
-                  </div>
-                  <div style={{ textAlign:"right" }}>
-                    <span style={{ fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:3 }}>
-                      Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+      </div>
+
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(210px, 1fr))", gap:8, marginBottom:12}}>
+        <CRMViewButton active={viewMode === "pipeline"} icon={LayoutGrid} title="Pipeline" helper="Clients par statut" onClick={() => setViewMode("pipeline")} T={T}/>
+        <CRMViewButton active={viewMode === "liste"} icon={Users} title="Liste" helper="Vue complète filtrable" onClick={() => setViewMode("liste")} T={T}/>
+        <CRMViewButton active={viewMode === "planning"} icon={Calendar} title="Planning" helper="Actions et relances" onClick={() => setViewMode("planning")} T={T}/>
+        <CRMViewButton active={viewMode === "analyse"} icon={BarChart3} title="Analyse" helper="Sources, conseillers, alertes" onClick={() => setViewMode("analyse")} T={T}/>
+      </div>
+
+      {viewMode === "pipeline" && renderPipeline()}
+      {viewMode === "liste" && renderListe()}
+      {viewMode === "planning" && renderPlanning()}
+      {viewMode === "analyse" && renderAnalyse()}
+
+      {ficheId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setFicheId(null);
+              charger();
+            }
+          }}
+          style={{
+            position:"fixed",
+            inset:0,
+            zIndex:9999,
+            background:"rgba(2,6,23,.72)",
+            backdropFilter:"blur(6px)",
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"center",
+            padding:18,
+          }}
+        >
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              width:"min(1480px, 96vw)",
+              maxHeight:"92vh",
+              overflowY:"auto",
+              borderRadius:24,
+              boxShadow:"0 30px 90px rgba(0,0,0,.45)",
+              background:T.bg,
+              border:`1px solid ${T.border}`,
+            }}
+          >
+            <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} />
           </div>
         </div>
       )}
 
-      {/* Modal nouveau contact */}
       {showForm && <FormulaireClient profil={profil} T={T} onSave={() => { setShowForm(false); charger(); }} onClose={() => setShowForm(false)} />}
     </div>
   );
