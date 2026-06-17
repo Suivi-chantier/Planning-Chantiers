@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + fiche modale + import liste
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + fiche modale + import liste + conversion CRM corrigée
  *
  * Objectif :
  * - CRM volontairement simple
@@ -2353,6 +2353,21 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     await loadProspects();
   };
 
+  const isMissingClientColumnError = (err) => {
+    const raw = [err?.code, err?.message, err?.details, err?.hint]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return (
+      err?.code === "42703" ||
+      err?.code === "PGRST204" ||
+      raw.includes("schema cache") ||
+      raw.includes("could not find") ||
+      raw.includes("column")
+    );
+  };
+
   const findExistingClient = async (prospect) => {
     const email = String(prospect.email || "").trim();
     const telephone = String(prospect.telephone || "").replace(/\\D/g, "");
@@ -2556,13 +2571,22 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
       lastError = err;
 
-      // Si une colonne n'existe pas, on tente une version plus simple.
-      if (err.code !== "42703") break;
+      // Supabase/PostgREST renvoie parfois PGRST204, et non 42703,
+      // quand une colonne n'existe pas dans le cache de schéma.
+      // Exemple rencontré : colonne created_by absente de invest_clients.
+      // Dans ce cas, on tente automatiquement le payload suivant, plus minimal.
+      if (isMissingClientColumnError(err)) continue;
+
+      break;
     }
 
     if (!client?.id) {
       setSaving(false);
-      setError(lastError?.message || "Conversion impossible.");
+      setError(
+        lastError?.message
+          ? `Conversion impossible : ${lastError.message}`
+          : "Conversion impossible : aucune version compatible avec la table invest_clients."
+      );
       return;
     }
 
