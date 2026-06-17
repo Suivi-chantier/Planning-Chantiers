@@ -83,6 +83,24 @@ const EMPTY_ANNONCE = {
   url_photo: "",
 };
 
+const EMPTY_CRITERE = {
+  nom: "",
+  zones: "",
+  types_biens: "",
+  prix_min: "",
+  prix_max: "",
+  surface_min: "",
+  surface_max: "",
+  pieces_min: "",
+  mots_cles_inclus: "",
+  mots_cles_exclus: "",
+  vendeur_type: "tous",
+  source: "leboncoin_direct",
+  frequence: "quotidien",
+  actif: true,
+  score_min_alerte: 65,
+};
+
 function safeText(value) {
   return String(value || "").toLowerCase();
 }
@@ -108,6 +126,19 @@ function daysBetween(date) {
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return null;
   return Math.max(0, Math.floor((new Date() - d) / (1000 * 60 * 60 * 24)));
+}
+
+function parseTextList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function listToText(value) {
+  if (!Array.isArray(value)) return "";
+  return value.join(", ");
 }
 
 function getCategory(score) {
@@ -375,6 +406,9 @@ export default function Sourcing({ profil, T }) {
   const [filterStatut, setFilterStatut] = useState("tous");
   const [filterSearch, setFilterSearch] = useState("");
   const [newAnnonce, setNewAnnonce] = useState(EMPTY_ANNONCE);
+  const [savingCritere, setSavingCritere] = useState(false);
+  const [editingCritereId, setEditingCritereId] = useState(null);
+  const [critereForm, setCritereForm] = useState(EMPTY_CRITERE);
 
   async function loadData() {
     setLoading(true);
@@ -525,6 +559,114 @@ export default function Sourcing({ profil, T }) {
     setAnnonces((prev) => prev.filter((a) => a.id !== annonce.id));
   }
 
+  function updateCritereField(field, value) {
+    setCritereForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function resetCritereForm() {
+    setEditingCritereId(null);
+    setCritereForm(EMPTY_CRITERE);
+  }
+
+  function startEditCritere(critere) {
+    setEditingCritereId(critere.id);
+    setCritereForm({
+      nom: critere.nom || "",
+      zones: listToText(critere.zones),
+      types_biens: listToText(critere.types_biens),
+      prix_min: critere.prix_min ?? "",
+      prix_max: critere.prix_max ?? "",
+      surface_min: critere.surface_min ?? "",
+      surface_max: critere.surface_max ?? "",
+      pieces_min: critere.pieces_min ?? "",
+      mots_cles_inclus: listToText(critere.mots_cles_inclus),
+      mots_cles_exclus: listToText(critere.mots_cles_exclus),
+      vendeur_type: critere.vendeur_type || "tous",
+      source: critere.source || "leboncoin_direct",
+      frequence: critere.frequence || "quotidien",
+      actif: critere.actif !== false,
+      score_min_alerte: critere.score_min_alerte ?? 65,
+    });
+  }
+
+  async function handleSaveCritere(e) {
+    e.preventDefault();
+
+    if (!String(critereForm.nom || "").trim()) {
+      alert("Merci d’indiquer un nom de critère.");
+      return;
+    }
+
+    setSavingCritere(true);
+
+    const payload = {
+      nom: String(critereForm.nom || "").trim(),
+      zones: parseTextList(critereForm.zones),
+      types_biens: parseTextList(critereForm.types_biens),
+      prix_min: parseNumber(critereForm.prix_min),
+      prix_max: parseNumber(critereForm.prix_max),
+      surface_min: parseNumber(critereForm.surface_min),
+      surface_max: parseNumber(critereForm.surface_max),
+      pieces_min: parseNumber(critereForm.pieces_min),
+      mots_cles_inclus: parseTextList(critereForm.mots_cles_inclus),
+      mots_cles_exclus: parseTextList(critereForm.mots_cles_exclus),
+      vendeur_type: critereForm.vendeur_type || "tous",
+      source: critereForm.source || "leboncoin_direct",
+      frequence: critereForm.frequence || "quotidien",
+      actif: !!critereForm.actif,
+      score_min_alerte: parseNumber(critereForm.score_min_alerte) || 65,
+    };
+
+    const result = editingCritereId
+      ? await supabase.from("sourcing_criteres").update(payload).eq("id", editingCritereId)
+      : await supabase.from("sourcing_criteres").insert(payload);
+
+    if (result.error) {
+      console.error(result.error);
+      alert("Erreur lors de l’enregistrement du critère.");
+      setSavingCritere(false);
+      return;
+    }
+
+    setSavingCritere(false);
+    resetCritereForm();
+    await loadData();
+  }
+
+  async function handleToggleCritere(critere) {
+    const { error } = await supabase
+      .from("sourcing_criteres")
+      .update({ actif: !critere.actif })
+      .eq("id", critere.id);
+
+    if (error) {
+      console.error(error);
+      alert("Erreur lors du changement de statut du critère.");
+      return;
+    }
+
+    setCriteres((prev) => prev.map((c) => c.id === critere.id ? { ...c, actif: !critere.actif } : c));
+  }
+
+  async function handleDeleteCritere(critere) {
+    const ok = window.confirm(`Supprimer le critère « ${critere.nom} » ?`);
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("sourcing_criteres")
+      .delete()
+      .eq("id", critere.id);
+
+    if (error) {
+      console.error(error);
+      alert("Erreur lors de la suppression du critère.");
+      return;
+    }
+
+    if (editingCritereId === critere.id) resetCritereForm();
+    setCriteres((prev) => prev.filter((c) => c.id !== critere.id));
+  }
+
   const preview = useMemo(() => computeSourcingAnalysis({
     ...newAnnonce,
     prix: Number(newAnnonce.prix || 0),
@@ -615,7 +757,19 @@ export default function Sourcing({ profil, T }) {
               )}
 
               {activeTab === "criteres" && (
-                <CriteresTab T={T} criteres={criteres} />
+                <CriteresTab
+                  T={T}
+                  criteres={criteres}
+                  critereForm={critereForm}
+                  editingCritereId={editingCritereId}
+                  savingCritere={savingCritere}
+                  updateCritereField={updateCritereField}
+                  onSubmit={handleSaveCritere}
+                  onReset={resetCritereForm}
+                  onEdit={startEditCritere}
+                  onToggle={handleToggleCritere}
+                  onDelete={handleDeleteCritere}
+                />
               )}
 
               {activeTab === "analyse" && (
@@ -792,47 +946,168 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
   );
 }
 
-function CriteresTab({ T, criteres }) {
+function CriteresTab({
+  T,
+  criteres,
+  critereForm,
+  editingCritereId,
+  savingCritere,
+  updateCritereField,
+  onSubmit,
+  onReset,
+  onEdit,
+  onToggle,
+  onDelete,
+}) {
   const S = getStyles(T);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Critères de recherche</h2>
-        <p style={{ margin: "6px 0 0", fontSize: 13, color: S.textSub }}>
-          Les critères sont lus depuis Supabase. La création/modification depuis l’interface sera ajoutée après validation de cette connexion.
-        </p>
-      </div>
+    <div style={{ display: "grid", gridTemplateColumns: "0.95fr 1.05fr", gap: 18, alignItems: "start" }}>
+      <form onSubmit={onSubmit} style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 16 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>
+              {editingCritereId ? "Modifier un critère" : "Créer un critère"}
+            </h2>
+            <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.5, color: S.textSub }}>
+              Les valeurs multiples se saisissent avec des virgules : zones, types de biens et mots-clés.
+            </p>
+          </div>
 
-      {criteres.length === 0 ? (
-        <div style={{ ...S.cardStyle, borderStyle: "dashed", boxShadow: "none", color: S.textSub }}>Aucun critère trouvé.</div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 }}>
-          {criteres.map((c) => (
-            <div key={c.id} style={S.cardStyle}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>{c.nom}</h3>
-                  <p style={{ margin: "5px 0 0", fontSize: 13, color: S.textSub }}>Source : {c.source || "—"} · Fréquence : {c.frequence || "—"}</p>
-                </div>
-                <Pill bg={c.actif ? "rgba(34,197,94,0.12)" : "rgba(148,163,184,0.14)"} color={c.actif ? "#15803d" : S.textSub}>
-                  {c.actif ? "Actif" : "Inactif"}
-                </Pill>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginTop: 16, fontSize: 13, color: S.textSub }}>
-                <div>Prix : {fmtEur(c.prix_min)} à {fmtEur(c.prix_max)}</div>
-                <div>Surface : {fmtNumber(c.surface_min)} à {fmtNumber(c.surface_max)} m²</div>
-                <div>Pièces min : {fmtNumber(c.pieces_min)}</div>
-                <div>Score alerte : {fmtNumber(c.score_min_alerte)}/100</div>
-              </div>
-
-              {Array.isArray(c.zones) && c.zones.length > 0 && <TagList title="Zones" values={c.zones} T={T} />}
-              {Array.isArray(c.types_biens) && c.types_biens.length > 0 && <TagList title="Types de biens" values={c.types_biens} T={T} />}
-              {Array.isArray(c.mots_cles_inclus) && c.mots_cles_inclus.length > 0 && <TagList title="Mots-clés inclus" values={c.mots_cles_inclus} T={T} />}
-            </div>
-          ))}
+          {editingCritereId && (
+            <button type="button" onClick={onReset} style={S.buttonSecondary}>
+              Nouveau
+            </button>
+          )}
         </div>
-      )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Field label="Nom du profil" T={T}>
+            <input value={critereForm.nom} onChange={(e) => updateCritereField("nom", e.target.value)} style={S.inputStyle} placeholder="Immeubles Angers" />
+          </Field>
+
+          <Field label="Zones" T={T}>
+            <input value={critereForm.zones} onChange={(e) => updateCritereField("zones", e.target.value)} style={S.inputStyle} placeholder="Angers, Avrillé, Trélazé, Maine-et-Loire" />
+          </Field>
+
+          <Field label="Types de biens" T={T}>
+            <input value={critereForm.types_biens} onChange={(e) => updateCritereField("types_biens", e.target.value)} style={S.inputStyle} placeholder="immeuble, maison, appartement" />
+          </Field>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+            <Field label="Prix minimum" T={T}>
+              <input type="number" value={critereForm.prix_min} onChange={(e) => updateCritereField("prix_min", e.target.value)} style={S.inputStyle} placeholder="50000" />
+            </Field>
+            <Field label="Prix maximum" T={T}>
+              <input type="number" value={critereForm.prix_max} onChange={(e) => updateCritereField("prix_max", e.target.value)} style={S.inputStyle} placeholder="500000" />
+            </Field>
+            <Field label="Surface minimum" T={T}>
+              <input type="number" value={critereForm.surface_min} onChange={(e) => updateCritereField("surface_min", e.target.value)} style={S.inputStyle} placeholder="80" />
+            </Field>
+            <Field label="Surface maximum" T={T}>
+              <input type="number" value={critereForm.surface_max} onChange={(e) => updateCritereField("surface_max", e.target.value)} style={S.inputStyle} placeholder="500" />
+            </Field>
+            <Field label="Pièces minimum" T={T}>
+              <input type="number" value={critereForm.pieces_min} onChange={(e) => updateCritereField("pieces_min", e.target.value)} style={S.inputStyle} placeholder="4" />
+            </Field>
+            <Field label="Score minimum alerte" T={T}>
+              <input type="number" value={critereForm.score_min_alerte} onChange={(e) => updateCritereField("score_min_alerte", e.target.value)} style={S.inputStyle} placeholder="65" />
+            </Field>
+          </div>
+
+          <Field label="Mots-clés inclus" T={T}>
+            <textarea value={critereForm.mots_cles_inclus} onChange={(e) => updateCritereField("mots_cles_inclus", e.target.value)} style={{ ...S.inputStyle, minHeight: 76, resize: "vertical" }} placeholder="travaux, à rénover, immeuble, division possible" />
+          </Field>
+
+          <Field label="Mots-clés exclus" T={T}>
+            <textarea value={critereForm.mots_cles_exclus} onChange={(e) => updateCritereField("mots_cles_exclus", e.target.value)} style={{ ...S.inputStyle, minHeight: 70, resize: "vertical" }} placeholder="viager, terrain seul, mobil-home" />
+          </Field>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+            <Field label="Vendeur" T={T}>
+              <select value={critereForm.vendeur_type} onChange={(e) => updateCritereField("vendeur_type", e.target.value)} style={S.inputStyle}>
+                <option value="tous">Tous</option>
+                <option value="particulier">Particulier</option>
+                <option value="pro">Professionnel</option>
+              </select>
+            </Field>
+            <Field label="Source" T={T}>
+              <select value={critereForm.source} onChange={(e) => updateCritereField("source", e.target.value)} style={S.inputStyle}>
+                <option value="leboncoin_direct">Leboncoin direct</option>
+                <option value="manual">Manuel</option>
+                <option value="email_alert">Alerte email</option>
+                <option value="csv">CSV</option>
+              </select>
+            </Field>
+            <Field label="Fréquence" T={T}>
+              <select value={critereForm.frequence} onChange={(e) => updateCritereField("frequence", e.target.value)} style={S.inputStyle}>
+                <option value="quotidien">Quotidien</option>
+                <option value="matin_soir">Matin et soir</option>
+                <option value="hebdomadaire">Hebdomadaire</option>
+                <option value="manuel">Manuel</option>
+              </select>
+            </Field>
+          </div>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${S.border}`, background: S.card, borderRadius: 12, padding: "10px 12px", color: S.text, fontSize: 13, fontWeight: 800 }}>
+            <input type="checkbox" checked={!!critereForm.actif} onChange={(e) => updateCritereField("actif", e.target.checked)} />
+            Critère actif
+          </label>
+
+          <button type="submit" disabled={savingCritere} style={{ ...S.buttonPrimary, opacity: savingCritere ? 0.55 : 1 }}>
+            {savingCritere ? "Enregistrement..." : editingCritereId ? "Enregistrer les modifications" : "Créer le critère"}
+          </button>
+        </div>
+      </form>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Critères existants</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.5, color: S.textSub }}>
+            Ces profils serviront ensuite à lancer la collecte automatique des annonces et à analyser les biens détectés.
+          </p>
+        </div>
+
+        {criteres.length === 0 ? (
+          <div style={{ ...S.cardStyle, borderStyle: "dashed", boxShadow: "none", color: S.textSub }}>Aucun critère trouvé.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {criteres.map((c) => (
+              <div key={c.id} style={S.cardStyle}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>{c.nom}</h3>
+                    <p style={{ margin: "5px 0 0", fontSize: 13, color: S.textSub }}>Source : {c.source || "—"} · Fréquence : {c.frequence || "—"}</p>
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button type="button" onClick={() => onToggle(c)} style={{ ...S.buttonSecondary, background: c.actif ? "rgba(34,197,94,0.12)" : S.inputBg, color: c.actif ? "#15803d" : S.textSub }}>
+                      {c.actif ? "Actif" : "Inactif"}
+                    </button>
+                    <button type="button" onClick={() => onEdit(c)} style={{ ...S.buttonSecondary, background: "rgba(59,130,246,0.12)", color: "#1d4ed8" }}>
+                      Modifier
+                    </button>
+                    <button type="button" onClick={() => onDelete(c)} style={{ ...S.buttonSecondary, background: "rgba(239,68,68,0.12)", color: "#b91c1c" }}>
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginTop: 16, fontSize: 13, color: S.textSub }}>
+                  <div>Prix : {fmtEur(c.prix_min)} à {fmtEur(c.prix_max)}</div>
+                  <div>Surface : {fmtNumber(c.surface_min)} à {fmtNumber(c.surface_max)} m²</div>
+                  <div>Pièces min : {fmtNumber(c.pieces_min)}</div>
+                  <div>Score alerte : {fmtNumber(c.score_min_alerte)}/100</div>
+                </div>
+
+                {Array.isArray(c.zones) && c.zones.length > 0 && <TagList title="Zones" values={c.zones} T={T} />}
+                {Array.isArray(c.types_biens) && c.types_biens.length > 0 && <TagList title="Types de biens" values={c.types_biens} T={T} />}
+                {Array.isArray(c.mots_cles_inclus) && c.mots_cles_inclus.length > 0 && <TagList title="Mots-clés inclus" values={c.mots_cles_inclus} T={T} />}
+                {Array.isArray(c.mots_cles_exclus) && c.mots_cles_exclus.length > 0 && <TagList title="Mots-clés exclus" values={c.mots_cles_exclus} T={T} />}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
