@@ -271,13 +271,13 @@ function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.
 }
 
 // ─── SIMULATEUR ───────────────────────────────────────────────────────────────
-function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded=false, bienId: embeddedBienId=null, bienSource=null, onBienSaved }) {
+function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded=false, bienId: embeddedBienId=null, bienSource=null, onBienSaved, simulationId=null, simulationName="" }) {
   const isNew = !projet?.id;
   const projetIdRef = useRef(projet?.id||null);
   const isEmbedded = !!embedded;
 
   // ── État principal ──────────────────────────────────────────────────────────
-  const [nom,    setNom]    = useState(projet?.donnees?.projectName || projet?.nom || "Nouveau projet");
+  const [nom,    setNom]    = useState(projet?.donnees?.projectName || simulationName || projet?.nom || "Nouveau projet");
   const [tab,    setTab]    = useState("simulateur");
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
@@ -406,10 +406,47 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
 
     if (isEmbedded && embeddedBienId) {
       const existingVisiteData = (bienSource && bienSource.visite_data) || {};
+      const now = new Date().toISOString();
+      const existingSimulations = Array.isArray(existingVisiteData.simulateurs) ? existingVisiteData.simulateurs : [];
+      const legacySimulation = existingVisiteData.simulateur;
+      const currentSimulationId = simulationId || existingVisiteData.simulateur_active_id || `sim_${Date.now()}`;
+      const existingSimulation = existingSimulations.find((s) => s?.id === currentSimulationId) || null;
+      const currentSimulationName = simulationName || existingSimulation?.nom || state.projectName || nom || "Simulation";
+      const nextState = {
+        ...state,
+        projectName: currentSimulationName,
+        savedAt: now,
+        simulation_id: currentSimulationId,
+      };
+
+      let baseSimulations = existingSimulations;
+      if (!baseSimulations.length && legacySimulation) {
+        baseSimulations = [{
+          id: currentSimulationId,
+          nom: legacySimulation.projectName || currentSimulationName,
+          created_at: legacySimulation.savedAt || now,
+          updated_at: legacySimulation.savedAt || now,
+          donnees: legacySimulation,
+        }];
+      }
+
+      const updatedSimulations = [
+        ...baseSimulations.filter((s) => s?.id !== currentSimulationId),
+        {
+          id: currentSimulationId,
+          nom: currentSimulationName,
+          created_at: existingSimulation?.created_at || now,
+          updated_at: now,
+          donnees: nextState,
+        },
+      ];
+
       const updatedVisiteData = {
         ...existingVisiteData,
-        simulateur: state,
-        simulateur_updated_at: new Date().toISOString(),
+        simulateur: nextState,
+        simulateurs: updatedSimulations,
+        simulateur_active_id: currentSimulationId,
+        simulateur_updated_at: now,
       };
 
       const payloadBien = {
@@ -464,7 +501,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
       projetIdRef.current = res.data.id;
     }
     setSaving(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
-  },[collectState, nom, profil, clientId, isEmbedded, embeddedBienId, bienSource, prixAffiche, prixNegocie, budgetTravaux, coutTotal, rb, cfSel, onBienSaved]);
+  },[collectState, nom, profil, clientId, isEmbedded, embeddedBienId, bienSource, prixAffiche, prixNegocie, budgetTravaux, coutTotal, rb, cfSel, onBienSaved, simulationId, simulationName]);
 
   // Autosave rapide du simulateur
   const autoRef = useRef(null);
