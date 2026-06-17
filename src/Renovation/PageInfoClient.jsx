@@ -609,7 +609,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const projetActif = projets.find(p => p.id === projetId);
 
   return (
-    <div className="pic-page" style={{ display:"flex", height:"100%", background:T.bg, overflow:"hidden", position:"relative" }}>
+    <div className="pic-page" style={{ flex:1, minWidth:0, width:"100%", display:"flex", height:"100%", background:T.bg, overflow:"hidden", position:"relative" }}>
       <style>{`
         .pic-mobile-bar{display:none}
 
