@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V16 harmonisée : pipeline premium + liste + planning étendu + KPI + fiche modale + import liste + relances + conversion CRM corrigée
+ * CRM Prospection — V17 analyse avancée : graphiques KPI + focus Fluidify + mail passage signé
  *
  * Objectif :
  * - CRM volontairement simple
@@ -204,6 +204,26 @@ function statusOf(statut) {
 function statusSoftBg(statut) {
   const status = statusOf(statut);
   return `linear-gradient(135deg, ${status.color}1F, rgba(255,255,255,.035))`;
+}
+
+function isSignedStatus(statut) {
+  return ["signe", "converti"].includes(statut);
+}
+
+function isLostStatus(statut) {
+  return statut === "perdu";
+}
+
+function isRelaunchStatus(statut) {
+  return ["relance", "relance_1", "relance_2"].includes(statut);
+}
+
+function moneyValue(p) {
+  return Number(p?.ca_potentiel_ht || p?.honoraires_estimes_ht || 0) || 0;
+}
+
+function isFluidifySource(source) {
+  return String(source || "").toLowerCase().includes("fluidify");
 }
 
 function priorityScore(p) {
@@ -827,68 +847,423 @@ function FunnelStep({ label, count, total, color, T }) {
   );
 }
 
+function AnalysisStatCard({ icon, label, value, helper, color, T }) {
+  const IconStat = icon;
+  return (
+    <div
+      className="inv-card"
+      style={{
+        padding: 14,
+        background: `linear-gradient(135deg, ${color || T.accent}14, rgba(255,255,255,.035))`,
+        border: `1px solid ${color || T.accent}2E`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, textTransform: "uppercase", letterSpacing: ".08em" }}>{label}</div>
+          <div style={{ color: T.text, fontSize: 24, fontWeight: 950, marginTop: 5, lineHeight: 1 }}>{value}</div>
+          {helper ? <div style={{ color: T.textMuted, fontSize: 11, marginTop: 6 }}>{helper}</div> : null}
+        </div>
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 14,
+            display: "grid",
+            placeItems: "center",
+            background: `${color || T.accent}1C`,
+            border: `1px solid ${color || T.accent}42`,
+            color: color || T.accent,
+            flexShrink: 0,
+          }}
+        >
+          <Icon as={IconStat} size={18} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdvancedBarRow({ label, value, max, color, T, helper, valueLabel }) {
+  const pct = max > 0 ? Math.max(3, Math.min(100, (Number(value || 0) / max) * 100)) : 0;
+
+  return (
+    <div style={{ marginBottom: 11 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 5, alignItems: "baseline" }}>
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              color: T.textSub,
+              fontSize: 11.5,
+              fontWeight: 900,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {label}
+          </div>
+          {helper ? <div style={{ color: T.textMuted, fontSize: 10, marginTop: 1 }}>{helper}</div> : null}
+        </div>
+        <div style={{ color: T.text, fontSize: 11.5, fontWeight: 950, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>{valueLabel || value}</div>
+      </div>
+      <div style={{ height: 9, borderRadius: 999, background: "rgba(148,163,184,.15)", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: color || T.accent }} />
+      </div>
+    </div>
+  );
+}
+
+function AdvancedBarCard({ title, subtitle, icon, color, data, T, money = false, valueSuffix = "" }) {
+  const IconChart = icon;
+  const max = Math.max(1, ...data.map((d) => Number(d.value || 0)));
+
+  return (
+    <div className="inv-card" style={{ padding: 14, minHeight: 280 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 13 }}>
+        <div>
+          <div style={{ color: T.text, fontSize: 14, fontWeight: 950, display: "flex", alignItems: "center", gap: 7 }}>
+            <Icon as={IconChart} size={15} />
+            {title}
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 11, marginTop: 3 }}>{subtitle}</div>
+        </div>
+      </div>
+
+      {data.length === 0 ? (
+        <div style={{ color: T.textMuted, fontSize: 12, border: `1px dashed ${T.border}`, borderRadius: 14, padding: 20, textAlign: "center" }}>
+          Pas encore assez de données
+        </div>
+      ) : (
+        data.slice(0, 9).map((row) => (
+          <AdvancedBarRow
+            key={row.label}
+            label={row.label}
+            value={row.value}
+            max={max}
+            color={row.color || color}
+            T={T}
+            helper={row.helper}
+            valueLabel={money ? fmtDashboardEur(row.value) : `${row.value}${valueSuffix}`}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function ConversionSourceCard({ data, T }) {
+  const max = Math.max(1, ...data.map((d) => d.total));
+
+  return (
+    <div className="inv-card" style={{ padding: 14, minHeight: 300 }}>
+      <div style={{ color: T.text, fontSize: 14, fontWeight: 950, display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+        <Icon as={PieChart} size={15} />
+        Conversion par source
+      </div>
+      <div style={{ color: T.textMuted, fontSize: 11, marginBottom: 14 }}>
+        Volume, signés et taux de conversion par canal d'acquisition
+      </div>
+
+      {data.length === 0 ? (
+        <div style={{ color: T.textMuted, fontSize: 12, border: `1px dashed ${T.border}`, borderRadius: 14, padding: 20, textAlign: "center" }}>
+          Pas encore de source renseignée
+        </div>
+      ) : (
+        data.slice(0, 8).map((row) => {
+          const pct = max > 0 ? Math.max(4, (row.total / max) * 100) : 0;
+          return (
+            <div key={row.label} style={{ marginBottom: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 5 }}>
+                <div style={{ color: T.textSub, fontSize: 11.5, fontWeight: 900 }}>{row.label}</div>
+                <div style={{ color: T.text, fontSize: 11.5, fontWeight: 950, fontFamily: "'DM Mono', monospace" }}>
+                  {row.signed}/{row.total} · {row.rate}%
+                </div>
+              </div>
+              <div style={{ height: 9, borderRadius: 999, background: "rgba(148,163,184,.15)", overflow: "hidden", position: "relative" }}>
+                <div style={{ position: "absolute", inset: 0, width: `${pct}%`, background: "rgba(96,165,250,.45)", borderRadius: 999 }} />
+                <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, (pct * row.rate) / 100)}%`, background: SU, borderRadius: 999 }} />
+              </div>
+              <div style={{ color: T.textMuted, fontSize: 10, marginTop: 3 }}>
+                RDV : {row.rdv} · Proposition : {row.proposal} · CA signé : {fmtDashboardEur(row.signedCa)}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+function MiniTrendCard({ data, T }) {
+  const max = Math.max(1, ...data.flatMap((d) => [d.created, d.signed]));
+
+  return (
+    <div className="inv-card" style={{ padding: 14, minHeight: 300 }}>
+      <div style={{ color: T.text, fontSize: 14, fontWeight: 950, display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+        <Icon as={TrendingUp} size={15} />
+        Évolution mensuelle
+      </div>
+      <div style={{ color: T.textMuted, fontSize: 11, marginBottom: 14 }}>
+        Prospects entrants et signatures par mois
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(1, data.length)}, minmax(34px, 1fr))`, gap: 8, alignItems: "end", height: 170 }}>
+        {data.map((row) => (
+          <div key={row.label} style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+            <div style={{ height: "130px", display: "flex", alignItems: "end", justifyContent: "center", gap: 4, width: "100%" }}>
+              <div
+                title={`Entrants : ${row.created}`}
+                style={{
+                  width: "38%",
+                  height: `${Math.max(3, (row.created / max) * 100)}%`,
+                  borderRadius: "9px 9px 3px 3px",
+                  background: "#60A5FA",
+                  opacity: .9,
+                }}
+              />
+              <div
+                title={`Signés : ${row.signed}`}
+                style={{
+                  width: "38%",
+                  height: `${Math.max(3, (row.signed / max) * 100)}%`,
+                  borderRadius: "9px 9px 3px 3px",
+                  background: SU,
+                  opacity: .95,
+                }}
+              />
+            </div>
+            <div style={{ color: T.textMuted, fontSize: 10, textAlign: "center", minHeight: 24 }}>{row.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 12, marginTop: 10, color: T.textMuted, fontSize: 11 }}>
+        <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 3, background: "#60A5FA", marginRight: 5 }} />Entrants</span>
+        <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 3, background: SU, marginRight: 5 }} />Signés</span>
+      </div>
+    </div>
+  );
+}
+
+function FluidifyFocusCard({ prospects, T }) {
+  const fluidify = prospects.filter((p) => isFluidifySource(p.source));
+  const total = fluidify.length;
+  const contacted = fluidify.filter((p) => ["contact", "relance", "relance_1", "relance_2", "rdv", "proposition", "signe", "converti"].includes(p.statut)).length;
+  const relaunch = fluidify.filter((p) => isRelaunchStatus(p.statut)).length;
+  const rdv = fluidify.filter((p) => p.statut === "rdv" || p.date_rdv || ["proposition", "signe", "converti"].includes(p.statut)).length;
+  const proposal = fluidify.filter((p) => ["proposition", "signe", "converti"].includes(p.statut)).length;
+  const signed = fluidify.filter((p) => isSignedStatus(p.statut)).length;
+  const signedCa = fluidify.filter((p) => isSignedStatus(p.statut)).reduce((s, p) => s + moneyValue(p), 0);
+  const potential = fluidify.reduce((s, p) => s + moneyValue(p), 0);
+
+  const steps = [
+    { label: "Leads", value: total, color: "#60A5FA" },
+    { label: "Contactés", value: contacted, color: "#F59E0B" },
+    { label: "Relances", value: relaunch, color: "#F97316" },
+    { label: "RDV", value: rdv, color: "#8B5CF6" },
+    { label: "Propositions", value: proposal, color: "#22C55E" },
+    { label: "Signés", value: signed, color: SU },
+  ];
+
+  const max = Math.max(1, ...steps.map((s) => s.value));
+  const rate = total > 0 ? Math.round((signed / total) * 100) : 0;
+
+  return (
+    <div className="inv-card" style={{ padding: 14, minHeight: 300, background: "linear-gradient(135deg, rgba(201,163,74,.13), rgba(255,255,255,.035))" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+        <div>
+          <div style={{ color: T.text, fontSize: 14, fontWeight: 950, display: "flex", alignItems: "center", gap: 7 }}>
+            <Icon as={Target} size={15} />
+            Focus Fluidify
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 11, marginTop: 3 }}>Lecture dédiée des leads entrants Fluidify</div>
+        </div>
+        <Badge color={T.accent} T={T}>{rate}% signé</Badge>
+      </div>
+
+      {steps.map((step) => (
+        <AdvancedBarRow
+          key={step.label}
+          label={step.label}
+          value={step.value}
+          max={max}
+          color={step.color}
+          T={T}
+          valueLabel={String(step.value)}
+        />
+      ))}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginTop: 12 }}>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, padding: 10, background: "rgba(255,255,255,.035)" }}>
+          <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900 }}>CA potentiel</div>
+          <div style={{ color: T.text, fontSize: 17, fontWeight: 950, marginTop: 3 }}>{fmtDashboardEur(potential)}</div>
+        </div>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, padding: 10, background: "rgba(255,255,255,.035)" }}>
+          <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900 }}>CA signé</div>
+          <div style={{ color: SU, fontSize: 17, fontWeight: 950, marginTop: 3 }}>{fmtDashboardEur(signedCa)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InsightPanel({ insights, T }) {
+  return (
+    <div className="inv-card" style={{ padding: 14 }}>
+      <div style={{ color: T.text, fontSize: 14, fontWeight: 950, display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+        <Icon as={Bell} size={15} />
+        Points d'attention automatiques
+      </div>
+
+      <div style={{ display: "grid", gap: 8 }}>
+        {insights.map((insight, index) => (
+          <div
+            key={`${insight.label}-${index}`}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 9,
+              border: `1px solid ${insight.color}32`,
+              background: `${insight.color}12`,
+              borderRadius: 14,
+              padding: 10,
+            }}
+          >
+            <div style={{ width: 24, height: 24, borderRadius: 9, background: `${insight.color}1E`, color: insight.color, display: "grid", placeItems: "center", flexShrink: 0 }}>
+              <Icon as={insight.icon} size={13} />
+            </div>
+            <div>
+              <div style={{ color: T.text, fontSize: 12, fontWeight: 950 }}>{insight.label}</div>
+              <div style={{ color: T.textSub, fontSize: 11.5, marginTop: 2, lineHeight: 1.45 }}>{insight.text}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function KpiAnalysisView({ prospects, stats, T }) {
   const total = prospects.length;
-  const signed = prospects.filter((p) => ["signe", "converti"].includes(p.statut)).length;
-  const lost = prospects.filter((p) => p.statut === "perdu").length;
+  const active = prospects.filter(isActiveProspect).length;
+  const signed = prospects.filter((p) => isSignedStatus(p.statut)).length;
+  const lost = prospects.filter((p) => isLostStatus(p.statut)).length;
+  const late = prospects.filter((p) => isLate(p.date_prochaine_action) && isActiveProspect(p)).length;
+  const withoutNextAction = prospects.filter((p) => isActiveProspect(p) && !p.date_prochaine_action).length;
+  const withoutContact = prospects.filter((p) => !p.telephone && !p.email).length;
+  const relance2 = prospects.filter((p) => p.statut === "relance_2").length;
   const propositions = prospects.filter((p) => ["proposition", "signe", "converti"].includes(p.statut)).length;
+  const rdv = prospects.filter((p) => p.statut === "rdv" || p.date_rdv).length;
+  const caPotential = prospects.reduce((sum, p) => sum + moneyValue(p), 0);
+  const caSigned = prospects.filter((p) => isSignedStatus(p.statut)).reduce((sum, p) => sum + moneyValue(p), 0);
+
   const conversionRate = total > 0 ? Math.round((signed / total) * 100) : 0;
   const proposalRate = total > 0 ? Math.round((propositions / total) * 100) : 0;
-  const caSigned = prospects
-    .filter((p) => ["signe", "converti"].includes(p.statut))
-    .reduce((sum, p) => sum + (Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0), 0);
+  const rdvRate = total > 0 ? Math.round((rdv / total) * 100) : 0;
+  const lostRate = total > 0 ? Math.round((lost / total) * 100) : 0;
 
   const byStatus = STATUTS.map((s) => ({
     label: s.label,
     value: prospects.filter((p) => p.statut === s.id || (s.id === "signe" && p.statut === "converti")).length,
     color: s.color,
+    helper: s.tone,
   }));
 
-  const bySource = groupCount(prospects, (p) => p.source).slice(0, 8);
+  const bySourceCount = groupCount(prospects, (p) => p.source).slice(0, 8);
   const byResponsable = groupCount(prospects, (p) => p.responsable).slice(0, 8);
-  const caByStatus = groupSum(prospects, (p) => statusOf(p.statut).label, (p) => p.ca_potentiel_ht || p.honoraires_estimes_ht).slice(0, 8);
+  const caByStatus = groupSum(prospects, (p) => statusOf(p.statut).label, moneyValue).slice(0, 9);
+  const caBySource = groupSum(prospects, (p) => p.source, moneyValue).slice(0, 8);
 
-  const byMonth = groupCount(prospects, (p) => monthKey(p.created_at || p.date_premier_contact || p.updated_at), "Non daté")
-    .sort((a, b) => a.label.localeCompare(b.label))
+  const sourceMap = new Map();
+  prospects.forEach((p) => {
+    const label = String(p.source || "Non renseigné").trim() || "Non renseigné";
+    const row = sourceMap.get(label) || { label, total: 0, signed: 0, rdv: 0, proposal: 0, signedCa: 0 };
+    row.total += 1;
+    if (isSignedStatus(p.statut)) {
+      row.signed += 1;
+      row.signedCa += moneyValue(p);
+    }
+    if (p.statut === "rdv" || p.date_rdv || ["proposition", "signe", "converti"].includes(p.statut)) row.rdv += 1;
+    if (["proposition", "signe", "converti"].includes(p.statut)) row.proposal += 1;
+    sourceMap.set(label, row);
+  });
+  const conversionBySource = Array.from(sourceMap.values())
+    .map((row) => ({ ...row, rate: row.total > 0 ? Math.round((row.signed / row.total) * 100) : 0 }))
+    .sort((a, b) => b.total - a.total || b.rate - a.rate);
+
+  const monthMap = new Map();
+  prospects.forEach((p) => {
+    const createdKey = monthKey(p.created_at || p.date_premier_contact || p.updated_at);
+    const createdRow = monthMap.get(createdKey) || { key: createdKey, created: 0, signed: 0 };
+    createdRow.created += 1;
+    monthMap.set(createdKey, createdRow);
+
+    if (isSignedStatus(p.statut)) {
+      const signedKey = monthKey(p.converted_at || p.date_signature || p.updated_at || p.created_at);
+      const signedRow = monthMap.get(signedKey) || { key: signedKey, created: 0, signed: 0 };
+      signedRow.signed += 1;
+      monthMap.set(signedKey, signedRow);
+    }
+  });
+  const byMonth = Array.from(monthMap.values())
+    .filter((row) => row.key && row.key !== "Non daté")
+    .sort((a, b) => a.key.localeCompare(b.key))
     .slice(-8)
-    .map((row) => ({ ...row, label: monthLabel(row.label) }));
+    .map((row) => ({ ...row, label: monthLabel(row.key) }));
+
+  const insights = [];
+  if (late > 0) insights.push({ icon: AlertTriangle, color: DA, label: `${late} prospect(s) en retard`, text: "Des relances sont dépassées. À traiter en priorité dans la vue Planning." });
+  if (relance2 > 0) insights.push({ icon: RefreshCw, color: "#EF4444", label: `${relance2} prospect(s) en Relance 2`, text: "Ces prospects risquent de sortir du tunnel. Prévoir une décision : dernier appel, RDV, ou perdu." });
+  if (withoutNextAction > 0) insights.push({ icon: Clock, color: WA, label: `${withoutNextAction} prospect(s) sans prochaine action`, text: "Chaque prospect actif devrait avoir une prochaine action et une date de relance." });
+  if (withoutContact > 0) insights.push({ icon: Mail, color: WA, label: `${withoutContact} prospect(s) sans contact`, text: "Téléphone ou email manquant : la qualité de la donnée doit être améliorée." });
+  if (conversionRate >= 25 && total >= 4) insights.push({ icon: CheckCircle2, color: SU, label: "Conversion encourageante", text: `Le taux de conversion est de ${conversionRate}%. L'enjeu est maintenant d'augmenter le volume qualifié.` });
+  if (!insights.length) insights.push({ icon: CheckCircle2, color: SU, label: "Pipeline propre", text: "Aucun point bloquant majeur détecté dans les données actuelles." });
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
-        <Kpi icon={Users} label="Total prospects" value={total} color="#60A5FA" T={T} />
-        <Kpi icon={TrendingUp} label="Taux conversion" value={`${conversionRate}%`} color={conversionRate >= 25 ? SU : WA} T={T} />
-        <Kpi icon={Target} label="Taux proposition" value={`${proposalRate}%`} color="#8B5CF6" T={T} />
-        <Kpi icon={Euro} label="CA signé" value={fmtDashboardEur(caSigned)} color={SU} T={T} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+        <AnalysisStatCard icon={Users} label="Prospects" value={total} helper={`${active} actifs`} color="#60A5FA" T={T} />
+        <AnalysisStatCard icon={TrendingUp} label="Conversion" value={`${conversionRate}%`} helper={`${signed} signé(s) · ${lostRate}% perdus`} color={conversionRate >= 25 ? SU : WA} T={T} />
+        <AnalysisStatCard icon={Calendar} label="RDV" value={`${rdvRate}%`} helper={`${rdv} RDV identifiés`} color="#8B5CF6" T={T} />
+        <AnalysisStatCard icon={Target} label="Proposition" value={`${proposalRate}%`} helper={`${propositions} proposition(s)`} color="#22C55E" T={T} />
+        <AnalysisStatCard icon={Clock} label="Retards" value={late} helper="Relances dépassées" color={late > 0 ? DA : SU} T={T} />
+        <AnalysisStatCard icon={Euro} label="CA signé" value={fmtDashboardEur(caSigned)} helper={`Potentiel : ${fmtDashboardEur(caPotential)}`} color={SU} T={T} />
       </div>
 
-      <div className="inv-card" style={{ padding: 12 }}>
-        <div style={{ color: T.text, fontSize: 14, fontWeight: 900, display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-          <Icon as={BarChart3} size={15} />
-          Tunnel commercial
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8 }}>
-          {byStatus.map((s) => (
-            <FunnelStep key={s.label} label={s.label} count={s.value} total={total} color={s.color} T={T} />
-          ))}
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.25fr) minmax(320px, .75fr)", gap: 12 }}>
+        <AdvancedBarCard
+          title="Tunnel commercial"
+          subtitle="Répartition des prospects dans chaque étape du pipeline"
+          icon={BarChart3}
+          color="#60A5FA"
+          data={byStatus}
+          T={T}
+        />
+        <InsightPanel insights={insights} T={T} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-        <MiniBarChart title="Prospects par source" subtitle="Origine des contacts entrants" icon={PieChart} color="#60A5FA" data={bySource} T={T} />
-        <MiniBarChart title="Prospects par responsable" subtitle="Répartition commerciale" icon={Users} color="#8B5CF6" data={byResponsable} T={T} />
-        <MiniBarChart title="Nouveaux prospects par mois" subtitle="Évolution du volume de prospection" icon={TrendingUp} color={SU} data={byMonth} T={T} />
-        <MiniBarChart title="CA potentiel par statut" subtitle="Honoraires estimés par étape" icon={Euro} color={WA} data={caByStatus} T={T} money />
-      </div>
-
-      <div className="inv-card" style={{ padding: 12 }}>
-        <div style={{ color: T.text, fontSize: 14, fontWeight: 900, marginBottom: 8 }}>Lecture rapide</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
-          <div style={{ color: T.textSub, fontSize: 12 }}>Prospects actifs : <strong style={{ color: T.text }}>{stats.actifs}</strong></div>
-          <div style={{ color: T.textSub, fontSize: 12 }}>Relances en retard : <strong style={{ color: stats.relances > 0 ? DA : SU }}>{stats.relances}</strong></div>
-          <div style={{ color: T.textSub, fontSize: 12 }}>Prospects perdus : <strong style={{ color: T.text }}>{lost}</strong></div>
-          <div style={{ color: T.textSub, fontSize: 12 }}>CA potentiel : <strong style={{ color: T.text }}>{fmtDashboardEur(stats.ca)}</strong></div>
-        </div>
+        <AdvancedBarCard title="Leads par source" subtitle="Volume généré par canal" icon={PieChart} color="#60A5FA" data={bySourceCount} T={T} />
+        <ConversionSourceCard data={conversionBySource} T={T} />
+        <FluidifyFocusCard prospects={prospects} T={T} />
+        <MiniTrendCard data={byMonth} T={T} />
+        <AdvancedBarCard title="CA potentiel par statut" subtitle="Valeur estimée du pipeline par étape" icon={Euro} color={WA} data={caByStatus} T={T} money />
+        <AdvancedBarCard title="CA potentiel par source" subtitle="Canaux qui portent le plus de valeur commerciale" icon={Euro} color={SU} data={caBySource} T={T} money />
+        <AdvancedBarCard title="Prospects par responsable" subtitle="Répartition de la charge commerciale" icon={Users} color="#8B5CF6" data={byResponsable} T={T} />
+        <AdvancedBarCard
+          title="Qualité des données"
+          subtitle="Points à corriger pour fiabiliser le suivi commercial"
+          icon={ListChecks}
+          color={DA}
+          data={[
+            { label: "Sans prochaine action", value: withoutNextAction, helper: "Prospects actifs" },
+            { label: "Sans téléphone / email", value: withoutContact, helper: "Données de contact" },
+            { label: "Relance 2", value: relance2, helper: "Risque de perte" },
+            { label: "En retard", value: late, helper: "Relance dépassée" },
+          ].filter((row) => row.value > 0)}
+          T={T}
+        />
       </div>
     </div>
   );
@@ -1863,6 +2238,20 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     }
   }, []);
 
+
+  const notifySignedProspectByEmail = useCallback(async (prospect, mode = "passage en signé") => {
+    const result = await notifyNewProspectByEmail(prospect, mode);
+
+    showMailNotice(
+      result.ok ? "success" : "warning",
+      result.ok
+        ? `Mail de signature envoyé à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
+        : `Prospect signé, mais le mail de signature n'a pas été confirmé. Détail : ${result.message || "fonction notify-new-prospect non confirmée"}`
+    );
+
+    return result;
+  }, [notifyNewProspectByEmail, showMailNotice]);
+
   useEffect(() => {
     loadProspects();
   }, [loadProspects]);
@@ -2224,6 +2613,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
           ? `Mail de notification envoyé à ${NEW_PROSPECT_NOTIFICATION_EMAIL}.`
           : `Prospect créé, mais le mail de notification n'a pas été confirmé. Détail : ${notificationResult.message || "fonction notify-new-prospect non confirmée"}`
       );
+    } else if (!isSignedStatus(selected?.statut) && isSignedStatus(res.data?.statut)) {
+      await notifySignedProspectByEmail(res.data, res.data?.statut === "converti" ? "conversion client" : "passage en signé");
     }
 
     setSaving(false);
@@ -2270,6 +2661,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     if (selected?.id === prospectId) {
       setSelected(data);
       setForm(prospectToForm(data));
+    }
+
+    if (!isSignedStatus(prospect.statut) && isSignedStatus(newStatus)) {
+      await notifySignedProspectByEmail(data, newStatus === "converti" ? "conversion client" : "passage en signé");
     }
 
     setMsg(`Prospect déplacé dans “${statusOf(newStatus).label}”.`);
@@ -2505,6 +2900,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setForm(prospectToForm(data));
     await loadActions(selected.id);
     await loadProspects();
+
+    if (!isSignedStatus(prospect?.statut) && isSignedStatus(data?.statut)) {
+      await notifySignedProspectByEmail(data, mode === "créé" ? "conversion client" : `conversion client - ${mode}`);
+    }
 
     return data;
   };
@@ -2885,7 +3284,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             active={viewMode === "analyse"}
             icon={BarChart3}
             label="Analyse"
-            helper="KPI, sources et conversion"
+            helper="Graphiques, sources et Fluidify"
             onClick={() => setViewMode("analyse")}
             T={T}
           />
