@@ -1094,6 +1094,8 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
   const [filtreVille, setFiltreVille]   = useState("");
   const [specialFilter, setSpecialFilter] = useState("");
   const [search, setSearch]     = useState("");
+  const [compareIds, setCompareIds] = useState([]);
+  const [showComparateur, setShowComparateur] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key:"created_at", direction:"desc" });
 
   const charger = async () => {
@@ -1130,7 +1132,31 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}) : "—";
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
   const aRelancer = biens.filter(b => b.date_relance && b.date_relance <= today).length;
-  const gridCols = ".85fr 2fr 1.15fr 1fr 1fr 1fr 1fr 80px";
+  const gridCols = "46px .85fr 2fr 1.15fr 1fr 1fr 1fr 1fr 80px";
+
+  const toggleCompareBien = (bienId) => {
+    setCompareIds(prev => {
+      if (prev.includes(bienId)) return prev.filter(id => id !== bienId);
+      if (prev.length >= 3) {
+        alert("Le comparateur est limité à 3 biens pour garder une lecture claire.");
+        return prev;
+      }
+      return [...prev, bienId];
+    });
+  };
+
+  if (showComparateur) {
+    return (
+      <ComparateurBiensNomade
+        biens={biens}
+        selectedIds={compareIds}
+        onToggle={toggleCompareBien}
+        onOpenBien={(bienId) => { setShowComparateur(false); setFicheId(bienId); }}
+        onClose={() => setShowComparateur(false)}
+        T={T}
+      />
+    );
+  }
 
   if (ficheId) return <FicheBien id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} />;
 
@@ -1157,9 +1183,14 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
             </div>
           </div>
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>
-          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau bien
-        </button>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <button className="inv-btn inv-btn-blue" onClick={() => setShowComparateur(true)}>
+            <Icon as={BarChart3} size={13} strokeWidth={2.2}/> Comparateur {compareIds.length > 0 ? `(${compareIds.length}/3)` : ""}
+          </button>
+          <button className="inv-btn inv-btn-gold" onClick={() => setShowForm(true)}>
+            <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau bien
+          </button>
+        </div>
       </div>
 
       <CarteBiens biens={filtered} T={T} onOpenBien={setFicheId} />
@@ -1194,6 +1225,11 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
         <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => { setFiltreStatut(""); setFiltreVille(""); setSpecialFilter(""); setSearch(""); setSortConfig({key:"created_at", direction:"desc"}); }}>
           <Icon as={X} size={12} strokeWidth={2.2}/> Réinitialiser
         </button>
+        {compareIds.length > 0 && (
+          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setCompareIds([])}>
+            <Icon as={Trash2} size={12} strokeWidth={2.2}/> Vider comparateur
+          </button>
+        )}
       </div>
 
       {/* Liste */}
@@ -1204,13 +1240,14 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
         </div>
       ) : (
         <div style={{ background:T.card, borderRadius:RADIUS.xl, border:`1px solid ${T.border}`, overflowX:"auto", boxShadow:T.shadowSm }}>
-          <div style={{minWidth:1180}}>
+          <div style={{minWidth:1240}}>
             <div style={{
               display:"grid", gridTemplateColumns:gridCols, gap:10,
               padding:`${SPACING.md-2}px ${SPACING.lg}px`, background:T.sectionHd,
               borderBottom:`1px solid ${T.border}`, fontSize:FONT.xs.size-1, fontWeight:700,
               color:T.textMuted, textTransform:"uppercase", letterSpacing:0.8,
             }}>
+              <div style={{ textAlign:"center" }}>Comparer</div>
               <SortableHeader label="Date entrée" sortKey="created_at" sortConfig={sortConfig} onSort={handleSort} T={T}/>
               <SortableHeader label="Bien" sortKey="adresse" sortConfig={sortConfig} onSort={handleSort} T={T}/>
               <SortableHeader label="Statut" sortKey="statut" sortConfig={sortConfig} onSort={handleSort} T={T}/>
@@ -1228,6 +1265,7 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
               const rendCol = b.rendement_brut >= 8 ? SU : b.rendement_brut >= 5 ? WA : T.textMuted;
               const cfVal = b.cashflow_estime || 0;
               const cfCol = cfVal > 0 ? SU : cfVal < 0 ? DA : T.textMuted;
+              const inCompare = compareIds.includes(b.id);
               return (
                 <div key={b.id} style={{
                   display:"grid", gridTemplateColumns:gridCols, gap:10,
@@ -1238,6 +1276,14 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
                   onMouseEnter={e=>e.currentTarget.style.background=T.cardHover}
                   onMouseLeave={e=>e.currentTarget.style.background="transparent"}
                   onClick={() => setFicheId(b.id)}>
+                  <div style={{ display:"flex", justifyContent:"center" }} onClick={(e)=>e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={inCompare}
+                      onChange={() => toggleCompareBien(b.id)}
+                      title="Ajouter au comparateur"
+                    />
+                  </div>
                   <div style={{ fontSize:FONT.sm.size, color:T.textMuted }}>{fmtDate(b.created_at)}</div>
                   <div style={{display:"flex", alignItems:"center", gap:SPACING.sm+2, minWidth:0}}>
                     <div style={{
@@ -2373,56 +2419,263 @@ function syncSimulateurFromVisiteData(visiteData = {}, bien = {}) {
   };
 }
 
-function buildSimulateurProjectFromBien(bien = {}) {
-  const visite = bien.visite_data || {};
-  if (visite.simulateur) {
-    return {
-      id: null,
-      nom: `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
-      donnees: syncSimulateurFromVisiteData(visite, bien),
-      client_id: "",
-    };
-  }
+function makeSimulationId() {
+  return `sim_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+}
 
+function makeSimulationEntry({ id = makeSimulationId(), nom = "Simulation", donnees = {}, createdAt = null } = {}) {
+  const now = new Date().toISOString();
+  const label = nom || donnees?.projectName || "Simulation";
+  return {
+    id,
+    nom: label,
+    created_at: createdAt || now,
+    updated_at: now,
+    donnees: {
+      ...(donnees || {}),
+      projectName: label,
+      simulation_id: id,
+      savedAt: donnees?.savedAt || now,
+    },
+  };
+}
+
+function buildDefaultSimulateurStateFromBien(bien = {}) {
+  const visite = bien.visite_data || {};
   const finance = visite.finance || {};
   const general = visite.general || {};
-  const configuration = visite.configuration || {};
   const lots = mapVisiteLotsToSimulateurLots(visite);
 
   const prixAffiche = parseFloat(general.prix_affiche || bien.prix_vente) || 0;
   const prixNegocie = parseFloat(finance.prix_acquisition_negocie || bien.montant_offre || bien.prix_vente) || prixAffiche || 0;
   const budgetTravaux = parseFloat(finance.budget_travaux_ttc || bien.prix_travaux) || 0;
   const surface = parseFloat(general.surface_totale || bien.surface_totale) || lots.reduce((s,l)=>s+(l.m2||0),0) || 0;
+  const label = `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`;
+
+  return {
+    version:4,
+    savedAt: bien.updated_at || new Date().toISOString(),
+    projectName: label,
+    inputs: {
+      prixAffiche, prixNegocie, budgetTravaux, tauxNotaire:0.08, surface,
+      honoraires: parseFloat(finance.frais_profero) || 0,
+      enedis:0,
+      taxeFonciere:0, assurance:0, compta:0, provisions:0,
+      apport1:0, apport2:0, taux1:4.20, taux2:4.20, duree1:20, duree2:25,
+      coefEtat:1.0, imprevusPct:10,
+    },
+    selects: { gestionActive:false, modeDetention:"IS", tmi:"0.30", selectedScenario:1 },
+    lots: lots.length ? lots : [{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}],
+    budgetQty:{}, budgetPrice:{}, customDivers:[],
+    descriptions: {
+      description: bien.commentaire || "",
+      travaux: visite.dpe?.travaux_energetiques || "",
+      atouts: visite.marche?.points_forts || "",
+      adresse: [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", "),
+    },
+    photos:[null,null,null,null],
+    bien_id: bien.id || null,
+  };
+}
+
+function getBienSimulations(bien = {}) {
+  const visite = bien.visite_data || {};
+  const sims = Array.isArray(visite.simulateurs) ? visite.simulateurs.filter(s => s?.id) : [];
+
+  if (sims.length) {
+    return sims.map((s, idx) => {
+      const id = s.id || makeSimulationId();
+      const nom = s.nom || s.donnees?.projectName || `Simulation ${idx + 1}`;
+      return makeSimulationEntry({
+        id,
+        nom,
+        donnees: {
+          ...(s.donnees || {}),
+          projectName: nom,
+          bien_id: bien.id || s.donnees?.bien_id || null,
+        },
+        createdAt: s.created_at,
+      });
+    });
+  }
+
+  if (visite.simulateur) {
+    const label = visite.simulateur.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`;
+    return [makeSimulationEntry({
+      id: visite.simulateur.simulation_id || visite.simulateur_active_id || `sim_default_${bien.id || "bien"}`,
+      nom: label,
+      donnees: {
+        ...visite.simulateur,
+        projectName: label,
+        bien_id: bien.id || visite.simulateur.bien_id || null,
+      },
+      createdAt: visite.simulateur.savedAt || bien.updated_at,
+    })];
+  }
+
+  const defaultState = syncSimulateurFromVisiteData({ ...visite, simulateur: buildDefaultSimulateurStateFromBien(bien) }, bien);
+  return [makeSimulationEntry({
+    id: visite.simulateur_active_id || `sim_default_${bien.id || "bien"}`,
+    nom: defaultState.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
+    donnees: defaultState,
+    createdAt: bien.created_at,
+  })];
+}
+
+function getActiveSimulationEntry(bien = {}, selectedSimulationId = "") {
+  const sims = getBienSimulations(bien);
+  const visite = bien.visite_data || {};
+  const wantedId = selectedSimulationId || visite.simulateur_active_id || sims[0]?.id || "";
+  return sims.find(s => s.id === wantedId) || sims[0] || null;
+}
+
+function buildSimulateurProjectFromBien(bien = {}, selectedSimulationId = "") {
+  const active = getActiveSimulationEntry(bien, selectedSimulationId);
+  const synced = syncSimulateurFromVisiteData({ ...(bien.visite_data || {}), simulateur: active?.donnees || null }, bien);
+  const nom = active?.nom || synced.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`;
 
   return {
     id: null,
-    nom: `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
+    nom,
     client_id: "",
     donnees: {
-      version:4,
-      savedAt: bien.updated_at || new Date().toISOString(),
-      projectName: `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
-      inputs: {
-        prixAffiche, prixNegocie, budgetTravaux, tauxNotaire:0.08, surface,
-        honoraires: parseFloat(finance.frais_profero) || 0,
-        enedis:0,
-        taxeFonciere:0, assurance:0, compta:0, provisions:0,
-        apport1:0, apport2:0, taux1:4.20, taux2:4.20, duree1:20, duree2:25,
-        coefEtat:1.0, imprevusPct:10,
-      },
-      selects: { gestionActive:false, modeDetention:"IS", tmi:"0.30", selectedScenario:1 },
-      lots: lots.length ? lots : [{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}],
-      budgetQty:{}, budgetPrice:{}, customDivers:[],
-      descriptions: {
-        description: bien.commentaire || "",
-        travaux: visite.dpe?.travaux_energetiques || "",
-        atouts: visite.marche?.points_forts || "",
-        adresse: [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", "),
-      },
-      photos:[null,null,null,null],
+      ...synced,
+      projectName: nom,
+      simulation_id: active?.id || selectedSimulationId || null,
       bien_id: bien.id || null,
     },
   };
+}
+
+function getSimulationMetricsFromBien(bien = {}, selectedSimulationId = "") {
+  const active = getActiveSimulationEntry(bien, selectedSimulationId);
+  const sim = active?.donnees || bien.visite_data?.simulateur || {};
+  const inputs = sim.inputs || {};
+  const lots = Array.isArray(sim.lots) ? sim.lots : [];
+  const activeLots = lots.filter(l => l && (l.type || "") !== "Sélectionner");
+  const prix = numVal(inputs.prixNegocie || bien.montant_offre || bien.prix_vente);
+  const prixAffiche = numVal(inputs.prixAffiche || bien.prix_vente);
+  const travaux = numVal(inputs.budgetTravaux || bien.prix_travaux);
+  const honoraires = numVal(inputs.honoraires);
+  const enedis = numVal(inputs.enedis);
+  const tauxNotaire = numVal(inputs.tauxNotaire || 0.08);
+  const coutTotal = numVal(bien.cout_total) || prix + prix * tauxNotaire + travaux + honoraires + enedis;
+  const loyerMensuel = activeLots.reduce((s,l)=>s+numVal(l.loyer),0);
+  const rendement = coutTotal > 0 ? (loyerMensuel * 12 / coutTotal) * 100 : numVal(bien.rendement_brut);
+  const taxeFonciere = numVal(inputs.taxeFonciere);
+  const assurance = numVal(inputs.assurance);
+  const compta = numVal(inputs.compta);
+  const provisions = numVal(inputs.provisions);
+  const taux = numVal(inputs.taux1 || 0);
+  const duree = numVal(inputs.duree1 || 20);
+  const apport = numVal(inputs.apport1 || 0);
+  const mensualite = pmt(Math.max(coutTotal - apport, 0), taux, duree);
+  const cashflow = loyerMensuel - ((taxeFonciere + assurance + compta + provisions) / 12) - mensualite;
+
+  return {
+    simulation: active,
+    prixAffiche,
+    prix,
+    travaux,
+    coutTotal,
+    loyerMensuel,
+    rendement,
+    cashflow: Number.isFinite(cashflow) ? cashflow : numVal(bien.cashflow_estime),
+    lots: activeLots.length,
+    surface: numVal(inputs.surface || bien.surface_totale || bien.visite_data?.general?.surface_totale),
+    score: computeAutoBienScore(bien),
+    ville: bien.ville || "—",
+    statut: bien.statut || "—",
+  };
+}
+
+function ComparateurBiensNomade({ biens = [], selectedIds = [], onToggle, onOpenBien, onClose, T = THEMES_INV.dark }) {
+  const selected = selectedIds.map(id => biens.find(b => b.id === id)).filter(Boolean);
+  const fmtEurLocal = v => numVal(v) > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(numVal(v)) + " €" : "—";
+  const fmtPctLocal = v => numVal(v) > 0 ? `${numVal(v).toFixed(1)} %` : "—";
+  const rows = [
+    ["Ville", m => m.ville],
+    ["Statut", m => m.statut],
+    ["Simulation", m => m.simulation?.nom || "—"],
+    ["Prix affiché", m => fmtEurLocal(m.prixAffiche)],
+    ["Prix négocié / offre", m => fmtEurLocal(m.prix)],
+    ["Travaux", m => fmtEurLocal(m.travaux)],
+    ["Coût total", m => fmtEurLocal(m.coutTotal)],
+    ["Loyer mensuel", m => fmtEurLocal(m.loyerMensuel)],
+    ["Rendement brut", m => fmtPctLocal(m.rendement)],
+    ["Cash-flow", m => `${fmtEurLocal(m.cashflow)}/mois`],
+    ["Lots", m => m.lots || "—"],
+    ["Surface", m => m.surface ? `${m.surface} m²` : "—"],
+    ["Score Profero", m => m.score ? `${m.score}/100` : "—"],
+  ];
+  const metrics = selected.map(b => ({ bien: b, m: getSimulationMetricsFromBien(b) }));
+
+  return (
+    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1500, margin:"0 auto" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:18, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={onClose}><Icon as={ArrowLeft} size={12}/> Stock de biens</button>
+          <div>
+            <div style={{ fontSize:26, fontWeight:900, color:T.text }}>Comparateur de projets</div>
+            <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>Sélectionnez jusqu’à 3 biens pour comparer rapidement les hypothèses et la rentabilité</div>
+          </div>
+        </div>
+        <span className="inv-badge">{selected.length}/3 biens sélectionnés</span>
+      </div>
+
+      {selected.length === 0 ? (
+        <div className="inv-card" style={{ padding:24, textAlign:"center", color:T.textMuted }}>Aucun bien sélectionné. Retournez dans le stock et cochez jusqu’à 3 biens.</div>
+      ) : (
+        <div className="inv-card" style={{ overflowX:"auto" }}>
+          <div style={{ minWidth:860 }}>
+            <div style={{ display:"grid", gridTemplateColumns:`220px repeat(${Math.max(1, selected.length)}, minmax(220px, 1fr))`, gap:0 }}>
+              <div style={{ padding:14, background:T.sectionHd, borderBottom:`1px solid ${T.border}`, color:T.textMuted, fontWeight:800, textTransform:"uppercase", fontSize:11 }}>Critère</div>
+              {metrics.map(({ bien }) => (
+                <div key={bien.id} style={{ padding:14, background:T.sectionHd, borderBottom:`1px solid ${T.border}`, borderLeft:`1px solid ${T.border}` }}>
+                  <div style={{ color:T.text, fontWeight:900, fontSize:14 }}>{bien.reference_interne || bien.adresse || "Bien"}</div>
+                  <div style={{ color:T.textMuted, fontSize:12, marginTop:3 }}>{[bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(" ")}</div>
+                  <div style={{ display:"flex", gap:6, marginTop:9, flexWrap:"wrap" }}>
+                    <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOpenBien?.(bien.id)}><Icon as={Eye} size={12}/> Ouvrir</button>
+                    <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onToggle?.(bien.id)}>Retirer</button>
+                  </div>
+                </div>
+              ))}
+              {rows.map(([label, getter]) => (
+                <React.Fragment key={label}>
+                  <div style={{ padding:"11px 14px", borderBottom:`1px solid ${T.border}`, color:T.textMuted, fontWeight:800, fontSize:12 }}>{label}</div>
+                  {metrics.map(({ bien, m }) => (
+                    <div key={`${bien.id}-${label}`} style={{ padding:"11px 14px", borderBottom:`1px solid ${T.border}`, borderLeft:`1px solid ${T.border}`, color:T.text, fontWeight:700, fontSize:13 }}>
+                      {getter(m)}
+                    </div>
+                  ))}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop:18 }} className="inv-card">
+        <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Building2} size={13}/>Ajouter / retirer des biens</span></div>
+        <div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:10 }}>
+          {biens.map(b => {
+            const active = selectedIds.includes(b.id);
+            const disabled = !active && selectedIds.length >= 3;
+            const m = getSimulationMetricsFromBien(b);
+            return (
+              <button key={b.id} disabled={disabled} onClick={() => onToggle?.(b.id)} className="inv-btn inv-btn-out" style={{ justifyContent:"space-between", textAlign:"left", opacity: disabled ? .5 : 1, padding:12 }}>
+                <span style={{ minWidth:0 }}>
+                  <span style={{ display:"block", color:T.text, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{b.reference_interne || b.adresse || "Bien"}</span>
+                  <span style={{ display:"block", color:T.textMuted, fontSize:11, marginTop:3 }}>{fmtEurLocal(m.coutTotal)} · {fmtPctLocal(m.rendement)} · {fmtEurLocal(m.cashflow)}/mois</span>
+                </span>
+                <Icon as={active ? Check : Plus} size={14}/>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
@@ -2438,6 +2691,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [ficheTab, setFicheTab] = useState("fiche");
   const ficheVisiteRef = useRef(null);
   const [visiteSaveState, setVisiteSaveState] = useState({ saving:false, saved:false });
+  const [selectedSimulationId, setSelectedSimulationId] = useState("");
 
   const charger = async () => {
     const [{ data: b }, { data: p }, { data: c }] = await Promise.all([
@@ -2448,6 +2702,15 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     setBien(b); setProps(p||[]); setClients(c||[]);
   };
   useEffect(() => { charger(); }, [id]);
+
+  useEffect(() => {
+    if (!bien) return;
+    const sims = getBienSimulations(bien);
+    const activeId = bien.visite_data?.simulateur_active_id || sims[0]?.id || "";
+    if (!selectedSimulationId || !sims.some(s => s.id === selectedSimulationId)) {
+      setSelectedSimulationId(activeId);
+    }
+  }, [bien?.id, bien?.visite_data?.simulateur_active_id, bien?.visite_data?.simulateur_updated_at, selectedSimulationId]);
 
   const ajouterProp = async () => {
     if (!newProp.client_id) return;
@@ -2537,12 +2800,92 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"}) : "—";
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
 
+  const persistSimulationsBien = async (nextSimulations, activeId, legacySimulation = null) => {
+    if (!bien) return;
+    const active = nextSimulations.find(s => s.id === activeId) || nextSimulations[0] || null;
+    const updatedVisiteData = {
+      ...(bien.visite_data || {}),
+      simulateurs: nextSimulations,
+      simulateur_active_id: active?.id || "",
+      simulateur: legacySimulation || active?.donnees || bien.visite_data?.simulateur || null,
+      simulateur_updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from("invest_biens").update({ visite_data: updatedVisiteData }).eq("id", id);
+    if (error) {
+      alert("Erreur simulation : " + error.message);
+      return;
+    }
+    setBien(prev => ({ ...prev, visite_data: updatedVisiteData }));
+    setSelectedSimulationId(active?.id || "");
+    charger();
+  };
+
+  const creerSimulationBien = async () => {
+    if (!bien) return;
+    const name = window.prompt("Nom de la nouvelle simulation", `Simulation ${getBienSimulations(bien).length + 1}`);
+    if (!name) return;
+    const baseState = syncSimulateurFromVisiteData({ ...(bien.visite_data || {}), simulateur: buildDefaultSimulateurStateFromBien(bien) }, bien);
+    const entry = makeSimulationEntry({
+      nom: name.trim(),
+      donnees: { ...baseState, projectName: name.trim(), bien_id: bien.id || id },
+    });
+    await persistSimulationsBien([...getBienSimulations(bien), entry], entry.id, entry.donnees);
+  };
+
+  const dupliquerSimulationBien = async () => {
+    if (!bien) return;
+    const sims = getBienSimulations(bien);
+    const active = getActiveSimulationEntry(bien, selectedSimulationId);
+    if (!active) return;
+    const name = window.prompt("Nom de la simulation dupliquée", `${active.nom || "Simulation"} — copie`);
+    if (!name) return;
+    const clonedData = JSON.parse(JSON.stringify(active.donnees || {}));
+    const entry = makeSimulationEntry({
+      nom: name.trim(),
+      donnees: { ...clonedData, projectName: name.trim(), bien_id: bien.id || id },
+    });
+    await persistSimulationsBien([...sims, entry], entry.id, entry.donnees);
+  };
+
+  const renommerSimulationBien = async () => {
+    if (!bien) return;
+    const sims = getBienSimulations(bien);
+    const active = getActiveSimulationEntry(bien, selectedSimulationId);
+    if (!active) return;
+    const name = window.prompt("Nouveau nom de la simulation", active.nom || "Simulation");
+    if (!name) return;
+    const next = sims.map(s => s.id === active.id ? makeSimulationEntry({
+      id: s.id,
+      nom: name.trim(),
+      donnees: { ...(s.donnees || {}), projectName: name.trim(), bien_id: bien.id || id },
+      createdAt: s.created_at,
+    }) : s);
+    await persistSimulationsBien(next, active.id, next.find(s => s.id === active.id)?.donnees || null);
+  };
+
+  const supprimerSimulationBien = async () => {
+    if (!bien) return;
+    const sims = getBienSimulations(bien);
+    const active = getActiveSimulationEntry(bien, selectedSimulationId);
+    if (!active) return;
+    if (sims.length <= 1) {
+      alert("Il faut conserver au moins une simulation pour le bien.");
+      return;
+    }
+    if (!window.confirm(`Supprimer la simulation « ${active.nom} » ?`)) return;
+    const next = sims.filter(s => s.id !== active.id);
+    await persistSimulationsBien(next, next[0]?.id || "", next[0]?.donnees || null);
+  };
+
   if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
   const currentTheme = T?.bg === THEMES_INV.light.bg ? "light" : "dark";
-  const simulateurProjetBien = buildSimulateurProjectFromBien(bien);
   const visiteDataBien = bien.visite_data || {};
+  const simulationsBien = getBienSimulations(bien);
+  const activeSimulation = getActiveSimulationEntry(bien, selectedSimulationId);
+  const activeSimulationId = activeSimulation?.id || simulationsBien[0]?.id || "";
+  const simulateurProjetBien = buildSimulateurProjectFromBien(bien, activeSimulationId);
   const conclusionBien = visiteDataBien.conclusion || {};
   const generalBien = visiteDataBien.general || {};
   const financeBien = visiteDataBien.finance || {};
@@ -2779,18 +3122,45 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
       )}
 
       {ficheTab === "simulateur" ? (
-        <Simulateur
-          key={`${id}-${bien.visite_data?.simulateur_updated_at || bien.updated_at || "sim"}`}
-          projet={simulateurProjetBien}
-          profil={profil}
-          embedded={true}
-          bienId={id}
-          bienSource={bien}
-          onBienSaved={charger}
-          onRetour={() => setFicheTab("fiche")}
-          theme={currentTheme}
-          setTheme={null}
-        />
+        <>
+          <div className="inv-card" style={{ marginBottom:16 }}>
+            <div className="inv-card-hd gold">
+              <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={BarChart3} size={13}/>Simulations du bien</span>
+            </div>
+            <div className="inv-card-bd">
+              <div style={{ display:"grid", gridTemplateColumns:"minmax(260px, 1fr) auto auto auto auto", gap:8, alignItems:"end" }}>
+                <div>
+                  <label className="inv-kpi-lbl">Simulation active</label>
+                  <select className="inv-sel" value={activeSimulationId} onChange={e=>setSelectedSimulationId(e.target.value)} style={{ width:"100%" }}>
+                    {simulationsBien.map((s, index) => <option key={s.id} value={s.id}>{s.nom || `Simulation ${index + 1}`}</option>)}
+                  </select>
+                </div>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={creerSimulationBien}><Icon as={Plus} size={12}/> Nouvelle</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={dupliquerSimulationBien}><Icon as={Copy} size={12}/> Dupliquer</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={renommerSimulationBien}><Icon as={Pencil} size={12}/> Renommer</button>
+                <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={supprimerSimulationBien}><Icon as={Trash2} size={12}/> Supprimer</button>
+              </div>
+              <div style={{ marginTop:8, fontSize:FONT.xs.size+1, color:T.textMuted }}>
+                Vous pouvez créer plusieurs hypothèses pour le même bien : version prudente, version optimiste, offre basse, offre haute, financement 20 ans / 25 ans, etc. La simulation sélectionnée est celle qui alimente la fiche client et les indicateurs principaux du bien.
+              </div>
+            </div>
+          </div>
+
+          <Simulateur
+            key={`${id}-${activeSimulationId}-${activeSimulation?.updated_at || bien.visite_data?.simulateur_updated_at || bien.updated_at || "sim"}`}
+            projet={simulateurProjetBien}
+            profil={profil}
+            embedded={true}
+            bienId={id}
+            bienSource={bien}
+            simulationId={activeSimulationId}
+            simulationName={activeSimulation?.nom || simulateurProjetBien?.nom || "Simulation"}
+            onBienSaved={charger}
+            onRetour={() => setFicheTab("fiche")}
+            theme={currentTheme}
+            setTheme={null}
+          />
+        </>
       ) : ficheTab === "terrain" ? (
         <ModeVisiteTerrainOnglet bien={bien} profil={profil} T={T} onSaved={charger} />
       ) : (
