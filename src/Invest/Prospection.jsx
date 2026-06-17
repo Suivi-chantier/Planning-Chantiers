@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + fiche modale + import liste + relances commerciales + conversion CRM corrigée
+ * CRM Prospection — V16 harmonisée : pipeline premium + liste + planning étendu + KPI + fiche modale + import liste + relances + conversion CRM corrigée
  *
  * Objectif :
  * - CRM volontairement simple
@@ -53,15 +53,15 @@ import {
  */
 
 const STATUTS = [
-  { id: "nouveau", label: "Nouveau", icon: UserPlus, color: "#60A5FA" },
-  { id: "contact", label: "Contact", icon: Phone, color: "#F59E0B" },
-  { id: "relance", label: "Relance", icon: RefreshCw, color: "#F97316" },
-  { id: "relance_1", label: "Relance 1", icon: Clock, color: "#EA580C" },
-  { id: "relance_2", label: "Relance 2", icon: AlertTriangle, color: "#DC2626" },
-  { id: "rdv", label: "RDV", icon: Calendar, color: "#8B5CF6" },
-  { id: "proposition", label: "Proposition", icon: Target, color: "#10B981" },
-  { id: "signe", label: "Signé", icon: CheckCircle2, color: SU },
-  { id: "perdu", label: "Perdu", icon: XCircle, color: DA },
+  { id: "nouveau", label: "Nouveau", icon: UserPlus, color: "#60A5FA", tone: "Lead entrant" },
+  { id: "contact", label: "Contact", icon: Phone, color: "#F59E0B", tone: "Premier échange" },
+  { id: "relance", label: "Relance", icon: RefreshCw, color: "#FB923C", tone: "À relancer" },
+  { id: "relance_1", label: "Relance 1", icon: Clock, color: "#F97316", tone: "Suivi actif" },
+  { id: "relance_2", label: "Relance 2", icon: AlertTriangle, color: "#EF4444", tone: "Dernière relance" },
+  { id: "rdv", label: "RDV", icon: Calendar, color: "#8B5CF6", tone: "Rendez-vous" },
+  { id: "proposition", label: "Proposition", icon: Target, color: "#22C55E", tone: "Offre envoyée" },
+  { id: "signe", label: "Signé", icon: CheckCircle2, color: SU, tone: "Converti" },
+  { id: "perdu", label: "Perdu", icon: XCircle, color: "#64748B", tone: "Sorti du pipe" },
 ];
 
 const SOURCES = [
@@ -199,6 +199,11 @@ function prospectName(p) {
 function statusOf(statut) {
   if (statut === "converti") return STATUTS.find((s) => s.id === "signe");
   return STATUTS.find((s) => s.id === statut) || STATUTS[0];
+}
+
+function statusSoftBg(statut) {
+  const status = statusOf(statut);
+  return `linear-gradient(135deg, ${status.color}1F, rgba(255,255,255,.035))`;
 }
 
 function priorityScore(p) {
@@ -1181,23 +1186,37 @@ function PipelineColumn({
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, statut.id)}
       style={{
-        background: activeDrop ? `${statut.color}14` : T.cardHover,
+        background: activeDrop ? `${statut.color}18` : "rgba(255,255,255,.032)",
         border: `1px solid ${activeDrop ? statut.color : T.border}`,
         borderTop: `3px solid ${statut.color}`,
-        borderRadius: RADIUS.lg,
-        padding: 8,
-        minHeight: 182,
+        borderRadius: 22,
+        padding: 10,
+        minHeight: 520,
         transition: "all .12s ease",
+        boxShadow: activeDrop ? `0 18px 45px ${statut.color}18` : "0 14px 35px rgba(2,6,23,.16)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 12,
+          padding: "10px 10px 11px",
+          borderRadius: 16,
+          background: statusSoftBg(statut.id),
+          border: `1px solid ${statut.color}35`,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
           <div
             style={{
-              width: 24,
-              height: 24,
-              borderRadius: RADIUS.md,
-              background: `${statut.color}18`,
+              width: 32,
+              height: 32,
+              borderRadius: 12,
+              background: `${statut.color}20`,
+              border: `1px solid ${statut.color}45`,
               color: statut.color,
               display: "flex",
               alignItems: "center",
@@ -1205,24 +1224,32 @@ function PipelineColumn({
               flexShrink: 0,
             }}
           >
-            <Icon as={IconStatus} size={13} />
+            <Icon as={IconStatus} size={15} />
           </div>
 
-          <div
-            style={{
-              color: T.text,
-              fontSize: 12,
-              fontWeight: 900,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {statut.label}
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                color: T.text,
+                fontSize: 13,
+                fontWeight: 950,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {statut.label}
+            </div>
+            <div style={{ color: T.textMuted, fontSize: 10.5, marginTop: 1 }}>
+              {statut.tone || "Suivi commercial"}
+            </div>
           </div>
         </div>
 
-        <Badge color={statut.color} T={T}>{prospects.length}</Badge>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ color: T.text, fontSize: 15, fontWeight: 950, lineHeight: 1 }}>{prospects.length}</div>
+          <div style={{ color: T.textMuted, fontSize: 10, marginTop: 3 }}>prospect(s)</div>
+        </div>
       </div>
 
       <div style={{ minHeight: 112 }}>
@@ -1234,7 +1261,8 @@ function PipelineColumn({
               color: activeDrop ? statut.color : T.textMuted,
               fontSize: 11,
               textAlign: "center",
-              padding: "18px 8px",
+              padding: "34px 8px",
+              background: "rgba(255,255,255,.02)",
             }}
           >
             Déposer ici
@@ -1360,7 +1388,8 @@ function PlanningBucket({ title, subtitle, icon, color, items, onSelect, selecte
               fontSize: 11,
               border: `1px dashed ${T.border}`,
               borderRadius: RADIUS.md,
-              padding: "18px 8px",
+              padding: "34px 8px",
+              background: "rgba(255,255,255,.02)",
               textAlign: "center",
             }}
           >
@@ -1634,10 +1663,13 @@ function PipelineView({
 }) {
   return (
     <div
+      className="inv-prospection-kanban"
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-        gap: 10,
+        gridTemplateColumns: `repeat(${STATUTS.length}, minmax(270px, 1fr))`,
+        gap: 12,
+        overflowX: "auto",
+        padding: "2px 2px 12px",
       }}
     >
       {grouped.map(({ statut, prospects: items }) => (
@@ -1656,6 +1688,39 @@ function PipelineView({
           T={T}
         />
       ))}
+    </div>
+  );
+}
+
+function SectionTitle({ icon, title, T }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        color: T.text,
+        fontSize: 12,
+        fontWeight: 950,
+        margin: "12px 0 8px",
+        paddingTop: 2,
+      }}
+    >
+      <span
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: 9,
+          display: "grid",
+          placeItems: "center",
+          background: `${T.accent}18`,
+          color: T.accent,
+          border: `1px solid ${T.accent}35`,
+        }}
+      >
+        <Icon as={icon} size={13} />
+      </span>
+      {title}
     </div>
   );
 }
@@ -1810,11 +1875,12 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     const actifs = prospects.filter((p) => !["perdu", "converti", "signe"].includes(p.statut)).length;
     const rdv = prospects.filter((p) => p.date_rdv && dateOnly(p.date_rdv) >= todayIso()).length;
     const relances = prospects.filter((p) => isLate(p.date_prochaine_action) && !["perdu", "converti"].includes(p.statut)).length;
+    const relancePipeline = prospects.filter((p) => ["relance", "relance_1", "relance_2"].includes(p.statut)).length;
     const today = prospects.filter((p) => isTodayOrLate(p.date_prochaine_action) && !["perdu", "converti", "signe"].includes(p.statut)).length;
     const hot = prospects.filter((p) => temperature(p).label === "Chaud" && !["perdu", "converti", "signe"].includes(p.statut)).length;
     const ca = prospects.reduce((s, p) => s + (Number(p.ca_potentiel_ht || p.honoraires_estimes_ht || 0) || 0), 0);
 
-    return { actifs, rdv, relances, today, hot, ca };
+    return { actifs, rdv, relances, relancePipeline, today, hot, ca };
   }, [prospects]);
 
   const planningBuckets = useMemo(() => {
@@ -2618,7 +2684,12 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const currentProspect = selected ? { ...selected, ...formToPayload(form, profil, false) } : form;
 
   return (
-    <div style={{ padding: "16px 18px", maxWidth: 1580, margin: "0 auto" }}>
+    <div style={{ padding: "16px 18px", maxWidth: 1680, margin: "0 auto" }}>
+      <style>{`
+        .inv-prospection-kanban::-webkit-scrollbar { height: 10px; }
+        .inv-prospection-kanban::-webkit-scrollbar-thumb { background: rgba(201,163,74,.35); border-radius: 999px; }
+        .inv-prospection-kanban::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 999px; }
+      `}</style>
       <div
         style={{
           display: "grid",
@@ -2633,7 +2704,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             CRM Prospection
           </div>
           <div style={{ color: T.textSub, fontSize: 13 }}>
-            Choisis la vue adaptée : pipeline drag & drop, liste de suivi, planning commercial ou analyse KPI.
+            Pipeline commercial harmonisé, relances, planning et analyse des leads entrants.
           </div>
         </div>
 
@@ -2712,14 +2783,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
         <Kpi icon={Users} label="Prospects actifs" value={stats.actifs} color="#60A5FA" T={T} />
-        <Kpi icon={Calendar} label="RDV à venir" value={stats.rdv} color="#8B5CF6" T={T} />
+        <Kpi icon={RefreshCw} label="En relance" value={stats.relancePipeline} color="#F97316" T={T} />
         <Kpi icon={Clock} label="À traiter" value={stats.today} color={stats.today > 0 ? WA : SU} T={T} />
         <Kpi icon={Euro} label="CA potentiel" value={fmtDashboardEur(stats.ca)} color={SU} T={T} />
       </div>
 
-      <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
+      <div className="inv-card" style={{ padding: 12, marginBottom: 12, background: "linear-gradient(135deg, rgba(255,255,255,.05), rgba(255,255,255,.025))" }}>
         <div style={{ color: T.textMuted, fontSize: 11, marginBottom: 7 }}>
           Import accepté : CSV, JSON, TXT, VCF ou liste collée. Champs reconnus : prénom, nom, téléphone, email, source, responsable, objectif, budget, zone, relance, note.
         </div>
@@ -2785,7 +2856,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       </div>
 
       <div className="inv-card" style={{ padding: 10, marginBottom: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 8 }}>
           <ViewButton
             active={viewMode === "pipeline"}
             icon={Target}
@@ -2921,12 +2992,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <StatusPills value={form.statut} onChange={quickStatus} />
                 </div>
 
+                <SectionTitle icon={UserPlus} title="Identité du prospect" T={T} />
+
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
                     gap: 10,
-                    marginBottom: 10,
+                    marginBottom: 12,
                   }}
                 >
                   <Field label="Prénom">
@@ -2960,7 +3033,18 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <Field label="Budget">
                     <Select value={String(form.budget_global || "")} onChange={(v) => setField("budget_global", v)} options={BUDGETS_RAPIDES} />
                   </Field>
+                </div>
 
+                <SectionTitle icon={Target} title="Projet et potentiel commercial" T={T} />
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                    gap: 10,
+                    marginBottom: 12,
+                  }}
+                >
                   <Field label="Zone">
                     <Input value={form.zone_recherche} onChange={(v) => setField("zone_recherche", v)} placeholder="Angers, 49..." />
                   </Field>
@@ -2978,10 +3062,12 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   </Field>
                 </div>
 
+                <SectionTitle icon={CalendarDays} title="Suivi commercial et relances" T={T} />
+
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) 230px",
+                    gridTemplateColumns: "minmax(0, 1fr) minmax(230px, 300px)",
                     gap: 10,
                     marginBottom: 10,
                   }}
