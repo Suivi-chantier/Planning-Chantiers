@@ -89,6 +89,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const [photoUrl, setPhotoUrl] = useState("");
   const [photoPreview, setPhotoPreview] = useState("");
   const [repartir, setRepartir] = useState(false);
+  const [dejaPaye, setDejaPaye] = useState(false); // payé direct / pas de facture à venir
   const [form, setForm] = useState({
     fournisseur: "", doc_type: "bl", doc_numero: "", numero_en_attente: false,
     date_doc: "", montant_ht: "", lignes: [ligneVide()],
@@ -153,6 +154,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const onFile = async (file) => {
     if (!file) return;
     setIaErr("");
+    setDejaPaye(typeEvenement === "comptoir"); // pré-coché pour les achats comptoir
     setPhotoPreview(URL.createObjectURL(file));
     setStep("analyzing");
     const mediaType = file.type === "application/pdf" ? "application/pdf" : file.type;
@@ -226,7 +228,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         photo_url: photoUrl || null,
         saisi_par: profil?.nom || profil?.email || null,
         statut_completude: estComplete ? "complete" : "a_completer",
-        statut_facturation: "en_attente_facture",
+        statut_facturation: dejaPaye ? "facture" : "en_attente_facture",
         source: "mobile",
       })
       .select("id")
@@ -251,6 +253,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           unite: l.unite || "U",
           prix_unitaire: pu,
           prix_total: pt != null ? pt : (pu != null && q != null ? pu * q : null),
+          prix_verrouille: dejaPaye, // coût définitif si payé direct
           chantier_id: effCh,
           phasage_id: phRow ? phRow.id : null,
           phase_id: phRow ? phaseId : null,
@@ -501,6 +504,20 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             <label style={labelStyle}>Montant HT (€)</label>
             <input inputMode="decimal" value={form.montant_ht} onChange={e => setForm(f => ({ ...f, montant_ht: e.target.value }))} placeholder="0.00" style={inputStyle} />
           </div>
+        </div>
+      </div>
+
+      {/* Facturation */}
+      <div style={card}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={dejaPaye} onChange={e => setDejaPaye(e.target.checked)}
+            style={{ width: 18, height: 18, accentColor: acc.accent }} />
+          <span style={{ fontSize: FONT.base.size, fontWeight: 600, color: T.text }}>Déjà payé / pas de facture à venir</span>
+        </label>
+        <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginTop: 8 }}>
+          {dejaPaye
+            ? "Coût définitif (prix verrouillés) — n'apparaîtra pas dans le rapprochement de factures."
+            : "En attente d'une facture fournisseur — le coût sera confirmé au rapprochement."}
         </div>
       </div>
 
