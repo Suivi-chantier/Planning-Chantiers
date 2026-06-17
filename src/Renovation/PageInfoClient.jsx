@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, getClientId } from "../supabase";
+import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -7,20 +8,22 @@ import {
   Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
   Pencil, Eraser, Download, ChevronRight, Building2, Layers,
   Camera, Copy, Euro, ChevronLeft as ChevronLeftIcon,
+  ImagePlus, ArrowUp, ArrowDown, Send, StickyNote, Edit2, Image as ImageIcon,
 } from "lucide-react";
 
+// Ordre des lots = chronologie d'un chantier (démolition → finitions).
 const CATEGORIES_DEFAUT = {
+  "Démolition": ["Dépose cuisine","Démolition salle de bain","Dépose baignoire"],
+  "Maçonnerie": ["Marche béton","Escalier sapin","Poutre sapin"],
+  "Plaquiste": ["Cloison BA13 standard","Cloison BA13 Hydro","Faux plafond","Goulotte GTL"],
+  "Ventilation": ["VMC Hygro simple flux","VMC auto simple flux","Bouche VMC","Aérateur extracteur"],
   "Électricité": ["Prise courant simple","Prise courant double","Interrupteur va-et-vient","Installation électrique T1 SANS chauffage","Installation électrique T1 AVEC chauffage","Installation électrique T2 SANS chauffage","Installation électrique T2 AVEC chauffage","Installation électrique T3 SANS chauffage","Installation électrique T3 AVEC chauffage","Radiateur 1500W","Radiateur 1000W","Radiateur 2000W","Tableau 2R T1"],
   "Plomberie": ["Colonne douche thermostatique","Chauffe-eau 40 litres","Chauffe-eau 80 litres","Receveur douche 80x80","Receveur douche 90x90","WC au sol","WC suspendu","Meuble vasque simple"],
-  "Ventilation": ["VMC Hygro simple flux","VMC auto simple flux","Bouche VMC","Aérateur extracteur"],
-  "Plaquiste": ["Cloison BA13 standard","Cloison BA13 Hydro","Faux plafond","Goulotte GTL"],
-  "Sols & Peinture": ["Parquet stratifié","Ragréage sol","Peinture finition C","Escalier 1/4 tournant"],
   "Menuiseries": ["Fenêtre PVC 600x750","Fenêtre PVC 1200x1400","Volet roulant PVC","Velux 78x98"],
-  "Maçonnerie": ["Marche béton","Escalier sapin","Poutre sapin"],
-  "Démolition": ["Dépose cuisine","Démolition salle de bain","Dépose baignoire"],
+  "Sols & Peinture": ["Parquet stratifié","Ragréage sol","Peinture finition C","Escalier 1/4 tournant"],
 };
 const UNITES = { "Électricité":"U","Plomberie":"U","Ventilation":"U","Plaquiste":"m²","Sols & Peinture":"m²","Menuiseries":"U","Maçonnerie":"U","Démolition":"m²" };
-const LOGEMENTS = ["Studio (T0)","T1 (1 pièce)","T2 (2 pièces)","T3 (3 pièces)","T4 (4 pièces)"];
+const LOGEMENTS = ["T1 (1 pièce)","T2 (2 pièces)","T3 (3 pièces)","T4 (4 pièces)","T5 (5 pièces)"];
 
 // ─── STATUTS DE PROJET (flux commercial) ─────────────────────────────────────
 const STATUTS_PROJET = [
@@ -45,17 +48,21 @@ async function uploadInfoClientPhoto(file, projetId) {
   return data?.publicUrl || null;
 }
 
-export default function PageInfoClient({ T, branch = "renovation" }) {
+export default function PageInfoClient({ T, branch = "renovation", chantiers = [] }) {
   const acc = getBranchAccent(branch);
   const [projets, setProjets]         = useState([]);
   const [projetId, setProjetId]       = useState(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
-  const [infos, setInfos]             = useState({ client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect" });
+  const [infos, setInfos]             = useState({ client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect", notes:"" });
   const [ouvrages, setOuvrages]       = useState([]);
   const [cotes, setCotes]             = useState([]);
-  const [plans, setPlans]             = useState([{ nom:"Plan 1", data:null }]);
-  const [planIdx, setPlanIdx]         = useState(0);
+  // Plans riches (table `plans` partagée avec la page Plans) liés au projet
+  const [richPlans, setRichPlans]     = useState([]); // liste allégée [{id,name,thumbnail,chantier_id,updated_at}]
+  const [editingPlan, setEditingPlan] = useState(null); // plan complet ouvert dans l'éditeur
+  const [linkingPlan, setLinkingPlan] = useState(null); // plan à lier à un chantier
+  const [linkChantier, setLinkChantier] = useState("");
+  const [toDeletePlan, setToDeletePlan] = useState(null);
   const [categories, setCategories]   = useState(CATEGORIES_DEFAUT);
   // Un seul flux d'onglets (au lieu de gauche/droite) — bien plus clair
   const [tab, setTab]                 = useState("client");
@@ -67,22 +74,24 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   const [newCat, setNewCat]           = useState("Électricité");
   const [newLib, setNewLib]           = useState("");
   const [catParam, setCatParam]       = useState("");
-  const [drawActive, setDrawActive]   = useState(false);
-  const [eraseActive, setEraseActive] = useState(false);
   const [mobileShowProjets, setMobileShowProjets] = useState(false);
   const [toDelete, setToDelete]       = useState(null);
   const [deleting, setDeleting]       = useState(false);
   const [toDeleteOuvrage, setToDeleteOuvrage] = useState(null);
+  // Gestion bibliothèque depuis l'onglet Ouvrages
+  const [manageMode, setManageMode]   = useState(false);
+  const [editLib, setEditLib]         = useState(null); // { cat, idx, value }
+  const [addLibCat, setAddLibCat]     = useState(null); // nom du lot en cours d'ajout
+  const [addLibVal, setAddLibVal]     = useState("");
+  const [newLotName, setNewLotName]   = useState("");
+  const [editLot, setEditLot]         = useState(null); // { nom, value }
+  const [toDeleteLot, setToDeleteLot] = useState(null); // nom du lot à supprimer
+  const [reordering, setReordering]   = useState(false);
   const [photos, setPhotos]           = useState([]); // [{ id, url, label, created_at }]
   const [uploadingCount, setUploadingCount] = useState(0);
   const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
   const [exporting, setExporting]     = useState(false);
   const photoInputRef = useRef(null);
-  const canvasRef  = useRef(null);
-  const drawMode   = useRef(false);
-  const eraseMode  = useRef(false);
-  const isDrawing  = useRef(false);
-  const lastPos    = useRef({ x:0, y:0 });
   // Timers de debounce, indexés par clé. BUG corrigé : auparavant un seul ref
   // partagé annulait les saves des autres opérations (ex : taper un nom client
   // puis modifier une quantité d'ouvrage avant 800ms écrasait la save du nom).
@@ -109,23 +118,14 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   const btn = { background:accent, color:"#000", border:"none", borderRadius:7, padding:"8px 16px", fontFamily:"inherit", fontSize:12, fontWeight:700, cursor:"pointer" };
   const btnSec = { background:"transparent", color:textSub, border:`1px solid ${border}`, borderRadius:7, padding:"8px 14px", fontFamily:"inherit", fontSize:12, cursor:"pointer" };
   const btnDng = { background:"transparent", color:"#e05c5c", border:"1px solid rgba(224,92,92,0.3)", borderRadius:7, padding:"5px 10px", fontFamily:"inherit", fontSize:11, cursor:"pointer" };
+  const iconBtnSec = { display:"inline-flex", alignItems:"center", justifyContent:"center", width:28, height:28, background:"transparent", color:textSub, border:`1px solid ${border}`, borderRadius:7, cursor:"pointer", padding:0, flexShrink:0 };
+  const iconBtnDng = { ...iconBtnSec, color:"#e05c5c", border:"1px solid rgba(224,92,92,0.3)" };
   const lbl  = { display:"block", fontSize:11, fontWeight:700, color:textSub, marginBottom:5, textTransform:"uppercase", letterSpacing:.5 };
   const h2s  = { color:accent, fontSize:11, fontWeight:700, marginTop:18, marginBottom:8, paddingBottom:5, borderBottom:`1px solid ${border}`, textTransform:"uppercase", letterSpacing:.7 };
   const tabS = (a) => ({ padding:"7px 16px", border:a?"none":`1px solid ${border}`, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700, background:a?accent:card, color:a?"#000":textSub, letterSpacing:.4, textTransform:"uppercase", transition:"all .12s" });
 
   // ─── INIT ────────────────────────────────────────────────────────────────────
   useEffect(() => { chargerProjets(); chargerCategories(); }, []);
-
-  useEffect(() => {
-    const plan = plans[planIdx];
-    if (!plan || !canvasRef.current) return;
-    const ctx = canvasRef.current.getContext("2d");
-    if (plan.data) {
-      const img = new Image();
-      img.onload = () => { ctx.clearRect(0,0,800,600); grille(ctx); ctx.drawImage(img,0,0); };
-      img.src = plan.data;
-    } else { grille(ctx); }
-  }, [planIdx, plans.length]);
 
   // ─── DATA ────────────────────────────────────────────────────────────────────
   async function chargerProjets() {
@@ -149,17 +149,48 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
     dirtyInfosRef.current.clear();
     setAutoSaveStatus("saved");
     setProjetId(id);
+    setEditingPlan(null);
     const [{ data:p },{ data:o },{ data:c },{ data:pl }] = await Promise.all([
       supabase.from("profero_projets").select("*").eq("id",id).single(),
       supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id",id),
       supabase.from("profero_cotes").select("*").eq("projet_id",id),
-      supabase.from("profero_plans").select("*").eq("projet_id",id),
+      supabase.from("plans").select("id,name,thumbnail,chantier_id,updated_at").eq("projet_id",id).order("updated_at",{ascending:false}),
     ]);
-    if (p) setInfos({ client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect" });
+    if (p) setInfos({ client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect", notes:p.notes||"" });
     setOuvrages(o||[]); setCotes(c||[]);
-    setPlans(pl && pl.length > 0 ? pl : [{nom:"Plan 1",data:null}]);
+    setRichPlans(pl || []);
     setPhotos(Array.isArray(p?.photos) ? p.photos : []);
-    setPlanIdx(0); setLoading(false);
+    setLoading(false);
+  }
+
+  // ─── PLANS RICHES (table `plans`) ─────────────────────────────────────────────
+  async function nouveauPlan() {
+    if (!projetId) return;
+    const base = infos.client_nom ? `Plan ${infos.client_nom}` : "Nouveau plan";
+    const { data } = await supabase.from("plans").insert({
+      name: base, projet_id: projetId, chantier_id: "",
+      data: { segments:[], symbols:[], viewport:{x:0,y:0,scale:1}, threshold:0.5 },
+      thumbnail: "",
+    }).select().single();
+    if (data) { setRichPlans(p => [data, ...p]); setEditingPlan(data); }
+  }
+  async function ouvrirPlan(id) {
+    const { data } = await supabase.from("plans").select("*").eq("id", id).single();
+    if (data) setEditingPlan(data);
+  }
+  function onSavePlan(updated) {
+    setRichPlans(p => p.map(x => x.id === updated.id ? { ...x, name:updated.name, thumbnail:updated.thumbnail, updated_at:updated.updated_at } : x));
+  }
+  async function lierPlanChantier() {
+    if (!linkingPlan) return;
+    await supabase.from("plans").update({ chantier_id: linkChantier || "" }).eq("id", linkingPlan.id);
+    setRichPlans(p => p.map(x => x.id === linkingPlan.id ? { ...x, chantier_id: linkChantier || "" } : x));
+    setLinkingPlan(null); setLinkChantier("");
+  }
+  async function supprimerPlan(id) {
+    await supabase.from("plans").delete().eq("id", id);
+    setRichPlans(p => p.filter(x => x.id !== id));
+    setToDeletePlan(null);
   }
 
   // ─── Subscription Realtime sur le projet en cours ─────────────────────────
@@ -180,7 +211,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
           const dirty = dirtyInfosRef.current;
           setInfos(prev => {
             const merged = { ...prev };
-            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","logements","statut"].forEach(f => {
+            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","notes","logements","statut"].forEach(f => {
               if (!dirty.has(f) && remote[f] !== undefined && remote[f] !== null) merged[f] = remote[f];
               else if (!dirty.has(f) && remote[f] === null && f === "date_visite") merged[f] = "";
             });
@@ -285,6 +316,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
       // date_visite peut être de type DATE en base ; on envoie null si vide
       date_visite:         v.date_visite || null,
       observations:        v.observations        ?? "",
+      notes:               v.notes               ?? "",
       logements:           v.logements           ?? [],
       statut:              v.statut              ?? "prospect",
       last_client_id:      getClientId(),
@@ -357,22 +389,12 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
   }
   async function delCote(id) { await supabase.from("profero_cotes").delete().eq("id",id); setCotes(p=>p.filter(c=>c.id!==id)); }
 
-  async function ajoutPlan() { if(!projetId) return; const{data}=await supabase.from("profero_plans").insert({projet_id:projetId,nom:`Plan ${plans.length+1}`,data:null}).select().single(); if(data){setPlans(p=>[...p,data]);setPlanIdx(plans.length);} }
-
-  async function savePlan() {
-    const plan=plans[planIdx]; if(!plan||!canvasRef.current) return;
-    const url=canvasRef.current.toDataURL();
-    setPlans(p=>p.map((x,i)=>i===planIdx?{...x,data:url}:x));
-    if(plan.id) await supabase.from("profero_plans").update({data:url}).eq("id",plan.id);
-    else { const{data}=await supabase.from("profero_plans").insert({projet_id:projetId,nom:plan.nom,data:url}).select().single(); if(data) setPlans(p=>p.map((x,i)=>i===planIdx?data:x)); }
-  }
-
   async function nouveauProjet() {
     const{data}=await supabase.from("profero_projets").insert({
       client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"",
       date_visite:new Date().toISOString().split("T")[0], observations:"", logements:[], statut:"prospect",
     }).select().single();
-    if(data){ await supabase.from("profero_plans").insert({projet_id:data.id,nom:"Plan 1",data:null}); setProjets(p=>[data,...p]); chargerProjet(data.id); }
+    if(data){ setProjets(p=>[data,...p]); chargerProjet(data.id); }
   }
 
   async function dupliquerProjet() {
@@ -409,12 +431,14 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
       nom: c.nom, largeur: c.largeur, hauteur: c.hauteur, localisation: c.localisation,
     }));
     if (cotesSrc.length > 0) await supabase.from("profero_cotes").insert(cotesSrc);
-    // 4) Clone plans
-    const plansSrc = plans.filter(p => p.id).map(p => ({
-      projet_id: nouveau.id, nom: p.nom, data: p.data,
-    }));
-    if (plansSrc.length > 0) await supabase.from("profero_plans").insert(plansSrc);
-    else await supabase.from("profero_plans").insert({ projet_id: nouveau.id, nom: "Plan 1", data: null });
+    // 4) Clone plans riches (table `plans`) — récupère les blobs complets de la source
+    const { data: plansFull } = await supabase.from("plans").select("name,data,thumbnail").eq("projet_id", projetId);
+    if (plansFull && plansFull.length > 0) {
+      await supabase.from("plans").insert(plansFull.map(p => ({
+        name: p.name, data: p.data, thumbnail: p.thumbnail,
+        projet_id: nouveau.id, chantier_id: "",
+      })));
+    }
     // 5) Refresh
     setProjets(p => [nouveau, ...p]);
     chargerProjet(nouveau.id);
@@ -430,8 +454,8 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
       if (r.length > 0) chargerProjet(r[0].id);
       else {
         setProjetId(null);
-        setInfos({client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",date_visite:"",observations:"",logements:[],statut:"prospect"});
-        setOuvrages([]); setCotes([]); setPlans([{nom:"Plan 1",data:null}]);
+        setInfos({client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",date_visite:"",observations:"",logements:[],statut:"prospect",notes:""});
+        setOuvrages([]); setCotes([]); setRichPlans([]); setEditingPlan(null);
       }
     }
     setDeleting(false);
@@ -449,49 +473,89 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
     setToDeleteOuvrage(null);
   }
 
-  // ─── CANVAS ──────────────────────────────────────────────────────────────────
-  // T.card est semi-transparent (rgba alpha 0.04) → inutilisable pour peindre
-  // le canvas. On utilise T.surface qui est opaque, ainsi la gomme couvre
-  // vraiment les traits au lieu de juste teinter le fond.
-  const canvasBg = T.surface || "#14171f";
-  function grille(ctx) {
-    ctx.fillStyle=canvasBg; ctx.fillRect(0,0,800,600);
-    ctx.strokeStyle="rgba(255,195,0,0.07)"; ctx.lineWidth=1;
-    for(let i=0;i<=800;i+=20){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,600);ctx.stroke();}
-    for(let i=0;i<=600;i+=20){ctx.beginPath();ctx.moveTo(0,i);ctx.lineTo(800,i);ctx.stroke();}
-    ctx.strokeStyle=accent; ctx.lineWidth=2; ctx.strokeRect(1,1,798,598);
+  // ─── Gestion bibliothèque (ouvrages + lots) ───────────────────────────────────
+  async function renameOuvrageLib(cat, idx, nouveau) {
+    const v = (nouveau || "").trim();
+    setEditLib(null);
+    if (!v) return;
+    const { data } = await supabase.from("profero_categories_ouvrages").select("*").eq("nom", cat).single();
+    if (!data) return;
+    const ancien = (data.ouvrages || [])[idx];
+    if (!ancien || ancien === v) return;
+    const l = data.ouvrages.map((x, i) => i === idx ? v : x);
+    await supabase.from("profero_categories_ouvrages").update({ ouvrages: l }).eq("id", data.id);
+    setCategories(p => ({ ...p, [cat]: l }));
+    // Réaligne les ouvrages déjà sélectionnés (stockés par libellé)
+    await supabase.from("profero_ouvrages_selectionnes").update({ item: v }).eq("category", cat).eq("item", ancien);
+    setOuvrages(prev => prev.map(o => (o.category === cat && o.item === ancien) ? { ...o, item: v } : o));
   }
-  function getPos(e,c){ const r=c.getBoundingClientRect(),sx=800/r.width,sy=600/r.height; return e.touches?{x:(e.touches[0].clientX-r.left)*sx,y:(e.touches[0].clientY-r.top)*sy}:{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy}; }
-  function onDown(e){ if(!drawMode.current&&!eraseMode.current) return; e.preventDefault(); isDrawing.current=true; lastPos.current=getPos(e,canvasRef.current); }
-  function onMove(e){
-    if(!isDrawing.current||(!drawMode.current&&!eraseMode.current)) return; e.preventDefault();
-    const c=canvasRef.current,ctx=c.getContext("2d"),p=getPos(e,c);
-    if(eraseMode.current){
-      // Trait épais couleur fond opaque pour gommer en continu entre les points
-      ctx.strokeStyle=canvasBg; ctx.lineWidth=24; ctx.lineCap="round"; ctx.lineJoin="round";
-      ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(p.x,p.y); ctx.stroke();
+  async function addOuvrageToCat(cat, lib) {
+    const v = (lib || "").trim();
+    if (!v) return;
+    const { data } = await supabase.from("profero_categories_ouvrages").select("*").eq("nom", cat).single();
+    if (!data) return;
+    const l = [...(data.ouvrages || []), v];
+    await supabase.from("profero_categories_ouvrages").update({ ouvrages: l }).eq("id", data.id);
+    setCategories(p => ({ ...p, [cat]: l }));
+    setAddLibCat(null); setAddLibVal("");
+  }
+  async function createLot(nom) {
+    const v = (nom || "").trim();
+    setNewLotName("");
+    if (!v || categories[v]) return;
+    const { data: rows } = await supabase.from("profero_categories_ouvrages").select("ordre");
+    const maxOrdre = (rows || []).reduce((m, r) => Math.max(m, r.ordre ?? 0), -1);
+    await supabase.from("profero_categories_ouvrages").insert({ nom: v, ouvrages: [], ordre: maxOrdre + 1 });
+    setCategories(p => ({ ...p, [v]: [] }));
+  }
+  async function renameLot(ancien, nouveau) {
+    const v = (nouveau || "").trim();
+    setEditLot(null);
+    if (!v || v === ancien || categories[v]) return;
+    const { data } = await supabase.from("profero_categories_ouvrages").select("id").eq("nom", ancien).single();
+    if (!data) return;
+    await supabase.from("profero_categories_ouvrages").update({ nom: v }).eq("id", data.id);
+    // Rebranche les sélections existantes sur le nouveau nom de lot
+    await supabase.from("profero_ouvrages_selectionnes").update({ category: v }).eq("category", ancien);
+    setOuvrages(prev => prev.map(o => o.category === ancien ? { ...o, category: v } : o));
+    setCategories(p => { const next = {}; Object.entries(p).forEach(([k, val]) => { next[k === ancien ? v : k] = val; }); return next; });
+  }
+  async function deleteLot(nom) {
+    setToDeleteLot(null);
+    const { data } = await supabase.from("profero_categories_ouvrages").select("id").eq("nom", nom).single();
+    if (data) await supabase.from("profero_categories_ouvrages").delete().eq("id", data.id);
+    // Retire les sélections de ce lot pour le projet courant
+    if (projetId) {
+      await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id", projetId).eq("category", nom);
+      setOuvrages(prev => prev.filter(o => o.category !== nom));
     }
-    else{ ctx.strokeStyle=accent; ctx.lineWidth=2; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(p.x,p.y); ctx.stroke(); }
-    lastPos.current=p;
+    setCategories(p => { const next = { ...p }; delete next[nom]; return next; });
   }
-  function onUp(){ isDrawing.current=false; debounce("plan", () => savePlan(), 1500); }
-  function togDraw(){ drawMode.current=!drawMode.current; eraseMode.current=false; setDrawActive(drawMode.current); setEraseActive(false); }
-  function togErase(){ eraseMode.current=!eraseMode.current; drawMode.current=false; setEraseActive(eraseMode.current); setDrawActive(false); }
-  function clearCanvas(){ if(!window.confirm("Effacer le plan ?")) return; grille(canvasRef.current.getContext("2d")); savePlan(); }
-  function dlCanvas(){ const a=document.createElement("a"); a.download=`plan-${plans[planIdx]?.nom||"plan"}.png`; a.href=canvasRef.current.toDataURL(); a.click(); }
+  async function reorderLot(nom, dir) {
+    const keys = Object.keys(categories);
+    const i = keys.indexOf(nom), j = i + dir;
+    if (i < 0 || j < 0 || j >= keys.length) return;
+    setReordering(true);
+    const reordered = [...keys];
+    [reordered[i], reordered[j]] = [reordered[j], reordered[i]];
+    // Réassigne un ordre séquentiel propre à tous les lots (auto-réparateur)
+    await Promise.all(reordered.map((n, idx) =>
+      supabase.from("profero_categories_ouvrages").update({ ordre: idx }).eq("nom", n)
+    ));
+    setCategories(p => { const next = {}; reordered.forEach(n => { next[n] = p[n]; }); return next; });
+    setReordering(false);
+  }
 
   // ─── EXPORT WORD ─────────────────────────────────────────────────────────────
   async function handleExportWord() {
     if (!projetId || exporting) return;
     setExporting(true);
     try {
-      // Snapshot du canvas du plan en cours (s'il y a quelque chose)
-      const plansSnap = plans.map((p, i) => {
-        if (i === planIdx && canvasRef.current) {
-          return { ...p, data: canvasRef.current.toDataURL() };
-        }
-        return p;
-      });
+      // Les plans riches stockent l'aperçu PNG dans `thumbnail` ; l'API attend
+      // un champ `data` en data:image. On mappe les vignettes disponibles.
+      const plansSnap = (richPlans || [])
+        .filter(p => typeof p.thumbnail === "string" && p.thumbnail.startsWith("data:image"))
+        .map(p => ({ nom: p.name, data: p.thumbnail }));
       const payload = { infos, ouvrages, cotes, plans: plansSnap, photos };
       const res = await fetch("/api/generate-info-client-docx", {
         method: "POST",
@@ -628,7 +692,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
             </div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,letterSpacing:-.2,display:"flex",alignItems:"center",gap:8}}>
-                Info Client
+                Chiffrage
                 {(() => {
                   const c = autoSaveStatus === "saved" ? "#22c55e"
                           : autoSaveStatus === "saving" ? acc.accent
@@ -830,6 +894,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
             <div className="pic-tabs" style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {[
                 { id:"client",   label:"Client & projet", icon:UserCircle },
+                { id:"notes",    label:"Notes",           icon:StickyNote },
                 { id:"ouvrages", label:"Ouvrages",        icon:Hammer },
                 { id:"plan",     label:"Plan & côtes",    icon:Ruler },
                 { id:"photos",   label:"Photos",          icon:Camera },
@@ -887,11 +952,33 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
               </>
             )}
 
-            {tab==="ouvrages" && (
+            {tab==="notes" && (
               <>
                 <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
-                  <Icon as={Hammer} size={11}/>
-                  Sélection d'ouvrages
+                  <Icon as={StickyNote} size={11}/>
+                  Notes libres
+                </div>
+                <textarea
+                  value={infos.notes || ""}
+                  onChange={e=>updInfo("notes", e.target.value)}
+                  placeholder="Prends des notes librement : contraintes, échanges client, idées de chiffrage, points à vérifier…"
+                  style={{ ...ta, minHeight:"calc(100vh - 320px)", lineHeight:1.7, fontSize:FONT.sm.size }}
+                />
+              </>
+            )}
+
+            {tab==="ouvrages" && (
+              <>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={Hammer} size={11}/>
+                    {manageMode ? "Gérer lots & ouvrages" : "Sélection d'ouvrages"}
+                  </div>
+                  <button onClick={()=>{ setManageMode(m=>!m); setEditLib(null); setEditLot(null); setAddLibCat(null); }}
+                    style={{ ...(manageMode?btn:btnSec), display:"inline-flex", alignItems:"center", gap:5 }}>
+                    <Icon as={manageMode?Check:Settings} size={11}/>
+                    {manageMode ? "Terminer" : "Gérer"}
+                  </button>
                 </div>
                 <div style={{position:"relative",marginBottom:10}}>
                   <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
@@ -904,21 +991,57 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                   })}
                 </div>
 
-                {Object.entries(categories).map(([cat,items]) => {
+                {manageMode && (
+                  <div style={{ display:"flex", gap:6, marginBottom:14, alignItems:"center", flexWrap:"wrap" }}>
+                    <input style={{...inp, flex:"1 1 200px"}} value={newLotName} onChange={e=>setNewLotName(e.target.value)}
+                      placeholder="Nouveau lot (ex : Carrelage, Isolation…)" onKeyDown={e=>e.key==="Enter"&&createLot(newLotName)} />
+                    <button onClick={()=>createLot(newLotName)} style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
+                      <Icon as={Plus} size={12}/> Créer un lot
+                    </button>
+                  </div>
+                )}
+
+                {Object.entries(categories).map(([cat,items],catIndex,arr) => {
                   const vis=items.filter(item=>(!search||item.toLowerCase().includes(search.toLowerCase()))&&(filtresCat.length===0||filtresCat.includes(cat)));
-                  if(vis.length===0) return null;
+                  if(vis.length===0 && !manageMode) return null;
                   return (
                     <div key={cat}>
-                      <div style={h2s}>{cat} ({items.length})</div>
-                      {vis.map((item,idx) => {
+                      {manageMode ? (
+                        <div style={{ ...h2s, display:"flex", alignItems:"center", gap:8 }}>
+                          {editLot && editLot.nom===cat ? (
+                            <input autoFocus style={{...inp, flex:1, padding:"5px 8px", fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:0}}
+                              value={editLot.value} onChange={e=>setEditLot({nom:cat, value:e.target.value})}
+                              onKeyDown={e=>{ if(e.key==="Enter") renameLot(cat, editLot.value); if(e.key==="Escape") setEditLot(null); }}
+                              onBlur={()=>renameLot(cat, editLot.value)} />
+                          ) : (
+                            <span style={{flex:1}}>{cat} ({items.length})</span>
+                          )}
+                          <button title="Monter" disabled={catIndex===0||reordering} onClick={()=>reorderLot(cat,-1)} style={{...iconBtnSec, opacity:(catIndex===0||reordering)?.4:1}}><Icon as={ArrowUp} size={12}/></button>
+                          <button title="Descendre" disabled={catIndex===arr.length-1||reordering} onClick={()=>reorderLot(cat,1)} style={{...iconBtnSec, opacity:(catIndex===arr.length-1||reordering)?.4:1}}><Icon as={ArrowDown} size={12}/></button>
+                          <button title="Renommer le lot" onClick={()=>setEditLot({nom:cat, value:cat})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
+                          <button title="Supprimer le lot" onClick={()=>setToDeleteLot(cat)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                        </div>
+                      ) : (
+                        <div style={h2s}>{cat} ({items.length})</div>
+                      )}
+                      {vis.map((item) => {
+                        const idx=items.indexOf(item);
                         const sel=ouvrages.find(o=>o.category===cat&&o.item===item), chk=!!sel;
+                        const isEditing=editLib&&editLib.cat===cat&&editLib.idx===idx;
                         return (
-                          <div key={idx} style={{ padding:"9px 12px", background:chk?acc.bg10:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
-                            <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />
+                          <div key={idx} style={{ padding:"9px 12px", background:chk&&!manageMode?acc.bg10:T.card, border:`1px solid ${chk&&!manageMode?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
+                            {!manageMode && <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />}
                             <div style={{flex:1,minWidth:0}}>
-                              <div style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{item}</div>
+                              {isEditing ? (
+                                <input autoFocus style={{...inp, padding:"5px 8px", fontSize:FONT.sm.size}}
+                                  value={editLib.value} onChange={e=>setEditLib({cat,idx,value:e.target.value})}
+                                  onKeyDown={e=>{ if(e.key==="Enter") renameOuvrageLib(cat,idx,editLib.value); if(e.key==="Escape") setEditLib(null); }}
+                                  onBlur={()=>renameOuvrageLib(cat,idx,editLib.value)} />
+                              ) : (
+                                <div style={{ fontSize:FONT.sm.size, color:chk&&!manageMode?acc.accent:T.text, fontWeight:chk&&!manageMode?700:500 }}>{item}</div>
+                              )}
                               <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}</div>
-                              {chk && (() => {
+                              {chk && !manageMode && (() => {
                                 const q  = parseFloat(sel.quantite) || 0;
                                 const pu = parseFloat(sel.prix_unitaire) || 0;
                                 const totalLigne = q * pu;
@@ -952,9 +1075,31 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                                 );
                               })()}
                             </div>
+                            {manageMode && !isEditing && (
+                              <div style={{display:"flex", gap:4, flexShrink:0}}>
+                                <button title="Renommer l'ouvrage" onClick={()=>setEditLib({cat,idx,value:item})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
+                                <button title="Supprimer l'ouvrage" onClick={()=>setToDeleteOuvrage({cat,idx,label:item})} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
+                      {manageMode && (
+                        addLibCat===cat ? (
+                          <div style={{display:"flex", gap:6, marginBottom:10, alignItems:"center"}}>
+                            <input autoFocus style={{...inp, flex:1, padding:"7px 10px", fontSize:FONT.sm.size}}
+                              value={addLibVal} onChange={e=>setAddLibVal(e.target.value)}
+                              placeholder={`Nouvel ouvrage dans « ${cat} »`}
+                              onKeyDown={e=>{ if(e.key==="Enter") addOuvrageToCat(cat, addLibVal); if(e.key==="Escape"){setAddLibCat(null);setAddLibVal("");} }} />
+                            <button onClick={()=>addOuvrageToCat(cat, addLibVal)} style={{...btn, padding:"7px 12px"}}><Icon as={Check} size={12}/></button>
+                            <button onClick={()=>{setAddLibCat(null);setAddLibVal("");}} style={{...btnSec, padding:"7px 12px"}}><Icon as={X} size={12}/></button>
+                          </div>
+                        ) : (
+                          <button onClick={()=>{setAddLibCat(cat);setAddLibVal("");}} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, marginBottom:10}}>
+                            <Icon as={Plus} size={11}/> Ajouter un ouvrage
+                          </button>
+                        )
+                      )}
                     </div>
                   );
                 })}
@@ -1049,65 +1194,73 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
             )}
 
             {tab==="plan" && (
+              editingPlan ? (
+                <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 240px)", minHeight:480, margin:"-18px -22px" }}>
+                  <PlanEditorErrorBoundary onClose={()=>setEditingPlan(null)}>
+                    <PlanEditor plan={editingPlan} onSave={onSavePlan} onClose={()=>setEditingPlan(null)} T={T} chantiers={chantiers}/>
+                  </PlanEditorErrorBoundary>
+                </div>
+              ) : (
               <>
-                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
-                  <Icon as={Ruler} size={11}/>
-                  Plan & côtes
-                </div>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:10 }}>
-                  {plans.map((p,i) => (
-                    <button key={i} onClick={()=>setPlanIdx(i)} style={{
-                      padding:"5px 12px",border:`1px solid ${i===planIdx?acc.accent:T.border}`,
-                      background:i===planIdx?acc.bg10:T.card,
-                      color:i===planIdx?acc.accent:T.textSub,
-                      borderRadius:RADIUS.md,cursor:"pointer",
-                      fontSize:FONT.xs.size+1,fontWeight:700,transition:"all .12s",
-                    }}>{p.nom}</button>
-                  ))}
-                  <button onClick={ajoutPlan} style={{
-                    display:"inline-flex",alignItems:"center",gap:4,
-                    padding:"5px 10px",background:acc.accent,color:acc.onAccent,border:"none",
-                    borderRadius:RADIUS.md,cursor:"pointer",
-                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,
-                  }}>
-                    <Icon as={Plus} size={11}/>
-                    Plan
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={Ruler} size={11}/>
+                    Plans & côtes
+                  </div>
+                  <button onClick={nouveauPlan} style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
+                    <Icon as={Plus} size={12}/> Nouveau plan
                   </button>
                 </div>
-                <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
-                  <button onClick={togDraw} style={{
-                    display:"inline-flex",alignItems:"center",gap:5,
-                    padding:"7px 12px",borderRadius:RADIUS.md,border:"none",
-                    background:drawActive?acc.accent:T.card,color:drawActive?acc.onAccent:T.textSub,
-                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
-                  }}>
-                    <Icon as={Pencil} size={11}/>
-                    Dessiner
-                  </button>
-                  <button onClick={togErase} style={{
-                    display:"inline-flex",alignItems:"center",gap:5,
-                    padding:"7px 12px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,
-                    background:eraseActive?T.surface:"transparent",color:eraseActive?acc.accent:T.textSub,
-                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
-                  }}>
-                    <Icon as={Eraser} size={11}/>
-                    Gomme
-                  </button>
-                  <button onClick={clearCanvas} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
-                    <Icon as={Trash2} size={11}/>
-                    Effacer
-                  </button>
-                  <button onClick={dlCanvas} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
-                    <Icon as={Download} size={11}/>
-                    Télécharger
-                  </button>
-                </div>
-                <div style={{ border:`1px solid ${acc.accent}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
-                  <canvas ref={canvasRef} width={800} height={600}
-                    style={{ display:"block", width:"100%", cursor:drawActive?"crosshair":eraseActive?"cell":"default", touchAction:"none" }}
-                    onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
-                    onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}/>
-                </div>
+                <p style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:12,lineHeight:1.6}}>
+                  Importe un .dxf et dessine au stylet (palette de couleurs, symboles, cotation). Un plan peut ensuite être envoyé vers la page Plans en le liant à un chantier.
+                </p>
+
+                {richPlans.length===0 ? (
+                  <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"32px 24px", textAlign:"center", color:T.textSub }}>
+                    <div style={{ width:48,height:48,borderRadius:RADIUS.lg, background:acc.bg10,color:acc.accent, display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
+                      <Icon as={Ruler} size={24} strokeWidth={1.5}/>
+                    </div>
+                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun plan</div>
+                    <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Crée un plan pour importer un .dxf ou dessiner à main levée.</div>
+                  </div>
+                ) : (
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12 }}>
+                    {richPlans.map(p => {
+                      const ch = chantiers.find(c=>c.id===p.chantier_id);
+                      return (
+                        <div key={p.id} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+                          <div style={{ position:"relative", aspectRatio:"4/3", background:T.card, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
+                            onClick={()=>ouvrirPlan(p.id)}>
+                            {p.thumbnail ? (
+                              <img src={p.thumbnail} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain" }}/>
+                            ) : (
+                              <Icon as={ImageIcon} size={28} color={T.textMuted}/>
+                            )}
+                          </div>
+                          <div style={{ padding:"8px 10px", display:"flex", flexDirection:"column", gap:6 }}>
+                            <div style={{ fontSize:FONT.sm.size, fontWeight:700, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name||"Plan"}</div>
+                            {ch && (
+                              <div style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size, color:"#22c55e", fontWeight:600 }}>
+                                <Icon as={Building2} size={10}/> {ch.nom}
+                              </div>
+                            )}
+                            <div style={{ display:"flex", gap:6 }}>
+                              <button onClick={()=>ouvrirPlan(p.id)} style={{...btnSec, flex:1, display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, padding:"6px 8px"}}>
+                                <Icon as={Pencil} size={11}/> Ouvrir
+                              </button>
+                              <button title="Envoyer vers Plans / lier à un chantier" onClick={()=>{ setLinkingPlan(p); setLinkChantier(p.chantier_id||""); }} style={iconBtnSec}>
+                                <Icon as={Send} size={12}/>
+                              </button>
+                              <button title="Supprimer le plan" onClick={()=>setToDeletePlan(p)} style={iconBtnDng}>
+                                <Icon as={Trash2} size={12}/>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div style={{...h2s, marginTop:20}}>Côtes menuiseries / huisseries</div>
                 <button onClick={ajoutCote} style={{
@@ -1135,6 +1288,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                   </div>
                 ))}
               </>
+              )
             )}
 
             {tab==="photos" && (
@@ -1145,17 +1299,30 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                     Photos du projet
                     {photos.length > 0 && <span style={{color:acc.accent}}>· {photos.length}</span>}
                   </div>
-                  <label style={{
-                    display:"inline-flex", alignItems:"center", gap:6,
-                    background:acc.accent, color:acc.onAccent, border:"none",
-                    borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
-                    fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
-                  }}>
-                    <Icon as={Camera} size={13}/>
-                    Ajouter des photos
-                    <input ref={photoInputRef} type="file" accept="image/*" multiple capture="environment"
-                      onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
-                  </label>
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                    <label style={{
+                      display:"inline-flex", alignItems:"center", gap:6,
+                      background:acc.accent, color:acc.onAccent, border:"none",
+                      borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
+                      fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
+                    }}>
+                      <Icon as={Camera} size={13}/>
+                      Prendre une photo
+                      <input ref={photoInputRef} type="file" accept="image/*" capture="environment"
+                        onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                    </label>
+                    <label style={{
+                      display:"inline-flex", alignItems:"center", gap:6,
+                      background:"transparent", color:T.text, border:`1px solid ${T.border}`,
+                      borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
+                      fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700,
+                    }}>
+                      <Icon as={ImagePlus} size={13}/>
+                      Importer
+                      <input type="file" accept="image/*" multiple
+                        onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                    </label>
+                  </div>
                 </div>
                 {uploadingCount > 0 && (
                   <div style={{ display:"flex", alignItems:"center", gap:8, color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, marginBottom:10 }}>
@@ -1296,7 +1463,7 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
                     <Icon as={FileDown} size={13}/>
                     {exporting ? "Génération…" : "Exporter en Word (.docx)"}
                   </button>
-                  <button onClick={()=>genPDF({infos,ouvrages,cotes,plans,canvasRef})} style={{
+                  <button onClick={()=>genPDF({infos,ouvrages,cotes,plans:(richPlans||[]).filter(p=>typeof p.thumbnail==="string"&&p.thumbnail.startsWith("data:image")).map(p=>({nom:p.name,data:p.thumbnail}))})} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:"transparent",color:T.textSub,border:`1px solid ${T.border}`,
                     borderRadius:RADIUS.md,padding:"10px 18px",cursor:"pointer",
@@ -1500,14 +1667,139 @@ export default function PageInfoClient({ T, branch = "renovation" }) {
           </div>
         </div>
       )}
+
+      {/* ── MODAL SUPPRESSION LOT ── */}
+      {toDeleteLot && (
+        <div onClick={()=>setToDeleteLot(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce lot ?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              Le lot <strong style={{color:T.text}}>« {toDeleteLot} »</strong> et tous ses ouvrages seront supprimés de la bibliothèque. Les ouvrages de ce lot sélectionnés sur ce projet seront également retirés.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDeleteLot(null)} style={{
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+              }}>Annuler</button>
+              <button onClick={()=>deleteLot(toDeleteLot)} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:"#e15a5a",color:"#fff",border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL LIER UN PLAN À UN CHANTIER ── */}
+      {linkingPlan && (
+        <div onClick={()=>{setLinkingPlan(null);setLinkChantier("");}} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={Send} size={18}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Envoyer vers la page Plans</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:16}}>
+              Lie le plan <strong style={{color:T.text}}>« {linkingPlan.name||"Plan"} »</strong> à un chantier. Il apparaîtra alors dans la page <strong style={{color:T.text}}>Plans</strong>, filtrable par ce chantier.
+            </div>
+            <label style={lbl}>Chantier</label>
+            <select style={{...inp, marginBottom:20}} value={linkChantier} onChange={e=>setLinkChantier(e.target.value)}>
+              <option value="">— Aucun (non lié) —</option>
+              {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+            </select>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>{setLinkingPlan(null);setLinkChantier("");}} style={{
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+              }}>Annuler</button>
+              <button onClick={lierPlanChantier} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:acc.accent,color:acc.onAccent,border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Check} size={13}/>
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL SUPPRESSION PLAN ── */}
+      {toDeletePlan && (
+        <div onClick={()=>setToDeletePlan(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce plan ?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              Le plan <strong style={{color:T.text}}>« {toDeletePlan.name||"Plan"} »</strong> sera définitivement supprimé{toDeletePlan.chantier_id ? " (y compris depuis la page Plans)" : ""}.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDeletePlan(null)} style={{
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+              }}>Annuler</button>
+              <button onClick={()=>supprimerPlan(toDeletePlan.id)} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:"#e15a5a",color:"#fff",border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── PDF ─────────────────────────────────────────────────────────────────────
-function genPDF({ infos, ouvrages, cotes, plans, canvasRef }) {
+function genPDF({ infos, ouvrages, cotes, plans = [] }) {
   const g=ouvrages.reduce((a,o)=>{if(!a[o.category])a[o.category]=[];a[o.category].push(o);return a;},{});
-  const cd=canvasRef.current?canvasRef.current.toDataURL():null;
+  const plansImgs=(plans||[]).filter(p=>typeof p.data==="string"&&p.data.startsWith("data:image"));
   const d=new Date().toLocaleDateString("fr-FR");
   const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><style>
     body{font-family:Arial,sans-serif;margin:20px;color:#333}
@@ -1530,10 +1822,11 @@ function genPDF({ infos, ouvrages, cotes, plans, canvasRef }) {
     <div class="row"><span class="lbl">Description :</span> ${infos.description_projet||"—"}</div>
     ${infos.logements?.length?`<div class="row"><span class="lbl">Composition :</span> ${infos.logements.join(", ")}</div>`:""}
     ${infos.observations?`<div class="row"><span class="lbl">Observations :</span> ${infos.observations}</div>`:""}
+    ${infos.notes?`<div class="row"><span class="lbl">Notes :</span> ${String(infos.notes).replace(/\n/g,"<br>")}</div>`:""}
   </div>
   ${ouvrages.length>0?`<div class="sec"><h2>Ouvrages Sélectionnés</h2>${Object.entries(g).map(([cat,its])=>`<div class="cat"><div class="cat-t">${cat}</div><ul>${its.map(i=>`<li>${i.item}${i.quantite?` — ${i.quantite} ${i.unite}`:""}</li>`).join("")}</ul></div>`).join("")}</div>`:""}
   ${cotes.length>0?`<div class="sec"><h2>Côtes</h2>${cotes.map(c=>`<div class="cote"><strong>${c.nom||"(Sans nom)"}</strong><br>L : ${c.largeur||"—"} cm | H : ${c.hauteur||"—"} cm | ${c.localisation||"—"}</div>`).join("")}</div>`:""}
-  ${cd?`<div class="sec"><h2>Plan du Chantier</h2><img src="${cd}" /></div>`:""}
+  ${plansImgs.length>0?`<div class="sec"><h2>Plans du Chantier</h2>${plansImgs.map(p=>`<div style="margin-bottom:12px;"><div style="font-weight:bold;margin-bottom:4px;">${p.nom||"Plan"}</div><img src="${p.data}" /></div>`).join("")}</div>`:""}
   <div class="ft">Rapport généré — ${d}</div></body></html>`;
   const w=window.open("","_blank"); w.document.write(html); w.document.close(); setTimeout(()=>{w.focus();w.print();},500);
 }

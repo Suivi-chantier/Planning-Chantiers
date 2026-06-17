@@ -3069,3 +3069,4 @@ function PagePlans({T, chantiers, branch = "renovation"}) {
 }
 
 export default PagePlans;
+export { PlanEditor, PlanEditorErrorBoundary };

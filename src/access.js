@@ -35,7 +35,7 @@ export const PAGES_RENOVATION = [
   { id: "bibliotheque",       label: "Biblio. ouvrages"            },
   { id: "biblio-materiaux",   label: "Biblio. matériaux"           },
   { id: "visite",             label: "Visites chantier"            },
-  { id: "info-client",        label: "Infos Client"                },
+  { id: "info-client",        label: "Chiffrage"                   },
   { id: "dashboard-analyse",  label: "Dashboard Analyse"           },
   { id: "etats-financiers",   label: "États financiers"            },
   { id: "guide-ouvrages",     label: "Guide ouvrages"              },
