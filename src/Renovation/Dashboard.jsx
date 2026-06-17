@@ -125,8 +125,8 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
   const [weatherCity, setWeatherCity]   = useState(() => localStorage.getItem("dash_weather_city") || "Paris");
 
   useEffect(() => {
-    // Commandes en attente
-    supabase.from("commandes_detail").select("id", { count: "exact", head: true }).eq("statut", "a_commander")
+    // Besoins ouvrier en attente (nouveau modèle) = demandes à transformer en commande
+    supabase.from("besoins").select("id", { count: "exact", head: true }).eq("statut", "en_attente")
       .then(({ count }) => setCmdCount(count || 0));
 
     // Todos

@@ -1101,18 +1101,30 @@ function PlanTravaux({ phasage, ouvrages, T, ouvriers, tauxHoraires, onBack, onS
   const [commandesPhasage, setCommandesPhasage] = useState([]);
   const [showPhaseCmds, setShowPhaseCmds] = useState(null); // ID de la phase ouverte dans la modale
   useEffect(() => {
-    if (!phasage?.id) return;
-    supabase.from("commandes_detail")
-      .select("id,article,fournisseur,quantite,prix_ht,statut,phase_id,ouvrier_demandeur,notes")
-      .eq("phasage_id", phasage.id)
+    if (!phasage?.chantier_id) return;
+    // Nouveau modèle : coût matériel = somme des commande_lignes du chantier.
+    // On capte ainsi aussi les saisies mobiles (qui portent chantier_id, et
+    // parfois phase_id). On remappe vers la même forme que l'ancien jeu de
+    // données pour que le calcul de coût et la modale restent inchangés.
+    supabase.from("commande_lignes")
+      .select("id, libelle, quantite, prix_total, prix_unitaire, prix_verrouille, phase_id, commande:commandes(fournisseur_nom, statut_facturation, notes)")
+      .eq("chantier_id", phasage.chantier_id)
       .then(({ data, error }) => {
-        if (error?.code === "42703") {
-          setCommandesPhasage([]);
-        } else {
-          setCommandesPhasage(data || []);
-        }
+        if (error) { setCommandesPhasage([]); return; }
+        const mapped = (data || []).map(l => ({
+          id:          l.id,
+          article:     l.libelle || "",
+          fournisseur: l.commande?.fournisseur_nom || "",
+          quantite:    l.quantite != null ? String(l.quantite) : "",
+          prix_ht:     l.prix_total != null ? l.prix_total
+                        : (l.prix_unitaire != null && l.quantite != null ? l.prix_unitaire * l.quantite : null),
+          statut:      (l.prix_verrouille || l.commande?.statut_facturation === "facture") ? "retire" : "commande",
+          phase_id:    l.phase_id || "",
+          notes:       l.commande?.notes || "",
+        }));
+        setCommandesPhasage(mapped);
       });
-  }, [phasage?.id]);
+  }, [phasage?.chantier_id]);
 
   // ─── P8 : registre de pointage ──────────────────────────────────────────────
   // Heures réelles + coût MO sont désormais DÉRIVÉS du registre `pointages`

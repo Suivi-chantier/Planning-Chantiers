@@ -1120,7 +1120,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const doBackup = async () => {
     setBackuping(true);
     try {
-      const tables = ["planning_config","planning_cells","planning_mensuel","phasages","visites_chantier","profero_projets","profero_ouvrages_selectionnes","profero_cotes","profero_plans","profero_categories_ouvrages","rapports","cr_comptes_rendus","materiaux_bibliotheque","bibliotheque_ratios","commandes_detail","plans","utilisateurs"];
+      const tables = ["planning_config","planning_cells","planning_mensuel","phasages","visites_chantier","profero_projets","profero_ouvrages_selectionnes","profero_cotes","profero_plans","profero_categories_ouvrages","rapports","cr_comptes_rendus","materiaux_bibliotheque","bibliotheque_ratios","commandes_detail","commandes_passees","besoins","commandes","commande_lignes","factures","facture_bl","plans","utilisateurs"];
       const out = { version: 1, exported_at: new Date().toISOString(), tables: {} };
       for (const t of tables) {
         const { data, error } = await supabase.from(t).select("*");
