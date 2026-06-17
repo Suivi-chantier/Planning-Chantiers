@@ -175,6 +175,14 @@ function hasPriceDrop(annonce) {
   return first > 0 && last > 0 && last < first;
 }
 
+function getLogSearchUrl(log) {
+  const details = log?.details || {};
+  if (typeof details?.search_url === "string") return details.search_url;
+  if (typeof details?.url === "string") return details.url;
+  if (Array.isArray(details?.urls_recherche) && details.urls_recherche[0]?.url) return details.urls_recherche[0].url;
+  return "";
+}
+
 function computeSourcingAnalysis(annonce) {
   const text = `${safeText(annonce?.titre)} ${safeText(annonce?.description)}`;
 
@@ -409,6 +417,7 @@ export default function Sourcing({ profil, T }) {
   const [savingCritere, setSavingCritere] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [collecteMessage, setCollecteMessage] = useState("");
+  const [collecteUrls, setCollecteUrls] = useState([]);
   const [editingCritereId, setEditingCritereId] = useState(null);
   const [critereForm, setCritereForm] = useState(EMPTY_CRITERE);
 
@@ -673,6 +682,7 @@ export default function Sourcing({ profil, T }) {
     if (collecting) return;
 
     setCollecting(true);
+    setCollecteUrls([]);
     setCollecteMessage(critereId ? "Collecte du critère en cours..." : "Collecte globale en cours...");
 
     const { data, error } = await supabase.functions.invoke("sourcing-collecte-leboncoin", {
@@ -690,11 +700,21 @@ export default function Sourcing({ profil, T }) {
     const nouvelles = data?.nb_nouvelles ?? 0;
     const misesAJour = data?.nb_mises_a_jour ?? 0;
     const detectees = data?.nb_detectees ?? 0;
+    const urls = Array.isArray(data?.urls_recherche) ? data.urls_recherche : [];
+    const mode = data?.mode || "collecte_directe";
 
-    setCollecteMessage(`Collecte terminée : ${detectees} annonce(s) détectée(s), ${nouvelles} nouvelle(s), ${misesAJour} mise(s) à jour.`);
+    setCollecteUrls(urls);
+
+    if (mode === "collecte_assistee" || data?.nb_bloquees > 0) {
+      setCollecteMessage(`Collecte directe bloquée par Leboncoin. ${urls.length} URL(s) de recherche générée(s) pour ouverture manuelle.`);
+      setActiveTab("dashboard");
+    } else {
+      setCollecteMessage(`Collecte terminée : ${detectees} annonce(s) détectée(s), ${nouvelles} nouvelle(s), ${misesAJour} mise(s) à jour.`);
+      setActiveTab("annonces");
+    }
+
     setCollecting(false);
     await loadData();
-    setActiveTab("annonces");
   }
 
   const preview = useMemo(() => computeSourcingAnalysis({
@@ -769,7 +789,7 @@ export default function Sourcing({ profil, T }) {
           ) : (
             <>
               {activeTab === "dashboard" && (
-                <DashboardTab T={T} stats={stats} setActiveTab={setActiveTab} onRunCollecte={handleRunCollecte} collecting={collecting} collecteMessage={collecteMessage} />
+                <DashboardTab T={T} stats={stats} setActiveTab={setActiveTab} onRunCollecte={handleRunCollecte} collecting={collecting} collecteMessage={collecteMessage} collecteUrls={collecteUrls} />
               )}
 
               {activeTab === "annonces" && (
@@ -826,7 +846,7 @@ export default function Sourcing({ profil, T }) {
   );
 }
 
-function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, collecteMessage }) {
+function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, collecteMessage, collecteUrls = [] }) {
   const S = getStyles(T);
 
   return (
@@ -839,6 +859,25 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
         {collecteMessage ? (
           <div style={{ marginTop: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", fontSize: 13, fontWeight: 800, color: S.accent, background: S.accentBg }}>
             {collecteMessage}
+          </div>
+        ) : null}
+
+        {Array.isArray(collecteUrls) && collecteUrls.length > 0 ? (
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, textTransform: "uppercase", letterSpacing: 0.6, color: S.textSub }}>
+              Recherches Leboncoin générées
+            </div>
+            {collecteUrls.map((item, index) => (
+              <div key={`${item.critere_id || index}-${item.url}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", background: S.cardBg }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.nom || `Recherche ${index + 1}`}</div>
+                  <div style={{ marginTop: 2, fontSize: 12, color: S.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 760 }}>{item.url}</div>
+                </div>
+                <a href={item.url} target="_blank" rel="noreferrer" style={{ ...S.buttonPrimary, textDecoration: "none", whiteSpace: "nowrap" }}>
+                  Ouvrir
+                </a>
+              </div>
+            ))}
           </div>
         ) : null}
       </div>
@@ -1235,19 +1274,30 @@ function LogsTab({ T, logs }) {
               <Th T={T}>Détectées</Th>
               <Th T={T}>Nouvelles</Th>
               <Th T={T}>Message</Th>
+              <Th T={T}>Action</Th>
             </tr>
           </thead>
           <tbody>
-            {logs.map((log) => (
-              <tr key={log.id}>
-                <Td T={T}>{log.created_at ? new Date(log.created_at).toLocaleString("fr-FR") : "—"}</Td>
-                <Td T={T}>{log.source || "—"}</Td>
-                <Td T={T} strong>{log.statut || "—"}</Td>
-                <Td T={T}>{log.nb_detectees || 0}</Td>
-                <Td T={T}>{log.nb_nouvelles || 0}</Td>
-                <Td T={T}>{log.message || "—"}</Td>
-              </tr>
-            ))}
+            {logs.map((log) => {
+              const searchUrl = getLogSearchUrl(log);
+              return (
+                <tr key={log.id}>
+                  <Td T={T}>{log.created_at ? new Date(log.created_at).toLocaleString("fr-FR") : "—"}</Td>
+                  <Td T={T}>{log.source || "—"}</Td>
+                  <Td T={T} strong>{log.statut || "—"}</Td>
+                  <Td T={T}>{log.nb_detectees || 0}</Td>
+                  <Td T={T}>{log.nb_nouvelles || 0}</Td>
+                  <Td T={T}>{log.message || "—"}</Td>
+                  <Td T={T}>
+                    {searchUrl ? (
+                      <a href={searchUrl} target="_blank" rel="noreferrer" style={{ color: S.accent, fontWeight: 900, textDecoration: "none", whiteSpace: "nowrap" }}>
+                        Ouvrir recherche
+                      </a>
+                    ) : "—"}
+                  </Td>
+                </tr>
+              );
+            })}
           </tbody>
         </SimpleTable>
       )}
