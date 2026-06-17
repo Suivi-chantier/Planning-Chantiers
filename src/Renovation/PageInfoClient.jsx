@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, getClientId } from "../supabase";
 import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
-import { FONT, RADIUS, getBranchAccent } from "../constants";
+import { FONT, RADIUS, SHADOW, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import {
   UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
@@ -612,6 +612,76 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     <div className="pic-page" style={{ display:"flex", height:"100%", background:T.bg, overflow:"hidden", position:"relative" }}>
       <style>{`
         .pic-mobile-bar{display:none}
+
+        /* ─────────────────────────────────────────────────────────────
+           POLISH GLOBAL (toutes tailles) — focus, transitions, ombres
+           ───────────────────────────────────────────────────────────── */
+        .pic-page *{box-sizing:border-box}
+
+        /* Champs de saisie : transition douce + anneau de focus accent */
+        .pic-page .pic-body input:not([type=checkbox]):not([type=range]),
+        .pic-page .pic-body select,
+        .pic-page .pic-body textarea,
+        .pic-page .pic-list-panel input,
+        .pic-page .pic-list-panel select{
+          transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
+        }
+        .pic-page .pic-body input:not([type=checkbox]):not([type=range]):focus,
+        .pic-page .pic-body select:focus,
+        .pic-page .pic-body textarea:focus,
+        .pic-page .pic-list-panel input:focus,
+        .pic-page .pic-list-panel select:focus{
+          border-color:${acc.accent}!important;
+          box-shadow:0 0 0 3px ${acc.bg10}!important;
+          outline:none;
+        }
+        .pic-page .pic-body input::placeholder,
+        .pic-page .pic-body textarea::placeholder{color:${T.textMuted};opacity:.8}
+
+        /* Cartes génériques : survol = légère élévation */
+        .pic-page .pic-card{transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease}
+        .pic-page .pic-card:hover{transform:translateY(-2px);box-shadow:${SHADOW.md};border-color:${acc.border}}
+
+        /* Onglets : transition + survol */
+        .pic-page .pic-tabs button{transition:transform .12s ease, background .12s ease, color .12s ease, box-shadow .12s ease}
+        .pic-page .pic-tabs button:hover{transform:translateY(-1px)}
+
+        /* Boutons : feedback de survol discret */
+        .pic-page button{transition:transform .12s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease}
+        .pic-page button:active{transform:translateY(1px)}
+
+        /* Barres de défilement discrètes */
+        .pic-page .pic-list-panel ::-webkit-scrollbar,
+        .pic-page .pic-body::-webkit-scrollbar{width:9px;height:9px}
+        .pic-page .pic-list-panel ::-webkit-scrollbar-thumb,
+        .pic-page .pic-body::-webkit-scrollbar-thumb{background:${T.border};border-radius:9px;border:2px solid transparent;background-clip:padding-box}
+        .pic-page .pic-list-panel ::-webkit-scrollbar-thumb:hover,
+        .pic-page .pic-body::-webkit-scrollbar-thumb:hover{background:${T.textMuted}}
+        .pic-page .pic-list-panel,
+        .pic-page .pic-body{scrollbar-width:thin;scrollbar-color:${T.border} transparent}
+
+        /* Lisibilité sur grand écran : on borne la largeur des formulaires/notes */
+        .pic-page .pic-form-grid,
+        .pic-page .pic-section-narrow{max-width:980px}
+
+        /* ── TABLETTE (768–1180px) : cibles tactiles confortables ── */
+        @media(min-width:768px) and (max-width:1180px){
+          .pic-page .pic-list-panel{width:300px!important}
+          .pic-page .pic-body{padding:20px 24px!important}
+          .pic-page .pic-body input:not([type=checkbox]):not([type=range]),
+          .pic-page .pic-body select,
+          .pic-page .pic-tabs button{min-height:44px}
+          .pic-page .pic-tabs button{padding:9px 16px!important;font-size:13px!important}
+          /* On garde les lignes d'édition d'ouvrage compactes */
+          .pic-page .ouvrage-edit-row input,
+          .pic-page .ouvrage-edit-row select{min-height:36px!important}
+        }
+
+        /* ── GRAND ÉCRAN (≥1600px) : un peu plus d'air ── */
+        @media(min-width:1600px){
+          .pic-page .pic-body{padding:26px 36px!important}
+        }
+
         @media(max-width:767px){
           /* Sans cette règle, le parent reste en flex-row : la mobile-bar avec
              width:100% + flex-shrink:0 prend toute la largeur ET toute la hauteur
@@ -684,11 +754,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         <div style={{padding:"14px 14px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
             <div style={{
-              width:32,height:32,borderRadius:RADIUS.md,flexShrink:0,
-              background:acc.bg10,color:acc.accent,
-              display:"flex",alignItems:"center",justifyContent:"center",
+              width:34,height:34,borderRadius:RADIUS.lg,flexShrink:0,
+              background:`linear-gradient(135deg, ${acc.accent}, ${acc.accentDark})`,color:acc.onAccent,
+              display:"flex",alignItems:"center",justifyContent:"center",boxShadow:SHADOW.sm,
             }}>
-              <Icon as={UserCircle} size={18} strokeWidth={2}/>
+              <Icon as={UserCircle} size={19} strokeWidth={2}/>
             </div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text,letterSpacing:-.2,display:"flex",alignItems:"center",gap:8}}>
@@ -777,12 +847,12 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
             const act=p.id===projetId;
             const st=statutMeta(p.statut);
             return (
-              <div key={p.id} onClick={()=>{chargerProjet(p.id);setMobileShowProjets(false);}} style={{
-                padding:"10px 12px",borderRadius:RADIUS.md,marginBottom:6,cursor:"pointer",
-                background:act?acc.bg10:T.card,
+              <div key={p.id} className="pic-card" onClick={()=>{chargerProjet(p.id);setMobileShowProjets(false);}} style={{
+                padding:"11px 13px",borderRadius:RADIUS.lg,marginBottom:7,cursor:"pointer",
+                background:act?`linear-gradient(135deg, ${acc.bg10}, ${acc.bg20})`:T.card,
                 border:`1px solid ${act?acc.accent:T.border}`,
                 borderLeft:`3px solid ${st.color}`,
-                transition:"all .12s",
+                boxShadow:act?SHADOW.sm:"none",
               }}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
                   <span style={{fontSize:FONT.sm.size,fontWeight:700,color:act?acc.accent:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -815,11 +885,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       {!projetId ? (
         <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,color:T.textSub,padding:24}}>
           <div style={{
-            width:64,height:64,borderRadius:RADIUS.lg,
-            background:acc.bg10,color:acc.accent,
-            display:"flex",alignItems:"center",justifyContent:"center",
+            width:72,height:72,borderRadius:RADIUS.xl,
+            background:`linear-gradient(135deg, ${acc.accent}, ${acc.accentDark})`,color:acc.onAccent,
+            display:"flex",alignItems:"center",justifyContent:"center",boxShadow:SHADOW.lg,
           }}>
-            <Icon as={UserCircle} size={32} strokeWidth={1.5}/>
+            <Icon as={UserCircle} size={34} strokeWidth={1.5}/>
           </div>
           <div style={{fontSize:FONT.md.size,fontWeight:700,color:T.text}}>Sélectionne ou crée un projet</div>
           <button onClick={nouveauProjet} style={{
@@ -836,15 +906,17 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
           {/* En-tête projet + statut + onglets */}
           <div className="pic-projet-header" style={{
-            padding:"14px 22px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0,
+            padding:"16px 22px",borderBottom:`1px solid ${T.border}`,
+            background:`linear-gradient(180deg, ${acc.bg10}, ${T.surface} 90%)`,
+            flexShrink:0, boxShadow:SHADOW.sm, position:"relative", zIndex:2,
           }}>
             <div className="pic-projet-header-row" style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
               <div style={{
-                width:36,height:36,borderRadius:RADIUS.md,flexShrink:0,
-                background:acc.bg10,color:acc.accent,
-                display:"flex",alignItems:"center",justifyContent:"center",
+                width:40,height:40,borderRadius:RADIUS.lg,flexShrink:0,
+                background:`linear-gradient(135deg, ${acc.accent}, ${acc.accentDark})`,color:acc.onAccent,
+                display:"flex",alignItems:"center",justifyContent:"center",boxShadow:SHADOW.sm,
               }}>
-                <Icon as={UserCircle} size={20} strokeWidth={2}/>
+                <Icon as={UserCircle} size={22} strokeWidth={2}/>
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div className="pic-projet-name" style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -905,11 +977,12 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 return (
                   <button key={t.id} onClick={()=>setTab(t.id)} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
-                    padding:"7px 14px",borderRadius:RADIUS.md,
-                    border:a?"none":`1px solid ${T.border}`,
-                    background:a?acc.accent:T.card,color:a?acc.onAccent:T.textSub,
+                    padding:"8px 15px",borderRadius:RADIUS.lg,
+                    border:a?"1px solid transparent":`1px solid ${T.border}`,
+                    background:a?`linear-gradient(135deg, ${acc.accent}, ${acc.accentDark})`:T.card,
+                    color:a?acc.onAccent:T.textSub,
+                    boxShadow:a?SHADOW.sm:"none",
                     fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
-                    transition:"all .12s",
                   }}>
                     <Icon as={t.icon} size={12}/>
                     {t.label}
@@ -923,48 +996,54 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           <div className="pic-body" style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg,minWidth:0}}>
 
             {tab==="client" && (
-              <>
-                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
-                  <Icon as={FileText} size={11}/>
-                  Fiche chantier
+              <div className="pic-section-narrow">
+                {/* ── Carte : fiche chantier ── */}
+                <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, marginBottom:14, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={FileText} size={12}/>
+                    Fiche chantier
+                  </div>
+                  <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                    <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom} onChange={e=>updInfo("client_nom",e.target.value)} placeholder="Dupont" /></div>
+                    <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom} onChange={e=>updInfo("client_prenom",e.target.value)} placeholder="Jean" /></div>
+                  </div>
+                  <div style={{marginBottom:12}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" /></div>
+                  <div style={{marginBottom:12}}><label style={lbl}>Description du projet</label><textarea style={ta} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : division en 1 studio + 2 T2" /></div>
+                  <div style={{marginBottom:12}}><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
+                  <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:80}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
                 </div>
-                <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:10 }}>
-                  <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom} onChange={e=>updInfo("client_nom",e.target.value)} placeholder="Dupont" /></div>
-                  <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom} onChange={e=>updInfo("client_prenom",e.target.value)} placeholder="Jean" /></div>
-                </div>
-                <div style={{marginBottom:10}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" /></div>
-                <div style={{marginBottom:10}}><label style={lbl}>Description du projet</label><textarea style={ta} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : division en 1 studio + 2 T2" /></div>
-                <div style={{marginBottom:10}}><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
-                <div style={{marginBottom:14}}><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:80}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
 
-                <div style={h2s}>Composition du projet</div>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:6, marginBottom:14 }}>
-                  {LOGEMENTS.map(log => {
-                    const val=log.split(" ")[0], chk=infos.logements.includes(val);
-                    return (
-                      <div key={val} onClick={()=>togLog(val)} style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background:chk?acc.bg10:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.md, cursor:"pointer", transition:"all .12s" }}>
-                        <input type="checkbox" checked={chk} onChange={()=>togLog(val)} style={{ accentColor:acc.accent, width:15, height:15, flexShrink:0 }} />
-                        <span style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{log}</span>
-                      </div>
-                    );
-                  })}
+                {/* ── Carte : composition du projet ── */}
+                <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
+                  <div style={{ ...h2s, marginTop:0 }}>Composition du projet</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:8 }}>
+                    {LOGEMENTS.map(log => {
+                      const val=log.split(" ")[0], chk=infos.logements.includes(val);
+                      return (
+                        <div key={val} className="pic-card" onClick={()=>togLog(val)} style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 13px", background:chk?`linear-gradient(135deg, ${acc.bg10}, ${acc.bg20})`:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.lg, cursor:"pointer", boxShadow:chk?SHADOW.sm:"none" }}>
+                          <input type="checkbox" checked={chk} onChange={()=>togLog(val)} style={{ accentColor:acc.accent, width:16, height:16, flexShrink:0 }} />
+                          <span style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{log}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </>
+              </div>
             )}
 
             {tab==="notes" && (
-              <>
-                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
-                  <Icon as={StickyNote} size={11}/>
+              <div className="pic-section-narrow">
+                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
+                  <Icon as={StickyNote} size={12}/>
                   Notes libres
                 </div>
                 <textarea
                   value={infos.notes || ""}
                   onChange={e=>updInfo("notes", e.target.value)}
                   placeholder="Prends des notes librement : contraintes, échanges client, idées de chiffrage, points à vérifier…"
-                  style={{ ...ta, minHeight:"calc(100vh - 320px)", lineHeight:1.7, fontSize:FONT.sm.size }}
+                  style={{ ...ta, minHeight:"calc(100vh - 320px)", lineHeight:1.7, fontSize:FONT.base.size, padding:16, borderRadius:RADIUS.xl, boxShadow:SHADOW.sm }}
                 />
-              </>
+              </div>
             )}
 
             {tab==="ouvrages" && (
@@ -1228,7 +1307,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     {richPlans.map(p => {
                       const ch = chantiers.find(c=>c.id===p.chantier_id);
                       return (
-                        <div key={p.id} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+                        <div key={p.id} className="pic-card" style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:SHADOW.sm }}>
                           <div style={{ position:"relative", aspectRatio:"4/3", background:T.card, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
                             onClick={()=>ouvrirPlan(p.id)}>
                             {p.thumbnail ? (
@@ -1354,9 +1433,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12,
                   }}>
                     {photos.map((ph, i) => (
-                      <div key={ph.id || i} style={{
+                      <div key={ph.id || i} className="pic-card" style={{
                         background:T.surface, border:`1px solid ${T.border}`,
-                        borderRadius:RADIUS.lg, overflow:"hidden",
+                        borderRadius:RADIUS.lg, overflow:"hidden", boxShadow:SHADOW.sm,
                       }}>
                         <div style={{ position:"relative", aspectRatio:"4/3", background:T.card, cursor:"pointer" }}
                           onClick={()=>setLightbox({urls:photos.map(p=>p.url),idx:i})}>
