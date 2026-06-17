@@ -3,7 +3,7 @@
 // Destiné aux admin + conducteurs : reçoivent chaque vendredi matin un récap
 // avec (1) les matériaux prévisionnels à commander aujourd'hui (date butoir =
 // vendredi S-1 calculée depuis Phasage), et (2) les demandes ouvriers en
-// attente (commandes_detail.statut = "besoin_ouvrier").
+// attente (table besoins, statut = "en_attente").
 //
 // Variables d'environnement requises (déjà configurées) :
 //   CRON_SECRET, VITE_SUPABASE_URL, VITE_SUPABASE_KEY, RESEND_KEY / RESEND_FROM
@@ -164,9 +164,9 @@ async function runRecapCommandes(req, supabase, t) {
   const [phasagesQ, cfgQ, demandesQ, usersQ] = await Promise.all([
     supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux"),
     supabase.from("planning_config").select("key,value").in("key", ["chantiers", "phases_travaux"]),
-    supabase.from("commandes_detail")
-      .select("id, article, quantite, ouvrier_demandeur, notes, statut, phasage_id, phase_id")
-      .in("statut", ["besoin_ouvrier", "besoin ouvrier", "besoin_ouvriers"]),
+    supabase.from("besoins")
+      .select("id, article, quantite, ouvrier_demandeur, notes, chantier_id")
+      .eq("statut", "en_attente"),
     supabase.from("utilisateurs")
       .select("id, email, nom, role, actif")
       .eq("actif", true)
@@ -225,16 +225,11 @@ async function runRecapCommandes(req, supabase, t) {
     }
   }
 
-  // 4) Enrichir les demandes ouvriers avec chantier_nom (depuis phasage)
-  const phasageById = phasages.reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
-  const demandesEnrichies = demandes.map(d => {
-    let chantier_nom = "—";
-    if (d.phasage_id && phasageById[d.phasage_id]) {
-      const p = phasageById[d.phasage_id];
-      chantier_nom = (chantById[p.chantier_id]?.nom) || p.chantier_nom || "—";
-    }
-    return { ...d, chantier_nom };
-  });
+  // 4) Enrichir les demandes ouvriers avec chantier_nom (besoins.chantier_id direct)
+  const demandesEnrichies = demandes.map(d => ({
+    ...d,
+    chantier_nom: chantById[d.chantier_id]?.nom || "—",
+  }));
 
   // 5) Si rien à signaler ET aucune demande → ne rien envoyer (évite spam)
   if (commandesPrevues.length === 0 && demandesEnrichies.length === 0) {

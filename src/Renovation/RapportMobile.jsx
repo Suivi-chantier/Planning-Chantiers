@@ -574,13 +574,14 @@ function PageRapportMobile() {
       // Besoins commande depuis la bibliothèque
       const besoinArticles = Object.values(paniers[grp.chantier_id]||{}).filter(v=>v.qty>0);
       for (const {article, qty} of besoinArticles) {
-        await supabase.from("commandes_detail").insert({
+        await supabase.from("besoins").insert({
           chantier_id: grp.chantier_id,
           article: article.nom,
           materiau_id: article.id,
-          fournisseur: article.fournisseur || "",
           quantite: String(qty),
-          statut: "besoin_ouvrier",
+          ouvrier_demandeur: ouvrier.trim(),
+          origine: "ouvrier",
+          statut: "en_attente",
           notes: `Demande de ${ouvrier.trim()} — ${dateKey}`,
         });
       }

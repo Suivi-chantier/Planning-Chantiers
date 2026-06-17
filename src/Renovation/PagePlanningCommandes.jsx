@@ -978,65 +978,47 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
         .eq("id", carte.phasageId);
       if (updErr) throw new Error(updErr.message);
 
-      // 3) Insert commandes_passees : une ligne par groupe fournisseur
-      const rows = groupes.map(g => ({
-        chantier_id:     carte.chantierId,
-        phasage_id:      carte.phasageId,
-        phase_id:        carte.phaseId,
-        phase_label:     carte.phaseLabel,
-        fournisseur_id:  g.fournisseur_id || null,
-        fournisseur_nom: g.nom,
-        articles:        g.lignes.map(l => ({
-          libelle:  l.libelle,
-          quantite: parseFloat(l.quantite) || 0,
-          unite:    l.unite || "U",
-          prix_ht:  parseFloat(l.prix_ht) || 0,
-          source:   l.source,
-        })),
-        total_ht:        +g.total.toFixed(2),
-        mail_envoye:     statutFinal[g.key] === "sent",
-      }));
-      if (rows.length > 0) {
-        const { error: insErr } = await supabase.from("commandes_passees").insert(rows);
-        if (insErr) console.warn("Insert commandes_passees :", insErr.message);
-      }
-
-      // 4) Insert dans commandes_detail (une ligne par article) pour que
-      //    l'ancienne page Commandes affiche le suivi unifié. Statut "commande"
-      //    puisque le mail vient d'être envoyé. Fallback sans colonnes
-      //    optionnelles si migration manquante (cf. handleImportLignes).
+      // 3) Nouveau modèle : un document "bon de commande" par groupe
+      //    fournisseur, avec ses lignes (ventilation chantier/phase + prix).
+      //    Remplace l'ancienne double-écriture commandes_passees + commandes_detail.
       const dateTag = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-      const lignesDetail = lignesCochees.map(l => {
-        // Retrouver le nom du fournisseur effectif (texte) pour cette ligne
-        let fournisseurNom = l.fournisseur_nom || "";
-        if (l.fournisseur_id) {
-          const f = fournisseurs.find(x => x.id === l.fournisseur_id);
-          if (f) fournisseurNom = f.nom;
-        }
-        return {
-          article:     l.libelle,
-          fournisseur: fournisseurNom || "",
-          quantite:    String(l.quantite || ""),
-          prix_ht:     parseFloat(l.prix_ht) || null,
-          statut:      "commande",
-          priorite:    "normal",
-          materiau_id: l.materiau_id || null,
-          phasage_id:  carte.phasageId,
-          phase_id:    carte.phaseId,
-          notes:       `Commandé via Planning des commandes le ${dateTag}${l.source === "manuel" ? " (ajout manuel)" : ""}`,
-        };
-      });
-      if (lignesDetail.length > 0) {
-        const { error: cdErr } = await supabase.from("commandes_detail").insert(lignesDetail);
-        if (cdErr) {
-          // Colonne optionnelle manquante : retenter sans les colonnes récentes
-          if (cdErr.code === "42703") {
-            const fallback = lignesDetail.map(({ materiau_id, phasage_id, phase_id, ...rest }) => rest);
-            const { error: cdErr2 } = await supabase.from("commandes_detail").insert(fallback);
-            if (cdErr2) console.warn("Insert commandes_detail (fallback) :", cdErr2.message);
-          } else {
-            console.warn("Insert commandes_detail :", cdErr.message);
-          }
+      const dateISO = new Date().toISOString().slice(0, 10);
+      for (const g of groupes) {
+        const { data: cmd, error: cErr } = await supabase.from("commandes").insert({
+          type_evenement:     "commande",
+          doc_type:           "bon_commande",
+          doc_numero:         null,
+          numero_en_attente:  true,
+          fournisseur_id:     g.fournisseur_id || null,
+          fournisseur_nom:    g.nom || null,
+          date_doc:           dateISO,
+          montant_ht:         +g.total.toFixed(2),
+          source:             "planning",
+          statut_completude:  "a_completer",
+          statut_facturation: "en_attente_facture",
+          notes:              `Commandé via Planning des commandes le ${dateTag}`,
+        }).select("id").single();
+        if (cErr || !cmd) { console.warn("Insert commandes (planning) :", cErr?.message); continue; }
+
+        const lignes = g.lignes.map(l => {
+          const pu = parseFloat(l.prix_ht) || null;
+          const q  = parseFloat(l.quantite) || null;
+          return {
+            commande_id:   cmd.id,
+            libelle:       l.libelle || "",
+            quantite:      q,
+            unite:         l.unite || "U",
+            prix_unitaire: pu,
+            prix_total:    (pu != null && q != null) ? +(pu * q).toFixed(2) : null,
+            materiau_id:   l.materiau_id || null,
+            chantier_id:   carte.chantierId,
+            phasage_id:    carte.phasageId,
+            phase_id:      carte.phaseId,
+          };
+        });
+        if (lignes.length > 0) {
+          const { error: lErr } = await supabase.from("commande_lignes").insert(lignes);
+          if (lErr) console.warn("Insert commande_lignes (planning) :", lErr.message);
         }
       }
     } catch (e) {
