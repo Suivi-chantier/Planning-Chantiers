@@ -26,7 +26,7 @@ create table if not exists public.commandes (
                        check (statut_facturation in ('en_attente_facture','facture')),
   facture_id         uuid,  -- FK ajoutée plus bas
   source             text default 'mobile'
-                       check (source in ('mobile','import_ia','migration','facture','planning')),
+                       check (source in ('mobile','import_ia','migration','facture','planning','manuel')),
   notes              text,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()

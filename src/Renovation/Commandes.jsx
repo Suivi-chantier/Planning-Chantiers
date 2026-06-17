@@ -1132,9 +1132,11 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const [modalePhaseInterne, setModalePhaseInterne] = useState("");
   const [panneauOuvert, setPanneauOuvert] = useState(false);
   const [modaleImport, setModaleImport] = useState(false);
+  const [besoins, setBesoins] = useState([]); // demandes ouvrier (nouveau modèle)
 
   const isDemande = (r) => r.statut === "besoin_ouvrier" || r.statut === "besoin ouvrier" || r.statut === "besoin_ouvriers";
-  const demandes = rows.filter(isDemande);
+  // Les demandes ouvrier viennent désormais de la table `besoins` (statut en_attente).
+  const demandes = besoins;
   const commandes = rows.filter(r => !isDemande(r));
 
   const load = async () => {
@@ -1156,9 +1158,18 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     setMateriaux(data || []);
   };
 
+  const loadBesoins = async () => {
+    const { data } = await supabase.from("besoins")
+      .select("id, chantier_id, materiau_id, article, quantite, ouvrier_demandeur, notes, created_at")
+      .eq("statut", "en_attente")
+      .order("created_at", { ascending: false });
+    setBesoins(data || []);
+  };
+
   useEffect(() => {
     load();
     loadMateriaux();
+    loadBesoins();
     supabase.from("phasages").select("id,chantier_nom,plan_travaux").then(({ data }) => setPhasages(data || []));
   }, []);
 
@@ -1249,24 +1260,38 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
 
   const supprimerDemande = async (id) => {
     if (!confirm("Supprimer cette demande ? Elle sera définitivement supprimée.")) return;
-    await supabase.from("commandes_detail").delete().eq("id", id);
-    setRows(prev => prev.filter(r => r.id !== id));
-    if (demandes.filter(d => d.id !== id).length === 0) setPanneauOuvert(false);
+    await supabase.from("besoins").delete().eq("id", id);
+    setBesoins(prev => prev.filter(b => b.id !== id));
+    if (besoins.filter(b => b.id !== id).length === 0) setPanneauOuvert(false);
   };
 
   const convertirDemande = async (demande, draft) => {
-    const updates = {
-      article:      draft.article?.trim() || demande.article,
-      fournisseur:  draft.fournisseur?.trim() || "",
-      quantite:     draft.quantite?.trim() || demande.quantite,
-      notes:        draft.notes?.trim() || demande.notes,
-      priorite:     draft.priorite || "normal",
-      statut:       "a_commander",
-      materiau_id:  draft.materiau_id || null,
-    };
-    await supabase.from("commandes_detail").update(updates).eq("id", demande.id);
-    setRows(prev => prev.map(r => r.id === demande.id ? { ...r, ...updates } : r));
-    if (demandes.length <= 1) setPanneauOuvert(false);
+    // Crée un bon de commande (en-tête + 1 ligne) à partir du besoin, puis
+    // marque le besoin comme "traité".
+    const qStr = (draft.quantite ?? demande.quantite ?? "").toString();
+    const qNum = parseFloat(qStr.replace(",", ".").replace(/[^0-9.]/g, ""));
+    const { data: cmd, error } = await supabase.from("commandes").insert({
+      type_evenement:     "commande",
+      doc_type:           "bon_commande",
+      doc_numero:         null,
+      numero_en_attente:  true,
+      fournisseur_nom:    draft.fournisseur?.trim() || null,
+      source:             "manuel",
+      statut_completude:  "a_completer",
+      statut_facturation: "en_attente_facture",
+      notes:              draft.notes?.trim() || `Converti depuis un besoin de ${demande.ouvrier_demandeur || "?"}`,
+    }).select("id").single();
+    if (error || !cmd) { alert("Erreur conversion : " + (error?.message || "inconnue")); return; }
+    await supabase.from("commande_lignes").insert({
+      commande_id: cmd.id,
+      libelle:     draft.article?.trim() || demande.article || "",
+      quantite:    isNaN(qNum) ? null : qNum,
+      materiau_id: draft.materiau_id || null,
+      chantier_id: draft.chantier_id || demande.chantier_id || null,
+    });
+    await supabase.from("besoins").update({ statut: "traite" }).eq("id", demande.id);
+    setBesoins(prev => prev.filter(b => b.id !== demande.id));
+    if (besoins.length <= 1) setPanneauOuvert(false);
   };
 
   const saveRow = async (row) => {
