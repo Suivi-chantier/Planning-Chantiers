@@ -660,9 +660,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         .pic-page .pic-list-panel,
         .pic-page .pic-body{scrollbar-width:thin;scrollbar-color:${T.border} transparent}
 
-        /* Lisibilité sur grand écran : on borne la largeur des formulaires/notes */
-        .pic-page .pic-form-grid,
-        .pic-page .pic-section-narrow{max-width:980px}
+        /* Le contenu occupe toute la largeur disponible */
+        .pic-page .pic-section-narrow{width:100%}
 
         /* ── TABLETTE (768–1180px) : cibles tactiles confortables ── */
         @media(min-width:768px) and (max-width:1180px){
@@ -1003,14 +1002,14 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     <Icon as={FileText} size={12}/>
                     Fiche chantier
                   </div>
-                  <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                  <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"start" }}>
                     <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom} onChange={e=>updInfo("client_nom",e.target.value)} placeholder="Dupont" /></div>
                     <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom} onChange={e=>updInfo("client_prenom",e.target.value)} placeholder="Jean" /></div>
+                    <div style={{gridColumn:"1 / -1"}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" /></div>
+                    <div><label style={lbl}>Description du projet</label><textarea style={{...ta,minHeight:90}} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : division en 1 studio + 2 T2" /></div>
+                    <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:90}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
+                    <div><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
                   </div>
-                  <div style={{marginBottom:12}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" /></div>
-                  <div style={{marginBottom:12}}><label style={lbl}>Description du projet</label><textarea style={ta} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : division en 1 studio + 2 T2" /></div>
-                  <div style={{marginBottom:12}}><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
-                  <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:80}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
                 </div>
 
                 {/* ── Carte : composition du projet ── */}
