@@ -407,6 +407,8 @@ export default function Sourcing({ profil, T }) {
   const [filterSearch, setFilterSearch] = useState("");
   const [newAnnonce, setNewAnnonce] = useState(EMPTY_ANNONCE);
   const [savingCritere, setSavingCritere] = useState(false);
+  const [collecting, setCollecting] = useState(false);
+  const [collecteMessage, setCollecteMessage] = useState("");
   const [editingCritereId, setEditingCritereId] = useState(null);
   const [critereForm, setCritereForm] = useState(EMPTY_CRITERE);
 
@@ -667,6 +669,34 @@ export default function Sourcing({ profil, T }) {
     setCriteres((prev) => prev.filter((c) => c.id !== critere.id));
   }
 
+  async function handleRunCollecte(critereId = null) {
+    if (collecting) return;
+
+    setCollecting(true);
+    setCollecteMessage(critereId ? "Collecte du critère en cours..." : "Collecte globale en cours...");
+
+    const { data, error } = await supabase.functions.invoke("sourcing-collecte-leboncoin", {
+      body: { critere_id: critereId || null },
+    });
+
+    if (error) {
+      console.error("Erreur Edge Function sourcing-collecte-leboncoin", error);
+      setCollecting(false);
+      setCollecteMessage("Erreur : la fonction de collecte n’est pas encore disponible ou a échoué.");
+      alert("La collecte n’a pas pu être lancée. Vérifie que l’Edge Function sourcing-collecte-leboncoin est bien créée et déployée dans Supabase.");
+      return;
+    }
+
+    const nouvelles = data?.nb_nouvelles ?? 0;
+    const misesAJour = data?.nb_mises_a_jour ?? 0;
+    const detectees = data?.nb_detectees ?? 0;
+
+    setCollecteMessage(`Collecte terminée : ${detectees} annonce(s) détectée(s), ${nouvelles} nouvelle(s), ${misesAJour} mise(s) à jour.`);
+    setCollecting(false);
+    await loadData();
+    setActiveTab("annonces");
+  }
+
   const preview = useMemo(() => computeSourcingAnalysis({
     ...newAnnonce,
     prix: Number(newAnnonce.prix || 0),
@@ -739,7 +769,7 @@ export default function Sourcing({ profil, T }) {
           ) : (
             <>
               {activeTab === "dashboard" && (
-                <DashboardTab T={T} stats={stats} setActiveTab={setActiveTab} />
+                <DashboardTab T={T} stats={stats} setActiveTab={setActiveTab} onRunCollecte={handleRunCollecte} collecting={collecting} collecteMessage={collecteMessage} />
               )}
 
               {activeTab === "annonces" && (
@@ -769,6 +799,8 @@ export default function Sourcing({ profil, T }) {
                   onEdit={startEditCritere}
                   onToggle={handleToggleCritere}
                   onDelete={handleDeleteCritere}
+                  onRunCollecte={handleRunCollecte}
+                  collecting={collecting}
                 />
               )}
 
@@ -794,7 +826,7 @@ export default function Sourcing({ profil, T }) {
   );
 }
 
-function DashboardTab({ T, stats, setActiveTab }) {
+function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, collecteMessage }) {
   const S = getStyles(T);
 
   return (
@@ -804,14 +836,24 @@ function DashboardTab({ T, stats, setActiveTab }) {
         <p style={{ margin: "8px 0 0", fontSize: 14, lineHeight: 1.6, color: S.textSub }}>
           Cette page affiche les annonces détectées, les biens chauds, les baisses de prix et les opportunités à contacter.
         </p>
+        {collecteMessage ? (
+          <div style={{ marginTop: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", fontSize: 13, fontWeight: 800, color: S.accent, background: S.accentBg }}>
+            {collecteMessage}
+          </div>
+        ) : null}
       </div>
 
       <div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Top opportunités</h3>
-          <button type="button" onClick={() => setActiveTab("annonces")} style={S.buttonPrimary}>
-            Voir toutes les annonces
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => setActiveTab("annonces")} style={S.buttonSecondary}>
+              Voir toutes les annonces
+            </button>
+            <button type="button" onClick={() => onRunCollecte(null)} disabled={collecting} style={{ ...S.buttonPrimary, opacity: collecting ? 0.55 : 1 }}>
+              {collecting ? "Collecte en cours..." : "Lancer la collecte"}
+            </button>
+          </div>
         </div>
 
         {stats.top.length === 0 ? (
@@ -958,6 +1000,8 @@ function CriteresTab({
   onEdit,
   onToggle,
   onDelete,
+  onRunCollecte,
+  collecting,
 }) {
   const S = getStyles(T);
 
@@ -1082,6 +1126,9 @@ function CriteresTab({
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button type="button" onClick={() => onToggle(c)} style={{ ...S.buttonSecondary, background: c.actif ? "rgba(34,197,94,0.12)" : S.inputBg, color: c.actif ? "#15803d" : S.textSub }}>
                       {c.actif ? "Actif" : "Inactif"}
+                    </button>
+                    <button type="button" onClick={() => onRunCollecte(c.id)} disabled={collecting || c.actif === false} style={{ ...S.buttonSecondary, background: S.accentBg, color: S.accent, opacity: (collecting || c.actif === false) ? 0.55 : 1 }}>
+                      {collecting ? "Collecte..." : "Collecter"}
                     </button>
                     <button type="button" onClick={() => onEdit(c)} style={{ ...S.buttonSecondary, background: "rgba(59,130,246,0.12)", color: "#1d4ed8" }}>
                       Modifier
