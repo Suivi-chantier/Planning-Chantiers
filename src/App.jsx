@@ -34,6 +34,7 @@ import PagePlanning           from "./Renovation/Planning";
 import PagePlanningMensuel    from "./Renovation/PlanningMensuel";
 import PageNotesEtTodo        from "./Renovation/NotesEtTodo";
 import PageCommandes          from "./Renovation/Commandes";
+import PageCaptureCommandeMobile from "./Renovation/CaptureCommandeMobile";
 import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
 import PageEquipe             from "./Renovation/Equipe";
 import PageValidation         from "./Renovation/Validation";
@@ -612,6 +613,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
           {page==="notes-todo"         && (canAccess(role,"notes-todo")         ? <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/> : <AccesRefuse T={T} page="notes-todo"/>)}
           {page==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
+          {page==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiers} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}
           {page==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
           {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/> : <AccesRefuse T={T} page="equipe"/>)}
           {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="validation"/>)}

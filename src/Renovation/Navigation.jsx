@@ -3,7 +3,7 @@ import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
-  TrendingUp, Calculator, CheckCircle2,
+  TrendingUp, Calculator, CheckCircle2, Camera,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -24,12 +24,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","planning-commandes",
     "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","etats-financiers","guide-ouvrages","admin"
   ],
   conducteur: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","planning-commandes",
     "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client"
   ],
@@ -50,6 +50,7 @@ const ALL_NAV_ITEMS = [
   { id:"notes-todo",       icon:ClipboardList,   label:"Notes",      longLabel:"Notes & To-do"       },
   { id:"planning-mensuel", icon:CalendarDays,    label:"Mensuel",    longLabel:"Planning mensuel"    },
   { id:"commandes",        icon:Package,         label:"Cmd.",       longLabel:"Commandes"           },
+  { id:"capture-cmd",      icon:Camera,          label:"Saisie",     longLabel:"Saisie commande (mobile)" },
   { id:"planning-commandes", icon:ShoppingCart,  label:"Cmd. 5S",    longLabel:"Planning commandes (5 sem.)" },
   { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
   { id:"validation",       icon:CheckCircle2,    label:"Valid.",     longLabel:"Validation de fin de journée" },
@@ -244,6 +245,7 @@ function Sidebar({
     { id:"planning-mensuel", icon:CalendarDays,    label:"Planning mensuel" },
     { id:"notes-todo",       icon:ClipboardList,   label:"Notes & To-do"    },
     { id:"commandes",        icon:Package,         label:"Commandes"        },
+    { id:"capture-cmd",      icon:Camera,          label:"Saisie commande"  },
     { id:"planning-commandes", icon:ShoppingCart,  label:"Planning commandes" },
     { id:"equipe",           icon:Users,           label:"Équipe"           },
     { id:"validation",       icon:CheckCircle2,    label:"Validation fin de journée" },
