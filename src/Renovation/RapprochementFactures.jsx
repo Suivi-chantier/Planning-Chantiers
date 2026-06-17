@@ -259,7 +259,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
   });
   const page = {
-    minHeight: "100%", background: T.bg, color: T.text, fontFamily: "inherit",
+    flex: 1, minHeight: 0, overflowY: "auto",
+    background: T.bg, color: T.text, fontFamily: "inherit",
     padding: SPACING.lg, paddingBottom: 96, maxWidth: 860, margin: "0 auto", boxSizing: "border-box",
   };
 

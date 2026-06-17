@@ -307,7 +307,8 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   });
 
   const page = {
-    minHeight: "100%", background: T.bg, color: T.text,
+    flex: 1, minHeight: 0, overflowY: "auto",
+    background: T.bg, color: T.text,
     fontFamily: "inherit", padding: SPACING.lg, paddingBottom: 96,
     maxWidth: 620, margin: "0 auto", boxSizing: "border-box",
   };
