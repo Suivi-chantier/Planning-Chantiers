@@ -4,7 +4,7 @@ import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT } from 
 import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
-  ChevronLeft, AlertTriangle, FileText, ShoppingCart, Truck,
+  ChevronLeft, AlertTriangle, FileText, ShoppingCart, Truck, Search,
 } from "lucide-react";
 
 const EDGE_ANALYSE_COMMANDE =
@@ -55,12 +55,13 @@ function fileToBase64(file) {
   });
 }
 
-// Appel IA — renvoie l'objet JSON extrait (ou jette une erreur)
-async function analyseCommande(base64, mediaType) {
+// Appel IA — `images` = [{ base64, mediaType }] (BL pouvant tenir sur
+// plusieurs pages/photos). Renvoie l'objet JSON extrait (ou jette une erreur).
+async function analyseCommande(images) {
   const response = await fetch(EDGE_ANALYSE_COMMANDE, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageBase64: base64, mediaType }),
+    body: JSON.stringify({ images }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
@@ -87,7 +88,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const [chantierDefaut, setChantierDefaut] = useState(() => localStorage.getItem(LS_DERNIER_CHANTIER) || "");
   const [typeEvenement, setTypeEvenement] = useState("comptoir");
   const [photoUrl, setPhotoUrl] = useState("");
-  const [photoPreview, setPhotoPreview] = useState("");
+  const [photos, setPhotos] = useState([]); // [{ file, preview, mediaType }] — BL multi-pages
   const [repartir, setRepartir] = useState(false);
   const [dejaPaye, setDejaPaye] = useState(false); // payé direct / pas de facture à venir
   const [form, setForm] = useState({
@@ -144,30 +145,44 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
       fournisseur: "", doc_type: "bl", doc_numero: "", numero_en_attente: false,
       date_doc: "", montant_ht: "", lignes: [ligneVide()],
     });
-    setPhotoUrl(""); setPhotoPreview(""); setRepartir(false);
+    setPhotoUrl(""); setPhotos([]); setRepartir(false);
     setIaErr(""); setSaveErr("");
     setTypeEvenement("comptoir");
     setStep("setup");
   };
 
-  // ── Capture / analyse ──
-  const onFile = async (file) => {
-    if (!file) return;
+  // ── Capture multi-photos ──
+  const addPhotos = (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setPhotos(prev => [...prev, ...files.map(f => ({
+      file: f,
+      preview: URL.createObjectURL(f),
+      mediaType: f.type === "application/pdf" ? "application/pdf" : f.type,
+    }))]);
+  };
+  const removePhoto = (i) => setPhotos(prev => prev.filter((_, j) => j !== i));
+
+  // ── Analyse de toutes les pages capturées ──
+  const lancerAnalyse = async () => {
+    if (!photos.length) return;
     setIaErr("");
     setDejaPaye(typeEvenement === "comptoir"); // pré-coché pour les achats comptoir
-    setPhotoPreview(URL.createObjectURL(file));
     setStep("analyzing");
-    const mediaType = file.type === "application/pdf" ? "application/pdf" : file.type;
 
-    const [up, ia] = await Promise.allSettled([
-      uploadPhoto(file, "commandes"),
+    const [ups, ia] = await Promise.allSettled([
+      Promise.all(photos.map(p => uploadPhoto(p.file, "commandes"))),
       (async () => {
-        const base64 = await fileToBase64(file);
-        return analyseCommande(base64, mediaType);
+        const images = await Promise.all(photos.map(async p => ({ base64: await fileToBase64(p.file), mediaType: p.mediaType })));
+        return analyseCommande(images);
       })(),
     ]);
 
-    if (up.status === "fulfilled" && up.value?.url) setPhotoUrl(up.value.url);
+    // photo_url = 1re page réussie (vignette dans la liste)
+    if (ups.status === "fulfilled") {
+      const firstUrl = ups.value.find(u => u?.url)?.url;
+      if (firstUrl) setPhotoUrl(firstUrl);
+    }
 
     if (ia.status === "fulfilled" && ia.value) {
       const p = ia.value;
@@ -407,20 +422,48 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         </div>
 
         <input ref={fileCam} type="file" accept="image/*" capture="environment" hidden
-          onChange={e => onFile(e.target.files?.[0])} />
-        <input ref={fileGal} type="file" accept="image/*,application/pdf" hidden
-          onChange={e => onFile(e.target.files?.[0])} />
+          onChange={e => { addPhotos(e.target.files); e.target.value = ""; }} />
+        <input ref={fileGal} type="file" accept="image/*,application/pdf" multiple hidden
+          onChange={e => { addPhotos(e.target.files); e.target.value = ""; }} />
 
-        <button onClick={() => fileCam.current?.click()} style={{ ...btnPrimary(false), marginBottom: SPACING.sm }}>
-          <Icon as={Camera} size={20} strokeWidth={2.2} /> Prendre une photo
+        {/* Pages capturées (un BL peut tenir sur plusieurs pages) */}
+        {photos.length > 0 && (
+          <div style={card}>
+            <label style={labelStyle}>{photos.length} page{photos.length > 1 ? "s" : ""} capturée{photos.length > 1 ? "s" : ""}</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {photos.map((ph, i) => (
+                <div key={i} style={{ position: "relative", width: 72, height: 72 }}>
+                  {ph.mediaType === "application/pdf"
+                    ? <div style={{ width: 72, height: 72, borderRadius: RADIUS.md, background: T.bg, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon as={FileText} size={22} color={T.textSub} /></div>
+                    : <img src={ph.preview} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: RADIUS.md, border: `1px solid ${T.border}` }} />}
+                  <button onClick={() => removePhoto(i)} aria-label="Retirer" style={{ position: "absolute", top: -7, right: -7, width: 22, height: 22, borderRadius: "50%", background: SEMANTIC.danger.color, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1 }}>×</button>
+                  <span style={{ position: "absolute", bottom: -6, left: -6, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: acc.accent, color: acc.onAccent, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button onClick={() => fileCam.current?.click()} style={{
+          width: "100%", padding: "13px", borderRadius: RADIUS.md, cursor: "pointer",
+          border: `1px solid ${T.border}`, background: T.surface, color: T.text,
+          fontFamily: "inherit", fontWeight: 600, fontSize: 15, marginBottom: SPACING.sm,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}>
+          <Icon as={Camera} size={18} /> {photos.length ? "Ajouter une page (photo)" : "Prendre une photo"}
         </button>
         <button onClick={() => fileGal.current?.click()} style={{
           width: "100%", padding: "13px", borderRadius: RADIUS.md, cursor: "pointer",
           border: `1px solid ${T.border}`, background: T.surface, color: T.text,
-          fontFamily: "inherit", fontWeight: 600, fontSize: 15,
+          fontFamily: "inherit", fontWeight: 600, fontSize: 15, marginBottom: SPACING.lg,
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}>
           <Icon as={ImageIcon} size={18} /> Galerie / PDF
+        </button>
+
+        <button onClick={lancerAnalyse} disabled={!photos.length} style={btnPrimary(!photos.length)}>
+          <Icon as={Search} size={20} strokeWidth={2.2} />
+          {photos.length ? `Analyser (${photos.length} page${photos.length > 1 ? "s" : ""})` : "Analyser"}
         </button>
       </div>
     );
@@ -430,12 +473,14 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   if (step === "analyzing") {
     return (
       <div style={{ ...page, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh" }}>
-        {photoPreview && (
-          <img src={photoPreview} alt="" style={{ width: 160, height: 160, objectFit: "cover", borderRadius: RADIUS.lg, marginBottom: SPACING.lg, opacity: 0.5 }} />
+        {photos[0]?.preview && photos[0]?.mediaType !== "application/pdf" && (
+          <img src={photos[0].preview} alt="" style={{ width: 160, height: 160, objectFit: "cover", borderRadius: RADIUS.lg, marginBottom: SPACING.lg, opacity: 0.5 }} />
         )}
         <Icon as={Loader2} size={34} color={acc.accent} className="spin" />
         <div style={{ marginTop: SPACING.md, fontSize: FONT.md.size, fontWeight: 600, color: T.text }}>Analyse du document…</div>
-        <div style={{ marginTop: 4, fontSize: FONT.sm.size, color: T.textSub }}>Lecture du numéro, fournisseur et lignes</div>
+        <div style={{ marginTop: 4, fontSize: FONT.sm.size, color: T.textSub }}>
+          {photos.length > 1 ? `${photos.length} pages` : "1 page"} · lecture du numéro, fournisseur et lignes
+        </div>
         <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
       </div>
     );

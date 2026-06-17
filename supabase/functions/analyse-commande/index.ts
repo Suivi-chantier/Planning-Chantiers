@@ -11,13 +11,19 @@ serve(async (req) => {
   }
 
   try {
-    const { imageBase64, mediaType } = await req.json()
+    const body = await req.json()
     const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")
 
-    const isPdf = mediaType === "application/pdf"
-    const contentBlock = isPdf
-      ? { type: "document", source: { type: "base64", media_type: mediaType, data: imageBase64 } }
-      : { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } }
+    // Accepte soit { images: [{ base64, mediaType }] } (BL multi-pages),
+    // soit l'ancien { imageBase64, mediaType } (une seule image).
+    const images = Array.isArray(body.images) && body.images.length
+      ? body.images
+      : (body.imageBase64 ? [{ base64: body.imageBase64, mediaType: body.mediaType }] : [])
+
+    const mkBlock = (img) => (img.mediaType === "application/pdf")
+      ? { type: "document", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }
+      : { type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }
+    const contentBlocks = images.map(mkBlock)
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -29,15 +35,18 @@ serve(async (req) => {
       body: JSON.stringify({
         // Pour réduire le coût sur gros volume : remplacer par "claude-sonnet-4-6"
         model: "claude-opus-4-8",
-        max_tokens: 2000,
+        max_tokens: 3000,
         messages: [{
           role: "user",
           content: [
-            contentBlock,
+            ...contentBlocks,
             {
               type: "text",
               text: `Tu es un assistant spécialisé dans l'analyse de documents d'achat BTP
 (bons de livraison, tickets de comptoir, bons de commande).
+ATTENTION : le document peut être réparti sur PLUSIEURS images/pages ci-dessus.
+Considère-les comme UN SEUL document : un seul en-tête (fournisseur, numéro, date,
+total) et UNE SEULE liste de lignes cumulant les articles de toutes les pages.
 Extrais l'en-tête du document ET TOUTES les lignes de produits/matériaux.
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, sans backticks.
 Format :
