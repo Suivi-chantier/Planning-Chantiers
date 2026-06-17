@@ -487,8 +487,17 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     // Trajet matin + soir → pointage indirect dédié (motif="Trajet"), pour qu'il
     // apparaisse dans le coût MO du chantier et soit affiché à part dans la
     // carte "Trajets" du PlanTravaux.
-    const trajetMin = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
-    const trajetH = trajetMin / 60;
+    //
+    // ⚠️ LISSAGE : RapportMobile pose le MÊME temps de trajet sur chaque rapport
+    // quand l'ouvrier fait plusieurs chantiers le même jour. Pour ne pas
+    // compter le trajet ×N, on divise par le nombre de rapports de cet ouvrier
+    // ce jour-là. Chaque chantier reçoit sa quote-part équitable.
+    const rapportsMemeJour = rapports.filter(r =>
+      r.ouvrier === rapport.ouvrier && r.date_rapport === rapport.date_rapport
+    );
+    const nbChantiersDuJour = Math.max(1, rapportsMemeJour.length);
+    const trajetMinTotal = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
+    const trajetH = (trajetMinTotal / 60) / nbChantiersDuJour;
     const lignesTrajet = trajetH > 0 ? [{
       chantier_id: rapport.chantier_id,
       phasage_id,
@@ -502,7 +511,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       avancement_declare: null,
       valide_par: valideur,
       type_pointage: "indirect",
-      motif_indirect: "Trajet",
+      motif_indirect: nbChantiersDuJour > 1 ? `Trajet (1/${nbChantiersDuJour})` : "Trajet",
     }] : [];
 
     const lignesPointages = [...lignesTaches, ...lignesIndirectes, ...lignesTrajet];
@@ -723,6 +732,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           phases={phases}
           ouvriersDispo={ouvriers}
           journeeCloturee={!!journeeCloturee}
+          nbChantiersDuJour={rapports.filter(r => r.ouvrier === opened.ouvrier && r.date_rapport === opened.date_rapport).length || 1}
           onCreerTache={(args) => creerTacheDansPlan({ ...args, chantier_id: opened.chantier_id })}
           onClose={() => setOpenedId(null)}
           onValider={({ lignes, indirectes }) => validerRapport({ rapport: opened, lignes, indirectes })}
@@ -836,6 +846,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
+  nbChantiersDuJour = 1,
   onCreerTache, onClose, onValider, validating,
 }) {
   // État local éditable : copie indépendante de rapport.taches[] pour ne pas
@@ -878,7 +889,9 @@ function ModaleRapport({
   const totalHTaches = lignes.reduce((s, l) => s + (parseFloat(l.heures) || 0), 0);
   const totalHIndirect = indirectes.reduce((s, t) => s + (parseFloat(t.heures) || 0), 0);
   const trajetMin = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
-  const totalHTrajet = trajetMin / 60;
+  // ⚠️ Lissage : le trajet est divisé par le nombre de rapports du jour pour
+  // cet ouvrier (sinon il serait compté ×N quand l'ouvrier fait N chantiers).
+  const totalHTrajet = (trajetMin / 60) / nbChantiersDuJour;
   const totalCout = (totalHTaches + totalHIndirect + totalHTrajet) * taux;
 
   const updateLigne = (rowId, patch) => setLignes(prev => prev.map(l => l.rowId === rowId ? { ...l, ...patch } : l));
@@ -961,7 +974,12 @@ function ModaleRapport({
             <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>
               {dateLabel(rapport.date_rapport)} · {fmtH(totalHTaches)}h tâches · taux {taux}€/h
               {trajetMin > 0 && (
-                <span> · 🚗 Trajet {fmtH(totalHTrajet)}h ({parseInt(rapport.trajet_matin_min) || 0}min matin / {parseInt(rapport.trajet_soir_min) || 0}min soir)</span>
+                <span> · 🚗 Trajet {fmtH(totalHTrajet)}h
+                  {nbChantiersDuJour > 1
+                    ? <span style={{ fontStyle: "italic" }}> (quote-part {fmtH(trajetMin / 60)}h ÷ {nbChantiersDuJour} chantiers)</span>
+                    : <span> ({parseInt(rapport.trajet_matin_min) || 0}min matin / {parseInt(rapport.trajet_soir_min) || 0}min soir)</span>
+                  }
+                </span>
               )}
             </div>
           </div>
