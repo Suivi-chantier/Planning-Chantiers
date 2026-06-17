@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning + KPI + notification mail diagnostic
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + notification mail diagnostic
  *
  * Objectif :
  * - CRM volontairement simple
@@ -1271,12 +1271,12 @@ function PlanningPanel({ buckets, onSelect, selectedId, T }) {
             Planning commercial
           </div>
           <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2 }}>
-            Visualisation rapide des personnes à contacter et des prochaines actions
+            Visualisation des actions à faire : retard, aujourd'hui, demain, 7 jours, 14 jours, 30 jours et 3 mois
           </div>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(205px, 1fr))", gap: 10 }}>
         {buckets.map((bucket) => (
           <PlanningBucket
             key={bucket.id}
@@ -1697,7 +1697,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const planningBuckets = useMemo(() => {
     const today = todayIso();
     const tomorrow = addDays(1);
-    const week = addDays(7);
+    const day7 = addDays(7);
+    const day14 = addDays(14);
+    const day30 = addDays(30);
+    const day90 = addDays(90);
 
     const active = prospects
       .filter(isActiveProspect)
@@ -1708,7 +1711,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       {
         id: "late",
         title: "En retard",
-        subtitle: "À traiter en priorité",
+        subtitle: "Avant aujourd'hui",
         icon: AlertTriangle,
         color: DA,
         items: active.filter((p) => p.date_prochaine_action && dateOnly(p.date_prochaine_action) < today),
@@ -1731,13 +1734,46 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       },
       {
         id: "week",
-        title: "7 prochains jours",
-        subtitle: "À anticiper",
+        title: "7 jours",
+        subtitle: "J+2 à J+7",
         icon: CalendarDays,
         color: SU,
         items: active.filter((p) => {
           const d = dateOnly(p.date_prochaine_action);
-          return d > tomorrow && d <= week;
+          return d > tomorrow && d <= day7;
+        }),
+      },
+      {
+        id: "two_weeks",
+        title: "14 jours",
+        subtitle: "J+8 à J+14",
+        icon: CalendarDays,
+        color: "#38BDF8",
+        items: active.filter((p) => {
+          const d = dateOnly(p.date_prochaine_action);
+          return d > day7 && d <= day14;
+        }),
+      },
+      {
+        id: "month",
+        title: "30 jours",
+        subtitle: "J+15 à J+30",
+        icon: CalendarDays,
+        color: "#F59E0B",
+        items: active.filter((p) => {
+          const d = dateOnly(p.date_prochaine_action);
+          return d > day14 && d <= day30;
+        }),
+      },
+      {
+        id: "quarter",
+        title: "3 mois",
+        subtitle: "J+31 à J+90",
+        icon: CalendarDays,
+        color: "#A78BFA",
+        items: active.filter((p) => {
+          const d = dateOnly(p.date_prochaine_action);
+          return d > day30 && d <= day90;
         }),
       },
     ];
@@ -2580,7 +2616,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             active={viewMode === "planning"}
             icon={CalendarDays}
             label="Planning"
-            helper="Qui contacter et quand"
+            helper="Relances à 7j, 14j, 30j et 3 mois"
             onClick={() => setViewMode("planning")}
             T={T}
           />
