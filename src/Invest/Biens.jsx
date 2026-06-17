@@ -600,6 +600,29 @@ function googleMapsSearchUrl(address) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
 
+function getBienMapQuery(bien = {}) {
+  const lat = parseFloat(bien.latitude ?? bien.visite_data?.identification?.latitude);
+  const lng = parseFloat(bien.longitude ?? bien.visite_data?.identification?.longitude);
+
+  if (isValidLatLng(lat, lng)) return `${lat},${lng}`;
+
+  return getBienGoogleAddress(bien);
+}
+
+function googleMapsEmbedUrl(query) {
+  const clean = String(query || "").trim();
+  if (!clean) return "";
+  return `https://www.google.com/maps?q=${encodeURIComponent(clean)}&output=embed`;
+}
+
+function googleMapsEmbedUrlForBien(bien = {}) {
+  return googleMapsEmbedUrl(getBienMapQuery(bien));
+}
+
+function getBienFullAddress(bien = {}) {
+  return [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(" ").trim();
+}
+
 function isValidLatLng(lat, lng) {
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 }
@@ -1084,6 +1107,65 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
     </div>
   );
 }
+
+function BienGoogleMapCard({ bien, T = THEMES_INV.dark, title = "Localisation du bien" }) {
+  const address = getBienFullAddress(bien);
+  const mapQuery = getBienMapQuery(bien);
+  const embedUrl = googleMapsEmbedUrl(mapQuery);
+  const searchUrl = googleMapsSearchUrl(mapQuery || address);
+
+  return (
+    <div className="inv-card" style={{ marginBottom: 16, overflow: "hidden" }}>
+      <div className="inv-card-hd blue" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon as={MapPin} size={13} strokeWidth={2.2} />
+          {title}
+        </span>
+
+        {mapQuery && (
+          <a
+            href={searchUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inv-btn inv-btn-out inv-btn-sm"
+            style={{ textDecoration: "none" }}
+          >
+            <Icon as={ExternalLink} size={12} strokeWidth={2.2} />
+            Ouvrir Maps
+          </a>
+        )}
+      </div>
+
+      <div className="inv-card-bd" style={{ padding: 0 }}>
+        {!mapQuery ? (
+          <div style={{ padding: 16, color: T.textMuted, fontSize: 13 }}>
+            Adresse non renseignée. Complétez l’adresse du bien pour afficher la carte.
+          </div>
+        ) : (
+          <>
+            <iframe
+              title={`Carte du bien ${bien?.reference_interne || address || ""}`}
+              src={embedUrl}
+              style={{ width: "100%", height: 320, border: 0, display: "block", filter: T.bg === THEMES_INV.dark.bg ? "saturate(.9) contrast(.95)" : "none" }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              allowFullScreen
+            />
+            <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}`, color: T.textSub, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <span>{address || mapQuery}</span>
+              {isValidLatLng(parseFloat(bien.latitude), parseFloat(bien.longitude)) && (
+                <span style={{ color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>
+                  {parseFloat(bien.latitude).toFixed(6)}, {parseFloat(bien.longitude).toFixed(6)}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
   const [biens, setBiens]       = useState([]);
@@ -2585,6 +2667,7 @@ function getSimulationMetricsFromBien(bien = {}, selectedSimulationId = "") {
     surface: numVal(inputs.surface || bien.surface_totale || bien.visite_data?.general?.surface_totale),
     score: computeAutoBienScore(bien),
     ville: bien.ville || "—",
+    adresse: getBienFullAddress(bien) || "—",
     statut: bien.statut || "—",
   };
 }
@@ -2594,6 +2677,7 @@ function ComparateurBiensNomade({ biens = [], selectedIds = [], onToggle, onOpen
   const fmtEurLocal = v => numVal(v) > 0 ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(numVal(v)) + " €" : "—";
   const fmtPctLocal = v => numVal(v) > 0 ? `${numVal(v).toFixed(1)} %` : "—";
   const rows = [
+    ["Adresse", m => m.adresse],
     ["Ville", m => m.ville],
     ["Statut", m => m.statut],
     ["Simulation", m => m.simulation?.nom || "—"],
@@ -2666,6 +2750,7 @@ function ComparateurBiensNomade({ biens = [], selectedIds = [], onToggle, onOpen
               <button key={b.id} disabled={disabled} onClick={() => onToggle?.(b.id)} className="inv-btn inv-btn-out" style={{ justifyContent:"space-between", textAlign:"left", opacity: disabled ? .5 : 1, padding:12 }}>
                 <span style={{ minWidth:0 }}>
                   <span style={{ display:"block", color:T.text, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{b.reference_interne || b.adresse || "Bien"}</span>
+                  <span style={{ display:"block", color:T.textSub, fontSize:11, marginTop:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{getBienFullAddress(b) || "Adresse non renseignée"}</span>
                   <span style={{ display:"block", color:T.textMuted, fontSize:11, marginTop:3 }}>{fmtEurLocal(m.coutTotal)} · {fmtPctLocal(m.rendement)} · {fmtEurLocal(m.cashflow)}/mois</span>
                 </span>
                 <Icon as={active ? Check : Plus} size={14}/>
@@ -2677,6 +2762,176 @@ function ComparateurBiensNomade({ biens = [], selectedIds = [], onToggle, onOpen
     </div>
   );
 }
+
+function openFicheClientInvestisseurPDFAvecMap(data = {}) {
+  const esc = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
+
+  const eur = (v) => {
+    const n = Number(v || 0);
+    if (!Number.isFinite(n) || n === 0) return "—";
+    return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(n) + " €";
+  };
+
+  const pct = (v) => {
+    const n = Number(v || 0);
+    if (!Number.isFinite(n) || n === 0) return "—";
+    return n.toFixed(2).replace(".", ",") + " %";
+  };
+
+  const lots = Array.isArray(data.lots) ? data.lots : [];
+  const lotRows = lots.map((l, index) => `
+    <tr>
+      <td>${esc(l.type || `Lot ${index + 1}`)}</td>
+      <td>${esc(l.niveau || "—")}</td>
+      <td>${esc(l.m2 || 0)} m²</td>
+      <td>${eur(l.loyer)}/mois</td>
+      <td>${eur(l.gestion)}/mois</td>
+      <td>${esc(l.comment || "")}</td>
+    </tr>
+  `).join("");
+
+  const mapEmbed = data.mapEmbedUrl || googleMapsEmbedUrl(data.address || "");
+  const mapLink = data.mapSearchUrl || googleMapsSearchUrl(data.address || "");
+  const logo = LOGO_INVEST_H || LOGO_INVEST_V || "";
+
+  const win = window.open("", "_blank", "width=980,height=780");
+  if (!win) {
+    alert("Autorisez les pop-ups pour générer la fiche client.");
+    return;
+  }
+
+  win.document.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${esc(data.title || "Fiche client investisseur")}</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#f3f5f9;color:#172033;font-family:Arial,Helvetica,sans-serif}
+  .wrap{max-width:960px;margin:0 auto;background:#fff;min-height:100vh}
+  .hero{background:linear-gradient(135deg,#111827,#1f2f4a);color:#fff;padding:30px 38px 26px}
+  .brand{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px}
+  .brand img{max-height:44px;max-width:240px;object-fit:contain}
+  .brand .tag{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:rgba(255,255,255,.62);font-weight:800}
+  h1{font-size:32px;line-height:1.05;margin:0 0 8px;font-weight:900;letter-spacing:-.5px}
+  .sub{font-size:14px;color:rgba(255,255,255,.76);line-height:1.45}
+  .pill{display:inline-block;border:1px solid rgba(201,163,74,.55);color:#f4d58a;background:rgba(201,163,74,.11);border-radius:999px;padding:7px 12px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.9px;margin-top:14px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 38px;background:#fff}
+  .kpi{background:#f8fafc;border:1px solid #e5eaf2;border-radius:14px;padding:14px 13px;border-left:4px solid #c9a34a}
+  .kpi .v{font-size:21px;font-weight:900;color:#14213d;line-height:1.1}
+  .kpi .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.9px;margin-top:5px;font-weight:800}
+  .sec{padding:20px 38px;border-top:1px solid #e8edf5}
+  .title{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#1f4ea1;margin-bottom:12px}
+  .title:before{content:"";width:9px;height:9px;border-radius:50%;background:#c9a34a;display:inline-block}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px}
+  .row{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #edf1f7;padding:8px 0;font-size:13px}
+  .row span{color:#64748b}
+  .row b{color:#172033;text-align:right}
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;overflow:hidden;border-radius:12px;border:1px solid #e5eaf2}
+  th{background:#172033;color:#fff;text-align:left;padding:10px 9px;font-size:10px;text-transform:uppercase;letter-spacing:.8px}
+  td{padding:10px 9px;border-bottom:1px solid #edf1f7;color:#172033}
+  tr:last-child td{border-bottom:0}
+  .map{border:1px solid #e5eaf2;border-radius:16px;overflow:hidden;background:#f8fafc}
+  .map iframe{width:100%;height:300px;border:0;display:block}
+  .map-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 13px;font-size:12px;color:#64748b;border-top:1px solid #e5eaf2}
+  .map-foot a{color:#1f4ea1;font-weight:800;text-decoration:none}
+  .txt{font-size:13px;line-height:1.62;color:#263244;white-space:pre-wrap}
+  .reco{background:linear-gradient(135deg,#f8fafc,#fff8e1);border:1px solid #ead9a8;border-radius:16px;padding:15px 16px;font-size:14px;font-weight:800;color:#172033}
+  .no-print{position:fixed;right:18px;top:18px;z-index:5}
+  .btn{background:#1f4ea1;color:#fff;border:0;border-radius:10px;padding:11px 16px;font-weight:900;cursor:pointer;box-shadow:0 12px 26px rgba(31,78,161,.22)}
+  @media print{
+    body{background:#fff}
+    .wrap{max-width:none}
+    .no-print{display:none}
+    .hero{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+    .kpi{break-inside:avoid}
+    .sec{break-inside:avoid}
+    .map iframe{height:260px}
+  }
+</style>
+</head>
+<body>
+  <div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div>
+  <div class="wrap">
+    <div class="hero">
+      <div class="brand">
+        ${logo ? `<img src="${esc(logo)}" alt="Profero Invest">` : `<div class="tag">Profero Invest</div>`}
+        <div class="tag">${esc(data.dateEdition || "")}</div>
+      </div>
+      <h1>${esc(data.title || "Fiche client investisseur")}</h1>
+      <div class="sub">${esc(data.subtitle || "Analyse de rentabilité")}<br>${esc(data.address || "")}</div>
+      <div class="pill">${esc(data.recommandation || "Analyse Profero Invest")}</div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="v">${eur(data.coutTotal)}</div><div class="l">Coût total</div></div>
+      <div class="kpi"><div class="v">${pct(data.rendementBrutPct)}</div><div class="l">Rendement brut</div></div>
+      <div class="kpi"><div class="v">${eur(data.cashflowS1)}/mois</div><div class="l">Cash-flow</div></div>
+      <div class="kpi"><div class="v">${eur(data.totLoyer)}/mois</div><div class="l">Loyers</div></div>
+    </div>
+
+    ${mapEmbed ? `
+    <div class="sec">
+      <div class="title">Localisation du bien</div>
+      <div class="map">
+        <iframe src="${esc(mapEmbed)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+        <div class="map-foot">
+          <span>${esc(data.address || data.mapAddress || "")}</span>
+          <a href="${esc(mapLink)}" target="_blank" rel="noreferrer">Ouvrir dans Google Maps →</a>
+        </div>
+      </div>
+    </div>` : ""}
+
+    <div class="sec">
+      <div class="title">Synthèse financière</div>
+      <div class="grid">
+        <div class="row"><span>Prix d'achat / offre</span><b>${eur(data.prixAchat)}</b></div>
+        <div class="row"><span>Budget travaux</span><b>${eur(data.budgetTravaux)}</b></div>
+        <div class="row"><span>Surface</span><b>${esc(data.surface || "—")} m²</b></div>
+        <div class="row"><span>Logements</span><b>${esc(data.logements || "—")}</b></div>
+        <div class="row"><span>Loyers annuels</span><b>${eur(data.totLoyerAn)}</b></div>
+        <div class="row"><span>Charges annuelles</span><b>${eur(data.chargesAnnuelles)}</b></div>
+        <div class="row"><span>Mensualité estimée</span><b>${eur(data.mensualiteS1)}/mois</b></div>
+        <div class="row"><span>Rendement net</span><b>${pct(data.rendementNetPct)}</b></div>
+        <div class="row"><span>Point d'équilibre</span><b>${Number(data.pointEquilibreMois || 0).toFixed(1).replace(".", ",")} mois</b></div>
+        <div class="row"><span>Marge de sécurité</span><b>${pct(data.margeSecuritePct)}</b></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="title">Configuration locative cible</div>
+      <table>
+        <thead><tr><th>Lot</th><th>Niveau</th><th>Surface</th><th>Loyer</th><th>Gestion</th><th>Commentaire</th></tr></thead>
+        <tbody>${lotRows || `<tr><td colspan="6">Aucun lot renseigné</td></tr>`}</tbody>
+      </table>
+    </div>
+
+    <div class="sec">
+      <div class="title">Présentation du projet</div>
+      <div class="txt">${esc(data.description || "")}</div>
+    </div>
+
+    <div class="sec">
+      <div class="title">Travaux envisagés</div>
+      <div class="txt">${esc(data.travaux || "")}</div>
+    </div>
+
+    <div class="sec">
+      <div class="title">Atouts et recommandation</div>
+      <div class="reco">${esc(data.atouts || data.recommandation || "")}</div>
+    </div>
+  </div>
+</body>
+</html>`);
+  win.document.close();
+}
+
 
 function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [bien, setBien]       = useState(null);
@@ -2936,10 +3191,13 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     const travaux = sim.descriptions?.travaux || v.technique?.travaux_envisages || (budgetTravauxPdf > 0 ? `Budget travaux estimé : ${new Intl.NumberFormat("fr-FR", {maximumFractionDigits:0}).format(budgetTravauxPdf)} €.` : "Travaux à préciser après validation technique et devis.");
     const atouts = sim.descriptions?.atouts || v.marche?.points_forts || v.conclusion?.commentaire || `Rentabilité brute estimée à ${rbPdf.toFixed(2).replace(".", ",")} %. Stratégie à confirmer selon financement et objectifs client.`;
 
-    openFicheClientInvestisseurPDF({
+    openFicheClientInvestisseurPDFAvecMap({
       title: [bien.adresse, bien.ville].filter(Boolean).join(" - ") || bien.reference_interne || "Fiche investisseur",
       subtitle: "Analyse de Rentabilité",
       address: [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", "),
+      mapAddress: getBienFullAddress(bien),
+      mapEmbedUrl: googleMapsEmbedUrlForBien(bien),
+      mapSearchUrl: googleMapsSearchUrl(getBienMapQuery(bien) || getBienFullAddress(bien)),
       dateEdition: new Date().toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }),
       lots: lotsPDF,
       surface: surfacePdf,
@@ -3086,39 +3344,43 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
       </div>
 
       {ficheTab === "fiche" && (
-        <div className="inv-card" style={{marginBottom:16}}>
-          <div className="inv-card-hd blue">
-            <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13} strokeWidth={2.2}/>Synthèse rapide du bien</span>
-          </div>
-          <div className="inv-card-bd">
-            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10}}>
-              <div className="inv-kpi" style={{padding:12}}>
-                <div className="inv-kpi-lbl">Référence</div>
-                <div className="inv-kpi-val accent" style={{fontSize:18}}>{bien.reference_interne || "—"}</div>
-              </div>
-              <div className="inv-kpi" style={{padding:12}}>
-                <div className="inv-kpi-lbl">Prix affiché</div>
-                <div className="inv-kpi-val" style={{fontSize:18}}>{fmtEur(bien.prix_vente || generalBien.prix_affiche)}</div>
-              </div>
-              <div className="inv-kpi" style={{padding:12}}>
-                <div className="inv-kpi-lbl">Offre / prix cible</div>
-                <div className="inv-kpi-val orange" style={{fontSize:18}}>{fmtEur(bien.montant_offre || conclusionBien.prix_offre_recommande || financeBien.prix_acquisition_negocie)}</div>
-              </div>
-              <div className="inv-kpi" style={{padding:12}}>
-                <div className="inv-kpi-lbl">Rendement brut</div>
-                <div className="inv-kpi-val green" style={{fontSize:18}}>{bien.rendement_brut ? Number(bien.rendement_brut).toFixed(1)+" %" : (financeBien.rendement_brut_calcule ? Number(financeBien.rendement_brut_calcule).toFixed(1)+" %" : "—")}</div>
-              </div>
-              <div className="inv-kpi" style={{padding:12}}>
-                <div className="inv-kpi-lbl">Recommandation</div>
-                <div className={`inv-kpi-val ${conclusionBien.recommandation === "Abandonner" ? "red" : "green"}`} style={{fontSize:18}}>{conclusionBien.recommandation || "À compléter"}</div>
-              </div>
-              <div className="inv-kpi" style={{padding:12}}>
-                <div className="inv-kpi-lbl">Note dossier</div>
-                <div className="inv-kpi-val accent" style={{fontSize:18}}>{conclusionBien.note_globale ? `${conclusionBien.note_globale}/10` : "—"}</div>
+        <>
+          <div className="inv-card" style={{marginBottom:16}}>
+            <div className="inv-card-hd blue">
+              <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13} strokeWidth={2.2}/>Synthèse rapide du bien</span>
+            </div>
+            <div className="inv-card-bd">
+              <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10}}>
+                <div className="inv-kpi" style={{padding:12}}>
+                  <div className="inv-kpi-lbl">Référence</div>
+                  <div className="inv-kpi-val accent" style={{fontSize:18}}>{bien.reference_interne || "—"}</div>
+                </div>
+                <div className="inv-kpi" style={{padding:12}}>
+                  <div className="inv-kpi-lbl">Prix affiché</div>
+                  <div className="inv-kpi-val" style={{fontSize:18}}>{fmtEur(bien.prix_vente || generalBien.prix_affiche)}</div>
+                </div>
+                <div className="inv-kpi" style={{padding:12}}>
+                  <div className="inv-kpi-lbl">Offre / prix cible</div>
+                  <div className="inv-kpi-val orange" style={{fontSize:18}}>{fmtEur(bien.montant_offre || conclusionBien.prix_offre_recommande || financeBien.prix_acquisition_negocie)}</div>
+                </div>
+                <div className="inv-kpi" style={{padding:12}}>
+                  <div className="inv-kpi-lbl">Rendement brut</div>
+                  <div className="inv-kpi-val green" style={{fontSize:18}}>{bien.rendement_brut ? Number(bien.rendement_brut).toFixed(1)+" %" : (financeBien.rendement_brut_calcule ? Number(financeBien.rendement_brut_calcule).toFixed(1)+" %" : "—")}</div>
+                </div>
+                <div className="inv-kpi" style={{padding:12}}>
+                  <div className="inv-kpi-lbl">Recommandation</div>
+                  <div className={`inv-kpi-val ${conclusionBien.recommandation === "Abandonner" ? "red" : "green"}`} style={{fontSize:18}}>{conclusionBien.recommandation || "À compléter"}</div>
+                </div>
+                <div className="inv-kpi" style={{padding:12}}>
+                  <div className="inv-kpi-lbl">Note dossier</div>
+                  <div className="inv-kpi-val accent" style={{fontSize:18}}>{conclusionBien.note_globale ? `${conclusionBien.note_globale}/10` : "—"}</div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+
+          <BienGoogleMapCard bien={bien} T={T} title="Carte du bien" />
+        </>
       )}
 
       {ficheTab === "simulateur" ? (
