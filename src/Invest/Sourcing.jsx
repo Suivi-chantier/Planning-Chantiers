@@ -183,6 +183,34 @@ function getLogSearchUrl(log) {
   return "";
 }
 
+
+function extractUrlsFromText(value) {
+  const matches = String(value || "").match(/https?:\/\/[^\s,;]+/g) || [];
+  return Array.from(new Set(matches.map((url) => url.trim()).filter(Boolean)));
+}
+
+function getExternalIdFromUrl(url) {
+  const raw = String(url || "");
+  const match = raw.match(/(?:\/|=)(\d{7,})(?:[.?/&]|$)/);
+  return match ? match[1] : raw;
+}
+
+function getTitleFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const lastUseful = [...parts].reverse().find((part) => !/^\d+/.test(part) && part !== "ventes_immobilieres" && part !== "recherche");
+    if (!lastUseful) return "Annonce importée Leboncoin";
+    return decodeURIComponent(lastUseful)
+      .replace(/[-_]+/g, " ")
+      .replace(/\.htm.*$/i, "")
+      .trim()
+      .replace(/^./, (c) => c.toUpperCase()) || "Annonce importée Leboncoin";
+  } catch {
+    return "Annonce importée Leboncoin";
+  }
+}
+
 function computeSourcingAnalysis(annonce) {
   const text = `${safeText(annonce?.titre)} ${safeText(annonce?.description)}`;
 
@@ -418,6 +446,8 @@ export default function Sourcing({ profil, T }) {
   const [collecting, setCollecting] = useState(false);
   const [collecteMessage, setCollecteMessage] = useState("");
   const [collecteUrls, setCollecteUrls] = useState([]);
+  const [importUrlsText, setImportUrlsText] = useState("");
+  const [importingUrls, setImportingUrls] = useState(false);
   const [editingCritereId, setEditingCritereId] = useState(null);
   const [critereForm, setCritereForm] = useState(EMPTY_CRITERE);
 
@@ -717,6 +747,106 @@ export default function Sourcing({ profil, T }) {
     await loadData();
   }
 
+  async function handleImportUrls(e) {
+    e.preventDefault();
+
+    const urls = extractUrlsFromText(importUrlsText).filter((url) => url.includes("leboncoin.fr"));
+
+    if (urls.length === 0) {
+      alert("Colle au moins une URL Leboncoin valide.");
+      return;
+    }
+
+    setImportingUrls(true);
+
+    const existingRes = await supabase
+      .from("sourcing_annonces")
+      .select("source_url")
+      .in("source_url", urls);
+
+    if (existingRes.error) {
+      console.error(existingRes.error);
+      alert("Erreur lors de la vérification des doublons.");
+      setImportingUrls(false);
+      return;
+    }
+
+    const existingUrls = new Set((existingRes.data || []).map((item) => item.source_url));
+    const urlsToInsert = urls.filter((url) => !existingUrls.has(url));
+
+    if (urlsToInsert.length === 0) {
+      await supabase.from("sourcing_logs").insert({
+        source: "url_manual",
+        statut: "duplicate",
+        ended_at: new Date().toISOString(),
+        nb_detectees: urls.length,
+        nb_nouvelles: 0,
+        nb_doublons: urls.length,
+        message: "Toutes les URLs collées existent déjà dans le sourcing.",
+        details: { urls },
+      });
+      setImportingUrls(false);
+      setImportUrlsText("");
+      await loadData();
+      alert("Ces annonces sont déjà présentes dans le sourcing.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const payloads = urlsToInsert.map((url) => {
+      const base = {
+        source: "url_manual",
+        source_url: url,
+        external_id: getExternalIdFromUrl(url),
+        titre: getTitleFromUrl(url),
+        description: "Annonce importée depuis une URL Leboncoin. Compléter les informations après ouverture de l’annonce.",
+        prix: null,
+        surface_m2: null,
+        ville: "",
+        code_postal: "",
+        type_bien: "",
+        nb_pieces: null,
+        vendeur_type: "inconnu",
+        url_photo: "",
+        premiere_detection: now,
+        derniere_detection: now,
+        prix_historique: [],
+        statut: "a_analyser",
+        is_archived: false,
+      };
+
+      return {
+        ...base,
+        ...computeSourcingAnalysis(base),
+      };
+    });
+
+    const insertRes = await supabase.from("sourcing_annonces").insert(payloads);
+
+    if (insertRes.error) {
+      console.error(insertRes.error);
+      alert("Erreur lors de l’import des URLs.");
+      setImportingUrls(false);
+      return;
+    }
+
+    await supabase.from("sourcing_logs").insert({
+      source: "url_manual",
+      statut: "success",
+      ended_at: now,
+      nb_detectees: urls.length,
+      nb_nouvelles: urlsToInsert.length,
+      nb_doublons: urls.length - urlsToInsert.length,
+      message: `${urlsToInsert.length} URL(s) importée(s) manuellement dans le sourcing.`,
+      details: { urls, imported: urlsToInsert },
+    });
+
+    setImportingUrls(false);
+    setImportUrlsText("");
+    await loadData();
+    setActiveTab("annonces");
+  }
+
   const preview = useMemo(() => computeSourcingAnalysis({
     ...newAnnonce,
     prix: Number(newAnnonce.prix || 0),
@@ -832,6 +962,10 @@ export default function Sourcing({ profil, T }) {
                   preview={preview}
                   saving={saving}
                   onSubmit={handleCreateAnnonce}
+                  importUrlsText={importUrlsText}
+                  setImportUrlsText={setImportUrlsText}
+                  importingUrls={importingUrls}
+                  onImportUrls={handleImportUrls}
                 />
               )}
 
@@ -1198,12 +1332,13 @@ function CriteresTab({
   );
 }
 
-function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubmit }) {
+function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubmit, importUrlsText, setImportUrlsText, importingUrls, onImportUrls }) {
   const S = getStyles(T);
   const catStyle = getCategoryStyle(preview.categorie);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 18 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <form onSubmit={onSubmit} style={S.cardStyle}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Ajouter une annonce test</h2>
         <p style={{ margin: "6px 0 18px", fontSize: 13, color: S.textSub }}>
@@ -1235,6 +1370,27 @@ function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubm
           {saving ? "Enregistrement..." : "Ajouter et analyser"}
         </button>
       </form>
+
+      <form onSubmit={onImportUrls} style={S.cardStyle}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Importer des URLs Leboncoin</h2>
+        <p style={{ margin: "6px 0 14px", fontSize: 13, lineHeight: 1.6, color: S.textSub }}>
+          Colle une ou plusieurs URLs d’annonces repérées après ouverture manuelle des recherches. L’application crée les lignes dans le sourcing et les marque “À analyser”.
+        </p>
+
+        <Field label="URLs d’annonces" T={T}>
+          <textarea
+            value={importUrlsText}
+            onChange={(e) => setImportUrlsText(e.target.value)}
+            style={{ ...S.inputStyle, minHeight: 115, resize: "vertical" }}
+            placeholder={"https://www.leboncoin.fr/ad/ventes_immobilieres/...\nhttps://www.leboncoin.fr/ad/ventes_immobilieres/..."}
+          />
+        </Field>
+
+        <button type="submit" disabled={importingUrls} style={{ ...S.buttonPrimary, marginTop: 14, opacity: importingUrls ? 0.55 : 1 }}>
+          {importingUrls ? "Import en cours..." : "Importer les URLs"}
+        </button>
+      </form>
+      </div>
 
       <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Aperçu analyse automatique</h3>
