@@ -1,0 +1,410 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { supabase, photoTransform } from "../supabase";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { Icon } from "../ui";
+import {
+  Receipt, Image as ImageIcon, Camera, Loader2, Check, X, AlertTriangle,
+  ChevronLeft, FileText, Plus, Link2, CheckCircle2,
+} from "lucide-react";
+
+const EDGE_ANALYSE_FACTURE =
+  "https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-facture";
+
+// Tolérance d'écart de montant (remises, arrondis) avant de signaler un "écart"
+const TOLERANCE_ECART = 1.0;
+
+function toNum(v) {
+  if (v == null || v === "") return null;
+  const n = parseFloat(String(v).replace(",", ".").replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? null : n;
+}
+
+// Normalisation pour l'appariement par numéro (trim, casse, espaces)
+const norm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "");
+
+async function uploadPhoto(file, pathPrefix) {
+  try {
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const path = `${pathPrefix}/${safe}`;
+    const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+    if (error) return { error: error.message || "Erreur upload" };
+    const { data } = supabase.storage.from("photos").getPublicUrl(path);
+    if (!data?.publicUrl) return { error: "URL publique introuvable" };
+    return { url: data.publicUrl };
+  } catch (e) {
+    return { error: e.message || "Erreur réseau" };
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = () => res(String(reader.result).split(",")[1]);
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function analyseFacture(base64, mediaType) {
+  const response = await fetch(EDGE_ANALYSE_FACTURE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageBase64: base64, mediaType }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
+  const anthropic = data.content ? data : (data.data || data);
+  const textContent = anthropic.content?.find(c => c.type === "text")?.text || "";
+  let clean = textContent.replace(/```json|```/g, "").trim();
+  if (clean[0] !== "{") {
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) clean = match[0];
+  }
+  return JSON.parse(clean);
+}
+
+export default function RapprochementFactures({ T, branch = "renovation", profil = null }) {
+  const acc = getBranchAccent(branch);
+  const [step, setStep] = useState("home"); // home | analyzing | review
+  const [factures, setFactures] = useState([]);
+  const [loadingFactures, setLoadingFactures] = useState(true);
+  const [photoUrl, setPhotoUrl] = useState("");
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [iaErr, setIaErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+  const [fact, setFact] = useState({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
+  const [bls, setBls] = useState([]); // { bl_numero, montant_ht, commande_id, commandeMontant, fournisseurCmd, statut }
+  const fileCam = useRef(null);
+  const fileGal = useRef(null);
+
+  const loadFactures = useCallback(async () => {
+    setLoadingFactures(true);
+    const { data } = await supabase
+      .from("factures")
+      .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setFactures(data || []);
+    setLoadingFactures(false);
+  }, []);
+
+  useEffect(() => { loadFactures(); }, [loadFactures]);
+
+  // Apparie une liste de BL aux commandes (doc_type='bl', non encore facturées)
+  const matchBls = useCallback(async (blsList, fournisseurFacture) => {
+    const { data } = await supabase
+      .from("commandes")
+      .select("id, doc_numero, fournisseur_nom, montant_ht, statut_facturation")
+      .eq("doc_type", "bl")
+      .neq("statut_facturation", "facture")
+      .limit(1000);
+    const candidates = data || [];
+    return blsList.map(bl => {
+      const matches = candidates.filter(c => c.doc_numero && norm(c.doc_numero) === norm(bl.bl_numero));
+      let chosen = null;
+      if (matches.length === 1) chosen = matches[0];
+      else if (matches.length > 1) chosen = matches.find(c => norm(c.fournisseur_nom) === norm(fournisseurFacture)) || matches[0];
+      return {
+        bl_numero: bl.bl_numero || "",
+        montant_ht: bl.montant_ht != null ? String(bl.montant_ht) : "",
+        commande_id: chosen?.id || null,
+        commandeMontant: chosen?.montant_ht ?? null,
+        fournisseurCmd: chosen?.fournisseur_nom || "",
+        statut: chosen ? "rapproche" : "manquant",
+      };
+    });
+  }, []);
+
+  const nouvelleFacture = () => {
+    setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
+    setBls([]); setPhotoUrl(""); setPhotoPreview(""); setIaErr(""); setSaveErr("");
+    if (fileGal.current) fileGal.current.click();
+  };
+
+  const onFile = async (file) => {
+    if (!file) return;
+    setIaErr(""); setSaveErr("");
+    setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
+    setBls([]); setPhotoUrl(""); setPhotoPreview(URL.createObjectURL(file));
+    setStep("analyzing");
+    const mediaType = file.type === "application/pdf" ? "application/pdf" : file.type;
+
+    const [up, ia] = await Promise.allSettled([
+      uploadPhoto(file, "factures"),
+      (async () => { const b64 = await fileToBase64(file); return analyseFacture(b64, mediaType); })(),
+    ]);
+
+    if (up.status === "fulfilled" && up.value?.url) setPhotoUrl(up.value.url);
+
+    if (ia.status === "fulfilled" && ia.value) {
+      const p = ia.value;
+      setFact({
+        fournisseur: p.fournisseur || "",
+        numero: p.numero || "",
+        date_facture: p.date_facture || "",
+        periode: p.periode || "",
+        montant_ht: p.montant_ht != null ? String(p.montant_ht) : "",
+      });
+      const blsRaw = Array.isArray(p.bls) ? p.bls : [];
+      const matched = await matchBls(blsRaw, p.fournisseur || "");
+      setBls(matched);
+    } else {
+      setIaErr((ia.status === "rejected" ? (ia.reason?.message || "Analyse impossible") : "Analyse impossible") + " — vérifie le document.");
+    }
+    setStep("review");
+  };
+
+  // Saisir un BL manquant : crée une commande minimale (chantier à affecter plus tard)
+  const saisirBl = async (i) => {
+    const bl = bls[i];
+    const montant = toNum(bl.montant_ht);
+    const { data: cmd, error } = await supabase.from("commandes").insert({
+      type_evenement: "livraison", doc_type: "bl", doc_numero: bl.bl_numero || null,
+      numero_en_attente: false, fournisseur_nom: fact.fournisseur || null,
+      date_doc: fact.date_facture || null, montant_ht: montant, source: "facture",
+      saisi_par: profil?.nom || profil?.email || null,
+      statut_completude: "a_completer", statut_facturation: "en_attente_facture",
+    }).select("id").single();
+    if (error || !cmd) { alert("Erreur création BL : " + (error?.message || "inconnue")); return; }
+    await supabase.from("commande_lignes").insert({
+      commande_id: cmd.id, libelle: "(à détailler — saisi depuis facture)",
+      prix_total: montant, chantier_id: null,
+    });
+    setBls(prev => prev.map((b, j) => j === i
+      ? { ...b, commande_id: cmd.id, commandeMontant: montant, fournisseurCmd: fact.fournisseur, statut: "rapproche" }
+      : b));
+  };
+
+  // Statut d'affichage d'un BL (ajoute la détection d'écart)
+  const blStatut = (b) => {
+    if (!b.commande_id) return "manquant";
+    const m = toNum(b.montant_ht);
+    if (m != null && b.commandeMontant != null && Math.abs(b.commandeMontant - m) > TOLERANCE_ECART) return "ecart";
+    return "rapproche";
+  };
+
+  const aucunManquant = bls.length > 0 && bls.every(b => blStatut(b) !== "manquant");
+  const totalBl = bls.reduce((s, b) => s + (toNum(b.montant_ht) || 0), 0);
+  const montantFacture = toNum(fact.montant_ht);
+  const ecartTotal = montantFacture != null ? montantFacture - totalBl : null;
+
+  const confirmer = async () => {
+    if (!aucunManquant || saving) return;
+    setSaving(true); setSaveErr("");
+
+    const { data: f, error: e1 } = await supabase.from("factures").insert({
+      fournisseur_nom: fact.fournisseur || null, numero: fact.numero || null,
+      date_facture: fact.date_facture || null, periode: fact.periode || null,
+      montant_ht: montantFacture, photo_url: photoUrl || null,
+      statut: "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
+    }).select("id").single();
+    if (e1 || !f) { setSaveErr("Erreur facture : " + (e1?.message || "inconnue")); setSaving(false); return; }
+
+    for (const b of bls) {
+      const m = toNum(b.montant_ht);
+      const statut = blStatut(b);
+      const { error: eb } = await supabase.from("facture_bl").insert({
+        facture_id: f.id, commande_id: b.commande_id || null,
+        bl_numero: b.bl_numero || null, montant_ht: m, statut,
+      });
+      if (eb) { setSaveErr("Erreur liaison BL : " + eb.message); setSaving(false); return; }
+      if (b.commande_id) {
+        await supabase.from("commandes").update({ statut_facturation: "facture", facture_id: f.id }).eq("id", b.commande_id);
+        await supabase.from("commande_lignes").update({ prix_verrouille: true }).eq("commande_id", b.commande_id);
+      }
+    }
+    await supabase.from("factures").update({ statut: "rapprochee" }).eq("id", f.id);
+    setSaving(false);
+    await loadFactures();
+    setStep("home");
+  };
+
+  // ── Styles ──
+  const inputStyle = {
+    width: "100%", boxSizing: "border-box", padding: "10px 12px",
+    background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+    color: T.text, fontSize: 15, fontFamily: "inherit", outline: "none",
+  };
+  const labelStyle = {
+    display: "block", fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 0.6,
+    textTransform: "uppercase", color: T.textSub, marginBottom: 6,
+  };
+  const card = {
+    background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg,
+    padding: SPACING.lg, marginBottom: SPACING.md,
+  };
+  const btnPrimary = (disabled) => ({
+    width: "100%", padding: "14px", border: "none", borderRadius: RADIUS.md,
+    background: disabled ? T.border : acc.accent, color: disabled ? T.textSub : acc.onAccent,
+    fontSize: 16, fontWeight: 800, cursor: disabled ? "not-allowed" : "pointer",
+    fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+  });
+  const page = {
+    minHeight: "100%", background: T.bg, color: T.text, fontFamily: "inherit",
+    padding: SPACING.lg, paddingBottom: 96, maxWidth: 860, margin: "0 auto", boxSizing: "border-box",
+  };
+
+  const Header = ({ titre, onBack }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: SPACING.lg }}>
+      {onBack && (
+        <button onClick={onBack} style={{
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+          width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center",
+          color: T.text, cursor: "pointer", flexShrink: 0,
+        }}><Icon as={ChevronLeft} size={20} /></button>
+      )}
+      <h1 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, color: T.text }}>{titre}</h1>
+    </div>
+  );
+
+  // ════════════ ACCUEIL ════════════
+  if (step === "home") {
+    return (
+      <div style={page}>
+        <Header titre="Rapprochement factures" />
+        <input ref={fileGal} type="file" accept="image/*,application/pdf" hidden onChange={e => onFile(e.target.files?.[0])} />
+        <button onClick={nouvelleFacture} style={{ ...btnPrimary(false), marginBottom: SPACING.xl }}>
+          <Icon as={Receipt} size={20} strokeWidth={2.2} /> Nouvelle facture
+        </button>
+
+        <div style={labelStyle}>Factures récentes</div>
+        {loadingFactures ? (
+          <div style={{ textAlign: "center", padding: 30, color: T.textSub }}><Icon as={Loader2} size={22} className="spin" /> Chargement…</div>
+        ) : factures.length === 0 ? (
+          <div style={{ ...card, textAlign: "center", color: T.textSub }}>Aucune facture rapprochée.</div>
+        ) : (
+          factures.map(f => {
+            const sem = f.statut === "rapprochee" ? SEMANTIC.success : SEMANTIC.warning;
+            return (
+              <div key={f.id} style={{ ...card, marginBottom: SPACING.sm, display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: FONT.base.size, color: T.text }}>{f.fournisseur_nom || "Fournisseur ?"}</div>
+                  <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>
+                    {f.numero ? `N° ${f.numero}` : "Sans n°"}{f.periode ? ` · ${f.periode}` : ""}{f.montant_ht != null ? ` · ${f.montant_ht} € HT` : ""}
+                  </div>
+                </div>
+                <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>
+                  {f.statut === "rapprochee" ? "Rapprochée" : "À rapprocher"}
+                </span>
+              </div>
+            );
+          })
+        )}
+        <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
+      </div>
+    );
+  }
+
+  // ════════════ ANALYSE ════════════
+  if (step === "analyzing") {
+    return (
+      <div style={{ ...page, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh" }}>
+        {photoPreview && <img src={photoPreview} alt="" style={{ width: 160, height: 160, objectFit: "cover", borderRadius: RADIUS.lg, marginBottom: SPACING.lg, opacity: 0.5 }} />}
+        <Icon as={Loader2} size={34} color={acc.accent} className="spin" />
+        <div style={{ marginTop: SPACING.md, fontSize: FONT.md.size, fontWeight: 600 }}>Analyse de la facture…</div>
+        <div style={{ marginTop: 4, fontSize: FONT.sm.size, color: T.textSub }}>Lecture des numéros de BL référencés</div>
+        <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
+      </div>
+    );
+  }
+
+  // ════════════ REVUE / RAPPROCHEMENT ════════════
+  const nbManquants = bls.filter(b => blStatut(b) === "manquant").length;
+
+  return (
+    <div style={page}>
+      <Header titre="Rapprocher la facture" onBack={() => setStep("home")} />
+
+      {iaErr && (
+        <div style={{ ...card, display: "flex", gap: 10, alignItems: "flex-start", background: SEMANTIC.warning.bg, border: `1px solid ${SEMANTIC.warning.border}` }}>
+          <Icon as={AlertTriangle} size={18} color={SEMANTIC.warning.color} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span style={{ fontSize: FONT.sm.size }}>{iaErr}</span>
+        </div>
+      )}
+
+      {/* En-tête facture */}
+      <div style={card}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div><label style={labelStyle}>Fournisseur</label><input value={fact.fournisseur} onChange={e => setFact(f => ({ ...f, fournisseur: e.target.value }))} style={inputStyle} /></div>
+          <div><label style={labelStyle}>N° facture</label><input value={fact.numero} onChange={e => setFact(f => ({ ...f, numero: e.target.value }))} style={inputStyle} /></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          <div><label style={labelStyle}>Date</label><input type="date" value={fact.date_facture} onChange={e => setFact(f => ({ ...f, date_facture: e.target.value }))} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Période</label><input value={fact.periode} onChange={e => setFact(f => ({ ...f, periode: e.target.value }))} placeholder="2026-06" style={inputStyle} /></div>
+          <div><label style={labelStyle}>Montant HT (€)</label><input inputMode="decimal" value={fact.montant_ht} onChange={e => setFact(f => ({ ...f, montant_ht: e.target.value }))} style={inputStyle} /></div>
+        </div>
+      </div>
+
+      {/* Liste des BL */}
+      <div style={labelStyle}>Bons de livraison référencés ({bls.length})</div>
+      {bls.length === 0 && (
+        <div style={{ ...card, color: T.textSub, fontSize: FONT.sm.size }}>Aucun BL détecté sur la facture. Vérifie le document ou saisis manuellement les commandes.</div>
+      )}
+      {bls.map((b, i) => {
+        const st = blStatut(b);
+        const sem = st === "rapproche" ? SEMANTIC.success : st === "ecart" ? SEMANTIC.warning : SEMANTIC.danger;
+        const icon = st === "rapproche" ? CheckCircle2 : st === "ecart" ? AlertTriangle : X;
+        const label = st === "rapproche" ? "Apparié" : st === "ecart" ? "Écart de montant" : "BL manquant";
+        return (
+          <div key={i} style={{ ...card, marginBottom: SPACING.sm, borderLeft: `3px solid ${sem.color}` }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <Icon as={icon} size={20} color={sem.color} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: FONT.base.size }}>BL n° {b.bl_numero || "?"}</div>
+                <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>
+                  Facture : {toNum(b.montant_ht) != null ? `${toNum(b.montant_ht)} € HT` : "—"}
+                  {b.commande_id && b.commandeMontant != null ? ` · Commande : ${b.commandeMontant} € HT` : ""}
+                </div>
+              </div>
+              <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{label}</span>
+            </div>
+            {st === "manquant" && (
+              <button onClick={() => saisirBl(i)} style={{
+                marginTop: 10, width: "100%", padding: "10px", borderRadius: RADIUS.md, cursor: "pointer",
+                border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+                fontFamily: "inherit", fontWeight: 700, fontSize: 14,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}>
+                <Icon as={Plus} size={16} /> Saisir ce BL (chantier à affecter ensuite)
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Bloc comparaison */}
+      <div style={{ ...card, marginTop: SPACING.md }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT.sm.size, color: T.textSub, marginBottom: 4 }}>
+          <span>Total des BL</span><span>{totalBl.toFixed(2)} € HT</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT.sm.size, color: T.textSub, marginBottom: 4 }}>
+          <span>Montant facture</span><span>{montantFacture != null ? `${montantFacture.toFixed(2)} € HT` : "—"}</span>
+        </div>
+        {ecartTotal != null && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT.base.size, fontWeight: 700, marginTop: 6, color: Math.abs(ecartTotal) > TOLERANCE_ECART ? SEMANTIC.warning.color : SEMANTIC.success.color }}>
+            <span>Écart (remises comprises)</span><span>{ecartTotal.toFixed(2)} €</span>
+          </div>
+        )}
+      </div>
+
+      {saveErr && (
+        <div style={{ ...card, background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}`, color: SEMANTIC.danger.color, fontSize: FONT.sm.size }}>{saveErr}</div>
+      )}
+
+      <div style={{ marginBottom: 8, fontSize: FONT.sm.size, color: T.textSub, textAlign: "center" }}>
+        {nbManquants > 0
+          ? <span style={{ color: SEMANTIC.danger.color, fontWeight: 600 }}>{nbManquants} BL manquant(s) — saisis-les pour pouvoir confirmer.</span>
+          : <span style={{ color: SEMANTIC.success.color, fontWeight: 600 }}>✓ Tous les BL sont appariés</span>}
+      </div>
+
+      <button onClick={confirmer} disabled={!aucunManquant || saving} style={btnPrimary(!aucunManquant || saving)}>
+        {saving ? <Icon as={Loader2} size={20} className="spin" /> : <Icon as={Check} size={20} strokeWidth={2.5} />}
+        {saving ? "Rapprochement…" : "Confirmer le rapprochement"}
+      </button>
+
+      <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
+    </div>
+  );
+}
