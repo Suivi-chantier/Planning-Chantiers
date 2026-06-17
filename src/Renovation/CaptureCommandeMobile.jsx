@@ -4,7 +4,7 @@ import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT } from 
 import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
-  ChevronLeft, AlertTriangle, FileText, ShoppingCart, Truck, Search,
+  ChevronLeft, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
 } from "lucide-react";
 
 const EDGE_ANALYSE_COMMANDE =
@@ -491,6 +491,25 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const setLigne = (i, patch) => setForm(f => ({ ...f, lignes: f.lignes.map((l, j) => j === i ? { ...l, ...patch } : l) }));
   const addLigne = () => setForm(f => ({ ...f, lignes: [...f.lignes, ligneVide()] }));
   const delLigne = (i) => setForm(f => ({ ...f, lignes: f.lignes.filter((_, j) => j !== i) }));
+  // Scinde une ligne en deux (quantité + prix répartis), pour affecter chaque
+  // moitié à un chantier différent. Active le mode "Répartir".
+  const splitLigne = (i) => {
+    setForm(f => {
+      const l = f.lignes[i];
+      const q = toNum(l.quantite);
+      const pt = toNum(l.prix_total);
+      const q1 = q != null ? Math.ceil(q / 2) : null;
+      const q2 = q != null ? q - q1 : null;
+      const pt1 = (pt != null && q && q > 0) ? +(pt * q1 / q).toFixed(2) : null;
+      const pt2 = (pt != null && q && q > 0) ? +(pt - pt1).toFixed(2) : null;
+      const a = { ...l, quantite: q1 != null ? String(q1) : l.quantite, prix_total: pt1 != null ? String(pt1) : l.prix_total };
+      const b = { ...l, quantite: q2 != null ? String(q2) : "", prix_total: pt2 != null ? String(pt2) : "", chantier_id: "", phase_id: "" };
+      const lignes = [...f.lignes];
+      lignes.splice(i, 1, a, b);
+      return { ...f, lignes };
+    });
+    setRepartir(true);
+  };
 
   return (
     <div style={page}>
@@ -590,6 +609,9 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         <div key={i} style={card}>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input value={l.libelle} onChange={e => setLigne(i, { libelle: e.target.value })} placeholder="Désignation" style={{ ...inputStyle, flex: 1 }} />
+            <button onClick={() => splitLigne(i)} title="Diviser pour répartir sur 2 chantiers" style={{ background: acc.bg10, border: `1px solid ${acc.border}`, borderRadius: RADIUS.md, width: 44, flexShrink: 0, color: acc.accent, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon as={Split} size={18} />
+            </button>
             <button onClick={() => delLigne(i)} style={{ background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}`, borderRadius: RADIUS.md, width: 44, flexShrink: 0, color: SEMANTIC.danger.color, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon as={Trash2} size={18} />
             </button>
