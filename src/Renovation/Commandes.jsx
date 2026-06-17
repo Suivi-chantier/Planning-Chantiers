@@ -8,12 +8,20 @@ import {
   Settings, ListChecks, Link2, LayoutList, Truck, Download, FileSpreadsheet, Printer,
 } from "lucide-react";
 
-// Statuts pour les commandes (hors besoin_ouvrier)
+// Statuts (nouveau modèle) : dérivés de statut_completude / statut_facturation
+//   a_completer : il manque chantier / prix / n° -> à enrichir au bureau
+//   complete    : enrichie, en attente de la facture fournisseur
+//   facture     : facturée / payée -> coût définitif (prix verrouillés)
 const STATUTS_CMD = {
-  a_commander: { label: "À commander", color: "#f5a623", bg: "rgba(245,166,35,0.12)", border: "rgba(245,166,35,0.3)" },
-  commande:    { label: "Commandé",    color: "#50c878", bg: "rgba(80,200,120,0.12)", border: "rgba(80,200,120,0.3)" },
-  retire:      { label: "Retiré",      color: "#9aa5c0", bg: "rgba(154,165,192,0.10)", border: "rgba(154,165,192,0.2)" },
+  a_completer: { label: "À compléter", color: "#f5a623", bg: "rgba(245,166,35,0.12)", border: "rgba(245,166,35,0.3)" },
+  complete:    { label: "Complète",    color: "#5b9cf6", bg: "rgba(91,156,246,0.12)", border: "rgba(91,156,246,0.3)" },
+  facture:     { label: "Facturé",     color: "#50c878", bg: "rgba(80,200,120,0.12)", border: "rgba(80,200,120,0.3)" },
 };
+
+// statut (ligne) <-> statut_completude/facturation (en-tête commande)
+const rowStatut = (c) => (c?.statut_facturation === "facture" ? "facture" : c?.statut_completude === "complete" ? "complete" : "a_completer");
+const completudeFromStatut = (s) => (s === "a_completer" ? "a_completer" : "complete");
+const facturationFromStatut = (s) => (s === "facture" ? "facture" : "en_attente_facture");
 
 const P = {
   bg:       "#151929",
@@ -947,10 +955,10 @@ function VueGroupee({ commandes, groupBy, chantiers, materiaux, T, acc, onEditRo
     groupes[key].items.push(r);
     groupes[key].total += parseFloat(r.prix_ht) || 0;
   });
-  // Trie : non commandés d'abord (plus de "à commander"), puis alphabétique
+  // Trie : à compléter d'abord, puis alphabétique
   const ordre = Object.values(groupes).sort((a, b) => {
-    const ac = a.items.filter(i => i.statut === "a_commander").length;
-    const bc = b.items.filter(i => i.statut === "a_commander").length;
+    const ac = a.items.filter(i => i.statut === "a_completer").length;
+    const bc = b.items.filter(i => i.statut === "a_completer").length;
     if (ac !== bc) return bc - ac;
     return a.label.localeCompare(b.label);
   });
@@ -966,9 +974,9 @@ function VueGroupee({ commandes, groupBy, chantiers, materiaux, T, acc, onEditRo
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {ordre.map(g => {
-        const aCmd  = g.items.filter(i => i.statut === "a_commander").length;
-        const cmd   = g.items.filter(i => i.statut === "commande").length;
-        const ret   = g.items.filter(i => i.statut === "retire").length;
+        const aCmd  = g.items.filter(i => i.statut === "a_completer").length;
+        const cmd   = g.items.filter(i => i.statut === "complete").length;
+        const ret   = g.items.filter(i => i.statut === "facture").length;
         return (
           <div key={g.key} style={{
             background: T.surface, border: `1px solid ${T.border}`,
@@ -1002,30 +1010,30 @@ function VueGroupee({ commandes, groupBy, chantiers, materiaux, T, acc, onEditRo
                     border: "1px solid rgba(245,166,35,0.30)",
                     borderRadius: RADIUS.pill, padding: "2px 9px",
                     fontSize: FONT.xs.size, fontWeight: 700,
-                  }}>{aCmd} à commander</span>
+                  }}>{aCmd} à compléter</span>
                 )}
                 {cmd > 0 && (
+                  <span style={{
+                    background: "rgba(91,156,246,0.12)", color: "#5b9cf6",
+                    border: "1px solid rgba(91,156,246,0.30)",
+                    borderRadius: RADIUS.pill, padding: "2px 9px",
+                    fontSize: FONT.xs.size, fontWeight: 700,
+                  }}>{cmd} complète{cmd > 1 ? "s" : ""}</span>
+                )}
+                {ret > 0 && (
                   <span style={{
                     background: "rgba(34,197,94,0.12)", color: "#22c55e",
                     border: "1px solid rgba(34,197,94,0.30)",
                     borderRadius: RADIUS.pill, padding: "2px 9px",
                     fontSize: FONT.xs.size, fontWeight: 700,
-                  }}>{cmd} commandé{cmd > 1 ? "s" : ""}</span>
-                )}
-                {ret > 0 && (
-                  <span style={{
-                    background: "rgba(154,165,192,0.10)", color: "#9aa5c0",
-                    border: "1px solid rgba(154,165,192,0.25)",
-                    borderRadius: RADIUS.pill, padding: "2px 9px",
-                    fontSize: FONT.xs.size, fontWeight: 700,
-                  }}>{ret} retiré{ret > 1 ? "s" : ""}</span>
+                  }}>{ret} facturé{ret > 1 ? "s" : ""}</span>
                 )}
               </div>
             </div>
             {/* Items */}
             <div>
               {g.items.map(r => {
-                const statut = STATUTS_CMD[r.statut] || STATUTS_CMD.a_commander;
+                const statut = STATUTS_CMD[r.statut] || STATUTS_CMD.a_completer;
                 const matLie = r.materiau_id && materiaux.find(m => m.id === r.materiau_id);
                 const ch = chantiers.find(c => c.id === r.chantier_id);
                 return (
@@ -1141,13 +1149,38 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from("commandes_detail").select("*").order("created_at", { ascending: true });
+    // Nouveau modèle : une "ligne" d'affichage = une commande_ligne, enrichie
+    // de l'en-tête commande (fournisseur, statuts, notes…).
+    const { data } = await supabase
+      .from("commande_lignes")
+      .select("id, commande_id, libelle, reference, quantite, prix_total, prix_unitaire, prix_verrouille, materiau_id, chantier_id, phasage_id, phase_id, created_at, commande:commandes(fournisseur_nom, notes, saisi_par, statut_completude, statut_facturation, doc_numero, numero_en_attente, type_evenement, created_at)")
+      .order("created_at", { ascending: true });
     if (data) {
-      setRows(prev => data.map(row => {
-        if (row.materiau_id != null) return row;
-        const existing = prev.find(p => p.id === row.id);
-        if (existing?.materiau_id) return { ...row, materiau_id: existing.materiau_id };
-        return row;
+      setRows(data.map(l => {
+        const c = l.commande || {};
+        return {
+          id:                l.id,
+          commande_id:       l.commande_id,
+          chantier_id:       l.chantier_id || "",
+          article:           l.libelle || "",
+          fournisseur:       c.fournisseur_nom || "",
+          reference:         l.reference || "",
+          quantite:          l.quantite != null ? String(l.quantite) : "",
+          prix_ht:           l.prix_total != null ? l.prix_total
+                              : (l.prix_unitaire != null && l.quantite != null ? l.prix_unitaire * l.quantite : null),
+          prix_verrouille:   l.prix_verrouille,
+          materiau_id:       l.materiau_id || null,
+          phasage_id:        l.phasage_id || null,
+          phase_id:          l.phase_id || "",
+          notes:             c.notes || "",
+          ouvrier_demandeur: c.saisi_par || "",
+          priorite:          "normal",
+          statut:            rowStatut(c),
+          statut_completude: c.statut_completude,
+          statut_facturation:c.statut_facturation,
+          doc_numero:        c.doc_numero,
+          created_at:        l.created_at || c.created_at,
+        };
       }));
     } else setRows([]);
     setLoading(false);
@@ -1174,81 +1207,42 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   }, []);
 
   useEffect(() => {
-    const ch = supabase.channel("commandes-detail")
-      .on("postgres_changes", { event: "*", schema: "public", table: "commandes_detail" }, () => load())
+    const ch = supabase.channel("commande-lignes-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "commande_lignes" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "commandes" }, () => load())
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
 
-  // ─── MIGRATION AUTO : tache_id → phase_id ───────────────────────────────────
-  // Migre les anciennes commandes liées à une tâche spécifique vers la nouvelle
-  // logique de liaison à une PHASE. One-shot par session, idempotent.
-  // SQL pré-requis : ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS phase_id TEXT;
-  const migrationRef = useRef(false);
-  useEffect(() => {
-    if (migrationRef.current) return;
-    if (!rows.length || !phasages.length) return;
-    const aMigrer = rows.filter(r => r.tache_id && !r.phase_id);
-    if (aMigrer.length === 0) { migrationRef.current = true; return; }
-    migrationRef.current = true;
-    (async () => {
-      let nbOk = 0, nbErr = 0, schemaMissing = false;
-      for (const cmd of aMigrer) {
-        const phasage = phasages.find(p => p.id === cmd.phasage_id);
-        if (!phasage?.plan_travaux) continue;
-        let phaseId = null;
-        for (const [pId, taches] of Object.entries(phasage.plan_travaux)) {
-          if (pId === "meta" || !Array.isArray(taches)) continue;
-          const tache = taches.find(t => t.id === cmd.tache_id);
-          if (tache) { phaseId = pId; break; }
-        }
-        if (!phaseId) continue;
-        const { error } = await supabase.from("commandes_detail")
-          .update({ phase_id: phaseId })
-          .eq("id", cmd.id);
-        if (error?.code === "42703") {
-          schemaMissing = true;
-          console.warn("[Migration commandes] Colonne phase_id manquante en base. SQL requise :\n" +
-            "  ALTER TABLE commandes_detail ADD COLUMN IF NOT EXISTS phase_id TEXT;");
-          break;
-        }
-        if (error) { nbErr++; console.error("[Migration commandes] Erreur sur", cmd.id, error); }
-        else nbOk++;
-      }
-      if (!schemaMissing && nbOk > 0) {
-        console.log(`[Migration commandes] ${nbOk} ligne(s) migrée(s)${nbErr > 0 ? `, ${nbErr} erreur(s)` : ""}.`);
-        load();
-      }
-    })();
-  }, [rows, phasages]);
-
   // ── IMPORT DEPUIS DOCUMENT ──────────────────────────────────────────────────
   const handleImportLignes = async (lignes, fournisseurGlobal) => {
-    for (const l of lignes) {
-      const fields = {
-        article:     l.designation.trim(),
-        fournisseur: fournisseurGlobal.trim() || "",
-        quantite:    l.quantite || "",
-        prix_ht:     parseFloat(l.prix_total) || parseFloat(l.prix_unitaire) || null,
-        statut:      "commande",
-        priorite:    "normal",
+    if (!lignes.length) return;
+    const toNum = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".").replace(/[^0-9.]/g, "")); return isNaN(n) ? null : n; };
+    const total = lignes.reduce((s, l) => s + (toNum(l.prix_total) || 0), 0);
+    // Un document importé = une commande, avec ses lignes.
+    const { data: cmd, error } = await supabase.from("commandes").insert({
+      type_evenement: "commande", doc_type: "bon_commande", doc_numero: null, numero_en_attente: true,
+      fournisseur_nom: fournisseurGlobal?.trim() || null, montant_ht: total || null, source: "import_ia",
+      statut_completude: "a_completer", statut_facturation: "en_attente_facture",
+    }).select("id").single();
+    if (error || !cmd) { alert("Erreur import : " + (error?.message || "inconnue")); return; }
+    const payload = lignes.map(l => {
+      const pu = toNum(l.prix_unitaire), q = toNum(l.quantite), pt = toNum(l.prix_total);
+      const ch = l.phasage_id ? (phasages.find(p => p.id === l.phasage_id)?.chantier_id || null) : null;
+      return {
+        commande_id: cmd.id,
+        libelle:     (l.designation || "").trim(),
+        reference:   l.reference || null,
+        quantite:    q,
+        prix_unitaire: pu,
+        prix_total:  pt != null ? pt : (pu != null && q != null ? +(pu * q).toFixed(2) : null),
         materiau_id: l.materiau_id || null,
+        chantier_id: ch,
         phasage_id:  l.phasage_id || null,
         phase_id:    l.phase_id || null,
-        notes:       l.reference ? `Réf: ${l.reference}` : "",
       };
-
-      const { error } = await supabase.from("commandes_detail").insert(fields);
-      if (error) {
-        // Fallback sans colonnes optionnelles si migration manquante
-        if (error.code === "42703") {
-          const { materiau_id, phasage_id, phase_id, ...fallback } = fields;
-          await supabase.from("commandes_detail").insert(fallback);
-        }
-      }
-      // Note : on n'écrit plus cout_materiel sur les tâches. Le coût mat est
-      // désormais agrégé dynamiquement par phase dans le Plan de travaux.
-    }
+    });
+    await supabase.from("commande_lignes").insert(payload);
     load();
   };
 
@@ -1295,42 +1289,54 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   };
 
   const saveRow = async (row) => {
-    setEditRow(null); setNewRow(null); setEditDraft(null);
-    const allFields = {
-      chantier_id:       row.chantier_id       ?? "",
-      article:           row.article           ?? "",
-      fournisseur:       row.fournisseur       ?? "",
-      quantite:          row.quantite          ?? "",
-      statut:            row.statut            ?? "a_commander",
-      notes:             row.notes             ?? "",
-      priorite:          row.priorite          ?? "normal",
-      ouvrier_demandeur: row.ouvrier_demandeur ?? "",
-      materiau_id:       row.materiau_id       ?? null,
-    };
-    if (row.id) {
-      setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...allFields } : r));
-      const { error } = await supabase.from("commandes_detail").update(allFields).eq("id", row.id);
-      if (error) {
-        if (error.message?.includes("materiau_id") || error.code === "42703") {
-          const { materiau_id, ...fieldsWithout } = allFields;
-          await supabase.from("commandes_detail").update(fieldsWithout).eq("id", row.id);
-        } else { alert("Erreur sauvegarde: " + error.message); load(); return; }
+    const toNum = (v) => { if (v == null || v === "") return null; const n = parseFloat(String(v).replace(",", ".").replace(/[^0-9.]/g, "")); return isNaN(n) ? null : n; };
+    const statut = row.statut || "a_completer";
+    const qNum = toNum(row.quantite);
+    const pNum = toNum(row.prix_ht);
+    if (editRow) {
+      // Mise à jour : ligne + en-tête de la commande parente.
+      const { error } = await supabase.from("commande_lignes").update({
+        libelle: row.article || "", quantite: qNum, prix_total: pNum,
+        materiau_id: row.materiau_id || null, chantier_id: row.chantier_id || null,
+        phasage_id: row.phasage_id || null, phase_id: row.phase_id || null,
+      }).eq("id", editRow);
+      if (error) { alert("Erreur sauvegarde : " + error.message); load(); return; }
+      if (row.commande_id) {
+        await supabase.from("commandes").update({
+          fournisseur_nom: row.fournisseur || null, notes: row.notes || null,
+          saisi_par: row.ouvrier_demandeur || null,
+          statut_completude: completudeFromStatut(statut), statut_facturation: facturationFromStatut(statut),
+        }).eq("id", row.commande_id);
       }
     } else {
-      const { error } = await supabase.from("commandes_detail").insert(allFields).select().single();
-      if (error) {
-        if (error.message?.includes("materiau_id") || error.code === "42703") {
-          const { materiau_id, ...fieldsWithout } = allFields;
-          await supabase.from("commandes_detail").insert(fieldsWithout).select().single();
-        } else { alert("Erreur création: " + error.message); load(); return; }
-      }
+      // Création manuelle : commande + 1 ligne.
+      const { data: cmd, error } = await supabase.from("commandes").insert({
+        type_evenement: "commande", doc_type: "bon_commande", doc_numero: null, numero_en_attente: true,
+        fournisseur_nom: row.fournisseur || null, notes: row.notes || null, saisi_par: row.ouvrier_demandeur || null,
+        montant_ht: pNum, source: "manuel",
+        statut_completude: completudeFromStatut(statut), statut_facturation: facturationFromStatut(statut),
+      }).select("id").single();
+      if (error || !cmd) { alert("Erreur création : " + (error?.message || "inconnue")); load(); return; }
+      await supabase.from("commande_lignes").insert({
+        commande_id: cmd.id, libelle: row.article || "", quantite: qNum, prix_total: pNum,
+        materiau_id: row.materiau_id || null, chantier_id: row.chantier_id || null,
+        phasage_id: row.phasage_id || null, phase_id: row.phase_id || null,
+      });
     }
+    setEditRow(null); setNewRow(null); setEditDraft(null);
     load();
   };
 
   const deleteRow = async (id) => {
     if (!confirm("Supprimer cette ligne ?")) return;
-    await supabase.from("commandes_detail").delete().eq("id", id);
+    const row = rows.find(r => r.id === id);
+    await supabase.from("commande_lignes").delete().eq("id", id);
+    // Si la commande parente n'a plus de ligne, on la supprime aussi.
+    if (row?.commande_id) {
+      const { count } = await supabase.from("commande_lignes")
+        .select("id", { count: "exact", head: true }).eq("commande_id", row.commande_id);
+      if (!count) await supabase.from("commandes").delete().eq("id", row.commande_id);
+    }
     load();
   };
 
@@ -1377,7 +1383,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     const rowsHtml = commandes.map(r => {
       const ch = chantiers.find(c => c.id === r.chantier_id);
       const mat = r.materiau_id && materiaux.find(m => m.id === r.materiau_id);
-      const statut = STATUTS_CMD[r.statut] || STATUTS_CMD.a_commander;
+      const statut = STATUTS_CMD[r.statut] || STATUTS_CMD.a_completer;
       const urgent = r.priorite === "urgent" ? '<span style="color:#e15a5a;font-weight:700;margin-left:4px">URGENT</span>' : "";
       return `<tr>
         <td style="padding:6px 8px;border-bottom:1px solid #eee">${ch ? `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ch.couleur};margin-right:5px;vertical-align:middle"></span>${ch.nom}` : ""}</td>
@@ -1406,42 +1412,35 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     setTimeout(() => w.print(), 400);
   };
 
-  const cycleStatut = async (row) => {
-    const order = ["a_commander", "commande", "retire"];
-    const curIdx = order.indexOf(row.statut);
-    const next = order[(curIdx >= 0 ? curIdx + 1 : 1) % order.length];
-    if (next === "commande") {
-      setModalePrix(row.prix_ht || "");
-      setModalePhaseId(""); setModalePhaseInterne("");
-      setModaleCommande({ row, next });
-      return;
-    }
-    await supabase.from("commandes_detail").update({ statut: next }).eq("id", row.id);
-    setRows(prev => prev.map(r => r.id === row.id ? { ...r, statut: next } : r));
+  // Clic sur le statut -> modale d'enrichissement (prix + phase) pour compléter.
+  const cycleStatut = (row) => {
+    setModalePrix(row.prix_ht != null ? String(row.prix_ht) : "");
+    setModalePhaseId(row.phasage_id || "");
+    setModalePhaseInterne(row.phase_id || "");
+    setModaleCommande({ row });
   };
 
   const confirmerCommande = async () => {
     if (!modaleCommande) return;
     const { row } = modaleCommande;
     const prix = parseFloat(modalePrix) || null;
-    const updates = { statut: "commande", prix_ht: prix };
+    const lineUpdate = { prix_total: prix };
     if (modalePhaseId && modalePhaseInterne) {
-      updates.phasage_id = modalePhaseId;
-      updates.phase_id = modalePhaseInterne;
+      lineUpdate.phasage_id = modalePhaseId;
+      lineUpdate.phase_id = modalePhaseInterne;
+      const chId = phasages.find(p => p.id === modalePhaseId)?.chantier_id;
+      if (chId) lineUpdate.chantier_id = chId;
     }
-    const { error } = await supabase.from("commandes_detail").update(updates).eq("id", row.id);
-    if (error?.code === "42703") {
-      console.warn("[Commandes] Colonne phase_id manquante — sauvegarde sans liaison phase.");
-      const { phase_id, ...sansPhase } = updates;
-      await supabase.from("commandes_detail").update(sansPhase).eq("id", row.id);
+    await supabase.from("commande_lignes").update(lineUpdate).eq("id", row.id);
+    // L'enrichissement (prix + phase rattachée) passe la commande en "complète".
+    if (row.commande_id) {
+      await supabase.from("commandes").update({ statut_completude: "complete" }).eq("id", row.commande_id);
     }
-    setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...updates } : r));
-    // Plus de mise à jour de cout_materiel sur les tâches : agrégation dynamique
-    // dans le Plan de travaux à partir des commandes liées par phase_id.
     setModaleCommande(null);
+    load();
   };
 
-  const STATUTS_COMMANDES = ["a_commander", "commande", "retire"];
+  const STATUTS_COMMANDES = ["a_completer", "complete", "facture"];
   const filtered = commandes.filter(r =>
     (filterChantier === "all" || r.chantier_id === filterChantier) &&
     (filterStatut === "all" || r.statut === filterStatut) &&
@@ -1541,7 +1540,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                 <Icon as={ShoppingCart} size={18} strokeWidth={2}/>
               </div>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Commande passée</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Compléter la commande</div>
                 <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>{modaleCommande.row.article}</div>
               </div>
             </div>
@@ -1616,7 +1615,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                 fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
               }}>
                 <Icon as={Check} size={14}/>
-                Confirmer la commande
+                Valider
               </button>
             </div>
           </div>
@@ -1661,7 +1660,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
             Importer un document
           </button>
           <button
-            onClick={() => { const e = emptyCommande(); setNewRow(e); setEditDraft(e); }}
+            onClick={() => { const e = { ...emptyCommande(), statut: "a_completer" }; setNewRow(e); setEditDraft(e); }}
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               background: acc.accent, color: acc.onAccent, border: "none",
@@ -1833,7 +1832,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                     style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: T.text, fontFamily: "inherit", fontSize: 13, width: "100%", outline: "none" }} />
                 </td>
                 <td style={{ padding: "8px 10px" }}>
-                  <select value={editDraft.statut || "a_commander"} onChange={e => setEditDraft(p => ({ ...p, statut: e.target.value }))}
+                  <select value={editDraft.statut || "a_completer"} onChange={e => setEditDraft(p => ({ ...p, statut: e.target.value }))}
                     style={{ background: "#1e2336", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: "#e8eaf0", fontFamily: "inherit", fontSize: 13, width: "100%", outline: "none", marginBottom: 4 }}>
                     {STATUTS_COMMANDES.map(k => <option key={k} value={k}>{STATUTS[k].label}</option>)}
                   </select>
@@ -1879,7 +1878,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
               </td></tr>
             ) : filtered.map(row => {
               const ch = chantiers.find(c => c.id === row.chantier_id);
-              const st = STATUTS[row.statut] || STATUTS.a_commander;
+              const st = STATUTS[row.statut] || STATUTS.a_completer;
               const urgent = row.priorite === "urgent";
               const rowBg = urgent ? "rgba(224,92,92,0.05)" : "transparent";
               const rowBorderLeft = urgent ? "3px solid rgba(224,92,92,0.5)" : "3px solid transparent";
@@ -1911,7 +1910,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                       style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: T.text, fontFamily: "inherit", fontSize: 13, width: "100%", outline: "none" }} />
                   </td>
                   <td style={{ padding: "8px 10px" }}>
-                    <select value={editDraft.statut || "a_commander"} onChange={e => setEditDraft(p => ({ ...p, statut: e.target.value }))}
+                    <select value={editDraft.statut || "a_completer"} onChange={e => setEditDraft(p => ({ ...p, statut: e.target.value }))}
                       style={{ background: "#1e2336", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: "#e8eaf0", fontFamily: "inherit", fontSize: 13, width: "100%", outline: "none", marginBottom: 4 }}>
                       {STATUTS_COMMANDES.map(k => <option key={k} value={k}>{STATUTS[k].label}</option>)}
                     </select>
