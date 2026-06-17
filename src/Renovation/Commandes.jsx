@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
-import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS } from "../constants";
+import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT } from "../constants";
 import { Icon } from "../ui";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
@@ -1203,7 +1203,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     load();
     loadMateriaux();
     loadBesoins();
-    supabase.from("phasages").select("id,chantier_nom,plan_travaux").then(({ data }) => setPhasages(data || []));
+    supabase.from("phasages").select("id,chantier_id,chantier_nom,plan_travaux").then(({ data }) => setPhasages(data || []));
   }, []);
 
   useEffect(() => {
@@ -1415,7 +1415,9 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   // Clic sur le statut -> modale d'enrichissement (prix + phase) pour compléter.
   const cycleStatut = (row) => {
     setModalePrix(row.prix_ht != null ? String(row.prix_ht) : "");
-    setModalePhaseId(row.phasage_id || "");
+    // Pré-sélectionne le phasage du chantier de la ligne (si la ligne n'en a pas déjà un).
+    const phForChantier = phasages.find(p => String(p.chantier_id) === String(row.chantier_id));
+    setModalePhaseId(row.phasage_id || phForChantier?.id || "");
     setModalePhaseInterne(row.phase_id || "");
     setModaleCommande({ row });
   };
@@ -1451,12 +1453,15 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const counts = Object.fromEntries(STATUTS_COMMANDES.map(k => [k, commandes.filter(r => r.statut === k).length]));
   const STATUTS = STATUTS_CMD;
   const phasageModale = phasages.find(p => p.id === modalePhaseId);
-  // Liste des phases ayant au moins une tâche dans ce phasage
-  const phasesModale = phasageModale?.plan_travaux
+  // Phases du plan de travaux (celles ayant au moins une tâche). Si le chantier
+  // n'a pas encore de plan rempli, on retombe sur les phases standard pour
+  // pouvoir quand même rattacher la commande à une phase.
+  const phasesAvecTaches = phasageModale?.plan_travaux
     ? Object.entries(phasageModale.plan_travaux)
         .filter(([k, v]) => k !== "meta" && Array.isArray(v) && v.length > 0)
         .map(([phId]) => ({ phId }))
     : [];
+  const phasesModale = phasesAvecTaches.length ? phasesAvecTaches : PHASES_DEFAUT.map(p => ({ phId: p.id }));
 
   const renderBiblioRowEditor = (draft, setDraft) => (
     <div style={{ marginBottom: 4 }}>
