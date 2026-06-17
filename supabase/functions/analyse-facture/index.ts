@@ -11,13 +11,19 @@ serve(async (req) => {
   }
 
   try {
-    const { imageBase64, mediaType } = await req.json()
+    const body = await req.json()
     const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")
 
-    const isPdf = mediaType === "application/pdf"
-    const contentBlock = isPdf
-      ? { type: "document", source: { type: "base64", media_type: mediaType, data: imageBase64 } }
-      : { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } }
+    // Accepte { images: [{ base64, mediaType }] } (facture multi-pages) ou
+    // l'ancien { imageBase64, mediaType }.
+    const images = Array.isArray(body.images) && body.images.length
+      ? body.images
+      : (body.imageBase64 ? [{ base64: body.imageBase64, mediaType: body.mediaType }] : [])
+
+    const mkBlock = (img) => (img.mediaType === "application/pdf")
+      ? { type: "document", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }
+      : { type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }
+    const contentBlocks = images.map(mkBlock)
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -29,14 +35,16 @@ serve(async (req) => {
       body: JSON.stringify({
         // Pour réduire le coût sur gros volume : remplacer par "claude-sonnet-4-6"
         model: "claude-opus-4-8",
-        max_tokens: 3000,
+        max_tokens: 4000,
         messages: [{
           role: "user",
           content: [
-            contentBlock,
+            ...contentBlocks,
             {
               type: "text",
               text: `Tu es un assistant spécialisé dans l'analyse de factures fournisseur BTP.
+Une facture peut être répartie sur PLUSIEURS images/pages ci-dessus : considère-les
+comme UNE SEULE facture (un seul en-tête, et la liste de TOUS les BL de toutes les pages).
 Une facture mensuelle regroupe souvent PLUSIEURS bons de livraison (BL).
 Ton rôle PRINCIPAL : repérer la LISTE DE TOUS LES NUMÉROS DE BL référencés sur la facture.
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, sans backticks.
