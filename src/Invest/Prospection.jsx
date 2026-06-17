@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + fiche modale + import liste + conversion CRM corrigée
+ * CRM Prospection — Version organisée : pipeline drag & drop + liste + planning étendu + KPI + fiche modale + import liste + relances commerciales + conversion CRM corrigée
  *
  * Objectif :
  * - CRM volontairement simple
@@ -55,6 +55,9 @@ import {
 const STATUTS = [
   { id: "nouveau", label: "Nouveau", icon: UserPlus, color: "#60A5FA" },
   { id: "contact", label: "Contact", icon: Phone, color: "#F59E0B" },
+  { id: "relance", label: "Relance", icon: RefreshCw, color: "#F97316" },
+  { id: "relance_1", label: "Relance 1", icon: Clock, color: "#EA580C" },
+  { id: "relance_2", label: "Relance 2", icon: AlertTriangle, color: "#DC2626" },
   { id: "rdv", label: "RDV", icon: Calendar, color: "#8B5CF6" },
   { id: "proposition", label: "Proposition", icon: Target, color: "#10B981" },
   { id: "signe", label: "Signé", icon: CheckCircle2, color: SU },
@@ -413,7 +416,10 @@ function normalizeImportedRow(row) {
 
   if (normalized.statut) {
     const status = stripAccents(normalized.statut).toLowerCase();
-    if (status.includes("contact")) normalized.statut = "contact";
+    if (status.includes("relance") && (status.includes("2") || status.includes("deux"))) normalized.statut = "relance_2";
+    else if (status.includes("relance") && (status.includes("1") || status.includes("une") || status.includes("premiere"))) normalized.statut = "relance_1";
+    else if (status.includes("relance")) normalized.statut = "relance";
+    else if (status.includes("contact")) normalized.statut = "contact";
     else if (status.includes("rdv") || status.includes("rendez")) normalized.statut = "rdv";
     else if (status.includes("proposition")) normalized.statut = "proposition";
     else if (status.includes("sign")) normalized.statut = "signe";
@@ -1630,7 +1636,7 @@ function PipelineView({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(3, minmax(190px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
         gap: 10,
       }}
     >
