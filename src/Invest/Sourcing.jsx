@@ -16,6 +16,20 @@ const STATUS_LABELS = {
 
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
 
+const SOURCE_LABELS = {
+  leboncoin_direct: "Leboncoin",
+  leboncoin_assiste: "Leboncoin",
+  leboncoin_url: "Leboncoin",
+  seloger_direct: "SeLoger",
+  seloger_assiste: "SeLoger",
+  seloger_url: "SeLoger",
+  multi_sources: "Toutes sources",
+  url_manual: "URL importée",
+  manual: "Manuel",
+  email_alert: "Alerte email",
+  csv: "CSV",
+};
+
 const POSITIVE_KEYWORDS = [
   "immeuble",
   "à rénover",
@@ -95,7 +109,7 @@ const EMPTY_CRITERE = {
   mots_cles_inclus: "",
   mots_cles_exclus: "",
   vendeur_type: "tous",
-  source: "leboncoin_direct",
+  source: "multi_sources",
   frequence: "quotidien",
   actif: true,
   score_min_alerte: 65,
@@ -416,6 +430,27 @@ function uniqueByUrl(items = []) {
   return out;
 }
 
+function detectSourceFromUrl(url) {
+  const raw = String(url || "").toLowerCase();
+  if (raw.includes("leboncoin.fr")) return "leboncoin_url";
+  if (raw.includes("seloger.com")) return "seloger_url";
+  return "url_manual";
+}
+
+function getSourceLabel(source) {
+  return SOURCE_LABELS[source] || source || "—";
+}
+
+function shouldGenerateLeboncoin(critere) {
+  const source = String(critere?.source || "multi_sources");
+  return ["multi_sources", "leboncoin_direct", "leboncoin_assiste", "leboncoin_url", "url_manual", "manual"].includes(source);
+}
+
+function shouldGenerateSeloger(critere) {
+  const source = String(critere?.source || "multi_sources");
+  return ["multi_sources", "seloger_direct", "seloger_assiste", "seloger_url"].includes(source);
+}
+
 function leboncoinLocationParam(zone) {
   const z = normalizeSearchText(zone);
   const map = {
@@ -543,6 +578,109 @@ function generateLeboncoinSearches(criteres = [], critereId = null) {
     .filter((critere) => !critereId || critere.id === critereId);
 
   return uniqueByUrl(active.flatMap((critere) => generateLeboncoinSearchesForCritere(critere))).slice(0, 120);
+}
+
+function selogerLocationSlug(zone) {
+  const z = normalizeSearchText(zone);
+  const map = {
+    "angers": "pays-de-la-loire/maine-et-loire/angers-49000",
+    "avrille": "pays-de-la-loire/maine-et-loire/avrille-49240",
+    "trelaze": "pays-de-la-loire/maine-et-loire/trelaze-49800",
+    "les ponts-de-ce": "pays-de-la-loire/maine-et-loire/les-ponts-de-ce-49130",
+    "les ponts de ce": "pays-de-la-loire/maine-et-loire/les-ponts-de-ce-49130",
+    "beaucouze": "pays-de-la-loire/maine-et-loire/beaucouze-49070",
+    "bouchemaine": "pays-de-la-loire/maine-et-loire/bouchemaine-49080",
+    "saumur": "pays-de-la-loire/maine-et-loire/saumur-49400",
+    "cholet": "pays-de-la-loire/maine-et-loire/cholet-49300",
+    "saint-barthelemy-danjou": "pays-de-la-loire/maine-et-loire/saint-barthelemy-d-anjou-49124",
+    "saint barthelemy danjou": "pays-de-la-loire/maine-et-loire/saint-barthelemy-d-anjou-49124",
+    "saint-barthelemy-d anjou": "pays-de-la-loire/maine-et-loire/saint-barthelemy-d-anjou-49124",
+    "maine-et-loire": "pays-de-la-loire/maine-et-loire",
+    "maine et loire": "pays-de-la-loire/maine-et-loire",
+  };
+  return map[z] || "";
+}
+
+function selogerPropertySegment(critere) {
+  const types = (Array.isArray(critere?.types_biens) ? critere.types_biens : []).map(normalizeSearchText).join(" ");
+  if (types.includes("maison") && !types.includes("appartement") && !types.includes("immeuble")) return "maison";
+  if (types.includes("appartement") && !types.includes("maison") && !types.includes("immeuble")) return "appartement";
+  return "immobilier";
+}
+
+function buildSelogerSearchUrl({ zone, keyword, critere, large = false }) {
+  const location = selogerLocationSlug(zone);
+  const property = selogerPropertySegment(critere);
+  const base = location
+    ? `https://www.seloger.com/recherche/achat/${property}/${location}`
+    : `https://www.seloger.com/recherche/achat/${property}/france`;
+
+  const params = new URLSearchParams();
+  const prixMin = critere?.prix_min ? Math.round(Number(critere.prix_min)) : "";
+  const prixMax = critere?.prix_max ? Math.round(Number(critere.prix_max)) : "";
+  const surfaceMin = critere?.surface_min ? Math.round(Number(critere.surface_min)) : "";
+  const surfaceMax = critere?.surface_max ? Math.round(Number(critere.surface_max)) : "";
+  if (prixMin) params.set("prix_min", String(prixMin));
+  if (prixMax) params.set("prix_max", String(prixMax));
+  if (surfaceMin) params.set("surface_min", String(surfaceMin));
+  if (surfaceMax) params.set("surface_max", String(surfaceMax));
+  if (critere?.pieces_min) params.set("pieces_min", String(Math.round(Number(critere.pieces_min))));
+  if (!large && keyword) params.set("motscles", cleanLeboncoinKeyword(keyword));
+  return params.toString() ? `${base}?${params.toString()}` : base;
+}
+
+function generateSelogerSearchesForCritere(critere) {
+  const zonesRaw = Array.isArray(critere?.zones) ? critere.zones : [];
+  const zones = zonesRaw.length ? zonesRaw : [""];
+  const keywords = getPrioritySearchKeywords(critere);
+  const searches = [];
+
+  for (const zone of zones.slice(0, 8)) {
+    searches.push({
+      critere_id: critere.id,
+      nom: critere.nom,
+      portal: "seloger",
+      source: "seloger_assiste",
+      zone: zone || "Zone non renseignée",
+      type: "large",
+      label: `${critere.nom} — SeLoger — ${zone || "France"} — recherche large`,
+      url: buildSelogerSearchUrl({ zone, keyword: "", critere, large: true }),
+    });
+
+    for (const keyword of keywords.slice(0, 3)) {
+      searches.push({
+        critere_id: critere.id,
+        nom: critere.nom,
+        portal: "seloger",
+        source: "seloger_assiste",
+        zone: zone || "Zone non renseignée",
+        keyword,
+        type: "mot_cle",
+        label: `${critere.nom} — SeLoger — ${zone || "France"} — ${keyword}`,
+        url: buildSelogerSearchUrl({ zone, keyword, critere, large: false }),
+      });
+    }
+  }
+
+  return uniqueByUrl(searches).slice(0, 40);
+}
+
+function generatePortalSearches(criteres = [], critereId = null) {
+  const active = (Array.isArray(criteres) ? criteres : [])
+    .filter((critere) => critere?.actif !== false)
+    .filter((critere) => !critereId || critere.id === critereId);
+
+  const all = [];
+  for (const critere of active) {
+    if (shouldGenerateLeboncoin(critere)) {
+      all.push(...generateLeboncoinSearchesForCritere(critere).map((item) => ({ ...item, portal: "leboncoin", source: "leboncoin_assiste", label: item.label?.includes("Leboncoin") ? item.label : `${item.label} · Leboncoin` })));
+    }
+    if (shouldGenerateSeloger(critere)) {
+      all.push(...generateSelogerSearchesForCritere(critere));
+    }
+  }
+
+  return uniqueByUrl(all).slice(0, 160);
 }
 
 
@@ -943,6 +1081,7 @@ export default function Sourcing({ profil, T }) {
     const now = new Date().toISOString();
     const payload = {
       ...newAnnonce,
+      source: newAnnonce.source_url ? detectSourceFromUrl(newAnnonce.source_url) : (newAnnonce.source || "manual"),
       prix: parseNumber(newAnnonce.prix),
       surface_m2: parseNumber(newAnnonce.surface_m2),
       nb_pieces: parseNumber(newAnnonce.nb_pieces),
@@ -1380,23 +1519,23 @@ L’annonce reste modifiable manuellement.`
 
     setCollecting(true);
     setCollecteUrls([]);
-    setCollecteMessage(critereId ? "Génération des recherches du critère..." : "Génération des recherches Leboncoin...");
+    setCollecteMessage(critereId ? "Génération des recherches du critère..." : "Génération des recherches portails...");
 
-    const urls = generateLeboncoinSearches(criteres, critereId);
+    const urls = generatePortalSearches(criteres, critereId);
     setCollecteUrls(urls);
-    setCollecteMessage(`${urls.length} recherche(s) Leboncoin générée(s). Ouvre les liens, repère les annonces intéressantes, puis importe leurs URLs dans Profero.`);
+    setCollecteMessage(`${urls.length} recherche(s) générée(s) sur les portails. Ouvre les liens, repère les annonces intéressantes, puis importe leurs URLs dans Profero.`);
     setActiveTab("recherches");
     setCollecting(false);
 
     await supabase.from("sourcing_logs").insert({
-      source: "leboncoin_assiste",
+      source: "multi_sources",
       statut: "generated",
       nb_detectees: urls.length,
       nb_nouvelles: 0,
       nb_mises_a_jour: 0,
       nb_doublons: 0,
       nb_erreurs: 0,
-      message: `${urls.length} recherche(s) Leboncoin générée(s) depuis Profero.`,
+      message: `${urls.length} recherche(s) portails générée(s) depuis Profero.`,
       details: { mode: "generation_locale", urls_recherche: urls },
     });
 
@@ -1406,10 +1545,13 @@ L’annonce reste modifiable manuellement.`
   async function handleImportUrls(e) {
     e.preventDefault();
 
-    const urls = extractUrlsFromText(importUrlsText).filter((url) => url.includes("leboncoin.fr"));
+    const urls = extractUrlsFromText(importUrlsText).filter((url) => {
+      const low = String(url || "").toLowerCase();
+      return low.includes("leboncoin.fr") || low.includes("seloger.com");
+    });
 
     if (urls.length === 0) {
-      alert("Colle au moins une URL Leboncoin valide.");
+      alert("Colle au moins une URL Leboncoin ou SeLoger valide.");
       return;
     }
 
@@ -1457,11 +1599,11 @@ L’annonce reste modifiable manuellement.`
       if (capture.ok) nbCaptureOk += 1;
 
       const base = {
-        source: "url_manual",
+        source: detectSourceFromUrl(url),
         source_url: url,
         external_id: getExternalIdFromUrl(url),
         titre: getTitleFromUrl(url),
-        description: "Annonce importée depuis une URL Leboncoin. Compléter les informations après ouverture de l’annonce.",
+        description: `Annonce importée depuis une URL ${getSourceLabel(detectSourceFromUrl(url))}. Compléter les informations après ouverture de l’annonce.`,
         prix: null,
         surface_m2: null,
         ville: "",
@@ -1528,7 +1670,7 @@ L’annonce reste modifiable manuellement.`
   const tabs = [
     { id: "dashboard", label: "Vue d’ensemble", subtitle: "Pilotage" },
     { id: "annonces", label: "Opportunités", subtitle: "Qualification" },
-    { id: "recherches", label: "Recherches Leboncoin", subtitle: "Collecte assistée" },
+    { id: "recherches", label: "Recherches portails", subtitle: "Leboncoin & SeLoger" },
     { id: "import", label: "Importer des annonces", subtitle: "URLs & saisie" },
     { id: "parametres", label: "Paramètres & logs", subtitle: "Critères" },
   ];
@@ -1697,12 +1839,12 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
         {Array.isArray(collecteUrls) && collecteUrls.length > 0 ? (
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 900, textTransform: "uppercase", letterSpacing: 0.6, color: S.textSub }}>
-              Recherches Leboncoin générées
+              Recherches portails générées
             </div>
             {collecteUrls.map((item, index) => (
               <div key={`${item.critere_id || index}-${item.url}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", background: S.cardBg }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.label || item.nom || `Recherche ${index + 1}`}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><Pill bg={S.accentBg} color={S.accent}>{item.portal === "seloger" ? "SeLoger" : "Leboncoin"}</Pill><span style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.label || item.nom || `Recherche ${index + 1}`}</span></div>
                   <div style={{ marginTop: 2, fontSize: 12, color: S.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 760 }}>{item.url}</div>
                 </div>
                 <a href={item.url} target="_blank" rel="noreferrer" style={{ ...S.buttonPrimary, textDecoration: "none", whiteSpace: "nowrap" }}>
@@ -1736,6 +1878,7 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
             <thead>
               <tr>
                 <Th T={T}>Bien</Th>
+                <Th T={T}>Source</Th>
                 <Th T={T}>Ville</Th>
                 <Th T={T}>Prix</Th>
                 <Th T={T}>Score</Th>
@@ -1749,6 +1892,7 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
                 return (
                   <tr key={a.id}>
                     <Td T={T} strong>{a.titre || "Sans titre"}</Td>
+                    <Td T={T}><Pill bg={S.inputBg} color={S.text}>{getSourceLabel(a.source)}</Pill></Td>
                     <Td T={T}>{a.ville || "—"}</Td>
                     <Td T={T}>{fmtEur(a.prix)}</Td>
                     <Td T={T} strong>{fmtNumber(a.score_opportunite)}/100</Td>
@@ -1861,10 +2005,11 @@ function AnnoncesTab({
         </div>
       ) : (
         <div style={{ overflowX: "auto", border: `1px solid ${S.border}`, borderRadius: 18 }}>
-          <table style={{ width: "100%", minWidth: 1450, borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", minWidth: 1540, borderCollapse: "collapse", fontSize: 13 }}>
             <thead style={{ background: S.inputBg }}>
               <tr>
                 <Th T={T}>Bien</Th>
+                <Th T={T}>Source</Th>
                 <Th T={T}>Ville</Th>
                 <Th T={T}>Prix</Th>
                 <Th T={T}>Surface</Th>
@@ -1904,6 +2049,7 @@ function AnnoncesTab({
                         </div>
                       </div>
                     </Td>
+                    <Td T={T}><Pill bg={S.inputBg} color={S.text}>{getSourceLabel(a.source)}</Pill></Td>
                     <Td T={T}>{a.ville || "—"}{a.code_postal ? <div style={{ fontSize: 11, color: S.textSub }}>{a.code_postal}</div> : null}</Td>
                     <Td T={T} strong>{fmtEur(a.prix)}</Td>
                     <Td T={T}>{fmtNumber(a.surface_m2)} m²</Td>
@@ -1959,9 +2105,9 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
     <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.1fr", gap: 18, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Recherches Leboncoin</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Recherches portails</h2>
           <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
-            Génère les recherches Leboncoin depuis Profero à partir des critères actifs. La recherche large évite de trop filtrer, puis les variantes par mots-clés permettent de cibler les opportunités.
+            Génère les recherches Leboncoin et SeLoger depuis Profero à partir des critères actifs. La recherche large évite de trop filtrer, puis les variantes par mots-clés permettent de cibler les opportunités.
           </p>
           <button type="button" onClick={() => onRunCollecte(null)} disabled={collecting} style={{ ...S.buttonPrimary, marginTop: 14, opacity: collecting ? 0.55 : 1 }}>
             {collecting ? "Génération..." : "Générer les recherches"}
@@ -1988,7 +2134,7 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 900, color: S.text }}>{c.nom}</div>
                       <div style={{ marginTop: 4, fontSize: 12, color: S.textSub }}>
-                        {fmtEur(c.prix_min)} à {fmtEur(c.prix_max)} · {fmtNumber(c.surface_min)} à {fmtNumber(c.surface_max)} m²
+                        {getSourceLabel(c.source)} · {fmtEur(c.prix_min)} à {fmtEur(c.prix_max)} · {fmtNumber(c.surface_min)} à {fmtNumber(c.surface_max)} m²
                       </div>
                     </div>
                     <button type="button" onClick={() => onRunCollecte(c.id)} disabled={collecting} style={{ ...S.buttonSecondary, background: S.accentBg, color: S.accent, opacity: collecting ? 0.55 : 1 }}>
@@ -2006,7 +2152,7 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
       <div style={S.cardStyle}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Liens générés</h3>
         <p style={{ margin: "6px 0 14px", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
-          Ouvre les recherches une par une. Commence par les recherches larges, puis utilise les variantes par mots-clés. Ensuite, colle les URLs des annonces intéressantes dans l’onglet “Importer des annonces”.
+          Ouvre les recherches une par une. Commence par les recherches larges, puis utilise les variantes par mots-clés. Ensuite, colle les URLs Leboncoin ou SeLoger intéressantes dans l’onglet “Importer des annonces”.
         </p>
 
         {Array.isArray(collecteUrls) && collecteUrls.length > 0 ? (
@@ -2014,7 +2160,7 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
             {collecteUrls.map((item, index) => (
               <div key={`${item.critere_id || index}-${item.url}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "11px 12px", background: S.inputBg }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.label || item.nom || `Recherche ${index + 1}`}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><Pill bg={S.accentBg} color={S.accent}>{item.portal === "seloger" ? "SeLoger" : "Leboncoin"}</Pill><span style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.label || item.nom || `Recherche ${index + 1}`}</span></div>
                   <div style={{ marginTop: 3, fontSize: 12, color: S.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 620 }}>{item.url}</div>
                 </div>
                 <a href={item.url} target="_blank" rel="noreferrer" style={{ ...S.buttonPrimary, textDecoration: "none", whiteSpace: "nowrap" }}>
@@ -2141,7 +2287,9 @@ function CriteresTab({
             </Field>
             <Field label="Source" T={T}>
               <select value={critereForm.source} onChange={(e) => updateCritereField("source", e.target.value)} style={S.inputStyle}>
-                <option value="leboncoin_direct">Leboncoin direct</option>
+                <option value="multi_sources">Toutes sources</option>
+                <option value="leboncoin_direct">Leboncoin</option>
+                <option value="seloger_direct">SeLoger</option>
                 <option value="manual">Manuel</option>
                 <option value="email_alert">Alerte email</option>
                 <option value="csv">CSV</option>
@@ -2185,7 +2333,7 @@ function CriteresTab({
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
                   <div>
                     <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>{c.nom}</h3>
-                    <p style={{ margin: "5px 0 0", fontSize: 13, color: S.textSub }}>Source : {c.source || "—"} · Fréquence : {c.frequence || "—"}</p>
+                    <p style={{ margin: "5px 0 0", fontSize: 13, color: S.textSub }}>Source : {getSourceLabel(c.source)} · Fréquence : {c.frequence || "—"}</p>
                   </div>
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button type="button" onClick={() => onToggle(c)} style={{ ...S.buttonSecondary, background: c.actif ? "rgba(34,197,94,0.12)" : S.inputBg, color: c.actif ? "#15803d" : S.textSub }}>
@@ -2238,7 +2386,7 @@ function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubm
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
           <Field label="Titre" T={T}><input value={newAnnonce.titre} onChange={(e) => updateAnnonceField("titre", e.target.value)} style={S.inputStyle} placeholder="Maison à rénover avec dépendance" /></Field>
-          <Field label="Lien source" T={T}><input value={newAnnonce.source_url} onChange={(e) => updateAnnonceField("source_url", e.target.value)} style={S.inputStyle} placeholder="https://www.leboncoin.fr/..." /></Field>
+          <Field label="Lien source" T={T}><input value={newAnnonce.source_url} onChange={(e) => updateAnnonceField("source_url", e.target.value)} style={S.inputStyle} placeholder="https://www.leboncoin.fr/... ou https://www.seloger.com/..." /></Field>
           <Field label="Prix" T={T}><input type="number" value={newAnnonce.prix} onChange={(e) => updateAnnonceField("prix", e.target.value)} style={S.inputStyle} placeholder="180000" /></Field>
           <Field label="Surface m²" T={T}><input type="number" value={newAnnonce.surface_m2} onChange={(e) => updateAnnonceField("surface_m2", e.target.value)} style={S.inputStyle} placeholder="150" /></Field>
           <Field label="Ville" T={T}><input value={newAnnonce.ville} onChange={(e) => updateAnnonceField("ville", e.target.value)} style={S.inputStyle} placeholder="Angers" /></Field>
@@ -2265,7 +2413,7 @@ function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubm
       <form onSubmit={onImportUrls} style={S.cardStyle}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Importer des URLs d’annonces</h2>
         <p style={{ margin: "6px 0 14px", fontSize: 13, lineHeight: 1.6, color: S.textSub }}>
-          Colle une ou plusieurs URLs Leboncoin repérées depuis les recherches assistées. L’application crée les lignes dans le sourcing et les marque “À analyser”.
+          Colle une ou plusieurs URLs Leboncoin ou SeLoger repérées depuis les recherches assistées. L’application crée les lignes dans le sourcing et les marque “À analyser”.
         </p>
 
         <Field label="URLs d’annonces" T={T}>
@@ -2307,7 +2455,7 @@ function LogsTab({ T, logs }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Historique et logs</h2>
-        <p style={{ margin: "6px 0 0", fontSize: 13, color: S.textSub }}>Cette zone affichera les exécutions de collecte Leboncoin et les imports.</p>
+        <p style={{ margin: "6px 0 0", fontSize: 13, color: S.textSub }}>Cette zone affiche les générations de recherches portails, les imports et les tentatives de collecte.</p>
       </div>
       {logs.length === 0 ? (
         <div style={{ ...S.cardStyle, borderStyle: "dashed", boxShadow: "none", color: S.textSub }}>Aucun log pour le moment.</div>
