@@ -151,12 +151,33 @@ function getCategory(score) {
 }
 
 function getAgeBadge(annonce) {
-  const days = daysBetween(annonce?.premiere_detection || annonce?.created_at);
+  const days = daysBetween(annonce?.first_seen_property_at || annonce?.premiere_detection || annonce?.created_at);
   if (days === null) return { label: "—", bg: "rgba(148,163,184,0.14)", color: "#64748b" };
-  if (days <= 7) return { label: "🟢 Frais", bg: "rgba(34,197,94,0.10)", color: "#15803d" };
-  if (days <= 21) return { label: "🟡 En marché", bg: "rgba(234,179,8,0.12)", color: "#a16207" };
-  if (days <= 45) return { label: "🟠 À surveiller", bg: "rgba(249,115,22,0.12)", color: "#c2410c" };
+  if (days <= 7) return { label: "🟢 Bien frais", bg: "rgba(34,197,94,0.10)", color: "#15803d" };
+  if (days <= 21) return { label: "🟡 Bien en marché", bg: "rgba(234,179,8,0.12)", color: "#a16207" };
+  if (days <= 45) return { label: "🟠 Bien à surveiller", bg: "rgba(249,115,22,0.12)", color: "#c2410c" };
   return { label: "🔴 Négociation possible", bg: "rgba(239,68,68,0.12)", color: "#b91c1c" };
+}
+
+function getListingAgeBadge(annonce) {
+  const days = daysBetween(annonce?.first_seen_listing_at || annonce?.premiere_detection || annonce?.created_at);
+  if (days === null) return { label: "—", bg: "rgba(148,163,184,0.14)", color: "#64748b" };
+  if (days <= 7) return { label: `${days} j`, bg: "rgba(34,197,94,0.10)", color: "#15803d" };
+  if (days <= 21) return { label: `${days} j`, bg: "rgba(234,179,8,0.12)", color: "#a16207" };
+  if (days <= 45) return { label: `${days} j`, bg: "rgba(249,115,22,0.12)", color: "#c2410c" };
+  return { label: `${days} j`, bg: "rgba(239,68,68,0.12)", color: "#b91c1c" };
+}
+
+function getRelistBadge(annonce) {
+  const relistCount = Number(annonce?.relist_count || 0);
+  const confidence = Number(annonce?.matching_confidence || 0);
+  if (relistCount > 0 && confidence >= 85) {
+    return { label: `Remis en ligne · confiance ${confidence}%`, bg: "rgba(239,68,68,0.12)", color: "#b91c1c" };
+  }
+  if (confidence >= 70) {
+    return { label: `Déjà vu possible · confiance ${confidence}%`, bg: "rgba(245,158,11,0.14)", color: "#b45309" };
+  }
+  return null;
 }
 
 function getCategoryStyle(category) {
@@ -181,6 +202,198 @@ function getLogSearchUrl(log) {
   if (typeof details?.url === "string") return details.url;
   if (Array.isArray(details?.urls_recherche) && details.urls_recherche[0]?.url) return details.urls_recherche[0].url;
   return "";
+}
+
+function normalizeIdentityText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getIdentityTokens(value, limit = 16) {
+  const stop = new Set(["maison", "appartement", "vente", "immobilier", "annonce", "pieces", "piece", "m2", "avec", "pour", "dans", "sur", "une", "des", "les", "aux", "proche", "secteur"]);
+  return normalizeIdentityText(value)
+    .split(" ")
+    .filter((token) => token.length >= 3 && !stop.has(token))
+    .slice(0, limit);
+}
+
+function tokenSimilarity(a, b) {
+  const A = new Set(getIdentityTokens(a, 28));
+  const B = new Set(getIdentityTokens(b, 28));
+  if (!A.size || !B.size) return 0;
+  let common = 0;
+  for (const token of A) if (B.has(token)) common += 1;
+  return common / Math.max(A.size, B.size);
+}
+
+function withinPercent(a, b, percent) {
+  const na = Number(a || 0);
+  const nb = Number(b || 0);
+  if (!na || !nb) return false;
+  return Math.abs(na - nb) / Math.max(na, nb) <= percent;
+}
+
+function getPhotoSignature(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    const path = parsed.pathname.split("/").filter(Boolean);
+    const last = path[path.length - 1] || "";
+    return normalizeIdentityText(last.replace(/\.(jpg|jpeg|png|webp|avif)$/i, ""));
+  } catch {
+    const clean = raw.split("?")[0].split("#")[0];
+    const last = clean.split("/").filter(Boolean).pop() || clean;
+    return normalizeIdentityText(last.replace(/\.(jpg|jpeg|png|webp|avif)$/i, ""));
+  }
+}
+
+function buildPropertyFingerprint(annonce = {}) {
+  const ville = normalizeIdentityText(annonce.ville || annonce.code_postal || "zone");
+  const type = normalizeIdentityText(annonce.type_bien || "bien");
+  const surface = annonce.surface_m2 ? `${Math.round(Number(annonce.surface_m2) / 5) * 5}m2` : "surfacex";
+  const pieces = annonce.nb_pieces ? `${Math.round(Number(annonce.nb_pieces))}p` : "piecesx";
+  const tokens = getIdentityTokens(`${annonce.titre || ""} ${annonce.description || ""}`, 8).join("-");
+  return [ville, type, surface, pieces, tokens].filter(Boolean).join("-").slice(0, 220);
+}
+
+function uniqueStrings(values = []) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((v) => String(v || "").trim()).filter(Boolean)));
+}
+
+function comparePropertySimilarity(candidate = {}, existing = {}) {
+  const notes = [];
+  let score = 0;
+
+  const sameExternal = candidate.external_id && existing.external_id && String(candidate.external_id) === String(existing.external_id);
+  const sameUrl = candidate.source_url && existing.source_url && String(candidate.source_url) === String(existing.source_url);
+  if (sameExternal || sameUrl) return { score: 100, notes: ["Même URL ou même identifiant source"] };
+
+  const candidatePhoto = getPhotoSignature(candidate.url_photo) || candidate.photo_signature || "";
+  const existingPhoto = getPhotoSignature(existing.url_photo) || existing.photo_signature || "";
+
+  // Coefficient fort demandé : la photo pèse plus lourd que les autres signaux.
+  // Même signature photo = signal quasi déterminant, sans être le seul critère.
+  if (candidatePhoto && existingPhoto && candidatePhoto === existingPhoto) {
+    score += 40;
+    notes.push("Photo identique ou très proche (+40)");
+  }
+
+  const cityA = normalizeIdentityText(candidate.ville || candidate.code_postal);
+  const cityB = normalizeIdentityText(existing.ville || existing.code_postal);
+  if (cityA && cityB && cityA === cityB) {
+    score += 20;
+    notes.push("Ville / zone identique (+20)");
+  } else if (candidate.code_postal && existing.code_postal && String(candidate.code_postal).slice(0, 2) === String(existing.code_postal).slice(0, 2)) {
+    score += 10;
+    notes.push("Même département (+10)");
+  }
+
+  if (withinPercent(candidate.surface_m2, existing.surface_m2, 0.05)) {
+    score += 18;
+    notes.push("Surface proche à ±5 % (+18)");
+  } else if (withinPercent(candidate.surface_m2, existing.surface_m2, 0.1)) {
+    score += 10;
+    notes.push("Surface proche à ±10 % (+10)");
+  }
+
+  if (candidate.nb_pieces && existing.nb_pieces && Number(candidate.nb_pieces) === Number(existing.nb_pieces)) {
+    score += 10;
+    notes.push("Nombre de pièces identique (+10)");
+  }
+
+  if (withinPercent(candidate.prix, existing.prix, 0.1)) {
+    score += 10;
+    notes.push("Prix proche à ±10 % (+10)");
+  }
+
+  const titleSim = tokenSimilarity(candidate.titre, existing.titre);
+  if (titleSim >= 0.55) {
+    score += 10;
+    notes.push("Titre similaire (+10)");
+  } else if (titleSim >= 0.35) {
+    score += 5;
+    notes.push("Titre partiellement similaire (+5)");
+  }
+
+  const descSim = tokenSimilarity(candidate.description, existing.description);
+  if (descSim >= 0.45) {
+    score += 8;
+    notes.push("Description similaire (+8)");
+  }
+
+  const typeA = normalizeIdentityText(candidate.type_bien);
+  const typeB = normalizeIdentityText(existing.type_bien);
+  if (typeA && typeB && typeA === typeB) {
+    score += 5;
+    notes.push("Typologie identique (+5)");
+  }
+
+  return { score: Math.min(100, Math.round(score)), notes };
+}
+
+function findBestPropertyMatch(candidate = {}, annonces = [], currentId = null) {
+  let best = null;
+  for (const existing of Array.isArray(annonces) ? annonces : []) {
+    if (!existing?.id || existing.id === currentId) continue;
+    const result = comparePropertySimilarity(candidate, existing);
+    if (!best || result.score > best.confidence) {
+      best = { annonce: existing, confidence: result.score, notes: result.notes };
+    }
+  }
+  return best && best.confidence >= 70 ? best : null;
+}
+
+function buildIdentityPayload(candidate = {}, annonces = [], now = new Date().toISOString(), currentId = null) {
+  const match = findBestPropertyMatch(candidate, annonces, currentId);
+  const photoSignature = getPhotoSignature(candidate.url_photo);
+  const fingerprint = buildPropertyFingerprint(candidate);
+
+  if (!match) {
+    return {
+      property_fingerprint: fingerprint,
+      photo_signature: photoSignature || null,
+      first_seen_property_at: candidate.first_seen_property_at || candidate.premiere_detection || now,
+      first_seen_listing_at: candidate.first_seen_listing_at || candidate.premiere_detection || now,
+      last_seen_at: now,
+      relist_count: Number(candidate.relist_count || 0),
+      previous_urls: uniqueStrings(candidate.previous_urls || []),
+      matching_confidence: 0,
+      possible_duplicate_of: null,
+      similarity_notes: [],
+    };
+  }
+
+  const existing = match.annonce;
+  const previousUrls = uniqueStrings([
+    ...(existing.previous_urls || []),
+    existing.source_url,
+    ...(candidate.previous_urls || []),
+  ].filter((url) => url && url !== candidate.source_url));
+
+  const sureRelist = match.confidence >= 85;
+
+  return {
+    property_fingerprint: fingerprint,
+    photo_signature: photoSignature || null,
+    first_seen_property_at: existing.first_seen_property_at || existing.premiere_detection || existing.created_at || now,
+    first_seen_listing_at: candidate.first_seen_listing_at || candidate.premiere_detection || now,
+    last_seen_at: now,
+    relist_count: sureRelist ? Number(existing.relist_count || 0) + 1 : Number(candidate.relist_count || 0),
+    previous_urls: previousUrls,
+    matching_confidence: match.confidence,
+    possible_duplicate_of: existing.id,
+    similarity_notes: match.notes || [],
+  };
+}
+
+function isRelistedAnnonce(annonce) {
+  return Number(annonce?.relist_count || 0) > 0 || Number(annonce?.matching_confidence || 0) >= 85;
 }
 
 
@@ -480,6 +693,24 @@ function computeSourcingAnalysis(annonce) {
     pointsForts.push("Typologie rare ou recherchée");
   }
 
+  const propertyAge = daysBetween(annonce?.first_seen_property_at || annonce?.premiere_detection || annonce?.created_at);
+  if (propertyAge !== null && propertyAge >= 45) {
+    score += 8;
+    pointsForts.push(`Bien déjà exposé depuis ${propertyAge} jours : potentiel de négociation à vérifier`);
+  } else if (propertyAge !== null && propertyAge >= 22) {
+    score += 4;
+    pointsForts.push(`Bien déjà en marché depuis ${propertyAge} jours`);
+  }
+
+  if (isRelistedAnnonce(annonce)) {
+    score += 6;
+    pointsForts.push("Annonce probablement remise en ligne : signal de négociation ou de difficulté à vendre");
+  }
+
+  if (Number(annonce?.matching_confidence || 0) >= 70 && Number(annonce?.matching_confidence || 0) < 85) {
+    pointsFaibles.push(`Doublon possible à vérifier manuellement : similarité ${Math.round(Number(annonce.matching_confidence))}%`);
+  }
+
   if (detectedNegative.length > 0) {
     const malus = Math.min(20, detectedNegative.length * 8);
     score -= malus;
@@ -501,7 +732,7 @@ function computeSourcingAnalysis(annonce) {
     points_faibles: pointsFaibles.length ? pointsFaibles : ["Aucun point bloquant détecté automatiquement"],
     commentaire_analyse:
       score >= 65
-        ? "Bien intéressant pour Profero Invest. À qualifier rapidement : état technique, divisibilité, règlement d’urbanisme, potentiel locatif et marge de négociation."
+        ? "Bien intéressant pour Profero Invest. À qualifier rapidement : état technique, divisibilité, règlement d’urbanisme, potentiel locatif, ancienneté réelle et marge de négociation."
         : "Bien à surveiller ou à analyser manuellement avant décision.",
   };
 }
@@ -678,7 +909,7 @@ export default function Sourcing({ profil, T }) {
     const drops = annonces.filter((a) => hasPriceDrop(a)).length;
     const toContact = annonces.filter((a) => a.statut === "a_contacter").length;
     const old = annonces.filter((a) => {
-      const d = daysBetween(a.premiere_detection || a.created_at);
+      const d = daysBetween(a.first_seen_property_at || a.premiere_detection || a.created_at);
       return d !== null && d >= 45;
     }).length;
     const top = [...annonces]
@@ -722,8 +953,10 @@ export default function Sourcing({ profil, T }) {
       is_archived: false,
     };
 
-    const analysis = computeSourcingAnalysis(payload);
-    const { error } = await supabase.from("sourcing_annonces").insert({ ...payload, ...analysis });
+    const identity = buildIdentityPayload(payload, annonces, now);
+    const finalPayload = { ...payload, ...identity };
+    const analysis = computeSourcingAnalysis(finalPayload);
+    const { error } = await supabase.from("sourcing_annonces").insert({ ...finalPayload, ...analysis });
 
     if (error) {
       console.error(error);
@@ -754,12 +987,15 @@ export default function Sourcing({ profil, T }) {
   }
 
   async function handleAnalyseAnnonce(annonce) {
-    const analysis = computeSourcingAnalysis(annonce);
+    const now = new Date().toISOString();
+    const identity = buildIdentityPayload(annonce, annonces, now, annonce.id);
+    const enriched = { ...annonce, ...identity };
+    const analysis = computeSourcingAnalysis(enriched);
     const nextStatut = annonce.statut === "nouveau" ? "a_analyser" : annonce.statut;
 
     const { error } = await supabase
       .from("sourcing_annonces")
-      .update({ ...analysis, statut: nextStatut })
+      .update({ ...identity, ...analysis, statut: nextStatut })
       .eq("id", annonce.id);
 
     if (error) {
@@ -768,8 +1004,8 @@ export default function Sourcing({ profil, T }) {
       return;
     }
 
-    setAnnonces((prev) => prev.map((a) => (a.id === annonce.id ? { ...a, ...analysis, statut: nextStatut } : a)));
-    alert(`Analyse terminée : score ${analysis.score_opportunite}/100 — catégorie ${analysis.categorie}`);
+    setAnnonces((prev) => prev.map((a) => (a.id === annonce.id ? { ...a, ...identity, ...analysis, statut: nextStatut } : a)));
+    alert(`Analyse terminée : score ${analysis.score_opportunite}/100 — catégorie ${analysis.categorie}${identity.matching_confidence >= 70 ? `\nSimilarité bien existant : ${identity.matching_confidence}%` : ""}`);
   }
 
   async function captureAnnonceFromUrl(url) {
@@ -828,10 +1064,13 @@ export default function Sourcing({ profil, T }) {
       ...capture.fields,
       derniere_detection: now,
     };
-    const analysis = computeSourcingAnalysis(merged);
+    const identity = buildIdentityPayload(merged, annonces, now, annonce.id);
+    const enriched = { ...merged, ...identity };
+    const analysis = computeSourcingAnalysis(enriched);
 
     const updatePayload = {
       ...capture.fields,
+      ...identity,
       ...analysis,
       derniere_detection: now,
     };
@@ -979,8 +1218,10 @@ L’annonce reste modifiable manuellement.`
     };
 
     const merged = { ...editingAnnonce, ...payload };
-    const analysis = computeSourcingAnalysis(merged);
-    const updatePayload = { ...payload, ...analysis };
+    const identity = buildIdentityPayload(merged, annonces, now, editingAnnonce.id);
+    const enriched = { ...merged, ...identity };
+    const analysis = computeSourcingAnalysis(enriched);
+    const updatePayload = { ...payload, ...identity, ...analysis };
 
     if (payload.prix) {
       const currentHistory = Array.isArray(editingAnnonce.prix_historique) ? editingAnnonce.prix_historique : [];
@@ -1243,9 +1484,12 @@ L’annonce reste modifiable manuellement.`
 
       if (merged.prix) merged.prix_historique = [{ date: now, prix: Number(merged.prix) }];
 
+      const identity = buildIdentityPayload(merged, [...annonces, ...payloads], now);
+      const finalPayload = { ...merged, ...identity };
+
       payloads.push({
-        ...merged,
-        ...computeSourcingAnalysis(merged),
+        ...finalPayload,
+        ...computeSourcingAnalysis(finalPayload),
       });
     }
 
@@ -1627,14 +1871,17 @@ function AnnoncesTab({
                 <Th T={T}>Prix/m²</Th>
                 <Th T={T}>Score</Th>
                 <Th T={T}>Catégorie</Th>
-                <Th T={T}>Ancienneté</Th>
+                <Th T={T}>Annonce</Th>
+                <Th T={T}>Bien réel</Th>
                 <Th T={T}>Statut</Th>
                 <Th T={T}>Actions</Th>
               </tr>
             </thead>
             <tbody>
               {annonces.map((a) => {
-                const badge = getAgeBadge(a);
+                const listingBadge = getListingAgeBadge(a);
+                const propertyBadge = getAgeBadge(a);
+                const relistBadge = getRelistBadge(a);
                 const catStyle = getCategoryStyle(a.categorie);
                 return (
                   <tr key={a.id} style={{ borderTop: `1px solid ${S.border}`, verticalAlign: "top" }}>
@@ -1653,6 +1900,7 @@ function AnnoncesTab({
                             </a>
                           )}
                           {hasPriceDrop(a) && <div style={{ marginTop: 5, fontSize: 12, fontWeight: 900, color: "#b91c1c" }}>Baisse de prix détectée</div>}
+                          {relistBadge ? <div style={{ marginTop: 6 }}><Pill bg={relistBadge.bg} color={relistBadge.color}>{relistBadge.label}</Pill></div> : null}
                         </div>
                       </div>
                     </Td>
@@ -1662,7 +1910,13 @@ function AnnoncesTab({
                     <Td T={T}>{fmtEur(a.prix_m2)}</Td>
                     <Td T={T} strong>{fmtNumber(a.score_opportunite)}/100</Td>
                     <Td T={T}><Pill bg={catStyle.bg} color={catStyle.color}>{a.categorie || "D"}</Pill></Td>
-                    <Td T={T}><Pill bg={badge.bg} color={badge.color}>{badge.label}</Pill></Td>
+                    <Td T={T}><Pill bg={listingBadge.bg} color={listingBadge.color}>{listingBadge.label}</Pill></Td>
+                    <Td T={T}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        <Pill bg={propertyBadge.bg} color={propertyBadge.color}>{propertyBadge.label}</Pill>
+                        {relistBadge ? <Pill bg={relistBadge.bg} color={relistBadge.color}>{relistBadge.label}</Pill> : null}
+                      </div>
+                    </Td>
                     <Td T={T}>
                       <select value={a.statut || "nouveau"} onChange={(e) => onUpdateStatut(a, e.target.value)} style={{ ...S.inputStyle, width: 160 }}>
                         {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
