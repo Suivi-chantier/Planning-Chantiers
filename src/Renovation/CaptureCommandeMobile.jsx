@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase, photoTransform } from "../supabase";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT } from "../constants";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
@@ -75,7 +75,7 @@ async function analyseCommande(images) {
   return JSON.parse(clean);
 }
 
-const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", phase_id: "" });
+const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", lot_id: "" });
 
 export default function CaptureCommandeMobile({ chantiers = [], T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
@@ -83,6 +83,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const [recents, setRecents] = useState([]);
   const [loadingRecents, setLoadingRecents] = useState(true);
   const [phasages, setPhasages] = useState([]);
+  const [lots, setLots] = useState(LOTS_DEFAUT);
 
   // Brouillon de saisie
   const [chantierDefaut, setChantierDefaut] = useState(() => localStorage.getItem(LS_DERNIER_CHANTIER) || "");
@@ -124,6 +125,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   useEffect(() => {
     supabase.from("phasages").select("id, chantier_id, plan_travaux")
       .then(({ data }) => setPhasages(data || []));
+    loadLots().then(setLots);
   }, []);
 
   const phasageForChantier = useCallback(
@@ -195,7 +197,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             prix_unitaire: l.prix_unitaire != null ? String(l.prix_unitaire) : "",
             prix_total: l.prix_total != null ? String(l.prix_total) : "",
             chantier_id: "",
-            phase_id: "",
+            lot_id: "",
           }))
         : [ligneVide()];
       setForm({
@@ -258,8 +260,8 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         const pt = toNum(l.prix_total);
         const q = toNum(l.quantite);
         const effCh = (repartir ? l.chantier_id : chantierDefaut) || null;
-        const phaseId = l.phase_id || null;
-        const phRow = (phaseId && effCh) ? phasageForChantier(effCh) : null;
+        const lotId = l.lot_id || null;
+        const phRow = effCh ? phasageForChantier(effCh) : null;
         return {
           commande_id: cmd.id,
           libelle: l.libelle.trim() || "",
@@ -271,7 +273,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           prix_verrouille: dejaPaye, // coût définitif si payé direct
           chantier_id: effCh,
           phasage_id: phRow ? phRow.id : null,
-          phase_id: phRow ? phaseId : null,
+          lot_id: lotId,
         };
       });
 
@@ -503,7 +505,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
       const pt1 = (pt != null && q && q > 0) ? +(pt * q1 / q).toFixed(2) : null;
       const pt2 = (pt != null && q && q > 0) ? +(pt - pt1).toFixed(2) : null;
       const a = { ...l, quantite: q1 != null ? String(q1) : l.quantite, prix_total: pt1 != null ? String(pt1) : l.prix_total };
-      const b = { ...l, quantite: q2 != null ? String(q2) : "", prix_total: pt2 != null ? String(pt2) : "", chantier_id: "", phase_id: "" };
+      const b = { ...l, quantite: q2 != null ? String(q2) : "", prix_total: pt2 != null ? String(pt2) : "", chantier_id: "", lot_id: "" };
       const lignes = [...f.lignes];
       lignes.splice(i, 1, a, b);
       return { ...f, lignes };
@@ -604,7 +606,6 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
       <div style={labelStyle}>Articles ({form.lignes.length})</div>
       {form.lignes.map((l, i) => {
         const effCh = repartir ? l.chantier_id : chantierDefaut;
-        const phaseOpts = effCh ? phasesForChantier(effCh) : [];
         return (
         <div key={i} style={card}>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -622,15 +623,15 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             <input inputMode="decimal" value={l.prix_total} onChange={e => setLigne(i, { prix_total: e.target.value })} placeholder="Total €" style={inputStyle} />
           </div>
           {repartir && (
-            <select value={l.chantier_id} onChange={e => setLigne(i, { chantier_id: e.target.value, phase_id: "" })} style={inputStyle}>
+            <select value={l.chantier_id} onChange={e => setLigne(i, { chantier_id: e.target.value, lot_id: "" })} style={inputStyle}>
               <option value="">— Chantier de cette ligne —</option>
               {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom || c.id}</option>)}
             </select>
           )}
-          {phaseOpts.length > 0 && (
-            <select value={l.phase_id} onChange={e => setLigne(i, { phase_id: e.target.value })} style={{ ...inputStyle, marginTop: repartir ? 8 : 0 }}>
-              <option value="">— Phase (optionnel) —</option>
-              {phaseOpts.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          {lots.length > 0 && (
+            <select value={l.lot_id} onChange={e => setLigne(i, { lot_id: e.target.value })} style={{ ...inputStyle, marginTop: repartir ? 8 : 0 }}>
+              <option value="">— Lot (optionnel) —</option>
+              {lots.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
             </select>
           )}
         </div>

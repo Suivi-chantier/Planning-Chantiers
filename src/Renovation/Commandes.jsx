@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
-import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT } from "../constants";
+import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
@@ -185,8 +185,32 @@ function PhaseSelector({ phasageId, phaseId, onChangePhasage, onChangePhase, pha
   );
 }
 
+// ─── COMPOSANT SÉLECTEUR LOT (V2) ─────────────────────────────────────────────
+// Choisit un chantier (phasage) puis un LOT (liste globale, planning_config).
+// Remplace PhaseSelector pour la ventilation des commandes en modèle V2.
+function LotSelector({ phasageId, lotId, onChangePhasage, onChangeLot, phasages, lots, T, compact = false }) {
+  const selStyle = {
+    background: "#12162a", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: 6,
+    padding: compact ? "5px 8px" : "8px 10px", color: P.text,
+    fontFamily: "inherit", fontSize: compact ? 12 : 13, outline: "none",
+    width: "100%", boxSizing: "border-box",
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <select value={phasageId || ""} onChange={e => onChangePhasage(e.target.value)} style={selStyle}>
+        <option value="">— Chantier / Phasage —</option>
+        {phasages.map(p => <option key={p.id} value={p.id}>{p.chantier_nom}</option>)}
+      </select>
+      <select value={lotId || ""} onChange={e => onChangeLot(e.target.value)} style={selStyle}>
+        <option value="">— Lot —</option>
+        {(lots || []).map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
 // ─── MODALE IMPORT DOCUMENT ───────────────────────────────────────────────────
-function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) {
+function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots, T }) {
   const [step, setStep] = useState("upload"); // upload | analysing | validation
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -194,7 +218,7 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
   const [erreur, setErreur] = useState("");
   const [fournisseurGlobal, setFournisseurGlobal] = useState("");
   const [phasageGlobal, setPhasageGlobal] = useState("");
-  const [phaseGlobale, setPhaseGlobale] = useState("");
+  const [lotGlobal, setLotGlobal] = useState("");
   const [importing, setImporting] = useState(false);
   const dropRef = useRef(null);
 
@@ -296,7 +320,7 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
         prix_total: l.prix_total ?? "",
         materiau_id: tryMatchBiblio(l.designation, l.reference),
         phasage_id: "",
-        phase_id: "",
+        lot_id: "",
       }));
 
       setLignes(lignesInit);
@@ -311,7 +335,7 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
   const appliquerGlobal = () => {
     setLignes(prev => prev.map(l =>
       l.selected
-        ? { ...l, phasage_id: phasageGlobal, phase_id: phaseGlobale }
+        ? { ...l, phasage_id: phasageGlobal, lot_id: lotGlobal }
         : l
     ));
   };
@@ -531,13 +555,14 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                       />
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: P.textMuted, marginBottom: 5, fontWeight: 600 }}>Plan de travail par défaut</div>
-                      <PhaseSelector
+                      <div style={{ fontSize: 11, color: P.textMuted, marginBottom: 5, fontWeight: 600 }}>Lot par défaut</div>
+                      <LotSelector
                         phasageId={phasageGlobal}
-                        phaseId={phaseGlobale}
+                        lotId={lotGlobal}
                         onChangePhasage={setPhasageGlobal}
-                        onChangePhase={setPhaseGlobale}
+                        onChangeLot={setLotGlobal}
                         phasages={phasages}
+                        lots={lots}
                         T={T}
                         compact
                       />
@@ -623,14 +648,15 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, T }) 
                           <div>
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: P.textMuted, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>
                               <Icon as={ListChecks} size={11}/>
-                              Plan de travail
+                              Lot
                             </div>
-                            <PhaseSelector
+                            <LotSelector
                               phasageId={l.phasage_id}
-                              phaseId={l.phase_id}
+                              lotId={l.lot_id}
                               onChangePhasage={v => updateLigne(l._id, "phasage_id", v)}
-                              onChangePhase={v => updateLigne(l._id, "phase_id", v)}
+                              onChangeLot={v => updateLigne(l._id, "lot_id", v)}
                               phasages={phasages}
+                              lots={lots}
                               T={T}
                               compact
                             />
@@ -1133,11 +1159,14 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const [editDraft, setEditDraft] = useState(null);
   const [modaleCommande, setModaleCommande] = useState(null);
   const [phasages, setPhasages] = useState([]);
+  const [lots, setLots] = useState(LOTS_DEFAUT);
+  const lotLabel = (id) => lots.find(l => l.id === id)?.label || id;
   const [modalePrix, setModalePrix] = useState("");
   // Note : modalePhaseId est l'ID du PHASAGE (chantier). modalePhaseInterne
   // est l'ID de la phase (ex: "plomberie_ro") sur laquelle on rattache la cmd.
   const [modalePhaseId, setModalePhaseId] = useState("");
   const [modalePhaseInterne, setModalePhaseInterne] = useState("");
+  const [modaleLotId, setModaleLotId] = useState("");
   const [panneauOuvert, setPanneauOuvert] = useState(false);
   const [modaleImport, setModaleImport] = useState(false);
   const [besoins, setBesoins] = useState([]); // demandes ouvrier (nouveau modèle)
@@ -1153,7 +1182,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     // de l'en-tête commande (fournisseur, statuts, notes…).
     const { data } = await supabase
       .from("commande_lignes")
-      .select("id, commande_id, libelle, reference, quantite, prix_total, prix_unitaire, prix_verrouille, materiau_id, chantier_id, phasage_id, phase_id, created_at, commande:commandes(fournisseur_nom, notes, saisi_par, statut_completude, statut_facturation, doc_numero, numero_en_attente, type_evenement, created_at)")
+      .select("id, commande_id, libelle, reference, quantite, prix_total, prix_unitaire, prix_verrouille, materiau_id, chantier_id, phasage_id, phase_id, lot_id, created_at, commande:commandes(fournisseur_nom, notes, saisi_par, statut_completude, statut_facturation, doc_numero, numero_en_attente, type_evenement, created_at)")
       .order("created_at", { ascending: true });
     if (data) {
       setRows(data.map(l => {
@@ -1172,6 +1201,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           materiau_id:       l.materiau_id || null,
           phasage_id:        l.phasage_id || null,
           phase_id:          l.phase_id || "",
+          lot_id:            l.lot_id || "",
           notes:             c.notes || "",
           ouvrier_demandeur: c.saisi_par || "",
           priorite:          "normal",
@@ -1204,6 +1234,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     loadMateriaux();
     loadBesoins();
     supabase.from("phasages").select("id,chantier_id,chantier_nom,plan_travaux").then(({ data }) => setPhasages(data || []));
+    loadLots().then(setLots);
   }, []);
 
   useEffect(() => {
@@ -1240,6 +1271,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
         chantier_id: ch,
         phasage_id:  l.phasage_id || null,
         phase_id:    l.phase_id || null,
+        lot_id:      l.lot_id || null,
       };
     });
     await supabase.from("commande_lignes").insert(payload);
@@ -1298,7 +1330,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
       const { error } = await supabase.from("commande_lignes").update({
         libelle: row.article || "", quantite: qNum, prix_total: pNum,
         materiau_id: row.materiau_id || null, chantier_id: row.chantier_id || null,
-        phasage_id: row.phasage_id || null, phase_id: row.phase_id || null,
+        phasage_id: row.phasage_id || null, phase_id: row.phase_id || null, lot_id: row.lot_id || null,
       }).eq("id", editRow);
       if (error) { alert("Erreur sauvegarde : " + error.message); load(); return; }
       if (row.commande_id) {
@@ -1320,7 +1352,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
       await supabase.from("commande_lignes").insert({
         commande_id: cmd.id, libelle: row.article || "", quantite: qNum, prix_total: pNum,
         materiau_id: row.materiau_id || null, chantier_id: row.chantier_id || null,
-        phasage_id: row.phasage_id || null, phase_id: row.phase_id || null,
+        phasage_id: row.phasage_id || null, phase_id: row.phase_id || null, lot_id: row.lot_id || null,
       });
     }
     setEditRow(null); setNewRow(null); setEditDraft(null);
@@ -1412,13 +1444,13 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     setTimeout(() => w.print(), 400);
   };
 
-  // Clic sur le statut -> modale d'enrichissement (prix + phase) pour compléter.
+  // Clic sur le statut -> modale d'enrichissement (prix + lot) pour compléter.
   const cycleStatut = (row) => {
     setModalePrix(row.prix_ht != null ? String(row.prix_ht) : "");
     // Pré-sélectionne le phasage du chantier de la ligne (si la ligne n'en a pas déjà un).
     const phForChantier = phasages.find(p => String(p.chantier_id) === String(row.chantier_id));
     setModalePhaseId(row.phasage_id || phForChantier?.id || "");
-    setModalePhaseInterne(row.phase_id || "");
+    setModaleLotId(row.lot_id || "");
     setModaleCommande({ row });
   };
 
@@ -1427,9 +1459,9 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     const { row } = modaleCommande;
     const prix = parseFloat(modalePrix) || null;
     const lineUpdate = { prix_total: prix };
-    if (modalePhaseId && modalePhaseInterne) {
+    if (modalePhaseId) {
       lineUpdate.phasage_id = modalePhaseId;
-      lineUpdate.phase_id = modalePhaseInterne;
+      if (modaleLotId) lineUpdate.lot_id = modaleLotId;
       const chId = phasages.find(p => p.id === modalePhaseId)?.chantier_id;
       if (chId) lineUpdate.chantier_id = chId;
     }
@@ -1507,6 +1539,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           materiaux={materiaux}
           phasages={phasages}
           chantiers={chantiers}
+          lots={lots}
           T={T}
         />
       )}
@@ -1571,8 +1604,8 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                 <label style={{
                   fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase",
                   letterSpacing: 1, display: "block", marginBottom: 6,
-                }}>Lier à une phase du plan de travail</label>
-                <select value={modalePhaseId} onChange={e => { setModalePhaseId(e.target.value); setModalePhaseInterne(""); }}
+                }}>Lier à un lot</label>
+                <select value={modalePhaseId} onChange={e => { setModalePhaseId(e.target.value); }}
                   style={{
                     width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`,
                     background: T.inputBg, color: modalePhaseId ? T.text : T.textMuted,
@@ -1583,24 +1616,22 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                 </select>
                 {modalePhaseId && (
                   <select
-                    value={modalePhaseInterne}
-                    onChange={e => setModalePhaseInterne(e.target.value)}
+                    value={modaleLotId}
+                    onChange={e => setModaleLotId(e.target.value)}
                     style={{
                       width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`,
-                      background: T.inputBg, color: modalePhaseInterne ? T.text : T.textMuted,
+                      background: T.inputBg, color: modaleLotId ? T.text : T.textMuted,
                       fontFamily: "inherit", fontSize: 13, outline: "none",
                     }}>
-                    <option value="">— Choisir une phase —</option>
-                    {phasesModale.map(p => (
-                      <option key={p.phId} value={p.phId}>
-                        {PHASES_LABELS[p.phId] || p.phId}
-                      </option>
+                    <option value="">— Choisir un lot —</option>
+                    {lots.map(l => (
+                      <option key={l.id} value={l.id}>{l.label}</option>
                     ))}
                   </select>
                 )}
                 {!modalePhaseId && (
                   <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>
-                    Optionnel — la commande sera rattachée à une phase (ex: « Réseaux plomberie (gros œuvre) »).
+                    Optionnel — la commande sera rattachée à un lot (ex: « Plomberie sanitaire »).
                   </div>
                 )}
               </div>
@@ -2005,7 +2036,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                       </div>
                     )}
                     {row.prix_ht > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: "#50c878", marginTop: 2 }}>{parseFloat(row.prix_ht).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € HT</div>}
-                    {row.phase_id && <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#5b9cf6", marginTop: 1, fontWeight: 600 }}><Icon as={Link2} size={9}/> {PHASES_LABELS[row.phase_id] || row.phase_id}</div>}
+                    {(row.lot_id || row.phase_id) && <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#5b9cf6", marginTop: 1, fontWeight: 600 }}><Icon as={Link2} size={9}/> {row.lot_id ? lotLabel(row.lot_id) : (PHASES_LABELS[row.phase_id] || row.phase_id)}</div>}
                   </td>
                   <td style={{ padding: "11px 10px" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

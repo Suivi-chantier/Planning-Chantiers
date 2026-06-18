@@ -389,11 +389,14 @@ export async function loadPhases() {
 // commence par "E-001" est auto-attribué au lot Électricité.
 // Personnalisables via Admin → onglet Lots (stockage planning_config/lots_travaux).
 export const LOTS_DEFAUT = [
-  { id: "electricite",  label: "Électricité",            couleur: "#eab308", code_prefixe: "E"  },
-  { id: "maconnerie",   label: "Maçonnerie",             couleur: "#a8a29e", code_prefixe: "M"  },
-  { id: "murs_cloison", label: "Murs cloison doublages", couleur: "#6366f1", code_prefixe: "MC" },
-  { id: "ouvertures",   label: "Ouvertures",             couleur: "#8b5cf6", code_prefixe: "O"  },
-  { id: "plomberie",    label: "Plomberie sanitaire",    couleur: "#06b6d4", code_prefixe: "P"  },
+  { id: "demolition",    label: "Démolition",             couleur: "#e05c5c", code_prefixe: "D"  },
+  { id: "maconnerie",    label: "Maçonnerie",             couleur: "#a8a29e", code_prefixe: "M"  },
+  { id: "electricite",   label: "Électricité",            couleur: "#eab308", code_prefixe: "E"  },
+  { id: "plomberie",     label: "Plomberie sanitaire",    couleur: "#06b6d4", code_prefixe: "P"  },
+  { id: "murs_cloison",  label: "Murs cloison doublages", couleur: "#6366f1", code_prefixe: "MC" },
+  { id: "menuiserie",    label: "Menuiserie",             couleur: "#b45309", code_prefixe: "ME" },
+  { id: "ouvertures",    label: "Ouvertures",             couleur: "#8b5cf6", code_prefixe: "O"  },
+  { id: "finitions_gen", label: "Finitions générales",    couleur: "#a78bfa", code_prefixe: "FG" },
 ];
 
 export async function loadLots() {

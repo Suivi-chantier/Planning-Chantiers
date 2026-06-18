@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "../constants";
+import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import {
   ShoppingCart, Package, Calendar, Check, AlertTriangle, Building2,
@@ -46,6 +46,8 @@ function numeroSemaine(d) {
 export default function PagePlanningCommandes({ chantiers = [], T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [phases, setPhases]       = useState(PHASES_DEFAUT);
+  const [lots, setLots]           = useState(LOTS_DEFAUT);
+  const [materiaux, setMateriaux] = useState([]); // biblio : valorise les materiaux_liens
   const [phasages, setPhasages]   = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -72,7 +74,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   const loadPhasages = async () => {
     const { data } = await supabase
       .from("phasages")
-      .select("id, chantier_id, chantier_nom, plan_travaux");
+      .select("id, chantier_id, chantier_nom, plan_travaux, ouvrages");
     setPhasages(data || []);
   };
   useEffect(() => {
@@ -91,6 +93,11 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       .select("id, nom, email, mail_type")
       .order("nom")
       .then(({ data }) => setFournisseurs(data || []));
+    // Lots + bibliothèque matériaux (V2 : valoriser les materiaux_liens des ouvrages)
+    loadLots().then(setLots);
+    supabase.from("materiaux_bibliotheque")
+      .select("id, nom, reference, unite, prix_unitaire, fournisseur")
+      .then(({ data }) => setMateriaux(data || []));
   }, []);
 
   // Appelé après confirmation de commande pour refléter les changements
@@ -117,29 +124,65 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
     });
   }, []);
 
-  // ── Extraction de toutes les "cartes phase" : pour chaque phasage,
-  //    pour chaque phase ayant __materiaux_prevus non vide.
+  // ── Extraction des "cartes lot" (V2) : pour chaque phasage, pour chaque LOT,
+  //    on agrège les matériaux des ouvrages de ce lot (materiaux_liens valorisés
+  //    via la bibliothèque). Remplace l'ancien système <phase>__materiaux_prevus.
+  //    NB : on conserve les noms de champs `phaseId/phaseLabel/...` de la carte
+  //    pour ne pas réécrire tout le rendu — ils portent désormais des LOTS.
+  const matById = useMemo(() => {
+    const m = {};
+    materiaux.forEach(x => { m[x.id] = x; });
+    return m;
+  }, [materiaux]);
+
   const cartesPhase = useMemo(() => {
     const cartes = [];
     phasages.forEach(p => {
       const plan = p.plan_travaux || {};
       const chantier = chantiers.find(c => c.id === p.chantier_id);
-      phases.forEach(ph => {
-        const mats = plan[ph.id + "__materiaux_prevus"] || [];
-        if (!Array.isArray(mats) || mats.length === 0) return;
-        const dateISO   = plan[ph.id + "__date_commande"] || null;
-        const coutCmd   = parseFloat(plan[ph.id + "__cout_commandes"]) || 0;
-        const totalHt   = mats.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
+      const ouvrages = Array.isArray(p.ouvrages) ? p.ouvrages : [];
+      // Regroupe les ouvrages par lot_id
+      const parLot = {};
+      ouvrages.forEach(o => {
+        const lid = o.lot_id || "_sans_lot";
+        (parLot[lid] = parLot[lid] || []).push(o);
+      });
+      Object.entries(parLot).forEach(([lotId, ouvragesLot]) => {
+        const lot = lots.find(l => l.id === lotId);
+        // Construit la liste des matériaux à commander pour ce lot, depuis les
+        // materiaux_liens de chaque ouvrage, valorisés via la bibliothèque.
+        const mats = [];
+        ouvragesLot.forEach(o => {
+          (o.materiaux_liens || []).forEach(ml => {
+            if (!ml || ml.materiau_id == null) return;
+            const mat = matById[ml.materiau_id];
+            if (!mat) return;
+            mats.push({
+              id:              `${o.id}:${ml.materiau_id}`,
+              libelle:         mat.nom || "",
+              quantite:        ml.quantite != null ? ml.quantite : 1,
+              unite:           mat.unite || "U",
+              prix_ht:         parseFloat(mat.prix_unitaire) || 0,
+              fournisseur_id:  null,
+              fournisseur_nom: mat.fournisseur || "",
+              materiau_id:     ml.materiau_id,
+            });
+          });
+        });
+        if (mats.length === 0) return;
+        const dateISO = plan[lotId + "__date_commande"] || null;
+        const coutCmd = parseFloat(plan[lotId + "__cout_commandes"]) || 0;
+        const totalHt = mats.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
         cartes.push({
-          id:           `${p.id}::${ph.id}`,
+          id:           `${p.id}::${lotId}`,
           phasageId:    p.id,
           chantierId:   p.chantier_id,
           chantierNom:  chantier?.nom || p.chantier_nom || "(sans chantier)",
-          chantierCouleur: chantier?.couleur || ph.couleur,
-          phaseId:      ph.id,
-          phaseLabel:   ph.label,
-          phaseEmoji:   ph.emoji,
-          phaseCouleur: ph.couleur,
+          chantierCouleur: chantier?.couleur || lot?.couleur || "#888",
+          phaseId:      lotId,                       // ← porte un LOT id
+          phaseLabel:   lot?.label || "Sans lot",
+          phaseEmoji:   "",
+          phaseCouleur: lot?.couleur || "#888",
           mats,
           totalHt,
           dateISO,
@@ -150,7 +193,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       });
     });
     return cartes;
-  }, [phasages, chantiers, phases]);
+  }, [phasages, chantiers, lots, matById]);
 
   // ── Répartition par semaine + colonne "sans date"
   const cartesParSemaine = useMemo(() => {
@@ -1013,7 +1056,7 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
             materiau_id:   l.materiau_id || null,
             chantier_id:   carte.chantierId,
             phasage_id:    carte.phasageId,
-            phase_id:      carte.phaseId,
+            lot_id:        carte.phaseId,
           };
         });
         if (lignes.length > 0) {

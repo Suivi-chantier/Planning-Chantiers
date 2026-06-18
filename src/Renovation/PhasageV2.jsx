@@ -49,6 +49,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const [loadingPhasage, setLoadingPhasage] = useState(false);
   const [selectedLotId, setSelectedLotId] = useState(null);
   const [selectedOuvrageId, setSelectedOuvrageId] = useState(null);
+  // Glisser-déposer : ouvrage en cours de déplacement + lot survolé (cible)
+  const [draggedOuvrageId, setDraggedOuvrageId] = useState(null);
+  const [dragOverLotId, setDragOverLotId] = useState(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error
   const saveTimerRef = useRef(null);
   const newOuvrageInputRef = useRef(null);
@@ -296,6 +299,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
 
   const updateOuvrage = (id, patch) => {
     updateOuvrages(ouvrages.map(o => o.id === id ? { ...o, ...patch } : o));
+  };
+
+  // Déplace un ouvrage vers un lot (drag & drop). lotId === null => "Sans lot".
+  const moveOuvrageToLot = (ouvrageId, lotId) => {
+    const o = ouvrages.find(x => x.id === ouvrageId);
+    if (!o || o.lot_id === lotId) return;
+    updateOuvrage(ouvrageId, { lot_id: lotId });
   };
 
   const deleteOuvrage = (id) => {
@@ -1407,8 +1417,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 return (
                   <div key={l.id} className={`p2-bubble ${active ? "active" : ""}`}
                     style={{ "--bubble-color": bubbleColor, "--av": `${av}%`,
-                      display: "flex", alignItems: "center", gap: 10 }}
-                    onClick={() => { setSelectedLotId(l.id); setSelectedOuvrageId(null); }}>
+                      display: "flex", alignItems: "center", gap: 10,
+                      outline: dragOverLotId === l.id ? `2px dashed ${l.couleur}` : "none",
+                      outlineOffset: 2 }}
+                    onClick={() => { setSelectedLotId(l.id); setSelectedOuvrageId(null); }}
+                    onDragOver={draggedOuvrageId ? (e => { e.preventDefault(); if (dragOverLotId !== l.id) setDragOverLotId(l.id); }) : undefined}
+                    onDragLeave={() => { if (dragOverLotId === l.id) setDragOverLotId(null); }}
+                    onDrop={draggedOuvrageId ? (e => { e.preventDefault(); moveOuvrageToLot(draggedOuvrageId, l.id); setDraggedOuvrageId(null); setDragOverLotId(null); }) : undefined}>
                     <span style={{ flex: 1, fontWeight: 700, color: T.text }}>{l.label}</span>
                     {l.code_prefixe && (
                       <span style={{
@@ -1439,8 +1454,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 return (
                   <div className={`p2-bubble ${selectedLotId === "_orphans" ? "active" : ""}`}
                     style={{ "--bubble-color": bubbleColor, "--av": `${av}%`, marginTop: 14,
-                      display: "flex", alignItems: "center", gap: 10, opacity: .85 }}
-                    onClick={() => { setSelectedLotId("_orphans"); setSelectedOuvrageId(null); }}>
+                      display: "flex", alignItems: "center", gap: 10, opacity: .85,
+                      outline: dragOverLotId === "_orphans" ? "2px dashed #888888" : "none",
+                      outlineOffset: 2 }}
+                    onClick={() => { setSelectedLotId("_orphans"); setSelectedOuvrageId(null); }}
+                    onDragOver={draggedOuvrageId ? (e => { e.preventDefault(); if (dragOverLotId !== "_orphans") setDragOverLotId("_orphans"); }) : undefined}
+                    onDragLeave={() => { if (dragOverLotId === "_orphans") setDragOverLotId(null); }}
+                    onDrop={draggedOuvrageId ? (e => { e.preventDefault(); moveOuvrageToLot(draggedOuvrageId, null); setDraggedOuvrageId(null); setDragOverLotId(null); }) : undefined}>
                     <span style={{ flex: 1, fontStyle: "italic", color: T.textMuted, fontWeight: 600 }}>Sans lot</span>
                     <span style={{
                       fontSize: 10, fontWeight: 800, padding: "2px 8px",
@@ -1487,9 +1507,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                     const bubbleColor = av >= 100 ? "#22c55e" : lotColor;
                     return (
                       <div key={o.id} className={`p2-bubble ${active ? "active" : ""}`}
+                        draggable
+                        title="Glisse cet ouvrage sur un lot à gauche pour le reclasser"
                         style={{ "--bubble-color": bubbleColor, "--av": `${av}%`,
-                          display: "flex", alignItems: "center", gap: 10 }}
-                        onClick={() => setSelectedOuvrageId(o.id)}>
+                          display: "flex", alignItems: "center", gap: 10,
+                          cursor: "grab",
+                          opacity: draggedOuvrageId === o.id ? 0.4 : 1 }}
+                        onClick={() => setSelectedOuvrageId(o.id)}
+                        onDragStart={e => { setDraggedOuvrageId(o.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", o.id); }}
+                        onDragEnd={() => { setDraggedOuvrageId(null); setDragOverLotId(null); }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {o.libelle || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans libellé)</span>}

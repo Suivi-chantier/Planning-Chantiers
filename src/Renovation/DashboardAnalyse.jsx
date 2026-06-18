@@ -246,13 +246,16 @@ function calcBudgetMat(plan, phasesConfig) {
   }, 0);
 }
 
-function calcMatConsomme(plan, phasesConfig) {
-  return phasesConfig.reduce((sTotal, ph) => {
+// Matériaux consommés = coût matériel saisi sur les tâches (V1) + coût réel des
+// commandes. V2 : le coût des commandes vient désormais de la table
+// `commande_lignes` (somme prix_total du chantier, passée via commandeCost),
+// et non plus de l'accumulateur dénormalisé plan["<phase>__cout_commandes"].
+function calcMatConsomme(plan, phasesConfig, commandeCost = 0) {
+  const coutMatTaches = phasesConfig.reduce((sTotal, ph) => {
     const taches = plan?.[ph.id] || [];
-    const coutCmd = parseFloat(plan?.[ph.id + "__cout_commandes"]) || 0;
-    const coutMatTaches = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
-    return sTotal + coutMatTaches + coutCmd;
+    return sTotal + taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   }, 0);
+  return coutMatTaches + commandeCost;
 }
 
 function extractCompagnons(plan, phasesConfig) {
@@ -305,7 +308,7 @@ function calcCRStatut(lastCRDate) {
   return                  { status: 'retard',   label: `En retard (${semCR.label})`, date: lastCRDate, semaine: semCR.label };
 }
 
-function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCRByChantier = {}, pointagesParChantier = {}) {
+function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCRByChantier = {}, pointagesParChantier = {}, commandeCostByChantier = {}) {
   const plan = phasage?.plan_travaux || {};
   const meta = plan.meta || {};
   const avR  = calcAvancementReel(plan, phasesConfig);
@@ -318,7 +321,8 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCR
   const extras  = sumLibreEtIndirect(ptsCh);
   const moC   = calcMOConsommee(plan, phasesConfig, tauxHoraires, ptsIdx, extras);
   const budMat = calcBudgetMat(plan, phasesConfig);
-  const matC   = calcMatConsomme(plan, phasesConfig);
+  const commandeCost = commandeCostByChantier[phasage?.chantier_id] || 0;
+  const matC   = calcMatConsomme(plan, phasesConfig, commandeCost);
   // prix_vendu stocké dans plan_travaux.meta (pas une colonne phasages).
   const ca = parseFloat(meta?.prix_vendu) || 0;
   // Marge réelle estimée : (ca - moC - matC) / ca × 100
@@ -1686,6 +1690,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   // P9 : pointages tous chantiers, regroupés en map { chantier_id: [pointages] }
   // pour dériver le coût MO réel dans calcMOConsommee.
   const [pointagesByChantier, setPointagesByChantier] = useState({});
+  const [commandeCostByChantier, setCommandeCostByChantier] = useState({});
   // Date du dernier CR (cr_comptes_rendus) par chantier_id, pour calcul statut hebdo
   const [lastCRByChantier, setLastCRByChantier] = useState({});
   const [loading, setLoading] = useState(true);
@@ -1739,7 +1744,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [pCfg, phQ, cfgQ, crQ, ptsQ] = await Promise.all([
+      const [pCfg, phQ, cfgQ, crQ, ptsQ, cmdQ] = await Promise.all([
         loadPhases(),
         supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at"),
         supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
@@ -1750,6 +1755,8 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         // P9 : pointages tous chantiers. Si la table n'existe pas (P2 non joué),
         // on tombe sur le repli legacy automatiquement.
         supabase.from("pointages").select("chantier_id,tache_id,heures,taux_horaire,type_pointage,motif_indirect"),
+        // V2 : coût réel des commandes, source unique = commande_lignes (lié au lot).
+        supabase.from("commande_lignes").select("chantier_id, lot_id, prix_total"),
       ]);
       // Regroupement par chantier_id (repli vide si erreur)
       const byCh = {};
@@ -1757,6 +1764,14 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         const k = p.chantier_id;
         if (!byCh[k]) byCh[k] = [];
         byCh[k].push(p);
+      });
+      // Coût commandes par chantier (somme prix_total). Remplace l'accumulateur
+      // V1 plan["<phase>__cout_commandes"] dans le calcul des matériaux consommés.
+      const cmdByCh = {};
+      if (!cmdQ?.error) (cmdQ.data || []).forEach(l => {
+        const k = l.chantier_id;
+        if (!k) return;
+        cmdByCh[k] = (cmdByCh[k] || 0) + (parseFloat(l.prix_total) || 0);
       });
       if (cancelled) return;
       // Fallback : si la colonne validateur n'existe pas en base, on retente sans
@@ -1780,6 +1795,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
       });
       setLastCRByChantier(crMap);
       setPointagesByChantier(byCh);
+      setCommandeCostByChantier(cmdByCh);
       setLoading(false);
     })();
     // Channel realtime : recharger les phasages dès qu'un est mis à jour
@@ -1798,8 +1814,8 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   const chantiers = useMemo(() => {
     if (!phasagesRaw.length) return [];
     const byChantier = Object.fromEntries(chantiersRaw.map(c => [c.id, c]));
-    return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier));
-  }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier]);
+    return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier, commandeCostByChantier));
+  }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier, commandeCostByChantier]);
 
   // Archives : pour l'instant on n'a pas de notion d'archivage des phasages,
   // donc on laisse vide. PR3+ : pourrait lire un flag phasage.archive.
