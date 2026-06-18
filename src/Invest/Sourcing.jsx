@@ -582,82 +582,109 @@ function generateLeboncoinSearches(criteres = [], critereId = null) {
 
 function selogerLocationSlug(zone) {
   const z = normalizeSearchText(zone);
+
+  // SeLoger n'utilise pas un simple slug régional/départemental.
+  // Les URLs de recherche valides contiennent un identifiant géographique SeLoger
+  // du type ad08fr18537 pour Angers ou ad06fr50 pour le Maine-et-Loire.
   const map = {
-    "angers": "pays-de-la-loire/maine-et-loire/angers-49000",
-    "avrille": "pays-de-la-loire/maine-et-loire/avrille-49240",
-    "trelaze": "pays-de-la-loire/maine-et-loire/trelaze-49800",
-    "les ponts-de-ce": "pays-de-la-loire/maine-et-loire/les-ponts-de-ce-49130",
-    "les ponts de ce": "pays-de-la-loire/maine-et-loire/les-ponts-de-ce-49130",
-    "beaucouze": "pays-de-la-loire/maine-et-loire/beaucouze-49070",
-    "bouchemaine": "pays-de-la-loire/maine-et-loire/bouchemaine-49080",
-    "saumur": "pays-de-la-loire/maine-et-loire/saumur-49400",
-    "cholet": "pays-de-la-loire/maine-et-loire/cholet-49300",
-    "saint-barthelemy-danjou": "pays-de-la-loire/maine-et-loire/saint-barthelemy-d-anjou-49124",
-    "saint barthelemy danjou": "pays-de-la-loire/maine-et-loire/saint-barthelemy-d-anjou-49124",
-    "saint-barthelemy-d anjou": "pays-de-la-loire/maine-et-loire/saint-barthelemy-d-anjou-49124",
-    "maine-et-loire": "pays-de-la-loire/maine-et-loire",
-    "maine et loire": "pays-de-la-loire/maine-et-loire",
+    "angers": "pays-de-la-loire/angers-49000/ad08fr18537",
+    "49000": "pays-de-la-loire/angers-49000/ad08fr18537",
+    "49100": "pays-de-la-loire/angers-49000/ad08fr18537",
+
+    "avrille": "pays-de-la-loire/avrille-49240/ad08fr18545",
+    "avrillé": "pays-de-la-loire/avrille-49240/ad08fr18545",
+    "49240": "pays-de-la-loire/avrille-49240/ad08fr18545",
+
+    "trelaze": "pays-de-la-loire/trelaze-49800/ad08fr18888",
+    "trélazé": "pays-de-la-loire/trelaze-49800/ad08fr18888",
+    "49800": "pays-de-la-loire/trelaze-49800/ad08fr18888",
+
+    "les ponts-de-ce": "pays-de-la-loire/les-ponts-de-ce-49130/ad08fr18782",
+    "les ponts de ce": "pays-de-la-loire/les-ponts-de-ce-49130/ad08fr18782",
+    "les ponts-de-cé": "pays-de-la-loire/les-ponts-de-ce-49130/ad08fr18782",
+    "les ponts de cé": "pays-de-la-loire/les-ponts-de-ce-49130/ad08fr18782",
+    "49130": "pays-de-la-loire/les-ponts-de-ce-49130/ad08fr18782",
+
+    "beaucouze": "pays-de-la-loire/beaucouze-49070/ad08fr18550",
+    "beaucouzé": "pays-de-la-loire/beaucouze-49070/ad08fr18550",
+    "49070": "pays-de-la-loire/beaucouze-49070/ad08fr18550",
+
+    "bouchemaine": "pays-de-la-loire/bouchemaine-49080/ad08fr18568",
+    "49080": "pays-de-la-loire/bouchemaine-49080/ad08fr18568",
+
+    "saumur": "pays-de-la-loire/saumur-49400/ad08fr18863",
+    "49400": "pays-de-la-loire/saumur-49400/ad08fr18863",
+
+    "cholet": "pays-de-la-loire/cholet-49300/ad08fr18635",
+    "49300": "pays-de-la-loire/cholet-49300/ad08fr18635",
+
+    "saint-barthelemy-danjou": "pays-de-la-loire/saint-barthelemy-d-anjou-49124/ad08fr18802",
+    "saint barthelemy danjou": "pays-de-la-loire/saint-barthelemy-d-anjou-49124/ad08fr18802",
+    "saint-barthelemy-d anjou": "pays-de-la-loire/saint-barthelemy-d-anjou-49124/ad08fr18802",
+    "saint-barthelemy-d'anjou": "pays-de-la-loire/saint-barthelemy-d-anjou-49124/ad08fr18802",
+    "saint barthélemy d anjou": "pays-de-la-loire/saint-barthelemy-d-anjou-49124/ad08fr18802",
+    "49124": "pays-de-la-loire/saint-barthelemy-d-anjou-49124/ad08fr18802",
+
+    "maine-et-loire": "pays-de-la-loire/maine-et-loire-49/ad06fr50",
+    "maine et loire": "pays-de-la-loire/maine-et-loire-49/ad06fr50",
+    "maine-et-loire 49": "pays-de-la-loire/maine-et-loire-49/ad06fr50",
+    "49": "pays-de-la-loire/maine-et-loire-49/ad06fr50",
   };
-  return map[z] || "";
+
+  return map[z] || "france/ad02fr1";
 }
 
-function selogerPropertySegment(critere) {
-  const types = (Array.isArray(critere?.types_biens) ? critere.types_biens : []).map(normalizeSearchText).join(" ");
-  if (types.includes("maison") && !types.includes("appartement") && !types.includes("immeuble")) return "maison";
-  if (types.includes("appartement") && !types.includes("maison") && !types.includes("immeuble")) return "appartement";
-  return "immobilier";
+function getSelogerPropertySegments(critere) {
+  const types = (Array.isArray(critere?.types_biens) ? critere.types_biens : [])
+    .map(normalizeSearchText)
+    .join(" ");
+
+  const segments = [];
+
+  if (types.includes("immeuble")) segments.push({ segment: "immeuble", label: "immeuble" });
+  if (types.includes("maison")) segments.push({ segment: "maison", label: "maison" });
+  if (types.includes("appartement")) segments.push({ segment: "appartement", label: "appartement" });
+
+  if (!segments.length) segments.push({ segment: "immobilier", label: "immobilier" });
+
+  // On évite les doublons en conservant l'ordre métier : immeuble > maison > appartement > immobilier.
+  const seen = new Set();
+  return segments.filter((item) => {
+    if (seen.has(item.segment)) return false;
+    seen.add(item.segment);
+    return true;
+  });
 }
 
-function buildSelogerSearchUrl({ zone, keyword, critere, large = false }) {
+function buildSelogerSearchUrl({ zone, critere, propertySegment = "immobilier" }) {
   const location = selogerLocationSlug(zone);
-  const property = selogerPropertySegment(critere);
-  const base = location
-    ? `https://www.seloger.com/recherche/achat/${property}/${location}`
-    : `https://www.seloger.com/recherche/achat/${property}/france`;
+  const property = propertySegment || "immobilier";
+  const base = `https://www.seloger.com/recherche/achat/${property}/${location}`;
 
-  const params = new URLSearchParams();
-  const prixMin = critere?.prix_min ? Math.round(Number(critere.prix_min)) : "";
-  const prixMax = critere?.prix_max ? Math.round(Number(critere.prix_max)) : "";
-  const surfaceMin = critere?.surface_min ? Math.round(Number(critere.surface_min)) : "";
-  const surfaceMax = critere?.surface_max ? Math.round(Number(critere.surface_max)) : "";
-  if (prixMin) params.set("prix_min", String(prixMin));
-  if (prixMax) params.set("prix_max", String(prixMax));
-  if (surfaceMin) params.set("surface_min", String(surfaceMin));
-  if (surfaceMax) params.set("surface_max", String(surfaceMax));
-  if (critere?.pieces_min) params.set("pieces_min", String(Math.round(Number(critere.pieces_min))));
-  if (!large && keyword) params.set("motscles", cleanLeboncoinKeyword(keyword));
-  return params.toString() ? `${base}?${params.toString()}` : base;
+  // IMPORTANT : les filtres SeLoger sont principalement pilotés par l'interface
+  // et les URLs publiques fiables sont surtout structurées par transaction / type / localité.
+  // On garde donc une URL canonique qui ouvre des annonces, puis l'utilisateur affine dans SeLoger.
+  return base;
 }
 
 function generateSelogerSearchesForCritere(critere) {
   const zonesRaw = Array.isArray(critere?.zones) ? critere.zones : [];
-  const zones = zonesRaw.length ? zonesRaw : [""];
-  const keywords = getPrioritySearchKeywords(critere);
+  const zones = zonesRaw.length ? zonesRaw : ["Maine-et-Loire"];
+  const propertySegments = getSelogerPropertySegments(critere);
   const searches = [];
 
   for (const zone of zones.slice(0, 8)) {
-    searches.push({
-      critere_id: critere.id,
-      nom: critere.nom,
-      portal: "seloger",
-      source: "seloger_assiste",
-      zone: zone || "Zone non renseignée",
-      type: "large",
-      label: `${critere.nom} — SeLoger — ${zone || "France"} — recherche large`,
-      url: buildSelogerSearchUrl({ zone, keyword: "", critere, large: true }),
-    });
-
-    for (const keyword of keywords.slice(0, 3)) {
+    for (const property of propertySegments) {
       searches.push({
         critere_id: critere.id,
         nom: critere.nom,
         portal: "seloger",
         source: "seloger_assiste",
-        zone: zone || "Zone non renseignée",
-        keyword,
-        type: "mot_cle",
-        label: `${critere.nom} — SeLoger — ${zone || "France"} — ${keyword}`,
-        url: buildSelogerSearchUrl({ zone, keyword, critere, large: false }),
+        zone: zone || "Maine-et-Loire",
+        type: "canonique",
+        property_segment: property.segment,
+        label: `${critere.nom} — SeLoger — ${zone || "Maine-et-Loire"} — ${property.label}`,
+        url: buildSelogerSearchUrl({ zone, critere, propertySegment: property.segment }),
       });
     }
   }
