@@ -737,7 +737,7 @@ export default function Sourcing({ profil, T }) {
 
     if (mode === "collecte_assistee" || data?.nb_bloquees > 0) {
       setCollecteMessage(`Collecte directe bloquée par Leboncoin. ${urls.length} URL(s) de recherche générée(s) pour ouverture manuelle.`);
-      setActiveTab("dashboard");
+      setActiveTab("recherches");
     } else {
       setCollecteMessage(`Collecte terminée : ${detectees} annonce(s) détectée(s), ${nouvelles} nouvelle(s), ${misesAJour} mise(s) à jour.`);
       setActiveTab("annonces");
@@ -854,11 +854,11 @@ export default function Sourcing({ profil, T }) {
   }), [newAnnonce]);
 
   const tabs = [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "annonces", label: "Annonces détectées" },
-    { id: "criteres", label: "Critères de recherche" },
-    { id: "analyse", label: "Analyse automatique" },
-    { id: "logs", label: "Historique / logs" },
+    { id: "dashboard", label: "Vue d’ensemble", subtitle: "Pilotage" },
+    { id: "annonces", label: "Opportunités", subtitle: "Qualification" },
+    { id: "recherches", label: "Recherches Leboncoin", subtitle: "Collecte assistée" },
+    { id: "import", label: "Importer des annonces", subtitle: "URLs & saisie" },
+    { id: "parametres", label: "Paramètres & logs", subtitle: "Critères" },
   ];
 
   return (
@@ -895,17 +895,23 @@ export default function Sourcing({ profil, T }) {
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 style={{
-                  border: "none",
-                  borderRadius: 999,
-                  padding: "9px 14px",
+                  border: `1px solid ${active ? S.accent : S.border}`,
+                  borderRadius: 16,
+                  padding: "10px 14px",
                   cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 900,
+                  minWidth: 170,
+                  textAlign: "left",
                   background: active ? S.accentBg : S.inputBg,
                   color: active ? S.accent : S.textSub,
+                  transition: "all .15s ease",
                 }}
               >
-                {tab.label}
+                <div style={{ fontSize: 13, fontWeight: 950, color: active ? S.accent : S.text }}>
+                  {tab.label}
+                </div>
+                <div style={{ marginTop: 2, fontSize: 11, fontWeight: 750, color: S.textSub }}>
+                  {tab.subtitle}
+                </div>
               </button>
             );
           })}
@@ -936,25 +942,18 @@ export default function Sourcing({ profil, T }) {
                 />
               )}
 
-              {activeTab === "criteres" && (
-                <CriteresTab
+              {activeTab === "recherches" && (
+                <RecherchesTab
                   T={T}
                   criteres={criteres}
-                  critereForm={critereForm}
-                  editingCritereId={editingCritereId}
-                  savingCritere={savingCritere}
-                  updateCritereField={updateCritereField}
-                  onSubmit={handleSaveCritere}
-                  onReset={resetCritereForm}
-                  onEdit={startEditCritere}
-                  onToggle={handleToggleCritere}
-                  onDelete={handleDeleteCritere}
+                  collecteMessage={collecteMessage}
+                  collecteUrls={collecteUrls}
                   onRunCollecte={handleRunCollecte}
                   collecting={collecting}
                 />
               )}
 
-              {activeTab === "analyse" && (
+              {activeTab === "import" && (
                 <AnalyseTab
                   T={T}
                   newAnnonce={newAnnonce}
@@ -969,8 +968,23 @@ export default function Sourcing({ profil, T }) {
                 />
               )}
 
-              {activeTab === "logs" && (
-                <LogsTab T={T} logs={logs} />
+              {activeTab === "parametres" && (
+                <ParametresLogsTab
+                  T={T}
+                  criteres={criteres}
+                  critereForm={critereForm}
+                  editingCritereId={editingCritereId}
+                  savingCritere={savingCritere}
+                  updateCritereField={updateCritereField}
+                  onSubmit={handleSaveCritere}
+                  onReset={resetCritereForm}
+                  onEdit={startEditCritere}
+                  onToggle={handleToggleCritere}
+                  onDelete={handleDeleteCritere}
+                  onRunCollecte={handleRunCollecte}
+                  collecting={collecting}
+                  logs={logs}
+                />
               )}
             </>
           )}
@@ -1031,7 +1045,7 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
 
         {stats.top.length === 0 ? (
           <div style={{ ...S.cardStyle, borderStyle: "dashed", boxShadow: "none", color: S.textSub }}>
-            Aucune annonce pour le moment. Ajoute une première annonce dans l’onglet “Analyse automatique”.
+            Aucune annonce pour le moment. Ajoute une première annonce dans l’onglet “Importer des annonces”.
           </div>
         ) : (
           <SimpleTable T={T}>
@@ -1074,8 +1088,8 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none", display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Annonces détectées</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: S.textSub }}>Qualification des annonces avant transformation en fiche bien.</p>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Opportunités à qualifier</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: S.textSub }}>Tous les biens repérés, scorés et priorisés avant transformation en fiche bien.</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} placeholder="Rechercher ville, titre..." style={{ ...S.inputStyle, width: 230 }} />
@@ -1157,6 +1171,107 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunCollecte, collecting }) {
+  const S = getStyles(T);
+  const activeCriteres = (Array.isArray(criteres) ? criteres : []).filter((c) => c.actif !== false);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.1fr", gap: 18, alignItems: "start" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Recherches Leboncoin</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
+            Lance une collecte assistée pour générer les recherches selon les critères actifs. Leboncoin bloque actuellement la collecte directe, mais les liens générés peuvent être ouverts manuellement.
+          </p>
+          <button type="button" onClick={() => onRunCollecte(null)} disabled={collecting} style={{ ...S.buttonPrimary, marginTop: 14, opacity: collecting ? 0.55 : 1 }}>
+            {collecting ? "Collecte en cours..." : "Générer les recherches"}
+          </button>
+          {collecteMessage ? (
+            <div style={{ marginTop: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", fontSize: 13, fontWeight: 800, color: S.accent, background: S.accentBg }}>
+              {collecteMessage}
+            </div>
+          ) : null}
+        </div>
+
+        <div style={S.cardStyle}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Critères actifs</h3>
+          <p style={{ margin: "6px 0 14px", fontSize: 13, color: S.textSub }}>
+            Ces profils servent à générer les recherches. Les réglages complets sont dans “Paramètres & logs”.
+          </p>
+          {activeCriteres.length === 0 ? (
+            <div style={{ color: S.textSub, fontSize: 13 }}>Aucun critère actif pour le moment.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {activeCriteres.map((c) => (
+                <div key={c.id} style={{ border: `1px solid ${S.border}`, borderRadius: 14, padding: 12, background: S.inputBg }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: S.text }}>{c.nom}</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: S.textSub }}>
+                        {fmtEur(c.prix_min)} à {fmtEur(c.prix_max)} · {fmtNumber(c.surface_min)} à {fmtNumber(c.surface_max)} m²
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => onRunCollecte(c.id)} disabled={collecting} style={{ ...S.buttonSecondary, background: S.accentBg, color: S.accent, opacity: collecting ? 0.55 : 1 }}>
+                      Collecter
+                    </button>
+                  </div>
+                  {Array.isArray(c.zones) && c.zones.length > 0 && <TagList title="Zones" values={c.zones.slice(0, 6)} T={T} />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={S.cardStyle}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Liens générés</h3>
+        <p style={{ margin: "6px 0 14px", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
+          Ouvre les recherches, repère les annonces intéressantes, puis colle leurs URLs dans l’onglet “Importer des annonces”.
+        </p>
+
+        {Array.isArray(collecteUrls) && collecteUrls.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {collecteUrls.map((item, index) => (
+              <div key={`${item.critere_id || index}-${item.url}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "11px 12px", background: S.inputBg }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.nom || `Recherche ${index + 1}`}</div>
+                  <div style={{ marginTop: 3, fontSize: 12, color: S.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 620 }}>{item.url}</div>
+                </div>
+                <a href={item.url} target="_blank" rel="noreferrer" style={{ ...S.buttonPrimary, textDecoration: "none", whiteSpace: "nowrap" }}>
+                  Ouvrir
+                </a>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ ...S.cardStyle, borderStyle: "dashed", boxShadow: "none", color: S.textSub }}>
+            Aucune recherche générée sur cette session. Clique sur “Générer les recherches”.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ParametresLogsTab(props) {
+  const { T, logs } = props;
+  const S = getStyles(T);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Paramètres & logs</h2>
+        <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
+          Regroupe la création des critères de recherche et l’historique technique des collectes/imports.
+        </p>
+      </div>
+
+      <CriteresTab {...props} />
+      <LogsTab T={T} logs={logs} />
     </div>
   );
 }
@@ -1340,9 +1455,9 @@ function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubm
     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 18 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <form onSubmit={onSubmit} style={S.cardStyle}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Ajouter une annonce test</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Ajouter une annonce manuellement</h2>
         <p style={{ margin: "6px 0 18px", fontSize: 13, color: S.textSub }}>
-          Cette zone permet de tester l’analyse automatique avant de brancher la collecte Leboncoin.
+          Complète les informations essentielles d’une annonce repérée pour obtenir immédiatement un score d’opportunité.
         </p>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
@@ -1372,9 +1487,9 @@ function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubm
       </form>
 
       <form onSubmit={onImportUrls} style={S.cardStyle}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Importer des URLs Leboncoin</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Importer des URLs d’annonces</h2>
         <p style={{ margin: "6px 0 14px", fontSize: 13, lineHeight: 1.6, color: S.textSub }}>
-          Colle une ou plusieurs URLs d’annonces repérées après ouverture manuelle des recherches. L’application crée les lignes dans le sourcing et les marque “À analyser”.
+          Colle une ou plusieurs URLs Leboncoin repérées depuis les recherches assistées. L’application crée les lignes dans le sourcing et les marque “À analyser”.
         </p>
 
         <Field label="URLs d’annonces" T={T}>
