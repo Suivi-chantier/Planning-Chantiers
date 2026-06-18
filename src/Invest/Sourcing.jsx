@@ -360,6 +360,39 @@ function getTitleFromUrl(url) {
   }
 }
 
+
+function cleanCapturedAnnonceFields(raw = {}, fallbackTitle = "Annonce importée Leboncoin") {
+  const out = {};
+
+  const setText = (field, value) => {
+    const clean = String(value || "").trim();
+    if (clean) out[field] = clean;
+  };
+
+  const setNumber = (field, value) => {
+    const n = parseNumber(value);
+    if (n !== null) out[field] = n;
+  };
+
+  setText("titre", raw.titre || raw.title || fallbackTitle);
+  setText("description", raw.description);
+  setText("ville", raw.ville || raw.city);
+  setText("code_postal", raw.code_postal || raw.postal_code);
+  setText("adresse", raw.adresse || raw.address);
+  setText("type_bien", raw.type_bien || raw.property_type);
+  setText("dpe", raw.dpe);
+  setText("ges", raw.ges);
+  setText("vendeur_type", raw.vendeur_type || raw.seller_type);
+  setText("url_photo", raw.url_photo || raw.image || raw.photo);
+
+  setNumber("prix", raw.prix || raw.price);
+  setNumber("surface_m2", raw.surface_m2 || raw.surface);
+  setNumber("nb_pieces", raw.nb_pieces || raw.rooms);
+  setNumber("nb_chambres", raw.nb_chambres || raw.bedrooms);
+
+  return out;
+}
+
 function computeSourcingAnalysis(annonce) {
   const text = `${safeText(annonce?.titre)} ${safeText(annonce?.description)}`;
 
@@ -597,6 +630,7 @@ export default function Sourcing({ profil, T }) {
   const [collecteUrls, setCollecteUrls] = useState([]);
   const [importUrlsText, setImportUrlsText] = useState("");
   const [importingUrls, setImportingUrls] = useState(false);
+  const [capturingId, setCapturingId] = useState(null);
   const [editingCritereId, setEditingCritereId] = useState(null);
   const [critereForm, setCritereForm] = useState(EMPTY_CRITERE);
 
@@ -717,9 +751,11 @@ export default function Sourcing({ profil, T }) {
 
   async function handleAnalyseAnnonce(annonce) {
     const analysis = computeSourcingAnalysis(annonce);
+    const nextStatut = annonce.statut === "nouveau" ? "a_analyser" : annonce.statut;
+
     const { error } = await supabase
       .from("sourcing_annonces")
-      .update(analysis)
+      .update({ ...analysis, statut: nextStatut })
       .eq("id", annonce.id);
 
     if (error) {
@@ -728,7 +764,104 @@ export default function Sourcing({ profil, T }) {
       return;
     }
 
-    setAnnonces((prev) => prev.map((a) => (a.id === annonce.id ? { ...a, ...analysis } : a)));
+    setAnnonces((prev) => prev.map((a) => (a.id === annonce.id ? { ...a, ...analysis, statut: nextStatut } : a)));
+    alert(`Analyse terminée : score ${analysis.score_opportunite}/100 — catégorie ${analysis.categorie}`);
+  }
+
+  async function captureAnnonceFromUrl(url) {
+    const fallbackTitle = getTitleFromUrl(url);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("sourcing-analyse-url", {
+        body: { url },
+      });
+
+      if (error) {
+        console.error("Erreur Edge Function sourcing-analyse-url", error);
+        return {
+          ok: false,
+          message: error?.message || "La fonction de capture URL n’est pas disponible.",
+          fields: { titre: fallbackTitle },
+        };
+      }
+
+      if (!data?.ok) {
+        return {
+          ok: false,
+          message: data?.message || "La capture automatique n’a pas récupéré de données exploitables.",
+          fields: { titre: fallbackTitle },
+        };
+      }
+
+      const fields = cleanCapturedAnnonceFields(data.data || {}, fallbackTitle);
+      return {
+        ok: true,
+        message: data?.message || "Capture URL terminée.",
+        fields,
+      };
+    } catch (err) {
+      console.error("Capture URL impossible", err);
+      return {
+        ok: false,
+        message: err?.message || "Capture URL impossible.",
+        fields: { titre: fallbackTitle },
+      };
+    }
+  }
+
+  async function handleCaptureUrlAnnonce(annonce) {
+    if (!annonce?.source_url) {
+      alert("Cette annonce n’a pas d’URL source à capturer.");
+      return;
+    }
+
+    setCapturingId(annonce.id);
+
+    const capture = await captureAnnonceFromUrl(annonce.source_url);
+    const now = new Date().toISOString();
+    const merged = {
+      ...annonce,
+      ...capture.fields,
+      derniere_detection: now,
+    };
+    const analysis = computeSourcingAnalysis(merged);
+
+    const updatePayload = {
+      ...capture.fields,
+      ...analysis,
+      derniere_detection: now,
+    };
+
+    if (updatePayload.prix) {
+      const currentHistory = Array.isArray(annonce.prix_historique) ? annonce.prix_historique : [];
+      const lastPrice = Number(currentHistory[currentHistory.length - 1]?.prix || 0);
+      if (Number(updatePayload.prix) > 0 && Number(updatePayload.prix) !== lastPrice) {
+        updatePayload.prix_historique = [...currentHistory, { date: now, prix: Number(updatePayload.prix) }];
+      }
+    }
+
+    const { error } = await supabase
+      .from("sourcing_annonces")
+      .update(updatePayload)
+      .eq("id", annonce.id);
+
+    setCapturingId(null);
+
+    if (error) {
+      console.error(error);
+      alert("Erreur lors de la mise à jour après capture URL.");
+      return;
+    }
+
+    setAnnonces((prev) => prev.map((a) => (a.id === annonce.id ? { ...a, ...updatePayload } : a)));
+
+    alert(
+      capture.ok
+        ? `Capture URL terminée. Score mis à jour : ${analysis.score_opportunite}/100 — catégorie ${analysis.categorie}`
+        : `Capture URL partielle : ${capture.message}
+
+L’annonce reste modifiable manuellement.`
+    );
   }
 
   async function handleArchiveAnnonce(annonce) {
@@ -931,7 +1064,13 @@ export default function Sourcing({ profil, T }) {
     }
 
     const now = new Date().toISOString();
-    const payloads = urlsToInsert.map((url) => {
+    const payloads = [];
+    let nbCaptureOk = 0;
+
+    for (const url of urlsToInsert) {
+      const capture = await captureAnnonceFromUrl(url);
+      if (capture.ok) nbCaptureOk += 1;
+
       const base = {
         source: "url_manual",
         source_url: url,
@@ -953,11 +1092,18 @@ export default function Sourcing({ profil, T }) {
         is_archived: false,
       };
 
-      return {
+      const merged = {
         ...base,
-        ...computeSourcingAnalysis(base),
+        ...capture.fields,
       };
-    });
+
+      if (merged.prix) merged.prix_historique = [{ date: now, prix: Number(merged.prix) }];
+
+      payloads.push({
+        ...merged,
+        ...computeSourcingAnalysis(merged),
+      });
+    }
 
     const insertRes = await supabase.from("sourcing_annonces").insert(payloads);
 
@@ -975,8 +1121,8 @@ export default function Sourcing({ profil, T }) {
       nb_detectees: urls.length,
       nb_nouvelles: urlsToInsert.length,
       nb_doublons: urls.length - urlsToInsert.length,
-      message: `${urlsToInsert.length} URL(s) importée(s) manuellement dans le sourcing.`,
-      details: { urls, imported: urlsToInsert },
+      message: `${urlsToInsert.length} URL(s) importée(s) manuellement dans le sourcing. Capture automatique réussie pour ${nbCaptureOk} annonce(s).`,
+      details: { urls, imported: urlsToInsert, nb_capture_ok: nbCaptureOk },
     });
 
     setImportingUrls(false);
@@ -1077,6 +1223,8 @@ export default function Sourcing({ profil, T }) {
                   onUpdateStatut={handleUpdateStatut}
                   onAnalyse={handleAnalyseAnnonce}
                   onArchive={handleArchiveAnnonce}
+                  onCaptureUrl={handleCaptureUrlAnnonce}
+                  capturingId={capturingId}
                 />
               )}
 
@@ -1219,7 +1367,7 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
   );
 }
 
-function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch, setFilterSearch, onUpdateStatut, onAnalyse, onArchive }) {
+function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch, setFilterSearch, onUpdateStatut, onAnalyse, onArchive, onCaptureUrl, capturingId }) {
   const S = getStyles(T);
 
   return (
@@ -1244,7 +1392,7 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
         </div>
       ) : (
         <div style={{ overflowX: "auto", border: `1px solid ${S.border}`, borderRadius: 18 }}>
-          <table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", minWidth: 1280, borderCollapse: "collapse", fontSize: 13 }}>
             <thead style={{ background: S.inputBg }}>
               <tr>
                 <Th T={T}>Bien</Th>
@@ -1266,14 +1414,14 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
                 return (
                   <tr key={a.id} style={{ borderTop: `1px solid ${S.border}`, verticalAlign: "top" }}>
                     <Td T={T}>
-                      <div style={{ display: "flex", gap: 12 }}>
-                        <div style={{ width: 64, height: 54, borderRadius: 14, overflow: "hidden", background: S.inputBg, flexShrink: 0 }}>
+                      <div style={{ display: "flex", gap: 14 }}>
+                        <div style={{ width: 138, height: 96, borderRadius: 16, overflow: "hidden", background: S.inputBg, flexShrink: 0, border: `1px solid ${S.border}` }}>
                           {a.url_photo ? <img src={a.url_photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
                             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: S.textSub }}>Photo</div>
                           )}
                         </div>
                         <div>
-                          <div style={{ maxWidth: 320, fontWeight: 900, color: S.text }}>{a.titre || "Sans titre"}</div>
+                          <div style={{ maxWidth: 380, fontWeight: 900, color: S.text, lineHeight: 1.25 }}>{a.titre || "Sans titre"}</div>
                           {a.source_url && (
                             <a href={a.source_url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 4, fontSize: 12, fontWeight: 850, color: S.accent, textDecoration: "none" }}>
                               Voir annonce
@@ -1297,6 +1445,16 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
                     </Td>
                     <Td T={T}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        {a.source_url ? (
+                          <button
+                            type="button"
+                            onClick={() => onCaptureUrl(a)}
+                            disabled={capturingId === a.id}
+                            style={{ ...S.buttonSecondary, color: "#1d4ed8", background: "rgba(59,130,246,0.12)", opacity: capturingId === a.id ? 0.55 : 1 }}
+                          >
+                            {capturingId === a.id ? "Capture..." : "Capturer URL"}
+                          </button>
+                        ) : null}
                         <button type="button" onClick={() => onAnalyse(a)} style={{ ...S.buttonSecondary, color: S.accent, background: S.accentBg }}>Analyser</button>
                         <button type="button" onClick={() => alert("Prochaine étape : création automatique d’une fiche bien dans Stock de biens.")} style={S.buttonPrimary}>Créer fiche bien</button>
                         <button type="button" onClick={() => onArchive(a)} style={{ ...S.buttonSecondary, color: "#b91c1c", background: "rgba(239,68,68,0.10)" }}>Archiver</button>
