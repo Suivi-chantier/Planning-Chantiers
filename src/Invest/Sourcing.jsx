@@ -184,6 +184,155 @@ function getLogSearchUrl(log) {
 }
 
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function uniqueByUrl(items = []) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    if (!item?.url || seen.has(item.url)) continue;
+    seen.add(item.url);
+    out.push(item);
+  }
+  return out;
+}
+
+function leboncoinLocationParam(zone) {
+  const z = normalizeSearchText(zone);
+  const map = {
+    "angers": "Angers_49000",
+    "avrille": "Avrillé_49240",
+    "trelaze": "Trélazé_49800",
+    "les ponts-de-ce": "Les Ponts-de-Cé_49130",
+    "les ponts de ce": "Les Ponts-de-Cé_49130",
+    "beaucouze": "Beaucouzé_49070",
+    "bouchemaine": "Bouchemaine_49080",
+    "saumur": "Saumur_49400",
+    "cholet": "Cholet_49300",
+    "saint-barthelemy-danjou": "Saint-Barthélemy-d'Anjou_49124",
+    "saint barthelemy danjou": "Saint-Barthélemy-d'Anjou_49124",
+    "saint-barthelemy-d anjou": "Saint-Barthélemy-d'Anjou_49124",
+    "maine-et-loire": "Maine-et-Loire_49",
+    "maine et loire": "Maine-et-Loire_49",
+  };
+  return map[z] || "";
+}
+
+function cleanLeboncoinKeyword(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getPrioritySearchKeywords(critere) {
+  const types = Array.isArray(critere?.types_biens) ? critere.types_biens : [];
+  const included = Array.isArray(critere?.mots_cles_inclus) ? critere.mots_cles_inclus : [];
+  const raw = [...types, ...included]
+    .map(cleanLeboncoinKeyword)
+    .filter(Boolean);
+
+  const preferred = [
+    "immeuble",
+    "maison à rénover",
+    "maison a renover",
+    "travaux",
+    "division possible",
+    "plusieurs logements",
+    "local commercial",
+    "plateau",
+    "dpe f",
+    "dpe g",
+  ];
+
+  const selected = [];
+  for (const wanted of preferred) {
+    const found = raw.find((item) => normalizeSearchText(item).includes(normalizeSearchText(wanted)) || normalizeSearchText(wanted).includes(normalizeSearchText(item)));
+    if (found && !selected.some((x) => normalizeSearchText(x) === normalizeSearchText(found))) selected.push(found);
+  }
+  for (const item of raw) {
+    if (selected.length >= 5) break;
+    if (!selected.some((x) => normalizeSearchText(x) === normalizeSearchText(item))) selected.push(item);
+  }
+  return selected.slice(0, 5);
+}
+
+function buildLeboncoinSearchUrl({ zone, keyword, critere, large = false }) {
+  const params = new URLSearchParams();
+  params.set("category", "9");
+
+  const location = leboncoinLocationParam(zone);
+  if (location) params.set("locations", location);
+
+  const textParts = [];
+  if (!large && keyword) textParts.push(cleanLeboncoinKeyword(keyword));
+  if (!location && zone) textParts.push(cleanLeboncoinKeyword(zone));
+
+  const text = textParts.join(" ").trim();
+  if (text) params.set("text", text);
+
+  const prixMin = critere?.prix_min ? Math.round(Number(critere.prix_min)) : "";
+  const prixMax = critere?.prix_max ? Math.round(Number(critere.prix_max)) : "";
+  if (prixMin || prixMax) params.set("price", `${prixMin}-${prixMax}`);
+
+  const surfaceMin = critere?.surface_min ? Math.round(Number(critere.surface_min)) : "";
+  const surfaceMax = critere?.surface_max ? Math.round(Number(critere.surface_max)) : "";
+  if (surfaceMin || surfaceMax) params.set("square", `${surfaceMin}-${surfaceMax}`);
+
+  if (critere?.pieces_min) params.set("rooms", `${Math.round(Number(critere.pieces_min))}-max`);
+
+  if (critere?.vendeur_type === "particulier") params.set("owner_type", "private");
+  if (critere?.vendeur_type === "pro") params.set("owner_type", "pro");
+
+  return `https://www.leboncoin.fr/recherche?${params.toString()}`;
+}
+
+function generateLeboncoinSearchesForCritere(critere) {
+  const zonesRaw = Array.isArray(critere?.zones) ? critere.zones : [];
+  const zones = zonesRaw.length ? zonesRaw : [""];
+  const keywords = getPrioritySearchKeywords(critere);
+  const searches = [];
+
+  for (const zone of zones.slice(0, 8)) {
+    searches.push({
+      critere_id: critere.id,
+      nom: critere.nom,
+      zone: zone || "Zone non renseignée",
+      type: "large",
+      label: `${critere.nom} — ${zone || "France"} — recherche large`,
+      url: buildLeboncoinSearchUrl({ zone, keyword: "", critere, large: true }),
+    });
+
+    for (const keyword of keywords.slice(0, 4)) {
+      searches.push({
+        critere_id: critere.id,
+        nom: critere.nom,
+        zone: zone || "Zone non renseignée",
+        keyword,
+        type: "mot_cle",
+        label: `${critere.nom} — ${zone || "France"} — ${keyword}`,
+        url: buildLeboncoinSearchUrl({ zone, keyword, critere, large: false }),
+      });
+    }
+  }
+
+  return uniqueByUrl(searches).slice(0, 40);
+}
+
+function generateLeboncoinSearches(criteres = [], critereId = null) {
+  const active = (Array.isArray(criteres) ? criteres : [])
+    .filter((critere) => critere?.actif !== false)
+    .filter((critere) => !critereId || critere.id === critereId);
+
+  return uniqueByUrl(active.flatMap((critere) => generateLeboncoinSearchesForCritere(critere))).slice(0, 120);
+}
+
+
 function extractUrlsFromText(value) {
   const matches = String(value || "").match(/https?:\/\/[^\s,;]+/g) || [];
   return Array.from(new Set(matches.map((url) => url.trim()).filter(Boolean)));
@@ -713,37 +862,26 @@ export default function Sourcing({ profil, T }) {
 
     setCollecting(true);
     setCollecteUrls([]);
-    setCollecteMessage(critereId ? "Collecte du critère en cours..." : "Collecte globale en cours...");
+    setCollecteMessage(critereId ? "Génération des recherches du critère..." : "Génération des recherches Leboncoin...");
 
-    const { data, error } = await supabase.functions.invoke("sourcing-collecte-leboncoin", {
-      body: { critere_id: critereId || null },
+    const urls = generateLeboncoinSearches(criteres, critereId);
+    setCollecteUrls(urls);
+    setCollecteMessage(`${urls.length} recherche(s) Leboncoin générée(s). Ouvre les liens, repère les annonces intéressantes, puis importe leurs URLs dans Profero.`);
+    setActiveTab("recherches");
+    setCollecting(false);
+
+    await supabase.from("sourcing_logs").insert({
+      source: "leboncoin_assiste",
+      statut: "generated",
+      nb_detectees: urls.length,
+      nb_nouvelles: 0,
+      nb_mises_a_jour: 0,
+      nb_doublons: 0,
+      nb_erreurs: 0,
+      message: `${urls.length} recherche(s) Leboncoin générée(s) depuis Profero.`,
+      details: { mode: "generation_locale", urls_recherche: urls },
     });
 
-    if (error) {
-      console.error("Erreur Edge Function sourcing-collecte-leboncoin", error);
-      setCollecting(false);
-      setCollecteMessage("Erreur : la fonction de collecte n’est pas encore disponible ou a échoué.");
-      alert("La collecte n’a pas pu être lancée. Vérifie que l’Edge Function sourcing-collecte-leboncoin est bien créée et déployée dans Supabase.");
-      return;
-    }
-
-    const nouvelles = data?.nb_nouvelles ?? 0;
-    const misesAJour = data?.nb_mises_a_jour ?? 0;
-    const detectees = data?.nb_detectees ?? 0;
-    const urls = Array.isArray(data?.urls_recherche) ? data.urls_recherche : [];
-    const mode = data?.mode || "collecte_directe";
-
-    setCollecteUrls(urls);
-
-    if (mode === "collecte_assistee" || data?.nb_bloquees > 0) {
-      setCollecteMessage(`Collecte directe bloquée par Leboncoin. ${urls.length} URL(s) de recherche générée(s) pour ouverture manuelle.`);
-      setActiveTab("recherches");
-    } else {
-      setCollecteMessage(`Collecte terminée : ${detectees} annonce(s) détectée(s), ${nouvelles} nouvelle(s), ${misesAJour} mise(s) à jour.`);
-      setActiveTab("annonces");
-    }
-
-    setCollecting(false);
     await loadData();
   }
 
@@ -1018,7 +1156,7 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
             {collecteUrls.map((item, index) => (
               <div key={`${item.critere_id || index}-${item.url}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", background: S.cardBg }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.nom || `Recherche ${index + 1}`}</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.label || item.nom || `Recherche ${index + 1}`}</div>
                   <div style={{ marginTop: 2, fontSize: 12, color: S.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 760 }}>{item.url}</div>
                 </div>
                 <a href={item.url} target="_blank" rel="noreferrer" style={{ ...S.buttonPrimary, textDecoration: "none", whiteSpace: "nowrap" }}>
@@ -1038,7 +1176,7 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
               Voir toutes les annonces
             </button>
             <button type="button" onClick={() => onRunCollecte(null)} disabled={collecting} style={{ ...S.buttonPrimary, opacity: collecting ? 0.55 : 1 }}>
-              {collecting ? "Collecte en cours..." : "Lancer la collecte"}
+              {collecting ? "Génération..." : "Générer les recherches"}
             </button>
           </div>
         </div>
@@ -1185,10 +1323,10 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
         <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Recherches Leboncoin</h2>
           <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
-            Lance une collecte assistée pour générer les recherches selon les critères actifs. Leboncoin bloque actuellement la collecte directe, mais les liens générés peuvent être ouverts manuellement.
+            Génère les recherches Leboncoin depuis Profero à partir des critères actifs. La recherche large évite de trop filtrer, puis les variantes par mots-clés permettent de cibler les opportunités.
           </p>
           <button type="button" onClick={() => onRunCollecte(null)} disabled={collecting} style={{ ...S.buttonPrimary, marginTop: 14, opacity: collecting ? 0.55 : 1 }}>
-            {collecting ? "Collecte en cours..." : "Générer les recherches"}
+            {collecting ? "Génération..." : "Générer les recherches"}
           </button>
           {collecteMessage ? (
             <div style={{ marginTop: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", fontSize: 13, fontWeight: 800, color: S.accent, background: S.accentBg }}>
@@ -1230,7 +1368,7 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
       <div style={S.cardStyle}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Liens générés</h3>
         <p style={{ margin: "6px 0 14px", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
-          Ouvre les recherches, repère les annonces intéressantes, puis colle leurs URLs dans l’onglet “Importer des annonces”.
+          Ouvre les recherches une par une. Commence par les recherches larges, puis utilise les variantes par mots-clés. Ensuite, colle les URLs des annonces intéressantes dans l’onglet “Importer des annonces”.
         </p>
 
         {Array.isArray(collecteUrls) && collecteUrls.length > 0 ? (
@@ -1238,7 +1376,7 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
             {collecteUrls.map((item, index) => (
               <div key={`${item.critere_id || index}-${item.url}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "11px 12px", background: S.inputBg }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.nom || `Recherche ${index + 1}`}</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: S.text }}>{item.label || item.nom || `Recherche ${index + 1}`}</div>
                   <div style={{ marginTop: 3, fontSize: 12, color: S.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 620 }}>{item.url}</div>
                 </div>
                 <a href={item.url} target="_blank" rel="noreferrer" style={{ ...S.buttonPrimary, textDecoration: "none", whiteSpace: "nowrap" }}>
