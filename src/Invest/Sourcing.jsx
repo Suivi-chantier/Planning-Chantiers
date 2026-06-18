@@ -631,6 +631,10 @@ export default function Sourcing({ profil, T }) {
   const [importUrlsText, setImportUrlsText] = useState("");
   const [importingUrls, setImportingUrls] = useState(false);
   const [capturingId, setCapturingId] = useState(null);
+  const [editingAnnonce, setEditingAnnonce] = useState(null);
+  const [editingAnnonceForm, setEditingAnnonceForm] = useState(null);
+  const [editingAnnonceRawText, setEditingAnnonceRawText] = useState("");
+  const [savingEditingAnnonce, setSavingEditingAnnonce] = useState(false);
   const [editingCritereId, setEditingCritereId] = useState(null);
   const [critereForm, setCritereForm] = useState(EMPTY_CRITERE);
 
@@ -862,6 +866,146 @@ export default function Sourcing({ profil, T }) {
 
 L’annonce reste modifiable manuellement.`
     );
+  }
+
+  function startEditAnnonce(annonce) {
+    setEditingAnnonce(annonce);
+    setEditingAnnonceRawText("");
+    setEditingAnnonceForm({
+      titre: annonce?.titre || "",
+      source_url: annonce?.source_url || "",
+      description: annonce?.description || "",
+      prix: annonce?.prix ?? "",
+      surface_m2: annonce?.surface_m2 ?? "",
+      ville: annonce?.ville || "",
+      code_postal: annonce?.code_postal || "",
+      adresse: annonce?.adresse || "",
+      type_bien: annonce?.type_bien || "",
+      nb_pieces: annonce?.nb_pieces ?? "",
+      nb_chambres: annonce?.nb_chambres ?? "",
+      dpe: annonce?.dpe || "",
+      ges: annonce?.ges || "",
+      vendeur_type: annonce?.vendeur_type || "inconnu",
+      url_photo: annonce?.url_photo || "",
+      notes: annonce?.notes || "",
+    });
+  }
+
+  function closeEditAnnonce() {
+    setEditingAnnonce(null);
+    setEditingAnnonceForm(null);
+    setEditingAnnonceRawText("");
+  }
+
+  function updateEditingAnnonceField(field, value) {
+    setEditingAnnonceForm((prev) => ({ ...(prev || {}), [field]: value }));
+  }
+
+  function parseAnnonceText(rawText) {
+    const raw = String(rawText || "");
+    const normalized = raw.replace(/\s+/g, " ").trim();
+    const lines = raw
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const fields = {};
+
+    const priceMatch = normalized.match(/([0-9][0-9\s.]{3,})\s*€/);
+    if (priceMatch) fields.prix = priceMatch[1].replace(/[\s.]/g, "");
+
+    const surfaceMatch = normalized.match(/([0-9]{1,4})\s*(?:m2|m²|m\u00b2)/i);
+    if (surfaceMatch) fields.surface_m2 = surfaceMatch[1];
+
+    const piecesMatch = normalized.match(/([0-9]{1,2})\s*pi[eè]ces?/i);
+    if (piecesMatch) fields.nb_pieces = piecesMatch[1];
+
+    const chambresMatch = normalized.match(/([0-9]{1,2})\s*chambres?/i);
+    if (chambresMatch) fields.nb_chambres = chambresMatch[1];
+
+    const dpeMatch = normalized.match(/DPE\s*[:\-]?\s*([A-G])/i) || normalized.match(/classe énergie\s*[:\-]?\s*([A-G])/i);
+    if (dpeMatch) fields.dpe = dpeMatch[1].toUpperCase();
+
+    const gesMatch = normalized.match(/GES\s*[:\-]?\s*([A-G])/i) || normalized.match(/classe climat\s*[:\-]?\s*([A-G])/i);
+    if (gesMatch) fields.ges = gesMatch[1].toUpperCase();
+
+    const cpVilleMatch = normalized.match(/\b(49\d{3})\b\s+([A-Za-zÀ-ÿ'\-\s]{2,40})/);
+    if (cpVilleMatch) {
+      fields.code_postal = cpVilleMatch[1];
+      fields.ville = cpVilleMatch[2].trim().split(/\s{2,}/)[0];
+    }
+
+    if (!fields.titre && lines.length > 0) {
+      const titleLine = lines.find((line) => !line.includes("€") && !/leboncoin/i.test(line) && line.length > 8) || lines[0];
+      fields.titre = titleLine.slice(0, 180);
+    }
+
+    if (raw.length > 30) {
+      fields.description = raw.slice(0, 6000);
+    }
+
+    return fields;
+  }
+
+  function applyRawAnnonceText() {
+    const fields = parseAnnonceText(editingAnnonceRawText);
+    setEditingAnnonceForm((prev) => ({ ...(prev || {}), ...fields }));
+  }
+
+  async function handleSaveEditingAnnonce() {
+    if (!editingAnnonce?.id || !editingAnnonceForm) return;
+
+    setSavingEditingAnnonce(true);
+
+    const now = new Date().toISOString();
+    const payload = {
+      titre: editingAnnonceForm.titre || "Annonce importée Leboncoin",
+      source_url: editingAnnonceForm.source_url || null,
+      description: editingAnnonceForm.description || null,
+      prix: parseNumber(editingAnnonceForm.prix),
+      surface_m2: parseNumber(editingAnnonceForm.surface_m2),
+      ville: editingAnnonceForm.ville || null,
+      code_postal: editingAnnonceForm.code_postal || null,
+      adresse: editingAnnonceForm.adresse || null,
+      type_bien: editingAnnonceForm.type_bien || null,
+      nb_pieces: parseNumber(editingAnnonceForm.nb_pieces),
+      nb_chambres: parseNumber(editingAnnonceForm.nb_chambres),
+      dpe: editingAnnonceForm.dpe || null,
+      ges: editingAnnonceForm.ges || null,
+      vendeur_type: editingAnnonceForm.vendeur_type || "inconnu",
+      url_photo: editingAnnonceForm.url_photo || null,
+      notes: editingAnnonceForm.notes || null,
+      derniere_detection: now,
+    };
+
+    const merged = { ...editingAnnonce, ...payload };
+    const analysis = computeSourcingAnalysis(merged);
+    const updatePayload = { ...payload, ...analysis };
+
+    if (payload.prix) {
+      const currentHistory = Array.isArray(editingAnnonce.prix_historique) ? editingAnnonce.prix_historique : [];
+      const lastPrice = Number(currentHistory[currentHistory.length - 1]?.prix || 0);
+      if (Number(payload.prix) > 0 && Number(payload.prix) !== lastPrice) {
+        updatePayload.prix_historique = [...currentHistory, { date: now, prix: Number(payload.prix) }];
+      }
+    }
+
+    const { error } = await supabase
+      .from("sourcing_annonces")
+      .update(updatePayload)
+      .eq("id", editingAnnonce.id);
+
+    setSavingEditingAnnonce(false);
+
+    if (error) {
+      console.error(error);
+      alert("Erreur lors de l’enregistrement de l’annonce.");
+      return;
+    }
+
+    setAnnonces((prev) => prev.map((a) => (a.id === editingAnnonce.id ? { ...a, ...updatePayload } : a)));
+    closeEditAnnonce();
+    alert(`Annonce enregistrée et analysée : score ${analysis.score_opportunite}/100 — catégorie ${analysis.categorie}`);
   }
 
   async function handleArchiveAnnonce(annonce) {
@@ -1224,7 +1368,17 @@ L’annonce reste modifiable manuellement.`
                   onAnalyse={handleAnalyseAnnonce}
                   onArchive={handleArchiveAnnonce}
                   onCaptureUrl={handleCaptureUrlAnnonce}
+                  onEditAnnonce={startEditAnnonce}
                   capturingId={capturingId}
+                  editingAnnonce={editingAnnonce}
+                  editingAnnonceForm={editingAnnonceForm}
+                  editingAnnonceRawText={editingAnnonceRawText}
+                  setEditingAnnonceRawText={setEditingAnnonceRawText}
+                  updateEditingAnnonceField={updateEditingAnnonceField}
+                  applyRawAnnonceText={applyRawAnnonceText}
+                  onSaveEditingAnnonce={handleSaveEditingAnnonce}
+                  onCloseEditingAnnonce={closeEditAnnonce}
+                  savingEditingAnnonce={savingEditingAnnonce}
                 />
               )}
 
@@ -1367,7 +1521,29 @@ function DashboardTab({ T, stats, setActiveTab, onRunCollecte, collecting, colle
   );
 }
 
-function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch, setFilterSearch, onUpdateStatut, onAnalyse, onArchive, onCaptureUrl, capturingId }) {
+function AnnoncesTab({
+  T,
+  annonces,
+  filterStatut,
+  setFilterStatut,
+  filterSearch,
+  setFilterSearch,
+  onUpdateStatut,
+  onAnalyse,
+  onArchive,
+  onCaptureUrl,
+  onEditAnnonce,
+  capturingId,
+  editingAnnonce,
+  editingAnnonceForm,
+  editingAnnonceRawText,
+  setEditingAnnonceRawText,
+  updateEditingAnnonceField,
+  applyRawAnnonceText,
+  onSaveEditingAnnonce,
+  onCloseEditingAnnonce,
+  savingEditingAnnonce,
+}) {
   const S = getStyles(T);
 
   return (
@@ -1386,13 +1562,62 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
         </div>
       </div>
 
+      {editingAnnonce && editingAnnonceForm ? (
+        <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 950, color: S.text }}>Compléter l’annonce</h3>
+              <p style={{ margin: "6px 0 0", fontSize: 13, color: S.textSub }}>
+                La capture directe Leboncoin peut être bloquée. Copie le texte visible de l’annonce, colle-le ci-dessous, puis clique sur “Extraire”. Tu peux aussi compléter les champs à la main.
+              </p>
+            </div>
+            <button type="button" onClick={onCloseEditingAnnonce} style={S.buttonSecondary}>Fermer</button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Field T={T} label="Texte copié depuis Leboncoin">
+                <textarea value={editingAnnonceRawText} onChange={(e) => setEditingAnnonceRawText(e.target.value)} style={{ ...S.inputStyle, minHeight: 150, resize: "vertical" }} placeholder="Colle ici le titre, prix, surface, ville et description copiés depuis l’annonce..." />
+              </Field>
+              <button type="button" onClick={applyRawAnnonceText} style={{ ...S.buttonPrimary, alignSelf: "flex-start" }}>Extraire depuis le texte</button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <Field T={T} label="Titre"><input value={editingAnnonceForm.titre || ""} onChange={(e) => updateEditingAnnonceField("titre", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="URL source"><input value={editingAnnonceForm.source_url || ""} onChange={(e) => updateEditingAnnonceField("source_url", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Prix"><input type="number" value={editingAnnonceForm.prix || ""} onChange={(e) => updateEditingAnnonceField("prix", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Surface m²"><input type="number" value={editingAnnonceForm.surface_m2 || ""} onChange={(e) => updateEditingAnnonceField("surface_m2", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Ville"><input value={editingAnnonceForm.ville || ""} onChange={(e) => updateEditingAnnonceField("ville", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Code postal"><input value={editingAnnonceForm.code_postal || ""} onChange={(e) => updateEditingAnnonceField("code_postal", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Type de bien"><input value={editingAnnonceForm.type_bien || ""} onChange={(e) => updateEditingAnnonceField("type_bien", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Pièces"><input type="number" value={editingAnnonceForm.nb_pieces || ""} onChange={(e) => updateEditingAnnonceField("nb_pieces", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Chambres"><input type="number" value={editingAnnonceForm.nb_chambres || ""} onChange={(e) => updateEditingAnnonceField("nb_chambres", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="DPE"><input value={editingAnnonceForm.dpe || ""} onChange={(e) => updateEditingAnnonceField("dpe", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="URL photo"><input value={editingAnnonceForm.url_photo || ""} onChange={(e) => updateEditingAnnonceField("url_photo", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Vendeur"><select value={editingAnnonceForm.vendeur_type || "inconnu"} onChange={(e) => updateEditingAnnonceField("vendeur_type", e.target.value)} style={S.inputStyle}><option value="inconnu">Inconnu</option><option value="particulier">Particulier</option><option value="pro">Professionnel</option></select></Field>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <Field T={T} label="Description"><textarea value={editingAnnonceForm.description || ""} onChange={(e) => updateEditingAnnonceField("description", e.target.value)} style={{ ...S.inputStyle, minHeight: 110, resize: "vertical" }} /></Field>
+          </div>
+
+          <div style={{ marginTop: 14, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button type="button" onClick={onCloseEditingAnnonce} style={S.buttonSecondary}>Annuler</button>
+            <button type="button" onClick={onSaveEditingAnnonce} disabled={savingEditingAnnonce} style={{ ...S.buttonPrimary, opacity: savingEditingAnnonce ? 0.55 : 1 }}>
+              {savingEditingAnnonce ? "Enregistrement..." : "Enregistrer + analyser"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {annonces.length === 0 ? (
         <div style={{ ...S.cardStyle, borderStyle: "dashed", boxShadow: "none", color: S.textSub }}>
           Aucune annonce ne correspond aux filtres.
         </div>
       ) : (
         <div style={{ overflowX: "auto", border: `1px solid ${S.border}`, borderRadius: 18 }}>
-          <table style={{ width: "100%", minWidth: 1280, borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", minWidth: 1450, borderCollapse: "collapse", fontSize: 13 }}>
             <thead style={{ background: S.inputBg }}>
               <tr>
                 <Th T={T}>Bien</Th>
@@ -1415,7 +1640,7 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
                   <tr key={a.id} style={{ borderTop: `1px solid ${S.border}`, verticalAlign: "top" }}>
                     <Td T={T}>
                       <div style={{ display: "flex", gap: 14 }}>
-                        <div style={{ width: 138, height: 96, borderRadius: 16, overflow: "hidden", background: S.inputBg, flexShrink: 0, border: `1px solid ${S.border}` }}>
+                        <div style={{ width: 220, height: 150, borderRadius: 16, overflow: "hidden", background: S.inputBg, flexShrink: 0, border: `1px solid ${S.border}` }}>
                           {a.url_photo ? <img src={a.url_photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
                             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: S.textSub }}>Photo</div>
                           )}
@@ -1445,6 +1670,7 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
                     </Td>
                     <Td T={T}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        <button type="button" onClick={() => onEditAnnonce(a)} style={{ ...S.buttonSecondary, color: S.text, background: S.inputBg }}>Compléter</button>
                         {a.source_url ? (
                           <button
                             type="button"
@@ -1452,7 +1678,7 @@ function AnnoncesTab({ T, annonces, filterStatut, setFilterStatut, filterSearch,
                             disabled={capturingId === a.id}
                             style={{ ...S.buttonSecondary, color: "#1d4ed8", background: "rgba(59,130,246,0.12)", opacity: capturingId === a.id ? 0.55 : 1 }}
                           >
-                            {capturingId === a.id ? "Capture..." : "Capturer URL"}
+                            {capturingId === a.id ? "Capture..." : "Capturer URL (si possible)"}
                           </button>
                         ) : null}
                         <button type="button" onClick={() => onAnalyse(a)} style={{ ...S.buttonSecondary, color: S.accent, background: S.accentBg }}>Analyser</button>
