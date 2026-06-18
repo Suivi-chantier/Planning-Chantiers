@@ -115,6 +115,21 @@ const EMPTY_CRITERE = {
   score_min_alerte: 65,
 };
 
+const SEARCH_FORM_DEFAULT = {
+  critere_id: "all_active",
+  source: "multi_sources",
+  zones: "",
+  types_biens: "",
+  prix_min: "",
+  prix_max: "",
+  surface_min: "",
+  surface_max: "",
+  pieces_min: "",
+  mots_cles_inclus: "",
+  vendeur_type: "tous",
+};
+
+
 function safeText(value) {
   return String(value || "").toLowerCase();
 }
@@ -453,29 +468,91 @@ function shouldGenerateSeloger(critere) {
 
 function leboncoinLocationParam(zone) {
   const z = normalizeSearchText(zone);
+
+  // Pour Leboncoin, on privilégie des valeurs simples dans le paramètre locations.
+  // Les formats trop spécifiques du type Ville_CP__lat_lon sont instables et peuvent casser la recherche.
   const map = {
-    "angers": "Angers_49000",
-    "avrille": "Avrillé_49240",
-    "trelaze": "Trélazé_49800",
-    "les ponts-de-ce": "Les Ponts-de-Cé_49130",
-    "les ponts de ce": "Les Ponts-de-Cé_49130",
-    "beaucouze": "Beaucouzé_49070",
-    "bouchemaine": "Bouchemaine_49080",
-    "saumur": "Saumur_49400",
-    "cholet": "Cholet_49300",
-    "saint-barthelemy-danjou": "Saint-Barthélemy-d'Anjou_49124",
-    "saint barthelemy danjou": "Saint-Barthélemy-d'Anjou_49124",
-    "saint-barthelemy-d anjou": "Saint-Barthélemy-d'Anjou_49124",
-    "maine-et-loire": "Maine-et-Loire_49",
-    "maine et loire": "Maine-et-Loire_49",
+    "angers": "Angers",
+    "49000": "Angers",
+    "49100": "Angers",
+
+    "avrille": "Avrillé",
+    "avrillé": "Avrillé",
+    "49240": "Avrillé",
+
+    "trelaze": "Trélazé",
+    "trélazé": "Trélazé",
+    "49800": "Trélazé",
+
+    "les ponts-de-ce": "Les Ponts-de-Cé",
+    "les ponts de ce": "Les Ponts-de-Cé",
+    "les ponts-de-cé": "Les Ponts-de-Cé",
+    "les ponts de cé": "Les Ponts-de-Cé",
+    "49130": "Les Ponts-de-Cé",
+
+    "beaucouze": "Beaucouzé",
+    "beaucouzé": "Beaucouzé",
+    "49070": "Beaucouzé",
+
+    "bouchemaine": "Bouchemaine",
+    "49080": "Bouchemaine",
+
+    "saumur": "Saumur",
+    "49400": "Saumur",
+
+    "cholet": "Cholet",
+    "49300": "Cholet",
+
+    "saint-barthelemy-danjou": "Saint-Barthélemy-d'Anjou",
+    "saint barthelemy danjou": "Saint-Barthélemy-d'Anjou",
+    "saint-barthelemy-d anjou": "Saint-Barthélemy-d'Anjou",
+    "saint-barthelemy-d'anjou": "Saint-Barthélemy-d'Anjou",
+    "saint barthélemy d anjou": "Saint-Barthélemy-d'Anjou",
+    "49124": "Saint-Barthélemy-d'Anjou",
+
+    "maine-et-loire": "Maine-et-Loire",
+    "maine et loire": "Maine-et-Loire",
+    "maine-et-loire 49": "Maine-et-Loire",
+    "49": "Maine-et-Loire",
   };
-  return map[z] || "";
+
+  return map[z] || String(zone || "").trim();
 }
 
 function cleanLeboncoinKeyword(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function getLeboncoinTypeSearches(critere) {
+  const types = (Array.isArray(critere?.types_biens) ? critere.types_biens : [])
+    .map((item) => normalizeSearchText(item))
+    .filter(Boolean);
+
+  if (!types.length) return [{ label: "immobilier", text: "", realEstateType: "" }];
+
+  const searches = [];
+  const joined = types.join(" ");
+
+  if (joined.includes("maison")) searches.push({ label: "maison", text: "", realEstateType: "1" });
+  if (joined.includes("appartement")) searches.push({ label: "appartement", text: "", realEstateType: "2" });
+
+  // Pour immeuble, le filtre Leboncoin est moins fiable selon les URLs.
+  // On privilégie donc un mot-clé plutôt qu'un filtre trop strict.
+  if (joined.includes("immeuble")) searches.push({ label: "immeuble", text: "immeuble", realEstateType: "" });
+
+  if (joined.includes("local") || joined.includes("commercial")) searches.push({ label: "local commercial", text: "local commercial", realEstateType: "" });
+
+  if (!searches.length) searches.push({ label: "immobilier", text: "", realEstateType: "" });
+
+  const seen = new Set();
+  return searches.filter((item) => {
+    const key = `${item.label}-${item.text}-${item.realEstateType}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getPrioritySearchKeywords(critere) {
@@ -510,18 +587,27 @@ function getPrioritySearchKeywords(critere) {
   return selected.slice(0, 5);
 }
 
-function buildLeboncoinSearchUrl({ zone, keyword, critere, large = false }) {
+function buildLeboncoinSearchUrl({ zone, keyword, critere, large = false, typeSearch = null }) {
   const params = new URLSearchParams();
   params.set("category", "9");
 
   const location = leboncoinLocationParam(zone);
   if (location) params.set("locations", location);
 
+  const selectedType = typeSearch || { label: "immobilier", text: "", realEstateType: "" };
+  if (selectedType.realEstateType) params.set("real_estate_type", selectedType.realEstateType);
+
   const textParts = [];
+  if (selectedType.text) textParts.push(selectedType.text);
   if (!large && keyword) textParts.push(cleanLeboncoinKeyword(keyword));
   if (!location && zone) textParts.push(cleanLeboncoinKeyword(zone));
 
-  const text = textParts.join(" ").trim();
+  const text = textParts
+    .map(cleanLeboncoinKeyword)
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
   if (text) params.set("text", text);
 
   const prixMin = critere?.prix_min ? Math.round(Number(critere.prix_min)) : "";
@@ -537,39 +623,50 @@ function buildLeboncoinSearchUrl({ zone, keyword, critere, large = false }) {
   if (critere?.vendeur_type === "particulier") params.set("owner_type", "private");
   if (critere?.vendeur_type === "pro") params.set("owner_type", "pro");
 
+  params.set("sort", "time");
+
   return `https://www.leboncoin.fr/recherche?${params.toString()}`;
 }
 
 function generateLeboncoinSearchesForCritere(critere) {
   const zonesRaw = Array.isArray(critere?.zones) ? critere.zones : [];
-  const zones = zonesRaw.length ? zonesRaw : [""];
+  const zones = zonesRaw.length ? zonesRaw : ["Maine-et-Loire"];
   const keywords = getPrioritySearchKeywords(critere);
+  const typeSearches = getLeboncoinTypeSearches(critere);
   const searches = [];
 
   for (const zone of zones.slice(0, 8)) {
-    searches.push({
-      critere_id: critere.id,
-      nom: critere.nom,
-      zone: zone || "Zone non renseignée",
-      type: "large",
-      label: `${critere.nom} — ${zone || "France"} — recherche large`,
-      url: buildLeboncoinSearchUrl({ zone, keyword: "", critere, large: true }),
-    });
-
-    for (const keyword of keywords.slice(0, 4)) {
+    for (const typeSearch of typeSearches.slice(0, 4)) {
       searches.push({
         critere_id: critere.id,
         nom: critere.nom,
         zone: zone || "Zone non renseignée",
-        keyword,
-        type: "mot_cle",
-        label: `${critere.nom} — ${zone || "France"} — ${keyword}`,
-        url: buildLeboncoinSearchUrl({ zone, keyword, critere, large: false }),
+        type: "large",
+        property_segment: typeSearch.label,
+        label: `${critere.nom} — Leboncoin — ${zone || "France"} — ${typeSearch.label} — recherche large`,
+        url: buildLeboncoinSearchUrl({ zone, keyword: "", critere, large: true, typeSearch }),
       });
+
+      for (const keyword of keywords.slice(0, 3)) {
+        const normalizedKeyword = normalizeSearchText(keyword);
+        const normalizedType = normalizeSearchText(typeSearch.text || typeSearch.label);
+        if (normalizedKeyword && normalizedType && normalizedKeyword === normalizedType) continue;
+
+        searches.push({
+          critere_id: critere.id,
+          nom: critere.nom,
+          zone: zone || "Zone non renseignée",
+          keyword,
+          type: "mot_cle",
+          property_segment: typeSearch.label,
+          label: `${critere.nom} — Leboncoin — ${zone || "France"} — ${typeSearch.label} — ${keyword}`,
+          url: buildLeboncoinSearchUrl({ zone, keyword, critere, large: false, typeSearch }),
+        });
+      }
     }
   }
 
-  return uniqueByUrl(searches).slice(0, 40);
+  return uniqueByUrl(searches).slice(0, 60);
 }
 
 function generateLeboncoinSearches(criteres = [], critereId = null) {
@@ -708,6 +805,45 @@ function generatePortalSearches(criteres = [], critereId = null) {
   }
 
   return uniqueByUrl(all).slice(0, 160);
+}
+
+
+function buildCritereFromSearchForm(form = {}, fallbackName = "Recherche personnalisée") {
+  return {
+    id: "custom-search",
+    nom: fallbackName,
+    actif: true,
+    source: form.source || "multi_sources",
+    zones: parseTextList(form.zones),
+    types_biens: parseTextList(form.types_biens),
+    prix_min: parseNumber(form.prix_min),
+    prix_max: parseNumber(form.prix_max),
+    surface_min: parseNumber(form.surface_min),
+    surface_max: parseNumber(form.surface_max),
+    pieces_min: parseNumber(form.pieces_min),
+    mots_cles_inclus: parseTextList(form.mots_cles_inclus),
+    mots_cles_exclus: [],
+    vendeur_type: form.vendeur_type || "tous",
+    frequence: "manuel",
+    score_min_alerte: 65,
+  };
+}
+
+function critereToSearchForm(critere) {
+  if (!critere) return { ...SEARCH_FORM_DEFAULT };
+  return {
+    critere_id: critere.id || "custom",
+    source: critere.source || "multi_sources",
+    zones: listToText(critere.zones),
+    types_biens: listToText(critere.types_biens),
+    prix_min: critere.prix_min ?? "",
+    prix_max: critere.prix_max ?? "",
+    surface_min: critere.surface_min ?? "",
+    surface_max: critere.surface_max ?? "",
+    pieces_min: critere.pieces_min ?? "",
+    mots_cles_inclus: listToText(critere.mots_cles_inclus),
+    vendeur_type: critere.vendeur_type || "tous",
+  };
 }
 
 
@@ -1437,6 +1573,25 @@ L’annonce reste modifiable manuellement.`
     setCritereForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function updateSearchField(field, value) {
+    setSearchForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function applyCritereToSearchForm(critereId) {
+    if (critereId === "all_active") {
+      setSearchForm({ ...SEARCH_FORM_DEFAULT, critere_id: "all_active" });
+      return;
+    }
+
+    if (critereId === "custom") {
+      setSearchForm((prev) => ({ ...prev, critere_id: "custom" }));
+      return;
+    }
+
+    const found = criteres.find((critere) => critere.id === critereId);
+    if (found) setSearchForm(critereToSearchForm(found));
+  }
+
   function resetCritereForm() {
     setEditingCritereId(null);
     setCritereForm(EMPTY_CRITERE);
@@ -1541,21 +1696,30 @@ L’annonce reste modifiable manuellement.`
     setCriteres((prev) => prev.filter((c) => c.id !== critere.id));
   }
 
-  async function handleRunCollecte(critereId = null) {
+  async function handleRunCollecte(critereId = null, customForm = null) {
     if (collecting) return;
 
     setCollecting(true);
     setCollecteUrls([]);
-    setCollecteMessage(critereId ? "Génération des recherches du critère..." : "Génération des recherches portails...");
 
-    const urls = generatePortalSearches(criteres, critereId);
+    const isCustomGeneration = !!customForm;
+    setCollecteMessage(isCustomGeneration ? "Génération des recherches personnalisées..." : (critereId ? "Génération des recherches du critère..." : "Génération des recherches portails..."));
+
+    let urls = [];
+    if (isCustomGeneration) {
+      const customCritere = buildCritereFromSearchForm(customForm, "Recherche personnalisée Profero");
+      urls = generatePortalSearches([customCritere], null);
+    } else {
+      urls = generatePortalSearches(criteres, critereId);
+    }
+
     setCollecteUrls(urls);
     setCollecteMessage(`${urls.length} recherche(s) générée(s) sur les portails. Ouvre les liens, repère les annonces intéressantes, puis importe leurs URLs dans Profero.`);
     setActiveTab("recherches");
     setCollecting(false);
 
     await supabase.from("sourcing_logs").insert({
-      source: "multi_sources",
+      source: isCustomGeneration ? "recherche_personnalisee" : "multi_sources",
       statut: "generated",
       nb_detectees: urls.length,
       nb_nouvelles: 0,
@@ -1563,7 +1727,7 @@ L’annonce reste modifiable manuellement.`
       nb_doublons: 0,
       nb_erreurs: 0,
       message: `${urls.length} recherche(s) portails générée(s) depuis Profero.`,
-      details: { mode: "generation_locale", urls_recherche: urls },
+      details: { mode: isCustomGeneration ? "generation_personnalisee" : "generation_locale", criteres_recherche: customForm || null, urls_recherche: urls },
     });
 
     await loadData();
@@ -1801,6 +1965,9 @@ L’annonce reste modifiable manuellement.`
                   criteres={criteres}
                   collecteMessage={collecteMessage}
                   collecteUrls={collecteUrls}
+                  searchForm={searchForm}
+                  updateSearchField={updateSearchField}
+                  applyCritereToSearchForm={applyCritereToSearchForm}
                   onRunCollecte={handleRunCollecte}
                   collecting={collecting}
                 />
@@ -2124,21 +2291,28 @@ function AnnoncesTab({
   );
 }
 
-function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunCollecte, collecting }) {
+function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], searchForm, updateSearchField, applyCritereToSearchForm, onRunCollecte, collecting }) {
   const S = getStyles(T);
   const activeCriteres = (Array.isArray(criteres) ? criteres : []).filter((c) => c.actif !== false);
+  const form = searchForm || SEARCH_FORM_DEFAULT;
+
+  const launchCustomSearch = () => {
+    const critereId = form.critere_id;
+    if (critereId === "all_active") {
+      onRunCollecte(null);
+      return;
+    }
+    onRunCollecte(null, form);
+  };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.1fr", gap: 18, alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "0.95fr 1.05fr", gap: 18, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ ...S.cardStyle, background: S.inputBg, boxShadow: "none" }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: S.text }}>Recherches portails</h2>
           <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.55, color: S.textSub }}>
-            Génère les recherches Leboncoin et SeLoger depuis Profero à partir des critères actifs. La recherche large évite de trop filtrer, puis les variantes par mots-clés permettent de cibler les opportunités.
+            Sélectionne les critères directement dans Profero, puis génère des recherches Leboncoin et SeLoger. Pour Leboncoin, les liens sont volontairement plus simples et plus larges afin d’éviter les recherches vides.
           </p>
-          <button type="button" onClick={() => onRunCollecte(null)} disabled={collecting} style={{ ...S.buttonPrimary, marginTop: 14, opacity: collecting ? 0.55 : 1 }}>
-            {collecting ? "Génération..." : "Générer les recherches"}
-          </button>
           {collecteMessage ? (
             <div style={{ marginTop: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: "10px 12px", fontSize: 13, fontWeight: 800, color: S.accent, background: S.accentBg }}>
               {collecteMessage}
@@ -2147,9 +2321,75 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
         </div>
 
         <div style={S.cardStyle}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Critères actifs</h3>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Sélection des critères</h3>
           <p style={{ margin: "6px 0 14px", fontSize: 13, color: S.textSub }}>
-            Ces profils servent à générer les recherches. Les réglages complets sont dans “Paramètres & logs”.
+            Utilise un critère enregistré ou crée une recherche personnalisée rapide sans modifier les paramètres sauvegardés.
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+            <Field label="Critère à utiliser" T={T}>
+              <select value={form.critere_id || "all_active"} onChange={(e) => applyCritereToSearchForm(e.target.value)} style={S.inputStyle}>
+                <option value="all_active">Tous les critères actifs</option>
+                <option value="custom">Recherche personnalisée</option>
+                {activeCriteres.map((critere) => (
+                  <option key={critere.id} value={critere.id}>{critere.nom}</option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Portail" T={T}>
+              <select value={form.source || "multi_sources"} onChange={(e) => updateSearchField("source", e.target.value)} style={S.inputStyle} disabled={form.critere_id === "all_active"}>
+                <option value="multi_sources">Leboncoin + SeLoger</option>
+                <option value="leboncoin_direct">Leboncoin uniquement</option>
+                <option value="seloger_direct">SeLoger uniquement</option>
+              </select>
+            </Field>
+          </div>
+
+          {form.critere_id === "all_active" ? (
+            <div style={{ marginTop: 12, border: `1px solid ${S.border}`, borderRadius: 14, padding: 12, background: S.inputBg, color: S.textSub, fontSize: 13, lineHeight: 1.5 }}>
+              Le mode “Tous les critères actifs” reprend les critères enregistrés dans “Paramètres & logs”. Pour choisir manuellement une zone, un type, un budget ou un portail, sélectionne “Recherche personnalisée” ou un critère précis.
+            </div>
+          ) : (
+            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+              <Field label="Zones" T={T}>
+                <input value={form.zones || ""} onChange={(e) => updateSearchField("zones", e.target.value)} style={S.inputStyle} placeholder="Angers, Avrillé, Trélazé, Maine-et-Loire" />
+              </Field>
+
+              <Field label="Types de biens" T={T}>
+                <input value={form.types_biens || ""} onChange={(e) => updateSearchField("types_biens", e.target.value)} style={S.inputStyle} placeholder="immeuble, maison, appartement, local commercial" />
+              </Field>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+                <Field label="Prix min" T={T}><input type="number" value={form.prix_min || ""} onChange={(e) => updateSearchField("prix_min", e.target.value)} style={S.inputStyle} placeholder="80000" /></Field>
+                <Field label="Prix max" T={T}><input type="number" value={form.prix_max || ""} onChange={(e) => updateSearchField("prix_max", e.target.value)} style={S.inputStyle} placeholder="500000" /></Field>
+                <Field label="Pièces min" T={T}><input type="number" value={form.pieces_min || ""} onChange={(e) => updateSearchField("pieces_min", e.target.value)} style={S.inputStyle} placeholder="4" /></Field>
+                <Field label="Surface min" T={T}><input type="number" value={form.surface_min || ""} onChange={(e) => updateSearchField("surface_min", e.target.value)} style={S.inputStyle} placeholder="80" /></Field>
+                <Field label="Surface max" T={T}><input type="number" value={form.surface_max || ""} onChange={(e) => updateSearchField("surface_max", e.target.value)} style={S.inputStyle} placeholder="500" /></Field>
+                <Field label="Vendeur" T={T}>
+                  <select value={form.vendeur_type || "tous"} onChange={(e) => updateSearchField("vendeur_type", e.target.value)} style={S.inputStyle}>
+                    <option value="tous">Tous</option>
+                    <option value="particulier">Particulier</option>
+                    <option value="pro">Professionnel</option>
+                  </select>
+                </Field>
+              </div>
+
+              <Field label="Mots-clés prioritaires" T={T}>
+                <input value={form.mots_cles_inclus || ""} onChange={(e) => updateSearchField("mots_cles_inclus", e.target.value)} style={S.inputStyle} placeholder="travaux, à rénover, division possible, plusieurs logements" />
+              </Field>
+            </div>
+          )}
+
+          <button type="button" onClick={launchCustomSearch} disabled={collecting} style={{ ...S.buttonPrimary, marginTop: 14, opacity: collecting ? 0.55 : 1 }}>
+            {collecting ? "Génération..." : "Générer les recherches"}
+          </button>
+        </div>
+
+        <div style={S.cardStyle}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: S.text }}>Critères actifs enregistrés</h3>
+          <p style={{ margin: "6px 0 14px", fontSize: 13, color: S.textSub }}>
+            Ces profils peuvent toujours être générés individuellement. Les réglages complets restent dans “Paramètres & logs”.
           </p>
           {activeCriteres.length === 0 ? (
             <div style={{ color: S.textSub, fontSize: 13 }}>Aucun critère actif pour le moment.</div>
@@ -2165,7 +2405,7 @@ function RecherchesTab({ T, criteres, collecteMessage, collecteUrls = [], onRunC
                       </div>
                     </div>
                     <button type="button" onClick={() => onRunCollecte(c.id)} disabled={collecting} style={{ ...S.buttonSecondary, background: S.accentBg, color: S.accent, opacity: collecting ? 0.55 : 1 }}>
-                      Collecter
+                      Générer
                     </button>
                   </div>
                   {Array.isArray(c.zones) && c.zones.length > 0 && <TagList title="Zones" values={c.zones.slice(0, 6)} T={T} />}
