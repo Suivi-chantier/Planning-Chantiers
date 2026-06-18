@@ -170,7 +170,16 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           });
         });
         if (mats.length === 0) return;
-        const dateISO = plan[lotId + "__date_commande"] || null;
+        // Date de besoin = la date_prevue la plus proche parmi les tâches des
+        // ouvrages du lot (renseignée quand une tâche est planifiée en V2).
+        // Repli : ancienne clé <lot>__date_commande si présente (legacy).
+        let earliest = null;
+        ouvragesLot.forEach(o => {
+          (o.taches || []).forEach(t => {
+            if (t.date_prevue && (!earliest || t.date_prevue < earliest)) earliest = t.date_prevue;
+          });
+        });
+        const dateISO = earliest || plan[lotId + "__date_commande"] || null;
         const coutCmd = parseFloat(plan[lotId + "__cout_commandes"]) || 0;
         const totalHt = mats.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
         cartes.push({
