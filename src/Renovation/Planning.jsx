@@ -38,7 +38,9 @@ function weatherInfo(code) {
 const toIsoDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
-function PagePlanning({ chantiers, ouvriers, ouvrierEmails, cells, setCells, commandes, setCommandes, notesData, setNotesData, weekId, view, setView, year, week, setYear, setWeek, T, branch = "renovation" }) {
+function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, cells, setCells, commandes, setCommandes, notesData, setNotesData, weekId, view, setView, year, week, setYear, setWeek, T, branch = "renovation" }) {
+  // Un chantier marqué "Terminé" (dans la page Chantiers) disparaît du planning hebdo.
+  const chantiers = useMemo(() => chantiersAll.filter(c => c.statut !== "termine"), [chantiersAll]);
   const isMobile = useIsMobile();
   const acc = getBranchAccent(branch);
   // Vue forcée à "planifie" — les vues "réel" et "bilan" ont été retirées
