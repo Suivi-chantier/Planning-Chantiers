@@ -201,7 +201,8 @@ function PhotosPicker({ photos, onChange, pathPrefix, color = "#5b9cf6", onLight
       }}>
         <Icon as={Camera} size={16} strokeWidth={1.8}/>
         <span style={{ fontSize: 9, letterSpacing: .3 }}>Photo</span>
-        <input ref={inputRef} type="file" accept="image/*" multiple capture="environment"
+        {/* Pas de `capture` : le téléphone propose le choix (galerie OU appareil photo). */}
+        <input ref={inputRef} type="file" accept="image/*" multiple
           onChange={e => onFiles(e.target.files)} style={{ display: "none" }}/>
       </label>
       {uploading > 0 && (
