@@ -106,6 +106,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const [commandeLignes, setCommandeLignes] = useState([]);
   const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
   const [matKpiModal, setMatKpiModal] = useState(false); // modale "toutes les commandes du chantier"
+  const [kpiDetail, setKpiDetail] = useState(null); // détail d'un KPI : "vendu" | "heures" | "mo" | "fg" | "marge"
   // Form d'ajout de référence dans le panneau
   const [refForm, setRefForm] = useState({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" });
   const [refSaving, setRefSaving] = useState(false);
@@ -1587,28 +1588,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
             }}>
               <KpiCard T={T} icon={Banknote} iconColor="#f5c400" label="Vendu HT"
                 value={fmtEur(prixHTChantier)}
-                sub={`${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""}`}/>
+                sub={`${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""}`}
+                onClick={() => setKpiDetail("vendu")}/>
               <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label="Heures totales"
                 value={`${heuresReellesChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`}
                 sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}
-                accent={couleurDerive(heuresReellesChantier, heuresVenduesChantier)}/>
+                accent={couleurDerive(heuresReellesChantier, heuresVenduesChantier)}
+                onClick={() => setKpiDetail("heures")}/>
               <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label="Coût MO"
                 value={fmtEur(coutMOChantier)}
                 sub="Heures réelles × taux"
-                accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}/>
+                accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}
+                onClick={() => setKpiDetail("mo")}/>
               <KpiCard T={T} icon={Receipt} iconColor="#f97316" label="Matériaux"
                 value={fmtEur(coutMatChantier)}
                 sub={`Voir les commandes (${commandeLignes.length})`}
                 onClick={() => setMatKpiModal(true)}/>
               <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label="Frais généraux"
                 value={fmtEur(fgChantier)}
-                sub={fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${heuresVenduesChantier.toFixed(0)}h` : "0 — à régler"}/>
+                sub={fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${heuresVenduesChantier.toFixed(0)}h` : "0 — à régler"}
+                onClick={() => setKpiDetail("fg")}/>
               <KpiCard T={T}
                 icon={margeChantier >= 0 ? TrendingUp : TrendingDown}
                 iconColor={margeColor} label="Marge brute"
                 value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
                 sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : null}
-                accent={margeColor} bold={true}/>
+                accent={margeColor} bold={true}
+                onClick={() => setKpiDetail("marge")}/>
               {(margeCible > 0 || primeChant > 0) && (
                 <KpiCibleEtPrime T={T}
                   margeCible={margeCible} margePct={margePctChantier}
@@ -2223,6 +2229,152 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
               <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
                 <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>Total</span>
                 <span style={{ fontSize: 16, fontWeight: 900, color: "#50c878" }}>{fmtEur(total)} € HT</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Détail générique d'un KPI (Vendu / Heures / Coût MO / FG / Marge) ── */}
+      {kpiDetail && (() => {
+        const eur = (n) => `${Math.round(parseFloat(n) || 0).toLocaleString("fr-FR")} €`;
+        const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || null;
+
+        // Construit la configuration d'affichage selon le KPI cliqué.
+        let cfg = null;
+
+        if (kpiDetail === "vendu") {
+          const rows = ouvrages
+            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), value: prixHTOuvrage(o) }))
+            .filter(r => r.value > 0)
+            .sort((a, b) => b.value - a.value);
+          cfg = {
+            icon: Banknote, color: "#f5c400", title: "Prix de vente HT",
+            subtitle: `${rows.length} ouvrage${rows.length > 1 ? "s" : ""} valorisé${rows.length > 1 ? "s" : ""}`,
+            empty: "Aucun prix de vente saisi sur les ouvrages.",
+            rows: rows.map(r => ({ main: r.main, sub: r.sub, right: eur(r.value) })),
+            total: prixHTChantier, totalLabel: "Total vendu HT", totalColor: "#f5c400",
+          };
+        } else if (kpiDetail === "heures") {
+          const rows = ouvrages
+            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id),
+              r: heuresReellesOuvrage(o), v: heuresVenduesOuvrage(o) }))
+            .filter(r => r.r > 0 || r.v > 0)
+            .sort((a, b) => b.v - a.v || b.r - a.r);
+          cfg = {
+            icon: Clock, color: "#5b9cf6", title: "Heures réelles / vendues",
+            subtitle: `${heuresReellesChantier.toFixed(1)}h pointées sur ${heuresVenduesChantier.toFixed(0)}h vendues`,
+            empty: "Aucune heure vendue ni pointée.",
+            rows: rows.map(r => ({
+              main: r.main, sub: r.sub,
+              right: `${fmtH(r.r)}h / ${fmtH(r.v)}h`,
+              rightColor: couleurDepassement(r.r, r.v),
+            })),
+            total: `${fmtH(heuresReellesChantier)}h / ${fmtH(heuresVenduesChantier)}h`,
+            totalLabel: "Total réelles / vendues",
+            totalColor: couleurDepassement(heuresReellesChantier, heuresVenduesChantier) || "#5b9cf6",
+            totalIsText: true,
+          };
+        } else if (kpiDetail === "mo") {
+          // Ventilation du coût MO réel par ouvrier (registre de pointage, taux figé).
+          const m = {};
+          ouvrages.forEach(o => (o.taches || []).forEach(t => tachePointagesParOuvrier(t).forEach(p => {
+            if (!m[p.ouvrier]) m[p.ouvrier] = { ouvrier: p.ouvrier, heures: 0, cout: 0, taux: p.taux };
+            m[p.ouvrier].heures += p.heures;
+            m[p.ouvrier].cout += p.cout;
+            m[p.ouvrier].taux = p.taux;
+          })));
+          const rows = Object.values(m).sort((a, b) => b.cout - a.cout);
+          const ventile = rows.reduce((s, r) => s + r.cout, 0);
+          const reste = coutMOChantier - ventile;
+          const out = rows.map(r => ({
+            main: r.ouvrier,
+            sub: `${fmtH(r.heures)}h × ${eur(r.taux)}/h`,
+            right: eur(r.cout),
+          }));
+          // Tâches sans pointage : coût calculé sur les ouvriers assignés (repli legacy).
+          if (reste > 0.5) {
+            out.push({ main: "Heures sans pointage nominatif", sub: "coût estimé via ouvriers assignés", right: eur(reste) });
+          }
+          cfg = {
+            icon: HardHat, color: "#60a5fa", title: "Coût main d'œuvre réel",
+            subtitle: rows.length > 0 ? `${rows.length} ouvrier${rows.length > 1 ? "s" : ""} au registre` : "depuis les heures réelles",
+            empty: "Aucune heure réelle pointée pour l'instant.",
+            rows: out,
+            total: coutMOChantier, totalLabel: "Total coût MO", totalColor: "#60a5fa",
+          };
+        } else if (kpiDetail === "fg") {
+          const rows = fgTauxHoraire > 0
+            ? ouvrages
+                .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hv: heuresVenduesOuvrage(o) }))
+                .filter(r => r.hv > 0)
+                .sort((a, b) => b.hv - a.hv)
+                .map(r => ({ main: r.main, sub: `${fmtH(r.hv)}h × ${fgTauxHoraire}€/h`, right: eur(r.hv * fgTauxHoraire) }))
+            : [];
+          cfg = {
+            icon: Percent, color: "#a78bfa", title: "Frais généraux",
+            subtitle: fgTauxHoraire > 0
+              ? `${fgTauxHoraire}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`
+              : "Taux horaire non réglé (Suivi direction)",
+            empty: fgTauxHoraire > 0 ? "Aucune heure vendue." : "Définis un taux horaire de frais généraux dans « Suivi direction » pour ventiler ce coût.",
+            rows,
+            total: fgChantier, totalLabel: "Total frais généraux", totalColor: "#a78bfa",
+          };
+        } else if (kpiDetail === "marge") {
+          const margeColor = margeChantier < 0 ? "#e15a5a" : margePctChantier < 15 ? "#f5a623" : "#22c55e";
+          cfg = {
+            icon: margeChantier >= 0 ? TrendingUp : TrendingDown, color: margeColor,
+            title: "Marge brute", subtitle: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : "Vendu − MO − Matériaux − FG",
+            empty: null,
+            rows: [
+              { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
+              { main: "Coût main d'œuvre", sub: "heures réelles × taux", right: `− ${eur(coutMOChantier)}`, rightColor: "#e15a5a" },
+              { main: "Matériaux", sub: "commandes du chantier", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
+              { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures vendues` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
+            ],
+            total: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
+            totalLabel: "Marge brute", totalColor: margeColor, totalIsText: true,
+          };
+        }
+        if (!cfg) return null;
+
+        return (
+          <div onClick={() => setKpiDetail(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+                width: "min(560px, 100%)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{
+                  width: 30, height: 30, borderRadius: RADIUS.md, flexShrink: 0,
+                  background: `color-mix(in srgb, ${cfg.color} 20%, transparent)`, color: cfg.color,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon as={cfg.icon} size={16}/>
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>{cfg.title}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{chantier?.nom ? `${chantier.nom} · ` : ""}{cfg.subtitle}</div>
+                </div>
+                <button onClick={() => setKpiDetail(null)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
+              </div>
+              <div style={{ padding: "12px 20px" }}>
+                {cfg.rows.length === 0 ? (
+                  <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>{cfg.empty}</div>
+                ) : cfg.rows.map((r, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.main}</div>
+                      {r.sub && <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>{r.sub}</div>}
+                    </div>
+                    <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: r.rightColor || T.text, whiteSpace: "nowrap", flexShrink: 0 }}>{r.right}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
+                <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>{cfg.totalLabel}</span>
+                <span style={{ fontSize: 16, fontWeight: 900, color: cfg.totalColor }}>{cfg.totalIsText ? cfg.total : eur(cfg.total)}</span>
               </div>
             </div>
           </div>
