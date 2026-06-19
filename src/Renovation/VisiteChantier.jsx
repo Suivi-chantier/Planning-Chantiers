@@ -1032,17 +1032,16 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
 
   const handleSave = async () => { await onSave(draft); setDirty(false); };
 
-  // Retour protégé : si des modifications ne sont pas enregistrées, on propose
-  // de sauvegarder avant de quitter (jamais de perte silencieuse).
+  // Retour : sauvegarde automatiquement les modifications en cours (sans popup)
+  // puis revient aux visites. Si la sauvegarde échoue, on reste sur l'audit.
   const handleBack = async () => {
     if (dirty) {
-      const ok = window.confirm(
-        "Des modifications de l'audit ne sont pas encore enregistrées.\n\n" +
-        "• OK : sauvegarder puis revenir aux visites\n" +
-        "• Annuler : rester sur l'audit (rien n'est perdu)"
-      );
-      if (!ok) return;
-      await handleSave();
+      try {
+        await handleSave();
+      } catch (e) {
+        alert("La sauvegarde a échoué — tu restes sur l'audit pour réessayer.\n\n" + (e?.message || e));
+        return;
+      }
     }
     onBack();
   };
