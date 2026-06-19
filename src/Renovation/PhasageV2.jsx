@@ -83,6 +83,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // Glisser-déposer : ouvrage en cours de déplacement + lot survolé (cible)
   const [draggedOuvrageId, setDraggedOuvrageId] = useState(null);
   const [dragOverLotId, setDragOverLotId] = useState(null);
+  // Les lots vides (sans ouvrage) sont masqués par défaut ; ce flag les révèle
+  // pour pouvoir y ajouter un premier ouvrage manuellement.
+  const [showEmptyLots, setShowEmptyLots] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error
   const saveTimerRef = useRef(null);
   const newOuvrageInputRef = useRef(null);
@@ -1617,7 +1620,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           <div style={{ display: "flex", flexDirection: "column", borderRight: `1px solid ${T.border}`, minHeight: 0 }}>
             <div style={colHeader}><Icon as={Boxes} size={12}/> Lots</div>
             <div style={colBody}>
-              {lots.map(l => {
+              {/* On masque les lots vides (aucun ouvrage, donc aucune tâche).
+                  On garde le lot actuellement sélectionné même vide, pour
+                  pouvoir y ajouter un premier ouvrage sans qu'il disparaisse.
+                  Le bouton « lots vides » en bas les révèle tous au besoin. */}
+              {lots.filter(l => showEmptyLots || (countByLot[l.id] || 0) > 0 || selectedLotId === l.id).map(l => {
                 const active = selectedLotId === l.id;
                 const count = countByLot[l.id] || 0;
                 const av = count > 0 ? avancementLot(l.id) : 0;
@@ -1706,6 +1713,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                       {av}%
                     </span>
                   </div>
+                );
+              })()}
+              {(() => {
+                const nbVides = lots.filter(l => (countByLot[l.id] || 0) === 0 && selectedLotId !== l.id).length;
+                if (nbVides === 0 && !showEmptyLots) return null;
+                return (
+                  <button onClick={() => setShowEmptyLots(v => !v)}
+                    style={{
+                      marginTop: 12, width: "100%", background: "transparent",
+                      border: `1px dashed ${T.border}`, color: T.textMuted,
+                      borderRadius: RADIUS.md, padding: "7px 10px", cursor: "pointer",
+                      fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700,
+                    }}>
+                    {showEmptyLots
+                      ? "Masquer les lots vides"
+                      : `+ ${nbVides} lot${nbVides > 1 ? "s" : ""} vide${nbVides > 1 ? "s" : ""}`}
+                  </button>
                 );
               })()}
             </div>
