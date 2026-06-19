@@ -1,17 +1,27 @@
-// api/generate-visite-docx.js — Génère un compte rendu .docx d'une visite de chantier
+// api/generate-visite-docx.js — Génère un compte rendu .docx d'une visite de chantier (modèle V2 : Lot → Ouvrage → Tâche)
 const {
   Document, Packer, Paragraph, TextRun,
   AlignmentType, LevelFormat, BorderStyle, ImageRun,
 } = require('docx');
 
 const GOLD = "E6AE00", DARK = "1A1F2E", GREY = "5B6A8A";
-const GREEN = "1A6B3A", ORANGE = "B05A10", RED = "B03030";
+const GREEN = "1A6B3A", ORANGE = "B05A10", SLATE = "64748B";
 
 const STATUTS = {
   en_cours: "En cours",
   cloturee: "Clôturée",
   annulee:  "Annulée",
 };
+
+// Statuts d'une tâche auditée (V2)
+const statutLabel = (s) =>
+  s === "valide"       ? "VALIDÉ" :
+  s === "reserve"      ? "RÉSERVE" :
+  s === "non_commence" ? "PAS COMMENCÉ" : "—";
+const statutColor = (s) =>
+  s === "valide"       ? GREEN :
+  s === "reserve"      ? ORANGE :
+  s === "non_commence" ? SLATE : GREY;
 
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -35,26 +45,38 @@ async function fetchImage(url) {
   }
 }
 
+// Regroupe les tâches d'un lot par ouvrage (conserve l'ordre d'apparition)
+function groupByOuvrage(taches = []) {
+  const groups = [];
+  const idx = {};
+  taches.forEach(t => {
+    const key = t.ouvrage_id || "_";
+    if (idx[key] === undefined) {
+      idx[key] = groups.length;
+      groups.push({ ouvrage_libelle: t.ouvrage_libelle || "Ouvrage", taches: [] });
+    }
+    groups[idx[key]].taches.push(t);
+  });
+  return groups;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { visite, chantier, phases, reserves_heritees, derniere_visite_date } = req.body;
-  if (!visite || !phases) return res.status(400).json({ error: 'Missing data' });
-
-  const phasesById = {};
-  phases.forEach(p => { phasesById[p.id] = p; });
+  const { visite, chantier, lots, reserves_heritees, derniere_visite_date } = req.body;
+  if (!visite || !Array.isArray(lots)) return res.status(400).json({ error: 'Missing data' });
 
   const audit = visite.audit || {};
   const checklist = Array.isArray(visite.checklist) ? visite.checklist : [];
   const allTaches = [];
-  phases.forEach(p => {
-    (audit[p.id] || []).forEach(t => allTaches.push({ ...t, _phase: p }));
+  lots.forEach(l => {
+    (audit[l.id] || []).forEach(t => allTaches.push({ ...t, _lot: l }));
   });
   // Bilan global inclut les items de checklist
   const allEvaluables = [...allTaches, ...checklist];
-  const nb_ok  = allEvaluables.filter(t => t.statut === "ok").length;
+  const nb_ok  = allEvaluables.filter(t => t.statut === "valide").length;
   const nb_res = allEvaluables.filter(t => t.statut === "reserve").length;
-  const nb_nok = allEvaluables.filter(t => t.statut === "nok").length;
+  const nb_af  = allEvaluables.filter(t => t.statut === "non_commence").length;
   const nb_nd  = allEvaluables.filter(t => !t.statut).length;
   const total  = allEvaluables.length;
 
@@ -102,18 +124,18 @@ module.exports = async function handler(req, res) {
     }));
     children.push(new Paragraph({
       children: [
-        new TextRun({ text: `${nb_ok} conformes`, bold: true, size: 22, font: "Arial", color: GREEN }),
+        new TextRun({ text: `${nb_ok} validées`, bold: true, size: 22, font: "Arial", color: GREEN }),
         new TextRun({ text: "   ·   ", size: 22, font: "Arial", color: GREY }),
         new TextRun({ text: `${nb_res} réserves`, bold: true, size: 22, font: "Arial", color: ORANGE }),
         new TextRun({ text: "   ·   ", size: 22, font: "Arial", color: GREY }),
-        new TextRun({ text: `${nb_nok} non conformes`, bold: true, size: 22, font: "Arial", color: RED }),
+        new TextRun({ text: `${nb_af} pas commencées`, bold: true, size: 22, font: "Arial", color: SLATE }),
         new TextRun({ text: "   ·   ", size: 22, font: "Arial", color: GREY }),
-        new TextRun({ text: `${nb_nd} non évalués`, size: 22, font: "Arial", color: GREY }),
+        new TextRun({ text: `${nb_nd} non évaluées`, size: 22, font: "Arial", color: GREY }),
       ],
       spacing: { before: 0, after: 80 },
     }));
     children.push(new Paragraph({
-      children: [new TextRun({ text: `Sur ${total} tâche${total > 1 ? "s" : ""} dans la portée d'audit.`, size: 20, italics: true, font: "Arial", color: GREY })],
+      children: [new TextRun({ text: `Sur ${total} point${total > 1 ? "s" : ""} dans la portée d'audit.`, size: 20, italics: true, font: "Arial", color: GREY })],
       spacing: { before: 0, after: 320 },
     }));
   }
@@ -144,14 +166,14 @@ module.exports = async function handler(req, res) {
       spacing: { before: 0, after: 120 },
     }));
     reserves_heritees.forEach(r => {
-      const isLevee = r.statut_courant === "ok";
-      const statutTxt = isLevee ? "✓ LEVÉE" : (r.statut_courant === "reserve" || r.statut_courant === "nok") ? "⚠ TOUJOURS PRÉSENTE" : "à évaluer";
-      const couleur = isLevee ? GREEN : (r.statut_courant === "reserve" || r.statut_courant === "nok") ? RED : GREY;
+      const isLevee = r.statut_courant === "valide";
+      const statutTxt = isLevee ? "✓ LEVÉE" : r.statut_courant === "reserve" ? "⚠ TOUJOURS PRÉSENTE" : "à évaluer";
+      const couleur = isLevee ? GREEN : r.statut_courant === "reserve" ? "B03030" : GREY;
       children.push(new Paragraph({
         numbering: { reference: "bullets", level: 0 },
         children: [
           new TextRun({ text: `${r.nom_origine} `, bold: true, size: 22, font: "Arial", color: DARK }),
-          new TextRun({ text: `(${r.phase_label}) — `, size: 22, font: "Arial", color: GREY }),
+          new TextRun({ text: `(${r.lot_label}) — `, size: 22, font: "Arial", color: GREY }),
           new TextRun({ text: statutTxt, bold: true, size: 22, font: "Arial", color: couleur }),
         ],
         spacing: { before: 0, after: 40 },
@@ -174,18 +196,10 @@ module.exports = async function handler(req, res) {
       spacing: { before: 200, after: 120 },
     }));
     for (const item of checklist) {
-      const statutLabel =
-        item.statut === "ok"      ? "OK" :
-        item.statut === "reserve" ? "RÉSERVE" :
-        item.statut === "nok"     ? "NOK" : "—";
-      const couleur =
-        item.statut === "ok"      ? GREEN :
-        item.statut === "reserve" ? ORANGE :
-        item.statut === "nok"     ? RED : GREY;
       children.push(new Paragraph({
         numbering: { reference: "bullets", level: 0 },
         children: [
-          new TextRun({ text: `[${statutLabel}] `, bold: true, size: 22, font: "Arial", color: couleur }),
+          new TextRun({ text: `[${statutLabel(item.statut)}] `, bold: true, size: 22, font: "Arial", color: statutColor(item.statut) }),
           new TextRun({ text: item.label || "", size: 22, font: "Arial", color: DARK }),
         ],
         spacing: { before: 0, after: 40 },
@@ -212,68 +226,59 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // ─── DÉTAIL PAR PHASE ────────────────────────────────────────────────────────
-  for (const p of phases) {
-    const taches = audit[p.id] || [];
+  // ─── DÉTAIL PAR LOT → OUVRAGE → TÂCHE ────────────────────────────────────────
+  for (const l of lots) {
+    const taches = audit[l.id] || [];
     if (taches.length === 0) continue;
 
-    const ph_ok  = taches.filter(t => t.statut === "ok").length;
-    const ph_res = taches.filter(t => t.statut === "reserve").length;
-    const ph_nok = taches.filter(t => t.statut === "nok").length;
+    const lot_ok  = taches.filter(t => t.statut === "valide").length;
+    const lot_res = taches.filter(t => t.statut === "reserve").length;
+    const lot_af  = taches.filter(t => t.statut === "non_commence").length;
 
     children.push(new Paragraph({
       children: [
-        new TextRun({ text: p.label.toUpperCase(), bold: true, size: 24, font: "Arial", color: DARK }),
-        new TextRun({ text: `   —  ${ph_ok} OK · ${ph_res} rés · ${ph_nok} NOK`, size: 20, font: "Arial", color: GREY }),
+        new TextRun({ text: (l.label || "").toUpperCase(), bold: true, size: 24, font: "Arial", color: DARK }),
+        new TextRun({ text: `   —  ${lot_ok} validées · ${lot_res} rés · ${lot_af} à faire`, size: 20, font: "Arial", color: GREY }),
       ],
       border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: GOLD, space: 4 } },
       spacing: { before: 200, after: 120 },
     }));
 
-    for (const t of taches) {
-      const statutLabel =
-        t.statut === "ok"      ? "OK" :
-        t.statut === "reserve" ? "RÉSERVE" :
-        t.statut === "nok"     ? "NOK" : "—";
-      const couleur =
-        t.statut === "ok"      ? GREEN :
-        t.statut === "reserve" ? ORANGE :
-        t.statut === "nok"     ? RED : GREY;
-
+    for (const g of groupByOuvrage(taches)) {
       children.push(new Paragraph({
-        numbering: { reference: "bullets", level: 0 },
-        children: [
-          new TextRun({ text: `[${statutLabel}] `, bold: true, size: 22, font: "Arial", color: couleur }),
-          new TextRun({ text: t.nom || "", size: 22, font: "Arial", color: DARK }),
-          t.ouvrage ? new TextRun({ text: `  (${t.ouvrage})`, size: 20, font: "Arial", color: GREY }) : new TextRun({ text: "" }),
-        ],
-        spacing: { before: 0, after: 40 },
+        children: [new TextRun({ text: g.ouvrage_libelle.toUpperCase(), bold: true, size: 20, font: "Arial", color: GREY })],
+        spacing: { before: 80, after: 60 },
       }));
 
-      if (t.commentaire) {
+      for (const t of g.taches) {
         children.push(new Paragraph({
-          children: [new TextRun({ text: `   "${t.commentaire}"`, italics: true, size: 20, font: "Arial", color: GREY })],
+          numbering: { reference: "bullets", level: 0 },
+          children: [
+            new TextRun({ text: `[${statutLabel(t.statut)}] `, bold: true, size: 22, font: "Arial", color: statutColor(t.statut) }),
+            new TextRun({ text: t.nom || "", size: 22, font: "Arial", color: DARK }),
+          ],
           spacing: { before: 0, after: 40 },
         }));
-      }
 
-      // Photos (téléchargement + insertion)
-      if (Array.isArray(t.photos) && t.photos.length > 0) {
-        for (const url of t.photos.slice(0, 4)) { // max 4 photos par tâche pour limiter la taille
-          const imgBuf = await fetchImage(url);
-          if (imgBuf) {
-            try {
-              children.push(new Paragraph({
-                children: [
-                  new ImageRun({
-                    data: imgBuf,
-                    transformation: { width: 220, height: 165 },
-                  }),
-                ],
-                spacing: { before: 60, after: 60 },
-              }));
-            } catch (e) {
-              console.warn('ImageRun failed:', e.message);
+        if (t.commentaire) {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `   "${t.commentaire}"`, italics: true, size: 20, font: "Arial", color: GREY })],
+            spacing: { before: 0, after: 40 },
+          }));
+        }
+
+        if (Array.isArray(t.photos) && t.photos.length > 0) {
+          for (const url of t.photos.slice(0, 4)) { // max 4 photos par tâche pour limiter la taille
+            const imgBuf = await fetchImage(url);
+            if (imgBuf) {
+              try {
+                children.push(new Paragraph({
+                  children: [new ImageRun({ data: imgBuf, transformation: { width: 220, height: 165 } })],
+                  spacing: { before: 60, after: 60 },
+                }));
+              } catch (e) {
+                console.warn('ImageRun failed:', e.message);
+              }
             }
           }
         }
