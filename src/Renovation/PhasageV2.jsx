@@ -686,6 +686,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       : o));
   };
 
+  // Déplace une tâche vers un autre ouvrage (réparation des tâches atterries
+  // dans « Divers / hors devis »). La tâche garde son id : ses pointages
+  // (heures réelles + coût) suivent automatiquement. On ne touche pas aux
+  // heures vendues (elles vivent au niveau ouvrage). Retourne true si déplacé.
+  const moveTacheToOuvrage = (fromOuvrageId, tacheId, toOuvrageId) => {
+    if (!toOuvrageId || fromOuvrageId === toOuvrageId) return false;
+    const from = ouvrages.find(o => o.id === fromOuvrageId);
+    const tache = from?.taches?.find(t => t.id === tacheId);
+    if (!tache) return false;
+    updateOuvrages(ouvrages.map(o => {
+      if (o.id === fromOuvrageId) return { ...o, taches: (o.taches || []).filter(t => t.id !== tacheId) };
+      if (o.id === toOuvrageId)   return { ...o, taches: [...(o.taches || []), tache] };
+      return o;
+    }));
+    return true;
+  };
+
   // ─── IMPORT DEVIS ───────────────────────────────────────────────────────
   const onFilePicked = async (e) => {
     const file = e.target.files?.[0];
@@ -2577,6 +2594,26 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 onChange={e => updateTache(o.id, t.id, { nom: e.target.value })}
                 placeholder="Description de la tâche" rows={2}
                 style={{ ...modalInp(T), fontWeight: 600, resize: "vertical", minHeight: 60 }}/>
+            </ModalField>
+            {/* Rattachement : permet de reclasser une tâche vers le bon ouvrage
+                (ex. tâches atterries dans « Divers / hors devis »). La tâche
+                garde son id, ses pointages la suivent. */}
+            <ModalField label="Ouvrage">
+              <select value={o.id}
+                onChange={e => {
+                  const toId = e.target.value;
+                  if (moveTacheToOuvrage(o.id, t.id, toId)) setEditingTache({ ouvrageId: toId, tacheId: t.id });
+                }}
+                style={{ ...modalInp(T), cursor: "pointer" }}>
+                {ouvrages.map(ov => {
+                  const lotLabel = ov.lot_id ? lots.find(l => l.id === ov.lot_id)?.label : null;
+                  return (
+                    <option key={ov.id} value={ov.id}>
+                      {(ov.libelle || "(sans libellé)") + (lotLabel ? ` — ${lotLabel}` : "")}
+                    </option>
+                  );
+                })}
+              </select>
             </ModalField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures estimées">
