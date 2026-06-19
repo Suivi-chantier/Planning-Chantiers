@@ -129,7 +129,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                       background:T.fieldBg,border:`1px solid ${T.border}`,borderRadius:7,padding:"4px 8px"}}>
                       <span style={{fontSize:12,color:T.textMuted}}>⏱</span>
                       <input
-                        type="number" min="0.5" max="24" step="0.5"
+                        type="number" min="0.25" max="24" step="0.25"
                         value={tache.duree||""}
                         onChange={e=>{
                           const t=[...(draft.taches||[])];

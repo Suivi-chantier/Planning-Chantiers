@@ -21,6 +21,36 @@ const rid = () => Math.random().toString(36).slice(2, 10);
 
 const JOURS_SEM = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
+// Arrondit un nombre d'heures au quart d'heure le plus proche (0,25 / 0,5 /
+// 0,75 / 1 …). Utilisé UNIQUEMENT pour la durée envoyée au planning hebdo (ce
+// que voient les ouvriers) — les heures restent exactes dans le phasage.
+const arrondiQuart = (h) => {
+  const n = parseFloat(h);
+  if (isNaN(n)) return null;
+  return Math.round(n * 4) / 4;
+};
+
+// Répartit un total d'heures entre des tâches selon leur poids. Base de
+// pondération en cascade : ratio (copié de la biblio) → heures_estimees →
+// parts égales. Renvoie un tableau de valeurs EXACTES (2 décimales, non
+// arrondies) aligné sur `taches`. Si `total` est vide, renvoie des null.
+function repartirHeures(total, taches) {
+  const t = Array.isArray(taches) ? taches : [];
+  const tot = parseFloat(total);
+  if (isNaN(tot) || t.length === 0) return t.map(() => null);
+  let poids = t.map(x => parseFloat(x.ratio) || 0);
+  let somme = poids.reduce((s, p) => s + p, 0);
+  if (somme <= 0) {
+    poids = t.map(x => parseFloat(x.heures_estimees) || 0);
+    somme = poids.reduce((s, p) => s + p, 0);
+  }
+  if (somme <= 0) {
+    poids = t.map(() => 1);
+    somme = t.length;
+  }
+  return poids.map(p => parseFloat((tot * p / somme).toFixed(2)));
+}
+
 // Convertit un weekId "YYYY-W##" + un jour ("Lundi", etc.) en date ISO
 // yyyy-mm-dd. ISO 8601 : la semaine 1 contient le 4 janvier.
 function getDateFromWeekAndDay(weekId, jourName) {
@@ -88,7 +118,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     const t = o?.taches?.find(x => x.id === editingTache.tacheId);
     setPlanifSemaine(initialSemaine);
     setPlanifJour("Lundi");
-    setPlanifDuree(t?.heures_estimees ? String(t.heures_estimees) : "");
+    // Durée pré-remplie = heures VENDUES de la tâche, arrondies à 0,25 (ce que
+    // verront les ouvriers). Repli sur les heures estimées si pas d'heures
+    // vendues calculées.
+    const hBase = t?.heures_vendues != null ? t.heures_vendues : t?.heures_estimees;
+    const hArrondi = arrondiQuart(hBase);
+    setPlanifDuree(hArrondi != null ? String(hArrondi) : "");
     setPlanifMsg(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingTache?.tacheId]);
@@ -122,7 +157,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         .maybeSingle();
       const base = ex || { planifie: "", reel: "", ouvriers: [], taches: [] };
       const ouvriersTache = Array.isArray(tache.ouvriers) ? tache.ouvriers : [];
-      const duree = parseFloat(planifDuree) || 0;
+      // La durée affichée sur le planning est toujours arrondie à 0,25.
+      const duree = arrondiQuart(planifDuree) || 0;
       const newTask = { id: rid(), text: tache.nom || "", duree, ouvriers: ouvriersTache };
       const nouveauPlanifie = base.planifie ? `${base.planifie}\n${tache.nom || ""}` : (tache.nom || "");
       const upsertPayload = {
@@ -412,6 +448,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     updateOuvrages(ouvrages.map(o => o.id === id ? { ...o, ...patch } : o));
   };
 
+  // Met à jour les heures vendues de l'ouvrage ET redistribue heures_vendues
+  // sur ses tâches (selon leur ratio, à défaut leurs heures estimées, à défaut
+  // à parts égales). Valeurs exactes ; l'arrondi à 0,25 est fait au planning.
+  const setOuvrageHeuresDevis = (id, value) => {
+    updateOuvrages(ouvrages.map(o => {
+      if (o.id !== id) return o;
+      const parts = repartirHeures(value, o.taches || []);
+      const taches = (o.taches || []).map((t, i) => ({ ...t, heures_vendues: parts[i] }));
+      return { ...o, heures_devis: value, taches };
+    }));
+  };
+
   // Déplace un ouvrage vers un lot (drag & drop). lotId === null => "Sans lot".
   const moveOuvrageToLot = (ouvrageId, lotId) => {
     const o = ouvrages.find(x => x.id === ouvrageId);
@@ -429,7 +477,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
 
   // ─── CRUD TÂCHES ────────────────────────────────────────────────────────
   const createTache = (ouvrageId) => {
-    const newT = { id: rid(), nom: "", heures_estimees: null, heures_reelles: null, avancement: 0, ouvriers: [] };
+    const newT = { id: rid(), nom: "", ratio: null, heures_estimees: null, heures_vendues: null, heures_reelles: null, avancement: 0, ouvriers: [] };
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: [...(o.taches || []), newT] }
       : o));
@@ -588,20 +636,31 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       const cadence = parseFloat(it.match?.cadence) || null;
       const heuresEstimees = cadence && it.quantite ? parseFloat((cadence * it.quantite).toFixed(2)) : null;
       // Tâches : copies des sous_taches de la biblio. Le ratio de chaque
-      // sous-tâche répartit les heures ESTIMÉES de l'ouvrage (pas les heures
-      // vendues). Si l'ouvrage n'a pas d'heures estimées calculables (pas de
-      // cadence ou pas de quantité), on laisse heures_estimees à null.
+      // sous-tâche répartit DEUX grandeurs de l'ouvrage :
+      //   • les heures ESTIMÉES (cadence × quantité) → heures_estimees
+      //   • les heures VENDUES (heures_devis) → heures_vendues
+      // On stocke le `ratio` sur la tâche pour pouvoir redistribuer plus tard
+      // (recalcul à la modif des heures vendues de l'ouvrage). Les heures
+      // vendues restent EXACTES ici ; l'arrondi à 0,25 se fait seulement à
+      // l'envoi dans le planning hebdo.
       const sousTaches = it.match?.sous_taches || [];
       const sumRatios = sousTaches.reduce((s, st) => s + (parseFloat(st.ratio) || 0), 0);
+      const heuresDevis = parseFloat(it.heures);
       const taches = sousTaches.map(st => {
         const ratio = parseFloat(st.ratio) || 0;
-        const heuresTache = (heuresEstimees != null && sumRatios > 0 && ratio > 0)
-          ? parseFloat(((heuresEstimees * ratio) / sumRatios).toFixed(2))
+        const part = (sumRatios > 0 && ratio > 0) ? ratio / sumRatios : null;
+        const heuresTache = (heuresEstimees != null && part != null)
+          ? parseFloat((heuresEstimees * part).toFixed(2))
+          : null;
+        const heuresVenduesTache = (!isNaN(heuresDevis) && part != null)
+          ? parseFloat((heuresDevis * part).toFixed(2))
           : null;
         return {
           id: rid(),
           nom: st.nom || "",
+          ratio,
           heures_estimees: heuresTache,
+          heures_vendues: heuresVenduesTache,
           avancement: 0,
         };
       });
@@ -2242,7 +2301,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures vendues">
                 <input type="number" step="0.5" min="0" value={o.heures_devis ?? ""}
-                  onChange={e => updateOuvrage(o.id, { heures_devis: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                  onChange={e => setOuvrageHeuresDevis(o.id, e.target.value === "" ? null : parseFloat(e.target.value))}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
               <ModalField label="Quantité">
@@ -2473,7 +2532,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   </select>
                 </ModalField>
                 <ModalField label="Durée (h)">
-                  <input type="number" step="0.5" min="0" value={planifDuree}
+                  <input type="number" step="0.25" min="0" value={planifDuree}
                     onChange={e => setPlanifDuree(e.target.value)}
                     placeholder="0" style={modalInp(T)}/>
                 </ModalField>
