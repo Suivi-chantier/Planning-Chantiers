@@ -1,16 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases, LOTS_DEFAUT, loadLots } from "../constants";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import {
   ShoppingCart, Package, Calendar, Check, AlertTriangle, Building2,
-  Clock, ArrowRight, Info, X, Mail, Plus, Trash2, Copy, ChevronLeft,
-  Send, Edit3,
+  ArrowRight, Info, X, Mail, Plus, Trash2, Copy, ChevronLeft,
+  ChevronRight, Send, Receipt, Boxes, CheckCircle2, CalendarClock, HelpCircle,
 } from "lucide-react";
-
-// PHASES dynamiques : chargées en state pour pouvoir invalider le useMemo
-// quand la liste personnalisée arrive (sinon les phases custom dont l'ID n'est
-// pas dans PHASES_DEFAUT sont ignorées au premier rendu).
 
 // ─── HELPERS DATES ───────────────────────────────────────────────────────────
 // Lundi (00:00) de la semaine contenant `d`. ISO : lundi = début de semaine.
@@ -42,24 +38,39 @@ function numeroSemaine(d) {
   return Math.ceil((((x - yearStart) / 86400000) + 1) / 7);
 }
 
+// Hook simple de détection mobile (drill-down master/detail sur petit écran).
+function useIsMobile(maxWidth = 860) {
+  const q = `(max-width: ${maxWidth}px)`;
+  const [m, setM] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const h = (e) => setM(e.matches);
+    mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h);
+    return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); };
+  }, [q]);
+  return m;
+}
+
 // ─── PAGE PRINCIPALE ─────────────────────────────────────────────────────────
 export default function PagePlanningCommandes({ chantiers = [], T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
-  const [phases, setPhases]       = useState(PHASES_DEFAUT);
+  const isMobile = useIsMobile();
+
   const [lots, setLots]           = useState(LOTS_DEFAUT);
   const [materiaux, setMateriaux] = useState([]); // biblio : valorise les materiaux_liens
   const [phasages, setPhasages]   = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
+  const [lignesCmd, setLignesCmd] = useState([]); // commande_lignes existantes (+ en-tête commande)
   const [loading, setLoading]     = useState(true);
-  const [carteOpen, setCarteOpen] = useState(null); // carte en cours de commande
-  const [detailsCarte, setDetailsCarte] = useState(null); // carte affichée en détails
 
-  // Chargement des phases personnalisées (Admin → Phases)
-  useEffect(() => {
-    let cancelled = false;
-    loadPhases().then(p => { if (!cancelled) setPhases(p); });
-    return () => { cancelled = true; };
-  }, []);
+  // Sélection master/detail
+  const [selChantierId, setSelChantierId] = useState(null);
+  const [selOuvrageId, setSelOuvrageId]   = useState(null);
+
+  // Modales
+  const [cmdModal, setCmdModal]     = useState(null); // { titre, lignes, dateBesoin }
+  const [vendrediOpen, setVendrediOpen] = useState(false);
+  const [aideOpen, setAideOpen]     = useState(false);
 
   // Couleurs harmonisées avec le reste de l'app
   const bg        = T?.bg        || "#1e2128";
@@ -70,233 +81,237 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   const textSub   = T?.textSub   || "#9aa5c0";
   const textMuted = T?.textMuted || "#5b6a8a";
 
-  // Chargement des phasages
+  // ── Chargements
   const loadPhasages = async () => {
     const { data } = await supabase
       .from("phasages")
-      .select("id, chantier_id, chantier_nom, plan_travaux, ouvrages");
+      .select("id, chantier_id, chantier_nom, ouvrages");
     setPhasages(data || []);
   };
+  const loadLignesCmd = async () => {
+    const { data } = await supabase
+      .from("commande_lignes")
+      .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, phasage_id, commande:commandes(id, doc_numero, numero_en_attente, date_doc, fournisseur_nom, statut_completude, statut_facturation, type_evenement)");
+    setLignesCmd(data || []);
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      await loadPhasages();
+      await Promise.all([loadPhasages(), loadLignesCmd()]);
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);
 
-  // Chargement des fournisseurs (pour les lignes manuelles + sélection rapide)
   useEffect(() => {
     supabase.from("fournisseurs")
       .select("id, nom, email, mail_type")
       .order("nom")
       .then(({ data }) => setFournisseurs(data || []));
-    // Lots + bibliothèque matériaux (V2 : valoriser les materiaux_liens des ouvrages)
     loadLots().then(setLots);
     supabase.from("materiaux_bibliotheque")
-      .select("id, nom, reference, unite, prix_unitaire, fournisseur")
+      .select("id, nom, reference, unite, prix_unitaire, fournisseur, fournisseur_id")
       .then(({ data }) => setMateriaux(data || []));
   }, []);
 
-  // Appelé après confirmation de commande pour refléter les changements
+  // Appelé après une commande passée : on recharge les lignes pour refléter le
+  // nouveau "déjà commandé" (et donc retirer les articles du "à commander").
   const onCommandePassee = async () => {
-    await loadPhasages();
-    setCarteOpen(null);
+    await loadLignesCmd();
+    setCmdModal(null);
+    setVendrediOpen(false);
   };
 
-  // ── Calcul des 5 semaines glissantes (lundi de la semaine en cours + 4)
-  const semaines = useMemo(() => {
-    const lundi0 = lundiSemaine(new Date());
-    return Array.from({ length: 5 }, (_, i) => {
-      const debut = addDays(lundi0, i * 7);
-      const fin   = addDays(debut, 6);
-      return {
-        index: i,
-        debut, fin,
-        key: debut.toISOString().slice(0, 10),
-        label: i === 0 ? "Cette semaine"
-             : i === 1 ? "Semaine prochaine"
-             : `S+${i}`,
-        num: numeroSemaine(debut),
-      };
-    });
-  }, []);
-
-  // ── Extraction des "cartes lot" (V2) : pour chaque phasage, pour chaque LOT,
-  //    on agrège les matériaux des ouvrages de ce lot (materiaux_liens valorisés
-  //    via la bibliothèque). Remplace l'ancien système <phase>__materiaux_prevus.
-  //    NB : on conserve les noms de champs `phaseId/phaseLabel/...` de la carte
-  //    pour ne pas réécrire tout le rendu — ils portent désormais des LOTS.
+  // Index biblio par id (string-safe)
   const matById = useMemo(() => {
     const m = {};
-    materiaux.forEach(x => { m[x.id] = x; });
+    materiaux.forEach(x => { m[String(x.id)] = x; });
     return m;
   }, [materiaux]);
 
-  const cartesPhase = useMemo(() => {
-    const cartes = [];
+  const lotById = useMemo(() => {
+    const m = {};
+    lots.forEach(l => { m[l.id] = l; });
+    return m;
+  }, [lots]);
+
+  // Lignes de commande indexées par ouvrage (par ouvrage_id, repli sur matériau).
+  const lignesParOuvrage = useMemo(() => {
+    // Map ouvrageId -> [lignes]
+    const direct = {};
+    lignesCmd.forEach(l => {
+      if (l.ouvrage_id) (direct[l.ouvrage_id] = direct[l.ouvrage_id] || []).push(l);
+    });
+    return direct;
+  }, [lignesCmd]);
+
+  // ── Construit le modèle Chantier → Ouvrage avec "à commander" / "déjà commandé".
+  const modele = useMemo(() => {
+    const result = [];
     phasages.forEach(p => {
-      const plan = p.plan_travaux || {};
+      const ouvragesRaw = Array.isArray(p.ouvrages) ? p.ouvrages : [];
+      if (ouvragesRaw.length === 0) return;
       const chantier = chantiers.find(c => c.id === p.chantier_id);
-      const ouvrages = Array.isArray(p.ouvrages) ? p.ouvrages : [];
-      // Regroupe les ouvrages par lot_id
-      const parLot = {};
-      ouvrages.forEach(o => {
-        const lid = o.lot_id || "_sans_lot";
-        (parLot[lid] = parLot[lid] || []).push(o);
-      });
-      Object.entries(parLot).forEach(([lotId, ouvragesLot]) => {
-        const lot = lots.find(l => l.id === lotId);
-        // Construit la liste des matériaux à commander pour ce lot, depuis les
-        // materiaux_liens de chaque ouvrage, valorisés via la bibliothèque.
-        const mats = [];
-        ouvragesLot.forEach(o => {
-          (o.materiaux_liens || []).forEach(ml => {
-            if (!ml || ml.materiau_id == null) return;
-            const mat = matById[ml.materiau_id];
-            if (!mat) return;
-            mats.push({
-              id:              `${o.id}:${ml.materiau_id}`,
+      const chantierNom = chantier?.nom || p.chantier_nom || "(sans chantier)";
+      const chantierCouleur = chantier?.couleur || "#888";
+
+      const ouvrages = [];
+      ouvragesRaw.forEach(o => {
+        // Matériaux prévus (depuis materiaux_liens, valorisés via la biblio)
+        const prevus = (o.materiaux_liens || [])
+          .filter(ml => ml && ml.materiau_id != null)
+          .map(ml => {
+            const mat = matById[String(ml.materiau_id)];
+            if (!mat) return null;
+            return {
+              materiau_id:     ml.materiau_id,
               libelle:         mat.nom || "",
               quantite:        ml.quantite != null ? ml.quantite : 1,
               unite:           mat.unite || "U",
               prix_ht:         parseFloat(mat.prix_unitaire) || 0,
-              fournisseur_id:  null,
+              fournisseur_id:  mat.fournisseur_id || null,
               fournisseur_nom: mat.fournisseur || "",
-              materiau_id:     ml.materiau_id,
-            });
-          });
-        });
-        if (mats.length === 0) return;
-        // Date de besoin = la date_prevue la plus proche parmi les tâches des
-        // ouvrages du lot (renseignée quand une tâche est planifiée en V2).
-        // Repli : ancienne clé <lot>__date_commande si présente (legacy).
+            };
+          })
+          .filter(Boolean);
+
+        // Lignes déjà commandées rattachées à cet ouvrage (par ouvrage_id, repli matériau)
+        const lignesO = lignesCmd.filter(l =>
+          l.ouvrage_id === o.id ||
+          (!l.ouvrage_id && l.materiau_id && (o.materiaux_liens || []).some(ml => String(ml.materiau_id) === String(l.materiau_id) && l.chantier_id === p.chantier_id))
+        );
+        const matCommandes = new Set(lignesO.map(l => l.materiau_id != null ? String(l.materiau_id) : null).filter(Boolean));
+
+        // À commander = prévus dont le matériau n'apparaît dans aucune ligne de cet ouvrage
+        const aCommander = prevus.filter(pr => !matCommandes.has(String(pr.materiau_id)));
+
+        // Date de besoin = date_prevue la plus proche parmi les tâches de l'ouvrage
         let earliest = null;
-        ouvragesLot.forEach(o => {
-          (o.taches || []).forEach(t => {
-            if (t.date_prevue && (!earliest || t.date_prevue < earliest)) earliest = t.date_prevue;
-          });
+        (o.taches || []).forEach(t => {
+          if (t.date_prevue && (!earliest || t.date_prevue < earliest)) earliest = t.date_prevue;
         });
-        const dateISO = earliest || plan[lotId + "__date_commande"] || null;
-        const coutCmd = parseFloat(plan[lotId + "__cout_commandes"]) || 0;
-        const totalHt = mats.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
-        cartes.push({
-          id:           `${p.id}::${lotId}`,
-          phasageId:    p.id,
-          chantierId:   p.chantier_id,
-          chantierNom:  chantier?.nom || p.chantier_nom || "(sans chantier)",
-          chantierCouleur: chantier?.couleur || lot?.couleur || "#888",
-          phaseId:      lotId,                       // ← porte un LOT id
-          phaseLabel:   lot?.label || "Sans lot",
-          phaseEmoji:   "",
-          phaseCouleur: lot?.couleur || "#888",
-          mats,
-          totalHt,
-          dateISO,
-          dateObj:      dateISO ? new Date(dateISO) : null,
-          commande:     coutCmd > 0,
-          coutCmd,
+
+        if (prevus.length === 0 && lignesO.length === 0) return; // ouvrage sans matériau ni commande : ignoré
+
+        ouvrages.push({
+          id:            o.id,
+          libelle:       o.libelle || o.nom || "Ouvrage",
+          lotId:         o.lot_id || null,
+          lotLabel:      lotById[o.lot_id]?.label || "Sans lot",
+          lotCouleur:    lotById[o.lot_id]?.couleur || "#888",
+          prevus,
+          aCommander,
+          lignesCmd:     lignesO,
+          dateISO:       earliest,
+          dateObj:       earliest ? new Date(earliest) : null,
+        });
+      });
+
+      if (ouvrages.length === 0) return;
+      // tri ouvrages : par lot puis libellé
+      ouvrages.sort((a, b) => (a.lotLabel || "").localeCompare(b.lotLabel || "") || (a.libelle || "").localeCompare(b.libelle || ""));
+
+      const nbACommander = ouvrages.reduce((s, o) => s + o.aCommander.length, 0);
+      const totalACommander = ouvrages.reduce((s, o) =>
+        s + o.aCommander.reduce((ss, m) => ss + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0), 0);
+
+      result.push({
+        phasageId:   p.id,
+        chantierId:  p.chantier_id,
+        chantierNom,
+        chantierCouleur,
+        ouvrages,
+        nbACommander,
+        totalACommander,
+      });
+    });
+    // tri chantiers : ceux avec des articles à commander d'abord, puis par nom
+    result.sort((a, b) => (b.nbACommander - a.nbACommander) || a.chantierNom.localeCompare(b.chantierNom));
+    return result;
+  }, [phasages, chantiers, matById, lotById, lignesCmd]);
+
+  // Sélection courante
+  const chantierSel = modele.find(c => c.chantierId === selChantierId) || null;
+  const ouvrageSel  = chantierSel?.ouvrages.find(o => o.id === selOuvrageId) || null;
+
+  // Stats globales
+  const stats = useMemo(() => {
+    const nbChantiers = modele.length;
+    const nbACommander = modele.reduce((s, c) => s + c.nbACommander, 0);
+    const totalHt = modele.reduce((s, c) => s + c.totalACommander, 0);
+    return { nbChantiers, nbACommander, totalHt };
+  }, [modele]);
+
+  // ── Construit la liste plate de TOUS les articles à commander (bouton vendredi)
+  const lignesGlobalesACommander = useMemo(() => {
+    const out = [];
+    modele.forEach(c => {
+      c.ouvrages.forEach(o => {
+        o.aCommander.forEach(m => {
+          out.push({
+            ...m,
+            chantierId:      c.chantierId,
+            chantierNom:     c.chantierNom,
+            chantierCouleur: c.chantierCouleur,
+            phasageId:       c.phasageId,
+            lotId:           o.lotId,
+            lotLabel:        o.lotLabel,
+            ouvrageId:       o.id,
+            ouvrageLibelle:  o.libelle,
+            dateISO:         o.dateISO,
+            dateObj:         o.dateObj,
+          });
         });
       });
     });
-    return cartes;
-  }, [phasages, chantiers, lots, matById]);
+    return out;
+  }, [modele]);
 
-  // ── Répartition par semaine + colonne "sans date"
-  const cartesParSemaine = useMemo(() => {
-    const buckets = semaines.map(() => []);
-    const sansDate   = [];
-    const dansLeFutur = []; // > S+4
-    const enRetard    = []; // < cette semaine et pas encore commandé
-    cartesPhase.forEach(c => {
-      if (!c.dateObj) { sansDate.push(c); return; }
-      const d = new Date(c.dateObj); d.setHours(0, 0, 0, 0);
-      // En retard = date dépassée et pas commandé → afficher dans la 1ère colonne ("cette semaine")
-      if (d < semaines[0].debut) {
-        if (c.commande) {
-          // Commande déjà passée → garder dans semaine "en cours" pour visibilité (vert)
-          buckets[0].push(c);
-        } else {
-          enRetard.push(c);
-        }
-        return;
-      }
-      // Trouver le bucket
-      let placed = false;
-      for (let i = 0; i < semaines.length; i++) {
-        if (d >= semaines[i].debut && d <= semaines[i].fin) {
-          buckets[i].push(c);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) dansLeFutur.push(c);
+  const aucunChantier = !loading && modele.length === 0;
+
+  // Ouvre la modale de commande pour un ouvrage donné
+  const commanderOuvrage = (chantier, ouvrage) => {
+    const lignes = ouvrage.aCommander.map(m => ({
+      libelle: m.libelle, quantite: m.quantite, unite: m.unite, prix_ht: m.prix_ht,
+      fournisseur_id: m.fournisseur_id, fournisseur_nom: m.fournisseur_nom, materiau_id: m.materiau_id,
+      chantierId: chantier.chantierId, chantierNom: chantier.chantierNom, chantierCouleur: chantier.chantierCouleur,
+      phasageId: chantier.phasageId, lotId: ouvrage.lotId, lotLabel: ouvrage.lotLabel,
+      ouvrageId: ouvrage.id, ouvrageLibelle: ouvrage.libelle,
+    }));
+    setCmdModal({
+      titre: `${chantier.chantierNom} · ${ouvrage.libelle}`,
+      lignes,
+      dateBesoin: ouvrage.dateISO || "",
     });
-    // Les "en retard" passent en tête de la 1re colonne
-    buckets[0] = [...enRetard, ...buckets[0]];
-    return { buckets, sansDate, dansLeFutur };
-  }, [cartesPhase, semaines]);
+  };
 
-  // ── Couleurs d'urgence par carte
-  function urgence(carte) {
-    if (carte.commande) return {
-      bg: "rgba(34,197,94,0.10)", border: "#22c55e55", accent: "#22c55e", label: "Commandé",
-    };
-    if (!carte.dateObj) return {
-      bg: card, border, accent: textMuted, label: "Sans date",
-    };
-    const d = new Date(carte.dateObj); d.setHours(0, 0, 0, 0);
-    if (d < semaines[0].debut) return {
-      bg: "rgba(225,90,90,0.10)", border: "#e15a5a66", accent: "#e15a5a", label: "En retard",
-    };
-    if (d <= semaines[0].fin) return {
-      bg: "rgba(249,115,22,0.10)", border: "#f9731666", accent: "#f97316", label: "Cette semaine",
-    };
-    if (d <= semaines[1]?.fin) return {
-      bg: "rgba(245,158,11,0.10)", border: "#f59e0b55", accent: "#f59e0b", label: "Semaine prochaine",
-    };
-    return {
-      bg: card, border, accent: textMuted, label: "À venir",
-    };
-  }
-
-  // ── Stats globales (pour le header)
-  const stats = useMemo(() => {
-    const total      = cartesPhase.length;
-    const commandees = cartesPhase.filter(c => c.commande).length;
-    const enRetard   = cartesParSemaine.enRetard?.length || cartesPhase.filter(c => {
-      if (c.commande || !c.dateObj) return false;
-      const d = new Date(c.dateObj); d.setHours(0, 0, 0, 0);
-      return d < semaines[0].debut;
-    }).length;
-    const cetteSemaine = cartesParSemaine.buckets[0].filter(c => !c.commande).length;
-    return { total, commandees, enRetard, cetteSemaine };
-  }, [cartesPhase, cartesParSemaine, semaines]);
-
-  // ── Empty state global : aucun matériau prévisionnel sur aucun phasage
-  const aucunMateriau = !loading && cartesPhase.length === 0;
+  // Affichage panes (drill-down sur mobile)
+  const showChantiers = !isMobile || !selChantierId;
+  const showOuvrages  = !isMobile || (selChantierId && !selOuvrageId);
+  const showDetail    = !isMobile || !!selOuvrageId;
 
   return (
-    <div className="page-padding ppc-page" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: bg }}>
+    <div className="page-padding pgc-page" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: bg }}>
       <style>{`
-        .ppc-page .ppc-grid { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 12px; }
-        .ppc-page .ppc-col-empty { color: ${textMuted}; font-style: italic; font-size: ${FONT.xs.size + 1}px; padding: 14px 8px; text-align: center; }
-        @media (max-width: 1024px) {
-          .ppc-page .ppc-grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 8px; }
-          .ppc-page .ppc-grid { min-width: 1080px; }
-        }
-        @media (max-width: 767px) {
-          .ppc-page { padding: 14px 12px !important; }
-          .ppc-page h1 { font-size: 18px !important; }
-          .ppc-page .ppc-stats { gap: 6px !important; }
-          .ppc-page .ppc-stats > div { flex: 1; min-width: 0; padding: 8px 10px !important; }
+        .pgc-page .pgc-cols { display: grid; grid-template-columns: 260px 320px 1fr; gap: 14px; align-items: start; }
+        .pgc-page .pgc-pane { background: ${surface}; border: 1px solid ${border}; border-radius: ${RADIUS.lg}px; overflow: hidden; display: flex; flex-direction: column; }
+        .pgc-page .pgc-list { max-height: calc(100vh - 230px); overflow-y: auto; }
+        .pgc-page .pgc-item { width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid ${border}; padding: 11px 13px; cursor: pointer; color: ${text}; font-family: inherit; transition: background .12s; display: flex; flex-direction: column; gap: 3px; }
+        .pgc-page .pgc-item:hover { background: ${card}; }
+        .pgc-page .pgc-item.sel { background: ${acc.bg10}; box-shadow: inset 3px 0 0 ${acc.accent}; }
+        @media (max-width: 860px) {
+          .pgc-page { padding: 14px 12px !important; }
+          .pgc-page .pgc-cols { display: block; }
+          .pgc-page .pgc-pane { margin-bottom: 12px; }
+          .pgc-page .pgc-list { max-height: none; }
+          .pgc-page h1 { font-size: 18px !important; }
         }
       `}</style>
 
       {/* ── HEADER ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{
           width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
           background: acc.bg10, color: acc.accent,
@@ -306,22 +321,48 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         </div>
         <div style={{ flex: 1, minWidth: 200 }}>
           <h1 style={{ fontSize: FONT.xl.size + 4, fontWeight: 800, color: text, letterSpacing: -0.3, margin: 0 }}>
-            Planning des commandes
+            Commandes
           </h1>
           <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 3 }}>
-            Vue sur 5 semaines glissantes — matériaux à commander, classés par date butoir (vendredi S-1).
+            Par chantier et par ouvrage — articles à commander et commandes déjà passées.
           </div>
         </div>
+        {/* Bouton aide "?" */}
+        <button onClick={() => setAideOpen(true)} title="Comment ça marche ?" aria-label="Aide"
+          style={{
+            width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
+            background: card, color: textSub, border: `1px solid ${border}`,
+            display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = acc.bg10; e.currentTarget.style.color = acc.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.background = card; e.currentTarget.style.color = textSub; }}>
+          <Icon as={HelpCircle} size={18}/>
+        </button>
+        {/* Bouton "commande du vendredi" */}
+        {!loading && stats.nbACommander > 0 && (
+          <button onClick={() => setVendrediOpen(true)} style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            background: acc.accent, color: "#1a1a1a", border: "none",
+            borderRadius: RADIUS.md, padding: "10px 16px",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+            boxShadow: `0 6px 18px ${acc.accent}40`,
+          }}>
+            <Icon as={CalendarClock} size={16}/>
+            Commandes de la semaine
+            <span style={{ background: "rgba(0,0,0,0.18)", borderRadius: RADIUS.pill, padding: "1px 8px", fontSize: 12 }}>
+              {stats.nbACommander}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* ── STATS ── */}
-      {!loading && cartesPhase.length > 0 && (
-        <div className="ppc-stats" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+      {!loading && modele.length > 0 && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
           {[
-            { label: "Total à prévoir", val: stats.total,        color: text,       icon: Package },
-            { label: "En retard",        val: stats.enRetard,     color: "#e15a5a", icon: AlertTriangle },
-            { label: "Cette semaine",    val: stats.cetteSemaine, color: "#f97316", icon: Clock },
-            { label: "Déjà commandé",    val: stats.commandees,   color: "#22c55e", icon: Check },
+            { label: "Chantiers en cours", val: stats.nbChantiers, color: text, icon: Building2 },
+            { label: "Articles à commander", val: stats.nbACommander, color: acc.accent, icon: Package },
+            { label: "Estimé HT à commander", val: `${stats.totalHt.toFixed(0)} €`, color: "#22c55e", icon: ShoppingCart },
           ].map(s => (
             <div key={s.label} style={{
               flex: "1 1 160px",
@@ -350,600 +391,644 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         <div style={{ textAlign: "center", color: textMuted, padding: 80, fontSize: FONT.base.size }}>
           Chargement…
         </div>
-      ) : aucunMateriau ? (
+      ) : aucunChantier ? (
         <EmptyState T={T} acc={acc}/>
       ) : (
-        <>
-          {/* Colonnes 5 semaines */}
-          <div className="ppc-grid-wrap">
-            <div className="ppc-grid">
-              {semaines.map((s, i) => (
-                <ColonneSemaine
-                  key={s.key}
-                  semaine={s}
-                  cartes={cartesParSemaine.buckets[i]}
-                  urgence={urgence}
-                  onPasserCommande={setCarteOpen}
-                  onOpenDetails={setDetailsCarte}
-                  T={T} surface={surface} card={card} border={border}
-                  text={text} textSub={textSub} textMuted={textMuted}
+        <div className="pgc-cols">
+          {/* ── PANE 1 : CHANTIERS ── */}
+          {showChantiers && (
+            <div className="pgc-pane">
+              <PaneHeader icon={Building2} titre="Chantiers" sousTitre={`${modele.length}`} textMuted={textMuted} text={text} border={border} card={card}/>
+              <div className="pgc-list">
+                {modele.map(c => (
+                  <button key={c.chantierId} className={"pgc-item" + (c.chantierId === selChantierId ? " sel" : "")}
+                    onClick={() => { setSelChantierId(c.chantierId); setSelOuvrageId(null); }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: FONT.sm.size + 1, fontWeight: 700, color: text }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: c.chantierCouleur, flexShrink: 0 }}/>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.chantierNom}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.xs.size, color: textMuted, paddingLeft: 15 }}>
+                      <span>{c.ouvrages.length} ouvrage{c.ouvrages.length > 1 ? "s" : ""}</span>
+                      {c.nbACommander > 0 && (
+                        <span style={{ color: acc.accent, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                          <Icon as={Package} size={10}/> {c.nbACommander} à commander
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── PANE 2 : OUVRAGES ── */}
+          {showOuvrages && (
+            <div className="pgc-pane">
+              {chantierSel ? (
+                <>
+                  <PaneHeader icon={Boxes} titre={isMobile ? null : "Ouvrages"}
+                    titreNode={isMobile ? (
+                      <button onClick={() => setSelChantierId(null)} style={backBtnStyle(text, border)}>
+                        <Icon as={ChevronLeft} size={14}/> {chantierSel.chantierNom}
+                      </button>
+                    ) : null}
+                    sousTitre={`${chantierSel.ouvrages.length}`} textMuted={textMuted} text={text} border={border} card={card}/>
+                  <div className="pgc-list">
+                    {chantierSel.ouvrages.map(o => (
+                      <button key={o.id} className={"pgc-item" + (o.id === selOuvrageId ? " sel" : "")}
+                        onClick={() => setSelOuvrageId(o.id)}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.libelle}</span>
+                          <Icon as={ChevronRight} size={13} color={textMuted}/>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, color: o.lotCouleur, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <span style={{ color: o.lotCouleur }}>●</span>{o.lotLabel}
+                          </span>
+                          {o.aCommander.length > 0 && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: acc.accent, background: acc.bg10, borderRadius: RADIUS.pill, padding: "1px 7px" }}>
+                              {o.aCommander.length} à commander
+                            </span>
+                          )}
+                          {o.lignesCmd.length > 0 && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,0.12)", borderRadius: RADIUS.pill, padding: "1px 7px", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                              <Icon as={Check} size={9}/> {o.lignesCmd.length} commandé{o.lignesCmd.length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <PanePlaceholder icon={Boxes} texte="Sélectionne un chantier" textMuted={textMuted}/>
+              )}
+            </div>
+          )}
+
+          {/* ── PANE 3 : DÉTAIL OUVRAGE ── */}
+          {showDetail && (
+            <div className="pgc-pane">
+              {ouvrageSel && chantierSel ? (
+                <OuvrageDetail
+                  chantier={chantierSel} ouvrage={ouvrageSel}
+                  onBack={isMobile ? () => setSelOuvrageId(null) : null}
+                  onCommander={() => commanderOuvrage(chantierSel, ouvrageSel)}
+                  fournisseurs={fournisseurs}
+                  T={T} acc={acc}
                 />
-              ))}
-            </div>
-          </div>
-
-          {/* Section bas : sans date définie */}
-          {cartesParSemaine.sansDate.length > 0 && (
-            <div style={{ marginTop: 24 }}>
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
-                letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10,
-              }}>
-                <Icon as={Calendar} size={12}/>
-                Commandes sans date définie
-                <span style={{ color: textMuted, fontWeight: 600 }}>· {cartesParSemaine.sansDate.length}</span>
-              </div>
-              <div style={{
-                background: surface, border: `1px solid ${border}`,
-                borderRadius: RADIUS.lg, padding: 12,
-                display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10,
-              }}>
-                {cartesParSemaine.sansDate.map(c => (
-                  <CartePhase key={c.id} carte={c} urgenceInfo={{
-                    bg: card, border, accent: textMuted, label: "Sans date",
-                  }} onPasserCommande={setCarteOpen} onOpenDetails={setDetailsCarte} T={T} text={text} textSub={textSub} textMuted={textMuted} compact/>
-                ))}
-              </div>
-              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size + 1, color: textMuted, fontStyle: "italic" }}>
-                <Icon as={Info} size={11}/>
-                Renseigne la date prévue d'une tâche dans le Phasage pour calculer automatiquement la date butoir.
-              </div>
+              ) : (
+                <PanePlaceholder icon={Receipt} texte="Sélectionne un ouvrage pour voir ses commandes" textMuted={textMuted}/>
+              )}
             </div>
           )}
-
-          {/* Section bas : au-delà de S+4 */}
-          {cartesParSemaine.dansLeFutur.length > 0 && (
-            <div style={{ marginTop: 24 }}>
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
-                letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10,
-              }}>
-                <Icon as={Clock} size={12}/>
-                Au-delà de 5 semaines
-                <span style={{ color: textMuted, fontWeight: 600 }}>· {cartesParSemaine.dansLeFutur.length}</span>
-              </div>
-              <div style={{
-                background: surface, border: `1px solid ${border}`,
-                borderRadius: RADIUS.lg, padding: 12,
-                display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10,
-              }}>
-                {cartesParSemaine.dansLeFutur.map(c => (
-                  <CartePhase key={c.id} carte={c} urgenceInfo={urgence(c)} onPasserCommande={setCarteOpen} onOpenDetails={setDetailsCarte} T={T} text={text} textSub={textSub} textMuted={textMuted} compact/>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
+        </div>
       )}
 
-      {/* Modale "Détails carte" */}
-      {detailsCarte && (
-        <ModaleDetailsCarte
-          carte={detailsCarte}
-          urgenceInfo={urgence(detailsCarte)}
-          onClose={() => setDetailsCarte(null)}
-          onPasserCommande={() => { setCarteOpen(detailsCarte); setDetailsCarte(null); }}
-          T={T}
-        />
-      )}
-
-      {/* Modale "Passer commande" */}
-      {carteOpen && (
-        <ModalePasserCommande
-          carte={carteOpen}
+      {/* Modale "passer commande" (générique : liste de lignes ventilées) */}
+      {cmdModal && (
+        <ModaleCommande
+          titre={cmdModal.titre}
+          lignesInit={cmdModal.lignes}
+          dateBesoinInit={cmdModal.dateBesoin}
           fournisseurs={fournisseurs}
-          chantiers={chantiers}
-          onClose={() => setCarteOpen(null)}
+          onClose={() => setCmdModal(null)}
           onSuccess={onCommandePassee}
-          T={T}
+          T={T} acc={acc}
+        />
+      )}
+
+      {/* Modale d'aide */}
+      {aideOpen && <ModaleAide onClose={() => setAideOpen(false)} T={T} acc={acc}/>}
+
+      {/* Modale "commandes de la semaine" (onglets par semaine) */}
+      {vendrediOpen && (
+        <ModaleVendredi
+          lignes={lignesGlobalesACommander}
+          onClose={() => setVendrediOpen(false)}
+          onCommander={(lignes, titre, dateBesoin) => { setVendrediOpen(false); setCmdModal({ titre, lignes, dateBesoin }); }}
+          T={T} acc={acc}
         />
       )}
     </div>
   );
 }
 
-// ─── COLONNE SEMAINE ─────────────────────────────────────────────────────────
-function ColonneSemaine({ semaine, cartes, urgence, onPasserCommande, onOpenDetails, T, surface, card, border, text, textSub, textMuted }) {
-  const isCurrent = semaine.index === 0;
-  // Totaux semaine (TVA standard BTP matériaux : 20%)
-  const totalHt  = cartes.reduce((s, c) => s + (c.totalHt || 0), 0);
-  const totalTtc = totalHt * 1.20;
-  const fmt = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// ─── EN-TÊTE DE PANE ─────────────────────────────────────────────────────────
+function PaneHeader({ icon, titre, titreNode, sousTitre, textMuted, text, border, card }) {
   return (
-    <div style={{
-      background: surface, border: `1px solid ${isCurrent ? "#f97316aa" : border}`,
-      borderRadius: RADIUS.lg, overflow: "hidden",
-      display: "flex", flexDirection: "column", minHeight: 220,
-    }}>
-      {/* Header colonne */}
-      <div style={{
-        padding: "10px 12px",
-        borderBottom: `1px solid ${border}`,
-        background: isCurrent ? "rgba(249,115,22,0.08)" : card,
-      }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
-          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: isCurrent ? "#f97316" : textMuted, letterSpacing: 1, textTransform: "uppercase" }}>
-            {semaine.label}
-          </div>
-          <div style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>S{semaine.num}</div>
-        </div>
-        <div style={{ fontSize: FONT.xs.size + 1, color: text, fontWeight: 600, marginTop: 2 }}>
-          {fmtJourMois(semaine.debut)} – {fmtJourMois(semaine.fin)}
-        </div>
-        {/* Totaux HT / TTC */}
-        {cartes.length > 0 && (
-          <div style={{
-            marginTop: 6, paddingTop: 6, borderTop: `1px dashed ${border}`,
-            display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap",
-          }}>
-            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
-              <span style={{ fontSize: 9, color: textMuted, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase" }}>HT</span>
-              <span style={{ fontSize: FONT.sm.size, color: text, fontWeight: 800, fontFamily: "'DM Mono',monospace" }}>
-                {fmt(totalHt)} €
-              </span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1, alignItems: "flex-end" }}>
-              <span style={{ fontSize: 9, color: textMuted, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase" }}>TTC</span>
-              <span style={{ fontSize: FONT.sm.size, color: isCurrent ? "#f97316" : text, fontWeight: 800, fontFamily: "'DM Mono',monospace" }} title="TVA 20%">
-                {fmt(totalTtc)} €
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Cartes */}
-      <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-        {cartes.length === 0 ? (
-          <div className="ppc-col-empty">Aucune commande</div>
-        ) : (
-          cartes.map(c => (
-            <CartePhase key={c.id} carte={c} urgenceInfo={urgence(c)} onPasserCommande={onPasserCommande} onOpenDetails={onOpenDetails} T={T} text={text} textSub={textSub} textMuted={textMuted}/>
-          ))
-        )}
-      </div>
+    <div style={{ padding: "11px 13px", borderBottom: `1px solid ${border}`, background: card, display: "flex", alignItems: "center", gap: 8 }}>
+      <Icon as={icon} size={14} color={textMuted}/>
+      {titreNode || (
+        <div style={{ flex: 1, fontSize: FONT.xs.size + 1, fontWeight: 700, color: text, textTransform: "uppercase", letterSpacing: .8 }}>{titre}</div>
+      )}
+      {sousTitre != null && <span style={{ fontSize: 11, color: textMuted, fontWeight: 700 }}>{sousTitre}</span>}
     </div>
   );
 }
 
-// ─── CARTE PHASE ─────────────────────────────────────────────────────────────
-function CartePhase({ carte, urgenceInfo, onPasserCommande, onOpenDetails, T, text, textSub, textMuted, compact = false }) {
-  const dateFmt = carte.dateObj
-    ? carte.dateObj.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })
-    : null;
-  const dateFmtLong = carte.dateObj ? fmtDateLongue(carte.dateObj) : null;
-
+function PanePlaceholder({ icon, texte, textMuted }) {
   return (
-    <div
-      onClick={() => onOpenDetails?.(carte)}
-      title="Cliquer pour voir le détail de la commande"
-      style={{
-        background: urgenceInfo.bg,
-        border: `1px solid ${urgenceInfo.border}`,
-        borderRadius: RADIUS.md,
-        padding: "9px 10px",
-        borderLeft: `3px solid ${carte.chantierCouleur || urgenceInfo.accent}`,
-        display: "flex", flexDirection: "column", gap: 6,
-        cursor: "pointer",
-        transition: "transform .12s, box-shadow .12s",
-      }}
-      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.25)"; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}
-    >
-      {/* Chantier + phase */}
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: text, fontWeight: 700, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          <Icon as={Building2} size={10} color={carte.chantierCouleur}/>
-          {carte.chantierNom}
-        </div>
-        <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ color: carte.phaseCouleur }}>●</span>
-          {carte.phaseEmoji ? `${carte.phaseEmoji} ` : ""}{carte.phaseLabel}
-        </div>
-      </div>
-
-      {/* Liste matériaux (compactée si > 3) */}
-      <div style={{ fontSize: FONT.xs.size + 1, color: textSub, lineHeight: 1.45 }}>
-        {carte.mats.slice(0, compact ? 2 : 3).map(m => (
-          <div key={m.id} style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-              <span style={{ color: text, fontWeight: 600 }}>{m.libelle}</span>
-              <span style={{ color: textMuted }}> ({m.quantite}{m.unite ? ` ${m.unite}` : ""})</span>
-            </span>
-            {m.fournisseur_nom && !compact && (
-              <span style={{ color: textMuted, flexShrink: 0, fontSize: 10, fontStyle: "italic", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {m.fournisseur_nom}
-              </span>
-            )}
-          </div>
-        ))}
-        {carte.mats.length > (compact ? 2 : 3) && (
-          <div style={{ color: textMuted, fontSize: 10, marginTop: 2, fontStyle: "italic" }}>
-            + {carte.mats.length - (compact ? 2 : 3)} autre{carte.mats.length - (compact ? 2 : 3) > 1 ? "s" : ""}
-          </div>
-        )}
-      </div>
-
-      {/* Total + badge + date */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: 2 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: text, fontFamily: "'DM Mono',monospace" }}>
-          {carte.totalHt.toFixed(2)} € HT
-        </span>
-        <span style={{
-          fontSize: 9, fontWeight: 800, letterSpacing: .5,
-          padding: "2px 6px", borderRadius: RADIUS.pill, textTransform: "uppercase",
-          background: urgenceInfo.accent + "22", color: urgenceInfo.accent,
-          border: `1px solid ${urgenceInfo.accent}55`,
-          whiteSpace: "nowrap",
-        }}>
-          {carte.commande ? "✓ Commandé" : urgenceInfo.label}
-        </span>
-      </div>
-
-      {dateFmt && (
-        <div style={{ fontSize: 10, color: textMuted, display: "flex", alignItems: "center", gap: 4 }} title={dateFmtLong}>
-          <Icon as={Calendar} size={10}/>
-          Avant le {dateFmt}
-        </div>
-      )}
-
-      {/* Bouton action — ouvre la modale de passage de commande */}
-      {!carte.commande && (
-        <button onClick={(e) => { e.stopPropagation(); onPasserCommande?.(carte); }} style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
-          marginTop: 2, padding: "6px 10px", borderRadius: RADIUS.sm,
-          background: urgenceInfo.accent + "22", color: urgenceInfo.accent,
-          border: `1px solid ${urgenceInfo.accent}66`,
-          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
-          cursor: "pointer",
-          transition: "background .12s",
-        }}
-          onMouseEnter={e => e.currentTarget.style.background = urgenceInfo.accent + "38"}
-          onMouseLeave={e => e.currentTarget.style.background = urgenceInfo.accent + "22"}>
-          Passer commande
-          <Icon as={ArrowRight} size={11}/>
-        </button>
-      )}
+    <div style={{ padding: "48px 24px", textAlign: "center", color: textMuted, fontSize: FONT.sm.size + 1 }}>
+      <Icon as={icon} size={26} strokeWidth={1.5} style={{ opacity: .5, marginBottom: 10 }}/>
+      <div>{texte}</div>
     </div>
   );
 }
 
-// ─── MODALE DÉTAILS CARTE ────────────────────────────────────────────────────
-function ModaleDetailsCarte({ carte, urgenceInfo, onClose, onPasserCommande, T }) {
+function backBtnStyle(text, border) {
+  return {
+    display: "inline-flex", alignItems: "center", gap: 5,
+    background: "transparent", border: `1px solid ${border}`, borderRadius: RADIUS.sm,
+    padding: "4px 9px", color: text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer",
+  };
+}
+
+// ─── DÉTAIL OUVRAGE : à commander + déjà commandé ────────────────────────────
+function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, T, acc }) {
   const text      = T?.text      || "#f0f0f0";
   const textSub   = T?.textSub   || "#9aa5c0";
   const textMuted = T?.textMuted || "#5b6a8a";
   const surface   = T?.surface   || "#262a32";
   const card      = T?.card      || "rgba(255,255,255,0.04)";
   const border    = T?.border    || "rgba(255,255,255,0.07)";
-  const accent    = carte.phaseCouleur || urgenceInfo.accent || "#FFC200";
 
-  const dateFmtLong = carte.dateObj ? fmtDateLongue(carte.dateObj) : null;
+  const totalACommander = ouvrage.aCommander.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
+  const dateFmt = ouvrage.dateObj ? fmtDateLongue(ouvrage.dateObj) : null;
 
-  // Regroupement par fournisseur pour un affichage plus lisible
-  const groupesParFournisseur = (() => {
-    const buckets = new Map();
-    carte.mats.forEach(m => {
-      const key = m.fournisseur_id || m.fournisseur_nom?.trim() || "__sans__";
-      const nom = m.fournisseur_nom?.trim() || "Sans fournisseur";
-      if (!buckets.has(key)) buckets.set(key, { nom, lignes: [] });
-      buckets.get(key).lignes.push(m);
+  // Regroupe les lignes déjà commandées par commande (document)
+  const cmdGroupes = useMemo(() => {
+    const map = new Map();
+    ouvrage.lignesCmd.forEach(l => {
+      const key = l.commande?.id || "_orphelin_" + l.id;
+      if (!map.has(key)) map.set(key, { commande: l.commande, lignes: [] });
+      map.get(key).lignes.push(l);
     });
-    return Array.from(buckets.values()).map(g => ({
-      ...g,
-      total: g.lignes.reduce((s, l) => s + (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0), 0),
-    }));
-  })();
+    return Array.from(map.values());
+  }, [ouvrage.lignesCmd]);
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", zIndex: 940, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 230px)", overflowY: "auto" }}>
+      {/* En-tête */}
+      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${border}`, background: card }}>
+        {onBack && (
+          <button onClick={onBack} style={{ ...backBtnStyle(text, border), marginBottom: 8 }}>
+            <Icon as={ChevronLeft} size={14}/> Retour
+          </button>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, color: textMuted, marginBottom: 4 }}>
+          <Icon as={Building2} size={11} color={chantier.chantierCouleur}/> {chantier.chantierNom}
+          <span style={{ color: ouvrage.lotCouleur, marginLeft: 4 }}>● {ouvrage.lotLabel}</span>
+        </div>
+        <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -.2 }}>{ouvrage.libelle}</div>
+        {dateFmt && (
+          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
+            <Icon as={Calendar} size={11}/> Besoin estimé : {dateFmt}
+          </div>
+        )}
+      </div>
+
+      {/* À COMMANDER */}
+      <div style={{ padding: "14px 16px" }}>
+        <SectionTitre icon={Package} titre="À commander" compteur={ouvrage.aCommander.length} couleur={acc.accent} textMuted={textMuted}/>
+        {ouvrage.aCommander.length === 0 ? (
+          <div style={{ padding: "12px 0", color: textMuted, fontSize: FONT.sm.size + 1, fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon as={CheckCircle2} size={14} color="#22c55e"/> Tout est commandé pour cet ouvrage.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+              {ouvrage.aCommander.map((m, i) => (
+                <div key={(m.materiau_id ?? "x") + "_" + i} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "8px 11px",
+                  background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.libelle}</div>
+                    <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 1 }}>
+                      {m.quantite} {m.unite}
+                      {m.fournisseur_nom && <span> · {m.fournisseur_nom}</span>}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, fontFamily: "'DM Mono',monospace", flexShrink: 0 }}>
+                    {((parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0)).toFixed(2)} €
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: FONT.sm.size, color: textMuted }}>
+                Total estimé : <strong style={{ color: text }}>{totalACommander.toFixed(2)} € HT</strong>
+              </span>
+              <button onClick={onCommander} style={{
+                display: "inline-flex", alignItems: "center", gap: 7,
+                background: acc.accent, color: "#1a1a1a", border: "none",
+                borderRadius: RADIUS.md, padding: "9px 16px",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              }}>
+                <Icon as={ShoppingCart} size={14}/> Commander ces articles
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* DÉJÀ COMMANDÉ */}
+      <div style={{ padding: "4px 16px 18px" }}>
+        <SectionTitre icon={Receipt} titre="Déjà commandé" compteur={cmdGroupes.length} couleur="#22c55e" textMuted={textMuted}/>
+        {cmdGroupes.length === 0 ? (
+          <div style={{ padding: "12px 0", color: textMuted, fontSize: FONT.sm.size + 1, fontStyle: "italic" }}>
+            Aucune commande passée pour cet ouvrage.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+            {cmdGroupes.map((g, gi) => {
+              const c = g.commande || {};
+              const total = g.lignes.reduce((s, l) => s + (parseFloat(l.prix_total) || 0), 0);
+              const numero = c.doc_numero || (c.numero_en_attente ? "N° en attente" : "—");
+              const dateDoc = c.date_doc ? new Date(c.date_doc).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : null;
+              return (
+                <div key={gi} style={{ background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, overflow: "hidden" }}>
+                  <div style={{ padding: "9px 12px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <Icon as={Mail} size={12} color={textMuted}/>
+                    <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text }}>{c.fournisseur_nom || "Sans fournisseur"}</span>
+                    <span style={{ fontSize: FONT.xs.size, color: textMuted }}>· {numero}</span>
+                    {dateDoc && <span style={{ fontSize: FONT.xs.size, color: textMuted }}>· {dateDoc}</span>}
+                    <span style={{ marginLeft: "auto", fontSize: FONT.sm.size, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>{total.toFixed(2)} €</span>
+                  </div>
+                  <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+                    {g.lignes.map(l => (
+                      <div key={l.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: FONT.xs.size + 1, color: textSub }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ color: text }}>{l.libelle}</span>
+                          <span style={{ color: textMuted }}> · {l.quantite ?? "?"} {l.unite || ""}</span>
+                        </span>
+                        <span style={{ flexShrink: 0, fontFamily: "'DM Mono',monospace" }}>{l.prix_total != null ? `${parseFloat(l.prix_total).toFixed(2)} €` : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* badges statut */}
+                  <div style={{ padding: "0 12px 9px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {badgeCompletude(c.statut_completude)}
+                    {badgeFacturation(c.statut_facturation)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SectionTitre({ icon, titre, compteur, couleur, textMuted }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+      <Icon as={icon} size={13} color={couleur}/>
+      <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: couleur, textTransform: "uppercase", letterSpacing: .8 }}>{titre}</span>
+      <span style={{ fontSize: 11, fontWeight: 700, color: textMuted, background: couleur + "1e", borderRadius: RADIUS.pill, padding: "1px 8px" }}>{compteur}</span>
+    </div>
+  );
+}
+
+function pill(label, color, bg) {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: .4, padding: "2px 8px", borderRadius: RADIUS.pill, color, background: bg, textTransform: "uppercase" }}>{label}</span>
+  );
+}
+function badgeCompletude(s) {
+  if (s === "complete") return pill("Complète", "#22c55e", "rgba(34,197,94,0.14)");
+  return pill("À compléter", "#f59e0b", "rgba(245,158,11,0.14)");
+}
+function badgeFacturation(s) {
+  if (s === "facture") return pill("Facturée", "#22c55e", "rgba(34,197,94,0.14)");
+  return pill("En attente facture", "#9aa5c0", "rgba(255,255,255,0.06)");
+}
+
+// ─── MODALE "COMMANDES DE LA SEMAINE" (onglets par semaine) ──────────────────
+function ModaleVendredi({ lignes, onClose, onCommander, T, acc }) {
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+  const surface   = T?.surface   || "#262a32";
+  const card      = T?.card      || "rgba(255,255,255,0.04)";
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+
+  // 5 semaines glissantes
+  const semaines = useMemo(() => {
+    const lundi0 = lundiSemaine(new Date());
+    return Array.from({ length: 5 }, (_, i) => {
+      const debut = addDays(lundi0, i * 7);
+      const fin   = addDays(debut, 6);
+      return {
+        index: i, debut, fin,
+        key: "S" + i,
+        label: i === 0 ? "Cette semaine" : i === 1 ? "Semaine prochaine" : `S+${i}`,
+        num: numeroSemaine(debut),
+      };
+    });
+  }, []);
+
+  // Range chaque ligne dans un seau de semaine. En retard → cette semaine.
+  const seaux = useMemo(() => {
+    const out = {};
+    semaines.forEach(s => { out[s.key] = []; });
+    out["plus"] = [];     // au-delà de S+4
+    out["sansdate"] = []; // pas de date de besoin
+    lignes.forEach(l => {
+      if (!l.dateObj) { out["sansdate"].push(l); return; }
+      const d = new Date(l.dateObj); d.setHours(0, 0, 0, 0);
+      if (d < semaines[0].debut) { out[semaines[0].key].push(l); return; } // en retard → cette semaine
+      let placed = false;
+      for (const s of semaines) {
+        if (d >= s.debut && d <= s.fin) { out[s.key].push(l); placed = true; break; }
+      }
+      if (!placed) out["plus"].push(l);
+    });
+    return out;
+  }, [lignes, semaines]);
+
+  // Onglets visibles = ceux qui ont des lignes
+  const onglets = useMemo(() => {
+    const arr = [];
+    semaines.forEach(s => { if (seaux[s.key].length) arr.push({ key: s.key, label: s.label, num: s.num, deb: s.debut, fin: s.fin }); });
+    if (seaux["plus"].length) arr.push({ key: "plus", label: "Plus tard", num: null });
+    if (seaux["sansdate"].length) arr.push({ key: "sansdate", label: "Sans date", num: null });
+    return arr;
+  }, [seaux, semaines]);
+
+  const [tab, setTab] = useState(() => onglets[0]?.key || "sansdate");
+  // Si l'onglet courant disparaît, recaler
+  useEffect(() => {
+    if (!onglets.find(o => o.key === tab) && onglets[0]) setTab(onglets[0].key);
+  }, [onglets, tab]);
+
+  const lignesTab = seaux[tab] || [];
+
+  // Regroupe par fournisseur → puis par chantier (axe demandé : par fournisseur, rassemblé par chantier)
+  const groupes = useMemo(() => {
+    const map = new Map();
+    lignesTab.forEach(l => {
+      const fkey = l.fournisseur_id ? "id::" + l.fournisseur_id : (l.fournisseur_nom?.trim() ? "nom::" + l.fournisseur_nom.toLowerCase().trim() : "__sans__");
+      const fnom = l.fournisseur_nom?.trim() || "Sans fournisseur";
+      if (!map.has(fkey)) map.set(fkey, { fkey, fnom, parChantier: new Map(), total: 0, nb: 0 });
+      const g = map.get(fkey);
+      if (!g.parChantier.has(l.chantierId)) g.parChantier.set(l.chantierId, { chantierNom: l.chantierNom, chantierCouleur: l.chantierCouleur, lignes: [] });
+      g.parChantier.get(l.chantierId).lignes.push(l);
+      g.total += (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0);
+      g.nb += 1;
+    });
+    return Array.from(map.values()).sort((a, b) => a.fnom.localeCompare(b.fnom));
+  }, [lignesTab]);
+
+  const totalTab = lignesTab.reduce((s, l) => s + (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0), 0);
+
+  // Date de besoin par défaut pour la commande : le vendredi de la semaine de l'onglet (ou la 1re date dispo)
+  const dateBesoinTab = useMemo(() => {
+    const og = onglets.find(o => o.key === tab);
+    if (og?.fin) return addDays(og.deb, 4).toISOString().slice(0, 10); // vendredi
+    const withDate = lignesTab.find(l => l.dateISO);
+    return withDate?.dateISO || "";
+  }, [onglets, tab, lignesTab]);
+
+  const lancerCommande = () => {
+    const og = onglets.find(o => o.key === tab);
+    const titre = `Commandes ${og?.label || ""}`.trim();
+    onCommander(lignesTab, titre, dateBesoinTab);
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", zIndex: 950, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{
         background: T?.modal || surface, borderRadius: RADIUS.xl,
-        width: "100%", maxWidth: 760, maxHeight: "92vh",
+        width: "100%", maxWidth: 820, maxHeight: "92vh",
         display: "flex", flexDirection: "column", overflow: "hidden",
         border: `1px solid ${border}`, boxShadow: "0 28px 70px rgba(0,0,0,0.65)",
       }}>
         {/* Header */}
-        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderLeft: `4px solid ${carte.chantierCouleur || accent}` }}>
-          <div style={{ width: 38, height: 38, borderRadius: RADIUS.md, background: accent + "22", color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18 }}>
-            {carte.phaseEmoji || <Icon as={Package} size={18}/>}
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ width: 38, height: 38, borderRadius: RADIUS.md, background: acc.bg10, color: acc.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Icon as={CalendarClock} size={18}/>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -0.2 }}>
-              <Icon as={Building2} size={14} color={carte.chantierCouleur}/>
-              {carte.chantierNom}
-            </div>
-            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 3, display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ color: carte.phaseCouleur }}>●</span>
-              {carte.phaseLabel}
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -0.2 }}>Commandes de la semaine</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2 }}>
+              Tout ce qu'il faut commander, par fournisseur et par chantier.
             </div>
           </div>
-          <span style={{
-            fontSize: 10, fontWeight: 800, letterSpacing: .5,
-            padding: "4px 10px", borderRadius: RADIUS.pill, textTransform: "uppercase",
-            background: urgenceInfo.accent + "22", color: urgenceInfo.accent,
-            border: `1px solid ${urgenceInfo.accent}55`,
-            whiteSpace: "nowrap",
-          }}>
-            {carte.commande ? "✓ Commandé" : urgenceInfo.label}
-          </span>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: textMuted, cursor: "pointer", padding: 6, display: "flex" }}>
             <Icon as={X} size={18}/>
           </button>
         </div>
 
-        {/* Corps : infos + tableau matériaux */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
-          {/* Bandeau date + total */}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-            <div style={{ flex: "1 1 200px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-              <Icon as={Calendar} size={14} color={textMuted}/>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Date butoir</div>
-                <div style={{ fontSize: FONT.sm.size + 1, color: text, fontWeight: 700, marginTop: 2 }}>
-                  {dateFmtLong || <span style={{ color: textMuted, fontStyle: "italic", fontWeight: 500 }}>Non définie</span>}
-                </div>
-              </div>
-            </div>
-            <div style={{ flex: "1 1 200px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-              <Icon as={Package} size={14} color={textMuted}/>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Total prévisionnel</div>
-                <div style={{ fontSize: FONT.lg.size, color: accent, fontWeight: 800, marginTop: 1, fontFamily: "'DM Mono',monospace", letterSpacing: -0.3 }}>
-                  {carte.totalHt.toFixed(2)} € HT
-                </div>
-              </div>
-            </div>
-            <div style={{ flex: "1 1 140px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-              <Icon as={ShoppingCart} size={14} color={textMuted}/>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Articles</div>
-                <div style={{ fontSize: FONT.lg.size, color: text, fontWeight: 800, marginTop: 1, letterSpacing: -0.3 }}>
-                  {carte.mats.length}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {carte.commande && carte.coutCmd > 0 && (
-            <div style={{ marginBottom: 14, padding: "10px 14px", background: "rgba(34,197,94,0.10)", border: "1px solid #22c55e55", borderRadius: RADIUS.md, color: "#22c55e", fontSize: FONT.xs.size + 1, display: "flex", alignItems: "center", gap: 8 }}>
-              <Icon as={Check} size={12}/>
-              Une commande a déjà été passée pour cette phase : <strong>{carte.coutCmd.toFixed(2)} € HT</strong>
-            </div>
-          )}
-
-          {/* Liste matériaux groupée par fournisseur */}
-          {groupesParFournisseur.map((g, gi) => (
-            <div key={gi} style={{ marginBottom: 14 }}>
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "8px 12px", background: card, borderRadius: `${RADIUS.md}px ${RADIUS.md}px 0 0`,
-                border: `1px solid ${border}`, borderBottom: "none",
+        {/* Onglets semaines */}
+        <div style={{ display: "flex", gap: 6, padding: "10px 22px 0", borderBottom: `1px solid ${border}`, overflowX: "auto" }}>
+          {onglets.length === 0 ? (
+            <div style={{ padding: "8px 0 14px", color: textMuted, fontSize: FONT.sm.size }}>Rien à commander.</div>
+          ) : onglets.map(o => {
+            const actif = o.key === tab;
+            const nb = seaux[o.key].length;
+            return (
+              <button key={o.key} onClick={() => setTab(o.key)} style={{
+                display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+                background: "transparent", border: "none", borderBottom: `2px solid ${actif ? acc.accent : "transparent"}`,
+                padding: "8px 10px 12px", color: actif ? text : textMuted, cursor: "pointer",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: actif ? 800 : 600,
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.sm.size, fontWeight: 700, color: text }}>
-                  <Icon as={Mail} size={12} color={textMuted}/>
-                  {g.nom}
-                  <span style={{ color: textMuted, fontWeight: 500 }}>· {g.lignes.length} article{g.lignes.length > 1 ? "s" : ""}</span>
-                </div>
-                <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>
-                  {g.total.toFixed(2)} € HT
-                </div>
+                {o.label}{o.num ? <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>S{o.num}</span> : null}
+                <span style={{ fontSize: 10, fontWeight: 700, color: actif ? acc.accent : textMuted, background: actif ? acc.bg10 : "rgba(255,255,255,0.05)", borderRadius: RADIUS.pill, padding: "0 6px" }}>{nb}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Corps : groupes fournisseur → chantier */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px" }}>
+          {groupes.length === 0 ? (
+            <div style={{ textAlign: "center", color: textMuted, padding: 40, fontSize: FONT.sm.size + 1 }}>Aucun article pour cette semaine.</div>
+          ) : groupes.map(g => (
+            <div key={g.fkey} style={{ marginBottom: 16, background: card, border: `1px solid ${border}`, borderRadius: RADIUS.lg, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 8, background: surface }}>
+                <Icon as={Mail} size={14} color={acc.accent}/>
+                <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>{g.fnom}</span>
+                <span style={{ fontSize: FONT.xs.size, color: textMuted }}>· {g.nb} article{g.nb > 1 ? "s" : ""}</span>
+                <span style={{ marginLeft: "auto", fontSize: FONT.sm.size, fontWeight: 800, color: acc.accent, fontFamily: "'DM Mono',monospace" }}>{g.total.toFixed(2)} € HT</span>
               </div>
-              <table style={{ width: "100%", borderCollapse: "collapse", background: surface, border: `1px solid ${border}`, borderRadius: `0 0 ${RADIUS.md}px ${RADIUS.md}px`, overflow: "hidden" }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${border}`, background: card }}>
-                    {[
-                      { l: "Libellé",  a: "left" },
-                      { l: "Qté",      a: "center", w: 70 },
-                      { l: "Unité",    a: "center", w: 60 },
-                      { l: "PU HT",    a: "right",  w: 90 },
-                      { l: "Total HT", a: "right",  w: 100 },
-                    ].map(h => (
-                      <th key={h.l} style={{ padding: "8px 10px", fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .8, textAlign: h.a, width: h.w || undefined }}>{h.l}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {g.lignes.map(m => {
-                    const qte = parseFloat(m.quantite) || 0;
-                    const pu  = parseFloat(m.prix_ht) || 0;
-                    return (
-                      <tr key={m.id} style={{ borderBottom: `1px solid ${border}` }}>
-                        <td style={{ padding: "8px 10px", fontSize: 13, color: text, fontWeight: 600 }}>{m.libelle}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 13, color: text, textAlign: "center", fontWeight: 700, fontFamily: "'DM Mono',monospace" }}>{qte}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 12, color: textMuted, textAlign: "center" }}>{m.unite || "U"}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 13, color: "#22c55e", textAlign: "right", fontWeight: 700, fontFamily: "'DM Mono',monospace" }}>{pu.toFixed(2)} €</td>
-                        <td style={{ padding: "8px 10px", fontSize: 13, color: text, textAlign: "right", fontWeight: 800, fontFamily: "'DM Mono',monospace" }}>{(qte * pu).toFixed(2)} €</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              {Array.from(g.parChantier.values()).map((ch, ci) => (
+                <div key={ci} style={{ padding: "8px 14px", borderTop: ci > 0 ? `1px solid ${border}` : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size + 1, fontWeight: 700, color: textSub, marginBottom: 4 }}>
+                    <Icon as={Building2} size={11} color={ch.chantierCouleur}/> {ch.chantierNom}
+                  </div>
+                  {ch.lignes.map((l, li) => (
+                    <div key={li} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: FONT.xs.size + 1, color: textSub, paddingLeft: 17, lineHeight: 1.6 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{ color: text }}>{l.libelle}</span>
+                        <span style={{ color: textMuted }}> · {l.quantite} {l.unite} · {l.ouvrageLibelle}</span>
+                      </span>
+                      <span style={{ flexShrink: 0, fontFamily: "'DM Mono',monospace" }}>{((parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0)).toFixed(2)} €</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           ))}
         </div>
 
-        {/* Footer actions */}
+        {/* Footer */}
         <div style={{ padding: "12px 22px", borderTop: `1px solid ${border}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
-          <button onClick={onClose} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            background: "transparent", border: `1px solid ${border}`,
-            borderRadius: RADIUS.md, padding: "9px 16px", color: textSub,
-            fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+          <span style={{ fontSize: FONT.sm.size, color: textMuted }}>
+            Total {onglets.find(o => o.key === tab)?.label || ""} : <strong style={{ color: text }}>{totalTab.toFixed(2)} € HT</strong> · {lignesTab.length} article{lignesTab.length > 1 ? "s" : ""}
+          </span>
+          <button onClick={lancerCommande} disabled={lignesTab.length === 0} style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            background: lignesTab.length === 0 ? border : acc.accent, color: lignesTab.length === 0 ? textMuted : "#1a1a1a",
+            border: "none", borderRadius: RADIUS.md, padding: "10px 18px",
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: lignesTab.length === 0 ? "not-allowed" : "pointer",
           }}>
-            <Icon as={X} size={13}/>
-            Fermer
+            <Icon as={ArrowRight} size={14}/> Préparer ces commandes
           </button>
-          {!carte.commande && (
-            <button onClick={onPasserCommande} style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              background: accent, color: "#1a1a1a",
-              border: "none", borderRadius: RADIUS.md, padding: "9px 20px",
-              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
-              cursor: "pointer",
-            }}>
-              <Icon as={ShoppingCart} size={13}/>
-              Passer commande
-              <Icon as={ArrowRight} size={13}/>
-            </button>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── MODALE PASSER COMMANDE (2 étapes) ───────────────────────────────────────
-function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSuccess, T }) {
+// ─── MODALE "PASSER COMMANDE" (générique, multi-chantiers) ───────────────────
+// lignesInit : [{ libelle, quantite, unite, prix_ht, fournisseur_id, fournisseur_nom,
+//                 materiau_id, chantierId, chantierNom, chantierCouleur, phasageId,
+//                 lotId, lotLabel, ouvrageId, ouvrageLibelle }]
+function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClose, onSuccess, T, acc }) {
   const text      = T?.text      || "#f0f0f0";
   const textSub   = T?.textSub   || "#9aa5c0";
   const textMuted = T?.textMuted || "#5b6a8a";
   const surface   = T?.surface   || "#262a32";
   const card      = T?.card      || "rgba(255,255,255,0.04)";
   const border    = T?.border    || "rgba(255,255,255,0.07)";
-  const accent    = carte.phaseCouleur || "#FFC200";
+  const accent    = acc?.accent  || "#FFC200";
 
-  // ── Étape : "recap" (1) ou "preview" (2)
   const [etape, setEtape] = useState("recap");
-
-  // ── Lignes éditables (init depuis les matériaux prévisionnels de la phase)
-  // Chaque ligne = { uid, source ("prevu"|"manuel"), checked, libelle, quantite,
-  //                 unite, prix_ht, fournisseur_id, fournisseur_nom }
-  const [lignes, setLignes] = useState(() => carte.mats.map(m => ({
-    uid:             m.id || (Math.random().toString(36).slice(2)),
+  const [lignes, setLignes] = useState(() => lignesInit.map((m, i) => ({
+    uid:             "l_" + i + "_" + Math.random().toString(36).slice(2),
     source:          "prevu",
     checked:         true,
     libelle:         m.libelle || "",
-    quantite:        m.quantite || 1,
+    quantite:        m.quantite ?? 1,
     unite:           m.unite || "U",
     prix_ht:         m.prix_ht || 0,
     fournisseur_id:  m.fournisseur_id || null,
     fournisseur_nom: m.fournisseur_nom || "",
     materiau_id:     m.materiau_id || null,
+    chantierId:      m.chantierId || null,
+    chantierNom:     m.chantierNom || "",
+    phasageId:       m.phasageId || null,
+    lotId:           m.lotId || null,
+    lotLabel:        m.lotLabel || "",
+    ouvrageId:       m.ouvrageId || null,
+    ouvrageLibelle:  m.ouvrageLibelle || "",
   })));
-
-  // ── Date de besoin : depuis __date_commande, ou éditable si absente
-  const [dateBesoin, setDateBesoin] = useState(carte.dateISO || "");
-
-  // ── État d'envoi (étape 2)
+  const [dateBesoin, setDateBesoin] = useState(dateBesoinInit || "");
   const [sending, setSending] = useState(false);
-  // Statut par groupe fournisseur : { [fournisseurKey]: "pending"|"sent"|"failed"|"none" }
   const [statutGroupes, setStatutGroupes] = useState({});
   const [globalErr, setGlobalErr] = useState("");
 
-  // ── Helpers
   const setLigne = (uid, patch) => setLignes(prev => prev.map(l => l.uid === uid ? { ...l, ...patch } : l));
   const removeLigne = (uid) => setLignes(prev => prev.filter(l => l.uid !== uid));
   const ajouterLigneManuelle = () => {
+    // Hérite du contexte de la 1re ligne (chantier/ouvrage) pour la ventilation.
+    const ref = lignes[0] || {};
     setLignes(prev => [...prev, {
-      uid:             "manuel_" + Math.random().toString(36).slice(2),
-      source:          "manuel",
-      checked:         true,
-      libelle:         "",
-      quantite:        1,
-      unite:           "U",
-      prix_ht:         0,
-      fournisseur_id:  null,
-      fournisseur_nom: "",
-      materiau_id:     null,
+      uid: "manuel_" + Math.random().toString(36).slice(2), source: "manuel", checked: true,
+      libelle: "", quantite: 1, unite: "U", prix_ht: 0, fournisseur_id: null, fournisseur_nom: "", materiau_id: null,
+      chantierId: ref.chantierId || null, chantierNom: ref.chantierNom || "", phasageId: ref.phasageId || null,
+      lotId: ref.lotId || null, lotLabel: ref.lotLabel || "", ouvrageId: ref.ouvrageId || null, ouvrageLibelle: ref.ouvrageLibelle || "",
     }]);
   };
 
   const lignesCochees = lignes.filter(l => l.checked && (l.libelle?.trim() || "") && (parseFloat(l.quantite) || 0) > 0);
   const totalGlobal = lignesCochees.reduce((s, l) => s + (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0), 0);
 
-  // ── Regroupement par fournisseur pour l'étape 2
-  // Clé = fournisseur_id si présent, sinon "nom::<libellé>" si nom texte, sinon "__sans__"
-  const groupes = (() => {
+  // Regroupement par fournisseur (pour les mails)
+  const groupes = useMemo(() => {
     const buckets = new Map();
     lignesCochees.forEach(l => {
       let key, nom, email, mail_type, id = null;
       if (l.fournisseur_id) {
         const f = fournisseurs.find(x => x.id === l.fournisseur_id);
-        key = "id::" + l.fournisseur_id;
-        id  = l.fournisseur_id;
+        key = "id::" + l.fournisseur_id; id = l.fournisseur_id;
         nom = f?.nom || l.fournisseur_nom || "(fournisseur supprimé)";
-        email = f?.email || null;
-        mail_type = f?.mail_type || null;
+        email = f?.email || null; mail_type = f?.mail_type || null;
       } else if (l.fournisseur_nom?.trim()) {
-        // Tente un match par nom dans la table fournisseurs (insensible casse)
         const f = fournisseurs.find(x => (x.nom || "").toLowerCase().trim() === l.fournisseur_nom.toLowerCase().trim());
-        if (f) {
-          key = "id::" + f.id;
-          id  = f.id;
-          nom = f.nom;
-          email = f.email || null;
-          mail_type = f.mail_type || null;
-        } else {
-          key = "nom::" + l.fournisseur_nom.toLowerCase().trim();
-          nom = l.fournisseur_nom.trim();
-          email = null;
-          mail_type = null;
-        }
-      } else {
-        key = "__sans__";
-        nom = "Sans fournisseur";
-        email = null;
-        mail_type = null;
-      }
+        if (f) { key = "id::" + f.id; id = f.id; nom = f.nom; email = f.email || null; mail_type = f.mail_type || null; }
+        else { key = "nom::" + l.fournisseur_nom.toLowerCase().trim(); nom = l.fournisseur_nom.trim(); email = null; mail_type = null; }
+      } else { key = "__sans__"; nom = "Sans fournisseur"; email = null; mail_type = null; }
       if (!buckets.has(key)) buckets.set(key, { key, fournisseur_id: id, nom, email, mail_type, lignes: [] });
       buckets.get(key).lignes.push(l);
     });
     return Array.from(buckets.values()).map(g => ({
       ...g,
       total: g.lignes.reduce((s, l) => s + (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0), 0),
+      // chantiers distincts dans le groupe (pour grouper l'email par chantier)
+      chantiers: Array.from(new Set(g.lignes.map(l => l.chantierNom).filter(Boolean))),
     }));
-  })();
+  }, [lignesCochees, fournisseurs]);
 
-  // ── Substitution des variables du mail_type
+  // ── Helpers texte mail
   const fmtMontant = (n) => (parseFloat(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtDateBesoin = (iso) => {
     if (!iso) return "à définir";
     const d = new Date(iso);
     return isNaN(d) ? iso : d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   };
-  const listeArticlesTexte = (lignesGr) => lignesGr.map(l => {
-    const qte = parseFloat(l.quantite) || 0;
-    const pu  = parseFloat(l.prix_ht) || 0;
-    return `- ${qte}${l.unite ? ` ${l.unite}` : ""} × ${l.libelle} — ${fmtMontant(pu * qte)} € HT`;
-  }).join("\n");
+  // Liste d'articles, groupée par chantier si le groupe en couvre plusieurs.
+  const listeArticlesTexte = (lignesGr) => {
+    const parCh = new Map();
+    lignesGr.forEach(l => {
+      const k = l.chantierNom || "Chantier";
+      if (!parCh.has(k)) parCh.set(k, []);
+      parCh.get(k).push(l);
+    });
+    const ligneTxt = (l) => {
+      const qte = parseFloat(l.quantite) || 0, pu = parseFloat(l.prix_ht) || 0;
+      return `- ${qte}${l.unite ? ` ${l.unite}` : ""} × ${l.libelle} — ${fmtMontant(pu * qte)} € HT`;
+    };
+    if (parCh.size <= 1) {
+      return lignesGr.map(ligneTxt).join("\n");
+    }
+    return Array.from(parCh.entries()).map(([ch, ls]) =>
+      `Chantier ${ch} :\n${ls.map(ligneTxt).join("\n")}`
+    ).join("\n\n");
+  };
 
   const TEMPLATE_DEFAUT =
-    "Bonjour,\n\nDans le cadre du chantier {chantier} (phase : {phase}), nous souhaitons passer la commande suivante pour le {date_besoin} :\n\n{liste_articles}\n\nTotal HT estimé : {total_ht} €\n\nCordialement,\nProfero Rénovation";
+    "Bonjour,\n\nNous souhaitons passer la commande suivante pour le {date_besoin} :\n\n{liste_articles}\n\nTotal HT estimé : {total_ht} €\n\nCordialement,\nProfero Rénovation";
 
   const construireCorps = (groupe) => {
     const tpl = (groupe.mail_type && groupe.mail_type.trim()) ? groupe.mail_type : TEMPLATE_DEFAUT;
+    const chantierLabel = groupe.chantiers.length === 1 ? groupe.chantiers[0] : `${groupe.chantiers.length} chantiers`;
+    const phases = Array.from(new Set(groupe.lignes.map(l => l.lotLabel).filter(Boolean)));
     return tpl
-      .replaceAll("{chantier}",       carte.chantierNom || "")
-      .replaceAll("{phase}",          carte.phaseLabel || "")
+      .replaceAll("{chantier}",       chantierLabel)
+      .replaceAll("{phase}",          phases.join(", "))
       .replaceAll("{liste_articles}", listeArticlesTexte(groupe.lignes))
       .replaceAll("{date_besoin}",    fmtDateBesoin(dateBesoin))
       .replaceAll("{total_ht}",       fmtMontant(groupe.total));
   };
 
-  const sujetMail = `Commande matériaux — ${carte.chantierNom} (${carte.phaseLabel})`;
+  const sujetMail = (groupe) => {
+    const c = groupe.chantiers.length === 1 ? groupe.chantiers[0] : "Profero (multi-chantiers)";
+    return `Commande matériaux — ${c}`;
+  };
 
-  // Construit le HTML d'envoi à partir du corps texte du fournisseur
-  const corpsVersHtml = (corpsTexte) => {
+  const corpsVersHtml = (corpsTexte, groupe) => {
     const escape = (s) => String(s || "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
     const body = escape(corpsTexte).replace(/\n/g, "<br>");
+    const chLabel = groupe.chantiers.length === 1 ? groupe.chantiers[0] : `${groupe.chantiers.length} chantiers`;
     return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#1a1f2e">
   <div style="background:#080a0d;padding:20px 24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
     <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Rénovation · Commande matériaux</div>
-    <div style="color:#fff;font-size:18px;font-weight:800">${escape(carte.chantierNom)}</div>
-    <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:2px">${escape(carte.phaseLabel)}</div>
+    <div style="color:#fff;font-size:18px;font-weight:800">${escape(chLabel)}</div>
   </div>
   <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px;font-size:14px;line-height:1.7">
     ${body}
@@ -952,87 +1037,44 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
 </div>`;
   };
 
-  // ── Copier dans le presse-papier (fallback si l'envoi échoue)
   const copier = async (texte) => {
-    try {
-      await navigator.clipboard.writeText(texte);
-    } catch {
-      // Fallback ancien navigateur
+    try { await navigator.clipboard.writeText(texte); }
+    catch {
       const ta = document.createElement("textarea");
       ta.value = texte; document.body.appendChild(ta);
-      ta.select(); document.execCommand("copy");
-      document.body.removeChild(ta);
+      ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
     }
   };
 
-  // ── Confirmation : envoi des mails + écriture phasage + commandes_passees
+  // ── Confirmation : envoi mails + écriture commandes / commande_lignes
   const confirmer = async () => {
     setSending(true);
     setGlobalErr("");
 
-    // 1) Envoi mails par groupe fournisseur (parallèle)
     const next = {};
     groupes.forEach(g => { next[g.key] = "pending"; });
     setStatutGroupes(next);
 
     const resultatsEnvoi = await Promise.all(groupes.map(async (g) => {
-      if (!g.fournisseur_id && g.key === "__sans__") {
-        return { key: g.key, status: "none" }; // Pas d'envoi pour "Sans fournisseur"
-      }
-      if (!g.email) {
-        return { key: g.key, status: "none" }; // Pas d'email connu
-      }
+      if ((!g.fournisseur_id && g.key === "__sans__") || !g.email) return { key: g.key, status: "none" };
       const corps = construireCorps(g);
-      const html  = corpsVersHtml(corps);
+      const html  = corpsVersHtml(corps, g);
       try {
-        const res  = await fetch("/api/send-email", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ to: g.email, subject: sujetMail, html }),
+        const res = await fetch("/api/send-email", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: g.email, subject: sujetMail(g), html }),
         });
         const data = await res.json().catch(() => ({}));
         return { key: g.key, status: res.ok ? "sent" : "failed", error: data?.error || (!res.ok ? `HTTP ${res.status}` : null) };
-      } catch (e) {
-        return { key: g.key, status: "failed", error: e.message };
-      }
+      } catch (e) { return { key: g.key, status: "failed", error: e.message }; }
     }));
-
     const statutFinal = {};
     resultatsEnvoi.forEach(r => { statutFinal[r.key] = r.status; });
     setStatutGroupes(statutFinal);
 
-    // 2) Écriture phasage : __cout_commandes (additionner) + __commandes_log (push)
+    // Écriture : un document "bon de commande" par groupe fournisseur, lignes
+    // ventilées par chantier / phasage / lot / OUVRAGE (clé du suivi par ouvrage).
     try {
-      // Recharger le plan_travaux actuel pour éviter d'écraser une modif concurrente
-      const { data: phRow, error: phErr } = await supabase
-        .from("phasages")
-        .select("plan_travaux")
-        .eq("id", carte.phasageId)
-        .maybeSingle();
-      if (phErr) throw new Error(phErr.message);
-
-      const plan = { ...(phRow?.plan_travaux || {}) };
-      const keyCout = carte.phaseId + "__cout_commandes";
-      const keyLog  = carte.phaseId + "__commandes_log";
-      const ancien  = parseFloat(plan[keyCout]) || 0;
-      plan[keyCout] = +(ancien + totalGlobal).toFixed(2);
-      const log = Array.isArray(plan[keyLog]) ? plan[keyLog] : [];
-      log.push({
-        date:         new Date().toISOString(),
-        total_ht:     +totalGlobal.toFixed(2),
-        fournisseurs: groupes.map(g => g.nom),
-        nb_articles:  lignesCochees.length,
-      });
-      plan[keyLog] = log;
-
-      const { error: updErr } = await supabase.from("phasages")
-        .update({ plan_travaux: plan, updated_at: new Date().toISOString() })
-        .eq("id", carte.phasageId);
-      if (updErr) throw new Error(updErr.message);
-
-      // 3) Nouveau modèle : un document "bon de commande" par groupe
-      //    fournisseur, avec ses lignes (ventilation chantier/phase + prix).
-      //    Remplace l'ancienne double-écriture commandes_passees + commandes_detail.
       const dateTag = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
       const dateISO = new Date().toISOString().slice(0, 10);
       for (const g of groupes) {
@@ -1048,11 +1090,11 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
           source:             "planning",
           statut_completude:  "a_completer",
           statut_facturation: "en_attente_facture",
-          notes:              `Commandé via Planning des commandes le ${dateTag}`,
+          notes:              `Commandé via Commandes le ${dateTag}`,
         }).select("id").single();
         if (cErr || !cmd) { console.warn("Insert commandes (planning) :", cErr?.message); continue; }
 
-        const lignes = g.lignes.map(l => {
+        const lignesIns = g.lignes.map(l => {
           const pu = parseFloat(l.prix_ht) || null;
           const q  = parseFloat(l.quantite) || null;
           return {
@@ -1063,13 +1105,14 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
             prix_unitaire: pu,
             prix_total:    (pu != null && q != null) ? +(pu * q).toFixed(2) : null,
             materiau_id:   l.materiau_id || null,
-            chantier_id:   carte.chantierId,
-            phasage_id:    carte.phasageId,
-            lot_id:        carte.phaseId,
+            chantier_id:   l.chantierId || null,
+            phasage_id:    l.phasageId || null,
+            lot_id:        l.lotId || null,
+            ouvrage_id:    l.ouvrageId || null,
           };
         });
-        if (lignes.length > 0) {
-          const { error: lErr } = await supabase.from("commande_lignes").insert(lignes);
+        if (lignesIns.length > 0) {
+          const { error: lErr } = await supabase.from("commande_lignes").insert(lignesIns);
           if (lErr) console.warn("Insert commande_lignes (planning) :", lErr.message);
         }
       }
@@ -1079,12 +1122,10 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
       return;
     }
 
-    // 4) Refresh côté parent (rafraîchit les cartes du planning + ferme)
     setSending(false);
     onSuccess?.();
   };
 
-  // ── Styles communs
   const inp = {
     background: "rgba(255,255,255,0.06)", border: `1px solid rgba(255,255,255,0.1)`,
     borderRadius: 8, padding: "6px 9px", color: text,
@@ -1092,7 +1133,7 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
   };
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", zIndex: 950, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", zIndex: 960, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{
         background: T?.modal || surface, borderRadius: RADIUS.xl,
         width: "100%", maxWidth: 880, maxHeight: "92vh",
@@ -1105,29 +1146,17 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
             <Icon as={ShoppingCart} size={18}/>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -0.2 }}>
-              Passer commande
-            </div>
-            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <Icon as={Building2} size={10} color={carte.chantierCouleur}/>
-              <strong style={{ color: text }}>{carte.chantierNom}</strong>
-              <span style={{ color: textMuted }}>·</span>
-              <span style={{ color: carte.phaseCouleur }}>{carte.phaseEmoji} {carte.phaseLabel}</span>
-            </div>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -0.2 }}>Passer commande</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{titre}</div>
           </div>
-          {/* Steps */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {[
-              { id: "recap",   label: "1. Récap" },
-              { id: "preview", label: "2. Aperçu mails" },
-            ].map(s => (
+            {[{ id: "recap", label: "1. Récap" }, { id: "preview", label: "2. Aperçu mails" }].map(s => (
               <div key={s.id} style={{
                 fontSize: 11, fontWeight: 700, letterSpacing: .4, textTransform: "uppercase",
                 padding: "4px 9px", borderRadius: RADIUS.pill,
                 background: etape === s.id ? accent + "22" : "transparent",
                 color: etape === s.id ? accent : textMuted,
-                border: `1px solid ${etape === s.id ? accent + "55" : border}`,
-                whiteSpace: "nowrap",
+                border: `1px solid ${etape === s.id ? accent + "55" : border}`, whiteSpace: "nowrap",
               }}>{s.label}</div>
             ))}
           </div>
@@ -1139,34 +1168,31 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
         {/* Corps */}
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
           {etape === "recap" ? (
-            // ─── ÉTAPE 1 : RÉCAP ──────────────────────────────────────────
             <>
-              {/* Bandeau date de besoin */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 12px", background: card, borderRadius: RADIUS.md, border: `1px solid ${border}` }}>
+              {/* Date de besoin */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 12px", background: card, borderRadius: RADIUS.md, border: `1px solid ${border}`, flexWrap: "wrap" }}>
                 <Icon as={Calendar} size={13} color={textMuted}/>
                 <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, fontWeight: 600 }}>Date de besoin</span>
                 <input type="date" value={dateBesoin || ""} onChange={e => setDateBesoin(e.target.value)} style={{ ...inp, width: 160, colorScheme: "dark" }}/>
-                {!carte.dateISO && (
-                  <span style={{ fontSize: FONT.xs.size, color: textMuted, fontStyle: "italic" }}>(à définir, sera incluse dans le mail)</span>
-                )}
               </div>
 
               {/* Tableau lignes */}
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${border}` }}>
                       {[
-                        { l: "",         w: 28,  a: "center" },
-                        { l: "Libellé",  w: null, a: "left" },
-                        { l: "Qté",      w: 70,  a: "center" },
-                        { l: "Unité",    w: 60,  a: "center" },
-                        { l: "PU HT",    w: 90,  a: "right" },
-                        { l: "Total HT", w: 100, a: "right" },
-                        { l: "Fournisseur", w: 180, a: "left" },
-                        { l: "",         w: 28,  a: "center" },
-                      ].map(h => (
-                        <th key={h.l + h.w} style={{ padding: "8px 6px", fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .8, textAlign: h.a, width: h.w || undefined }}>{h.l}</th>
+                        { l: "", w: 28, a: "center" },
+                        { l: "Libellé", w: null, a: "left" },
+                        { l: "Chantier / Ouvrage", w: 180, a: "left" },
+                        { l: "Qté", w: 64, a: "center" },
+                        { l: "Unité", w: 56, a: "center" },
+                        { l: "PU HT", w: 84, a: "right" },
+                        { l: "Total", w: 90, a: "right" },
+                        { l: "Fournisseur", w: 160, a: "left" },
+                        { l: "", w: 28, a: "center" },
+                      ].map((h, i) => (
+                        <th key={i} style={{ padding: "8px 6px", fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .8, textAlign: h.a, width: h.w || undefined }}>{h.l}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1181,9 +1207,11 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
                           </td>
                           <td style={{ padding: "6px 6px" }}>
                             <input value={l.libelle} onChange={e => setLigne(l.uid, { libelle: e.target.value })} placeholder="Libellé de l'article" style={{ ...inp, fontWeight: 600 }}/>
-                            {isManuel && (
-                              <span style={{ display: "inline-block", marginTop: 3, fontSize: 9, fontWeight: 700, letterSpacing: .5, padding: "1px 6px", borderRadius: RADIUS.pill, background: "rgba(91,156,246,0.15)", color: "#5b9cf6", textTransform: "uppercase" }}>Manuel</span>
-                            )}
+                            {isManuel && <span style={{ display: "inline-block", marginTop: 3, fontSize: 9, fontWeight: 700, letterSpacing: .5, padding: "1px 6px", borderRadius: RADIUS.pill, background: "rgba(91,156,246,0.15)", color: "#5b9cf6", textTransform: "uppercase" }}>Manuel</span>}
+                          </td>
+                          <td style={{ padding: "6px 6px", fontSize: 11, color: textMuted, lineHeight: 1.3 }}>
+                            <div style={{ color: textSub, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{l.chantierNom}</div>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{l.ouvrageLibelle}</div>
                           </td>
                           <td style={{ padding: "6px 6px" }}>
                             <input type="number" min="0" step="0.01" value={l.quantite} onChange={e => setLigne(l.uid, { quantite: e.target.value })} style={{ ...inp, textAlign: "center", fontWeight: 700 }}/>
@@ -1194,20 +1222,14 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
                           <td style={{ padding: "6px 6px" }}>
                             <input type="number" min="0" step="0.01" value={l.prix_ht} onChange={e => setLigne(l.uid, { prix_ht: e.target.value })} style={{ ...inp, textAlign: "right", color: "#22c55e", fontWeight: 700 }}/>
                           </td>
-                          <td style={{ padding: "6px 6px", textAlign: "right", fontSize: 13, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>
-                            {total.toFixed(2)} €
-                          </td>
+                          <td style={{ padding: "6px 6px", textAlign: "right", fontSize: 13, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>{total.toFixed(2)} €</td>
                           <td style={{ padding: "6px 6px" }}>
                             {fournisseurs.length > 0 ? (
-                              <select
-                                value={l.fournisseur_id || ""}
-                                onChange={e => {
-                                  const id = e.target.value || null;
-                                  const f = id ? fournisseurs.find(x => x.id === id) : null;
-                                  setLigne(l.uid, { fournisseur_id: id, fournisseur_nom: f ? f.nom : l.fournisseur_nom });
-                                }}
-                                style={inp}
-                              >
+                              <select value={l.fournisseur_id || ""} onChange={e => {
+                                const id = e.target.value || null;
+                                const f = id ? fournisseurs.find(x => x.id === id) : null;
+                                setLigne(l.uid, { fournisseur_id: id, fournisseur_nom: f ? f.nom : l.fournisseur_nom });
+                              }} style={inp}>
                                 <option value="">— {l.fournisseur_nom ? `Texte : « ${l.fournisseur_nom} »` : "Aucun"} —</option>
                                 {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                               </select>
@@ -1227,105 +1249,74 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
                 </table>
               </div>
 
-              {/* Actions sous tableau */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, gap: 12, flexWrap: "wrap" }}>
                 <button onClick={ajouterLigneManuelle} style={{
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                  padding: "8px 14px", borderRadius: RADIUS.md,
+                  display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 14px", borderRadius: RADIUS.md,
                   background: "transparent", border: `1.5px dashed ${border}`, color: textSub,
                   fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
                 }}>
-                  <Icon as={Plus} size={12}/>
-                  Ajouter un article manuel
+                  <Icon as={Plus} size={12}/> Ajouter un article manuel
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: .8 }}>Total HT</span>
-                  <span style={{ fontSize: FONT.xl.size, fontWeight: 800, color: accent, fontFamily: "'DM Mono',monospace", letterSpacing: -0.3 }}>
-                    {totalGlobal.toFixed(2)} €
-                  </span>
+                  <span style={{ fontSize: FONT.xl.size, fontWeight: 800, color: accent, fontFamily: "'DM Mono',monospace", letterSpacing: -0.3 }}>{totalGlobal.toFixed(2)} €</span>
                   <span style={{ fontSize: 11, color: textMuted }}>· {lignesCochees.length} ligne{lignesCochees.length > 1 ? "s" : ""}</span>
                 </div>
               </div>
             </>
           ) : (
-            // ─── ÉTAPE 2 : APERÇU DES MAILS ───────────────────────────────
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: "rgba(91,156,246,0.10)", border: "1px solid rgba(91,156,246,0.3)", borderRadius: RADIUS.md, color: "#5b9cf6", fontSize: FONT.xs.size + 1, lineHeight: 1.5 }}>
                 <Icon as={Info} size={12} style={{ marginTop: 2, flexShrink: 0 }}/>
                 <span>
-                  {groupes.filter(g => g.email).length} mail{groupes.filter(g => g.email).length > 1 ? "s" : ""} à envoyer ·
-                  {" "}{groupes.filter(g => !g.email).length > 0 && `${groupes.filter(g => !g.email).length} groupe${groupes.filter(g => !g.email).length > 1 ? "s" : ""} sans email (à passer manuellement)`}
+                  {groupes.filter(g => g.email).length} mail{groupes.filter(g => g.email).length > 1 ? "s" : ""} à envoyer
+                  {groupes.filter(g => !g.email).length > 0 && ` · ${groupes.filter(g => !g.email).length} groupe(s) sans email (à passer manuellement)`}
                 </span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {groupes.map(g => {
-                  const corps  = construireCorps(g);
+                  const corps = construireCorps(g);
                   const statut = statutGroupes[g.key];
-                  const isSansFournisseur = g.key === "__sans__";
+                  const isSans = g.key === "__sans__";
                   const noEmail = !g.email;
                   return (
-                    <div key={g.key} style={{
-                      background: card, border: `1px solid ${border}`, borderRadius: RADIUS.lg, overflow: "hidden",
-                    }}>
-                      {/* En-tête groupe */}
+                    <div key={g.key} style={{ background: card, border: `1px solid ${border}`, borderRadius: RADIUS.lg, overflow: "hidden" }}>
                       <div style={{ padding: "10px 14px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <div style={{ width: 30, height: 30, borderRadius: RADIUS.md, background: isSansFournisseur ? "rgba(255,255,255,0.06)" : accent + "22", color: isSansFournisseur ? textMuted : accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          <Icon as={isSansFournisseur ? AlertTriangle : Mail} size={14}/>
+                        <div style={{ width: 30, height: 30, borderRadius: RADIUS.md, background: isSans ? "rgba(255,255,255,0.06)" : accent + "22", color: isSans ? textMuted : accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <Icon as={isSans ? AlertTriangle : Mail} size={14}/>
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text }}>{g.nom}</div>
                           <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 1 }}>
-                            {g.email ? g.email : (isSansFournisseur ? "Pas d'envoi de mail · à passer en physique" : "Aucun email connu pour ce fournisseur")}
-                            <span style={{ marginLeft: 6 }}>· {g.lignes.length} ligne{g.lignes.length > 1 ? "s" : ""} · {fmtMontant(g.total)} € HT</span>
+                            {g.email ? g.email : (isSans ? "Pas d'envoi · à passer en physique" : "Aucun email connu pour ce fournisseur")}
+                            <span style={{ marginLeft: 6 }}>· {g.lignes.length} ligne{g.lignes.length > 1 ? "s" : ""} · {g.chantiers.length} chantier{g.chantiers.length > 1 ? "s" : ""} · {fmtMontant(g.total)} € HT</span>
                           </div>
                         </div>
-                        {/* Statut envoi */}
-                        {statut === "pending" && (
-                          <span style={{ fontSize: 11, fontWeight: 700, color: accent, padding: "3px 9px", borderRadius: RADIUS.pill, background: accent + "22", letterSpacing: .5 }}>Envoi…</span>
-                        )}
-                        {statut === "sent" && (
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#22c55e", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(34,197,94,0.15)", letterSpacing: .5 }}>
-                            <Icon as={Check} size={10}/> Envoyé
-                          </span>
-                        )}
-                        {statut === "failed" && (
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#e15a5a", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(225,90,90,0.15)", letterSpacing: .5 }}>
-                            <Icon as={AlertTriangle} size={10}/> Échec
-                          </span>
-                        )}
-                        {statut === "none" && (
-                          <span style={{ fontSize: 11, fontWeight: 700, color: textMuted, padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(255,255,255,0.05)", letterSpacing: .5 }}>Non envoyé</span>
-                        )}
+                        {statut === "pending" && <span style={{ fontSize: 11, fontWeight: 700, color: accent, padding: "3px 9px", borderRadius: RADIUS.pill, background: accent + "22" }}>Envoi…</span>}
+                        {statut === "sent" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#22c55e", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(34,197,94,0.15)" }}><Icon as={Check} size={10}/> Envoyé</span>}
+                        {statut === "failed" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#e15a5a", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(225,90,90,0.15)" }}><Icon as={AlertTriangle} size={10}/> Échec</span>}
+                        {statut === "none" && <span style={{ fontSize: 11, fontWeight: 700, color: textMuted, padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(255,255,255,0.05)" }}>Non envoyé</span>}
                       </div>
-
-                      {/* Aperçu mail */}
-                      {!isSansFournisseur && (
+                      {!isSans && (
                         <div style={{ padding: "12px 14px" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
                             <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Sujet</div>
                             {(statut === "failed" || noEmail) && (
-                              <button onClick={() => copier(`Sujet : ${sujetMail}\n\n${corps}`)} style={{
-                                display: "inline-flex", alignItems: "center", gap: 5,
-                                padding: "4px 10px", borderRadius: RADIUS.sm, border: `1px solid ${border}`,
-                                background: "transparent", color: textSub,
-                                fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer", fontWeight: 600,
+                              <button onClick={() => copier(`Sujet : ${sujetMail(g)}\n\n${corps}`)} style={{
+                                display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: RADIUS.sm, border: `1px solid ${border}`,
+                                background: "transparent", color: textSub, fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer", fontWeight: 600,
                               }}>
-                                <Icon as={Copy} size={11}/>
-                                Copier le mail
+                                <Icon as={Copy} size={11}/> Copier le mail
                               </button>
                             )}
                           </div>
-                          <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "8px 12px", fontSize: 13, color: text, marginBottom: 8, fontWeight: 600 }}>
-                            {sujetMail}
-                          </div>
+                          <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "8px 12px", fontSize: 13, color: text, marginBottom: 8, fontWeight: 600 }}>{sujetMail(g)}</div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Corps</div>
                           <pre style={{
-                            background: surface, border: `1px solid ${border}`,
-                            borderRadius: RADIUS.md, padding: "10px 14px",
-                            fontFamily: "inherit", fontSize: 13, color: textSub,
-                            lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                            margin: 0, maxHeight: 220, overflowY: "auto",
+                            background: surface, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "10px 14px",
+                            fontFamily: "inherit", fontSize: 13, color: textSub, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                            margin: 0, maxHeight: 240, overflowY: "auto",
                           }}>{corps}</pre>
                         </div>
                       )}
@@ -1336,21 +1327,19 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
 
               {globalErr && (
                 <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.4)", borderRadius: RADIUS.md, color: "#e15a5a", fontSize: FONT.xs.size + 1 }}>
-                  <Icon as={AlertTriangle} size={11} style={{ marginRight: 6 }}/>
-                  {globalErr}
+                  <Icon as={AlertTriangle} size={11} style={{ marginRight: 6 }}/>{globalErr}
                 </div>
               )}
             </>
           )}
         </div>
 
-        {/* Footer actions */}
+        {/* Footer */}
         <div style={{ padding: "12px 22px", borderTop: `1px solid ${border}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
           <button onClick={etape === "preview" ? () => setEtape("recap") : onClose} disabled={sending} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            background: "transparent", border: `1px solid ${border}`,
-            borderRadius: RADIUS.md, padding: "9px 16px", color: textSub,
-            fontFamily: "inherit", fontSize: FONT.sm.size, cursor: sending ? "not-allowed" : "pointer", opacity: sending ? .5 : 1,
+            display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${border}`,
+            borderRadius: RADIUS.md, padding: "9px 16px", color: textSub, fontFamily: "inherit", fontSize: FONT.sm.size,
+            cursor: sending ? "not-allowed" : "pointer", opacity: sending ? .5 : 1,
           }}>
             <Icon as={etape === "preview" ? ChevronLeft : X} size={13}/>
             {etape === "preview" ? "Retour au récap" : "Annuler"}
@@ -1358,27 +1347,171 @@ function ModalePasserCommande({ carte, fournisseurs, chantiers, onClose, onSucce
           {etape === "recap" ? (
             <button onClick={() => setEtape("preview")} disabled={lignesCochees.length === 0} style={{
               display: "inline-flex", alignItems: "center", gap: 6,
-              background: lignesCochees.length === 0 ? border : accent,
-              color: lignesCochees.length === 0 ? textMuted : "#1a1a1a",
-              border: "none", borderRadius: RADIUS.md, padding: "9px 18px",
-              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+              background: lignesCochees.length === 0 ? border : accent, color: lignesCochees.length === 0 ? textMuted : "#1a1a1a",
+              border: "none", borderRadius: RADIUS.md, padding: "9px 18px", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
               cursor: lignesCochees.length === 0 ? "not-allowed" : "pointer",
             }}>
-              Aperçu des mails
-              <Icon as={ArrowRight} size={13}/>
+              Aperçu des mails <Icon as={ArrowRight} size={13}/>
             </button>
           ) : (
             <button onClick={confirmer} disabled={sending} style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              background: sending ? border : accent, color: sending ? textMuted : "#1a1a1a",
-              border: "none", borderRadius: RADIUS.md, padding: "9px 20px",
-              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+              display: "inline-flex", alignItems: "center", gap: 6, background: sending ? border : accent, color: sending ? textMuted : "#1a1a1a",
+              border: "none", borderRadius: RADIUS.md, padding: "9px 20px", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
               cursor: sending ? "not-allowed" : "pointer",
             }}>
-              <Icon as={Send} size={13}/>
-              {sending ? "Envoi en cours…" : "Confirmer et envoyer"}
+              <Icon as={Send} size={13}/>{sending ? "Envoi en cours…" : "Confirmer et envoyer"}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MODALE D'AIDE ───────────────────────────────────────────────────────────
+// Pensée pour un lecteur qui ne connaît pas l'application : on explique avec des
+// mots simples à quoi sert la page et comment s'en servir, étape par étape.
+function ModaleAide({ onClose, T, acc }) {
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+  const surface   = T?.surface   || "#262a32";
+  const card      = T?.card      || "rgba(255,255,255,0.04)";
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+  const accent    = acc?.accent  || "#FFC200";
+
+  // Petit composant interne pour une "étape"
+  const Etape = ({ n, titre, children }) => (
+    <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+      <div style={{
+        width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+        background: accent + "22", color: accent, fontWeight: 800, fontSize: 13,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>{n}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: FONT.sm.size + 2, fontWeight: 700, color: text, marginBottom: 3 }}>{titre}</div>
+        <div style={{ fontSize: FONT.sm.size + 1, color: textSub, lineHeight: 1.6 }}>{children}</div>
+      </div>
+    </div>
+  );
+
+  const Bloc = ({ icon, couleur, titre, children }) => (
+    <div style={{ background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "12px 14px", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <Icon as={icon} size={15} color={couleur}/>
+        <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>{titre}</span>
+      </div>
+      <div style={{ fontSize: FONT.sm.size + 1, color: textSub, lineHeight: 1.6 }}>{children}</div>
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", zIndex: 970, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T?.modal || surface, borderRadius: RADIUS.xl,
+        width: "100%", maxWidth: 720, maxHeight: "92vh",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+        border: `1px solid ${border}`, boxShadow: "0 28px 70px rgba(0,0,0,0.65)",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ width: 38, height: 38, borderRadius: RADIUS.md, background: accent + "22", color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Icon as={HelpCircle} size={20}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text }}>Comment fonctionne cette page ?</div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2 }}>Guide rapide — pour préparer et passer les commandes de matériaux.</div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: textMuted, cursor: "pointer", padding: 6, display: "flex" }}>
+            <Icon as={X} size={18}/>
+          </button>
+        </div>
+
+        {/* Corps */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px", fontSize: FONT.sm.size + 1 }}>
+          {/* À quoi sert la page */}
+          <p style={{ margin: "0 0 16px", color: textSub, lineHeight: 1.65 }}>
+            Cette page rassemble <strong style={{ color: text }}>tout ce qu'il y a à commander</strong> pour les chantiers en cours.
+            Pour chaque chantier, on retrouve ses <strong style={{ color: text }}>ouvrages</strong> (les ensembles de travaux, par
+            exemple « cloison salle de bain » ou « installation électrique cuisine »). Chaque ouvrage liste les
+            matériaux prévus : ceux qui restent <strong style={{ color: text }}>à commander</strong> et ceux qui ont
+            <strong style={{ color: text }}> déjà été commandés</strong>.
+          </p>
+
+          {/* Naviguer */}
+          <div style={{ fontSize: 11, fontWeight: 800, color: textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
+            Naviguer dans la page
+          </div>
+          <Etape n="1" titre="Choisir un chantier">
+            Dans la première colonne (à gauche), cliquez sur un chantier. Le chiffre orange indique combien
+            d'articles restent à commander pour ce chantier.
+          </Etape>
+          <Etape n="2" titre="Choisir un ouvrage">
+            La colonne du milieu affiche les ouvrages du chantier. Les pastilles montrent en un coup d'œil ce
+            qu'il reste à commander et ce qui a déjà été commandé.
+          </Etape>
+          <Etape n="3" titre="Voir le détail">
+            À droite s'affichent deux listes : <strong style={{ color: text }}>« À commander »</strong> (les matériaux
+            qu'il faut encore acheter) et <strong style={{ color: text }}>« Déjà commandé »</strong> (les commandes
+            déjà passées, avec le fournisseur, la date et le montant).
+            <br/><span style={{ color: textMuted, fontStyle: "italic" }}>Sur téléphone, les colonnes s'affichent une par une : touchez « Retour » pour revenir en arrière.</span>
+          </Etape>
+
+          {/* Passer une commande */}
+          <div style={{ fontSize: 11, fontWeight: 800, color: textMuted, textTransform: "uppercase", letterSpacing: 1, margin: "8px 0 12px" }}>
+            Passer une commande
+          </div>
+          <Bloc icon={ShoppingCart} couleur={accent} titre="Pour un seul ouvrage">
+            Dans le détail d'un ouvrage, le bouton <strong style={{ color: text }}>« Commander ces articles »</strong>
+            ouvre une fenêtre. Vous vérifiez la liste (vous pouvez modifier les quantités, les prix, ajouter ou
+            retirer des lignes), puis vous passez à l'aperçu des e-mails et confirmez. Un e-mail de commande est
+            préparé automatiquement <strong style={{ color: text }}>pour chaque fournisseur</strong>.
+          </Bloc>
+          <Bloc icon={CalendarClock} couleur={accent} titre="Préparer les commandes de la semaine (le vendredi)">
+            En haut à droite, le bouton <strong style={{ color: text }}>« Commandes de la semaine »</strong> rassemble
+            <strong style={{ color: text }}> tout ce qu'il faut commander</strong>, sur tous les chantiers à la fois.
+            Des <strong style={{ color: text }}>onglets par semaine</strong> (« Cette semaine », « Semaine prochaine »…)
+            permettent de cibler ce qui est urgent. Les articles sont regroupés
+            <strong style={{ color: text }}> par fournisseur</strong>, puis <strong style={{ color: text }}>par chantier</strong> :
+            idéal pour passer toutes les commandes d'un coup. Le bouton « Préparer ces commandes » ouvre la
+            même fenêtre que ci-dessus.
+          </Bloc>
+
+          {/* Bon à savoir */}
+          <div style={{ fontSize: 11, fontWeight: 800, color: textMuted, textTransform: "uppercase", letterSpacing: 1, margin: "8px 0 12px" }}>
+            Bon à savoir
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 20, color: textSub, lineHeight: 1.7 }}>
+            <li>Les matériaux affichés proviennent du <strong style={{ color: text }}>Phasage</strong> du chantier (les ouvrages et leurs matériaux y sont définis).</li>
+            <li>Les <strong style={{ color: text }}>dates de besoin</strong> sont calculées automatiquement à partir des dates des tâches planifiées.</li>
+            <li>Dès qu'un article est commandé, il <strong style={{ color: text }}>quitte « À commander »</strong> et apparaît dans « Déjà commandé ». Plus de risque de commander deux fois.</li>
+            <li>Une commande passée d'ici reste <strong style={{ color: text }}>« à compléter »</strong> : le bureau renseignera ensuite le numéro de bon et la facture.</li>
+          </ul>
+
+          {/* Nouveautés */}
+          <div style={{ marginTop: 18, padding: "12px 14px", background: accent + "12", border: `1px solid ${accent}40`, borderRadius: RADIUS.md }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <Icon as={Info} size={14} color={accent}/>
+              <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>Ce qui vient de changer</span>
+            </div>
+            <div style={{ fontSize: FONT.sm.size + 1, color: textSub, lineHeight: 1.6 }}>
+              Cette page remplace l'ancien « planning » en colonnes par semaine. Elle est désormais organisée
+              <strong style={{ color: text }}> par chantier et par ouvrage</strong>, suit précisément
+              <strong style={{ color: text }}> ce qui a déjà été commandé</strong> pour chaque ouvrage, et propose un
+              bouton dédié pour <strong style={{ color: text }}>préparer toutes les commandes de la semaine</strong> en une fois.
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "12px 22px", borderTop: `1px solid ${border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+          <button onClick={onClose} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: accent, color: "#1a1a1a", border: "none",
+            borderRadius: RADIUS.md, padding: "9px 20px", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>
+            <Icon as={Check} size={14}/> J'ai compris
+          </button>
         </div>
       </div>
     </div>
@@ -1392,25 +1525,13 @@ function EmptyState({ T, acc }) {
   const surface   = T?.surface   || "#262a32";
   const border    = T?.border    || "rgba(255,255,255,0.07)";
   return (
-    <div style={{
-      background: surface, border: `1px dashed ${border}`,
-      borderRadius: RADIUS.xl, padding: "60px 30px",
-      textAlign: "center", color: textMuted,
-    }}>
-      <div style={{
-        width: 64, height: 64, borderRadius: RADIUS.xl,
-        background: acc.bg10, color: acc.accent,
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        marginBottom: 16,
-      }}>
+    <div style={{ background: surface, border: `1px dashed ${border}`, borderRadius: RADIUS.xl, padding: "60px 30px", textAlign: "center", color: textMuted }}>
+      <div style={{ width: 64, height: 64, borderRadius: RADIUS.xl, background: acc.bg10, color: acc.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
         <Icon as={Package} size={28} strokeWidth={1.5}/>
       </div>
-      <div style={{ fontSize: FONT.lg.size, color: text, fontWeight: 700, marginBottom: 6 }}>
-        Aucun matériau prévisionnel
-      </div>
+      <div style={{ fontSize: FONT.lg.size, color: text, fontWeight: 700, marginBottom: 6 }}>Aucun chantier avec des matériaux</div>
       <div style={{ fontSize: FONT.sm.size + 1, lineHeight: 1.6, maxWidth: 480, margin: "0 auto" }}>
-        Pour voir des commandes ici, ouvre la page <strong style={{ color: text }}>Phasage</strong>, sélectionne un chantier, puis ajoute des matériaux prévisionnels sous chaque phase.
-        Les vendredis S-1 calculés à partir des dates prévues des tâches s'afficheront automatiquement.
+        Ouvre la page <strong style={{ color: text }}>Phasage</strong>, sélectionne un chantier, puis ajoute des ouvrages avec leurs matériaux. Ils apparaîtront ici, prêts à commander.
       </div>
     </div>
   );
