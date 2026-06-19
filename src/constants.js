@@ -362,6 +362,32 @@ export const PHASES_DEFAUT = [
   { id: "finitions_gen",  label: "Finitions générales",                emoji: "✨", couleur: "#a78bfa" },
 ];
 
+// Devine le LOT le plus probable à partir du libellé d'un article.
+// Logique basique par mots-clés — sert de pré-sélection, toujours modifiable.
+// Renvoie un id de LOTS_DEFAUT ou "" si rien ne matche. (ex: "paroi de douche"
+// -> "plomberie"). Pour des lots personnalisés, le caller vérifie que l'id existe.
+export function guessLotId(libelle) {
+  const s = String(libelle || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, ""); // sans accents
+  if (!s.trim()) return "";
+  // Ordre important : les règles les plus spécifiques d'abord.
+  const RULES = [
+    ["plomberie", ["paroi", "douche", "receveur", "robinet", "mitigeur", "lavabo", "vasque", "evier", "wc", "toilette", "cuvette", "abattant", "siphon", "bonde", "sanitaire", "seche-serviette", "radiateur", "chauffe-eau", "ballon", "chasse", "flexible", "pommeau", "tube", "tuyau", "per ", " per", "pvc", "cuivre", "multicouche", "raccord", "coude", "evacuation", "alimentation", "collecteur", "nourrice", "vanne", "plomberie"]],
+    ["electricite", ["prise", "interrupteur", "va-et-vient", "va et vient", "applique", "spot", "luminaire", "hublot", "enjoliveur", "dcl", "variateur", "detecteur", "goulotte", "repartiteur", "gaine", "icta", "cable", "fil ", "disjoncteur", "tableau", "gtl", "vmc", "bouche", "conduit", "differentiel", "coffret", "peigne", "module", "contacteur", "electri", "borne", "domino"]],
+    ["demolition", ["demolition", "depose", "benne", "gravats", "burineur", "sac a gravats"]],
+    ["maconnerie", ["ciment", "beton", "mortier", "parpaing", "agglo", "brique", "chape", "enduit ciment", "scellement", "ferraillage", "treillis", "armature", "maconnerie", "hourdis", "linteau"]],
+    ["murs_cloison", ["placo", "ba13", "ba 13", "plaque de platre", "platre", "hydrofuge", "bande", "enduit", "laine", "isolant", "rail", "montant", "fourrure", "suspente", "doublage", "cloison", "map", "calicot", "polystyrene", "corniere"]],
+    ["ouvertures", ["porte", "fenetre", "bloc-porte", "bloc porte", "huisserie", "volet", "baie", "vitrage", "chassis", "seuil", "fenetre de toit", "velux"]],
+    ["menuiserie", ["plinthe", "parquet", "lambris", "lame terrasse", "habillage", "plan de travail", "credence", "meuble", "etagere", "tablette", "menuiserie", "poignee", "serrure", "paumelle", "quincaillerie"]],
+    ["finitions_gen", ["peinture", "sous-couche", "sous couche", "primaire", "carrelage", "faience", "lino", "ragreage", "colle carrel", "joint carrel", "moquette", "vitrificateur", "lasure", "rouleau", "ruban de masquage", "sol pvc", "silicone", "joint", "finition"]],
+  ];
+  for (const [lot, kws] of RULES) {
+    if (kws.some(k => s.includes(k))) return lot;
+  }
+  return "";
+}
+
 // Charge les phases personnalisées depuis Supabase, sinon retourne PHASES_DEFAUT.
 import { supabase as _supabase } from "./supabase";
 export async function loadPhases() {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase, photoTransform } from "../supabase";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId } from "../constants";
 import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
@@ -189,16 +189,20 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     if (ia.status === "fulfilled" && ia.value) {
       const p = ia.value;
       const lignes = Array.isArray(p.lignes) && p.lignes.length
-        ? p.lignes.map(l => ({
-            libelle: l.designation || l.libelle || "",
-            reference: l.reference || "",
-            quantite: l.quantite != null ? String(l.quantite) : "",
-            unite: "U",
-            prix_unitaire: l.prix_unitaire != null ? String(l.prix_unitaire) : "",
-            prix_total: l.prix_total != null ? String(l.prix_total) : "",
-            chantier_id: "",
-            lot_id: "",
-          }))
+        ? p.lignes.map(l => {
+            const lib = l.designation || l.libelle || "";
+            const g = guessLotId(lib); // pré-sélection du lot par mots-clés
+            return {
+              libelle: lib,
+              reference: l.reference || "",
+              quantite: l.quantite != null ? String(l.quantite) : "",
+              unite: "U",
+              prix_unitaire: l.prix_unitaire != null ? String(l.prix_unitaire) : "",
+              prix_total: l.prix_total != null ? String(l.prix_total) : "",
+              chantier_id: "",
+              lot_id: (g && lots.some(x => x.id === g)) ? g : "",
+            };
+          })
         : [ligneVide()];
       setForm({
         fournisseur: p.fournisseur || "",
@@ -623,7 +627,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             <input inputMode="decimal" value={l.prix_total} onChange={e => setLigne(i, { prix_total: e.target.value })} placeholder="Total €" style={inputStyle} />
           </div>
           {repartir && (
-            <select value={l.chantier_id} onChange={e => setLigne(i, { chantier_id: e.target.value, lot_id: "" })} style={inputStyle}>
+            <select value={l.chantier_id} onChange={e => setLigne(i, { chantier_id: e.target.value })} style={inputStyle}>
               <option value="">— Chantier de cette ligne —</option>
               {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom || c.id}</option>)}
             </select>
