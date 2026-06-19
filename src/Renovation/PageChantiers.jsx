@@ -55,14 +55,28 @@ function ProgressBar({ value, color, height = 6 }) {
 // (legacy), on retombe sur l'ancien calcul heures_reelles × ouvriers[0].
 // Le caller passe pointagesIndexes (résultat de indexPointagesParTache) et
 // extraStats ({coutLibre, coutIndirect}) pour ajouter les heures hors-tâches.
-function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}) {
-  if (!phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0 };
-  const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
-  const coutMOTaches = allTaches.reduce((s, t) => s + coutMOEff(t, pointagesIndexes, tauxHoraires), 0);
-  const coutMO   = coutMOTaches + (extraStats.coutLibre || 0) + (extraStats.coutIndirect || 0);
-  const coutMat  = allTaches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = []) {
+  const ouvrages = phasage?.ouvrages || [];
+  const hasV2 = ouvrages.length > 0;
+  if (!hasV2 && !phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0 };
+  // MO : somme de TOUS les pointages du chantier (robuste, taux figé). Repli
+  // legacy par tâche si aucun pointage.
+  let coutMO;
+  if (Array.isArray(pointagesChantier) && pointagesChantier.length > 0) {
+    coutMO = pointagesChantier.reduce((s, p) => s + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0), 0);
+  } else {
+    const allTaches = hasV2
+      ? ouvrages.flatMap(o => o.taches || [])
+      : PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
+    const coutMOTaches = allTaches.reduce((s, t) => s + coutMOEff(t, pointagesIndexes, tauxHoraires), 0);
+    coutMO = coutMOTaches + (extraStats.coutLibre || 0) + (extraStats.coutIndirect || 0);
+  }
+  // Coût matériaux : V2 = somme cout_materiaux des ouvrages ; V1 = cout_materiel des tâches.
+  const coutMat = hasV2
+    ? ouvrages.reduce((s, o) => s + (parseFloat(o.cout_materiaux) || 0), 0)
+    : PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || [])).reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = coutMO + coutMat;
-  const prixVendu = parseFloat(phasage.prix_vendu) || 0;
+  const prixVendu = parseFloat(phasage?.prix_vendu) || parseFloat(phasage?.plan_travaux?.meta?.prix_vendu) || 0;
   const marge     = prixVendu - coutTotal;
   const margePct  = prixVendu > 0 ? (marge / prixVendu) * 100 : 0;
   return { coutMO, coutMat, coutTotal, prixVendu, marge, margePct };
@@ -693,7 +707,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     : [];
   const ptsIndexSelected = indexPointagesParTache(pointagesChantierSelected);
   const extraSelected = sumLibreEtIndirect(pointagesChantierSelected);
-  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected) : null;
+  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // Heures vendues vs réelles par OUVRAGE (suivi des dérives).
@@ -872,7 +886,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               const ptsCh   = phasage ? pointages.filter(p => p.chantier_id === phasage.chantier_id) : [];
               const ptsIdx  = indexPointagesParTache(ptsCh);
               const extras  = sumLibreEtIndirect(ptsCh);
-              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras) : null;
+              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh) : null;
               const photo   = photoMap[chantier.id];
               const statut  = getStatut(chantier, phasage);
 

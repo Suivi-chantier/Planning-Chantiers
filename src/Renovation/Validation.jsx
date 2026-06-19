@@ -230,16 +230,23 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const avancementParTache = useMemo(() => {
     const m = {};
     phasages.forEach(ph => {
-      const plan = ph.plan_travaux || {};
       const par = {};
-      Object.keys(plan).forEach(phaseId => {
-        if (phaseId === "meta") return;
-        const arr = plan[phaseId];
-        if (!Array.isArray(arr)) return;
-        arr.forEach(t => {
+      const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+      if (ouvrages.length > 0) {
+        // V2 : tâches d'ouvrages
+        ouvrages.forEach(o => (o.taches || []).forEach(t => {
           if (t.id != null) par[String(t.id)] = parseFloat(t.avancement) || 0;
+        }));
+      } else {
+        // Repli V1 : plan_travaux
+        const plan = ph.plan_travaux || {};
+        Object.keys(plan).forEach(phaseId => {
+          if (phaseId === "meta") return;
+          const arr = plan[phaseId];
+          if (!Array.isArray(arr)) return;
+          arr.forEach(t => { if (t.id != null) par[String(t.id)] = parseFloat(t.avancement) || 0; });
         });
-      });
+      }
       m[ph.chantier_id] = par;
     });
     return m;
@@ -249,14 +256,23 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const tachesPlanParChantier = useMemo(() => {
     const m = {};
     phasages.forEach(ph => {
-      const plan = ph.plan_travaux || {};
       const taches = [];
-      Object.keys(plan).forEach(phaseId => {
-        if (phaseId === "meta") return;
-        const arr = plan[phaseId];
-        if (!Array.isArray(arr)) return;
-        arr.forEach(t => taches.push({ id: t.id, nom: t.nom, phase_id: phaseId, ouvriers: t.ouvriers }));
-      });
+      const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+      if (ouvrages.length > 0) {
+        // V2 : tâches d'ouvrages, groupées par libellé d'ouvrage (`groupe`).
+        ouvrages.forEach(o => (o.taches || []).forEach(t =>
+          taches.push({ id: t.id, nom: t.nom, ouvrage_id: o.id, phase_id: null, groupe: o.libelle || "(sans libellé)", ouvriers: t.ouvriers })
+        ));
+      } else {
+        // Repli V1 : tâches de plan_travaux, groupées par phase.
+        const plan = ph.plan_travaux || {};
+        Object.keys(plan).forEach(phaseId => {
+          if (phaseId === "meta") return;
+          const arr = plan[phaseId];
+          if (!Array.isArray(arr)) return;
+          arr.forEach(t => taches.push({ id: t.id, nom: t.nom, ouvrage_id: null, phase_id: phaseId, groupe: phaseId, ouvriers: t.ouvriers }));
+        });
+      }
       m[ph.chantier_id] = taches;
     });
     return m;
@@ -380,27 +396,54 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     await load();
   }
 
-  // ── Création d'une nouvelle tâche dans plan_travaux ───────────────────────
-  // Insère dans la base et met à jour le state local. Retourne { tache_id, phase_id }.
+  // ── Création d'une nouvelle tâche ─────────────────────────────────────────
+  // V2 : crée la tâche dans l'ouvrage « Divers / hors devis » (créé si absent).
+  // V1 (repli, chantier sans ouvrages) : crée dans plan_travaux[phase_id].
+  // Retourne { tache_id, ouvrage_id?, phase_id? }.
   async function creerTacheDansPlan({ chantier_id, phase_id, nom, heures_vendues, ouvriers: ouvriersList }) {
     const ph = phasages.find(p => p.chantier_id === chantier_id);
     if (!ph) {
       alert(`Aucun phasage existant pour le chantier ${chantier_id}. Crée-le d'abord depuis la page Phasage.`);
       return null;
     }
+    const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+
+    // ── V2 : tâche dans l'ouvrage « Divers / hors devis »
+    if (ouvrages.length > 0) {
+      const newTache = {
+        id: genId(), nom: nom.trim(),
+        heures_estimees: null, heures_reelles: null, avancement: 0,
+        ouvriers: Array.isArray(ouvriersList) ? ouvriersList : [],
+        date_prevue: null, _cree_depuis_validation: true,
+      };
+      let next = ouvrages.map(o => ({ ...o }));
+      let divers = next.find(o => (o.libelle || "").trim().toLowerCase() === "divers / hors devis");
+      if (divers) {
+        divers.taches = [...(divers.taches || []), newTache];
+      } else {
+        divers = { id: genId(), libelle: "Divers / hors devis", lot_id: null, heures_devis: null,
+          quantite: null, unite: "U", prix_ht: null, cout_materiaux: null, taches: [newTache] };
+        next = [...next, divers];
+      }
+      const { error } = await supabase.from("phasages").update({ ouvrages: next }).eq("id", ph.id);
+      if (error) {
+        console.error("creerTacheDansOuvrage:", error);
+        alert("Erreur lors de la création de la tâche.");
+        return null;
+      }
+      setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next } : p));
+      return { tache_id: newTache.id, ouvrage_id: divers.id, phase_id: null };
+    }
+
+    // ── V1 (repli) : plan_travaux
     const plan = { ...(ph.plan_travaux || {}) };
     const existing = Array.isArray(plan[phase_id]) ? [...plan[phase_id]] : [];
     const newTache = {
-      id: genId(),
-      nom: nom.trim(),
+      id: genId(), nom: nom.trim(),
       heures_vendues: parseFloat(heures_vendues) || 0,
-      heures_estimees: 0,
-      heures_reelles: 0,
-      cout_materiel: 0,
+      heures_estimees: 0, heures_reelles: 0, cout_materiel: 0,
       ouvriers: Array.isArray(ouvriersList) ? ouvriersList : [],
-      avancement: 0,
-      date_prevue: null,
-      _cree_depuis_validation: true, // trace : tâche créée depuis l'écran de validation
+      avancement: 0, date_prevue: null, _cree_depuis_validation: true,
     };
     plan[phase_id] = [...existing, newTache];
     const { error } = await supabase.from("phasages").update({ plan_travaux: plan }).eq("id", ph.id);
@@ -940,28 +983,31 @@ function ModaleRapport({
   const removeLigne = (rowId) => setLignes(prev => prev.filter(l => l.rowId !== rowId));
 
   // Réaffectation : on capture la sélection (tache_id du plan, "__libre__", ou "__creer__")
+  // V2 si les options du menu portent un ouvrage_id (chantier avec ouvrages).
+  const chantierV2 = (tachesPlan || []).some(t => t.ouvrage_id);
   const onChangeTache = (rowId, value) => {
     if (value === "__creer__") {
       // Pré-remplit le nom avec ce que l'ouvrier avait déclaré (modifiable).
       const ligne = lignes.find(l => l.rowId === rowId);
-      setCreerTacheState({ rowId, nom: ligne?.planifie || "", phase_id: phases[0]?.id || "" });
+      setCreerTacheState({ rowId, nom: ligne?.planifie || "", phase_id: chantierV2 ? null : (phases[0]?.id || ""), useOuvrages: chantierV2 });
       return;
     }
     if (value === "__libre__" || !value) {
-      updateLigne(rowId, { tache_id: null, phase_id: null });
+      updateLigne(rowId, { tache_id: null, phase_id: null, ouvrage_id: null });
       return;
     }
     const t = tachesPlan.find(x => String(x.id) === String(value));
-    if (t) updateLigne(rowId, { tache_id: t.id, phase_id: t.phase_id, planifie: t.nom });
+    if (t) updateLigne(rowId, { tache_id: t.id, phase_id: t.phase_id || null, ouvrage_id: t.ouvrage_id || null, planifie: t.nom });
   };
 
   const validerCreation = async () => {
-    if (!creerTacheState?.nom?.trim() || !creerTacheState?.phase_id) {
+    if (!creerTacheState?.nom?.trim()) { alert("Renseigne le nom de la tâche."); return; }
+    if (!creerTacheState.useOuvrages && !creerTacheState.phase_id) {
       alert("Renseigne au moins le nom et la phase.");
       return;
     }
     const res = await onCreerTache({
-      phase_id: creerTacheState.phase_id,
+      phase_id: creerTacheState.phase_id || null,
       nom: creerTacheState.nom,
       heures_vendues: creerTacheState.heures_vendues,
       ouvriers: rapport.ouvrier ? [rapport.ouvrier] : [],
@@ -969,7 +1015,8 @@ function ModaleRapport({
     if (res?.tache_id) {
       updateLigne(creerTacheState.rowId, {
         tache_id: res.tache_id,
-        phase_id: res.phase_id,
+        phase_id: res.phase_id || null,
+        ouvrage_id: res.ouvrage_id || null,
         planifie: creerTacheState.nom.trim(),
       });
       setCreerTacheState(null);
@@ -1210,12 +1257,13 @@ function LigneEditable({
   avancementActuel, autres, onChange, onChangeTache, onSplit, onRemove,
 }) {
   const phasesById = useMemo(() => Object.fromEntries((phases || []).map(p => [p.id, p])), [phases]);
-  // Groupe les tâches du plan par phase pour le <optgroup>
-  const tachesParPhase = useMemo(() => {
+  // Groupe les tâches par `groupe` : libellé d'ouvrage (V2) ou id de phase (V1).
+  const tachesParGroupe = useMemo(() => {
     const m = {};
     (tachesPlan || []).forEach(t => {
-      if (!m[t.phase_id]) m[t.phase_id] = [];
-      m[t.phase_id].push(t);
+      const g = t.groupe || t.phase_id || "Autres";
+      if (!m[g]) m[g] = [];
+      m[g].push(t);
     });
     return m;
   }, [tachesPlan]);
@@ -1254,12 +1302,12 @@ function LigneEditable({
             }}
           >
             <option value="__libre__">— Tâche libre / non rattachée —</option>
-            {Object.keys(tachesParPhase).map(phaseId => {
-              const ph = phasesById[phaseId];
-              const label = ph ? `${ph.emoji || ""} ${ph.label}` : phaseId;
+            {Object.keys(tachesParGroupe).map(groupe => {
+              const ph = phasesById[groupe];
+              const label = ph ? `${ph.emoji || ""} ${ph.label}` : groupe;
               return (
-                <optgroup key={phaseId} label={label}>
-                  {tachesParPhase[phaseId].map(t => (
+                <optgroup key={groupe} label={label}>
+                  {tachesParGroupe[groupe].map(t => (
                     <option key={t.id} value={t.id}>
                       {t.nom}{ligne.tache_id === t.id ? " ✓" : ""}
                     </option>
@@ -1267,7 +1315,7 @@ function LigneEditable({
                 </optgroup>
               );
             })}
-            <option value="__creer__">+ Créer nouvelle tâche du plan…</option>
+            <option value="__creer__">+ Créer nouvelle tâche…</option>
           </select>
           <StatutTacheLabel statut={ligne.statut}/>
         </div>
@@ -1409,18 +1457,24 @@ function CreerTacheModale({ state, setState, phases, T, acc, onValider, onClose 
               style={inputStyle(T)}
             />
           </div>
-          <div>
-            <label style={miniLabel(T)}>Phase</label>
-            <select
-              value={state.phase_id || ""}
-              onChange={e => setState({ ...state, phase_id: e.target.value })}
-              style={inputStyle(T)}
-            >
-              {phases.map(p => (
-                <option key={p.id} value={p.id}>{p.emoji ? `${p.emoji} ` : ""}{p.label}</option>
-              ))}
-            </select>
-          </div>
+          {state.useOuvrages ? (
+            <div style={{ fontSize: 12, color: T.textSub }}>
+              La tâche sera ajoutée à l'ouvrage <strong>« Divers / hors devis »</strong> du chantier.
+            </div>
+          ) : (
+            <div>
+              <label style={miniLabel(T)}>Phase</label>
+              <select
+                value={state.phase_id || ""}
+                onChange={e => setState({ ...state, phase_id: e.target.value })}
+                style={inputStyle(T)}
+              >
+                {phases.map(p => (
+                  <option key={p.id} value={p.id}>{p.emoji ? `${p.emoji} ` : ""}{p.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label style={miniLabel(T)}>Heures vendues (optionnel)</label>
             <input

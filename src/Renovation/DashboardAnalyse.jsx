@@ -340,7 +340,12 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCR
   const ptsCh   = pointagesParChantier[phasage?.chantier_id] || [];
   const ptsIdx  = indexPointagesParTache(ptsCh);
   const extras  = sumLibreEtIndirect(ptsCh);
-  const moC   = calcMOConsommee(plan, phasesConfig, tauxHoraires, ptsIdx, extras);
+  // MO consommée = somme de TOUS les pointages du chantier (tâche + indirect +
+  // trajet), au taux figé. Robuste au schéma d'id (V2 : pointages liés aux
+  // tâches d'ouvrages). Repli legacy (plan_travaux) si aucun pointage.
+  const moC   = ptsCh.length > 0
+    ? ptsCh.reduce((s, p) => s + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0), 0)
+    : calcMOConsommee(plan, phasesConfig, tauxHoraires, ptsIdx, extras);
   const budMat = calcBudgetMat(plan, phasesConfig);
   const commandeCost = commandeCostByChantier[phasage?.chantier_id] || 0;
   const matC   = calcMatConsomme(plan, phasesConfig, commandeCost);
