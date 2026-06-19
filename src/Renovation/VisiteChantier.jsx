@@ -1032,6 +1032,21 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
 
   const handleSave = async () => { await onSave(draft); setDirty(false); };
 
+  // Retour protégé : si des modifications ne sont pas enregistrées, on propose
+  // de sauvegarder avant de quitter (jamais de perte silencieuse).
+  const handleBack = async () => {
+    if (dirty) {
+      const ok = window.confirm(
+        "Des modifications de l'audit ne sont pas encore enregistrées.\n\n" +
+        "• OK : sauvegarder puis revenir aux visites\n" +
+        "• Annuler : rester sur l'audit (rien n'est perdu)"
+      );
+      if (!ok) return;
+      await handleSave();
+    }
+    onBack();
+  };
+
   // ── Méta des lots affichés (lots en portée OU tous si showAll), avec audit
   const lotsAffiches = (showAll
     ? [...new Set([...lotsAuditesIds, ...lotsPhasage.map(l => l.id)])]
@@ -1117,7 +1132,7 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
       <div style={{ maxWidth: 960, margin: "0 auto", paddingBottom: isMobile ? 84 : 0 }}>
 
         {/* Bouton retour */}
-        <button onClick={onBack} style={{
+        <button onClick={handleBack} style={{
           display: "inline-flex", alignItems: "center", gap: 6,
           padding: "7px 12px", borderRadius: RADIUS.md,
           border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
@@ -1210,8 +1225,9 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
           </button>
         </div>
 
-        {/* Barre d'actions fixe (mobile) — toujours à portée du pouce */}
-        {isMobile && (
+        {/* Barre d'actions fixe — toujours à portée sur mobile, et sur desktop
+            dès qu'il y a des modifications non enregistrées (évite de perdre l'audit). */}
+        {(isMobile || dirty) && (
           <div style={{
             position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90,
             display: "flex", gap: 8,
