@@ -1010,12 +1010,30 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
             const tavColor = tav >= 100 ? "#22c55e" : "#666";
             const hr = tacheHeuresReelles(t);
             const he = parseFloat(t.heures_estimees);
+            // Format heures explicite : "réel X h / est. Y h" (labels au lieu
+            // de "(X/Y)" qui était ambigu quand plusieurs ouvriers).
             const heuresStr = (hr > 0 || (he != null && !isNaN(he)))
-              ? ` <span style="color:#888;font-size:8.5pt;">(${hr || 0}h/${he != null && !isNaN(he) ? `${he}h` : "—"})</span>`
+              ? ` <span style="color:#888;font-size:8.5pt;">· réel ${fmtH(hr) || 0}h / est. ${he != null && !isNaN(he) ? `${fmtH(he)}h` : "—"}</span>`
               : "";
-            const ouvriersStr = Array.isArray(t.ouvriers) && t.ouvriers.length > 0
-              ? ` <span style="color:#5b8af5;font-size:8.5pt;font-weight:600;">${t.ouvriers.map(esc).join(", ")}</span>`
-              : "";
+            // Heures par ouvrier : on additionne les pointages par ouvrier
+            // pour éviter l'ambiguïté "(7h) Davy, Hamed" (chacun ? cumulé ?).
+            const pts = tachePointages(t);
+            let ouvriersStr = "";
+            if (pts.length > 0) {
+              const parOuv = {};
+              pts.forEach(p => {
+                const k = p.ouvrier || "—";
+                parOuv[k] = (parOuv[k] || 0) + (parseFloat(p.heures) || 0);
+              });
+              const detail = Object.entries(parOuv)
+                .sort((a, b) => b[1] - a[1])
+                .map(([ouv, h]) => `${esc(ouv)} ${fmtH(h)}h`)
+                .join(" · ");
+              ouvriersStr = ` <span style="color:#5b8af5;font-size:8.5pt;font-weight:600;">${detail}</span>`;
+            } else if (Array.isArray(t.ouvriers) && t.ouvriers.length > 0) {
+              // Pas encore de pointages : on affiche les ouvriers assignés sans heures
+              ouvriersStr = ` <span style="color:#5b8af5;font-size:8.5pt;font-weight:600;">${t.ouvriers.map(esc).join(", ")}</span>`;
+            }
             const dateStr = t.date_prevue ? ` <span style="color:#999;font-size:8pt;">📅 ${new Date(t.date_prevue).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span>` : "";
             return `<li style="font-size:9pt;color:#222;padding:2pt 0;break-inside:avoid;page-break-inside:avoid;">
               <span style="color:${tavColor};font-weight:800;display:inline-block;width:32pt;">${tav}%</span>
