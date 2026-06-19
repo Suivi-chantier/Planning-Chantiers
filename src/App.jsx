@@ -37,6 +37,7 @@ import PageCommandes          from "./Renovation/Commandes";
 import PageCaptureCommandeMobile from "./Renovation/CaptureCommandeMobile";
 import PageRapprochementFactures from "./Renovation/RapprochementFactures";
 import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
+import BoutonAide             from "./Renovation/PageAide";
 import PageEquipe             from "./Renovation/Equipe";
 import PageValidation         from "./Renovation/Validation";
 import PagePlans              from "./Renovation/Plans";
@@ -598,6 +599,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
                 <span className="topbar-portail-btn-text">Portail</span>
               </button>
             )}
+            <BoutonAide page={page} T={T} branch={branch}/>
             <button className="btn-g topbar-theme-btn" title={theme==="dark"?"Passer en thème clair":"Passer en thème sombre"} onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px"}}>
               <Icon as={theme==="dark"?Sun:Moon} size={16}/>
             </button>

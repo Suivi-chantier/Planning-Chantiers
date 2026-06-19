@@ -5,7 +5,7 @@ import { Icon } from "../ui";
 import {
   ShoppingCart, Package, Calendar, Check, AlertTriangle, Building2,
   ArrowRight, Info, X, Mail, Plus, Trash2, Copy, ChevronLeft,
-  ChevronRight, Send, Receipt, Boxes, CheckCircle2, CalendarClock, HelpCircle,
+  ChevronRight, Send, Receipt, Boxes, CheckCircle2, CalendarClock,
 } from "lucide-react";
 
 // ─── HELPERS DATES ───────────────────────────────────────────────────────────
@@ -70,7 +70,6 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   // Modales
   const [cmdModal, setCmdModal]     = useState(null); // { titre, lignes, dateBesoin }
   const [vendrediOpen, setVendrediOpen] = useState(false);
-  const [aideOpen, setAideOpen]     = useState(false);
 
   // Couleurs harmonisées avec le reste de l'app
   const bg        = T?.bg        || "#1e2128";
@@ -327,17 +326,6 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
             Par chantier et par ouvrage — articles à commander et commandes déjà passées.
           </div>
         </div>
-        {/* Bouton aide "?" */}
-        <button onClick={() => setAideOpen(true)} title="Comment ça marche ?" aria-label="Aide"
-          style={{
-            width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-            background: card, color: textSub, border: `1px solid ${border}`,
-            display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = acc.bg10; e.currentTarget.style.color = acc.accent; }}
-          onMouseLeave={e => { e.currentTarget.style.background = card; e.currentTarget.style.color = textSub; }}>
-          <Icon as={HelpCircle} size={18}/>
-        </button>
         {/* Bouton "commande du vendredi" */}
         {!loading && stats.nbACommander > 0 && (
           <button onClick={() => setVendrediOpen(true)} style={{
@@ -497,9 +485,6 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           T={T} acc={acc}
         />
       )}
-
-      {/* Modale d'aide */}
-      {aideOpen && <ModaleAide onClose={() => setAideOpen(false)} T={T} acc={acc}/>}
 
       {/* Modale "commandes de la semaine" (onglets par semaine) */}
       {vendrediOpen && (
@@ -1362,156 +1347,6 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
               <Icon as={Send} size={13}/>{sending ? "Envoi en cours…" : "Confirmer et envoyer"}
             </button>
           )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── MODALE D'AIDE ───────────────────────────────────────────────────────────
-// Pensée pour un lecteur qui ne connaît pas l'application : on explique avec des
-// mots simples à quoi sert la page et comment s'en servir, étape par étape.
-function ModaleAide({ onClose, T, acc }) {
-  const text      = T?.text      || "#f0f0f0";
-  const textSub   = T?.textSub   || "#9aa5c0";
-  const textMuted = T?.textMuted || "#5b6a8a";
-  const surface   = T?.surface   || "#262a32";
-  const card      = T?.card      || "rgba(255,255,255,0.04)";
-  const border    = T?.border    || "rgba(255,255,255,0.07)";
-  const accent    = acc?.accent  || "#FFC200";
-
-  // Petit composant interne pour une "étape"
-  const Etape = ({ n, titre, children }) => (
-    <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-      <div style={{
-        width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
-        background: accent + "22", color: accent, fontWeight: 800, fontSize: 13,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>{n}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT.sm.size + 2, fontWeight: 700, color: text, marginBottom: 3 }}>{titre}</div>
-        <div style={{ fontSize: FONT.sm.size + 1, color: textSub, lineHeight: 1.6 }}>{children}</div>
-      </div>
-    </div>
-  );
-
-  const Bloc = ({ icon, couleur, titre, children }) => (
-    <div style={{ background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "12px 14px", marginBottom: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <Icon as={icon} size={15} color={couleur}/>
-        <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>{titre}</span>
-      </div>
-      <div style={{ fontSize: FONT.sm.size + 1, color: textSub, lineHeight: 1.6 }}>{children}</div>
-    </div>
-  );
-
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", zIndex: 970, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: T?.modal || surface, borderRadius: RADIUS.xl,
-        width: "100%", maxWidth: 720, maxHeight: "92vh",
-        display: "flex", flexDirection: "column", overflow: "hidden",
-        border: `1px solid ${border}`, boxShadow: "0 28px 70px rgba(0,0,0,0.65)",
-      }}>
-        {/* Header */}
-        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-          <div style={{ width: 38, height: 38, borderRadius: RADIUS.md, background: accent + "22", color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Icon as={HelpCircle} size={20}/>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text }}>Comment fonctionne cette page ?</div>
-            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2 }}>Guide rapide — pour préparer et passer les commandes de matériaux.</div>
-          </div>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", color: textMuted, cursor: "pointer", padding: 6, display: "flex" }}>
-            <Icon as={X} size={18}/>
-          </button>
-        </div>
-
-        {/* Corps */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px", fontSize: FONT.sm.size + 1 }}>
-          {/* À quoi sert la page */}
-          <p style={{ margin: "0 0 16px", color: textSub, lineHeight: 1.65 }}>
-            Cette page rassemble <strong style={{ color: text }}>tout ce qu'il y a à commander</strong> pour les chantiers en cours.
-            Pour chaque chantier, on retrouve ses <strong style={{ color: text }}>ouvrages</strong> (les ensembles de travaux, par
-            exemple « cloison salle de bain » ou « installation électrique cuisine »). Chaque ouvrage liste les
-            matériaux prévus : ceux qui restent <strong style={{ color: text }}>à commander</strong> et ceux qui ont
-            <strong style={{ color: text }}> déjà été commandés</strong>.
-          </p>
-
-          {/* Naviguer */}
-          <div style={{ fontSize: 11, fontWeight: 800, color: textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
-            Naviguer dans la page
-          </div>
-          <Etape n="1" titre="Choisir un chantier">
-            Dans la première colonne (à gauche), cliquez sur un chantier. Le chiffre orange indique combien
-            d'articles restent à commander pour ce chantier.
-          </Etape>
-          <Etape n="2" titre="Choisir un ouvrage">
-            La colonne du milieu affiche les ouvrages du chantier. Les pastilles montrent en un coup d'œil ce
-            qu'il reste à commander et ce qui a déjà été commandé.
-          </Etape>
-          <Etape n="3" titre="Voir le détail">
-            À droite s'affichent deux listes : <strong style={{ color: text }}>« À commander »</strong> (les matériaux
-            qu'il faut encore acheter) et <strong style={{ color: text }}>« Déjà commandé »</strong> (les commandes
-            déjà passées, avec le fournisseur, la date et le montant).
-            <br/><span style={{ color: textMuted, fontStyle: "italic" }}>Sur téléphone, les colonnes s'affichent une par une : touchez « Retour » pour revenir en arrière.</span>
-          </Etape>
-
-          {/* Passer une commande */}
-          <div style={{ fontSize: 11, fontWeight: 800, color: textMuted, textTransform: "uppercase", letterSpacing: 1, margin: "8px 0 12px" }}>
-            Passer une commande
-          </div>
-          <Bloc icon={ShoppingCart} couleur={accent} titre="Pour un seul ouvrage">
-            Dans le détail d'un ouvrage, le bouton <strong style={{ color: text }}>« Commander ces articles »</strong>
-            ouvre une fenêtre. Vous vérifiez la liste (vous pouvez modifier les quantités, les prix, ajouter ou
-            retirer des lignes), puis vous passez à l'aperçu des e-mails et confirmez. Un e-mail de commande est
-            préparé automatiquement <strong style={{ color: text }}>pour chaque fournisseur</strong>.
-          </Bloc>
-          <Bloc icon={CalendarClock} couleur={accent} titre="Préparer les commandes de la semaine (le vendredi)">
-            En haut à droite, le bouton <strong style={{ color: text }}>« Commandes de la semaine »</strong> rassemble
-            <strong style={{ color: text }}> tout ce qu'il faut commander</strong>, sur tous les chantiers à la fois.
-            Des <strong style={{ color: text }}>onglets par semaine</strong> (« Cette semaine », « Semaine prochaine »…)
-            permettent de cibler ce qui est urgent. Les articles sont regroupés
-            <strong style={{ color: text }}> par fournisseur</strong>, puis <strong style={{ color: text }}>par chantier</strong> :
-            idéal pour passer toutes les commandes d'un coup. Le bouton « Préparer ces commandes » ouvre la
-            même fenêtre que ci-dessus.
-          </Bloc>
-
-          {/* Bon à savoir */}
-          <div style={{ fontSize: 11, fontWeight: 800, color: textMuted, textTransform: "uppercase", letterSpacing: 1, margin: "8px 0 12px" }}>
-            Bon à savoir
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 20, color: textSub, lineHeight: 1.7 }}>
-            <li>Les matériaux affichés proviennent du <strong style={{ color: text }}>Phasage</strong> du chantier (les ouvrages et leurs matériaux y sont définis).</li>
-            <li>Les <strong style={{ color: text }}>dates de besoin</strong> sont calculées automatiquement à partir des dates des tâches planifiées.</li>
-            <li>Dès qu'un article est commandé, il <strong style={{ color: text }}>quitte « À commander »</strong> et apparaît dans « Déjà commandé ». Plus de risque de commander deux fois.</li>
-            <li>Une commande passée d'ici reste <strong style={{ color: text }}>« à compléter »</strong> : le bureau renseignera ensuite le numéro de bon et la facture.</li>
-          </ul>
-
-          {/* Nouveautés */}
-          <div style={{ marginTop: 18, padding: "12px 14px", background: accent + "12", border: `1px solid ${accent}40`, borderRadius: RADIUS.md }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <Icon as={Info} size={14} color={accent}/>
-              <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>Ce qui vient de changer</span>
-            </div>
-            <div style={{ fontSize: FONT.sm.size + 1, color: textSub, lineHeight: 1.6 }}>
-              Cette page remplace l'ancien « planning » en colonnes par semaine. Elle est désormais organisée
-              <strong style={{ color: text }}> par chantier et par ouvrage</strong>, suit précisément
-              <strong style={{ color: text }}> ce qui a déjà été commandé</strong> pour chaque ouvrage, et propose un
-              bouton dédié pour <strong style={{ color: text }}>préparer toutes les commandes de la semaine</strong> en une fois.
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding: "12px 22px", borderTop: `1px solid ${border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
-          <button onClick={onClose} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            background: accent, color: "#1a1a1a", border: "none",
-            borderRadius: RADIUS.md, padding: "9px 20px", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
-          }}>
-            <Icon as={Check} size={14}/> J'ai compris
-          </button>
         </div>
       </div>
     </div>
