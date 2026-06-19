@@ -1508,34 +1508,42 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
                     <div style={{ padding: "4px 0 8px" }}>
                       {groupes.map(g => (
                         <div key={g.ouvrage_id || g.ouvrage_libelle}>
-                          {/* En-tête ouvrage */}
+                          {/* En-tête ouvrage : bandeau teinté + libellé coloré (accent) */}
                           <div style={{
                             display: "flex", alignItems: "center", gap: 8,
-                            padding: "9px 18px 5px", marginTop: 2,
+                            padding: "8px 12px", margin: "10px 10px 5px",
+                            borderRadius: RADIUS.md,
+                            background: `color-mix(in srgb, ${lot.couleur} 13%, transparent)`,
+                            borderLeft: `3px solid ${lot.couleur}`,
                           }}>
-                            <Icon as={Package} size={13} color={lot.couleur}/>
-                            <div style={{ fontSize: FONT.xs.size + 2, fontWeight: 800, color: T.textSub, letterSpacing: .2, textTransform: "uppercase" }}>
+                            <Icon as={Package} size={14} color={lot.couleur}/>
+                            <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: lot.couleur, letterSpacing: .2 }}>
                               {g.ouvrage_libelle || "Ouvrage"}
                             </div>
-                            <div style={{ flex: 1, height: 1, background: T.sectionDivider || T.border }}/>
                           </div>
-                          {g.taches.map((tache) => {
-                            // index réel dans lot.taches pour la mise à jour
-                            const realIdx = lot.taches.indexOf(tache);
-                            return (
-                              <TacheAudit
-                                key={tache.tache_id || realIdx}
-                                tache={tache}
-                                lotColor={lot.couleur}
-                                isHeritee={idsHeritees.has(tache.tache_id)}
-                                isMobile={isMobile}
-                                T={T}
-                                pathPrefix={`${photoPathPrefix}/${lot.id}`}
-                                onLightbox={setLightbox}
-                                onChange={updates => updateTache(lot.id, realIdx, updates)}
-                              />
-                            );
-                          })}
+                          {/* Tâches indentées sous l'ouvrage (filet coloré à gauche) */}
+                          <div style={{
+                            marginLeft: 18, paddingLeft: 8,
+                            borderLeft: `1px solid color-mix(in srgb, ${lot.couleur} 30%, transparent)`,
+                          }}>
+                            {g.taches.map((tache) => {
+                              // index réel dans lot.taches pour la mise à jour
+                              const realIdx = lot.taches.indexOf(tache);
+                              return (
+                                <TacheAudit
+                                  key={tache.tache_id || realIdx}
+                                  tache={tache}
+                                  lotColor={lot.couleur}
+                                  isHeritee={idsHeritees.has(tache.tache_id)}
+                                  isMobile={isMobile}
+                                  T={T}
+                                  pathPrefix={`${photoPathPrefix}/${lot.id}`}
+                                  onLightbox={setLightbox}
+                                  onChange={updates => updateTache(lot.id, realIdx, updates)}
+                                />
+                              );
+                            })}
+                          </div>
                         </div>
                       ))}
                     </div>
