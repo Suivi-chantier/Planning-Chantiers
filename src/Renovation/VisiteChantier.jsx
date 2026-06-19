@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import html2pdf from "html2pdf.js";
 import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
@@ -891,6 +891,41 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   const [exporting,setExporting]= useState(null);   // "docx" | "pdf" | null
   const isMobile = useIsMobile();
 
+  // ── Rapports du chantier : pour afficher "déclaré faite le …" sous les tâches.
+  const [rapports, setRapports] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    supabase.from("rapports").select("date_rapport, submitted_at, taches")
+      .eq("chantier_id", visite.chantier_id)
+      .then(({ data }) => { if (!cancelled) setRapports(data || []); });
+    return () => { cancelled = true; };
+  }, [visite.chantier_id]);
+
+  // Pour une tâche (par tache_id, sinon par nom), date du dernier rapport qui la
+  // déclare "faite". On parcourt du plus récent au plus ancien (submitted_at).
+  const declareeFaite = useMemo(() => {
+    const parId = {}, parNom = {};
+    const ordered = [...rapports].sort((a, b) =>
+      String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")));
+    ordered.forEach(r => {
+      const d = r.date_rapport || (r.submitted_at ? String(r.submitted_at).slice(0, 10) : null);
+      if (!d) return;
+      (r.taches || []).forEach(rt => {
+        if (rt.statut !== "faite") return;
+        if (rt.tache_id != null && parId[String(rt.tache_id)] == null) parId[String(rt.tache_id)] = d;
+        const nom = (rt.planifie || rt.nom || "").trim().toLowerCase();
+        if (nom && parNom[nom] == null) parNom[nom] = d;
+      });
+    });
+    return { parId, parNom };
+  }, [rapports]);
+  const dateDeclareeFaite = (tache) => {
+    if (!tache) return null;
+    if (tache.tache_id != null && declareeFaite.parId[String(tache.tache_id)]) return declareeFaite.parId[String(tache.tache_id)];
+    const nom = (tache.nom || "").trim().toLowerCase();
+    return (nom && declareeFaite.parNom[nom]) || null;
+  };
+
   // Préfixe de stockage pour les photos de cette visite
   const photoPathPrefix = `visites/${visite.chantier_id}/${visite.id}`;
 
@@ -1506,9 +1541,13 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
 
                   {isExp && (
                     <div style={{ padding: "4px 0 8px" }}>
-                      {groupes.map(g => (
+                      {groupes.map(g => {
+                        const o_ok  = g.taches.filter(t => t.statut === "valide").length;
+                        const o_res = g.taches.filter(t => t.statut === "reserve").length;
+                        const o_af  = g.taches.filter(t => t.statut === "non_commence").length;
+                        return (
                         <div key={g.ouvrage_id || g.ouvrage_libelle}>
-                          {/* En-tête ouvrage : bandeau teinté + libellé coloré (accent) */}
+                          {/* En-tête ouvrage : bandeau teinté + libellé coloré (accent) + compteurs */}
                           <div style={{
                             display: "flex", alignItems: "center", gap: 8,
                             padding: "8px 12px", margin: "10px 10px 5px",
@@ -1517,8 +1556,13 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
                             borderLeft: `3px solid ${lot.couleur}`,
                           }}>
                             <Icon as={Package} size={14} color={lot.couleur}/>
-                            <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: lot.couleur, letterSpacing: .2 }}>
+                            <div style={{ flex: 1, minWidth: 0, fontSize: FONT.sm.size + 1, fontWeight: 800, color: lot.couleur, letterSpacing: .2 }}>
                               {g.ouvrage_libelle || "Ouvrage"}
+                            </div>
+                            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                              {o_ok  > 0 && <Pill val={o_ok}  color="#22c55e" label="Validé" />}
+                              {o_res > 0 && <Pill val={o_res} color="#f59e0b" label="Rés"    />}
+                              {o_af  > 0 && <Pill val={o_af}  color="#94a3b8" label="À faire" />}
                             </div>
                           </div>
                           {/* Tâches indentées sous l'ouvrage (filet coloré à gauche) */}
@@ -1535,6 +1579,7 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
                                   tache={tache}
                                   lotColor={lot.couleur}
                                   isHeritee={idsHeritees.has(tache.tache_id)}
+                                  declareLe={dateDeclareeFaite(tache)}
                                   isMobile={isMobile}
                                   T={T}
                                   pathPrefix={`${photoPathPrefix}/${lot.id}`}
@@ -1545,7 +1590,8 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
                             })}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1681,7 +1727,13 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
 }
 
 // ─── TÂCHE AUDIT ──────────────────────────────────────────────────────────────
-function TacheAudit({ tache, lotColor, isHeritee = false, isMobile = false, T, pathPrefix, onLightbox, onChange }) {
+function TacheAudit({ tache, lotColor, isHeritee = false, declareLe = null, isMobile = false, T, pathPrefix, onLightbox, onChange }) {
+  // Format robuste : accepte ISO (YYYY-MM-DD) ou déjà-FR (DD/MM/YYYY).
+  const fmtDeclareDate = (d) => {
+    const s = String(d || "");
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) { const [y, m, j] = s.slice(0, 10).split("-"); return `${j}/${m}/${y}`; }
+    return s;
+  };
   const [showComment, setShowComment] = useState(!!tache.commentaire);
   const [showPhotos,  setShowPhotos]  = useState((tache.photos || []).length > 0);
 
@@ -1692,17 +1744,19 @@ function TacheAudit({ tache, lotColor, isHeritee = false, isMobile = false, T, p
 
   const statutColor = statutColorOf(tache.statut);
 
-  // ── Indicateur de statut (pastille)
+  // ── Indicateur de statut (pastille) — pleine + halo quand un statut est posé
   const dot = (
     <div style={{
-      width: 16, height: 16, borderRadius: "50%", marginTop: 3, flexShrink: 0,
-      background: tache.statut ? statutColor + "25" : "transparent",
-      border: `2px solid ${statutColor}`,
+      width: 20, height: 20, borderRadius: "50%", marginTop: 2, flexShrink: 0,
+      background: tache.statut ? statutColor : "transparent",
+      border: `2px solid ${tache.statut ? statutColor : T.border}`,
+      boxShadow: tache.statut ? `0 0 0 3px ${statutColor}22` : "none",
       display: "flex", alignItems: "center", justifyContent: "center",
+      transition: "all .12s",
     }}>
-      {tache.statut === "valide" && <Icon as={Check} size={9} color="#22c55e" strokeWidth={3.5}/>}
-      {tache.statut === "reserve" && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b" }} />}
-      {tache.statut === "non_commence" && <div style={{ width: 7, height: 2, borderRadius: 1, background: "#94a3b8" }} />}
+      {tache.statut === "valide" && <Icon as={Check} size={12} color="#fff" strokeWidth={3.5}/>}
+      {tache.statut === "reserve" && <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#fff" }} />}
+      {tache.statut === "non_commence" && <div style={{ width: 9, height: 2.5, borderRadius: 1, background: "#fff" }} />}
     </div>
   );
 
@@ -1724,13 +1778,18 @@ function TacheAudit({ tache, lotColor, isHeritee = false, isMobile = false, T, p
     </div>
   );
 
-  // ── Métadonnées (heures, avancement phasage)
-  const metaBlock = (tache.heures_estimees > 0 || tache.avancement > 0) && (
+  // ── Métadonnées (heures, avancement phasage, déclaration ouvrier)
+  const metaBlock = (tache.heures_estimees > 0 || tache.avancement > 0 || declareLe) && (
     <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
       {tache.heures_estimees > 0 && <span style={{ color: lotColor, fontWeight: 600 }}>{tache.heures_estimees}h estimées</span>}
       {tache.avancement > 0 && (
         <span style={{ color: tache.avancement === 100 ? "#22c55e" : T.textMuted }}>
           {tache.avancement}% au phasage
+        </span>
+      )}
+      {declareLe && (
+        <span title="D'après le dernier compte rendu d'ouvrier" style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#22c55e", fontWeight: 600 }}>
+          <Icon as={Check} size={10} strokeWidth={3}/> Déclaré faite le {fmtDeclareDate(declareLe)}
         </span>
       )}
     </div>
@@ -2117,7 +2176,7 @@ async function exportVisitePdf(payload) {
           <span style="font-size:11px;font-weight:600;color:#5b6a8a"> — ${lot_ok} validées · ${lot_res} rés · ${lot_af} à faire</span>
         </div>`;
     groupByOuvrage(taches).forEach(g => {
-      body += `<div style="font-size:12px;font-weight:700;color:#5b6a8a;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 2px">${esc(g.ouvrage_libelle || "Ouvrage")}</div>`;
+      body += `<div style="font-size:12.5px;font-weight:800;color:#1a1f2e;border-left:3px solid ${esc(l.couleur || "#E6AE00")};background:${esc(l.couleur || "#E6AE00")}14;padding:5px 9px;margin:11px 0 3px;border-radius:4px">${esc(g.ouvrage_libelle || "Ouvrage")}</div>`;
       g.taches.forEach(t => { body += tacheHtml(t); });
     });
     body += `</div>`;
