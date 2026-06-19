@@ -154,7 +154,6 @@ async function uploadVisitePhoto(file, pathPrefix) {
 // ─── COMPOSANT PHOTOS PICKER (compact, intégré dans une tâche d'audit) ───────
 function PhotosPicker({ photos, onChange, pathPrefix, color = "#5b9cf6", onLightbox }) {
   const [uploading, setUploading] = useState(0);
-  const inputRef = useRef(null);
 
   const onFiles = async (files) => {
     const arr = Array.from(files || []);
@@ -167,7 +166,6 @@ function PhotosPicker({ photos, onChange, pathPrefix, color = "#5b9cf6", onLight
       setUploading(n => n - 1);
     }
     if (urls.length > 0) onChange([...(photos || []), ...urls]);
-    if (inputRef.current) inputRef.current.value = "";
   };
 
   const remove = (i) => onChange((photos || []).filter((_, idx) => idx !== i));
@@ -193,6 +191,7 @@ function PhotosPicker({ photos, onChange, pathPrefix, color = "#5b9cf6", onLight
           </button>
         </div>
       ))}
+      {/* Appareil photo (prise directe) */}
       <label style={{
         display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
         width: 56, height: 56, borderRadius: RADIUS.md, cursor: "pointer",
@@ -201,9 +200,20 @@ function PhotosPicker({ photos, onChange, pathPrefix, color = "#5b9cf6", onLight
       }}>
         <Icon as={Camera} size={16} strokeWidth={1.8}/>
         <span style={{ fontSize: 9, letterSpacing: .3 }}>Photo</span>
-        {/* Pas de `capture` : le téléphone propose le choix (galerie OU appareil photo). */}
-        <input ref={inputRef} type="file" accept="image/*" multiple
-          onChange={e => onFiles(e.target.files)} style={{ display: "none" }}/>
+        <input type="file" accept="image/*" capture="environment"
+          onChange={e => { onFiles(e.target.files); e.target.value = ""; }} style={{ display: "none" }}/>
+      </label>
+      {/* Import depuis la galerie */}
+      <label style={{
+        display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+        width: 56, height: 56, borderRadius: RADIUS.md, cursor: "pointer",
+        border: `1.5px dashed ${color}66`, background: `${color}0A`, color,
+        fontSize: FONT.xs.size, fontWeight: 700,
+      }}>
+        <Icon as={Layers} size={16} strokeWidth={1.8}/>
+        <span style={{ fontSize: 9, letterSpacing: .3 }}>Galerie</span>
+        <input type="file" accept="image/*" multiple
+          onChange={e => { onFiles(e.target.files); e.target.value = ""; }} style={{ display: "none" }}/>
       </label>
       {uploading > 0 && (
         <span style={{ fontSize: FONT.xs.size + 1, color: "#f5a623", fontWeight: 600 }}>
