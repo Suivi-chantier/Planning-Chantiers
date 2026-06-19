@@ -7,9 +7,16 @@
 //   - KPIs en tête (CA total, marge réelle, alertes, ratio MO, pipeline pondéré)
 //   - 3 modales : nouveau chantier, mise à jour chantier, opportunité pipeline
 //
-// V1 : entièrement alimenté par des données mockées. Le branchement aux
-// vraies tables Supabase (phasages, profero_projets, etc.) sera fait dans
-// une PR suivante après validation visuelle par le gérant.
+// Données : la majorité du dashboard est branchée sur Supabase.
+//   - Chantiers / Primes / KPIs : 100 % réels (phasages, pointages,
+//     commande_lignes, cr_comptes_rendus, chantiers).
+//   - Point financier : lignes "MO Travaux" (pointages) et "Matières premières
+//     directes" (factures) auto-calculées en direct par mois ; les autres
+//     lignes comptables sont saisies manuellement (persistées planning_config).
+//   - Trésorerie : pré-remplie depuis le réel (matériaux factures, primes
+//     chantiers, CA produit = CA × avancement), puis ajustable / persistée.
+//   - Pipeline : saisie manuelle persistée (pas de source prospects en base).
+// Plus aucune donnée factice : les anciens seeds mockés ont été retirés.
 //
 // Esthétique : adaptée au thème Profero (palette sombre + accent jaune
 // #FFC200, polices Barlow Condensed / DM Mono) pour s'intégrer parfaitement
@@ -42,11 +49,10 @@ const PIPE_COLS = [
 // Les anciens INIT_CHANTIERS / INIT_ARCHIVES (données mockées) ont été retirés
 // dans PR2. Voir phasageToChantier() pour le mapping.
 
-const INIT_PIPELINE = [
-  { id: 1, nom: "Maison — Famille Renard",     ca: 95000,  proba: 70, statut: "nego",  date: "2025-06-15", note: "Accord de principe" },
-  { id: 2, nom: "Immeuble 6 lots — SCI Martin", ca: 180000, proba: 40, statut: "devis", date: "2025-07-01", note: "Devis envoyé le 10 mai" },
-  { id: 3, nom: "Rénovation — Mme Blanc",       ca: 55000,  proba: 90, statut: "signe", date: "2025-06-01", note: "Signature le 28 mai" },
-];
+// Pipeline : aucune source en base pour les prospects rénovation. On démarre
+// vide ; les opportunités saisies sont persistées dans planning_config
+// (dashboard_pipeline). Les anciennes données factices ont été retirées.
+const INIT_PIPELINE = [];
 
 const INIT_FINANCES = {
   caObj: 0, caReal: 0, caEnc: 0, caYtd: 0, caAnn: 0,
@@ -58,55 +64,68 @@ const INIT_FINANCES = {
 const MONTH_PREV_LABEL = 'Mars 2026';
 const MONTH_CURR_LABEL = 'Avril 2026';
 
+// Structure du compte de résultat. Toutes les valeurs démarrent à 0 : les
+// chiffres factices d'origine ont été retirés. Les lignes « MO Travaux » et
+// « Matières premières directes » sont AUTO-CALCULÉES en direct depuis la base
+// (pointages / factures) — voir DERIVED_CR_LABELS et SocieteFinanceTab. Les
+// autres lignes sont saisies manuellement (données du comptable).
 const INIT_CR_ROWS = [
-  { section: 'ACTIVITÉ', label: 'Travaux', prev: 209090.78, curr: 165006.27 },
-  { section: 'ACTIVITÉ', label: 'Avancement de chantiers', prev: -22471.42, curr: 4122.01 },
+  { section: 'ACTIVITÉ', label: 'Travaux', prev: 0, curr: 0 },
+  { section: 'ACTIVITÉ', label: 'Avancement de chantiers', prev: 0, curr: 0 },
   { section: 'ACTIVITÉ', label: 'Variation stock travaux en cours', prev: 0, curr: 0 },
-  { section: 'CHARGES DIRECTES VARIABLES', label: 'Matières premières directes', prev: 42321.71, curr: 57246.22 },
+  { section: 'CHARGES DIRECTES VARIABLES', label: 'Matières premières directes', prev: 0, curr: 0 },
   { section: 'CHARGES DIRECTES VARIABLES', label: 'Variation de stock', prev: 0, curr: 0 },
   { section: 'CHARGES DIRECTES VARIABLES', label: "Achats d'études et prestations de services", prev: 0, curr: 0 },
-  { section: 'CHARGES DIRECTES VARIABLES', label: 'Sous-traitance', prev: 4740.00, curr: 10006.90 },
-  { section: 'CHARGES DIRECTES VARIABLES', label: 'Sous-traitance études', prev: 0, curr: 5731.07 },
-  { section: 'CHARGES DIRECTES VARIABLES', label: 'Carburant', prev: 3242.56, curr: 4915.36 },
+  { section: 'CHARGES DIRECTES VARIABLES', label: 'Sous-traitance', prev: 0, curr: 0 },
+  { section: 'CHARGES DIRECTES VARIABLES', label: 'Sous-traitance études', prev: 0, curr: 0 },
+  { section: 'CHARGES DIRECTES VARIABLES', label: 'Carburant', prev: 0, curr: 0 },
   { section: 'CHARGES DIRECTES VARIABLES', label: 'Locations mobilières', prev: 0, curr: 0 },
-  { section: 'CHARGES DIRECTES VARIABLES', label: 'Entretien matériel et outillage', prev: 73.78, curr: 0 },
+  { section: 'CHARGES DIRECTES VARIABLES', label: 'Entretien matériel et outillage', prev: 0, curr: 0 },
   { section: 'CHARGES DIRECTES VARIABLES', label: 'Frais de chantier repas', prev: 0, curr: 0 },
   { section: 'CHARGES DIRECTES VARIABLES', label: 'Compte prorata chantiers', prev: 0, curr: 0 },
-  { section: 'CHARGES DIRECTES VARIABLES', label: 'Voyages et déplacements', prev: 270.45, curr: 528.55 },
+  { section: 'CHARGES DIRECTES VARIABLES', label: 'Voyages et déplacements', prev: 0, curr: 0 },
   { section: 'CHARGES DIRECTES VARIABLES', label: 'Personnel intérimaire', prev: 0, curr: 0 },
-  { section: 'CHARGES DIRECTES FIXES', label: 'MO Travaux', prev: 54199.68, curr: 72114.27 },
-  { section: 'CHARGES DIRECTES FIXES', label: 'Outillage', prev: 169.03, curr: 672.37 },
+  { section: 'CHARGES DIRECTES FIXES', label: 'MO Travaux', prev: 0, curr: 0 },
+  { section: 'CHARGES DIRECTES FIXES', label: 'Outillage', prev: 0, curr: 0 },
   { section: 'FRAIS GÉNÉRAUX', label: 'Pharmacie', prev: 0, curr: 0 },
-  { section: 'FRAIS GÉNÉRAUX', label: 'Médecine du travail', prev: 289.14, curr: 289.14 },
-  { section: 'FRAIS GÉNÉRAUX', label: 'Frais généraux', prev: 28361.29, curr: 34682.14 },
-  { section: 'FRAIS GÉNÉRAUX', label: 'Appointements et CS "MO indirecte"', prev: 27557.55, curr: 37805.37 },
+  { section: 'FRAIS GÉNÉRAUX', label: 'Médecine du travail', prev: 0, curr: 0 },
+  { section: 'FRAIS GÉNÉRAUX', label: 'Frais généraux', prev: 0, curr: 0 },
+  { section: 'FRAIS GÉNÉRAUX', label: 'Appointements et CS "MO indirecte"', prev: 0, curr: 0 },
   { section: 'DOTATIONS', label: 'Dotations aux amortissements', prev: 0, curr: 0 },
 ];
 
+// Lignes du compte de résultat alimentées automatiquement depuis la base
+// (lecture seule). Clé = libellé exact de la ligne, valeur = type de données.
+//   - 'mo'  : MO Travaux pointée (Σ heures × taux du registre `pointages`)
+//   - 'mat' : Matières premières (Σ montant_ht des `factures` fournisseurs)
+const DERIVED_CR_LABELS = { 'MO Travaux': 'mo', 'Matières premières directes': 'mat' };
+
+// Frais généraux détaillés par compte comptable. Valeurs à 0 (saisie manuelle
+// par le comptable) : les chiffres factices d'origine ont été retirés.
 const INIT_FG_ROWS = [
   { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606630', label: 'Eau', prev: 0, curr: 0 },
-  { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606100-631-632', label: 'Électricité - gaz - Air liquide', prev: 603.97, curr: 756.79 },
-  { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606400', label: 'Fournitures administratives', prev: 181.46, curr: 181.46 },
-  { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606300', label: 'Vêtements de travail', prev: 0, curr: 12.46 },
+  { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606100-631-632', label: 'Électricité - gaz - Air liquide', prev: 0, curr: 0 },
+  { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606400', label: 'Fournitures administratives', prev: 0, curr: 0 },
+  { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606300', label: 'Vêtements de travail', prev: 0, curr: 0 },
   { section: '60 - ACHATS MATIÈRES ET FOURNITURES', code: '606310', label: 'Déchets - ordures', prev: 0, curr: 0 },
-  { section: '61 - SERVICES EXTÉRIEURS', code: '613200', label: 'Locations immobilières', prev: 8240.00, curr: 9920.00 },
+  { section: '61 - SERVICES EXTÉRIEURS', code: '613200', label: 'Locations immobilières', prev: 0, curr: 0 },
   { section: '61 - SERVICES EXTÉRIEURS', code: '613210', label: 'Location Box', prev: 0, curr: 0 },
-  { section: '61 - SERVICES EXTÉRIEURS', code: '613510', label: 'Location véhicules', prev: 3210.62, curr: 4494.35 },
+  { section: '61 - SERVICES EXTÉRIEURS', code: '613510', label: 'Location véhicules', prev: 0, curr: 0 },
   { section: '61 - SERVICES EXTÉRIEURS', code: '614000', label: 'Charges locatives', prev: 0, curr: 0 },
   { section: '61 - SERVICES EXTÉRIEURS', code: '615200', label: 'Entretien local', prev: 0, curr: 0 },
   { section: '61 - SERVICES EXTÉRIEURS', code: '615500', label: 'Entretien vêtements de travail', prev: 0, curr: 0 },
   { section: '61 - SERVICES EXTÉRIEURS', code: '615532', label: 'Entretien matériel de transport', prev: 0, curr: 0 },
-  { section: '61 - SERVICES EXTÉRIEURS', code: '615600', label: 'Maintenance', prev: 475.00, curr: 475.00 },
-  { section: '61 - SERVICES EXTÉRIEURS', code: '615610', label: 'Abonnements logiciels', prev: 1213.89, curr: 1600.05 },
-  { section: '61 - SERVICES EXTÉRIEURS', code: '616100', label: 'Assurances', prev: 3514.68, curr: 5667.77 },
-  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '622', label: "Personnel extérieur à l'entreprise", prev: 5888.75, curr: 6396.25 },
-  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '622600', label: 'Honoraires', prev: 3579.96, curr: 3154.96 },
-  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '623400', label: 'Dons, pourboires, cadeaux', prev: 18.36, curr: 18.36 },
-  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '625700', label: 'Réceptions', prev: 161.73, curr: 200.90 },
-  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '626200', label: 'Téléphone', prev: 107.49, curr: 143.32 },
-  { section: '63 - IMPÔTS ET TAXES', code: '631200', label: "Taxe d'apprentissage", prev: 269.59, curr: 393.88 },
-  { section: '63 - IMPÔTS ET TAXES', code: '633300', label: 'Formation organismes', prev: 679.79, curr: 978.59 },
-  { section: '63 - IMPÔTS ET TAXES', code: '635111', label: 'Cotisation foncière des entreprises', prev: 216.00, curr: 288.00 },
+  { section: '61 - SERVICES EXTÉRIEURS', code: '615600', label: 'Maintenance', prev: 0, curr: 0 },
+  { section: '61 - SERVICES EXTÉRIEURS', code: '615610', label: 'Abonnements logiciels', prev: 0, curr: 0 },
+  { section: '61 - SERVICES EXTÉRIEURS', code: '616100', label: 'Assurances', prev: 0, curr: 0 },
+  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '622', label: "Personnel extérieur à l'entreprise", prev: 0, curr: 0 },
+  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '622600', label: 'Honoraires', prev: 0, curr: 0 },
+  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '623400', label: 'Dons, pourboires, cadeaux', prev: 0, curr: 0 },
+  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '625700', label: 'Réceptions', prev: 0, curr: 0 },
+  { section: '62 - AUTRES SERVICES EXTÉRIEURS', code: '626200', label: 'Téléphone', prev: 0, curr: 0 },
+  { section: '63 - IMPÔTS ET TAXES', code: '631200', label: "Taxe d'apprentissage", prev: 0, curr: 0 },
+  { section: '63 - IMPÔTS ET TAXES', code: '633300', label: 'Formation organismes', prev: 0, curr: 0 },
+  { section: '63 - IMPÔTS ET TAXES', code: '635111', label: 'Cotisation foncière des entreprises', prev: 0, curr: 0 },
 ];
 
 const ANALYSE_TODO_GROUPS = [
@@ -1140,6 +1159,10 @@ function FinancesTab({ fin, setFin, T, acc }) {
   const trColor = trsoN > totC ? '#34d188' : trsoN > 0 ? '#ff9a4d' : '#ff625f';
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', marginBottom: 14, borderRadius: RADIUS.md, background: 'rgba(52,209,136,.08)', border: '1px solid rgba(52,209,136,.25)', fontSize: 11, lineHeight: 1.5, color: T?.textSub || '#9aa5c0' }}>
+        <span style={{ fontSize: 14, lineHeight: 1 }}>🟢</span>
+        <span><strong style={{ color: '#34d188' }}>Pré-rempli depuis les données réelles</strong> : « CA réalisé » (production = CA chantiers × avancement), « Achats matériaux » (factures du mois) et « Primes » (chantiers déclenchables). Ce sont des estimations de départ — ajuste-les librement, tes saisies sont conservées. Le solde bancaire et les dettes restent à saisir manuellement.</span>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px,1fr))', gap: 14, marginBottom: 14 }}>
         <Card T={T} style={{ borderColor: (acc?.accent || '#FFC200') + '55' }}>
           <CardHdr T={T} acc={acc} title={<span style={{ color: acc?.accent || '#FFC200' }}>💰 CA Mensuel</span>}/>
@@ -1275,7 +1298,7 @@ function labelFromKey(key) {
   return `${names[parseInt(m, 10) - 1] || m} ${y}`;
 }
 
-function SocieteFinanceTab({ T, acc }) {
+function SocieteFinanceTab({ derivedFinance = { moByMonth: {}, matByMonth: {} }, T, acc }) {
   const [months, setMonths] = useState(DEFAULT_FINANCE_MONTHS);
   const [crRows, setCrRows] = useState(() => initMonthlyRows(INIT_CR_ROWS, DEFAULT_FINANCE_MONTHS));
   const [fgRows, setFgRows] = useState(() => initMonthlyRows(INIT_FG_ROWS, DEFAULT_FINANCE_MONTHS));
@@ -1344,6 +1367,19 @@ function SocieteFinanceTab({ T, acc }) {
   const previousMonth = months[selectedIdx - 1];
   const currentMonth  = months[selectedIdx] || months[0] || { key: '', label: '—' };
 
+  // Vue calculée du compte de résultat : on superpose aux lignes auto-calculées
+  // (MO Travaux, Matières premières directes) les agrégats mensuels réels issus
+  // de la base. crRows reste l'état éditable (lignes manuelles uniquement) ;
+  // crRowsView sert à tous les affichages, totaux, %, YTD et graphiques.
+  const crRowsView = useMemo(() => crRows.map(r => {
+    const kind = DERIVED_CR_LABELS[r.label];
+    if (!kind) return r;
+    const src = kind === 'mo' ? (derivedFinance?.moByMonth || {}) : (derivedFinance?.matByMonth || {});
+    const monthly = { ...r.monthly };
+    Object.keys(src).forEach(k => { monthly[k] = Math.round(src[k]); });
+    return { ...r, monthly, _derived: kind };
+  }), [crRows, derivedFinance]);
+
   // updCR / updFG : on identifie les rows par index dans le tableau d'origine
   // (pas dans le tableau filtré par section), donc on passe l'idx complet.
   const updCR = useCallback((idx, key, val) => setCrRows(rows => rows.map((r, i) => i === idx ? { ...r, monthly: { ...r.monthly, [key]: val } } : r)), []);
@@ -1367,15 +1403,15 @@ function SocieteFinanceTab({ T, acc }) {
   const sectionsFG = [...new Set(fgRows.map(r => r.section))];
   const rowBySection = (rows, section) => rows.map((r, i) => ({ ...r, idx: i })).filter(r => r.section === section);
   const sectionTotal = (rows, section, key) => rows.filter(r => r.section === section).reduce((s, r) => s + monthValue(r, key), 0);
-  const rowLabelTotal = (labels, key) => crRows.filter(r => labels.includes(r.label)).reduce((s, r) => s + monthValue(r, key), 0);
+  const rowLabelTotal = (labels, key) => crRowsView.filter(r => labels.includes(r.label)).reduce((s, r) => s + monthValue(r, key), 0);
   const totals = key => {
-    const activite = sectionTotal(crRows, 'ACTIVITÉ', key);
-    const cdv = sectionTotal(crRows, 'CHARGES DIRECTES VARIABLES', key);
+    const activite = sectionTotal(crRowsView, 'ACTIVITÉ', key);
+    const cdv = sectionTotal(crRowsView, 'CHARGES DIRECTES VARIABLES', key);
     const margeVariable = activite - cdv;
-    const cdf = sectionTotal(crRows, 'CHARGES DIRECTES FIXES', key);
+    const cdf = sectionTotal(crRowsView, 'CHARGES DIRECTES FIXES', key);
     const margeDirecte = margeVariable - cdf;
-    const fg = sectionTotal(crRows, 'FRAIS GÉNÉRAUX', key);
-    const dot = sectionTotal(crRows, 'DOTATIONS', key);
+    const fg = sectionTotal(crRowsView, 'FRAIS GÉNÉRAUX', key);
+    const dot = sectionTotal(crRowsView, 'DOTATIONS', key);
     const resultat = margeDirecte - fg - dot;
     const mo = rowLabelTotal(['MO Travaux', 'Personnel intérimaire', 'Appointements et CS "MO indirecte"'], key);
     const materiaux = rowLabelTotal(['Matières premières directes', 'Variation de stock'], key);
@@ -1417,7 +1453,7 @@ function SocieteFinanceTab({ T, acc }) {
       Materiaux: +t.materiaux.toFixed(0),
       Resultat:  +t.resultat.toFixed(0),
     };
-  }), [visibleMonths, crRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [visibleMonths, crRowsView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Données cumulées (YTD) pour le graphique d'évolution cumulée
   const chartCumulData = useMemo(() => {
@@ -1439,7 +1475,7 @@ function SocieteFinanceTab({ T, acc }) {
         Resultat:  +cumRes.toFixed(0),
       };
     });
-  }, [visibleMonths, crRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visibleMonths, crRowsView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Tooltip recharts : forçage couleurs lisibles sur fond sombre
   const tooltipStyle = {
@@ -1556,17 +1592,26 @@ function SocieteFinanceTab({ T, acc }) {
                   <tr style={sectionStyle}>
                     <td colSpan={visibleMonths.length + 2}>{section}</td>
                   </tr>
-                  {rowBySection(crRows, section).map(row => (
+                  {rowBySection(crRowsView, section).map(row => (
                     <tr key={`${section}::${row.label}`}>
-                      <td style={{ fontSize: 12, color: T?.text || '#f0f0f0' }}>{row.label}</td>
+                      <td style={{ fontSize: 12, color: T?.text || '#f0f0f0' }}>
+                        {row.label}
+                        {row._derived && (
+                          <span title="Calculé automatiquement depuis la base (pointages / factures) — non modifiable" style={{ marginLeft: 6, fontSize: 8, fontWeight: 800, letterSpacing: '.06em', color: '#34d188', border: '1px solid rgba(52,209,136,.4)', borderRadius: 5, padding: '1px 4px', verticalAlign: 'middle' }}>AUTO</span>
+                        )}
+                      </td>
                       {visibleMonths.map(m => (
                         <td key={m.key} style={{ textAlign: 'right' }}>
-                          <input
-                            type="number"
-                            value={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
-                            onChange={e => updCR(row.idx, m.key, nv(e.target.value))}
-                            style={{ ...edtCls(T), width: 92 }}
-                          />
+                          {row._derived ? (
+                            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: '#34d188', paddingRight: 7 }}>{fmt(monthValue(row, m.key), 0)}</span>
+                          ) : (
+                            <input
+                              type="number"
+                              value={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
+                              onChange={e => updCR(row.idx, m.key, nv(e.target.value))}
+                              style={{ ...edtCls(T), width: 92 }}
+                            />
+                          )}
                         </td>
                       ))}
                       <td style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right', color: T?.textSub || '#9aa5c0' }}>{fmt(ytdRowTotal(row), 2)}</td>
@@ -1717,6 +1762,10 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   // pour dériver le coût MO réel dans calcMOConsommee.
   const [pointagesByChantier, setPointagesByChantier] = useState({});
   const [commandeCostByChantier, setCommandeCostByChantier] = useState({});
+  // Agrégats mensuels réels pour les lignes auto-calculées du Point financier :
+  //   moByMonth["YYYY-MM"]  = Σ heures × taux (pointages du mois)
+  //   matByMonth["YYYY-MM"] = Σ montant_ht (factures fournisseurs du mois)
+  const [derivedFinance, setDerivedFinance] = useState({ moByMonth: {}, matByMonth: {} });
   // Date du dernier CR (cr_comptes_rendus) par chantier_id, pour calcul statut hebdo
   const [lastCRByChantier, setLastCRByChantier] = useState({});
   const [loading, setLoading] = useState(true);
@@ -1725,6 +1774,10 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   const [finances, setFinances]   = useState(INIT_FINANCES);
   const [pipeLoaded, setPipeLoaded] = useState(false);
   const [finLoaded, setFinLoaded]   = useState(false);
+  // tresoHadSaved : vrai si une Trésorerie a déjà été sauvegardée en base. Sinon,
+  // on pré-remplit une fois les champs dérivables (matériaux, primes, CA produit).
+  const [tresoHadSaved, setTresoHadSaved] = useState(false);
+  const tresoSeededRef = React.useRef(false);
   const [activeTab, setActiveTab] = useState('chantiers');
   const [pipeModal, setPipeModal] = useState({ open: false, item: null });
 
@@ -1737,7 +1790,9 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
       if (cancelled) return;
       const cfg = {}; (data || []).forEach(r => { cfg[r.key] = r.value; });
       if (Array.isArray(cfg.dashboard_pipeline)) setPipeline(cfg.dashboard_pipeline);
-      if (cfg.dashboard_treso && typeof cfg.dashboard_treso === 'object') setFinances({ ...INIT_FINANCES, ...cfg.dashboard_treso });
+      const hasTreso = cfg.dashboard_treso && typeof cfg.dashboard_treso === 'object';
+      if (hasTreso) setFinances({ ...INIT_FINANCES, ...cfg.dashboard_treso });
+      setTresoHadSaved(!!hasTreso);
       setPipeLoaded(true);
       setFinLoaded(true);
     })();
@@ -1770,7 +1825,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [pCfg, phQ, cfgQ, crQ, ptsQ, cmdQ] = await Promise.all([
+      const [pCfg, phQ, cfgQ, crQ, ptsQ, cmdQ, facQ] = await Promise.all([
         loadPhases(),
         supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, ouvrages, updated_at"),
         supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
@@ -1778,11 +1833,14 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         // On essaie d'inclure `validateur` ; si la colonne n'existe pas (42703),
         // on retombe sur le select sans validateur (fallback gracieux).
         supabase.from("cr_comptes_rendus").select("chantier_id, date_visite, validateur").order("date_visite", { ascending: false }).limit(200),
-        // P9 : pointages tous chantiers. Si la table n'existe pas (P2 non joué),
-        // on tombe sur le repli legacy automatiquement.
-        supabase.from("pointages").select("chantier_id,tache_id,heures,taux_horaire,type_pointage,motif_indirect"),
+        // P9 : pointages tous chantiers. `date` sert au regroupement par mois pour
+        // la ligne "MO Travaux" auto-calculée du Point financier.
+        supabase.from("pointages").select("chantier_id,tache_id,heures,taux_horaire,type_pointage,motif_indirect,date"),
         // V2 : coût réel des commandes, source unique = commande_lignes (lié au lot).
         supabase.from("commande_lignes").select("chantier_id, lot_id, prix_total"),
+        // Factures fournisseurs : montant_ht + date_facture → ligne "Matières
+        // premières directes" auto-calculée par mois du Point financier.
+        supabase.from("factures").select("montant_ht, date_facture"),
       ]);
       // Regroupement par chantier_id (repli vide si erreur)
       const byCh = {};
@@ -1798,6 +1856,19 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         const k = l.chantier_id;
         if (!k) return;
         cmdByCh[k] = (cmdByCh[k] || 0) + (parseFloat(l.prix_total) || 0);
+      });
+      // Agrégats mensuels pour le Point financier (clé "YYYY-MM").
+      const moByMonth = {};
+      if (!ptsQ?.error) (ptsQ.data || []).forEach(p => {
+        const m = (p.date || "").slice(0, 7);
+        if (m.length !== 7) return;
+        moByMonth[m] = (moByMonth[m] || 0) + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0);
+      });
+      const matByMonth = {};
+      if (!facQ?.error) (facQ.data || []).forEach(f => {
+        const m = (f.date_facture || "").slice(0, 7);
+        if (m.length !== 7) return;
+        matByMonth[m] = (matByMonth[m] || 0) + (parseFloat(f.montant_ht) || 0);
       });
       if (cancelled) return;
       // Fallback : si la colonne validateur n'existe pas en base, on retente sans
@@ -1822,6 +1893,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
       setLastCRByChantier(crMap);
       setPointagesByChantier(byCh);
       setCommandeCostByChantier(cmdByCh);
+      setDerivedFinance({ moByMonth, matByMonth });
       setLoading(false);
     })();
     // Channel realtime : recharger les phasages dès qu'un est mis à jour
@@ -1842,6 +1914,31 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
     const byChantier = Object.fromEntries(chantiersRaw.map(c => [c.id, c]));
     return phasagesRaw.map(ph => phasageToChantier(ph, byChantier[ph.chantier_id], tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier, commandeCostByChantier));
   }, [phasagesRaw, chantiersRaw, tauxHoraires, phasesConfig, lastCRByChantier, pointagesByChantier, commandeCostByChantier]);
+
+  // Valeurs Trésorerie dérivables des vraies données (servent de pré-remplissage
+  // une seule fois quand aucune Trésorerie n'a encore été saisie) :
+  //   mat    = achats matériaux du mois courant (factures fournisseurs)
+  //   primes = primes des chantiers déclenchables (marge réelle ≥ seuil)
+  //   caReal = production estimée à date (Σ CA chantier × avancement %)
+  //   st     = sous-traitance : pas de source fiable → laissé à 0 (manuel)
+  const tresoDerived = useMemo(() => {
+    const curMonth = new Date().toISOString().slice(0, 7);
+    const mat = Math.round(derivedFinance.matByMonth?.[curMonth] || 0);
+    const primes = Math.round(chantiers.filter(c => c.mr >= c.seuil).reduce((s, c) => s + (c.prime || 0), 0));
+    const caReal = Math.round(chantiers.reduce((s, c) => s + (c.ca || 0) * (c.avR || 0) / 100, 0));
+    return { mat, primes, caReal };
+  }, [chantiers, derivedFinance]);
+
+  // Pré-remplissage unique de la Trésorerie : seulement si rien n'a été sauvegardé
+  // et une fois les données réelles disponibles. L'utilisateur peut ensuite tout
+  // modifier ; ses saisies sont persistées et priment aux chargements suivants.
+  useEffect(() => {
+    if (!finLoaded || tresoHadSaved || tresoSeededRef.current) return;
+    const ready = chantiers.length > 0 || Object.keys(derivedFinance.matByMonth || {}).length > 0;
+    if (!ready) return;
+    tresoSeededRef.current = true;
+    setFinances(prev => ({ ...prev, ...tresoDerived }));
+  }, [finLoaded, tresoHadSaved, chantiers, derivedFinance, tresoDerived]);
 
   // Archives : pour l'instant on n'a pas de notion d'archivage des phasages,
   // donc on laisse vide. PR3+ : pourrait lire un flag phasage.archive.
@@ -1960,7 +2057,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
       <div style={{ padding: '24px 28px', maxWidth: 1540, margin: '0 auto' }}>
         {activeTab === 'chantiers'      && <ChantiersTab     chantiers={chantiers} archives={archives} onRestore={restoreChantier} onOpenChantier={onOpenChantier} loading={loading} phasesLabels={phasesLabels} T={T} acc={acc}/>}
         {activeTab === 'pipeline'       && <PipelineTab      pipeline={pipeline} onAdd={() => setPipeModal({ open: true, item: null })} onEdit={item => setPipeModal({ open: true, item })} T={T} acc={acc}/>}
-        {activeTab === 'analyseSociete' && <SocieteFinanceTab T={T} acc={acc}/>}
+        {activeTab === 'analyseSociete' && <SocieteFinanceTab derivedFinance={derivedFinance} T={T} acc={acc}/>}
         {activeTab === 'primes'         && <PrimesTab        chantiers={chantiers} T={T} acc={acc}/>}
         {activeTab === 'finances'       && <FinancesTab      fin={finances} setFin={setFinances} T={T} acc={acc}/>}
       </div>
