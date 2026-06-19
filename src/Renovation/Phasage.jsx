@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { supabase, getClientId } from "../supabase";
 import { JOURS, getCurrentWeek, getWeekId, FONT, RADIUS, SPACING, getBranchAccent, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "../constants";
 import { indexPointagesParTache, heuresEff as heuresEffShared, coutMOEff as coutMOEffShared, sumLibreEtIndirect } from "../pointages";
+import { confirmPerteMassive } from "../guards";
 import { Icon } from "../ui";
 import {
   ClipboardList, Plus, BarChart3, GanttChartSquare, Trash2, ChevronRight, ChevronLeft as ChevronLeftIcon,
@@ -3385,31 +3386,25 @@ function PagePhasage({ chantiers, ouvriers, tauxHoraires, T, branch = "renovatio
       const countOuvrages = (p) => Array.isArray(p?.ouvrages) ? p.ouvrages.length : 0;
       const prevT = countTaches(prev),    nextT = countTaches(phasage);
       const prevO = countOuvrages(prev),  nextO = countOuvrages(phasage);
-      const tachesWipe   = prevT > 5 && nextT < prevT * 0.5;
-      const ouvragesWipe = prevO > 2 && nextO < prevO * 0.5;
-      if (tachesWipe || ouvragesWipe) {
-        console.warn("[savePhasage] Perte massive détectée, demande confirmation", {
+      const okT = confirmPerteMassive({ label: "Tâches",   avant: prevT, apres: nextT, seuilMin: 5,
+        contexte: "Sauvegarde du phasage : on s'apprête à écraser le distant par un état plus réduit." });
+      // Si l'utilisateur a déjà confirmé/refusé sur les tâches, on ne le redemande
+      // pour les ouvrages que si le verdict tâches n'a pas déjà tranché.
+      const okO = okT ? confirmPerteMassive({ label: "Ouvrages", avant: prevO, apres: nextO, seuilMin: 2,
+        contexte: "Sauvegarde du phasage : on s'apprête à écraser le distant par un état plus réduit." }) : false;
+      if (!okT || !okO) {
+        console.warn("[savePhasage] Perte massive refusée/annulée", {
           phasage_id: phasage.id, taches: { avant: prevT, apres: nextT }, ouvrages: { avant: prevO, apres: nextO },
         });
-        const ok = window.confirm(
-          `⚠️ Sauvegarde inhabituelle détectée\n\n` +
-          `Tâches : ${prevT} → ${nextT}\n` +
-          `Ouvrages : ${prevO} → ${nextO}\n\n` +
-          `Si vous êtes en train de supprimer beaucoup d'éléments, cliquez OK.\n` +
-          `Si c'est inattendu (un collègue éditait peut-être en même temps), ` +
-          `cliquez Annuler et rechargez la page (F5) avant de retenter votre modification.`
-        );
-        if (!ok) {
-          // Force un refresh depuis Supabase pour resynchroniser l'état local
-          // avec le distant et éviter qu'un autosave immédiat ne repropose
-          // la même suppression.
-          const { data } = await supabase.from("phasages").select("*").eq("id", phasage.id).maybeSingle();
-          if (data) {
-            setPhasages(p => p.map(x => x.id === data.id ? data : x));
-            if (selected?.id === data.id) setSelected(data);
-          }
-          return;
+        // Force un refresh depuis Supabase pour resynchroniser l'état local
+        // avec le distant et éviter qu'un autosave immédiat ne repropose
+        // la même suppression.
+        const { data } = await supabase.from("phasages").select("*").eq("id", phasage.id).maybeSingle();
+        if (data) {
+          setPhasages(p => p.map(x => x.id === data.id ? data : x));
+          if (selected?.id === data.id) setSelected(data);
         }
+        return;
       }
     }
     // Étiquette la save avec notre client_id pour que les autres tabs/onglets

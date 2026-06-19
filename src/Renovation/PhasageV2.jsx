@@ -10,6 +10,7 @@ import {
   FileText, User, Calendar,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
+import { confirmPerteMassive } from "../guards";
 import { fetchPointages, indexPointagesParTache } from "../pointages";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
@@ -439,22 +440,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         .select("ouvrages").eq("id", p.id).maybeSingle();
       const remoteO = Array.isArray(remote?.ouvrages) ? remote.ouvrages.length : 0;
       const nextO   = Array.isArray(ouvragesNext) ? ouvragesNext.length : 0;
-      if (remoteO > 2 && nextO < remoteO * 0.5) {
-        const ok = window.confirm(
-          `⚠️ Sauvegarde inhabituelle détectée\n\n` +
-          `Ouvrages : ${remoteO} (distant) → ${nextO} (local)\n\n` +
-          `Si vous êtes en train de supprimer beaucoup d'ouvrages, OK.\n` +
-          `Si c'est inattendu (un collègue éditait peut-être en même temps), ` +
-          `Annuler puis rechargez la page (F5).`
-        );
-        if (!ok) {
-          setAutoSaveStatus("error");
-          // Resynchronise depuis le distant pour stopper le ping-pong
-          const { data: full } = await supabase.from("phasages")
-            .select("*").eq("id", p.id).maybeSingle();
-          if (full) setPhasage(full);
-          return;
-        }
+      const ok = confirmPerteMassive({
+        label: "Ouvrages",
+        avant: remoteO,
+        apres: nextO,
+        seuilMin: 2,
+        contexte: "Sauvegarde du phasage : on s'apprête à écraser le distant par un état plus réduit.",
+      });
+      if (!ok) {
+        setAutoSaveStatus("error");
+        // Resynchronise depuis le distant pour stopper le ping-pong
+        const { data: full } = await supabase.from("phasages")
+          .select("*").eq("id", p.id).maybeSingle();
+        if (full) setPhasage(full);
+        return;
       }
       const { error } = await supabase.from("phasages").update({
         ouvrages: ouvragesNext,

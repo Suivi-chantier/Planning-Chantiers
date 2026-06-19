@@ -885,6 +885,201 @@ const PHRASES_DEFAUT = {
   ],
 };
 
+// ─── ONGLET HISTORIQUE & RESTAURATION ──────────────────────────────────────
+// Filet de récupération : consulte la table data_history (alimentée par le
+// trigger SQL sur pointages / commandes / factures / besoins / rapports) et
+// permet de restaurer une donnée modifiée ou supprimée en 1 clic.
+// cf. sql/202606_data_history_filet_securite.sql
+const HIST_TABLE_LABELS = {
+  pointages:       "Heures réelles (pointage)",
+  commande_lignes: "Ligne de commande (coût matériau)",
+  commandes:       "Commande / BL / ticket",
+  factures:        "Facture fournisseur",
+  facture_bl:      "Rapprochement facture ↔ BL",
+  besoins:         "Demande de matériel",
+  rapports:        "Compte-rendu de journée",
+};
+
+function histResume(table, r) {
+  if (!r || typeof r !== "object") return "";
+  const n = (v) => (v === null || v === undefined || v === "" ? "" : v);
+  try {
+    switch (table) {
+      case "pointages":
+        return `${n(r.ouvrier) || "?"} — ${n(r.heures) || 0} h${r.taux_horaire ? ` × ${r.taux_horaire} €/h` : ""}${r.date ? ` · ${r.date}` : ""}${r.type_pointage === "indirect" ? " · indirect" : ""}`;
+      case "commande_lignes":
+        return `${n(r.libelle) || "(sans libellé)"} — ${n(r.quantite)} ${n(r.unite)}${r.prix_total != null ? ` · ${r.prix_total} €` : (r.prix_unitaire != null ? ` · ${r.prix_unitaire} €/u` : "")}`;
+      case "commandes":
+        return `${n(r.doc_type)} ${n(r.doc_numero)} — ${n(r.fournisseur_nom) || "?"}${r.montant_ht != null ? ` · ${r.montant_ht} €` : ""}`;
+      case "factures":
+        return `N° ${n(r.numero) || "?"} — ${n(r.fournisseur_nom) || "?"}${r.montant_ht != null ? ` · ${r.montant_ht} €` : ""}`;
+      case "facture_bl":
+        return `BL ${n(r.bl_numero) || "?"}${r.montant_ht != null ? ` · ${r.montant_ht} €` : ""} · ${n(r.statut)}`;
+      case "besoins":
+        return `${n(r.article) || "?"} — ${n(r.quantite)} ${n(r.unite)}${r.ouvrier_demandeur ? ` · ${r.ouvrier_demandeur}` : ""}`;
+      case "rapports":
+        return `${n(r.ouvrier) || n(r.auteur) || "?"}${r.date_rapport ? ` · ${r.date_rapport}` : (r.date ? ` · ${r.date}` : "")}`;
+      default: {
+        const keys = Object.keys(r).filter(k => !["id", "created_at", "updated_at"].includes(k)).slice(0, 4);
+        return keys.map(k => `${k}: ${n(r[k])}`).join(" · ");
+      }
+    }
+  } catch { return ""; }
+}
+
+function OngletHistorique({ T, acc, chantiers }) {
+  const [chantierId, setChantierId]   = useState("");
+  const [tableFilter, setTableFilter] = useState("");
+  const [opFilter, setOpFilter]       = useState("");
+  const [rows, setRows]               = useState([]);
+  const [loading, setLoading]         = useState(false);
+  const [msg, setMsg]                 = useState(null);
+  const [restoringId, setRestoringId] = useState(null);
+
+  const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 7000); };
+
+  const load = async () => {
+    setLoading(true);
+    let q = supabase.from("data_history").select("*").order("saved_at", { ascending: false }).limit(300);
+    if (chantierId)  q = q.eq("chantier_id", chantierId);
+    if (tableFilter) q = q.eq("table_name", tableFilter);
+    if (opFilter)    q = q.eq("op", opFilter);
+    const { data, error } = await q;
+    if (error) flash("err", "Erreur de chargement : " + error.message);
+    setRows(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [chantierId, tableFilter, opFilter]);
+
+  const restaurer = async (entry) => {
+    const label = HIST_TABLE_LABELS[entry.table_name] || entry.table_name;
+    const when = new Date(entry.saved_at).toLocaleString("fr-FR");
+    const ok = window.confirm(
+      `Restaurer cette donnée ?\n\n` +
+      `${label}\n${histResume(entry.table_name, entry.row_data)}\n\n` +
+      `${entry.op === "DELETE"
+        ? "Cette ligne avait été supprimée — elle va être recréée à l'identique."
+        : "La version actuelle sera remplacée par celle d'avant la modification."}\n` +
+      `(état sauvegardé le ${when})\n\n` +
+      `La restauration est elle-même historisée, donc annulable.`
+    );
+    if (!ok) return;
+    setRestoringId(entry.id);
+    const { error } = await supabase.from(entry.table_name).upsert(entry.row_data, { onConflict: "id" });
+    setRestoringId(null);
+    if (error) { flash("err", "Échec : " + error.message + (error.message.includes("foreign key") ? " (l'élément parent a peut-être aussi été supprimé)" : "")); return; }
+    flash("ok", "✓ Donnée restaurée.");
+    load();
+  };
+
+  const inp = {
+    padding: "7px 10px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+    background: T.bg, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1,
+  };
+
+  return (
+    <div className="ac">
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontWeight: 800, fontSize: FONT.md.size, marginBottom: 4, color: T.text }}>Historique & restauration</div>
+        <div style={{ color: T.textSub, fontSize: FONT.xs.size + 1, lineHeight: 1.6, maxWidth: 640 }}>
+          Toute modification ou suppression des données sensibles (heures réelles, coûts matériaux,
+          commandes, factures, comptes-rendus) est conservée ici. Restaurez une version en un clic
+          si une donnée a disparu de façon inattendue.
+        </div>
+      </div>
+
+      {/* Filtres */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <select value={chantierId} onChange={e => setChantierId(e.target.value)} style={inp}>
+          <option value="">Tous les chantiers</option>
+          {(chantiers || []).map(c => (
+            <option key={c.id} value={c.id}>{c.nom || c.id}</option>
+          ))}
+        </select>
+        <select value={tableFilter} onChange={e => setTableFilter(e.target.value)} style={inp}>
+          <option value="">Tout type de donnée</option>
+          {Object.entries(HIST_TABLE_LABELS).map(([k, l]) => (
+            <option key={k} value={k}>{l}</option>
+          ))}
+        </select>
+        <select value={opFilter} onChange={e => setOpFilter(e.target.value)} style={inp}>
+          <option value="">Modifs + suppressions</option>
+          <option value="DELETE">Suppressions seules</option>
+          <option value="UPDATE">Modifications seules</option>
+        </select>
+        <button onClick={load} style={{ ...inp, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, color: acc.accent, borderColor: acc.accent }}>
+          <Icon as={RefreshCw} size={12} /> Rafraîchir
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{
+          padding: "8px 12px", borderRadius: RADIUS.md, marginBottom: 12, fontSize: FONT.xs.size + 1, fontWeight: 600,
+          background: msg.type === "ok" ? "#1b3a2a" : "#3a1b1b", color: msg.type === "ok" ? "#7ee0a8" : "#ffadad",
+        }}>{msg.text}</div>
+      )}
+
+      {loading ? (
+        <div style={{ color: T.textMuted, fontSize: FONT.xs.size + 1, padding: "16px 0" }}>Chargement…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ color: T.textMuted, fontSize: FONT.xs.size + 1, padding: "16px 0", display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon as={Info} size={14} /> Aucun mouvement enregistré pour ce filtre.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {rows.map(entry => {
+            const isDel = entry.op === "DELETE";
+            const label = HIST_TABLE_LABELS[entry.table_name] || entry.table_name;
+            return (
+              <div key={entry.id} style={{
+                display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                padding: "10px 12px", borderRadius: RADIUS.md,
+                border: `1px solid ${T.border}`, background: T.bgSoft || T.bg,
+              }}>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 6,
+                  fontSize: FONT.xs.size, fontWeight: 800, flexShrink: 0,
+                  background: isDel ? "#3a1b1b" : "#3a3119", color: isDel ? "#ffadad" : "#ffd479",
+                }}>
+                  <Icon as={isDel ? Trash2 : Pencil} size={11} />
+                  {isDel ? "Supprimé" : "Modifié"}
+                </span>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.text }}>{label}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 2 }}>{histResume(entry.table_name, entry.row_data)}</div>
+                </div>
+                <div style={{ fontSize: FONT.xs.size, color: T.textMuted, textAlign: "right", flexShrink: 0 }}>
+                  <div>{new Date(entry.saved_at).toLocaleString("fr-FR")}</div>
+                  {entry.changed_by && <div>par {entry.changed_by}</div>}
+                </div>
+                <button
+                  onClick={() => restaurer(entry)}
+                  disabled={restoringId === entry.id}
+                  style={{
+                    ...inp, cursor: "pointer", flexShrink: 0, fontWeight: 700,
+                    color: acc.onAccent, background: acc.accent, border: "none",
+                    opacity: restoringId === entry.id ? 0.5 : 1,
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                  }}>
+                  <Icon as={RefreshCw} size={12} />
+                  {restoringId === entry.id ? "…" : "Restaurer"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ marginTop: 14, fontSize: FONT.xs.size, color: T.textMuted, lineHeight: 1.6 }}>
+        <Icon as={Info} size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
+        L'historique des <b>phasages</b> (plan de travaux, ouvrages) dispose de son propre filet et se restaure depuis la base.
+        Conservation des mouvements : 365 jours.
+      </div>
+    </div>
+  );
+}
+
 function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
   const [adminTab,setAdminTab]=useState("vue");
@@ -1422,6 +1617,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["fournisseurs", "Fournisseurs",    Truck],
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
     ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
+    ...(isAdmin ? [["historique",   "Historique",   RefreshCw]] : []),
     ["maintenance",  "Maintenance",     Wrench],
   ];
 
@@ -1483,6 +1679,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="fournisseurs" && (
         <OngletFournisseurs T={T} acc={acc}/>
+      )}
+
+      {adminTab==="historique" && isAdmin && (
+        <OngletHistorique T={T} acc={acc} chantiers={chantiers}/>
       )}
 
       {/* ── PHASES DE TRAVAUX ── */}

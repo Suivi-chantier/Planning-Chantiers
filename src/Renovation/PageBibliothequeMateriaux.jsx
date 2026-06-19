@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../supabase";
+import { confirmSuppressionMassive } from "../guards";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -183,7 +184,15 @@ function ModaleImportSheets({ onClose, onImport, T }) {
           const aSupprimer = existants
             .filter(e => !nomsImportes.includes(e.nom))
             .map(e => e.id);
-          if (aSupprimer.length > 0) {
+          // Garde : un fichier incomplet importé en mode « remplacement »
+          // viderait toute la bibliothèque. On confirme si la coupe est massive.
+          const okSuppr = confirmSuppressionMassive({
+            label: "articles",
+            nbSupprimes: aSupprimer.length,
+            total: existants.length,
+            contexte: "Ces articles existent dans la bibliothèque mais ne sont PAS dans le fichier importé (mode remplacement).",
+          });
+          if (aSupprimer.length > 0 && okSuppr) {
             // Supprime par batch pour éviter les timeouts
             for (let i = 0; i < aSupprimer.length; i += 50) {
               const batch = aSupprimer.slice(i, i + 50);
