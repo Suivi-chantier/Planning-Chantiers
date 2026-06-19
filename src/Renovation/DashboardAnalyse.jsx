@@ -258,6 +258,33 @@ function calcMOConsommee(plan, phasesConfig, tauxHoraires = {}, pointagesIndexes
   return coutTaches + (extraStats.coutLibre || 0) + (extraStats.coutIndirect || 0);
 }
 
+// Coût MO d'une tâche d'ouvrage (V2), ALIGNÉ sur la page Phasage : registre de
+// pointage si la tâche est pointée, sinon repli sur l'ancien champ
+// heures_reelles × somme des taux des ouvriers assignés (et 0 si aucun ouvrier
+// assigné). Diffère de coutMOEff (qui ne prend que ouvriers[0]) pour coller
+// exactement au calcul affiché dans PhasageV2.
+function coutMOTacheV2(t, pointagesIndexes = {}, tauxHoraires = {}) {
+  const pts = pointagesIndexes?.[String(t.id)];
+  if (pts && pts.length > 0) {
+    return pts.reduce((s, p) => s + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0), 0);
+  }
+  const hr = Array.isArray(t.heures_reelles)
+    ? t.heures_reelles.reduce((s, v) => s + (parseFloat(v) || 0), 0)
+    : (parseFloat(t.heures_reelles) || 0);
+  if (hr === 0) return 0;
+  const ouvs = Array.isArray(t.ouvriers) ? t.ouvriers.filter(Boolean) : [];
+  if (ouvs.length === 0) return 0;
+  return ouvs.reduce((s, nom) => s + hr * (parseFloat(tauxHoraires?.[nom]) || 0), 0);
+}
+// Coût MO chantier en modèle V2 (somme des tâches d'ouvrages), même règle que
+// PhasageV2.coutMOChantier.
+function coutMOChantierV2(ouvrages, pointagesIndexes = {}, tauxHoraires = {}) {
+  return (Array.isArray(ouvrages) ? ouvrages : []).reduce(
+    (s, o) => s + (o.taches || []).reduce((ss, t) => ss + coutMOTacheV2(t, pointagesIndexes, tauxHoraires), 0),
+    0,
+  );
+}
+
 function calcBudgetMat(plan, phasesConfig) {
   return phasesConfig.reduce((sTotal, ph) => {
     const mats = plan?.[ph.id + "__materiaux_prevus"] || [];
@@ -359,11 +386,19 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCR
   const ptsCh   = pointagesParChantier[phasage?.chantier_id] || [];
   const ptsIdx  = indexPointagesParTache(ptsCh);
   const extras  = sumLibreEtIndirect(ptsCh);
-  // MO consommée = somme de TOUS les pointages du chantier (tâche + indirect +
-  // trajet), au taux figé. Robuste au schéma d'id (V2 : pointages liés aux
-  // tâches d'ouvrages). Repli legacy (plan_travaux) si aucun pointage.
-  const moC   = ptsCh.length > 0
-    ? ptsCh.reduce((s, p) => s + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0), 0)
+  // MO consommée — ALIGNÉE sur la page Phasage :
+  //  • V2 (ouvrages présents) : coût par tâche d'ouvrage (registre si pointée,
+  //    sinon repli ancien champ heures_reelles × taux des ouvriers assignés),
+  //    exactement comme PhasageV2.coutMOChantier, PLUS les coûts libres et
+  //    indirects (trajet, intempéries…) qui ne sont pas rattachés à une tâche.
+  //  • V1 (pas d'ouvrages) : repli sur plan_travaux via calcMOConsommee.
+  // On ne fait plus « Σ de TOUS les pointages dès qu'il y en a un » : ça
+  // ignorait l'historique non pointé et gonflait la marge (incohérence avec
+  // Phasage).
+  const hasV2 = Array.isArray(phasage?.ouvrages) && phasage.ouvrages.length > 0;
+  const moC   = hasV2
+    ? coutMOChantierV2(phasage.ouvrages, ptsIdx, tauxHoraires)
+      + (extras.coutLibre || 0) + (extras.coutIndirect || 0)
     : calcMOConsommee(plan, phasesConfig, tauxHoraires, ptsIdx, extras);
   const budMat = calcBudgetMat(plan, phasesConfig);
   const commandeCost = commandeCostByChantier[phasage?.chantier_id] || 0;
