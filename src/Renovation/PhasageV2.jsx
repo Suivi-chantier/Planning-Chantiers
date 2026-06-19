@@ -66,6 +66,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // Lignes de commande du chantier + panneau "Matériaux & commandes"
   const [commandeLignes, setCommandeLignes] = useState([]);
   const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
+  const [matKpiModal, setMatKpiModal] = useState(false); // modale "toutes les commandes du chantier"
   // Form d'ajout de référence dans le panneau
   const [refForm, setRefForm] = useState({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" });
   const [refSaving, setRefSaving] = useState(false);
@@ -1228,6 +1229,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           border-color: var(--c) !important;
           color: #000 !important;
         }
+        .p2-kpi-clic { transition: border-color .12s, transform .12s, box-shadow .12s; }
+        .p2-kpi-clic:hover {
+          border-color: #f97316 !important;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 14px rgba(249,115,22,0.18);
+        }
         /* Bulle tâche : un panneau d'accès rapide se déplie au hover,
            permettant d'éditer heures réelles + ouvriers sans ouvrir la modale.
            Tout est en CSS pour rester fluide (pas de state React qui flicker). */
@@ -1433,7 +1440,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}/>
               <KpiCard T={T} icon={Receipt} iconColor="#f97316" label="Matériaux"
                 value={fmtEur(coutMatChantier)}
-                sub="Saisis par ouvrage"/>
+                sub={`Voir les commandes (${commandeLignes.length})`}
+                onClick={() => setMatKpiModal(true)}/>
               <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label="Frais généraux"
                 value={fmtEur(fgChantier)}
                 sub={fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${heuresVenduesChantier.toFixed(0)}h` : "0 — à régler"}/>
@@ -1957,6 +1965,61 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       )}
 
       {/* ── Modale édition ouvrage ── */}
+      {matKpiModal && (() => {
+        const lignes = commandeLignes;
+        const total = lignes.reduce((s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
+        const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || (id || null);
+        const ouvrageLabelOf = (id) => ouvrages.find(o => o.id === id)?.libelle || null;
+        return (
+          <div onClick={() => setMatKpiModal(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+                width: "min(680px, 100%)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <Icon as={Receipt} size={18}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>Commandes du chantier</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{chantier?.nom || ""} · {lignes.length} ligne{lignes.length > 1 ? "s" : ""}</div>
+                </div>
+                <button onClick={() => setMatKpiModal(false)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
+              </div>
+              <div style={{ padding: "12px 20px" }}>
+                {lignes.length === 0 ? (
+                  <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>Aucune commande liée à ce chantier pour l'instant.</div>
+                ) : lignes.map(l => {
+                  const st = statutLigne(l);
+                  const lot = lotLabelOf(l.lot_id);
+                  const ouv = ouvrageLabelOf(l.ouvrage_id);
+                  return (
+                    <div key={l.id} style={{ padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ flex: 1, fontSize: FONT.sm.size, fontWeight: 600, color: T.text }}>{l.libelle || "(sans libellé)"}</span>
+                        <span style={{ fontSize: FONT.xs.size, color: T.textMuted, whiteSpace: "nowrap" }}>
+                          {l.quantite != null ? `${l.quantite}${l.unite ? " " + l.unite : ""}` : ""}
+                          {l.prix_total != null ? ` · ${fmtEur(l.prix_total)} €` : (l.prix_unitaire != null ? ` · ${fmtEur(l.prix_unitaire)} €` : "")}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: st.color, flexShrink: 0, minWidth: 70, textAlign: "right" }}>{st.label}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 3, fontSize: 10, color: T.textMuted, flexWrap: "wrap" }}>
+                        {l.commande?.fournisseur_nom && <span>🏷️ {l.commande.fournisseur_nom}</span>}
+                        {lot && <span>📦 {lot}</span>}
+                        {ouv && <span>↳ {ouv}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
+                <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>Total</span>
+                <span style={{ fontSize: 16, fontWeight: 900, color: "#50c878" }}>{fmtEur(total)} € HT</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {matPanel && (() => {
         const isLot = matPanel.type === "lot";
         const lot = isLot ? lots.find(l => l.id === matPanel.id) : null;
@@ -2809,16 +2872,20 @@ function KpiCibleEtPrime({ T, margeCible, margePct, prime, seuilPrime, prixHT })
 }
 
 // ─── KPI Card (variante visuelle avec icône) ──────────────────────────────────
-function KpiCard({ T, icon, iconColor, label, value, sub, accent, bold }) {
+function KpiCard({ T, icon, iconColor, label, value, sub, accent, bold, onClick }) {
   const valColor = accent || T.text;
   return (
-    <div style={{
+    <div onClick={onClick}
+      title={onClick ? "Cliquer pour voir le détail" : undefined}
+      className={onClick ? "p2-kpi-clic" : undefined}
+      style={{
       background: T.card,
       border: `1px solid ${T.border}`,
       borderRadius: RADIUS.md,
       padding: "10px 12px",
       display: "flex", flexDirection: "column", gap: 6,
       minWidth: 0,
+      cursor: onClick ? "pointer" : "default",
     }}>
       <div style={{
         display: "flex", alignItems: "center", gap: 6,
