@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
+import BoutonAide from "./PageAide";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -420,6 +421,9 @@ function Sidebar({
             <Icon as={LayoutGrid} size={16}/>
           </button>
         )}
+        <BoutonAide page={page} T={T} branch={branch}
+          style={sidebarBtnStyle("rgba(255,255,255,0.55)")}
+          hoverBg="rgba(255,255,255,0.06)"/>
         <button onClick={switchTheme} title={theme === "dark" ? "Passer en thème clair" : "Passer en thème sombre"}
           style={sidebarBtnStyle("rgba(255,255,255,0.55)")}
           onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}

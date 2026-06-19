@@ -320,13 +320,19 @@ export const AIDE_CONTENU = {
 };
 
 // ─── BOUTON + FENÊTRE D'AIDE ─────────────────────────────────────────────────
-export default function BoutonAide({ page, T, branch = "renovation" }) {
+// Apparence paramétrable pour s'intégrer aussi bien dans la barre du haut (mobile)
+// que dans la sidebar (desktop) : passer `style` + `hoverBg` pour aligner le look.
+export default function BoutonAide({ page, T, branch = "renovation", style, iconSize = 16, hoverBg, className = "btn-g" }) {
   const [open, setOpen] = useState(false);
   const contenu = AIDE_CONTENU[page];
   if (!contenu) return null; // pas d'aide pour cette page → pas de bouton
 
   const acc = getBranchAccent(branch);
   const textMuted = T?.textMuted || "#5b6a8a";
+  const baseStyle = style || {
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    padding: "6px 10px", color: textMuted, cursor: "pointer",
+  };
 
   return (
     <>
@@ -334,13 +340,12 @@ export default function BoutonAide({ page, T, branch = "renovation" }) {
         onClick={() => setOpen(true)}
         title="Comment ça marche ?"
         aria-label="Aide sur cette page"
-        className="btn-g topbar-aide-btn"
-        style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          padding: "6px 10px", color: textMuted, cursor: "pointer",
-        }}
+        className={style ? undefined : className}
+        style={baseStyle}
+        onMouseEnter={hoverBg ? (e) => { e.currentTarget.style.background = hoverBg; } : undefined}
+        onMouseLeave={hoverBg ? (e) => { e.currentTarget.style.background = "transparent"; } : undefined}
       >
-        <Icon as={HelpCircle} size={16}/>
+        <Icon as={HelpCircle} size={iconSize}/>
       </button>
       {open && <FenetreAide contenu={contenu} acc={acc} T={T} onClose={() => setOpen(false)}/>}
     </>
