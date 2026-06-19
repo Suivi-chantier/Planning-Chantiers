@@ -626,9 +626,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const prixHTLot      = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + prixHTOuvrage(o), 0);
   const prixHTChantier = ouvrages.reduce((s, o) => s + prixHTOuvrage(o), 0);
 
-  // Coût matériaux par ouvrage (saisie manuelle dans la modale ouvrage).
+  // Coût matériaux par ouvrage (saisie manuelle dans la modale ouvrage —
+  // conservée pour l'affichage/édition de la modale ouvrage).
   const coutMatOuvrage  = (o) => parseFloat(o.cout_materiaux) || 0;
-  const coutMatChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);
+  // Total réel d'un jeu de lignes de commande (prix_total sinon PU × quantité).
+  const totalLignes = (lignes) => lignes.reduce(
+    (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
+  // Coût matériaux du chantier = somme RÉELLE des lignes de commande liées
+  // (et non plus la saisie manuelle cout_materiaux). Cohérent avec la modale
+  // « Commandes du chantier » ouverte depuis le KPI.
+  const coutMatChantier = totalLignes(commandeLignes);
   // Heures totales : vendues (somme heures_devis des ouvrages) et réelles
   // (somme heures_reelles des tâches, gère le format tableau v1 via helper).
   const heuresVenduesChantier = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
@@ -2182,7 +2189,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       {/* ── Modale édition ouvrage ── */}
       {matKpiModal && (() => {
         const lignes = commandeLignes;
-        const total = lignes.reduce((s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
+        const total = totalLignes(lignes);
         const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || (id || null);
         const ouvrageLabelOf = (id) => ouvrages.find(o => o.id === id)?.libelle || null;
         return (
