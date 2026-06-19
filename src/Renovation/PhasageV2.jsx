@@ -584,6 +584,22 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     if (ouvs.length === 0) return 0;
     return ouvs.reduce((s, nom) => s + hr * (parseFloat(tauxHoraires?.[nom]) || 0), 0);
   };
+  // Détail du registre par ouvrier pour une tâche : qui a pointé, combien
+  // d'heures, à quel taux figé, et le coût correspondant. Sert à afficher la
+  // ventilation du coût MO réel dans la modale tâche.
+  const tachePointagesParOuvrier = (t) => {
+    const m = {};
+    tachePointages(t).forEach(p => {
+      const nom = p.ouvrier || "?";
+      const h = parseFloat(p.heures) || 0;
+      const taux = parseFloat(p.taux_horaire) || 0;
+      if (!m[nom]) m[nom] = { ouvrier: nom, heures: 0, cout: 0, taux };
+      m[nom].heures += h;
+      m[nom].cout += h * taux;
+      m[nom].taux = taux; // dernier taux figé connu (identique en pratique)
+    });
+    return Object.values(m).sort((a, b) => b.heures - a.heures);
+  };
   const coutMOOuvrage  = (o) => (o.taches || []).reduce((s, t) => s + coutMOTache(t), 0);
   const coutMOLot      = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + coutMOOuvrage(o), 0);
   const coutMOChantier = ouvrages.reduce((s, o) => s + coutMOOuvrage(o), 0);
@@ -2571,6 +2587,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
             </div>
+            {/* Ventilation du coût MO réel depuis le registre de pointage :
+                qui a réellement travaillé, combien d'heures et à quel taux. */}
+            {tachePointages(t).length > 0 && (() => {
+              const detail = tachePointagesParOuvrier(t);
+              const total = detail.reduce((s, d) => s + d.cout, 0);
+              return (
+                <div style={{
+                  background: T.fieldBg || T.card, border: `1px solid ${T.border}`,
+                  borderRadius: RADIUS.md, padding: "10px 12px",
+                }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
+                    Réalisé par (registre de pointage)
+                  </div>
+                  {detail.map(d => (
+                    <div key={d.ouvrier} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.xs.size + 1, color: T.text, marginBottom: 4 }}>
+                      <span style={{ flex: 1, fontWeight: 700 }}>{d.ouvrier}</span>
+                      <span style={{ color: T.textSub }}>{fmtH(d.heures)}h × {d.taux.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} €</span>
+                      <span style={{ fontWeight: 800, minWidth: 64, textAlign: "right" }}>{fmtEur(d.cout)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, paddingTop: 6, borderTop: `1px dashed ${T.border}`, fontSize: FONT.sm.size }}>
+                    <span style={{ flex: 1, fontWeight: 800, color: T.textSub }}>Coût MO total</span>
+                    <span style={{ fontWeight: 800, color: acc.accent }}>{fmtEur(total)}</span>
+                  </div>
+                </div>
+              );
+            })()}
             <ModalField label={`Ouvriers assignés${(t.ouvriers||[]).length > 0 ? ` (${t.ouvriers.length})` : ""}`}>
               {ouvriers.length === 0 ? (
                 <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>
