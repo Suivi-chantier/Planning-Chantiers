@@ -10,6 +10,7 @@ import {
   FileText, User, Calendar,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
+import { fetchPointages, indexPointagesParTache } from "../pointages";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un
@@ -86,6 +87,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // Les lots vides (sans ouvrage) sont masqués par défaut ; ce flag les révèle
   // pour pouvoir y ajouter un premier ouvrage manuellement.
   const [showEmptyLots, setShowEmptyLots] = useState(false);
+  // Registre de pointage du chantier (P8). Les heures réelles et le coût MO des
+  // tâches sont dérivés de ce registre (taux figé par ouvrier), avec repli sur
+  // l'ancien champ heures_reelles pour les chantiers sans pointage.
+  const [pointages, setPointages] = useState([]);
   const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error
   const saveTimerRef = useRef(null);
   const newOuvrageInputRef = useRef(null);
@@ -270,6 +275,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
 
   // Reset des sélections quand on change de chantier
   useEffect(() => { setSelectedLotId(null); setSelectedOuvrageId(null); }, [chantierId]);
+
+  // Charge le registre de pointage du chantier (heures réelles + coût MO).
+  useEffect(() => {
+    if (!chantierId) { setPointages([]); return; }
+    let cancelled = false;
+    fetchPointages({ chantier_id: chantierId }).then(pts => { if (!cancelled) setPointages(pts); });
+    return () => { cancelled = true; };
+  }, [chantierId]);
+  // Index { tache_id: [pointages] } — pointages "tâche" productifs uniquement.
+  const pointagesParTache = indexPointagesParTache(pointages);
 
   // Charge les comptes rendus (rapports) du chantier, du plus récent au plus ancien.
   useEffect(() => {
@@ -519,9 +534,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
-  // Helper : extrait les heures réelles d'une tâche en gérant les anciens
-  // formats de la v1 (qui pouvait stocker un tableau au lieu d'un nombre).
+  // Heures réelles d'une tâche : somme des pointages du registre si présents
+  // (source de vérité depuis la validation de fin de journée), sinon repli sur
+  // l'ancien champ heures_reelles (gère le format tableau de la v1).
+  const tachePointages = (t) => pointagesParTache[String(t.id)] || [];
   const tacheHeuresReelles = (t) => {
+    const pts = tachePointages(t);
+    if (pts.length > 0) return pts.reduce((s, p) => s + (parseFloat(p.heures) || 0), 0);
     if (Array.isArray(t.heures_reelles)) {
       return t.heures_reelles.reduce((s, v) => s + (parseFloat(v) || 0), 0);
     }
@@ -549,11 +568,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   const fmtH = (n) => (parseFloat(n) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 
   // ─── COÛTS & MARGE ──────────────────────────────────────────────────────
-  // Coût MO d'une tâche : pour chaque ouvrier assigné, on cumule
-  // heures_reelles × son taux horaire. Si N ouvriers assignés, le coût total
-  // est N × heures × taux_moyen — car on considère que chacun a travaillé
-  // ces heures réelles en parallèle (lecture la plus fidèle pour un chantier).
+  // Coût MO d'une tâche : on privilégie le registre de pointage — chaque
+  // écriture porte les heures réellement passées × le taux figé de l'ouvrier
+  // qui les a faites (le bon taux par personne, plus de raccourci ouvriers[0]).
+  // Repli legacy si la tâche n'a aucun pointage : heures_reelles × taux des
+  // ouvriers assignés.
   const coutMOTache = (t) => {
+    const pts = tachePointages(t);
+    if (pts.length > 0) {
+      return pts.reduce((s, p) => s + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0), 0);
+    }
     const hr = tacheHeuresReelles(t);
     if (hr === 0) return 0;
     const ouvs = Array.isArray(t.ouvriers) ? t.ouvriers.filter(Boolean) : [];
@@ -1983,13 +2007,17 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                               </span>
                               <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
                                 onClick={e => e.stopPropagation()}
-                                onChange={e => updateTache(selectedOuvrage.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                                readOnly={tachePointages(t).length > 0}
+                                title={tachePointages(t).length > 0 ? "Heures issues du registre de pointage (validation de fin de journée) — non modifiable ici" : undefined}
+                                onChange={e => { if (tachePointages(t).length > 0) return; updateTache(selectedOuvrage.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) }); }}
                                 placeholder="0"
                                 style={{
                                   width: 70, padding: "4px 8px", borderRadius: RADIUS.sm,
                                   border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
                                   color: T.text, fontSize: FONT.xs.size + 1, fontFamily: "inherit",
                                   outline: "none", textAlign: "right",
+                                  opacity: tachePointages(t).length > 0 ? 0.65 : 1,
+                                  cursor: tachePointages(t).length > 0 ? "not-allowed" : "text",
                                 }}/>
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, marginLeft: 8 }}>
                                 Avanc.
@@ -2526,8 +2554,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
               </ModalField>
               <ModalField label="Heures réelles">
                 <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
-                  onChange={e => updateTache(o.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                  placeholder="0" style={modalInp(T)}/>
+                  readOnly={tachePointages(t).length > 0}
+                  title={tachePointages(t).length > 0 ? "Heures issues du registre de pointage (validation de fin de journée) — non modifiable ici" : undefined}
+                  onChange={e => { if (tachePointages(t).length > 0) return; updateTache(o.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) }); }}
+                  placeholder="0"
+                  style={{ ...modalInp(T), opacity: tachePointages(t).length > 0 ? 0.65 : 1, cursor: tachePointages(t).length > 0 ? "not-allowed" : "text" }}/>
+                {tachePointages(t).length > 0 && (
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 4, fontStyle: "italic" }}>
+                    Depuis le registre de pointage ({tachePointages(t).length} pointage{tachePointages(t).length > 1 ? "s" : ""})
+                  </div>
+                )}
               </ModalField>
               <ModalField label="Avancement (%)">
                 <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
