@@ -230,11 +230,22 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
         if (data && Array.isArray(data.ouvrages)) {
           data.ouvrages = data.ouvrages.map(o => {
             const oid = o.id || (() => { mutated = true; return rid(); })();
-            const taches = (o.taches || []).map(t => {
+            let taches = (o.taches || []).map(t => {
               if (t.id) return t;
               mutated = true;
               return { ...t, id: rid() };
             });
+            // Backfill heures_vendues : pour un ouvrage importé avant cette
+            // fonctionnalité, si l'ouvrage a des heures vendues mais qu'aucune
+            // tâche n'en porte encore, on les répartit (ratio → estimées →
+            // parts égales). Valeurs exactes ; l'arrondi reste côté planning.
+            const heuresDevis = parseFloat(o.heures_devis);
+            const aucuneVendue = taches.length > 0 && taches.every(t => t.heures_vendues == null);
+            if (!isNaN(heuresDevis) && aucuneVendue) {
+              const parts = repartirHeures(heuresDevis, taches);
+              taches = taches.map((t, i) => ({ ...t, heures_vendues: parts[i] }));
+              mutated = true;
+            }
             return { ...o, id: oid, taches };
           });
         }
@@ -521,6 +532,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     if (ratio <= 1.2) return "#f5a623";
     return "#e15a5a";
   };
+
+  // Heures vendues d'une tâche (réparties par ratio depuis heures_devis de
+  // l'ouvrage). Agrégats réelles / vendues par ouvrage et par lot.
+  const tacheHeuresVendues   = (t) => parseFloat(t.heures_vendues) || 0;
+  const heuresReellesOuvrage = (o) => (o.taches || []).reduce((s, t) => s + tacheHeuresReelles(t), 0);
+  const heuresVenduesOuvrage = (o) => parseFloat(o.heures_devis) || 0;
+  const heuresReellesLot     = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + heuresReellesOuvrage(o), 0);
+  const heuresVenduesLot     = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + heuresVenduesOuvrage(o), 0);
+  // Rouge quand les heures réelles dépassent les heures vendues.
+  const couleurDepassement   = (reelles, vendues) => (vendues > 0 && reelles > vendues) ? "#e15a5a" : null;
+  // Formatte un nombre d'heures sans zéros inutiles (7 → "7", 2,75 → "2,75").
+  const fmtH = (n) => (parseFloat(n) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 
   // ─── COÛTS & MARGE ──────────────────────────────────────────────────────
   // Coût MO d'une tâche : pour chaque ouvrier assigné, on cumule
@@ -1609,7 +1632,21 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                     onDragOver={draggedOuvrageId ? (e => { e.preventDefault(); if (dragOverLotId !== l.id) setDragOverLotId(l.id); }) : undefined}
                     onDragLeave={() => { if (dragOverLotId === l.id) setDragOverLotId(null); }}
                     onDrop={draggedOuvrageId ? (e => { e.preventDefault(); moveOuvrageToLot(draggedOuvrageId, l.id); setDraggedOuvrageId(null); setDragOverLotId(null); }) : undefined}>
-                    <span style={{ flex: 1, fontWeight: 700, color: T.text }}>{l.label}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, color: T.text }}>{l.label}</span>
+                      {(() => {
+                        const hr = heuresReellesLot(l.id);
+                        const hv = heuresVenduesLot(l.id);
+                        if (hr === 0 && hv === 0) return null;
+                        const col = couleurDepassement(hr, hv);
+                        return (
+                          <div style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, marginTop: 2 }}
+                            title={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`}>
+                            {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
+                          </div>
+                        );
+                      })()}
+                    </div>
                     {l.code_prefixe && (
                       <span style={{
                         fontSize: 9, fontWeight: 800, letterSpacing: .5,
@@ -1718,13 +1755,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                           <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {o.libelle || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans libellé)</span>}
                           </div>
-                          {(o.heures_devis || o.quantite || o.prix_ht) && (
-                            <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>
-                              {o.heures_devis ? `${o.heures_devis}h` : ""}
-                              {o.quantite ? `${o.heures_devis ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
-                              {o.prix_ht ? `${(o.heures_devis||o.quantite) ? " · " : ""}${o.prix_ht.toLocaleString("fr-FR")} €` : ""}
-                            </div>
-                          )}
+                          {(() => {
+                            const hr = heuresReellesOuvrage(o);
+                            const hv = heuresVenduesOuvrage(o);
+                            const showH = hr > 0 || hv > 0;
+                            if (!showH && !o.quantite && !o.prix_ht) return null;
+                            const col = couleurDepassement(hr, hv);
+                            return (
+                              <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>
+                                {showH && (
+                                  <span style={{ color: col || T.textMuted, fontWeight: col ? 700 : 400 }}
+                                    title={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`}>
+                                    {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
+                                  </span>
+                                )}
+                                {o.quantite ? `${showH ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
+                                {o.prix_ht ? `${(showH||o.quantite) ? " · " : ""}${o.prix_ht.toLocaleString("fr-FR")} €` : ""}
+                              </div>
+                            );
+                          })()}
                         </div>
                         {nbTaches > 0 && (
                           <>
@@ -1813,13 +1862,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                               {(() => {
                                 const hr = tacheHeuresReelles(t);
-                                const he = parseFloat(t.heures_estimees);
-                                if (hr > 0 || (he != null && !isNaN(he))) {
-                                  const derive = couleurDerive(hr, he);
+                                const hv = tacheHeuresVendues(t);
+                                if (hr > 0 || hv > 0) {
+                                  const col = couleurDepassement(hr, hv);
                                   return (
-                                    <span style={{ fontSize: FONT.xs.size, color: derive || T.textMuted, fontWeight: derive ? 700 : 400, whiteSpace: "nowrap" }}
-                                      title={he ? `Réalisé ${hr}h sur ${he}h estimées (${Math.round(hr/he*100)}%)` : `${hr}h réelles`}>
-                                      {hr || 0}h / {(he != null && !isNaN(he)) ? `${he}h` : "—"}
+                                    <span style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, whiteSpace: "nowrap" }}
+                                      title={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues (${Math.round(hr/hv*100)}%)` : `${fmtH(hr)}h réelles`}>
+                                      {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
                                     </span>
                                   );
                                 }
