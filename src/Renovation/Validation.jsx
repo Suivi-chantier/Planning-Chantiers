@@ -655,6 +655,48 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     await load();
   }
 
+  // ── Correction d'un rapport déjà validé (dé-validation) ───────────────────
+  // Permet de rouvrir un rapport validé pour corriger une erreur de saisie.
+  // On supprime les pointages issus de ce rapport (ils seront recréés à la
+  // re-validation) et on repasse le rapport en "en_attente". La modale reste
+  // ouverte et redevient éditable. Note : on revient au déclaratif d'origine
+  // de l'ouvrier (les corrections précédentes vivaient dans les pointages) ;
+  // le conducteur ressaisit la correction puis revalide.
+  async function devaliderRapport(rapport) {
+    if (!rapport || rapport.statut !== "valide") return;
+    if (journeeCloturee) {
+      alert("La journée est clôturée — rouvre-la d'abord (bouton « Rouvrir la journée ») pour corriger un rapport.");
+      return;
+    }
+    if (!window.confirm(
+      "Rouvrir ce rapport pour correction ?\n\n"
+      + "Les pointages enregistrés pour ce rapport seront supprimés et recréés "
+      + "lors de la prochaine validation. Le rapport repart de la déclaration "
+      + "d'origine de l'ouvrier."
+    )) return;
+    setValidating(true);
+    // 1) Supprime les pointages issus de ce rapport.
+    const { error: delErr } = await supabase.from("pointages").delete().eq("rapport_id", rapport.id);
+    if (delErr) {
+      console.error("Delete pointages (dévalidation):", delErr);
+      alert("Erreur lors de la suppression des pointages — correction annulée.");
+      setValidating(false);
+      return;
+    }
+    // 2) Repasse le rapport en attente (repli si colonnes de statut absentes).
+    let { error: upErr } = await supabase.from("rapports")
+      .update({ statut: "en_attente", valide_par: null, valide_le: null })
+      .eq("id", rapport.id);
+    if (upErr && /statut|valide_par|valide_le/.test(upErr.message || "")) upErr = null;
+    if (upErr) console.error("Update rapport statut (dévalidation):", upErr);
+    // 3) Met à jour l'état local : la modale (opened dérivé de rapports)
+    //    redevient éditable sans se fermer.
+    setRapports(prev => prev.map(r => r.id === rapport.id
+      ? { ...r, statut: "en_attente", valide_par: null, valide_le: null }
+      : r));
+    setValidating(false);
+  }
+
   return (
     <div className="page-padding" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
@@ -812,6 +854,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           onCreerTache={(args) => creerTacheDansPlan({ ...args, chantier_id: opened.chantier_id })}
           onClose={() => setOpenedId(null)}
           onValider={({ lignes, indirectes }) => validerRapport({ rapport: opened, lignes, indirectes })}
+          onDevalider={() => devaliderRapport(opened)}
           validating={validating}
         />
       )}
@@ -923,7 +966,7 @@ function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
   nbChantiersDuJour = 1,
-  onCreerTache, onClose, onValider, validating,
+  onCreerTache, onClose, onValider, onDevalider, validating,
 }) {
   // État local éditable : copie indépendante de rapport.taches[] pour ne pas
   // toucher au déclaratif d'origine de l'ouvrier (trace préservée).
@@ -1210,9 +1253,26 @@ function ModaleRapport({
               Fermer
             </button>
             {valide ? (
-              <span style={{ fontSize: 12, color: T.textSub, fontStyle: "italic" }}>
-                Rapport déjà validé{rapport.valide_par ? ` par ${rapport.valide_par}` : ""}
-              </span>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, color: T.textSub, fontStyle: "italic" }}>
+                  Validé{rapport.valide_par ? ` par ${rapport.valide_par}` : ""}
+                </span>
+                <button
+                  onClick={onDevalider}
+                  disabled={validating || journeeCloturee}
+                  title={journeeCloturee ? "Journée clôturée — rouvre-la d'abord" : "Rouvrir ce rapport pour corriger une erreur"}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "8px 16px", borderRadius: RADIUS.md,
+                    border: `1px solid ${T.border}`, background: "transparent", color: T.text,
+                    cursor: (validating || journeeCloturee) ? "not-allowed" : "pointer",
+                    fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+                    opacity: (validating || journeeCloturee) ? 0.5 : 1,
+                  }}
+                >
+                  <Icon as={LockOpen} size={13}/> {validating ? "…" : "Corriger"}
+                </button>
+              </div>
             ) : journeeCloturee ? (
               <span style={{ fontSize: 12, color: "#b27416", fontStyle: "italic", display: "inline-flex", alignItems: "center", gap: 4 }}>
                 <Icon as={Lock} size={12}/> Journée clôturée — rouvre pour valider
