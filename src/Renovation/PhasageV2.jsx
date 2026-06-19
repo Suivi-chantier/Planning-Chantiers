@@ -136,6 +136,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingTache?.tacheId]);
 
+  // Aligne l'affectation sur le réalisé : à l'ouverture d'une tâche qui a des
+  // pointages, on ajoute les ouvriers du registre (ceux qui ont réellement
+  // pointé) à la liste des ouvriers assignés, sans retirer les affectations
+  // manuelles existantes. N'écrit que s'il manque effectivement un ouvrier.
+  useEffect(() => {
+    if (!editingTache) return;
+    const o = ouvrages.find(x => x.id === editingTache.ouvrageId);
+    const t = o?.taches?.find(x => x.id === editingTache.tacheId);
+    if (!t) return;
+    const regOuvriers = [...new Set(tachePointages(t).map(p => p.ouvrier).filter(Boolean))];
+    if (regOuvriers.length === 0) return;
+    const actuels = Array.isArray(t.ouvriers) ? t.ouvriers : [];
+    const manquants = regOuvriers.filter(n => !actuels.includes(n));
+    if (manquants.length > 0) updateTache(o.id, t.id, { ouvriers: [...actuels, ...manquants] });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingTache?.tacheId, pointages]);
+
   // Construit la liste des 12 prochaines semaines pour le select.
   const semainesFutures = (() => {
     const list = [];
