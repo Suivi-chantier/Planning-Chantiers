@@ -85,6 +85,42 @@ function fmtH(h) {
 
 function genId() { return Math.random().toString(36).slice(2); }
 
+// ─── Fuzzy match : nom écrit par l'ouvrier → tâche du plan ──────────────────
+// Score sur 1. Le seuil d'auto-affectation est défini plus bas (0.55).
+
+function normalizeNom(s) {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // enlève les accents
+    .replace(/[^a-z0-9 ]/g, " ")                       // ponctuation → espace
+    .replace(/\s+/g, " ").trim();
+}
+
+function scoreSimilariteNom(a, b) {
+  const na = normalizeNom(a), nb = normalizeNom(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if (na.includes(nb) || nb.includes(na)) return 0.85;
+  const wa = new Set(na.split(" ").filter(w => w.length > 2));
+  const wb = new Set(nb.split(" ").filter(w => w.length > 2));
+  if (wa.size === 0 || wb.size === 0) return 0;
+  let common = 0;
+  wa.forEach(w => { if (wb.has(w)) common++; });
+  // Dice coefficient : 2 × communs / (size A + size B)
+  return (2 * common) / (wa.size + wb.size);
+}
+
+function meilleureTachePlan(nomOuvrier, tachesPlan) {
+  let best = null;
+  for (const t of (tachesPlan || [])) {
+    const s = scoreSimilariteNom(nomOuvrier, t.nom);
+    if (!best || s > best.score) best = { tache: t, score: s };
+  }
+  return best;
+}
+
+const SEUIL_AUTOMATCH = 0.55;
+
 // ─── Composants UI ───────────────────────────────────────────────────────────
 
 function StatutBadge({ statut }) {
@@ -992,6 +1028,7 @@ function ModaleRapport({
       avancement_arbitre: t.avancement != null ? parseInt(t.avancement) : "",  // pré-rempli avec déclaré
       remarque: t.remarque || "",
       photos: t.photos || [],
+      _autoMatched: false,
     }));
     setLignes(init);
     // Pré-remplit la zone heures indirectes avec ce que l'ouvrier a déclaré
@@ -1004,6 +1041,29 @@ function ModaleRapport({
       : [];
     setIndirectes(initIndirectes);
   }, [rapport.id]);
+
+  // Auto-match : pour les lignes sans tache_id, on cherche la meilleure
+  // correspondance dans le plan du chantier (fuzzy match). Pré-sélectionne la
+  // dropdown — le conducteur a juste à corriger si c'est faux. On marque la
+  // ligne comme _autoMatched pour afficher un badge visuel.
+  useEffect(() => {
+    if (!Array.isArray(tachesPlan) || tachesPlan.length === 0) return;
+    setLignes(prev => prev.map(li => {
+      if (li.tache_id) return li;            // déjà rattachée (via planning ou réaffectation manuelle)
+      if (!li.planifie?.trim()) return li;   // ligne vide
+      const best = meilleureTachePlan(li.planifie, tachesPlan);
+      if (!best || best.score < SEUIL_AUTOMATCH) return li;
+      return {
+        ...li,
+        tache_id: best.tache.id,
+        phase_id: best.tache.phase_id || null,
+        ouvrage_id: best.tache.ouvrage_id || null,
+        _autoMatched: true,
+        _autoMatchScore: best.score,
+      };
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tachesPlan, rapport.id]);
 
   const totalHTaches = lignes.reduce((s, l) => s + (parseFloat(l.heures) || 0), 0);
   const totalHIndirect = indirectes.reduce((s, t) => s + (parseFloat(t.heures) || 0), 0);
@@ -1036,11 +1096,11 @@ function ModaleRapport({
       return;
     }
     if (value === "__libre__" || !value) {
-      updateLigne(rowId, { tache_id: null, phase_id: null, ouvrage_id: null });
+      updateLigne(rowId, { tache_id: null, phase_id: null, ouvrage_id: null, _autoMatched: false });
       return;
     }
     const t = tachesPlan.find(x => String(x.id) === String(value));
-    if (t) updateLigne(rowId, { tache_id: t.id, phase_id: t.phase_id || null, ouvrage_id: t.ouvrage_id || null, planifie: t.nom });
+    if (t) updateLigne(rowId, { tache_id: t.id, phase_id: t.phase_id || null, ouvrage_id: t.ouvrage_id || null, planifie: t.nom, _autoMatched: false });
   };
 
   const validerCreation = async () => {
@@ -1379,7 +1439,7 @@ function LigneEditable({
           </select>
           <StatutTacheLabel statut={ligne.statut}/>
         </div>
-        {/* Sous-info : badge libre, autres propositions */}
+        {/* Sous-info : badge libre, badge auto-match, autres propositions */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {libre && (
             <span style={{
@@ -1387,6 +1447,15 @@ function LigneEditable({
               background: "rgba(245,166,35,0.15)", color: "#b27416", textTransform: "uppercase", letterSpacing: .3,
             }}>
               Tâche libre
+            </span>
+          )}
+          {ligne._autoMatched && (
+            <span title={`Auto-détecté (similarité ${Math.round((ligne._autoMatchScore || 0) * 100)}%) — vérifie et corrige si besoin`} style={{
+              fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,
+              background: "rgba(80,200,120,0.15)", color: "#22a060", textTransform: "uppercase", letterSpacing: .3,
+              cursor: "help",
+            }}>
+              ✨ Auto-détecté
             </span>
           )}
           {autres.length > 0 && (
