@@ -640,7 +640,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     return Number.isFinite(v) ? v : 0;
   })();
   const fgChantier = fgTauxHoraire * heuresVenduesChantier;
-  // Marge brute = Vendu − Coût MO − Coût matériaux − Frais généraux.
+  // Marge nette = Vendu − Coût MO − Coût matériaux − Frais généraux.
   const margeChantier  = prixHTChantier - coutMOChantier - coutMatChantier - fgChantier;
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
   const fmtEur = (n) => `${Math.round(n).toLocaleString("fr-FR")} €`;
@@ -1610,7 +1610,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 onClick={() => setKpiDetail("fg")}/>
               <KpiCard T={T}
                 icon={margeChantier >= 0 ? TrendingUp : TrendingDown}
-                iconColor={margeColor} label="Marge brute"
+                iconColor={margeColor} label="Marge nette"
                 value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
                 sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : null}
                 accent={margeColor} bold={true}
@@ -2158,7 +2158,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
             background: T.card, border: `1px solid ${T.border}`,
             fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.6,
           }}>
-            <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge brute pour considérer le chantier rentable.</div>
+            <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge nette pour considérer le chantier rentable.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : taux horaire (€/h) multiplié par les heures vendues du chantier. Couvre admin, transport, etc. Déduit de la marge.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Seuil prime</strong> : marge minimale à partir de laquelle l'équipe touche la prime.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Prime chantier</strong> : montant attribué à l'équipe si le seuil est dépassé.</div>
@@ -2324,7 +2324,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           const margeColor = margeChantier < 0 ? "#e15a5a" : margePctChantier < 15 ? "#f5a623" : "#22c55e";
           cfg = {
             icon: margeChantier >= 0 ? TrendingUp : TrendingDown, color: margeColor,
-            title: "Marge brute", subtitle: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : "Vendu − MO − Matériaux − FG",
+            title: "Marge nette", subtitle: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : "Vendu − MO − Matériaux − FG",
             empty: null,
             rows: [
               { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
@@ -2333,7 +2333,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
               { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures vendues` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
             ],
             total: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
-            totalLabel: "Marge brute", totalColor: margeColor, totalIsText: true,
+            totalLabel: "Marge nette", totalColor: margeColor, totalIsText: true,
           };
         }
         if (!cfg) return null;
