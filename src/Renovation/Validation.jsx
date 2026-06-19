@@ -208,7 +208,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const chIds = [...new Set((rs || []).map(r => r.chantier_id).filter(Boolean))];
     if (chIds.length > 0) {
       const { data: phs } = await supabase.from("phasages")
-        .select("id,chantier_id,plan_travaux")
+        .select("id,chantier_id,plan_travaux,ouvrages")
         .in("chantier_id", chIds);
       setPhasages(phs || []);
     } else {
@@ -560,6 +560,39 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           const { error: upPlanErr } = await supabase.from("phasages").update({ plan_travaux: plan }).eq("id", ph.id);
           if (upPlanErr) console.error("Update plan_travaux avancement:", upPlanErr);
           else setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan } : p));
+        }
+      }
+    }
+
+    // 2-bis) DOUBLE ÉCRITURE V2 : on reporte l'avancement arbitré sur les tâches
+    //   d'ouvrage (phasages.ouvrages[].taches[]), matchées par NOM (les tâches V2
+    //   migrées ont des id régénérés). Additif : ne touche pas plan_travaux ci-dessus.
+    //   Permet aux dashboards V2 (Phase B) de refléter la validation.
+    const arbitresParNom = {};
+    lignes.forEach(li => {
+      const arb = li.avancement_arbitre;
+      if (arb == null || arb === "") return;
+      const nom = (li.planifie || "").trim().toLowerCase();
+      if (!nom) return;
+      const av = parseInt(arb) || 0;
+      if (arbitresParNom[nom] == null || av > arbitresParNom[nom]) arbitresParNom[nom] = av;
+    });
+    if (Object.keys(arbitresParNom).length > 0) {
+      const phV2 = phasages.find(p => p.chantier_id === rapport.chantier_id);
+      if (phV2 && Array.isArray(phV2.ouvrages)) {
+        let touchedO = false;
+        const ouvragesNext = phV2.ouvrages.map(o => ({
+          ...o,
+          taches: (o.taches || []).map(t => {
+            const nom = (t.nom || "").trim().toLowerCase();
+            if (nom && arbitresParNom[nom] != null) { touchedO = true; return { ...t, avancement: arbitresParNom[nom] }; }
+            return t;
+          }),
+        }));
+        if (touchedO) {
+          const { error: upOErr } = await supabase.from("phasages").update({ ouvrages: ouvragesNext }).eq("id", phV2.id);
+          if (upOErr) console.error("Update ouvrages avancement (double écriture):", upOErr);
+          else setPhasages(prev => prev.map(p => p.id === phV2.id ? { ...p, ouvrages: ouvragesNext } : p));
         }
       }
     }
