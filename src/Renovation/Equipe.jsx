@@ -217,7 +217,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       const [phasagesQ, snapshotsQ] = await Promise.all([
         // plan_travaux contient meta.prix_vendu (montant chantier TTC vendu).
         // Sert au calcul "delta % → delta €" affiché à côté de la progression.
-        supabase.from("phasages").select("chantier_id, plan_travaux").in("chantier_id", chantierIds),
+        supabase.from("phasages").select("chantier_id, plan_travaux, ouvrages").in("chantier_id", chantierIds),
         supabase.from("chantier_avancement_history")
           .select("chantier_id, avancement, date_snapshot")
           .in("chantier_id", chantierIds)
@@ -239,6 +239,22 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       (phasagesQ.data || []).forEach(ph => {
         const plan = ph.plan_travaux || {};
         prixVenduByCh[ph.chantier_id] = parseFloat(plan.meta?.prix_vendu) || 0;
+        // V2 : avancement depuis les ouvrages (pondéré heures_estimees puis prix_ht).
+        const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+        if (ouvrages.length > 0) {
+          const avOuv = (o) => {
+            const ts = o.taches || []; if (!ts.length) return 0;
+            const he = ts.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+            if (he > 0) return ts.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0) / he;
+            return ts.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / ts.length;
+          };
+          const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+          actuelByCh[ph.chantier_id] = totalPrix > 0
+            ? Math.round(ouvrages.reduce((s, o) => s + avOuv(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix)
+            : Math.round(ouvrages.reduce((s, o) => s + avOuv(o), 0) / ouvrages.length);
+          return;
+        }
+        // Repli V1 : plan_travaux
         const allTaches = [];
         for (const k of Object.keys(plan)) {
           if (k === "meta" || k.includes("__")) continue;

@@ -308,10 +308,31 @@ function calcCRStatut(lastCRDate) {
   return                  { status: 'retard',   label: `En retard (${semCR.label})`, date: lastCRDate, semaine: semCR.label };
 }
 
+// ─── Avancement V2 (depuis ouvrages) ──────────────────────────────────────
+// Même pondération que la page Phasage V2 : avancement d'un ouvrage pondéré
+// par heures_estimees de ses tâches ; avancement chantier pondéré par prix_ht.
+function avancementOuvrageV2(o) {
+  const taches = o?.taches || [];
+  if (!taches.length) return 0;
+  const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+  if (totalHE > 0) return taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0) / totalHE;
+  return taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length;
+}
+function avancementReelV2(ouvrages) {
+  const list = Array.isArray(ouvrages) ? ouvrages : [];
+  if (!list.length) return 0;
+  const totalPrix = list.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+  if (totalPrix > 0) return Math.round(list.reduce((s, o) => s + avancementOuvrageV2(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix);
+  return Math.round(list.reduce((s, o) => s + avancementOuvrageV2(o), 0) / list.length);
+}
+
 function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCRByChantier = {}, pointagesParChantier = {}, commandeCostByChantier = {}) {
   const plan = phasage?.plan_travaux || {};
   const meta = plan.meta || {};
-  const avR  = calcAvancementReel(plan, phasesConfig);
+  // Avancement réel : depuis les ouvrages V2 si présents, sinon repli plan_travaux (V1).
+  const avR  = (Array.isArray(phasage?.ouvrages) && phasage.ouvrages.length)
+    ? avancementReelV2(phasage.ouvrages)
+    : calcAvancementReel(plan, phasesConfig);
   const avP  = calcAvancementTheorique(plan, phasesConfig);
   const phase = calcPhaseCourante(plan, phasesConfig);
   const budMO = calcBudgetMO(plan, phasesConfig, tauxHoraires);
@@ -1746,7 +1767,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
       setLoading(true);
       const [pCfg, phQ, cfgQ, crQ, ptsQ, cmdQ] = await Promise.all([
         loadPhases(),
-        supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at"),
+        supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, ouvrages, updated_at"),
         supabase.from("planning_config").select("key,value").in("key", ["chantiers", "taux_horaires"]),
         // CR : on prend les 200 derniers, on extrait le plus récent par chantier_id.
         // On essaie d'inclure `validateur` ; si la colonne n'existe pas (42703),

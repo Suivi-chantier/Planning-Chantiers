@@ -69,9 +69,16 @@ function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraSt
 }
 
 function calcAvancement(phasage) {
+  // V2 : avancement depuis les tâches des ouvrages (pondéré prix_ht/heures via
+  // calcAvancementPondere). Repli V1 : tâches de plan_travaux.
+  const ouvrages = phasage?.ouvrages || [];
+  if (ouvrages.length > 0) {
+    const allTaches = ouvrages.flatMap(o => (o.taches || []).map(t => ({ ...t, ouvrage_id: o.id })));
+    return calcAvancementPondere(ouvrages, allTaches);
+  }
   if (!phasage?.plan_travaux) return 0;
   const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
-  return calcAvancementPondere(phasage.ouvrages || [], allTaches);
+  return calcAvancementPondere(ouvrages, allTaches);
 }
 
 function getLastTaches(phasage, n = 5) {
