@@ -63,6 +63,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // Comptes rendus (rapports) du chantier — pour le bouton "voir le dernier CR"
   const [rapports, setRapports] = useState([]);
   const [rapportModal, setRapportModal] = useState(null); // { rapport, tacheNom }
+  // Lignes de commande du chantier + panneau "Matériaux & commandes"
+  const [commandeLignes, setCommandeLignes] = useState([]);
+  const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
+  // Form d'ajout de référence dans le panneau
+  const [refForm, setRefForm] = useState({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" });
+  const [refSaving, setRefSaving] = useState(false);
   // Modale suivi direction (marge cible, seuil prime, prime chantier)
   const [showSuiviDirection, setShowSuiviDirection] = useState(false);
   // Mode d'affichage : "list" (3 colonnes Lots/Ouvrages/Tâches) | "gantt" (timeline)
@@ -224,6 +230,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
     return () => { cancelled = true; };
   }, [chantierId]);
 
+  // Charge les lignes de commande du chantier (avec le statut de la commande parente).
+  const loadCommandeLignes = React.useCallback(async () => {
+    if (!chantierId) { setCommandeLignes([]); return; }
+    const { data } = await supabase.from("commande_lignes")
+      .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, commande:commandes(statut_completude, statut_facturation, fournisseur_nom, doc_numero)")
+      .eq("chantier_id", chantierId);
+    setCommandeLignes(data || []);
+  }, [chantierId]);
+  useEffect(() => { loadCommandeLignes(); }, [loadCommandeLignes]);
+
   const ouvrages = phasage?.ouvrages || [];
   const chantier = chantiers.find(c => c.id === chantierId);
 
@@ -237,6 +253,74 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       (x.tache_id && String(x.tache_id) === String(t.id)) ||
       (nom && (x.planifie || x.nom || "").trim().toLowerCase() === nom)
     )) || null;
+  };
+
+  // ─── Panneau "Matériaux & commandes" (ouvrage / lot) ──────────────────────
+  const matBiblioById = (() => { const m = {}; materiauxBiblio.forEach(x => { m[String(x.id)] = x; }); return m; })();
+  // Lignes de commande rattachées à un lot.
+  const lignesDuLot = (lotId) => commandeLignes.filter(l => l.lot_id === lotId);
+  // Lignes rattachées à un ouvrage : par ouvrage_id, ou (à défaut) par matériau présent dans ses liens.
+  const lignesDeLOuvrage = (o) => commandeLignes.filter(l =>
+    l.ouvrage_id === o.id ||
+    (!l.ouvrage_id && l.materiau_id && (o.materiaux_liens || []).some(ml => String(ml.materiau_id) === String(l.materiau_id)))
+  );
+  // Matériaux "prévus de base" d'un ouvrage (depuis materiaux_liens, valorisés via biblio).
+  const prevusOuvrage = (o) => (o.materiaux_liens || [])
+    .filter(ml => ml && ml.materiau_id != null)
+    .map(ml => {
+      const m = matBiblioById[String(ml.materiau_id)];
+      return { materiau_id: ml.materiau_id, nom: m?.nom || "(matériau inconnu)", unite: m?.unite || "U", prix: parseFloat(m?.prix_unitaire) || 0, quantite: ml.quantite };
+    });
+  const estCommande = (materiauId, lignes) => materiauId != null && lignes.some(l => String(l.materiau_id) === String(materiauId));
+  const statutLigne = (l) => {
+    const c = l.commande || {};
+    if (c.statut_facturation === "facture") return { label: "Facturé", color: "#22c55e" };
+    if (c.statut_completude === "complete") return { label: "Complété", color: "#5b8af5" };
+    return { label: "À compléter", color: "#eab308" };
+  };
+
+  // Crée une commande (statut à compléter) + sa ligne, liée au lot (+ ouvrage optionnel).
+  const ajouterReference = async (lotId, ouvrageId) => {
+    const libelle = (refForm.libelle || matBiblioById[String(refForm.materiau_id)]?.nom || "").trim();
+    if (!libelle) { return; }
+    setRefSaving(true);
+    try {
+      const q = parseFloat(refForm.quantite) || null;
+      const pu = parseFloat(refForm.prix) || null;
+      const { data: cmd, error: cErr } = await supabase.from("commandes").insert({
+        type_evenement: "commande", doc_type: "bon_commande", numero_en_attente: true,
+        montant_ht: (pu != null && q != null) ? +(pu * q).toFixed(2) : pu,
+        source: "manuel", statut_completude: "a_completer", statut_facturation: "en_attente_facture",
+        notes: "Ajouté depuis Phasage V2",
+      }).select("id").single();
+      if (cErr || !cmd) throw new Error(cErr?.message || "création commande");
+      const { error: lErr } = await supabase.from("commande_lignes").insert({
+        commande_id: cmd.id,
+        libelle,
+        quantite: q,
+        unite: refForm.unite || "U",
+        prix_unitaire: pu,
+        prix_total: (pu != null && q != null) ? +(pu * q).toFixed(2) : null,
+        materiau_id: refForm.materiau_id || null,
+        chantier_id: chantierId,
+        phasage_id: phasage?.id || null,
+        lot_id: lotId || null,
+        ouvrage_id: ouvrageId || null,
+      });
+      if (lErr) throw new Error(lErr.message);
+      setRefForm({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" });
+      await loadCommandeLignes();
+    } catch (e) {
+      console.error("ajouterReference:", e);
+      alert("Erreur lors de l'ajout : " + (e.message || e));
+    }
+    setRefSaving(false);
+  };
+
+  // Rattache (ou détache) une ligne de commande à un ouvrage.
+  const affecterLigneOuvrage = async (ligneId, ouvrageId) => {
+    await supabase.from("commande_lignes").update({ ouvrage_id: ouvrageId || null }).eq("id", ligneId);
+    await loadCommandeLignes();
   };
 
   // ─── PERSISTANCE ────────────────────────────────────────────────────────
@@ -1479,6 +1563,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                         </span>
                       </>
                     )}
+                    <button
+                      className="p2-cr-btn"
+                      onClick={e => { e.stopPropagation(); setMatPanel({ type: "lot", id: l.id }); }}
+                      title="Matériaux & commandes de ce lot"
+                      style={{
+                        background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                        color: T.text, borderRadius: RADIUS.sm,
+                        width: 24, height: 24, padding: 0, cursor: "pointer",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0,
+                      }}>
+                      <Icon as={Receipt} size={11}/>
+                    </button>
                   </div>
                 );
               })}
@@ -1576,6 +1673,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                             </span>
                           </>
                         )}
+                        <button
+                          className="p2-cr-btn"
+                          onClick={e => { e.stopPropagation(); setMatPanel({ type: "ouvrage", id: o.id }); }}
+                          title="Matériaux & commandes de cet ouvrage"
+                          style={{
+                            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                            color: T.text, borderRadius: RADIUS.sm,
+                            width: 26, height: 26, padding: 0, cursor: "pointer",
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            flexShrink: 0,
+                          }}>
+                          <Icon as={Receipt} size={12}/>
+                        </button>
                         <button
                           className="p2-edit-btn"
                           onClick={e => { e.stopPropagation(); setEditingOuvrageId(o.id); }}
@@ -1847,6 +1957,144 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       )}
 
       {/* ── Modale édition ouvrage ── */}
+      {matPanel && (() => {
+        const isLot = matPanel.type === "lot";
+        const lot = isLot ? lots.find(l => l.id === matPanel.id) : null;
+        const ouvrage = !isLot ? ouvrages.find(o => o.id === matPanel.id) : null;
+        if (!isLot && !ouvrage) return null;
+        const scopeLotId = isLot ? matPanel.id : (ouvrage?.lot_id || null);
+        const titre = isLot ? (lot?.label || "Lot") : (ouvrage?.libelle || "Ouvrage");
+        const ouvragesDuLot = ouvrages.filter(o => isLot ? (o.lot_id === matPanel.id) : (o.lot_id === ouvrage?.lot_id));
+        const lignes = isLot ? lignesDuLot(matPanel.id) : lignesDeLOuvrage(ouvrage);
+        const prevus = isLot
+          ? ouvragesDuLot.flatMap(o => prevusOuvrage(o).map(p => ({ ...p, ouvrageLibelle: o.libelle })))
+          : prevusOuvrage(ouvrage);
+        const close = () => { setMatPanel(null); setRefForm({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" }); };
+        const fmtEur = (n) => (parseFloat(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 });
+        return (
+          <div onClick={close}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+                width: "min(640px, 100%)", maxHeight: "88vh", overflow: "auto",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <Icon as={Receipt} size={18}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis" }}>Matériaux & commandes</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{isLot ? "Lot" : "Ouvrage"} · {titre}</div>
+                </div>
+                <button onClick={close} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
+              </div>
+
+              {/* ── Matériaux prévus de base ── */}
+              <div style={{ padding: "12px 20px" }}>
+                <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6, color: T.textMuted, marginBottom: 8 }}>
+                  Matériaux prévus {prevus.length > 0 ? `(${prevus.length})` : ""}
+                </div>
+                {prevus.length === 0 ? (
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>Aucun matériau lié aux ouvrages.</div>
+                ) : prevus.map((p, i) => {
+                  const ok = estCommande(p.materiau_id, lignes);
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <span style={{ flex: 1, fontSize: FONT.sm.size, color: T.text }}>
+                        {p.nom}
+                        {p.quantite != null && <span style={{ color: T.textMuted }}> · {p.quantite} {p.unite}</span>}
+                        {isLot && p.ouvrageLibelle && <span style={{ color: T.textMuted, fontSize: FONT.xs.size }}> — {p.ouvrageLibelle}</span>}
+                      </span>
+                      {ok
+                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: FONT.xs.size, fontWeight: 800, color: "#22c55e" }}><Icon as={Check} size={12}/> commandé</span>
+                        : <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>○ non commandé</span>}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Références commandées & liées ── */}
+              <div style={{ padding: "4px 20px 12px" }}>
+                <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6, color: T.textMuted, margin: "6px 0 8px" }}>
+                  Références commandées {lignes.length > 0 ? `(${lignes.length})` : ""}
+                </div>
+                {lignes.length === 0 ? (
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>Aucune commande liée pour l'instant.</div>
+                ) : lignes.map(l => {
+                  const st = statutLigne(l);
+                  return (
+                    <div key={l.id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ flex: 1, fontSize: FONT.sm.size, fontWeight: 600, color: T.text }}>{l.libelle || "(sans libellé)"}</span>
+                        <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+                          {l.quantite != null ? `${l.quantite}${l.unite ? " " + l.unite : ""}` : ""}
+                          {l.prix_total != null ? ` · ${fmtEur(l.prix_total)} €` : (l.prix_unitaire != null ? ` · ${fmtEur(l.prix_unitaire)} €` : "")}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: st.color, flexShrink: 0 }}>{st.label}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                        <span style={{ fontSize: 9, color: T.textMuted, textTransform: "uppercase", letterSpacing: .5 }}>Ouvrage</span>
+                        <select value={l.ouvrage_id || ""} onChange={e => affecterLigneOuvrage(l.id, e.target.value)}
+                          style={{ flex: 1, padding: "4px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                            background: T.fieldBg || T.card, color: T.text, fontSize: FONT.xs.size, fontFamily: "inherit", outline: "none" }}>
+                          <option value="">— Lot uniquement —</option>
+                          {ouvragesDuLot.map(o => <option key={o.id} value={o.id}>{o.libelle || "(sans libellé)"}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Ajouter une référence ── */}
+              <div style={{ padding: "12px 20px 18px", borderTop: `1px solid ${T.border}`, background: T.card }}>
+                <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6, color: T.textMuted, marginBottom: 8 }}>
+                  Ajouter une référence {!isLot && <span style={{ color: T.textMuted, fontWeight: 600, textTransform: "none" }}>· liée à cet ouvrage</span>}
+                </div>
+                <select value={refForm.materiau_id}
+                  onChange={e => {
+                    const m = matBiblioById[String(e.target.value)];
+                    setRefForm(f => ({ ...f, materiau_id: e.target.value,
+                      libelle: m ? (m.nom || "") : f.libelle,
+                      unite: m?.unite || f.unite || "U",
+                      prix: m?.prix_unitaire != null ? String(m.prix_unitaire) : f.prix }));
+                  }}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                    background: T.fieldBg || T.surface, color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none", marginBottom: 8 }}>
+                  <option value="">— Matériau de la bibliothèque (optionnel) —</option>
+                  {materiauxBiblio.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                </select>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={refForm.libelle} onChange={e => setRefForm(f => ({ ...f, libelle: e.target.value }))}
+                    placeholder="Libellé (ou saisie libre)"
+                    style={{ flex: 1, padding: "8px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                      background: T.fieldBg || T.surface, color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none" }}/>
+                  <input type="number" step="0.5" min="0" value={refForm.quantite} onChange={e => setRefForm(f => ({ ...f, quantite: e.target.value }))}
+                    placeholder="Qté"
+                    style={{ width: 70, padding: "8px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                      background: T.fieldBg || T.surface, color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none" }}/>
+                  <input type="number" step="0.01" min="0" value={refForm.prix} onChange={e => setRefForm(f => ({ ...f, prix: e.target.value }))}
+                    placeholder="PU €"
+                    style={{ width: 80, padding: "8px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                      background: T.fieldBg || T.surface, color: "#50c878", fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none" }}/>
+                </div>
+                <button disabled={refSaving || !(refForm.libelle.trim() || refForm.materiau_id)}
+                  onClick={() => ajouterReference(scopeLotId, isLot ? null : ouvrage.id)}
+                  style={{ marginTop: 10, width: "100%", padding: "9px 14px", borderRadius: RADIUS.md, border: "none",
+                    background: (refSaving || !(refForm.libelle.trim() || refForm.materiau_id)) ? T.border : acc.accent,
+                    color: "#fff", fontWeight: 800, fontSize: FONT.sm.size, fontFamily: "inherit",
+                    cursor: (refSaving || !(refForm.libelle.trim() || refForm.materiau_id)) ? "not-allowed" : "pointer",
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Icon as={Plus} size={14}/> {refSaving ? "Ajout…" : "Ajouter (statut à compléter)"}
+                </button>
+                <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 6, fontStyle: "italic" }}>
+                  La référence apparaîtra dans la page Commandes (à compléter) et basculera en « passée » une fois complétée/facturée.
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {rapportModal && (() => {
         const r = rapportModal.rapport;
         const cibleNom = (rapportModal.tacheNom || "").trim().toLowerCase();
