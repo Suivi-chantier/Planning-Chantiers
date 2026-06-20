@@ -48,6 +48,18 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
   const statutIcon = (s) => s==="faite"?"✅":s==="en_cours"?"🔄":"❌";
   const statutColor = (s) => s==="faite"?"#50c878":s==="en_cours"?"#f5a623":"#e05c5c";
 
+  // Cumul des heures planifiées par ouvrier pour ce jour (mis à jour en direct).
+  // Une tâche sans ouvrier assigné est « visible par tous » → comptée pour chacun.
+  const cumulParOuvrier = {};
+  (draft.ouvriers||[]).forEach(o=>{ cumulParOuvrier[o]=0; });
+  (draft.taches||[]).forEach(t=>{
+    const d = parseFloat(t.duree)||0;
+    if(!d) return;
+    const assignes = (t.ouvriers||[]).filter(o=>(draft.ouvriers||[]).includes(o));
+    const cibles = assignes.length>0 ? assignes : (draft.ouvriers||[]);
+    cibles.forEach(o=>{ cumulParOuvrier[o]+=d; });
+  });
+
   return(
     <div className="cell-modal-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:500,
       display:"flex",alignItems:"center",
@@ -106,6 +118,26 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                 <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted}}>📋 Tâches planifiées</div>
                 <span style={{fontSize:11,color:T.textMuted}}>Assigne des ouvriers à chaque tâche</span>
               </div>
+
+              {/* ── Cumul des heures par ouvrier (ce jour) ── */}
+              {(draft.ouvriers||[]).length>0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",
+                  background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,borderRadius:10,padding:"8px 10px"}}>
+                  <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
+                    color:T.textMuted,marginRight:2}}>⏱ Cumul jour</span>
+                  {(draft.ouvriers||[]).map(o=>{
+                    const h=cumulParOuvrier[o]||0;
+                    return(
+                      <span key={o} style={{display:"inline-flex",alignItems:"center",gap:5,
+                        background:chantier.couleur+"22",border:`1px solid ${chantier.couleur}55`,
+                        borderRadius:8,padding:"3px 9px",fontSize:12.5}}>
+                        <strong style={{color:T.text,fontWeight:700}}>{o}</strong>
+                        <span style={{color:h>0?T.text:T.textMuted,fontWeight:800}}>{h}h</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
 
               {(draft.taches||[]).map((tache,idx)=>(
                 <div key={tache.id} style={{background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
