@@ -365,6 +365,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   const [search, setSearch]       = useState("");
   const [columnFilters, setColumnFilters] = useState({});
   const [sortConfig, setSortConfig] = useState({ key:"created_at", direction:"desc" });
+  const [missionDeepLink, setMissionDeepLink] = useState({ clientId:"", actionId:"", stepKey:"" });
 
   const charger = async () => {
     setLoading(true);
@@ -381,6 +382,17 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     if (initialFilter.type === "etape") setColumnFilters({ etape: initialFilter.value || "" });
     if (["sans_action", "actions_week_or_late", "signes", "with_propositions"].includes(initialFilter.type)) setSpecialFilter(initialFilter.type);
   }, [initialFilter]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search || "");
+    const clientId = params.get("crm_client") || params.get("client_id") || "";
+    const actionId = params.get("mission_action") || "";
+    const stepKey = params.get("mission_step") || "";
+    if (!clientId) return;
+    setMissionDeepLink({ clientId, actionId, stepKey });
+    setFicheId(clientId);
+  }, []);
 
   const conseillers = [...new Set(clients.map(c => c.conseiller).filter(Boolean))];
   const sources = [...new Set([...SOURCES_CLIENT, ...clients.map(c => c.source).filter(Boolean)])];
@@ -821,7 +833,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               border:`1px solid ${T.border}`,
             }}
           >
-            <FicheClient id={ficheId} profil={profil} T={T} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} />
+            <FicheClient id={ficheId} profil={profil} T={T} initialMissionStep={missionDeepLink?.clientId === ficheId ? missionDeepLink.stepKey : ""} initialMissionActionId={missionDeepLink?.clientId === ficheId ? missionDeepLink.actionId : ""} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} />
           </div>
         </div>
       )}
@@ -928,6 +940,28 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
 
 
 const MISSION_AUTOMATION_ACCOUNT_EMAIL = "og@groupe-profero.com";
+const MISSION_COMPLETION_NOTIFICATION_EMAIL = "matthieu.fumoleau@groupe-profero.com";
+const missionEscapeHtml = (value = "") => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#039;");
+const missionBuildActionUrl = (clientId, actionId, stepKey = "") => {
+  try {
+    if (typeof window === "undefined" || !clientId) return "";
+    const url = new URL(window.location.href);
+    url.searchParams.set("page", "crm");
+    url.searchParams.set("crm_client", String(clientId));
+    if (actionId) url.searchParams.set("mission_action", String(actionId));
+    if (stepKey) url.searchParams.set("mission_step", String(stepKey));
+    url.searchParams.set("crm_focus", "mission");
+    url.hash = actionId ? `mission-action-${actionId}` : "mission-parcours";
+    return url.toString();
+  } catch {
+    return "";
+  }
+};
 const MISSION_COLLABORATEURS_EMAILS = {
   Matthieu: "matthieu.fumoleau@groupe-profero.com",
   Tom: "tom.fourmond@groupe-profero.com",
@@ -966,6 +1000,7 @@ const missionClientDisplayName = (client = {}) => `${client?.prenom || ""} ${cli
 const missionBuildNotificationEmail = (action = {}, client = {}) => {
   const clientName = missionClientDisplayName(client);
   const due = action?.due_date ? new Date(action.due_date).toLocaleDateString("fr-FR") : "à définir";
+  const actionUrl = missionBuildActionUrl(client?.id, action?.id, action?.step_key);
   const subject = `[Profero Invest] Action à traiter — ${action?.action_title || "Mission client"}`;
   const body = [
     `Bonjour ${action?.responsable || ""},`,
@@ -978,13 +1013,44 @@ const missionBuildNotificationEmail = (action = {}, client = {}) => {
     `Date échéance : ${due}`,
     action?.relance_rule ? `Relance prévue : ${action.relance_rule}` : null,
     action?.document_drive_attendu ? `Document / Drive : une pièce est attendue ou doit être archivée.` : null,
+    actionUrl ? `Ouvrir directement la tâche : ${actionUrl}` : null,
     "",
     "Merci de traiter cette action ou de mettre à jour son statut dans l'application Profero.",
     "",
     "Bonne journée,",
     "Profero Invest",
   ].filter(Boolean).join("\n");
-  return { subject, body };
+
+  const safeClient = missionEscapeHtml(clientName);
+  const safeStep = missionEscapeHtml(action?.step_label || "—");
+  const safeAction = missionEscapeHtml(action?.action_title || "—");
+  const safeDue = missionEscapeHtml(due);
+  const safeResponsable = missionEscapeHtml(action?.responsable || "");
+  const safeRelance = action?.relance_rule ? missionEscapeHtml(action.relance_rule) : "";
+  const htmlBody = `
+    <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+        <div style="background:#111827;color:#ffffff;padding:18px 22px;">
+          <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#c9a34a;font-weight:700;">Profero Invest</div>
+          <div style="font-size:20px;font-weight:800;margin-top:4px;">Action à traiter</div>
+        </div>
+        <div style="padding:22px;">
+          <p style="margin:0 0 14px;">Bonjour ${safeResponsable},</p>
+          <p style="margin:0 0 18px;">Une action t'est attribuée dans le Parcours Mission Profero Invest.</p>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:18px;">
+            <tr><td style="padding:8px 0;color:#64748b;width:135px;">Client</td><td style="padding:8px 0;font-weight:700;">${safeClient}</td></tr>
+            <tr><td style="padding:8px 0;color:#64748b;">Étape</td><td style="padding:8px 0;font-weight:700;">${safeStep}</td></tr>
+            <tr><td style="padding:8px 0;color:#64748b;">Action</td><td style="padding:8px 0;font-weight:700;">${safeAction}</td></tr>
+            <tr><td style="padding:8px 0;color:#64748b;">Échéance</td><td style="padding:8px 0;font-weight:700;color:#dc2626;">${safeDue}</td></tr>
+            ${safeRelance ? `<tr><td style="padding:8px 0;color:#64748b;">Relance</td><td style="padding:8px 0;">${safeRelance}</td></tr>` : ""}
+          </table>
+          ${actionUrl ? `<a href="${missionEscapeHtml(actionUrl)}" style="display:inline-block;background:#c9a34a;color:#111827;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 18px;">Ouvrir la tâche</a>` : ""}
+          <p style="margin:22px 0 0;color:#64748b;font-size:13px;">Si le bouton ne fonctionne pas, copie le lien présent dans la version texte de l'email.</p>
+        </div>
+      </div>
+    </div>
+  `;
+  return { subject, body, htmlBody, actionUrl };
 };
 const MISSION_CALENDAR_TIMEZONE = "Europe/Paris";
 const MISSION_CALENDAR_DEFAULT_DURATION_MINUTES = 60;
@@ -1246,14 +1312,15 @@ function missionCurrentStepLabelFromActions(actions = [], client = {}) {
   const key = missionCurrentStepKeyFromActions(actions, client);
   return MISSION_STEPS_INVEST.find(s => s.key === key)?.label || client?.etape || "—";
 }
-function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated, onMissionStageChange }) {
+function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated, onMissionStageChange, initialStepKey="", initialActionId="" }) {
   const [actions, setActions] = useState([]);
-  const [selectedStep, setSelectedStep] = useState(missionDetectStepKey(client));
+  const [selectedStep, setSelectedStep] = useState(initialStepKey || missionDetectStepKey(client));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const missionJustificatifFileRef = useRef(null);
   const missionJustificatifActionIdRef = useRef(null);
+  const missionHighlightedActionRef = useRef(null);
   const today = new Date().toISOString().slice(0,10);
   const charger = useCallback(async () => {
     if (!client?.id) return;
@@ -1274,7 +1341,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     }
     setLoading(false);
   }, [client?.id]);
-  useEffect(() => { setSelectedStep(missionDetectStepKey(client)); }, [client?.id, client?.etape, client?.statut]);
+  useEffect(() => { setSelectedStep(initialStepKey || missionDetectStepKey(client)); }, [client?.id, client?.etape, client?.statut, initialStepKey]);
   useEffect(() => { charger(); }, [charger]);
 
   const selected = MISSION_STEPS_INVEST.find(s => s.key === selectedStep) || MISSION_STEPS_INVEST[0];
@@ -1293,6 +1360,14 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
       label: missionCurrentStepLabelFromActions(actions, client),
     });
   }, [actions, client?.id, client?.etape, client?.statut, onMissionStageChange]);
+
+  useEffect(() => {
+    if (!initialActionId || loading) return;
+    const timer = setTimeout(() => {
+      missionHighlightedActionRef.current?.scrollIntoView?.({ behavior:"smooth", block:"center" });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [initialActionId, loading, actions.length]);
 
   const stepProgress = (key) => {
     const list = actions.filter(a => a.step_key === key);
@@ -1364,6 +1439,67 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     if (error) { setError(error.message); return; }
     charger();
   };
+  const notifyActionCompletionToMatthieu = async (action) => {
+    if (!action?.id) return;
+    const completedAt = action.completed_at ? new Date(action.completed_at).toLocaleString("fr-FR") : new Date().toLocaleString("fr-FR");
+    const actionUrl = missionBuildActionUrl(client?.id, action?.id, action?.step_key);
+    const subject = `[Profero Invest] Tâche complétée — ${action?.action_title || "Mission client"}`;
+    const body = [
+      "Bonjour Matthieu,",
+      "",
+      "Une tâche vient d'être marquée comme complétée dans le Parcours Mission Profero Invest.",
+      "",
+      `Client : ${missionClientDisplayName(client)}`,
+      `Étape : ${action?.step_label || "—"}`,
+      `Action : ${action?.action_title || "—"}`,
+      `Responsable : ${action?.responsable || "—"}`,
+      `Complétée le : ${completedAt}`,
+      actionUrl ? `Ouvrir directement la tâche : ${actionUrl}` : null,
+      "",
+      "Notification automatique Profero Invest",
+    ].filter(Boolean).join("\n");
+    const htmlBody = `
+      <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+          <div style="background:#111827;color:#ffffff;padding:18px 22px;">
+            <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#c9a34a;font-weight:700;">Profero Invest</div>
+            <div style="font-size:20px;font-weight:800;margin-top:4px;">Tâche complétée</div>
+          </div>
+          <div style="padding:22px;">
+            <p style="margin:0 0 16px;">Une tâche vient d'être marquée comme complétée.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:18px;">
+              <tr><td style="padding:8px 0;color:#64748b;width:135px;">Client</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(missionClientDisplayName(client))}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b;">Étape</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(action?.step_label || "—")}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b;">Action</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(action?.action_title || "—")}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b;">Responsable</td><td style="padding:8px 0;">${missionEscapeHtml(action?.responsable || "—")}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b;">Complétée le</td><td style="padding:8px 0;color:#16a34a;font-weight:800;">${missionEscapeHtml(completedAt)}</td></tr>
+            </table>
+            ${actionUrl ? `<a href="${missionEscapeHtml(actionUrl)}" style="display:inline-block;background:#c9a34a;color:#111827;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 18px;">Ouvrir la tâche</a>` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+    const { data, error } = await supabase.functions.invoke("send-mission-email", {
+      body: {
+        actionId: action.id,
+        clientId: client.id,
+        to: MISSION_COMPLETION_NOTIFICATION_EMAIL,
+        subject,
+        body,
+        htmlBody,
+        actionUrl,
+        responsable: action.responsable || "",
+        clientName: missionClientDisplayName(client),
+        senderEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
+        fromEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
+        notificationType: "mission_action_completed",
+      },
+    });
+    if (error || data?.error) {
+      console.warn("Notification tâche complétée non envoyée:", data?.error || error?.message || error);
+    }
+  };
+
   const updateAction = async (action, patch) => {
     const nowIso = new Date().toISOString();
     const cleanPatch = { ...patch };
@@ -1383,7 +1519,15 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
       .update({ ...cleanPatch, updated_at:nowIso })
       .eq("id", action.id);
 
-    if (error) { setError(error.message); charger(); }
+    if (error) {
+      setError(error.message);
+      charger();
+      return;
+    }
+
+    if (cleanPatch.status === "fait" && action.status !== "fait") {
+      notifyActionCompletionToMatthieu(optimistic);
+    }
   };
 
   const openMissionJustificatif = async (action) => {
@@ -1581,7 +1725,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         .eq("responsable", action.responsable);
       setActions(prev => prev.map(a => a.responsable === action.responsable ? { ...a, responsable_email: email } : a));
     }
-    const { subject, body } = missionBuildNotificationEmail({ ...action, responsable_email: email }, client);
+    const { subject, body, htmlBody, actionUrl } = missionBuildNotificationEmail({ ...action, responsable_email: email }, client);
     const preparingPatch = {
       responsable_email: email || action.responsable_email || null,
       notification_status: email ? "envoi_en_cours" : "bloque_sans_email",
@@ -1611,6 +1755,8 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         clientName: missionClientDisplayName(client),
         senderEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
         fromEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
+        htmlBody,
+        actionUrl,
       },
     });
 
@@ -1813,7 +1959,7 @@ Laisse vide pour créer un événement en journée entière.`,
         onChange={handleMissionJustificatifComputerFile}
       />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.10 mail + agenda via og</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.12 alertes tâches + liens directs</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -1843,16 +1989,29 @@ Laisse vide pour créer un événement en journée entière.`,
           {MISSION_STEPS_INVEST.map((s, idx) => {
             const p = stepProgress(s.key);
             const active = selected.key === s.key;
+            const notGenerated = p.total === 0;
+            const remaining = notGenerated ? s.actions.length : Math.max(0, p.total - p.done);
+            const isComplete = p.total > 0 && remaining === 0;
+            const needsAction = !isComplete;
+            const stepColor = active ? T.accent : needsAction ? "#dc2626" : "#16a34a";
+            const stepBg = active ? T.accentBg : needsAction ? "#fff1f2" : "#f0fdf4";
+            const stepBorder = active ? T.accent : needsAction ? "#fecdd3" : "#bbf7d0";
             return (
               <button key={s.key} onClick={() => setSelectedStep(s.key)} style={{
                 minWidth:0,padding:"8px 9px",borderRadius:10,cursor:"pointer",
-                border:`1px solid ${active ? T.accent : T.border}`,
-                background:active ? T.accentBg : T.input,color:active ? T.accent : T.text,
+                border:`1px solid ${stepBorder}`,
+                background:stepBg,color:stepColor,
                 textAlign:"left",
+                boxShadow:needsAction && !active ? "0 8px 18px rgba(220,38,38,.08)" : "none",
               }}>
-                <div style={{fontSize:10,fontWeight:900,opacity:.75}}>#{idx+1}</div>
-                <div style={{fontSize:11,fontWeight:900,whiteSpace:"normal",overflow:"visible",textOverflow:"clip",lineHeight:1.2,minHeight:26}}>{s.label}</div>
-                <div style={{height:4,borderRadius:999,background:"rgba(0,0,0,.08)",overflow:"hidden",marginTop:6}}><div style={{height:"100%",width:`${p.pct}%`,background:active ? T.accent : "#16a34a"}}/></div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+                  <div style={{fontSize:10,fontWeight:950,opacity:.9}}>#{idx+1}</div>
+                  <div style={{fontSize:9.5,fontWeight:950,border:`1px solid ${stepColor}33`,background:"#fff",borderRadius:999,padding:"1px 6px",whiteSpace:"nowrap"}}>
+                    {isComplete ? "OK" : notGenerated ? "à générer" : `${remaining} reste${remaining > 1 ? "nt" : ""}`}
+                  </div>
+                </div>
+                <div style={{fontSize:11,fontWeight:900,whiteSpace:"normal",overflow:"visible",textOverflow:"clip",lineHeight:1.2,minHeight:26,marginTop:3}}>{s.label}</div>
+                <div style={{height:4,borderRadius:999,background:"rgba(0,0,0,.08)",overflow:"hidden",marginTop:6}}><div style={{height:"100%",width:`${p.pct}%`,background:isComplete ? "#16a34a" : "#dc2626"}}/></div>
               </button>
             );
           })}
@@ -1873,8 +2032,14 @@ Laisse vide pour créer un événement en journée entière.`,
             {actionsStep.map(a => {
               const meta = missionStatusMeta(a.status);
               const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
+              const isDeepLinkedAction = initialActionId && String(a.id) === String(initialActionId);
               return (
-                <div key={a.id} style={{display:"grid",gridTemplateColumns:"24px minmax(270px,1.7fr) minmax(112px,.5fr) minmax(145px,.6fr) minmax(130px,.5fr) minmax(125px,.55fr) minmax(175px,.75fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isLate ? "#fecdd3" : T.border}`,background:isLate ? "#fff1f2" : "#fff",maxWidth:"100%",overflow:"hidden"}}>
+                <div
+                  key={a.id}
+                  ref={isDeepLinkedAction ? missionHighlightedActionRef : null}
+                  id={`mission-action-${a.id}`}
+                  style={{display:"grid",gridTemplateColumns:"24px minmax(270px,1.7fr) minmax(112px,.5fr) minmax(145px,.6fr) minmax(130px,.5fr) minmax(125px,.55fr) minmax(175px,.75fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isDeepLinkedAction ? T.accent : isLate ? "#fecdd3" : T.border}`,background:isDeepLinkedAction ? T.accentBg : isLate ? "#fff1f2" : "#fff",boxShadow:isDeepLinkedAction ? `0 0 0 3px ${T.accent}22` : "none",maxWidth:"100%",overflow:"hidden"}}
+                >
                   <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"visible",textOverflow:"clip",whiteSpace:"normal",lineHeight:1.35}}>{a.action_title}</div>
@@ -1920,7 +2085,7 @@ Laisse vide pour créer un événement en journée entière.`,
 }
 
 
-function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien }) {
+function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien, initialMissionStep="", initialMissionActionId="" }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
   const [props, setProps]     = useState([]);
@@ -2061,7 +2226,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
         </div>
 
         {/* Parcours Mission en pleine largeur */}
-        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} />
+        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} initialStepKey={initialMissionStep} initialActionId={initialMissionActionId} />
 
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
           {/* Colonne gauche */}
