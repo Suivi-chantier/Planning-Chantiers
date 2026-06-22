@@ -33,10 +33,11 @@ import {
   PieChart,
   TrendingUp,
   Bell,
+  ExternalLink,
 } from "lucide-react";
 
 /**
- * CRM Prospection — V17 analyse avancée : graphiques KPI + focus Fluidify + mail passage signé
+ * CRM Prospection — V18 Fluidify enrichi : champs dédiés + analyse avancée + mail passage signé
  *
  * Objectif :
  * - CRM volontairement simple
@@ -70,6 +71,7 @@ const SOURCES = [
   "Recommandation",
   "Instagram",
   "LinkedIn",
+  "Fluidify",
   "Congrès UPI",
   "Partenaire",
   "Bouche-à-oreille",
@@ -224,6 +226,44 @@ function moneyValue(p) {
 
 function isFluidifySource(source) {
   return String(source || "").toLowerCase().includes("fluidify");
+}
+
+function fluidifyData(p = {}) {
+  const root = p?.donnees || {};
+  const data = root.fluidify || root.Fluidify || {};
+
+  return {
+    icp: data.icp || "",
+    linkedin: data.linkedin || data.profil_linkedin || data.profilLinkedin || "",
+    date_lancement_campagne: data.date_lancement_campagne || data.dateLancementCampagne || "",
+    statut_conversation: data.statut_conversation || data.statutConversation || "",
+    type_reponse: data.type_reponse || data.typeReponse || "",
+    lien_conversation_lemlist: data.lien_conversation_lemlist || data.lienConversationLemlist || "",
+    funnel: data.funnel || "",
+    commentaires: data.commentaires || "",
+    imported_at: data.imported_at || "",
+    payload_original: data.payload_original || null,
+  };
+}
+
+function hasFluidifyData(p = {}) {
+  const data = fluidifyData(p);
+  return isFluidifySource(p.source) || Object.values(data).some(Boolean);
+}
+
+function fmtDateTimeMaybe(value) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(value);
+  }
 }
 
 function priorityScore(p) {
@@ -1056,6 +1096,12 @@ function FluidifyFocusCard({ prospects, T }) {
   const signed = fluidify.filter((p) => isSignedStatus(p.statut)).length;
   const signedCa = fluidify.filter((p) => isSignedStatus(p.statut)).reduce((s, p) => s + moneyValue(p), 0);
   const potential = fluidify.reduce((s, p) => s + moneyValue(p), 0);
+  const withLinkedIn = fluidify.filter((p) => Boolean(fluidifyData(p).linkedin)).length;
+  const withLemlist = fluidify.filter((p) => Boolean(fluidifyData(p).lien_conversation_lemlist)).length;
+  const withConversationStatus = fluidify.filter((p) => Boolean(fluidifyData(p).statut_conversation)).length;
+
+  const funnelRows = groupCount(fluidify, (p) => fluidifyData(p).funnel || "Non renseigné").slice(0, 5);
+  const conversationRows = groupCount(fluidify, (p) => fluidifyData(p).statut_conversation || "Non renseigné").slice(0, 5);
 
   const steps = [
     { label: "Leads", value: total, color: "#60A5FA" },
@@ -1094,7 +1140,7 @@ function FluidifyFocusCard({ prospects, T }) {
         />
       ))}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginTop: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 12 }}>
         <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, padding: 10, background: "rgba(255,255,255,.035)" }}>
           <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900 }}>CA potentiel</div>
           <div style={{ color: T.text, fontSize: 17, fontWeight: 950, marginTop: 3 }}>{fmtDashboardEur(potential)}</div>
@@ -1103,7 +1149,37 @@ function FluidifyFocusCard({ prospects, T }) {
           <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900 }}>CA signé</div>
           <div style={{ color: SU, fontSize: 17, fontWeight: 950, marginTop: 3 }}>{fmtDashboardEur(signedCa)}</div>
         </div>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, padding: 10, background: "rgba(255,255,255,.035)" }}>
+          <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900 }}>Données utiles</div>
+          <div style={{ color: T.text, fontSize: 12, fontWeight: 850, marginTop: 3, lineHeight: 1.45 }}>
+            LinkedIn : {withLinkedIn}/{total}<br />
+            Lemlist : {withLemlist}/{total}<br />
+            Statut conv. : {withConversationStatus}/{total}
+          </div>
+        </div>
       </div>
+
+      {(funnelRows.length > 0 || conversationRows.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginTop: 12 }}>
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>
+              Funnel Fluidify
+            </div>
+            {funnelRows.map((row) => (
+              <AdvancedBarRow key={row.label} label={row.label} value={row.value} max={Math.max(1, ...funnelRows.map((r) => r.value))} color={T.accent} T={T} valueLabel={String(row.value)} />
+            ))}
+          </div>
+
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>
+              Statut conversation
+            </div>
+            {conversationRows.map((row) => (
+              <AdvancedBarRow key={row.label} label={row.label} value={row.value} max={Math.max(1, ...conversationRows.map((r) => r.value))} color="#60A5FA" T={T} valueLabel={String(row.value)} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2063,6 +2139,137 @@ function PipelineView({
           T={T}
         />
       ))}
+    </div>
+  );
+}
+
+function FluidifyDetailCard({ prospect, T }) {
+  const data = fluidifyData(prospect);
+
+  if (!hasFluidifyData(prospect)) return null;
+
+  const rows = [
+    ["ICP", data.icp],
+    ["Funnel", data.funnel],
+    ["Statut conversation", data.statut_conversation],
+    ["Type de réponse", data.type_reponse],
+    ["Date lancement campagne", data.date_lancement_campagne ? fmtDate(data.date_lancement_campagne) : "—"],
+    ["Import Profero", data.imported_at ? fmtDateTimeMaybe(data.imported_at) : "—"],
+  ];
+
+  const hasLinkedIn = Boolean(data.linkedin);
+  const hasLemlist = Boolean(data.lien_conversation_lemlist);
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${T.accent}35`,
+        borderRadius: 18,
+        padding: 12,
+        margin: "10px 0 12px",
+        background: "linear-gradient(135deg, rgba(201,163,74,.13), rgba(255,255,255,.035))",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
+        <div>
+          <div style={{ color: T.text, fontSize: 13, fontWeight: 950, display: "flex", alignItems: "center", gap: 7 }}>
+            <Icon as={Target} size={14} />
+            Informations Fluidify
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2 }}>
+            Données reçues automatiquement depuis Saleslab / Fluidify
+          </div>
+        </div>
+
+        <Badge color={T.accent} T={T}>Source Fluidify</Badge>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 8,
+        }}
+      >
+        {rows.map(([label, value]) => (
+          <div
+            key={label}
+            style={{
+              border: `1px solid ${T.border}`,
+              background: "rgba(255,255,255,.035)",
+              borderRadius: 14,
+              padding: "8px 10px",
+              minHeight: 52,
+            }}
+          >
+            <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: ".06em" }}>
+              {label}
+            </div>
+            <div style={{ color: T.text, fontSize: 12.5, fontWeight: 800, marginTop: 4, lineHeight: 1.35 }}>
+              {value || "—"}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {(data.commentaires || hasLinkedIn || hasLemlist) && (
+        <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+          {data.commentaires && (
+            <div
+              style={{
+                border: `1px solid ${T.border}`,
+                background: "rgba(255,255,255,.035)",
+                borderRadius: 14,
+                padding: 10,
+              }}
+            >
+              <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>
+                Commentaires Fluidify
+              </div>
+              <div style={{ color: T.textSub, fontSize: 12.5, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                {data.commentaires}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {hasLinkedIn && (
+              <a
+                className="inv-btn inv-btn-out inv-btn-sm"
+                href={data.linkedin}
+                target="_blank"
+                rel="noreferrer"
+                style={{ textDecoration: "none" }}
+              >
+                <Icon as={ExternalLink} size={12} />
+                Ouvrir LinkedIn
+              </a>
+            )}
+
+            {hasLemlist && (
+              <a
+                className="inv-btn inv-btn-out inv-btn-sm"
+                href={data.lien_conversation_lemlist}
+                target="_blank"
+                rel="noreferrer"
+                style={{ textDecoration: "none" }}
+              >
+                <Icon as={ExternalLink} size={12} />
+                Conversation Lemlist
+              </a>
+            )}
+
+            <button
+              className="inv-btn inv-btn-out inv-btn-sm"
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(JSON.stringify(data, null, 2))}
+            >
+              <Icon as={Copy} size={12} />
+              Copier données Fluidify
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3391,6 +3598,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <StatusPills value={form.statut} onChange={quickStatus} />
                 </div>
 
+                {selected?.id && <FluidifyDetailCard prospect={selected} T={T} />}
+
                 <SectionTitle icon={UserPlus} title="Identité du prospect" T={T} />
 
                 <div
@@ -3741,7 +3950,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                 }}
               >
                 <div style={{ color: T.textMuted, fontSize: 12 }}>
-                  Formats acceptés : CSV avec en-têtes, liste au séparateur point-virgule, blocs texte avec Téléphone / Email / Budget.
+                  Formats acceptés : CSV avec en-têtes, liste au séparateur point-virgule, blocs texte avec Téléphone / Email / Budget. Les leads API Fluidify sont reçus automatiquement avec source = Fluidify et statut = Nouveau.
                 </div>
 
                 <div style={{ display: "flex", gap: 8 }}>
