@@ -2423,17 +2423,56 @@ function mapVisiteLotsToSimulateurLots(visiteData = {}) {
     });
 }
 
+function deepCloneSimulationData(value) {
+  if (value === null || value === undefined) return value;
+
+  try {
+    if (typeof structuredClone === "function") {
+      return structuredClone(value);
+    }
+  } catch (e) {
+    // fallback JSON ci-dessous
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (e) {
+    if (Array.isArray(value)) return value.map((item) => deepCloneSimulationData(item));
+    if (typeof value === "object") return { ...value };
+    return value;
+  }
+}
+
+function hasMeaningfulSimulationLot(lot = {}) {
+  const type = String(lot.type || "").trim();
+  const hasType = type && type !== "Sélectionner";
+  const hasSurface = numVal(lot.m2 || lot.surface) > 0;
+  const hasLoyer = numVal(lot.loyer) > 0;
+  const hasComment = String(lot.comment || lot.commentaire || "").trim() !== "";
+
+  return hasType || hasSurface || hasLoyer || hasComment;
+}
+
 function syncSimulateurFromVisiteData(visiteData = {}, bien = {}) {
-  const existingSim = visiteData?.simulateur || {};
-  const existingInputs = existingSim.inputs || {};
-  const existingSelects = existingSim.selects || {};
-  const existingDescriptions = existingSim.descriptions || {};
+  const existingSim = deepCloneSimulationData(visiteData?.simulateur || {});
+  const existingInputs = deepCloneSimulationData(existingSim.inputs || {});
+  const existingSelects = deepCloneSimulationData(existingSim.selects || {});
+  const existingDescriptions = deepCloneSimulationData(existingSim.descriptions || {});
   const finance = visiteData.finance || {};
   const general = visiteData.general || {};
   const dpe = visiteData.dpe || {};
   const marche = visiteData.marche || {};
-  const lots = mapVisiteLotsToSimulateurLots(visiteData);
-  const surfaceFromLots = lots.reduce((s,l)=>s+(l.m2||0),0);
+
+  const lotsFromVisite = mapVisiteLotsToSimulateurLots(visiteData);
+  const existingLots = Array.isArray(existingSim.lots)
+    ? deepCloneSimulationData(existingSim.lots)
+    : [];
+
+  const shouldKeepExistingLots = existingLots.some(hasMeaningfulSimulationLot);
+  const lots = shouldKeepExistingLots ? existingLots : lotsFromVisite;
+
+  const surfaceFromLots = lots.reduce((s, l) => s + (numVal(l.m2 || l.surface) || 0), 0);
+
   const pickPositive = (...vals) => {
     for (const v of vals) {
       const n = numVal(v);
@@ -2441,10 +2480,16 @@ function syncSimulateurFromVisiteData(visiteData = {}, bien = {}) {
     }
     return 0;
   };
-  const prixAffiche = pickPositive(general.prix_affiche, bien.prix_vente, existingInputs.prixAffiche);
-  const prixNegocie = pickPositive(finance.prix_acquisition_negocie, bien.montant_offre, existingInputs.prixNegocie, prixAffiche);
-  const budgetTravaux = pickPositive(finance.budget_travaux_ttc, bien.prix_travaux, existingInputs.budgetTravaux);
-  const surface = pickPositive(general.surface_totale, bien.surface_totale, existingInputs.surface, surfaceFromLots);
+
+  // IMPORTANT :
+  // On privilégie maintenant les valeurs déjà présentes dans la simulation.
+  // Avant, les valeurs de la fiche bien repassaient devant et écrasaient chaque simulation,
+  // ce qui faisait que l'original et le duplicata semblaient rester liés.
+  const prixAffiche = pickPositive(existingInputs.prixAffiche, general.prix_affiche, bien.prix_vente);
+  const prixNegocie = pickPositive(existingInputs.prixNegocie, finance.prix_acquisition_negocie, bien.montant_offre, prixAffiche);
+  const budgetTravaux = pickPositive(existingInputs.budgetTravaux, finance.budget_travaux_ttc, bien.prix_travaux);
+  const surface = pickPositive(existingInputs.surface, general.surface_totale, bien.surface_totale, surfaceFromLots);
+
   const adresse = [
     visiteData.identification?.adresse || bien.adresse,
     visiteData.identification?.code_postal || bien.code_postal,
@@ -2454,8 +2499,9 @@ function syncSimulateurFromVisiteData(visiteData = {}, bien = {}) {
   return {
     ...existingSim,
     version: existingSim.version || 4,
-    savedAt: new Date().toISOString(),
+    savedAt: existingSim.savedAt || new Date().toISOString(),
     projectName: existingSim.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
+
     inputs: {
       tauxNotaire: 0.08,
       enedis: 0,
@@ -2476,8 +2522,9 @@ function syncSimulateurFromVisiteData(visiteData = {}, bien = {}) {
       prixNegocie,
       budgetTravaux,
       surface,
-      honoraires: pickPositive(finance.frais_profero, existingInputs.honoraires),
+      honoraires: pickPositive(existingInputs.honoraires, finance.frais_profero),
     },
+
     selects: {
       gestionActive: false,
       modeDetention: "IS",
@@ -2485,19 +2532,33 @@ function syncSimulateurFromVisiteData(visiteData = {}, bien = {}) {
       selectedScenario: 1,
       ...existingSelects,
     },
-    lots: lots.length ? lots : (Array.isArray(existingSim.lots) && existingSim.lots.length ? existingSim.lots : [{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}]),
-    budgetQty: existingSim.budgetQty || {},
-    budgetPrice: existingSim.budgetPrice || {},
-    customDivers: Array.isArray(existingSim.customDivers) ? existingSim.customDivers : [],
+
+    lots: lots.length
+      ? deepCloneSimulationData(lots)
+      : [{ type: "Sélectionner", m2: 0, loyer: 0, niveau: "RDC", comment: "" }],
+
+    // Partie travaux :
+    // budgetQty et budgetPrice sont clonés pour que les lignes travaux du duplicata
+    // ne pointent plus vers les mêmes objets que la simulation d'origine.
+    budgetQty: deepCloneSimulationData(existingSim.budgetQty || {}),
+    budgetPrice: deepCloneSimulationData(existingSim.budgetPrice || {}),
+    customDivers: Array.isArray(existingSim.customDivers)
+      ? deepCloneSimulationData(existingSim.customDivers)
+      : [],
+
     descriptions: {
-      description: bien.commentaire || existingDescriptions.description || "",
-      travaux: dpe.travaux_energetiques || existingDescriptions.travaux || "",
-      atouts: marche.points_forts || existingDescriptions.atouts || "",
-      adresse: adresse || existingDescriptions.adresse || "",
+      description: existingDescriptions.description || bien.commentaire || "",
+      travaux: existingDescriptions.travaux || dpe.travaux_energetiques || "",
+      atouts: existingDescriptions.atouts || marche.points_forts || "",
+      adresse: existingDescriptions.adresse || adresse || "",
     },
-    photos: Array.isArray(existingSim.photos) ? existingSim.photos : [null,null,null,null],
+
+    photos: Array.isArray(existingSim.photos)
+      ? deepCloneSimulationData(existingSim.photos)
+      : [null, null, null, null],
+
     bien_id: bien.id || existingSim.bien_id || null,
-    synced_from_fiche_bien_at: new Date().toISOString(),
+    synced_from_fiche_bien_at: existingSim.synced_from_fiche_bien_at || new Date().toISOString(),
   };
 }
 
@@ -2505,19 +2566,71 @@ function makeSimulationId() {
   return `sim_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function duplicateSimulationDonnees(source = {}, { newSimulationId, name, bienId }) {
+  const cloned = deepCloneSimulationData(source || {});
+  const now = new Date().toISOString();
+
+  return {
+    ...cloned,
+    projectName: name,
+    simulation_id: newSimulationId,
+    bien_id: bienId || cloned.bien_id || null,
+    savedAt: now,
+    duplicated_at: now,
+    duplicated_from_simulation_id: cloned.simulation_id || null,
+
+    inputs: deepCloneSimulationData(cloned.inputs || {}),
+    selects: deepCloneSimulationData(cloned.selects || {}),
+
+    lots: Array.isArray(cloned.lots)
+      ? deepCloneSimulationData(cloned.lots)
+      : [{ type: "Sélectionner", m2: 0, loyer: 0, niveau: "RDC", comment: "" }],
+
+    // Partie travaux indépendante
+    budgetQty: deepCloneSimulationData(cloned.budgetQty || {}),
+    budgetPrice: deepCloneSimulationData(cloned.budgetPrice || {}),
+    customDivers: Array.isArray(cloned.customDivers)
+      ? deepCloneSimulationData(cloned.customDivers)
+      : [],
+
+    descriptions: deepCloneSimulationData(cloned.descriptions || {}),
+    photos: Array.isArray(cloned.photos)
+      ? deepCloneSimulationData(cloned.photos)
+      : [null, null, null, null],
+  };
+}
+
 function makeSimulationEntry({ id = makeSimulationId(), nom = "Simulation", donnees = {}, createdAt = null } = {}) {
   const now = new Date().toISOString();
-  const label = nom || donnees?.projectName || "Simulation";
+  const clonedDonnees = deepCloneSimulationData(donnees || {});
+  const label = nom || clonedDonnees?.projectName || "Simulation";
+
   return {
     id,
     nom: label,
     created_at: createdAt || now,
     updated_at: now,
     donnees: {
-      ...(donnees || {}),
+      ...clonedDonnees,
       projectName: label,
       simulation_id: id,
-      savedAt: donnees?.savedAt || now,
+      bien_id: clonedDonnees?.bien_id || null,
+      savedAt: clonedDonnees?.savedAt || now,
+
+      inputs: deepCloneSimulationData(clonedDonnees.inputs || {}),
+      selects: deepCloneSimulationData(clonedDonnees.selects || {}),
+      lots: Array.isArray(clonedDonnees.lots)
+        ? deepCloneSimulationData(clonedDonnees.lots)
+        : [{ type: "Sélectionner", m2: 0, loyer: 0, niveau: "RDC", comment: "" }],
+      budgetQty: deepCloneSimulationData(clonedDonnees.budgetQty || {}),
+      budgetPrice: deepCloneSimulationData(clonedDonnees.budgetPrice || {}),
+      customDivers: Array.isArray(clonedDonnees.customDivers)
+        ? deepCloneSimulationData(clonedDonnees.customDivers)
+        : [],
+      descriptions: deepCloneSimulationData(clonedDonnees.descriptions || {}),
+      photos: Array.isArray(clonedDonnees.photos)
+        ? deepCloneSimulationData(clonedDonnees.photos)
+        : [null, null, null, null],
     },
   };
 }
@@ -2535,27 +2648,47 @@ function buildDefaultSimulateurStateFromBien(bien = {}) {
   const label = `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`;
 
   return {
-    version:4,
+    version: 4,
     savedAt: bien.updated_at || new Date().toISOString(),
     projectName: label,
     inputs: {
-      prixAffiche, prixNegocie, budgetTravaux, tauxNotaire:0.08, surface,
+      prixAffiche,
+      prixNegocie,
+      budgetTravaux,
+      tauxNotaire: 0.08,
+      surface,
       honoraires: parseFloat(finance.frais_profero) || 0,
-      enedis:0,
-      taxeFonciere:0, assurance:0, compta:0, provisions:0,
-      apport1:0, apport2:0, taux1:4.20, taux2:4.20, duree1:20, duree2:25,
-      coefEtat:1.0, imprevusPct:10,
+      enedis: 0,
+      taxeFonciere: 0,
+      assurance: 0,
+      compta: 0,
+      provisions: 0,
+      apport1: 0,
+      apport2: 0,
+      taux1: 4.20,
+      taux2: 4.20,
+      duree1: 20,
+      duree2: 25,
+      coefEtat: 1.0,
+      imprevusPct: 10,
     },
-    selects: { gestionActive:false, modeDetention:"IS", tmi:"0.30", selectedScenario:1 },
-    lots: lots.length ? lots : [{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}],
-    budgetQty:{}, budgetPrice:{}, customDivers:[],
+    selects: {
+      gestionActive: false,
+      modeDetention: "IS",
+      tmi: "0.30",
+      selectedScenario: 1,
+    },
+    lots: lots.length ? deepCloneSimulationData(lots) : [{ type: "Sélectionner", m2: 0, loyer: 0, niveau: "RDC", comment: "" }],
+    budgetQty: {},
+    budgetPrice: {},
+    customDivers: [],
     descriptions: {
       description: bien.commentaire || "",
       travaux: visite.dpe?.travaux_energetiques || "",
       atouts: visite.marche?.points_forts || "",
       adresse: [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", "),
     },
-    photos:[null,null,null,null],
+    photos: [null, null, null, null],
     bien_id: bien.id || null,
   };
 }
@@ -2568,13 +2701,15 @@ function getBienSimulations(bien = {}) {
     return sims.map((s, idx) => {
       const id = s.id || makeSimulationId();
       const nom = s.nom || s.donnees?.projectName || `Simulation ${idx + 1}`;
+
       return makeSimulationEntry({
         id,
         nom,
         donnees: {
-          ...(s.donnees || {}),
+          ...deepCloneSimulationData(s.donnees || {}),
           projectName: nom,
           bien_id: bien.id || s.donnees?.bien_id || null,
+          simulation_id: id,
         },
         createdAt: s.created_at,
       });
@@ -2583,23 +2718,35 @@ function getBienSimulations(bien = {}) {
 
   if (visite.simulateur) {
     const label = visite.simulateur.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`;
+    const id = visite.simulateur.simulation_id || visite.simulateur_active_id || `sim_default_${bien.id || "bien"}`;
+
     return [makeSimulationEntry({
-      id: visite.simulateur.simulation_id || visite.simulateur_active_id || `sim_default_${bien.id || "bien"}`,
+      id,
       nom: label,
       donnees: {
-        ...visite.simulateur,
+        ...deepCloneSimulationData(visite.simulateur),
         projectName: label,
         bien_id: bien.id || visite.simulateur.bien_id || null,
+        simulation_id: id,
       },
       createdAt: visite.simulateur.savedAt || bien.updated_at,
     })];
   }
 
-  const defaultState = syncSimulateurFromVisiteData({ ...visite, simulateur: buildDefaultSimulateurStateFromBien(bien) }, bien);
+  const defaultState = syncSimulateurFromVisiteData(
+    { ...visite, simulateur: buildDefaultSimulateurStateFromBien(bien) },
+    bien
+  );
+
+  const id = visite.simulateur_active_id || `sim_default_${bien.id || "bien"}`;
+
   return [makeSimulationEntry({
-    id: visite.simulateur_active_id || `sim_default_${bien.id || "bien"}`,
+    id,
     nom: defaultState.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`,
-    donnees: defaultState,
+    donnees: {
+      ...defaultState,
+      simulation_id: id,
+    },
     createdAt: bien.created_at,
   })];
 }
@@ -2613,7 +2760,12 @@ function getActiveSimulationEntry(bien = {}, selectedSimulationId = "") {
 
 function buildSimulateurProjectFromBien(bien = {}, selectedSimulationId = "") {
   const active = getActiveSimulationEntry(bien, selectedSimulationId);
-  const synced = syncSimulateurFromVisiteData({ ...(bien.visite_data || {}), simulateur: active?.donnees || null }, bien);
+  const activeData = deepCloneSimulationData(active?.donnees || {});
+  const synced = syncSimulateurFromVisiteData(
+    { ...(bien.visite_data || {}), simulateur: activeData },
+    bien
+  );
+
   const nom = active?.nom || synced.projectName || `Simulation — ${bien.reference_interne || bien.adresse || "Bien"}`;
 
   return {
@@ -2621,10 +2773,10 @@ function buildSimulateurProjectFromBien(bien = {}, selectedSimulationId = "") {
     nom,
     client_id: "",
     donnees: {
-      ...synced,
+      ...deepCloneSimulationData(synced),
       projectName: nom,
-      simulation_id: active?.id || selectedSimulationId || null,
-      bien_id: bien.id || null,
+      simulation_id: active?.id || selectedSimulationId || synced.simulation_id || null,
+      bien_id: bien.id || synced.bien_id || null,
     },
   };
 }
@@ -3057,77 +3209,174 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
 
   const persistSimulationsBien = async (nextSimulations, activeId, legacySimulation = null) => {
     if (!bien) return;
-    const active = nextSimulations.find(s => s.id === activeId) || nextSimulations[0] || null;
+
+    const cleanSimulations = (Array.isArray(nextSimulations) ? nextSimulations : [])
+      .filter(Boolean)
+      .map((s, index) => {
+        const simId = s.id || s.donnees?.simulation_id || makeSimulationId();
+        const simName = s.nom || s.donnees?.projectName || `Simulation ${index + 1}`;
+
+        return makeSimulationEntry({
+          id: simId,
+          nom: simName,
+          donnees: {
+            ...deepCloneSimulationData(s.donnees || {}),
+            projectName: simName,
+            bien_id: bien.id || id,
+            simulation_id: simId,
+          },
+          createdAt: s.created_at,
+        });
+      });
+
+    const active = cleanSimulations.find(s => s.id === activeId) || cleanSimulations[0] || null;
+
+    const activeLegacySimulation = legacySimulation
+      ? deepCloneSimulationData(legacySimulation)
+      : deepCloneSimulationData(active?.donnees || bien.visite_data?.simulateur || null);
+
     const updatedVisiteData = {
       ...(bien.visite_data || {}),
-      simulateurs: nextSimulations,
+      simulateurs: cleanSimulations,
       simulateur_active_id: active?.id || "",
-      simulateur: legacySimulation || active?.donnees || bien.visite_data?.simulateur || null,
+      simulateur: activeLegacySimulation,
       simulateur_updated_at: new Date().toISOString(),
     };
-    const { error } = await supabase.from("invest_biens").update({ visite_data: updatedVisiteData }).eq("id", id);
+
+    const { error } = await supabase
+      .from("invest_biens")
+      .update({ visite_data: updatedVisiteData })
+      .eq("id", id);
+
     if (error) {
       alert("Erreur simulation : " + error.message);
       return;
     }
-    setBien(prev => ({ ...prev, visite_data: updatedVisiteData }));
+
+    setBien(prev => ({
+      ...prev,
+      visite_data: deepCloneSimulationData(updatedVisiteData),
+    }));
+
     setSelectedSimulationId(active?.id || "");
     charger();
   };
 
   const creerSimulationBien = async () => {
     if (!bien) return;
-    const name = window.prompt("Nom de la nouvelle simulation", `Simulation ${getBienSimulations(bien).length + 1}`);
+
+    const name = window.prompt(
+      "Nom de la nouvelle simulation",
+      `Simulation ${getBienSimulations(bien).length + 1}`
+    );
+
     if (!name) return;
-    const baseState = syncSimulateurFromVisiteData({ ...(bien.visite_data || {}), simulateur: buildDefaultSimulateurStateFromBien(bien) }, bien);
+
+    const newId = makeSimulationId();
+
+    const baseState = syncSimulateurFromVisiteData(
+      { ...(bien.visite_data || {}), simulateur: buildDefaultSimulateurStateFromBien(bien) },
+      bien
+    );
+
     const entry = makeSimulationEntry({
+      id: newId,
       nom: name.trim(),
-      donnees: { ...baseState, projectName: name.trim(), bien_id: bien.id || id },
+      donnees: {
+        ...deepCloneSimulationData(baseState),
+        projectName: name.trim(),
+        bien_id: bien.id || id,
+        simulation_id: newId,
+        savedAt: new Date().toISOString(),
+      },
     });
+
     await persistSimulationsBien([...getBienSimulations(bien), entry], entry.id, entry.donnees);
   };
 
   const dupliquerSimulationBien = async () => {
     if (!bien) return;
+
     const sims = getBienSimulations(bien);
     const active = getActiveSimulationEntry(bien, selectedSimulationId);
+
     if (!active) return;
-    const name = window.prompt("Nom de la simulation dupliquée", `${active.nom || "Simulation"} — copie`);
+
+    const name = window.prompt(
+      "Nom de la simulation dupliquée",
+      `${active.nom || "Simulation"} — copie`
+    );
+
     if (!name) return;
-    const clonedData = JSON.parse(JSON.stringify(active.donnees || {}));
-    const entry = makeSimulationEntry({
-      nom: name.trim(),
-      donnees: { ...clonedData, projectName: name.trim(), bien_id: bien.id || id },
+
+    const newId = makeSimulationId();
+
+    const clonedData = duplicateSimulationDonnees(active.donnees || {}, {
+      newSimulationId: newId,
+      name: name.trim(),
+      bienId: bien.id || id,
     });
+
+    const entry = makeSimulationEntry({
+      id: newId,
+      nom: name.trim(),
+      donnees: clonedData,
+    });
+
     await persistSimulationsBien([...sims, entry], entry.id, entry.donnees);
   };
 
   const renommerSimulationBien = async () => {
     if (!bien) return;
+
     const sims = getBienSimulations(bien);
     const active = getActiveSimulationEntry(bien, selectedSimulationId);
+
     if (!active) return;
+
     const name = window.prompt("Nouveau nom de la simulation", active.nom || "Simulation");
+
     if (!name) return;
-    const next = sims.map(s => s.id === active.id ? makeSimulationEntry({
-      id: s.id,
-      nom: name.trim(),
-      donnees: { ...(s.donnees || {}), projectName: name.trim(), bien_id: bien.id || id },
-      createdAt: s.created_at,
-    }) : s);
-    await persistSimulationsBien(next, active.id, next.find(s => s.id === active.id)?.donnees || null);
+
+    const next = sims.map(s => {
+      if (s.id !== active.id) return s;
+
+      return makeSimulationEntry({
+        id: s.id,
+        nom: name.trim(),
+        donnees: {
+          ...deepCloneSimulationData(s.donnees || {}),
+          projectName: name.trim(),
+          bien_id: bien.id || id,
+          simulation_id: s.id,
+          savedAt: new Date().toISOString(),
+        },
+        createdAt: s.created_at,
+      });
+    });
+
+    await persistSimulationsBien(
+      next,
+      active.id,
+      next.find(s => s.id === active.id)?.donnees || null
+    );
   };
 
   const supprimerSimulationBien = async () => {
     if (!bien) return;
+
     const sims = getBienSimulations(bien);
     const active = getActiveSimulationEntry(bien, selectedSimulationId);
+
     if (!active) return;
+
     if (sims.length <= 1) {
       alert("Il faut conserver au moins une simulation pour le bien.");
       return;
     }
+
     if (!window.confirm(`Supprimer la simulation « ${active.nom} » ?`)) return;
+
     const next = sims.filter(s => s.id !== active.id);
     await persistSimulationsBien(next, next[0]?.id || "", next[0]?.donnees || null);
   };
