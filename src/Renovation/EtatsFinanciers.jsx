@@ -4060,6 +4060,233 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   const moyH = nbMoisSaisis > 0 ? totalH / nbMoisSaisis : 0;
   const tauxHoraire = moyH > 0 ? moyFG / moyH : 0;
 
+  // ── Export PDF : synthèse de toute la page ───────────────────────────────────
+  const imprimerSynthese = () => {
+    const esc = (s) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    const dateStr = new Date().toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+
+    // — Avancement de chantier : période active —
+    const avPeriods = avancement.periods || [];
+    const avPeriod = avPeriods.find(p => p.id === activeAvancementPeriodId) || avPeriods[0];
+    const avPeriodId = avPeriod?.id;
+    const avRows = (avancement.rows || [])
+      .map(row => {
+        const hasPeriodData = Boolean(
+          avPeriodId && row.values && Object.prototype.hasOwnProperty.call(row.values, avPeriodId)
+        );
+        const values = row.values?.[avPeriodId] || {};
+        const montantHT = parseNumber(values.montantHT);
+        const avancementReel = parsePercent(values.avancementReel);
+        const pctFacture = parsePercent(values.pctFacture);
+        const pctProvisionnerLocked = isAvancementFieldLocked(values, "pctProvisionner");
+        const caProvisionnerLocked = isAvancementFieldLocked(values, "caProvisionner");
+        const autoPctProvisionner = avancementReel - pctFacture;
+        const pctProvisionner = pctProvisionnerLocked ? autoPctProvisionner : parsePercent(values.pctProvisionner);
+        const autoCaProvisionner = montantHT * pctProvisionner;
+        const caProvisionner = caProvisionnerLocked ? autoCaProvisionner : parseNumber(values.caProvisionner);
+        return {
+          values, hasPeriodData, montantHT, avancementReel, pctFacture, pctProvisionner, caProvisionner,
+          isCompleted: avancementReel >= 1,
+          sourceRow: parseNumber(values.sourceRow) || 9999,
+        };
+      })
+      .filter(item => item.hasPeriodData)
+      .sort((a, b) => {
+        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+        return a.sourceRow - b.sourceRow;
+      });
+    const avTotalHT = avRows.reduce((s, i) => s + i.montantHT, 0);
+    const avTotalProv = avRows.reduce((s, i) => s + i.caProvisionner, 0);
+    const avMoyenne = avRows.length ? avRows.reduce((s, i) => s + i.avancementReel, 0) / avRows.length : 0;
+
+    // — Achat : période active —
+    const acPeriods = achat?.periods?.length ? achat.periods : DEFAULT_ACHAT_PERIODS;
+    const acPeriod = acPeriods.find(p => p.id === activeAchatPeriodId) || acPeriods[0];
+    const acPeriodId = acPeriod?.id;
+    const acInvoices = achat?.invoicesByPeriod?.[acPeriodId] || [];
+    const acTotalHT = acInvoices.reduce((s, inv) => s + parseNumber(inv.montantHT), 0);
+    const acTotalTTC = acInvoices.reduce((s, inv) => s + parseNumber(inv.montantTTC), 0);
+    const acNbControler = acInvoices.filter(inv => inv.controle === "a_controler").length;
+    const acNbPayer = acInvoices.filter(inv => inv.reglement === "a_regler" || inv.reglement === "partiel").length;
+    const typoLabel = (v) => ACHAT_TYPOLOGIES.find(o => o.value === v)?.label || "À classifier";
+    const ctrlLabel = (v) => ACHAT_CONTROLES.find(o => o.value === v)?.label || "—";
+    const reglLabel = (v) => ACHAT_REGLEMENTS.find(o => o.value === v)?.label || "—";
+
+    const kpi = (label, val, cls = "") =>
+      `<div class="kpi"><div class="kpi-label">${esc(label)}</div><div class="kpi-val ${cls}">${val}</div></div>`;
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <title>États financiers — Synthèse PROFERO</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8f8f6; color: #1a1a1a; padding: 36px; }
+          .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 30px; padding-bottom: 18px; border-bottom: 2px solid #1a1a1a; }
+          .logo { font-size: 26px; font-weight: 900; letter-spacing: -1px; color: #1a1a1a; }
+          .logo span { color: #f5a623; }
+          .date { font-size: 13px; color: #666; text-align: right; }
+          .titre-rapport { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 4px; }
+          .section { margin-bottom: 34px; page-break-inside: avoid; }
+          .section-title { font-size: 14px; font-weight: 800; color: #1a1a1a; margin-bottom: 4px; }
+          .section-sub { font-size: 12px; color: #888; margin-bottom: 14px; }
+          .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+          .kpis.four { grid-template-columns: repeat(4, 1fr); }
+          .kpi { background: white; border-radius: 10px; padding: 14px 16px; border: 1px solid #e8e8e4; }
+          .kpi-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 6px; }
+          .kpi-val { font-size: 21px; font-weight: 800; color: #1a1a1a; }
+          .kpi-val.green { color: #1a7a4a; }
+          .kpi-val.red { color: #c0392b; }
+          .kpi-val.accent { color: #b9791a; }
+          table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; border: 1px solid #e8e8e4; font-size: 12px; }
+          thead th { background: #f1f1ed; text-align: left; padding: 9px 11px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #777; border-bottom: 1px solid #e0e0db; }
+          th.r, td.r { text-align: right; }
+          tbody td { padding: 8px 11px; border-bottom: 1px solid #f0f0ec; }
+          tbody tr:last-child td { border-bottom: none; }
+          tr.done td { background: #fff7e3; }
+          tfoot td { padding: 10px 11px; font-weight: 800; background: #f1f1ed; border-top: 2px solid #e0e0db; }
+          .neg { color: #c0392b; }
+          .pos { color: #1a7a4a; }
+          .muted { color: #999; }
+          .empty { padding: 18px; text-align: center; color: #aaa; font-size: 12px; background: white; border: 1px solid #e8e8e4; border-radius: 10px; }
+          .footer { margin-top: 30px; padding-top: 14px; border-top: 1px solid #e8e8e4; display: flex; justify-content: space-between; font-size: 11px; color: #aaa; }
+          @media print { body { background: white; padding: 16px; } @page { margin: 1cm; size: A4 landscape; } .section { page-break-inside: auto; } }
+        </style>
+      </head>
+      <body>
+        <div class="page-header">
+          <div>
+            <div class="titre-rapport">États financiers — Synthèse</div>
+            <div class="logo">PRO<span>FERO</span></div>
+          </div>
+          <div class="date">${dateStr}</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Frais généraux</div>
+          <div class="section-sub">Suivi mensuel · ${nbMoisSaisis} mois saisi${nbMoisSaisis > 1 ? "s" : ""}</div>
+          <div class="kpis">
+            ${kpi("Moyenne FG / mois", fmtEur(moyFG))}
+            ${kpi("Moyenne heures / mois", fmtH(moyH))}
+            ${kpi("Taux horaire FG", fmtTaux(tauxHoraire), "accent")}
+          </div>
+          <table>
+            <thead><tr><th>Mois</th><th class="r">Frais généraux</th><th class="r">Heures</th></tr></thead>
+            <tbody>
+              ${parsed.map(p => `
+                <tr>
+                  <td${p.hasData ? "" : ' class="muted"'}>${esc(p.label)}</td>
+                  <td class="r">${p.fg ? fmtEur(p.fg) : "—"}</td>
+                  <td class="r">${p.heures ? fmtH(p.heures) : "—"}</td>
+                </tr>`).join("")}
+            </tbody>
+            <tfoot><tr><td>Total</td><td class="r">${fmtEur(totalFG)}</td><td class="r">${fmtH(totalH)}</td></tr></tfoot>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Avancement de chantier</div>
+          <div class="section-sub">Période : ${esc(avPeriod?.label || "—")}</div>
+          <div class="kpis">
+            ${kpi("Total HT", fmtEur(avTotalHT))}
+            ${kpi("CA à provisionner", fmtEur(avTotalProv), avTotalProv >= 0 ? "accent" : "red")}
+            ${kpi("Avancement moyen", fmtPct(avMoyenne))}
+          </div>
+          ${avRows.length === 0 ? '<div class="empty">Aucun chantier saisi sur cette période.</div>' : `
+          <table>
+            <thead><tr>
+              <th>Devis</th><th>Chantier</th><th class="r">Montant HT</th>
+              <th class="r">Avanc. réel</th><th class="r">% facturé</th>
+              <th class="r">% à provis.</th><th class="r">CA à provis.</th>
+            </tr></thead>
+            <tbody>
+              ${avRows.map(i => `
+                <tr${i.isCompleted ? ' class="done"' : ""}>
+                  <td>${esc(i.values.devis || "—")}</td>
+                  <td>${esc(i.values.chantier || "—")}</td>
+                  <td class="r">${fmtEur(i.montantHT)}</td>
+                  <td class="r">${fmtPct(i.avancementReel)}</td>
+                  <td class="r">${fmtPct(i.pctFacture)}</td>
+                  <td class="r ${i.pctProvisionner < 0 ? "neg" : "pos"}">${fmtPct(i.pctProvisionner)}</td>
+                  <td class="r ${i.caProvisionner < 0 ? "neg" : "pos"}">${fmtEur(i.caProvisionner)}</td>
+                </tr>`).join("")}
+            </tbody>
+            <tfoot><tr>
+              <td colspan="2">Total — avancement moyen ${fmtPct(avMoyenne)}</td>
+              <td class="r">${fmtEur(avTotalHT)}</td>
+              <td colspan="3"></td>
+              <td class="r ${avTotalProv < 0 ? "neg" : "pos"}">${fmtEur(avTotalProv)}</td>
+            </tr></tfoot>
+          </table>`}
+        </div>
+
+        <div class="section">
+          <div class="section-title">Achat</div>
+          <div class="section-sub">Période : ${esc(acPeriod?.label || "—")}</div>
+          <div class="kpis four">
+            ${kpi("Factures", String(acInvoices.length))}
+            ${kpi("Total HT", fmtEur(acTotalHT))}
+            ${kpi("Total TTC", fmtEur(acTotalTTC))}
+            ${kpi("À contrôler / payer", `${acNbControler} / ${acNbPayer}`, "accent")}
+          </div>
+          ${acInvoices.length === 0 ? '<div class="empty">Aucune facture importée sur cette période.</div>' : `
+          <table>
+            <thead><tr>
+              <th>Fournisseur</th><th>Typologie</th><th>Date</th><th>N° facture</th>
+              <th class="r">€ HT</th><th class="r">€ TTC</th><th>Contrôle</th><th>Règlement</th>
+            </tr></thead>
+            <tbody>
+              ${acInvoices.map(inv => `
+                <tr>
+                  <td>${esc(inv.fournisseur || inv.fileName || "—")}</td>
+                  <td>${esc(typoLabel(inv.typologie))}</td>
+                  <td>${esc(inv.date || "—")}</td>
+                  <td>${esc(inv.numeroFacture || "—")}</td>
+                  <td class="r">${fmtEur(parseNumber(inv.montantHT))}</td>
+                  <td class="r">${fmtEur(parseNumber(inv.montantTTC))}</td>
+                  <td>${esc(ctrlLabel(inv.controle))}</td>
+                  <td>${esc(reglLabel(inv.reglement))}</td>
+                </tr>`).join("")}
+            </tbody>
+            <tfoot><tr>
+              <td colspan="4">Total achats · ${esc(acPeriod?.label || "")}</td>
+              <td class="r">${fmtEur(acTotalHT)}</td>
+              <td class="r">${fmtEur(acTotalTTC)}</td>
+              <td colspan="2"></td>
+            </tr></tfoot>
+          </table>`}
+        </div>
+
+        <div class="footer">
+          <span>PROFERO — planning-chantiers.vercel.app</span>
+          <span>Généré le ${dateStr}</span>
+        </div>
+
+        <script>window.onload = () => window.print();<\/script>
+      </body>
+      </html>
+    `;
+
+    const win = window.open("", "_blank", "width=1100,height=800");
+    if (!win) {
+      alert("Veuillez autoriser les fenêtres pop-up pour générer le PDF.");
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+  };
+
   // ── Styles ──────────────────────────────────────────────────────────────────
   const card = T.surface;
 
@@ -4261,6 +4488,31 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
                 })}
               </span>
             )}
+
+            <button
+              onClick={imprimerSynthese}
+              title="Générer une synthèse PDF de la page"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "9px 16px",
+                borderRadius: RADIUS.md,
+                border: `1px solid ${T.border}`,
+                cursor: "pointer",
+                background: T.card,
+                color: T.text,
+                fontFamily: "inherit",
+                fontSize: 13,
+                fontWeight: 800,
+                letterSpacing: 0.3,
+                textTransform: "uppercase",
+                transition: "background .12s",
+              }}
+            >
+              <Icon as={FileText} size={14} />
+              PDF
+            </button>
 
             <button
               onClick={save}
