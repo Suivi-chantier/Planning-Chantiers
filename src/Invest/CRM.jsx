@@ -1990,28 +1990,31 @@ Laisse vide pour créer un événement en journée entière.`,
             const p = stepProgress(s.key);
             const active = selected.key === s.key;
             const notGenerated = p.total === 0;
-            const remaining = notGenerated ? s.actions.length : Math.max(0, p.total - p.done);
+            const remaining = Math.max(0, p.total - p.done);
             const isComplete = p.total > 0 && remaining === 0;
-            const needsAction = !isComplete;
-            const stepColor = active ? T.accent : needsAction ? "#dc2626" : "#16a34a";
-            const stepBg = active ? T.accentBg : needsAction ? "#fff1f2" : "#f0fdf4";
-            const stepBorder = active ? T.accent : needsAction ? "#fecdd3" : "#bbf7d0";
+            const hasPendingTasks = p.total > 0 && remaining > 0;
+            const stepBorder = active ? T.accent : T.border;
+            const stepBg = active ? T.accentBg : T.input;
+            const stepNumberColor = active ? T.accent : T.textMuted;
+            const labelColor = hasPendingTasks ? "#dc2626" : active ? T.accent : T.text;
+            const badgeColor = hasPendingTasks ? "#dc2626" : isComplete ? "#16a34a" : T.textMuted;
+            const progressColor = isComplete ? "#16a34a" : hasPendingTasks ? "#dc2626" : T.textMuted;
             return (
               <button key={s.key} onClick={() => setSelectedStep(s.key)} style={{
                 minWidth:0,padding:"8px 9px",borderRadius:10,cursor:"pointer",
                 border:`1px solid ${stepBorder}`,
-                background:stepBg,color:stepColor,
+                background:stepBg,color:T.text,
                 textAlign:"left",
-                boxShadow:needsAction && !active ? "0 8px 18px rgba(220,38,38,.08)" : "none",
+                boxShadow:"none",
               }}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
-                  <div style={{fontSize:10,fontWeight:950,opacity:.9}}>#{idx+1}</div>
-                  <div style={{fontSize:9.5,fontWeight:950,border:`1px solid ${stepColor}33`,background:"#fff",borderRadius:999,padding:"1px 6px",whiteSpace:"nowrap"}}>
-                    {isComplete ? "OK" : notGenerated ? "à générer" : `${remaining} reste${remaining > 1 ? "nt" : ""}`}
+                  <div style={{fontSize:10,fontWeight:950,color:stepNumberColor}}>#{idx+1}</div>
+                  <div style={{fontSize:9.5,fontWeight:950,color:badgeColor,border:`1px solid ${badgeColor}33`,background:"#fff",borderRadius:999,padding:"1px 6px",whiteSpace:"nowrap"}}>
+                    {isComplete ? "OK" : notGenerated ? "à générer" : `${remaining} tâche${remaining > 1 ? "s" : ""}`}
                   </div>
                 </div>
-                <div style={{fontSize:11,fontWeight:900,whiteSpace:"normal",overflow:"visible",textOverflow:"clip",lineHeight:1.2,minHeight:26,marginTop:3}}>{s.label}</div>
-                <div style={{height:4,borderRadius:999,background:"rgba(0,0,0,.08)",overflow:"hidden",marginTop:6}}><div style={{height:"100%",width:`${p.pct}%`,background:isComplete ? "#16a34a" : "#dc2626"}}/></div>
+                <div style={{fontSize:11,fontWeight:950,color:labelColor,whiteSpace:"normal",overflow:"visible",textOverflow:"clip",lineHeight:1.2,minHeight:26,marginTop:3}}>{s.label}</div>
+                <div style={{height:4,borderRadius:999,background:"rgba(0,0,0,.08)",overflow:"hidden",marginTop:6}}><div style={{height:"100%",width:`${p.pct}%`,background:progressColor}}/></div>
               </button>
             );
           })}
