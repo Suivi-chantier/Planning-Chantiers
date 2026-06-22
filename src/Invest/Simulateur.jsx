@@ -18,254 +18,323 @@ import {
   INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection, MISSION_COLLABORATEURS, HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT, STATUTS_PROP, CompletionBar
 } from "./_shared";
 
-// ─── LISTE DES PROJETS ────────────────────────────────────────────────────────
+// ─── CENTRE DE SIMULATION LIBRE ───────────────────────────────────────────────
 function ListeProjets({ profil, onOuvrir, onNouveauProjet, inline, T=THEMES_INV.dark }) {
-  const [projets, setProjets] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [suppId, setSuppId]   = useState(null);
-  const [filtreClient, setFiltreClient] = useState("");
-
-  const charger = async () => {
-    setLoading(true);
-    // Tente avec client_id ; si la colonne n'existe pas (42703), retry sans.
-    // Migration SQL nécessaire : ALTER TABLE invest_projets ADD COLUMN client_id UUID REFERENCES invest_clients(id) ON DELETE SET NULL;
-    let res = await supabase.from("invest_projets")
-      .select("id,nom,created_by,created_at,updated_at,donnees,client_id")
-      .order("updated_at",{ascending:false});
-    if (res.error?.code === "42703") {
-      res = await supabase.from("invest_projets")
-        .select("id,nom,created_by,created_at,updated_at,donnees")
-        .order("updated_at",{ascending:false});
-    }
-    setProjets(res.data || []);
-    // Charge la liste des clients pour afficher leur nom sur les cards et filtrer
-    const { data: cs } = await supabase.from("invest_clients").select("id,nom,prenom").order("nom");
-    setClients(cs || []);
-    setLoading(false);
-  };
-  useEffect(()=>{charger();},[]);
-
-  const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
-  const projetsFiltres = filtreClient
-    ? projets.filter(p => p.client_id === filtreClient)
-    : projets;
-
-  const supprimer = async (id) => {
-    await supabase.from("invest_projets").delete().eq("id",id);
-    setSuppId(null); charger();
+  const ouvrirRentabilite = () => {
+    const simulationLibre = {
+      id: null,
+      usageOnly: true,
+      simulateur_type: "rentabilite",
+      nom: "Simulation libre — rentabilité",
+      donnees: {
+        simulatorMode: "rentabilite",
+        projectName: "Simulation libre — rentabilité",
+      },
+    };
+    if (typeof onOuvrir === "function") onOuvrir(simulationLibre);
+    else if (typeof onNouveauProjet === "function") onNouveauProjet(simulationLibre);
   };
 
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}) : "—";
-  const kpi = (d) => {
-    if(!d?.inputs) return null;
-    const pN=d.inputs.prixNegocie||0, fn=pN*(d.inputs.tauxNotaire||0.08);
-    const total=pN+fn+(d.inputs.honoraires||0)+(d.inputs.enedis||0);
-    const lots=(d.lots||[]).filter(l=>l.type!=="Sélectionner");
-    return {total, loyer:lots.reduce((s,l)=>s+l.loyer,0), nbLots:lots.length};
+  const ouvrirBancaire = () => {
+    const simulationLibre = {
+      id: null,
+      usageOnly: true,
+      simulateur_type: "bancaire",
+      nom: "Simulateur bancaire",
+      donnees: {
+        simulatorMode: "bancaire",
+        projectName: "Simulateur bancaire",
+      },
+    };
+    if (typeof onOuvrir === "function") onOuvrir(simulationLibre);
+    else if (typeof onNouveauProjet === "function") onNouveauProjet(simulationLibre);
   };
 
-  const renderCard = (p) => {
-    const k = kpi(p.donnees);
-    const client = p.client_id ? clientById[p.client_id] : null;
-    return (
-      <div key={p.id} className="inv-card" style={{padding:`${SPACING.lg+2}px ${SPACING.lg+4}px`, cursor:"pointer", transition:"all .18s"}}
-        onClick={()=>onOuvrir(p)}>
-        <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:SPACING.sm, marginBottom:SPACING.md-2}}>
-          <div style={{flex:1, minWidth:0, display:"flex", alignItems:"flex-start", gap:SPACING.sm}}>
-            <div style={{
-              width:36, height:36, borderRadius:RADIUS.lg, flexShrink:0,
-              background:T.accentBg, color:T.accent,
-              display:"flex", alignItems:"center", justifyContent:"center",
-            }}>
-              <Icon as={FileText} size={18} strokeWidth={2}/>
-            </div>
-            <div style={{flex:1, minWidth:0}}>
-              <div style={{fontSize:FONT.md.size, fontWeight:700, color:T.text, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", letterSpacing:-0.2}}>
-                {p.nom}
-              </div>
-              <div style={{fontSize:FONT.xs.size, color:T.textMuted}}>
-                Par {p.created_by} · {fmtDate(p.updated_at)}
-              </div>
-              {client && (
-                <div style={{fontSize:FONT.xs.size, color:T.accent, marginTop:5, display:"inline-flex", alignItems:"center", gap:4, fontWeight:600}}>
-                  <Icon as={Users} size={11} strokeWidth={2.2}/>
-                  {client.prenom} {client.nom}
-                </div>
-              )}
-            </div>
-          </div>
-          <button onClick={e=>{e.stopPropagation();setSuppId(p.id);}}
-            style={{
-              background:"transparent", border:"none", cursor:"pointer", color:T.textMuted,
-              padding:SPACING.xs, borderRadius:RADIUS.md, display:"flex", alignItems:"center",
-              justifyContent:"center", transition:"all .15s",
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.background=SEMANTIC.danger.bg; e.currentTarget.style.color=DA;}}
-            onMouseLeave={e=>{e.currentTarget.style.background="transparent"; e.currentTarget.style.color=T.textMuted;}}>
-            <Icon as={X} size={16} strokeWidth={2.2}/>
-          </button>
-        </div>
-        {k && (
-          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:SPACING.xs+2, marginBottom:SPACING.md-2}}>
-            {[
-              {label:"Coût total", val:k.total>0?fmt(k.total):"—", color:T.accent, icon:Wallet},
-              {label:"Loyers/mois", val:k.loyer>0?fmt(k.loyer):"—", color:SU, icon:TrendingUp},
-              {label:"Lots", val:k.nbLots, color:WA, icon:Home},
-            ].map(item=>(
-              <div key={item.label} style={{
-                background:T.cardHover, borderRadius:RADIUS.md, padding:`${SPACING.xs+2}px ${SPACING.sm+1}px`,
-                borderLeft:`3px solid ${item.color}`,
-              }}>
-                <div style={{fontSize:FONT.xs.size-1, color:T.textMuted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:2, display:"inline-flex", alignItems:"center", gap:4}}>
-                  <Icon as={item.icon} size={9} strokeWidth={2}/> {item.label}
-                </div>
-                <div style={{fontSize:FONT.sm.size+1, fontWeight:800, color:item.color, fontFamily:"'DM Mono',monospace"}}>{item.val}</div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-          <span style={{
-            fontSize:FONT.xs.size-1, background:T.cardHover, color:T.textSub,
-            padding:`${SPACING.xs-2}px ${SPACING.sm}px`, borderRadius:RADIUS.pill, fontWeight:600,
-          }}>{fmtDate(p.created_at)}</span>
-          <span style={{fontSize:FONT.sm.size, color:T.accent, fontWeight:700, display:"inline-flex", alignItems:"center", gap:4}}>
-            Ouvrir <Icon as={ChevronRight} size={12} strokeWidth={2.5}/>
-          </span>
-        </div>
-      </div>
-    );
-  };
+  const cards = [
+    {
+      key: "rentabilite",
+      title: "Simulateur de rentabilité",
+      subtitle: "Analyse complète d’un projet immobilier : acquisition, travaux, loyers, financement, fiscalité et cash-flow.",
+      icon: BarChart3,
+      action: ouvrirRentabilite,
+      cta: "Ouvrir le simulateur",
+      accent: T.accent,
+    },
+    {
+      key: "bancaire",
+      title: "Simulateur bancaire",
+      subtitle: "Calcul rapide de la capacité d’emprunt, mensualité maximale, budget global et taux d’endettement.",
+      icon: Wallet,
+      action: ouvrirBancaire,
+      cta: "Calculer la capacité",
+      accent: SU,
+    },
+  ];
 
-  const modalSuppr = () => (
-    <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, backdropFilter:"blur(4px)"}}>
-      <div style={{
-        background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl,
-        padding:`${SPACING.xl+2}px ${SPACING.xl+6}px`, maxWidth:380, width:"90%", textAlign:"center",
-        boxShadow:T.shadowMd,
-      }}>
-        <div style={{
-          width:56, height:56, borderRadius:"50%", margin:`0 auto ${SPACING.md}px`,
-          background:SEMANTIC.danger.bg, border:`2px solid ${SEMANTIC.danger.border}`,
-          display:"flex", alignItems:"center", justifyContent:"center", color:DA,
-        }}>
-          <Icon as={Trash2} size={26} strokeWidth={2}/>
-        </div>
-        <div style={{fontSize:FONT.md.size+1, fontWeight:800, color:T.text, marginBottom:6}}>Supprimer ce projet ?</div>
-        <div style={{fontSize:FONT.sm.size+1, color:T.textSub, marginBottom:SPACING.xl-2, lineHeight:1.55}}>
-          Cette action est <strong>irréversible</strong>.
-        </div>
-        <div style={{display:"flex", gap:SPACING.sm+2, justifyContent:"center"}}>
-          <button className="inv-btn inv-btn-out" onClick={()=>setSuppId(null)}>Annuler</button>
-          <button className="inv-btn inv-btn-danger" onClick={()=>supprimer(suppId)}>
-            <Icon as={Trash2} size={13} strokeWidth={2.2}/> Supprimer
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const emptyState = (label, sub) => (
-    <div style={{textAlign:"center", padding:`${SPACING.xxl}px ${SPACING.lg}px`}}>
-      <div style={{
-        width:64, height:64, borderRadius:RADIUS.xl, margin:`0 auto ${SPACING.md}px`,
-        background:T.accentBg, color:T.accent,
-        display:"flex", alignItems:"center", justifyContent:"center",
-      }}>
-        <Icon as={Building2} size={32} strokeWidth={1.5}/>
-      </div>
-      <div style={{fontSize:FONT.md.size+1, fontWeight:700, color:T.text, marginBottom:6}}>{label}</div>
-      {sub && <div style={{fontSize:FONT.sm.size+1, color:T.textSub, marginBottom:SPACING.lg+2}}>{sub}</div>}
-      <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>
-        <Icon as={Plus} size={13} strokeWidth={2.2}/> Créer un projet
-      </button>
-    </div>
-  );
-
-  if (inline) return (
+  const content = (
     <div>
-      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:SPACING.lg+2, flexWrap:"wrap", gap:SPACING.sm+2}}>
-        <div style={{fontSize:FONT.sm.size+1, color:T.textMuted}}>
-          {projets.length} projet{projets.length!==1?"s":""} — partagés avec tous les associés
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:SPACING.lg,marginBottom:SPACING.xl,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:FONT.xl.size+2,fontWeight:900,color:T.text,letterSpacing:-0.4}}>Simulateurs Profero Invest</div>
+          <div style={{fontSize:FONT.sm.size+1,color:T.textSub,marginTop:6,lineHeight:1.55,maxWidth:720}}>
+            Page d’utilisation libre : les calculs peuvent être imprimés ou enregistrés localement, sans créer de projet dans le stock du simulateur.
+          </div>
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>
-          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau projet
-        </button>
+        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:`${SPACING.sm+2}px ${SPACING.md}px`,fontSize:FONT.xs.size+1,color:T.textSub,display:"inline-flex",alignItems:"center",gap:6}}>
+          <Icon as={Lock} size={13} strokeWidth={2.2}/>
+          Aucun projet créé automatiquement
+        </div>
       </div>
-      {loading ? (
-        <div style={{textAlign:"center", padding:`${SPACING.xl+8}px 0`, color:T.textMuted, display:"inline-flex", alignItems:"center", justifyContent:"center", width:"100%", gap:8}}>
-          <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
-          Chargement…
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(310px,1fr))",gap:SPACING.lg}}>
+        {cards.map(card => (
+          <button key={card.key} onClick={card.action}
+            style={{
+              textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,
+              padding:`${SPACING.xl}px ${SPACING.xl+4}px`,cursor:"pointer",boxShadow:T.shadowSm,
+              transition:"all .18s",fontFamily:"inherit",minHeight:230,display:"flex",flexDirection:"column",justifyContent:"space-between",
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.borderColor=T.borderHover;}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.borderColor=T.border;}}
+          >
+            <div>
+              <div style={{width:52,height:52,borderRadius:RADIUS.xl,background:T.accentBg,color:card.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:SPACING.md}}>
+                <Icon as={card.icon} size={25} strokeWidth={1.8}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size+1,fontWeight:900,color:T.text,marginBottom:8,letterSpacing:-0.2}}>{card.title}</div>
+              <div style={{fontSize:FONT.sm.size+1,color:T.textSub,lineHeight:1.55}}>{card.subtitle}</div>
+            </div>
+            <div style={{marginTop:SPACING.lg,color:T.accent,fontSize:FONT.sm.size+1,fontWeight:800,display:"inline-flex",alignItems:"center",gap:6}}>
+              {card.cta} <Icon as={ChevronRight} size={14} strokeWidth={2.4}/>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (inline) return content;
+
+  return (
+    <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,overflowY:"auto",background:T.bg}}>
+      <style>{CSS}</style>
+      <div style={{
+        background:T.sidebar,padding:`${SPACING.md+2}px ${SPACING.xl}px`,display:"flex",alignItems:"center",justifyContent:"space-between",
+        position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${T.sidebarBorder}`,boxShadow:T.shadowSm,
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:SPACING.md}}>
+          <span style={{fontSize:FONT.xs.size,letterSpacing:2,textTransform:"uppercase",color:T.accent,fontWeight:700}}>Profero</span>
+          <span style={{fontSize:FONT.xl.size+2,fontWeight:800,color:T.text,letterSpacing:-0.3}}>Invest</span>
+          <div style={{width:1,height:20,background:T.border}}/>
+          <span style={{fontSize:FONT.sm.size+1,color:T.textSub}}>Centre de simulation</span>
         </div>
-      ) : projets.length===0 ? (
-        emptyState("Aucun projet pour l'instant", null)
-      ) : (
-        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:SPACING.md+2}}>
-          {projetsFiltres.map(p=>renderCard(p))}
+      </div>
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"32px 24px"}}>{content}</div>
+    </div>
+  );
+}
+
+// ─── SIMULATEUR BANCAIRE — CAPACITÉ D'EMPRUNT ───────────────────────────────
+function SimulateurBancaire({ T=THEMES_INV.dark, theme="dark" }) {
+  const loadSaved = () => {
+    try {
+      if (typeof window === "undefined") return {};
+      return JSON.parse(localStorage.getItem("profero_simulateur_bancaire_libre") || "{}");
+    } catch { return {}; }
+  };
+  const saved0 = useMemo(loadSaved, []);
+
+  const [nomEtude, setNomEtude] = useState(saved0.nomEtude || "Étude capacité bancaire");
+  const [revenusNets, setRevenusNets] = useState(saved0.revenusNets ?? 6500);
+  const [revenusLocatifs, setRevenusLocatifs] = useState(saved0.revenusLocatifs ?? 0);
+  const [pondLocatif, setPondLocatif] = useState(saved0.pondLocatif ?? 70);
+  const [autresRevenus, setAutresRevenus] = useState(saved0.autresRevenus ?? 0);
+  const [creditsExistants, setCreditsExistants] = useState(saved0.creditsExistants ?? 0);
+  const [chargesFixes, setChargesFixes] = useState(saved0.chargesFixes ?? 0);
+  const [pensions, setPensions] = useState(saved0.pensions ?? 0);
+  const [tauxEndettement, setTauxEndettement] = useState(saved0.tauxEndettement ?? 35);
+  const [duree, setDuree] = useState(saved0.duree ?? 25);
+  const [tauxCredit, setTauxCredit] = useState(saved0.tauxCredit ?? 3.8);
+  const [tauxAssurance, setTauxAssurance] = useState(saved0.tauxAssurance ?? 0.30);
+  const [apport, setApport] = useState(saved0.apport ?? 20000);
+  const [prixProjetCible, setPrixProjetCible] = useState(saved0.prixProjetCible ?? 250000);
+  const [saved, setSaved] = useState(false);
+
+  const revenusLocatifsRetenus = revenusLocatifs * (pondLocatif / 100);
+  const revenusTotal = revenusNets + revenusLocatifsRetenus + autresRevenus;
+  const chargesTotal = creditsExistants + chargesFixes + pensions;
+  const mensualiteMax = Math.max(0, revenusTotal * (tauxEndettement / 100) - chargesTotal);
+  const tauxGlobal = Math.max(0, tauxCredit + tauxAssurance);
+  const r = tauxGlobal / 100 / 12;
+  const n = Math.max(1, Math.round(duree * 12));
+  const capaciteEmprunt = r > 0 ? mensualiteMax * (1 - Math.pow(1 + r, -n)) / r : mensualiteMax * n;
+  const budgetGlobal = capaciteEmprunt + apport;
+  const montantProjetAFinancer = Math.max(0, prixProjetCible - apport);
+  const mensualiteProjetCible = pmt(montantProjetAFinancer, tauxGlobal, duree);
+  const endettementApresProjet = revenusTotal > 0 ? (chargesTotal + mensualiteProjetCible) / revenusTotal : 0;
+  const resteAVivre = revenusTotal - chargesTotal - mensualiteProjetCible;
+  const margeMensuelle = mensualiteMax - mensualiteProjetCible;
+  const projetCompatible = margeMensuelle >= 0;
+
+  const state = {
+    nomEtude, revenusNets, revenusLocatifs, pondLocatif, autresRevenus,
+    creditsExistants, chargesFixes, pensions, tauxEndettement, duree,
+    tauxCredit, tauxAssurance, apport, prixProjetCible,
+    savedAt: new Date().toISOString(),
+  };
+
+  const enregistrerLocal = () => {
+    try {
+      localStorage.setItem("profero_simulateur_bancaire_libre", JSON.stringify(state));
+      setSaved(true);
+      setTimeout(()=>setSaved(false),2200);
+    } catch (e) {
+      alert("Impossible d'enregistrer localement cette simulation bancaire.");
+    }
+  };
+
+  const reset = () => {
+    setNomEtude("Étude capacité bancaire");
+    setRevenusNets(0); setRevenusLocatifs(0); setPondLocatif(70); setAutresRevenus(0);
+    setCreditsExistants(0); setChargesFixes(0); setPensions(0); setTauxEndettement(35);
+    setDuree(25); setTauxCredit(0); setTauxAssurance(0); setApport(0); setPrixProjetCible(0);
+  };
+
+  const imprimer = () => {
+    const win = window.open("", "_blank", "width=900,height=700");
+    if(!win){ alert("Autorisez les pop-ups."); return; }
+    const esc=s=>String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const fmtN=v=>Math.round(v||0).toLocaleString("fr-FR");
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(nomEtude)}</title>
+      <style>
+        *{box-sizing:border-box;margin:0;padding:0}body{font-family:Helvetica,Arial,sans-serif;background:#fff;color:#202434;padding:14mm;font-size:11px}.no-print{position:fixed;right:14px;top:14px;display:flex;gap:8px}.btn{border:0;border-radius:5px;background:#1f4ea1;color:#fff;padding:9px 16px;font-weight:700;cursor:pointer}.btn2{border:1px solid #d8dce6;border-radius:5px;background:#f8f9fb;color:#1a2d4a;padding:9px 14px;cursor:pointer}.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1f4ea1;padding-bottom:10px;margin-bottom:14px}.brand{font-weight:800;color:#1a2d4a;font-size:16px}.title{text-align:right}.title h1{font-size:18px;color:#1a2d4a}.date{font-size:10px;color:#5a6070;margin-top:4px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.kpi{background:#f8f9fb;border-left:3px solid #1f4ea1;border-radius:7px;padding:9px}.kpi.green{border-left-color:#1a7a4a}.kpi.orange{border-left-color:#d4610a}.lbl{font-size:8px;color:#8f96a6;text-transform:uppercase;letter-spacing:.05em;font-weight:700}.val{font-size:14px;font-weight:800;color:#1a2d4a;margin-top:3px}.green .val{color:#1a7a4a}.orange .val{color:#d4610a}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.sec{border:1px solid #eef0f5;border-radius:6px;overflow:hidden;margin-top:12px}.sec-h{background:#1a2d4a;color:#fff;padding:7px 10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}.row{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;border-bottom:1px solid #eef0f5}.row:nth-child(even){background:#f8f9fb}.row b{color:#1a2d4a}.ok{color:#1a7a4a}.ko{color:#c0392b}.foot{margin-top:16px;border-top:1px solid #eef0f5;padding-top:8px;text-align:center;color:#8f96a6;font-size:9px}@media print{.no-print{display:none!important}body{padding:0}@page{size:A4;margin:14mm}}
+      </style></head><body>
+      <div class="no-print"><button class="btn2" onclick="window.close()">Fermer</button><button class="btn" onclick="window.print()">Imprimer / PDF</button></div>
+      <div class="hd"><div class="brand">Profero Invest</div><div class="title"><h1>${esc(nomEtude)}</h1><div class="date">Simulateur bancaire · ${new Date().toLocaleDateString("fr-FR")}</div></div></div>
+      <div class="kpis">
+        <div class="kpi green"><div class="lbl">Capacité d'emprunt</div><div class="val">${fmtN(capaciteEmprunt)} €</div></div>
+        <div class="kpi"><div class="lbl">Mensualité maximale</div><div class="val">${fmtN(mensualiteMax)} €</div></div>
+        <div class="kpi green"><div class="lbl">Budget avec apport</div><div class="val">${fmtN(budgetGlobal)} €</div></div>
+        <div class="kpi ${projetCompatible ? "green" : "orange"}"><div class="lbl">Projet cible</div><div class="val">${projetCompatible ? "Compatible" : "À ajuster"}</div></div>
+      </div>
+      <div class="grid">
+        <div class="sec"><div class="sec-h">Revenus retenus</div>
+          <div class="row"><span>Revenus nets mensuels</span><b>${fmtN(revenusNets)} €</b></div>
+          <div class="row"><span>Loyers retenus (${pondLocatif} %)</span><b>${fmtN(revenusLocatifsRetenus)} €</b></div>
+          <div class="row"><span>Autres revenus</span><b>${fmtN(autresRevenus)} €</b></div>
+          <div class="row"><span>Total revenus retenus</span><b>${fmtN(revenusTotal)} €</b></div>
         </div>
-      )}
-      {suppId&&modalSuppr()}
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+        <div class="sec"><div class="sec-h">Charges et endettement</div>
+          <div class="row"><span>Crédits existants</span><b>${fmtN(creditsExistants)} €</b></div>
+          <div class="row"><span>Charges fixes / pensions</span><b>${fmtN(chargesFixes+pensions)} €</b></div>
+          <div class="row"><span>Taux d'endettement cible</span><b>${tauxEndettement.toFixed(1).replace(".",",")} %</b></div>
+          <div class="row"><span>Reste à vivre après projet cible</span><b>${fmtN(resteAVivre)} €</b></div>
+        </div>
+      </div>
+      <div class="sec"><div class="sec-h">Projet cible</div>
+        <div class="row"><span>Prix projet cible</span><b>${fmtN(prixProjetCible)} €</b></div>
+        <div class="row"><span>Apport</span><b>${fmtN(apport)} €</b></div>
+        <div class="row"><span>Montant à financer</span><b>${fmtN(montantProjetAFinancer)} €</b></div>
+        <div class="row"><span>Mensualité estimée</span><b>${fmtN(mensualiteProjetCible)} €</b></div>
+        <div class="row"><span>Taux d'endettement après projet</span><b class="${projetCompatible ? "ok" : "ko"}">${(endettementApresProjet*100).toFixed(1).replace(".",",")} %</b></div>
+        <div class="row"><span>Marge mensuelle restante</span><b class="${projetCompatible ? "ok" : "ko"}">${fmtN(margeMensuelle)} €</b></div>
+      </div>
+      <div class="foot">Document de simulation non contractuel · Profero Invest</div>
+      </body></html>`);
+    win.document.close();
+  };
+
+  const inputRow = (label, value, setter, suffix="€") => (
+    <div className="inv-row">
+      <span className="inv-lbl">{label}</span>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <NumInput value={value} onChange={setter}/>
+        {suffix && <span style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700,minWidth:18}}>{suffix}</span>}
+      </div>
     </div>
   );
 
   return (
-    <div className="inv" style={{position:"fixed",inset:0,zIndex:9999,overflowY:"auto"}}>
-      <style>{CSS}</style>
-      {/* Header */}
-      <div style={{
-        background:T.sidebar, padding:`${SPACING.md+2}px ${SPACING.xl}px`,
-        display:"flex", alignItems:"center", justifyContent:"space-between",
-        position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${T.sidebarBorder}`,
-        boxShadow:T.shadowSm,
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:SPACING.md}}>
-          <span style={{fontSize:FONT.xs.size, letterSpacing:2, textTransform:"uppercase", color:T.accent, fontWeight:700}}>Profero</span>
-          <span style={{fontSize:FONT.xl.size+2, fontWeight:800, color:T.text, letterSpacing:-0.3}}>Invest</span>
-          <div style={{width:1, height:20, background:T.border}}/>
-          <span style={{fontSize:FONT.sm.size+1, color:T.textSub}}>Portefeuille de projets</span>
+    <div style={{padding:"18px 22px",maxWidth:1200,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:SPACING.md,marginBottom:SPACING.lg,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:FONT.lg.size+2,fontWeight:900,color:T.text,letterSpacing:-0.3}}>Simulateur bancaire</div>
+          <div style={{fontSize:FONT.sm.size+1,color:T.textSub,marginTop:4}}>Calcule la capacité d’emprunt sans créer de projet dans la base.</div>
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={onNouveauProjet}>
-          <Icon as={Plus} size={13} strokeWidth={2.2}/> Nouveau projet
-        </button>
+        <div style={{display:"flex",alignItems:"center",gap:SPACING.sm,flexWrap:"wrap"}}>
+          {saved && <span style={{fontSize:FONT.xs.size+1,color:SU,fontWeight:800,display:"inline-flex",alignItems:"center",gap:4}}><Icon as={Check} size={12}/> Enregistré localement</span>}
+          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={reset}><Icon as={RefreshCw} size={12}/> Reset</button>
+          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={enregistrerLocal}><Icon as={Save} size={12}/> Enregistrer local</button>
+          <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={imprimer}><Icon as={Download} size={12}/> Imprimer / PDF</button>
+        </div>
       </div>
-      {/* Contenu */}
-      <div style={{maxWidth:1100,margin:"0 auto",padding:"28px 24px"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22,flexWrap:"wrap",gap:12}}>
-          <div>
-            <div style={{fontSize:20,fontWeight:800,color:"#e8eaf0",letterSpacing:.3}}>Tous les projets</div>
-            <div style={{fontSize:13,color:"rgba(255,255,255,0.35)",marginTop:2}}>
-              {projetsFiltres.length} projet{projetsFiltres.length!==1?"s":""}
-              {filtreClient && projetsFiltres.length !== projets.length && ` sur ${projets.length}`}
-              {" "}— partagés avec tous les associés
+
+      <div className="inv-kpi-bar" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:18}}>
+        <div className="inv-kpi"><div className="inv-kpi-lbl">Mensualité maximale</div><div className="inv-kpi-val">{fmt(mensualiteMax)}</div></div>
+        <div className="inv-kpi"><div className="inv-kpi-lbl">Capacité d'emprunt</div><div className="inv-kpi-val green">{fmt(capaciteEmprunt)}</div></div>
+        <div className="inv-kpi"><div className="inv-kpi-lbl">Budget avec apport</div><div className="inv-kpi-val green">{fmt(budgetGlobal)}</div></div>
+        <div className="inv-kpi"><div className="inv-kpi-lbl">Endettement projet cible</div><div className={`inv-kpi-val ${projetCompatible?"green":"orange"}`}>{fmtPct(endettementApresProjet)}</div></div>
+        <div className="inv-kpi"><div className="inv-kpi-lbl">Marge mensuelle</div><div className={`inv-kpi-val ${margeMensuelle>=0?"green":"red"}`}>{fmt(margeMensuelle)}</div></div>
+      </div>
+
+      <div className="inv-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div className="inv-card">
+            <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13}/>A — Revenus retenus</span></div>
+            <div className="inv-card-bd">
+              <div className="inv-row"><span className="inv-lbl">Nom de l’étude</span><input className="inv-inp" value={nomEtude} onChange={e=>setNomEtude(e.target.value)} style={{textAlign:"left",maxWidth:260}}/></div>
+              {inputRow("Revenus nets mensuels du foyer", revenusNets, setRevenusNets)}
+              {inputRow("Loyers existants encaissés", revenusLocatifs, setRevenusLocatifs)}
+              <div className="inv-row"><span className="inv-lbl">Pondération loyers retenue</span><div style={{display:"flex",alignItems:"center",gap:6}}><NumInput value={pondLocatif} onChange={setPondLocatif}/><span style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700}}>%</span></div></div>
+              {inputRow("Autres revenus mensuels", autresRevenus, setAutresRevenus)}
+              <div className="inv-row total"><span className="inv-lbl bold">TOTAL REVENUS RETENUS</span><span className="inv-val green">{fmt(revenusTotal)}</span></div>
             </div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <select className="inv-sel" value={filtreClient} onChange={e=>setFiltreClient(e.target.value)} style={{minWidth:200}}>
-              <option value="">👥 Tous les clients</option>
-              <option value="" disabled>──────────</option>
-              {clients.map(c => (
-                <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
-              ))}
-            </select>
-            <button className="inv-btn inv-btn-out inv-btn-sm" onClick={charger}>↻ Actualiser</button>
+
+          <div className="inv-card">
+            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Wallet} size={13}/>B — Charges existantes</span></div>
+            <div className="inv-card-bd">
+              {inputRow("Mensualités crédits existants", creditsExistants, setCreditsExistants)}
+              {inputRow("Charges fixes mensuelles", chargesFixes, setChargesFixes)}
+              {inputRow("Pensions / engagements", pensions, setPensions)}
+              <div className="inv-row total"><span className="inv-lbl bold">TOTAL CHARGES RETENUES</span><span className="inv-val orange">{fmt(chargesTotal)}</span></div>
+            </div>
           </div>
         </div>
-        {loading ? (
-          <div style={{textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8}}>
-            <Icon as={RefreshCw} size={14} style={{animation:"spin 1s linear infinite"}}/>
-            Chargement…
+
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div className="inv-card">
+            <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Building2} size={13}/>C — Hypothèses bancaires</span></div>
+            <div className="inv-card-bd">
+              <div className="inv-row"><span className="inv-lbl">Taux d’endettement maximal</span><div style={{display:"flex",alignItems:"center",gap:6}}><NumInput value={tauxEndettement} onChange={setTauxEndettement}/><span style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700}}>%</span></div></div>
+              <div className="inv-row"><span className="inv-lbl">Durée d’emprunt</span><div style={{display:"flex",alignItems:"center",gap:6}}><NumInput value={duree} onChange={setDuree}/><span style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700}}>ans</span></div></div>
+              <div className="inv-row"><span className="inv-lbl">Taux crédit</span><div style={{display:"flex",alignItems:"center",gap:6}}><NumInput value={tauxCredit} onChange={setTauxCredit}/><span style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700}}>%</span></div></div>
+              <div className="inv-row"><span className="inv-lbl">Assurance emprunteur</span><div style={{display:"flex",alignItems:"center",gap:6}}><NumInput value={tauxAssurance} onChange={setTauxAssurance}/><span style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700}}>%</span></div></div>
+              {inputRow("Apport disponible", apport, setApport)}
+              <div className="inv-row total"><span className="inv-lbl bold">CAPACITÉ D'EMPRUNT</span><span className="inv-val green">{fmt(capaciteEmprunt)}</span></div>
+            </div>
           </div>
-        ) : projets.length===0 ? (
-          emptyState("Aucun projet pour l'instant", "Créez votre premier projet d'investissement")
-        ) : (
-          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:SPACING.md+2}}>
-            {projetsFiltres.map(p=>renderCard(p))}
+
+          <div className="inv-card">
+            <div className={`inv-card-hd ${projetCompatible?"gold":"danger"}`}><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={AlertTriangle} size={13}/>D — Test projet cible</span></div>
+            <div className="inv-card-bd">
+              {inputRow("Prix du projet cible", prixProjetCible, setPrixProjetCible)}
+              <div className="inv-row"><span className="inv-lbl">Montant à financer</span><span className="inv-val calc">{fmt(montantProjetAFinancer)}</span></div>
+              <div className="inv-row"><span className="inv-lbl">Mensualité estimée</span><span className="inv-val calc">{fmt(mensualiteProjetCible)}</span></div>
+              <div className="inv-row"><span className="inv-lbl">Taux d’endettement après projet</span><span className={`inv-val ${projetCompatible?"green":"orange"}`}>{fmtPct(endettementApresProjet)}</span></div>
+              <div className="inv-row"><span className="inv-lbl">Reste à vivre après projet</span><span className="inv-val calc">{fmt(resteAVivre)}</span></div>
+              <div className="inv-row total"><span className="inv-lbl bold">DÉCISION RAPIDE</span><span className={`inv-val ${projetCompatible?"green":"orange"}`}>{projetCompatible ? "Compatible" : "À ajuster"}</span></div>
+            </div>
           </div>
-        )}
+        </div>
       </div>
-      {suppId&&modalSuppr()}
+
+      <div className="inv-card" style={{marginTop:16}}>
+        <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13}/>Lecture rapide</span></div>
+        <div className="inv-card-bd" style={{fontSize:FONT.sm.size+1,color:T.textSub,lineHeight:1.65}}>
+          Cette simulation est volontairement indépendante du stock de projets. Le bouton <strong>Enregistrer local</strong> conserve uniquement la dernière étude sur ce navigateur. Le bouton <strong>Imprimer / PDF</strong> ouvre une page propre à imprimer ou à sauvegarder en PDF.
+        </div>
+      </div>
     </div>
   );
 }
@@ -277,8 +346,9 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   const isEmbedded = !!embedded;
 
   // ── État principal ──────────────────────────────────────────────────────────
-  const [nom,    setNom]    = useState(projet?.donnees?.projectName || simulationName || projet?.nom || "Nouveau projet");
+  const [nom,    setNom]    = useState(projet?.donnees?.projectName || simulationName || projet?.nom || "Simulation libre");
   const [tab,    setTab]    = useState("simulateur");
+  const [page,   setPage]   = useState((projet?.donnees?.simulatorMode === "bancaire" || projet?.simulateur_type === "bancaire") ? "bancaire" : "rentabilite");
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [showReset, setShowReset] = useState(false);
@@ -387,7 +457,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   const budgetCoef=(budgetSub+budgetImp)*coefEtat;
   const budgetTTC=budgetCoef*1.10;
 
-  // ── Sauvegarde Supabase ─────────────────────────────────────────────────────
+  // ── Sauvegarde : stock uniquement en mode embedded, local sinon ───────────────
   const collectState = useCallback(()=>({
     version:4, savedAt:new Date().toISOString(), projectName:nom,
     inputs:{prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct},
@@ -472,35 +542,25 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
       return;
     }
 
-    // Inclut client_id (peut être null si non lié). Si la colonne n'existe pas
-    // encore en base (code 42703), on retry sans pour ne pas bloquer la save.
-    const payload = {
-      nom,
-      created_by: profil?.email||profil?.nom||"inconnu",
-      updated_at: new Date().toISOString(),
-      donnees: state,
-      client_id: clientId || null,
-    };
-    const tryWrite = async (p) => {
-      if (projetIdRef.current) {
-        return await supabase.from("invest_projets").update(p).eq("id", projetIdRef.current);
-      } else {
-        return await supabase.from("invest_projets").insert({...p, created_at:new Date().toISOString()}).select("id").single();
+    // Mode libre : on ne crée plus de ligne dans invest_projets.
+    // L'enregistrement reste local au navigateur afin d'éviter tout "stock" de projets.
+    try {
+      const localPayload = {
+        ...state,
+        simulatorMode: "rentabilite",
+        client_id: clientId || null,
+        updated_at: new Date().toISOString(),
+      };
+      if (typeof window !== "undefined") {
+        localStorage.setItem("profero_simulateur_rentabilite_libre", JSON.stringify(localPayload));
       }
-    };
-    let res = await tryWrite(payload);
-    if (res.error?.code === "42703") {
-      console.warn("Colonne client_id manquante sur invest_projets — fallback. Migration nécessaire.");
-      const { client_id, ...payloadSansClient } = payload;
-      res = await tryWrite(payloadSansClient);
+      setSaved(true);
+      setTimeout(()=>setSaved(false),2500);
+    } catch (e) {
+      console.error("Erreur sauvegarde locale simulateur:", e);
+      if (!silent) alert("Impossible d'enregistrer localement cette simulation.");
     }
-    if (res.error) {
-      console.error("Erreur sauvegarde projet:", res.error);
-      if (!silent) alert("Erreur sauvegarde simulateur : " + res.error.message);
-    } else if (!projetIdRef.current && res.data?.id) {
-      projetIdRef.current = res.data.id;
-    }
-    setSaving(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
+    setSaving(false);
   },[collectState, nom, profil, clientId, isEmbedded, embeddedBienId, bienSource, prixAffiche, prixNegocie, budgetTravaux, coutTotal, rb, cfSel, onBienSaved, simulationId, simulationName]);
 
   // Autosave rapide du simulateur
@@ -753,6 +813,22 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
         <span style={{fontSize:FONT.xs.size,letterSpacing:1.8,textTransform:"uppercase",color:T.accent,fontWeight:700}}>
           Profero Invest
         </span>
+        <div style={{display:"flex",alignItems:"center",gap:6,background:T.input,border:`1px solid ${T.inputBorder}`,borderRadius:RADIUS.pill,padding:3}}>
+          {[
+            ["rentabilite", "Rentabilité", BarChart3],
+            ["bancaire", "Bancaire", Wallet],
+          ].map(([k,l,IconComp]) => (
+            <button key={k} onClick={()=>setPage(k)}
+              style={{
+                border:"none",cursor:"pointer",borderRadius:RADIUS.pill,
+                padding:"5px 10px",fontSize:FONT.xs.size+1,fontWeight:800,
+                background:page===k?T.accent:T.cardHover,color:page===k?"white":T.textSub,
+                display:"inline-flex",alignItems:"center",gap:5,
+              }}>
+              <Icon as={IconComp} size={11} strokeWidth={2.3}/>{l}
+            </button>
+          ))}
+        </div>
         <input
           value={nom} onChange={e=>{setNom(e.target.value);scheduleAutoSave();}}
           style={{
@@ -765,25 +841,29 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
           onFocus={e=>{e.target.style.borderColor=T.accent; e.target.style.boxShadow=`0 0 0 3px ${T.accentBg}`;}}
           onBlur={e=>{e.target.style.borderColor=T.inputBorder; e.target.style.boxShadow="none";}}
         />
-        {/* Sélecteur client lié (optionnel) */}
-        <span style={{fontSize:FONT.xs.size,color:T.textMuted,letterSpacing:1.2,textTransform:"uppercase",fontWeight:700}}>Client</span>
-        <select
-          value={clientId}
-          onChange={e=>{setClientId(e.target.value); scheduleAutoSave();}}
-          style={{
-            background: clientId ? T.accentBg : T.input,
-            border:`1px solid ${clientId ? T.accentBorder : T.inputBorder}`,
-            borderRadius:RADIUS.md,padding:`${SPACING.xs+1}px ${SPACING.md}px`,
-            color: clientId ? T.accent : T.textSub,
-            fontFamily:"'Barlow Condensed',sans-serif",fontSize:FONT.sm.size+1,
-            fontWeight:600,outline:"none",cursor:"pointer",minWidth:170,
-          }}
-        >
-          <option value="">— Aucun —</option>
-          {clientsList.map(c => (
-            <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
-          ))}
-        </select>
+        {page === "rentabilite" && (
+          <>
+            {/* Sélecteur client lié (optionnel) */}
+            <span style={{fontSize:FONT.xs.size,color:T.textMuted,letterSpacing:1.2,textTransform:"uppercase",fontWeight:700}}>Client</span>
+            <select
+              value={clientId}
+              onChange={e=>{setClientId(e.target.value); scheduleAutoSave();}}
+              style={{
+                background: clientId ? T.accentBg : T.input,
+                border:`1px solid ${clientId ? T.accentBorder : T.inputBorder}`,
+                borderRadius:RADIUS.md,padding:`${SPACING.xs+1}px ${SPACING.md}px`,
+                color: clientId ? T.accent : T.textSub,
+                fontFamily:"'Barlow Condensed',sans-serif",fontSize:FONT.sm.size+1,
+                fontWeight:600,outline:"none",cursor:"pointer",minWidth:170,
+              }}
+            >
+              <option value="">— Aucun —</option>
+              {clientsList.map(c => (
+                <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
+              ))}
+            </select>
+          </>
+        )}
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:SPACING.sm}}>
           {saving && (
             <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,display:"inline-flex",alignItems:"center",gap:4}}>
@@ -802,19 +882,25 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
               <Icon as={theme==="dark" ? Sun : Moon} size={13} strokeWidth={2.2}/>
             </button>
           )}
-          <button className="inv-btn inv-btn-sm inv-btn-danger" onClick={()=>setShowReset(true)}>
-            <Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Reset
-          </button>
-          <button className="inv-btn inv-btn-sm inv-btn-blue" onClick={genererFicheClient} title="Générer la fiche client investisseur">
-            <Icon as={Sparkles} size={12} strokeWidth={2.2}/> Fiche client
-          </button>
-          <button className="inv-btn inv-btn-sm inv-btn-gold" onClick={sauvegarder}>
-            <Icon as={Save} size={12} strokeWidth={2.2}/> Enregistrer
-          </button>
+          {page === "rentabilite" && (
+            <>
+              <button className="inv-btn inv-btn-sm inv-btn-danger" onClick={()=>setShowReset(true)}>
+                <Icon as={RefreshCw} size={12} strokeWidth={2.2}/> Reset
+              </button>
+              <button className="inv-btn inv-btn-sm inv-btn-blue" onClick={genererFicheClient} title="Générer la fiche client investisseur">
+                <Icon as={Sparkles} size={12} strokeWidth={2.2}/> Fiche client
+              </button>
+              <button className="inv-btn inv-btn-sm inv-btn-gold" onClick={sauvegarder} title="Enregistrement local, sans création de projet">
+                <Icon as={Save} size={12} strokeWidth={2.2}/> Enregistrer local
+              </button>
+            </>
+          )}
         </div>
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
+      {page === "rentabilite" && (
+        <>
       {/* Tabs nav */}
       <div className="inv-tab-nav">
         {[
@@ -1295,9 +1381,17 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {page === "bancaire" && (
+        <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+          <SimulateurBancaire T={T} theme={theme}/>
+        </div>
+      )}
 
       {/* Modal Lier à un bien */}
-      {showLierBien && (
+      {page === "rentabilite" && showLierBien && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}
           onClick={()=>setShowLierBien(false)}>
           <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:`${SPACING.xl}px ${SPACING.xl+2}px`,maxWidth:560,width:"92%",maxHeight:"82vh",overflowY:"auto",boxShadow:T.shadowMd}}
@@ -1362,7 +1456,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
       )}
 
       {/* Modal Reset */}
-      {showReset&&(
+      {page === "rentabilite" && showReset&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
           <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:`${SPACING.xl+2}px ${SPACING.xl+6}px`,maxWidth:380,width:"90%",textAlign:"center",boxShadow:T.shadowMd}}>
             <div style={{
