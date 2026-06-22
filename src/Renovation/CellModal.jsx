@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie } from "../constants";
 
-function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,onClose,T,weekId,year,week}){
+function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicules=[],saving,onClose,T,weekId,year,week}){
   if(!chantier)return null;
 
   const [rapports, setRapports] = useState([]);
@@ -43,6 +43,14 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
     const list=[...(draft.ouvriers||[])];
     const i=list.indexOf(o);if(i>=0)list.splice(i,1);else list.push(o);
     setDraft(p=>({...p,ouvriers:list}));
+  };
+
+  const toggleVehicule=(v)=>{
+    const list=[...(draft.vehicules||[])];
+    const i=list.findIndex(x=>x.id===v.id);
+    if(i>=0)list.splice(i,1);
+    else list.push({id:v.id,nom:v.nom,immatriculation:v.immatriculation||""});
+    setDraft(p=>({...p,vehicules:list}));
   };
 
   const statutIcon = (s) => s==="faite"?"✅":s==="en_cours"?"🔄":"❌";
@@ -378,6 +386,40 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
                 })}
               </div>
             </div>
+
+            {/* ── VÉHICULES ── */}
+            <div>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>🚐 Véhicules</div>
+              {vehicules.length===0 ? (
+                <div style={{fontSize:13,color:T.textMuted,fontStyle:"italic"}}>
+                  Aucun véhicule enregistré. Ajoutez-en dans Réglages → Véhicules.
+                </div>
+              ) : (
+                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                  {vehicules.map(v=>{
+                    const sel=(draft.vehicules||[]).some(x=>x.id===v.id);
+                    return(
+                      <button key={v.id} onClick={()=>toggleVehicule(v)} className="cm-ouvrier-btn" style={{
+                        display:"flex",flexDirection:"column",alignItems:"flex-start",
+                        padding:"7px 14px",borderRadius:10,fontSize:14,fontWeight:700,
+                        cursor:"pointer",fontFamily:"inherit",transition:"all .12s",
+                        background:sel?chantier.couleur:T.fieldBg,
+                        border:`2px solid ${sel?"rgba(0,0,0,0.15)":T.border}`,
+                        color:sel?"#1a1f2e":T.textSub,
+                        transform:sel?"scale(1.03)":"scale(1)",
+                        boxShadow:sel?"0 2px 8px rgba(0,0,0,0.15)":"none",
+                      }}>
+                        <span>{v.nom}</span>
+                        {v.immatriculation && (
+                          <span style={{fontSize:11,fontWeight:700,fontFamily:"monospace",letterSpacing:1,
+                            opacity:sel?0.7:0.8,marginTop:1}}>{v.immatriculation}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="cm-body-right" style={{padding:"24px 28px 24px 20px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
@@ -405,6 +447,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,saving,o
           justifyContent:"space-between",alignItems:"center",flexShrink:0,background:T.modal}}>
           <div className="cm-footer-text" style={{fontSize:12,color:T.textMuted}}>
             {(draft.ouvriers||[]).length>0?`👷 ${(draft.ouvriers||[]).join(", ")}`:"Aucun ouvrier sélectionné"}
+            {(draft.vehicules||[]).length>0 && <span> · 🚐 {(draft.vehicules||[]).map(v=>v.nom).join(", ")}</span>}
           </div>
           <div className="cm-footer-btns" style={{display:"flex",gap:10}}>
             <button onClick={onClose} style={{background:"transparent",border:`1px solid ${T.border}`,

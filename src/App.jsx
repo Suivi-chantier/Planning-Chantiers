@@ -347,6 +347,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const[cells,setCells]=useState({});
   const[commandes,setCommandes]=useState({});
   const[notesData,setNotesData]=useState({});
+  const[vehicules,setVehicules]=useState([]);
   const[syncing,setSyncing]=useState(false);
   const[connected,setConnected]=useState(false);
   const[lastSync,setLastSync]=useState(null);
@@ -394,7 +395,9 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
       });
       const{data:cd}=await supabase.from("planning_cells").select("*").eq("week_id",weekId);
-      if(cd){const m={};cd.forEach(r=>{m[`${r.chantier_id}_${r.jour}`]={planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],taches:r.taches||[]};});setCells(m);}
+      if(cd){const m={};cd.forEach(r=>{m[`${r.chantier_id}_${r.jour}`]={planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],vehicules:r.vehicules||[],taches:r.taches||[]};});setCells(m);}
+      const{data:vh}=await supabase.from("vehicules").select("*").order("nom");
+      if(vh)setVehicules(vh);
       const{data:comd}=await supabase.from("planning_commandes").select("*").eq("week_id",weekId);
       if(comd){const m={};comd.forEach(r=>{m[r.chantier_id]=r.contenu||"";});setCommandes(m);}
       const{data:nd}=await supabase.from("planning_notes").select("*");
@@ -412,7 +415,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         const r=p.new||p.old;if(!r)return;
         const key=`${r.chantier_id}_${r.jour}`;
         if(p.eventType==="DELETE")setCells(prev=>{const n={...prev};delete n[key];return n;});
-        else setCells(prev=>({...prev,[key]:{planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],taches:r.taches||[]}}));
+        else setCells(prev=>({...prev,[key]:{planifie:r.planifie||"",reel:r.reel||"",ouvriers:r.ouvriers||[],vehicules:r.vehicules||[],taches:r.taches||[]}}));
         setLastSync(new Date());
       })
       .on("postgres_changes",{event:"*",schema:"public",table:"planning_config"},p=>{
@@ -612,7 +615,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
           {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} T={T} initialSelectedId={chantierToOpen} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
           {page==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
-          {page==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
+          {page==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} vehicules={vehicules} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
           {page==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
           {page==="notes-todo"         && (canAccess(role,"notes-todo")         ? <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/> : <AccesRefuse T={T} page="notes-todo"/>)}
           {page==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}

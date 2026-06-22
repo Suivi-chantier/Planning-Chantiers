@@ -91,7 +91,7 @@ export function getTodayJour(){
   const d=new Date().getDay();
   return JOURS_JS[d]||null;
 }
-export function emptyCell(){return{planifie:"",reel:"",ouvriers:[],taches:[]};}
+export function emptyCell(){return{planifie:"",reel:"",ouvriers:[],vehicules:[],taches:[]};}
 export function parseTachesFromPlanifie(planifie,tachesExistantes){
   if(tachesExistantes&&tachesExistantes.length>0)return tachesExistantes;
   if(!planifie?.trim())return[];

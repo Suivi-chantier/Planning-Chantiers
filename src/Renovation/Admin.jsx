@@ -8,7 +8,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
   Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck, Lock,
-  Boxes,
+  Boxes, Car,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -846,6 +846,310 @@ function OngletFournisseurs({ T, acc }) {
   );
 }
 
+// ─── ONGLET VÉHICULES ─────────────────────────────────────────────────────────
+// Parc de véhicules de la société (nom + plaque). Affecté par cellule dans le
+// Planning semaine (cf. CellModal). Table Supabase : vehicules (sql/vehicules.sql).
+function OngletVehicules({ T, acc }) {
+  const [vehicules, setVehicules] = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [editId, setEditId]       = useState(null);
+  const [draft, setDraft]         = useState({ nom: "", immatriculation: "" });
+  const [showForm, setShowForm]   = useState(false);
+  const [toDelete, setToDelete]   = useState(null);
+  const [succes, setSucces]       = useState("");
+  const [erreur, setErreur]       = useState("");
+  const [saving, setSaving]       = useState(false);
+  const [search, setSearch]       = useState("");
+
+  const flash = (type, msg) => {
+    if (type === "ok") { setSucces(msg); setErreur(""); setTimeout(() => setSucces(""), 3500); }
+    else               { setErreur(msg); setSucces(""); setTimeout(() => setErreur(""), 5000); }
+  };
+
+  const charger = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("vehicules").select("*").order("nom");
+    if (error) flash("err", "Chargement impossible : " + error.message);
+    setVehicules(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { charger(); }, []);
+
+  const resetDraft = () => setDraft({ nom: "", immatriculation: "" });
+
+  const ouvrirForm = (v = null) => {
+    if (v) {
+      setEditId(v.id);
+      setDraft({ nom: v.nom || "", immatriculation: v.immatriculation || "" });
+    } else {
+      setEditId(null);
+      resetDraft();
+    }
+    setShowForm(true);
+  };
+
+  const fermerForm = () => {
+    setShowForm(false);
+    setEditId(null);
+    resetDraft();
+  };
+
+  const enregistrer = async () => {
+    if (!draft.nom.trim()) { flash("err", "Le nom du véhicule est obligatoire."); return; }
+    setSaving(true);
+    const payload = {
+      nom:             draft.nom.trim(),
+      immatriculation: draft.immatriculation?.trim() || null,
+    };
+    let err;
+    if (editId) {
+      ({ error: err } = await supabase.from("vehicules").update(payload).eq("id", editId));
+    } else {
+      ({ error: err } = await supabase.from("vehicules").insert(payload));
+    }
+    setSaving(false);
+    if (err) { flash("err", "Erreur : " + err.message); return; }
+    flash("ok", editId ? `✓ ${payload.nom} mis à jour.` : `✓ ${payload.nom} créé.`);
+    fermerForm();
+    charger();
+  };
+
+  const supprimer = async () => {
+    if (!toDelete) return;
+    const { error } = await supabase.from("vehicules").delete().eq("id", toDelete.id);
+    if (error) { flash("err", "Erreur : " + error.message); return; }
+    flash("ok", `✓ ${toDelete.nom} supprimé.`);
+    setToDelete(null);
+    charger();
+  };
+
+  const filtres = vehicules.filter(v => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (v.nom || "").toLowerCase().includes(q) || (v.immatriculation || "").toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="ac">
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:4, flexWrap:"wrap", gap:10 }}>
+        <div>
+          <div style={{ fontWeight:800, fontSize:FONT.md.size, marginBottom:4, color:T.text }}>Véhicules</div>
+          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, lineHeight:1.6, maxWidth:560 }}>
+            Parc de véhicules de la société. Une fois enregistrés, ils peuvent être affectés à un chantier pour un jour donné dans le Planning semaine.
+          </div>
+        </div>
+        <button onClick={() => showForm ? fermerForm() : ouvrirForm()} style={{
+          display:"inline-flex", alignItems:"center", gap:6,
+          background: showForm ? "transparent" : acc.accent, color: showForm ? T.textSub : acc.onAccent,
+          border: showForm ? `1px solid ${T.border}` : "none",
+          borderRadius:RADIUS.md, padding:"9px 16px",
+          fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800, cursor:"pointer",
+        }}>
+          <Icon as={showForm ? X : Plus} size={13}/>
+          {showForm ? "Annuler" : "Nouveau véhicule"}
+        </button>
+      </div>
+
+      {/* Recherche */}
+      {vehicules.length > 0 && !showForm && (
+        <div style={{
+          display:"flex", gap:8, alignItems:"center", flexWrap:"wrap",
+          marginTop:14, background:T.surface, border:`1px solid ${T.border}`,
+          borderRadius:RADIUS.lg, padding:"8px 10px",
+        }}>
+          <div style={{position:"relative", flex:"1 1 200px", maxWidth:320}}>
+            <Icon as={Search} size={12} color={T.textMuted}
+              style={{position:"absolute", left:9, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un véhicule ou une plaque…"
+              style={{
+                width:"100%", background:T.fieldBg||T.card, border:`1px solid ${T.fieldBorder||T.border}`,
+                borderRadius:RADIUS.md, padding:"7px 10px 7px 28px", color:T.text,
+                fontFamily:"inherit", fontSize:FONT.xs.size+1, outline:"none",
+              }}/>
+          </div>
+          <div style={{marginLeft:"auto", fontSize:FONT.xs.size+1, color:T.textMuted, fontWeight:600}}>
+            {filtres.length} / {vehicules.length}
+          </div>
+        </div>
+      )}
+
+      {/* Messages */}
+      {succes && (
+        <div style={{
+          display:"flex", alignItems:"center", gap:8,
+          background:"rgba(34,197,94,0.12)", border:"1px solid rgba(34,197,94,0.3)",
+          borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.sm.size,
+          color:"#22c55e", margin:"12px 0", lineHeight:1.6,
+        }}>
+          <Icon as={Check} size={13}/>
+          <span>{succes.replace(/^✓ /, "")}</span>
+        </div>
+      )}
+      {erreur && (
+        <div style={{
+          display:"flex", alignItems:"center", gap:8,
+          background:"rgba(224,92,92,0.12)", border:"1px solid rgba(224,92,92,0.3)",
+          borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.sm.size,
+          color:"#e15a5a", margin:"12px 0",
+        }}>
+          <Icon as={AlertTriangle} size={13}/>
+          {erreur}
+        </div>
+      )}
+
+      {/* Formulaire création / édition */}
+      {showForm && (
+        <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"20px 18px", margin:"16px 0" }}>
+          <div style={{ fontWeight:700, fontSize:14, marginBottom:16, color:T.text }}>
+            {editId ? "Modifier le véhicule" : "Nouveau véhicule"}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Nom *</label>
+              <input className="ti" value={draft.nom} onChange={e=>setDraft(p=>({...p,nom:e.target.value}))}
+                placeholder="Ex : Master blanc, Kangoo…" style={{ width:"100%" }}/>
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Immatriculation</label>
+              <input className="ti" value={draft.immatriculation}
+                onChange={e=>setDraft(p=>({...p,immatriculation:e.target.value.toUpperCase()}))}
+                placeholder="AB-123-CD" style={{ width:"100%", textTransform:"uppercase" }}/>
+            </div>
+          </div>
+
+          <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+            <button onClick={fermerForm} disabled={saving} style={{
+              background:"transparent", border:`1px solid ${T.border}`,
+              borderRadius:RADIUS.md, padding:"9px 18px", color:T.textSub,
+              fontFamily:"inherit", fontSize:FONT.sm.size, cursor:"pointer", opacity:saving?.5:1,
+            }}>Annuler</button>
+            <button onClick={enregistrer} disabled={saving || !draft.nom.trim()} style={{
+              display:"inline-flex", alignItems:"center", gap:6,
+              background: draft.nom.trim() ? acc.accent : T.border,
+              color: draft.nom.trim() ? acc.onAccent : T.textMuted,
+              border:"none", borderRadius:RADIUS.md, padding:"9px 18px",
+              fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
+              cursor: draft.nom.trim() && !saving ? "pointer" : "not-allowed",
+              opacity:saving?.6:1,
+            }}>
+              <Icon as={Check} size={13}/>
+              {saving ? "Enregistrement…" : (editId ? "Modifier" : "Créer")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Liste */}
+      {loading ? (
+        <div style={{ color:T.textSub, fontSize:FONT.sm.size, padding:"20px 0", textAlign:"center" }}>Chargement…</div>
+      ) : vehicules.length === 0 ? (
+        <div style={{
+          background:T.card, border:`1px dashed ${T.border}`,
+          borderRadius:RADIUS.xl, padding:"40px 24px", textAlign:"center", color:T.textSub, marginTop:16,
+        }}>
+          <div style={{
+            width:48,height:48,borderRadius:RADIUS.lg,
+            background:acc.bg10,color:acc.accent,
+            display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
+          }}>
+            <Icon as={Car} size={24} strokeWidth={1.5}/>
+          </div>
+          <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun véhicule</div>
+          <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6,marginBottom:16}}>
+            Ajoutez les véhicules de la société pour pouvoir les affecter aux chantiers dans le Planning semaine.
+          </div>
+        </div>
+      ) : filtres.length === 0 ? (
+        <div style={{ color:T.textSub, fontSize:FONT.sm.size, fontStyle:"italic", padding:"20px 0" }}>Aucun véhicule ne correspond à cette recherche.</div>
+      ) : (
+        <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:10 }}>
+          {filtres.map(v => (
+            <div key={v.id} style={{
+              background:T.surface, border:`1px solid ${T.border}`,
+              borderRadius:RADIUS.lg, padding:"14px 16px",
+              display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
+            }}>
+              <div style={{
+                width:38, height:38, borderRadius:RADIUS.md, flexShrink:0,
+                background:acc.bg10, color:acc.accent,
+                display:"flex", alignItems:"center", justifyContent:"center",
+              }}>
+                <Icon as={Car} size={17}/>
+              </div>
+              <div style={{ flex:1, minWidth:200 }}>
+                <div style={{ fontWeight:700, fontSize:FONT.sm.size+1, color:T.text }}>{v.nom}</div>
+                {v.immatriculation && (
+                  <div style={{
+                    display:"inline-flex", alignItems:"center", marginTop:4,
+                    fontFamily:"monospace", fontWeight:800, fontSize:FONT.xs.size+1, letterSpacing:1,
+                    background:T.fieldBg||T.card, border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.sm, padding:"2px 8px", color:T.textSub,
+                  }}>
+                    {v.immatriculation}
+                  </div>
+                )}
+              </div>
+              <div style={{ display:"flex", gap:6, flexShrink:0, flexWrap:"wrap" }}>
+                <button className="btn-g" style={{ fontSize:FONT.xs.size+1, padding:"5px 12px", display:"inline-flex", alignItems:"center", gap:4 }}
+                  onClick={()=>ouvrirForm(v)}>
+                  <Icon as={Pencil} size={11}/>
+                  Modifier
+                </button>
+                <button className="btn-d" style={{ display:"inline-flex", alignItems:"center", gap:4 }}
+                  onClick={()=>setToDelete(v)}>
+                  <Icon as={Trash2} size={11}/>
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modale suppression */}
+      {toDelete && (
+        <div onClick={()=>setToDelete(null)} style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:1000,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal||T.surface, borderRadius:RADIUS.xl, padding:24,
+            width:"100%", maxWidth:440, border:`1px solid ${T.border}`,
+          }}>
+            <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
+              <div style={{width:40, height:40, borderRadius:RADIUS.md, flexShrink:0, background:"rgba(224,92,92,0.12)", color:"#e15a5a", display:"flex", alignItems:"center", justifyContent:"center"}}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size, fontWeight:800, color:T.text}}>Supprimer ce véhicule&nbsp;?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6, marginBottom:20}}>
+              Le véhicule <strong style={{color:T.text}}>« {toDelete.nom} »</strong> sera supprimé.
+              <br/><span style={{color:T.textMuted, fontSize:FONT.xs.size+1}}>Les affectations déjà enregistrées dans le planning restent affichées (snapshot).</span>
+            </div>
+            <div style={{display:"flex", gap:10, justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDelete(null)} style={{
+                background:"transparent", border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md, padding:"9px 18px", color:T.textSub,
+                fontFamily:"inherit", fontSize:FONT.sm.size, cursor:"pointer",
+              }}>Annuler</button>
+              <button onClick={supprimer} style={{
+                display:"inline-flex", alignItems:"center", gap:6,
+                background:"#e15a5a", color:"#fff", border:"none",
+                borderRadius:RADIUS.md, padding:"9px 18px",
+                fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800, cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PAGE ADMIN ───────────────────────────────────────────────────────────────
 // ─── TEMPLATES D'EMAILS PAR DÉFAUT ───────────────────────────────────────────
 const EMAIL_TEMPLATES_DEFAUT = {
@@ -1615,6 +1919,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["phrases",      "Phrases types",   MessageSquare],
     ["emails",       "Emails",          Mail],
     ["fournisseurs", "Fournisseurs",    Truck],
+    ["vehicules",    "Véhicules",       Car],
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
     ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
     ...(isAdmin ? [["historique",   "Historique",   RefreshCw]] : []),
@@ -1679,6 +1984,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="fournisseurs" && (
         <OngletFournisseurs T={T} acc={acc}/>
+      )}
+
+      {adminTab==="vehicules" && (
+        <OngletVehicules T={T} acc={acc}/>
       )}
 
       {adminTab==="historique" && isAdmin && (

@@ -38,7 +38,7 @@ function weatherInfo(code) {
 const toIsoDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
-function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, cells, setCells, commandes, setCommandes, notesData, setNotesData, weekId, view, setView, year, week, setYear, setWeek, T, branch = "renovation" }) {
+function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicules = [], cells, setCells, commandes, setCommandes, notesData, setNotesData, weekId, view, setView, year, week, setYear, setWeek, T, branch = "renovation" }) {
   // Un chantier marqué "Terminé" (dans la page Chantiers) disparaît du planning hebdo.
   const chantiers = useMemo(() => chantiersAll.filter(c => c.statut !== "termine"), [chantiersAll]);
   const isMobile = useIsMobile();
@@ -358,7 +358,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, cells,
         draft={cellDraft} setDraft={setCellDraft}
         commande={{ value: cmdDraft, set: setCmdDraft }}
         note={{ value: noteDraft, set: setNoteDraft }}
-        ouvriers={ouvriers} saving={saving} onClose={closeModal}
+        ouvriers={ouvriers} vehicules={vehicules} saving={saving} onClose={closeModal}
         T={T} weekId={weekId} year={year} week={week}
       />}
 
@@ -448,7 +448,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, cells,
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {chantiers.map(c => {
               const cell = getCell(c.id, mobileDay);
-              const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0;
+              const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0 || cell.vehicules?.length > 0;
               const di = JOURS.indexOf(mobileDay);
               const onChip = contrastText(c.couleur);
               return (
@@ -514,6 +514,18 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, cells,
                               borderRadius: RADIUS.sm + 2,
                               padding: "2px 9px", fontSize: 11, fontWeight: 700,
                             }}>{o}</span>
+                          ))}
+                        </div>
+                      )}
+                      {cell.vehicules?.length > 0 && (
+                        <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginTop:4 }}>
+                          {cell.vehicules.map(vh => (
+                            <span key={vh.id} style={{
+                              display:"inline-flex", alignItems:"center", gap:4,
+                              background: "transparent", color: T.textSub,
+                              border:`1px solid ${T.border}`, borderRadius: RADIUS.sm + 2,
+                              padding: "2px 9px", fontSize: 11, fontWeight: 700,
+                            }}>🚐 {vh.nom}{vh.immatriculation ? ` · ${vh.immatriculation}` : ""}</span>
                           ))}
                         </div>
                       )}
@@ -645,7 +657,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, cells,
                   {/* Cellules par jour */}
                   {JOURS.map((jour, di) => {
                     const cell = getCell(c.id, jour);
-                    const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0;
+                    const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0 || cell.vehicules?.length > 0;
                     const displayTaches = getDisplayTaches(cell);
                     return (
                       <div key={jour} className={`cell ${filled ? "filled" : ""} cell-with-agenda`} onClick={() => openModal(c.id, jour)}
@@ -682,6 +694,18 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, cells,
                                     borderRadius: RADIUS.sm,
                                     padding: "1px 7px", fontSize: 11, fontWeight: 700,
                                   }}>{o}</span>
+                                ))}
+                              </div>
+                            )}
+                            {cell.vehicules?.length > 0 && (
+                              <div style={{ marginTop:4, display:"flex", flexWrap:"wrap", gap:3 }}>
+                                {cell.vehicules.map(vh => (
+                                  <span key={vh.id} title={vh.immatriculation || vh.nom} style={{
+                                    display:"inline-flex", alignItems:"center", gap:3,
+                                    background: "transparent", color: T.textSub,
+                                    border:`1px solid ${T.border}`, borderRadius: RADIUS.sm,
+                                    padding: "1px 6px", fontSize: 10.5, fontWeight: 700,
+                                  }}>🚐 {vh.nom}</span>
                                 ))}
                               </div>
                             )}
