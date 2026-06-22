@@ -260,21 +260,30 @@ function ModeVisiteTerrainCard({ bien, T=THEMES_INV.dark, onSaved }) {
 
 
 const VISITE_TERRAIN_STATUS_OPTIONS = ["", "OK", "À vérifier", "Problème", "Non vu", "Non applicable"];
-const VISITE_TERRAIN_DECISIONS = ["", "À creuser", "Offre possible", "Contre-visite", "Abandonner"];
-const VISITE_TERRAIN_INTERETS = ["", "Très intéressant", "Intéressant", "Moyen", "Faible", "Non pertinent"];
-const VISITE_TERRAIN_POTENTIELS = ["", "Oui", "Non", "À vérifier"];
+const VISITE_TERRAIN_DECISIONS = ["À creuser", "Offre possible", "Contre-visite", "Abandonner"];
+const VISITE_TERRAIN_INTERETS = ["Très intéressant", "Intéressant", "Moyen", "Faible", "Non pertinent"];
+const VISITE_TERRAIN_POTENTIELS = ["Oui", "Non", "À vérifier"];
+const VISITE_TERRAIN_TEMPS = ["15 min", "30 min", "45 min", "1 h", "+1 h"];
+const VISITE_TERRAIN_ACTIONS_RAPIDES = ["Faire offre", "Demander DDT", "Faire devis travaux", "Contacter urbanisme", "Programmer contre-visite", "Abandonner"];
+const VISITE_TERRAIN_STATUS_META = {
+  "OK": { label:"OK", short:"OK", color:SU, bg:SEMANTIC.success.bg, border:SEMANTIC.success.border },
+  "À vérifier": { label:"À vérifier", short:"?", color:WA, bg:SEMANTIC.warning.bg, border:SEMANTIC.warning.border },
+  "Problème": { label:"Problème", short:"!", color:DA, bg:SEMANTIC.danger.bg, border:SEMANTIC.danger.border },
+  "Non vu": { label:"Non vu", short:"—", color:"#8b93a7", bg:"rgba(139,147,167,.12)", border:"rgba(139,147,167,.28)" },
+  "Non applicable": { label:"N/A", short:"N/A", color:"#8b93a7", bg:"rgba(139,147,167,.08)", border:"rgba(139,147,167,.22)" },
+};
 const VISITE_TERRAIN_POINTS = [
-  { group:"Extérieur & structure", items:[
-    ["toiture", "Toiture"], ["charpente", "Charpente"], ["facade", "Façade / ravalement"], ["fissures", "Fissures structurelles"], ["humidite", "Humidité / moisissures"],
+  { group:"Extérieur & structure", hint:"Ce qui peut bloquer ou coûter cher", items:[
+    ["toiture", "Toiture"], ["charpente", "Charpente"], ["facade", "Façade"], ["fissures", "Fissures"], ["humidite", "Humidité"],
   ]},
-  { group:"Réseaux & équipements", items:[
-    ["electricite", "Électricité"], ["plomberie", "Plomberie"], ["chauffage", "Chauffage"], ["vmc", "VMC / ventilation"], ["compteurs", "Compteurs individuels"],
+  { group:"Réseaux & équipements", hint:"État des réseaux et individualisation possible", items:[
+    ["electricite", "Électricité"], ["plomberie", "Plomberie"], ["chauffage", "Chauffage"], ["vmc", "VMC"], ["compteurs", "Compteurs"],
   ]},
-  { group:"Découpe & exploitation", items:[
-    ["acces", "Accès indépendants"], ["escaliers", "Escaliers / circulation"], ["stationnement", "Stationnement"], ["configuration", "Configuration des lots"], ["marche_locatif", "Marché locatif perçu"],
+  { group:"Découpe & exploitation", hint:"Potentiel de création de lots et facilité d’exploitation", items:[
+    ["acces", "Accès indépendants"], ["escaliers", "Circulation / escaliers"], ["stationnement", "Stationnement"], ["configuration", "Configuration lots"], ["marche_locatif", "Marché locatif"],
   ]},
-  { group:"Réglementaire", items:[
-    ["copro", "Copropriété / règlement"], ["urbanisme", "Urbanisme / division"], ["dpe", "DPE / énergie"], ["documents", "Documents disponibles"],
+  { group:"Réglementaire", hint:"Points à valider avant offre ou travaux", items:[
+    ["copro", "Copropriété"], ["urbanisme", "Urbanisme / division"], ["dpe", "DPE / énergie"], ["documents", "Documents disponibles"],
   ]},
 ];
 const VISITE_TERRAIN_DOCS = [
@@ -349,12 +358,22 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
       return next;
     });
   };
+  const setGroupStatus = (items, statut) => {
+    setData(prev => {
+      const nextPoints = { ...prev.points };
+      items.forEach(([key]) => { nextPoints[key] = { ...(nextPoints[key] || {}), statut }; });
+      const next = { ...prev, points:nextPoints };
+      latestRef.current = next;
+      return next;
+    });
+  };
 
   const pointLabels = VISITE_TERRAIN_POINTS.flatMap(g => g.items);
   const statusDone = pointLabels.filter(([key]) => !!latestRef.current.points?.[key]?.statut).length;
   const decisionDone = ["date_visite", "interet", "conclusion", "potentiel_decoupe", "prochaine_action"].filter(k => String(latestRef.current[k] || "").trim()).length;
-  const total = pointLabels.length + 5;
-  const done = statusDone + decisionDone;
+  const docsDone = VISITE_TERRAIN_DOCS.filter(([key]) => !!latestRef.current.docs?.[key]).length;
+  const total = pointLabels.length + 5 + VISITE_TERRAIN_DOCS.length;
+  const done = statusDone + decisionDone + docsDone;
   const pct = Math.min(100, Math.round((done / Math.max(total, 1)) * 100));
   const missing = [
     ...(!data.date_visite ? ["Date de visite"] : []),
@@ -363,9 +382,11 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
     ...(!data.potentiel_decoupe ? ["Potentiel de découpe"] : []),
     ...(!data.prochaine_action ? ["Prochaine action"] : []),
     ...pointLabels.filter(([key]) => !data.points?.[key]?.statut).map(([,label]) => label),
+    ...VISITE_TERRAIN_DOCS.filter(([key]) => !data.docs?.[key]).map(([,label]) => label),
   ];
   const problemes = pointLabels.filter(([key]) => data.points?.[key]?.statut === "Problème").map(([,label]) => label);
   const aVerifier = pointLabels.filter(([key]) => data.points?.[key]?.statut === "À vérifier").map(([,label]) => label);
+  const docsChecked = VISITE_TERRAIN_DOCS.filter(([key]) => !!data.docs?.[key]).length;
 
   const getSuggestedStatut = (d) => {
     if (d.conclusion === "Offre possible") return "Offre à faire";
@@ -419,33 +440,119 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
   useEffect(() => {
     if (bootRef.current) { bootRef.current = false; return; }
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
-    autoSaveRef.current = setTimeout(() => save({ silent:true }), 900);
+    autoSaveRef.current = setTimeout(() => save({ silent:true }), 700);
     return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  const statusColor = (st) => st === "OK" ? SU : st === "À vérifier" ? WA : st === "Problème" ? DA : T.textMuted;
-  const DecisionButton = ({ value }) => {
-    const active = data.conclusion === value;
+  const getStatusMeta = (st) => VISITE_TERRAIN_STATUS_META[st] || { color:T.textMuted, bg:T.input, border:T.border, label:st || "—", short:"—" };
+  const quickBtnBase = {
+    borderRadius:RADIUS.md,
+    fontFamily:"inherit",
+    cursor:"pointer",
+    transition:"all .12s",
+    fontWeight:900,
+    border:`1px solid ${T.border}`,
+    background:T.input,
+    color:T.textSub,
+  };
+
+  const ChoiceButton = ({ value, activeValue, onClick, tone="blue", children, style }) => {
+    const active = activeValue === value;
+    const isDanger = value === "Abandonner" || tone === "danger";
+    const isSuccess = value === "Offre possible" || value === "Oui" || tone === "success";
+    const activeColor = isDanger ? DA : isSuccess ? SU : tone === "warning" ? WA : T.accent;
+    const activeBg = isDanger ? SEMANTIC.danger.bg : isSuccess ? SEMANTIC.success.bg : tone === "warning" ? SEMANTIC.warning.bg : T.accentBg;
+    const activeBorder = isDanger ? SEMANTIC.danger.border : isSuccess ? SEMANTIC.success.border : tone === "warning" ? SEMANTIC.warning.border : T.accentBorder;
     return (
       <button
-        className="inv-btn inv-btn-sm"
-        onClick={() => updateData({ conclusion:value })}
+        type="button"
+        onClick={onClick}
         style={{
-          background: active ? (value === "Offre possible" ? SEMANTIC.success.bg : value === "Abandonner" ? SEMANTIC.danger.bg : T.accentBg) : T.input,
-          border:`1px solid ${active ? (value === "Offre possible" ? SEMANTIC.success.border : value === "Abandonner" ? SEMANTIC.danger.border : T.accentBorder) : T.border}`,
-          color: active ? (value === "Offre possible" ? SU : value === "Abandonner" ? DA : T.accent) : T.textSub,
-          justifyContent:"center",
+          ...quickBtnBase,
+          background:active ? activeBg : T.input,
+          border:`1px solid ${active ? activeBorder : T.border}`,
+          color:active ? activeColor : T.textSub,
+          padding:"9px 10px",
+          minHeight:38,
+          ...style,
         }}
-      >{value}</button>
+      >{children || value}</button>
     );
   };
+
+  const StatusButtons = ({ itemKey, row }) => (
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5}}>
+      {["OK", "À vérifier", "Problème", "Non vu"].map(st => {
+        const meta = getStatusMeta(st);
+        const active = row.statut === st;
+        return (
+          <button
+            key={st}
+            type="button"
+            onClick={() => updatePoint(itemKey, { statut:st })}
+            title={meta.label}
+            style={{
+              ...quickBtnBase,
+              padding:"7px 5px",
+              minHeight:34,
+              fontSize:FONT.xs.size+1,
+              background:active ? meta.bg : T.card,
+              border:`1px solid ${active ? meta.border : T.border}`,
+              color:active ? meta.color : T.textMuted,
+            }}
+          >{st === "À vérifier" ? "À vérif." : st}</button>
+        );
+      })}
+    </div>
+  );
+
+  const DocTile = ({ itemKey, label }) => {
+    const active = !!data.docs?.[itemKey];
+    return (
+      <button
+        type="button"
+        onClick={() => updateDoc(itemKey, !active)}
+        style={{
+          display:"flex",
+          alignItems:"center",
+          gap:8,
+          textAlign:"left",
+          fontFamily:"inherit",
+          cursor:"pointer",
+          borderRadius:RADIUS.md,
+          padding:"9px 10px",
+          border:`1px solid ${active ? SEMANTIC.success.border : T.border}`,
+          background:active ? SEMANTIC.success.bg : T.input,
+          color:active ? SU : T.textSub,
+          fontWeight:800,
+        }}
+      >
+        <span style={{width:20,height:20,borderRadius:6,border:`1px solid ${active ? SU : T.border}`,display:"flex",alignItems:"center",justifyContent:"center",background:active ? SU : T.card,color:active ? "white" : T.textMuted,fontSize:12,fontWeight:900}}>{active ? "✓" : ""}</span>
+        <span>{label}</span>
+      </button>
+    );
+  };
+
+  const QuickInput = ({ label, value, onChange, placeholder="", type="text" }) => (
+    <div>
+      <label className="inv-kpi-lbl">{label}</label>
+      <input className="inv-inp" type={type} value={value || ""} onChange={e=>onChange(e.target.value)} style={{width:"100%",textAlign:type==="number"?"right":"left"}} placeholder={placeholder}/>
+    </div>
+  );
+
+  const QuickTextarea = ({ label, value, onChange, placeholder="", rows=2 }) => (
+    <div>
+      <label className="inv-kpi-lbl">{label}</label>
+      <textarea className="inv-textarea" rows={rows} value={value || ""} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>
+    </div>
+  );
 
   return (
     <div style={{display:"grid",gridTemplateColumns:"300px 1fr",gap:16,alignItems:"start"}}>
       <div style={{position:"sticky",top:14,display:"flex",flexDirection:"column",gap:12}}>
         <div className="inv-card">
-          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={PhoneIcon} size={13}/>Visite terrain</span></div>
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={PhoneIcon} size={13}/>Visite terrain rapide</span></div>
           <div className="inv-card-bd">
             {msg && <div style={{fontSize:FONT.xs.size+1,color:msg.startsWith("Erreur")?DA:SU,fontWeight:800,marginBottom:8}}>{msg}</div>}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:8}}>
@@ -462,17 +569,22 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
               <div style={{padding:8,borderRadius:RADIUS.md,background:SEMANTIC.danger.bg,border:`1px solid ${SEMANTIC.danger.border}`,color:DA,fontWeight:800,fontSize:FONT.sm.size}}>⚠ {problemes.length} problème{problemes.length>1?"s":""}</div>
               <div style={{padding:8,borderRadius:RADIUS.md,background:SEMANTIC.warning.bg,border:`1px solid ${SEMANTIC.warning.border}`,color:WA,fontWeight:800,fontSize:FONT.sm.size}}>⏳ {aVerifier.length} à vérifier</div>
             </div>
+            <div style={{marginTop:10,padding:10,borderRadius:RADIUS.md,background:T.input,border:`1px solid ${T.border}`}}>
+              <div className="inv-kpi-lbl">Décision actuelle</div>
+              <div style={{fontSize:FONT.md.size,fontWeight:900,color:data.conclusion === "Abandonner" ? DA : data.conclusion === "Offre possible" ? SU : T.accent,marginTop:3}}>{data.conclusion || "À choisir"}</div>
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:3}}>Action : {data.prochaine_action || "à compléter"}</div>
+            </div>
             <button className="inv-btn inv-btn-blue" onClick={() => save({ silent:false })} disabled={saving} style={{width:"100%",justifyContent:"center",marginTop:12}}>
               <Icon as={saving ? RefreshCw : Save} size={13} style={saving ? {animation:"spin 1s linear infinite"} : undefined}/>
               {saving ? "Sauvegarde…" : saved ? "Sauvegardé" : "Enregistrer la visite"}
             </button>
-            <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:8,lineHeight:1.45}}>Autosave actif après chaque saisie. Le statut du bien est ajusté selon la décision rapide.</div>
+            <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:8,lineHeight:1.45}}>Autosave actif. Les boutons sont pensés pour une saisie rapide sur téléphone ou tablette.</div>
           </div>
         </div>
 
         <div className="inv-card">
           <div className="inv-card-hd"><span>À compléter</span></div>
-          <div className="inv-card-bd" style={{maxHeight:260,overflowY:"auto"}}>
+          <div className="inv-card-bd" style={{maxHeight:270,overflowY:"auto"}}>
             {missing.length === 0 ? (
               <div style={{fontSize:FONT.sm.size,color:SU,fontWeight:800}}>Toutes les réponses terrain sont complétées.</div>
             ) : missing.slice(0,18).map(m => (
@@ -485,38 +597,72 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
 
       <div style={{display:"flex",flexDirection:"column",gap:16}}>
         <div className="inv-card">
-          <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Décision rapide en fin de visite</span></div>
+          <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Décision en 30 secondes</span></div>
           <div className="inv-card-bd">
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
-              {VISITE_TERRAIN_DECISIONS.filter(Boolean).map(v => <DecisionButton key={v} value={v}/>)}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:14}}>
+              {VISITE_TERRAIN_DECISIONS.map(v => <ChoiceButton key={v} value={v} activeValue={data.conclusion} onClick={() => updateData({ conclusion:v })}>{v}</ChoiceButton>)}
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-              <div><label className="inv-kpi-lbl">Intérêt du bien</label><select className="inv-sel" value={data.interet} onChange={e=>updateData({interet:e.target.value})} style={{width:"100%"}}>{VISITE_TERRAIN_INTERETS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select></div>
-              <div><label className="inv-kpi-lbl">Potentiel découpe</label><select className="inv-sel" value={data.potentiel_decoupe} onChange={e=>updateData({potentiel_decoupe:e.target.value})} style={{width:"100%"}}>{VISITE_TERRAIN_POTENTIELS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select></div>
-              <div><label className="inv-kpi-lbl">Offre possible</label><select className="inv-sel" value={data.offre_possible} onChange={e=>updateData({offre_possible:e.target.value})} style={{width:"100%"}}>{VISITE_TERRAIN_POTENTIELS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select></div>
-              <div><label className="inv-kpi-lbl">Date visite</label><input className="inv-inp" type="date" value={data.date_visite} onChange={e=>updateData({date_visite:e.target.value})} style={{width:"100%"}}/></div>
-              <div><label className="inv-kpi-lbl">Conseiller</label><input className="inv-inp" value={data.conseiller} onChange={e=>updateData({conseiller:e.target.value})} style={{width:"100%",textAlign:"left"}} placeholder={profil?.nom||"Conseiller"}/></div>
-              <div><label className="inv-kpi-lbl">Temps de visite</label><input className="inv-inp" value={data.temps_visite} onChange={e=>updateData({temps_visite:e.target.value})} style={{width:"100%",textAlign:"left"}} placeholder="Ex : 25 min"/></div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:12}}>
+              <div>
+                <label className="inv-kpi-lbl">Intérêt du bien</label>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>{VISITE_TERRAIN_INTERETS.map(v => <ChoiceButton key={v} value={v} activeValue={data.interet} onClick={() => updateData({ interet:v })} style={{fontSize:FONT.xs.size+1}}>{v}</ChoiceButton>)}</div>
+              </div>
+              <div>
+                <label className="inv-kpi-lbl">Potentiel découpe</label>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>{VISITE_TERRAIN_POTENTIELS.map(v => <ChoiceButton key={v} value={v} activeValue={data.potentiel_decoupe} onClick={() => updateData({ potentiel_decoupe:v })} style={{fontSize:FONT.xs.size+1}}>{v}</ChoiceButton>)}</div>
+              </div>
+              <div>
+                <label className="inv-kpi-lbl">Offre possible</label>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>{VISITE_TERRAIN_POTENTIELS.map(v => <ChoiceButton key={v} value={v} activeValue={data.offre_possible} onClick={() => updateData({ offre_possible:v })} style={{fontSize:FONT.xs.size+1}}>{v}</ChoiceButton>)}</div>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="inv-card">
-          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Check} size={13}/>Checklist terrain rapide</span></div>
+          <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Calendar} size={13}/>Infos de visite</span></div>
+          <div className="inv-card-bd">
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+              <QuickInput label="Date visite" type="date" value={data.date_visite} onChange={v=>updateData({date_visite:v})}/>
+              <QuickInput label="Conseiller" value={data.conseiller} onChange={v=>updateData({conseiller:v})} placeholder={profil?.nom||"Conseiller"}/>
+              <div>
+                <label className="inv-kpi-lbl">Temps de visite</label>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5}}>{VISITE_TERRAIN_TEMPS.map(v => <ChoiceButton key={v} value={v} activeValue={data.temps_visite} onClick={() => updateData({ temps_visite:v })} style={{padding:"7px 4px",fontSize:FONT.xs.size}}>{v}</ChoiceButton>)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="inv-card">
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Check} size={13}/>Checklist terrain à cocher</span></div>
           <div className="inv-card-bd" style={{display:"flex",flexDirection:"column",gap:14}}>
             {VISITE_TERRAIN_POINTS.map(group => (
-              <div key={group.group}>
-                <div style={{fontSize:FONT.xs.size,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8}}>{group.group}</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8}}>
+              <div key={group.group} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,background:T.card,overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 12px",background:T.sectionHd,borderBottom:`1px solid ${T.border}`}}>
+                  <div>
+                    <div style={{fontSize:FONT.xs.size,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:1.2}}>{group.group}</div>
+                    <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2}}>{group.hint}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                    <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setGroupStatus(group.items, "OK")}>Tout OK</button>
+                    <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setGroupStatus(group.items, "Non vu")}>Non vu</button>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:8,padding:10}}>
                   {group.items.map(([key,label]) => {
                     const row = data.points?.[key] || {};
+                    const meta = getStatusMeta(row.statut);
+                    const needsComment = row.statut === "À vérifier" || row.statut === "Problème";
                     return (
-                      <div key={key} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.md,background:T.input,padding:10}}>
-                        <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:7}}>
-                          <div style={{fontSize:FONT.sm.size+1,fontWeight:800,color:T.text}}>{label}</div>
-                          <select className="inv-sel" value={row.statut || ""} onChange={e=>updatePoint(key,{statut:e.target.value})} style={{width:118,color:statusColor(row.statut),fontWeight:800}}>{VISITE_TERRAIN_STATUS_OPTIONS.map(o=><option key={o} value={o}>{o||"—"}</option>)}</select>
+                      <div key={key} style={{border:`1px solid ${row.statut ? meta.border : T.border}`,borderRadius:RADIUS.md,background:row.statut ? meta.bg : T.input,padding:10}}>
+                        <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:8}}>
+                          <div style={{fontSize:FONT.sm.size+1,fontWeight:900,color:T.text}}>{label}</div>
+                          <span style={{fontSize:FONT.xs.size,fontWeight:900,color:row.statut ? meta.color : T.textMuted}}>{row.statut || "À cocher"}</span>
                         </div>
-                        <input className="inv-inp" value={row.commentaire || ""} onChange={e=>updatePoint(key,{commentaire:e.target.value})} style={{width:"100%",textAlign:"left",fontSize:FONT.xs.size+1}} placeholder="Commentaire rapide…"/>
+                        <StatusButtons itemKey={key} row={row}/>
+                        {(needsComment || row.commentaire) && (
+                          <input className="inv-inp" value={row.commentaire || ""} onChange={e=>updatePoint(key,{commentaire:e.target.value})} style={{width:"100%",textAlign:"left",fontSize:FONT.xs.size+1,marginTop:8}} placeholder={needsComment ? "Pourquoi ? détail rapide…" : "Commentaire rapide…"}/>
+                        )}
                       </div>
                     );
                   })}
@@ -528,28 +674,25 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
           <div className="inv-card">
-            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Building2} size={13}/>Découpe & chiffrage ressenti</span></div>
-            <div className="inv-card-bd" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <div><label className="inv-kpi-lbl">Nombre de lots possible</label><input className="inv-inp" value={data.nombre_lots_possible} onChange={e=>updateData({nombre_lots_possible:e.target.value})} style={{width:"100%"}} placeholder="Ex : 4"/></div>
-              <div><label className="inv-kpi-lbl">Budget travaux ressenti</label><input className="inv-inp" value={data.budget_travaux_ressenti} onChange={e=>updateData({budget_travaux_ressenti:e.target.value})} style={{width:"100%"}} placeholder="Ex : 140 000"/></div>
-              <div style={{gridColumn:"1 / -1"}}><label className="inv-kpi-lbl">Points forts</label><textarea className="inv-textarea" rows={2} value={data.points_forts} onChange={e=>updateData({points_forts:e.target.value})} placeholder="Emplacement, volumes, accès, luminosité, demande locative…"/></div>
-              <div style={{gridColumn:"1 / -1"}}><label className="inv-kpi-lbl">Points bloquants</label><textarea className="inv-textarea" rows={2} value={data.points_blocants} onChange={e=>updateData({points_blocants:e.target.value})} placeholder="Structure, humidité, copropriété, stationnement, DPE, enveloppe travaux…"/></div>
+            <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Building2} size={13}/>Potentiel & chiffres à chaud</span></div>
+            <div className="inv-card-bd">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <QuickInput label="Lots possibles" value={data.nombre_lots_possible} onChange={v=>updateData({nombre_lots_possible:v})} placeholder="Ex : 4"/>
+                <QuickInput label="Travaux ressentis" value={data.budget_travaux_ressenti} onChange={v=>updateData({budget_travaux_ressenti:v})} placeholder="Ex : 140 000"/>
+              </div>
+              <QuickTextarea label="Points forts" rows={2} value={data.points_forts} onChange={v=>updateData({points_forts:v})} placeholder="Emplacement, volumes, accès, luminosité…"/>
+              <div style={{height:10}}/>
+              <QuickTextarea label="Points bloquants" rows={2} value={data.points_blocants} onChange={v=>updateData({points_blocants:v})} placeholder="Structure, humidité, copropriété, DPE…"/>
             </div>
           </div>
 
           <div className="inv-card">
-            <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13}/>Documents & photos à chaud</span></div>
+            <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={FileText} size={13}/>Documents & photos</span><span style={{fontFamily:"'DM Mono',monospace",color:T.accent}}>{docsChecked}/{VISITE_TERRAIN_DOCS.length}</span></div>
             <div className="inv-card-bd">
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-                {VISITE_TERRAIN_DOCS.map(([key,label]) => (
-                  <label key={key} style={{display:"flex",alignItems:"center",gap:8,fontSize:FONT.sm.size+1,color:T.textSub,fontWeight:700,background:T.input,border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"8px 9px",cursor:"pointer"}}>
-                    <input type="checkbox" checked={!!data.docs?.[key]} onChange={e=>updateDoc(key,e.target.checked)}/>
-                    {label}
-                  </label>
-                ))}
+                {VISITE_TERRAIN_DOCS.map(([key,label]) => <DocTile key={key} itemKey={key} label={label}/>) }
               </div>
-              <label className="inv-kpi-lbl">Commentaire photos / documents</label>
-              <textarea className="inv-textarea" rows={3} value={data.photos_commentaire} onChange={e=>updateData({photos_commentaire:e.target.value})} placeholder="Photos manquantes, documents à demander à l’agent, pièces bloquantes…"/>
+              <QuickTextarea label="Note documents / photos" rows={3} value={data.photos_commentaire} onChange={v=>updateData({photos_commentaire:v})} placeholder="Photos manquantes, documents à demander, pièces bloquantes…"/>
             </div>
           </div>
         </div>
@@ -557,20 +700,26 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
         <div className="inv-card">
           <div className="inv-card-hd danger"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={AlertTriangle} size={13}/>Suite à donner</span></div>
           <div className="inv-card-bd">
-            <div style={{display:"grid",gridTemplateColumns:"1fr 160px",gap:10,marginBottom:10}}>
-              <div><label className="inv-kpi-lbl">Prochaine action</label><input className="inv-inp" value={data.prochaine_action} onChange={e=>updateData({prochaine_action:e.target.value})} style={{width:"100%",textAlign:"left"}} placeholder="Ex : faire offre, demander DDT, programmer contre-visite…"/></div>
-              <div><label className="inv-kpi-lbl">Date relance</label><input className="inv-inp" type="date" value={data.prochaine_action_date} onChange={e=>updateData({prochaine_action_date:e.target.value})} style={{width:"100%"}}/></div>
+            <div style={{marginBottom:10}}>
+              <label className="inv-kpi-lbl">Action rapide</label>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:7}}>
+                {VISITE_TERRAIN_ACTIONS_RAPIDES.map(v => <ChoiceButton key={v} value={v} activeValue={data.prochaine_action} onClick={() => updateData({prochaine_action:v})} tone={v === "Abandonner" ? "danger" : v === "Faire offre" ? "success" : "blue"} style={{fontSize:FONT.xs.size+1}}>{v}</ChoiceButton>)}
+              </div>
             </div>
-            <label className="inv-kpi-lbl">Questions à poser / notes libres</label>
-            <textarea className="inv-textarea" rows={3} value={data.questions_agent} onChange={e=>updateData({questions_agent:e.target.value})} placeholder="Questions à l’agent, points à vérifier en mairie, éléments à transmettre à Profero Rénovation…"/>
-            <label className="inv-kpi-lbl" style={{marginTop:10,display:"block"}}>Commentaire final terrain</label>
-            <textarea className="inv-textarea" rows={3} value={data.commentaire} onChange={e=>updateData({commentaire:e.target.value})} placeholder="Conclusion terrain rapide : pourquoi on poursuit ou pourquoi on abandonne…"/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 160px",gap:10,marginBottom:10}}>
+              <QuickInput label="Prochaine action personnalisée" value={data.prochaine_action} onChange={v=>updateData({prochaine_action:v})} placeholder="Ex : rappeler agent, demander plans…"/>
+              <QuickInput label="Date relance" type="date" value={data.prochaine_action_date} onChange={v=>updateData({prochaine_action_date:v})}/>
+            </div>
+            <QuickTextarea label="Questions à poser / notes libres" rows={3} value={data.questions_agent} onChange={v=>updateData({questions_agent:v})} placeholder="Questions à l’agent, mairie, Profero Rénovation…"/>
+            <div style={{height:10}}/>
+            <QuickTextarea label="Commentaire final terrain" rows={3} value={data.commentaire} onChange={v=>updateData({commentaire:v})} placeholder="Conclusion terrain rapide : pourquoi on poursuit ou pourquoi on abandonne…"/>
           </div>
         </div>
       </div>
     </div>
   );
 }
+
 
 const STATUTS_BIEN = ["À analyser","Agent contacté","Visite programmée","Visité","À relancer","Offre à faire","Offre envoyée","Offre refusée","Offre acceptée","Abandonné","Proposé à un client","En cours d'acquisition"];
 const STATUT_BIEN_COLORS = {
