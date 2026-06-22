@@ -1498,34 +1498,80 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"28px 30px", width:"90%", maxWidth:720, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize:17, fontWeight:800, color:T.text, marginBottom:20 }}>{isEdit ? "Modifier le bien" : "Nouveau bien"}</div>
+        <div style={{marginBottom:14, padding:"10px 12px", borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}`, color:T.textSub, fontSize:FONT.sm.size+1, lineHeight:1.45}}>
+          Fiche bien simplifiée : on garde uniquement les informations utiles pour créer, retrouver et décider rapidement. Les contrôles techniques, DPE, urbanisme, photos et points de vigilance se remplissent dans l’onglet <strong style={{color:T.accent}}>Visite terrain</strong>.
+        </div>
+
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse</label><InpText value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label><InpText value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label><InpText value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/></div>
-          <div style={{ marginBottom:12, gridColumn:"1 / 3", padding:"9px 11px", borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}`, color:T.accent, fontSize:FONT.sm.size }}>
-            📍 La latitude et la longitude seront calculées automatiquement à partir de l'adresse lors de l'enregistrement, puis le bien apparaîtra sur la Maps.
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Référence Profero</label>
+            <InpText value={form.reference_interne} onChange={e=>setForm({...form,reference_interne:e.target.value})} placeholder="Ex : ANG-001"/>
           </div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label><InpText value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label><InpText value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Agence</label><InpText value={form.agence} onChange={e=>setForm({...form,agence:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Statut</label>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Statut</label>
             <select className="inv-sel" value={form.statut} style={{ width:"100%" }} onChange={e=>setForm({...form,statut:e.target.value})}>
               {STATUTS_BIEN.map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix de vente (€)</label><InpNum value={form.prix_vente} onChange={e=>setForm({...form,prix_vente:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix travaux (€)</label><InpNum value={form.prix_travaux} onChange={e=>setForm({...form,prix_travaux:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Coût total (€)</label><InpNum value={form.cout_total} onChange={e=>setForm({...form,cout_total:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Rendement brut (%)</label><InpNum value={form.rendement_brut} step="0.1" onChange={e=>setForm({...form,rendement_brut:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Cash-flow estimé (€/mois)</label><InpNum value={form.cashflow_estime} onChange={e=>setForm({...form,cashflow_estime:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Montant offre (€)</label><InpNum value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date visite</label><InpText type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date relance</label><InpText type="date" value={form.date_relance} onChange={e=>setForm({...form,date_relance:e.target.value})}/></div>
-          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien annonce</label><InpText value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien Drive</label><InpText value={form.lien_drive} onChange={e=>setForm({...form,lien_drive:e.target.value})} placeholder="https://…"/></div>
-          <div style={{ marginBottom:12 }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien dossier rentabilité</label><InpText value={form.lien_rentabilite} onChange={e=>setForm({...form,lien_rentabilite:e.target.value})} placeholder="https://…"/></div>
-          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Commentaire</label><textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})}/></div>
+
+          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse du bien</label>
+            <InpText value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label>
+            <InpText value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label>
+            <InpText value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/>
+          </div>
+
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Prix affiché (€)</label>
+            <InpNum value={form.prix_vente} onChange={e=>setForm({...form,prix_vente:e.target.value})}/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Travaux estimés (€)</label>
+            <InpNum value={form.prix_travaux} onChange={e=>setForm({...form,prix_travaux:e.target.value})}/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Offre cible (€)</label>
+            <InpNum value={form.montant_offre} onChange={e=>setForm({...form,montant_offre:e.target.value})}/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Date visite prévue</label>
+            <InpText type="date" value={form.date_visite} onChange={e=>setForm({...form,date_visite:e.target.value})}/>
+          </div>
+
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Interlocuteur</label>
+            <InpText value={form.interlocuteur} onChange={e=>setForm({...form,interlocuteur:e.target.value})} placeholder="Agent / vendeur"/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Téléphone</label>
+            <InpText value={form.telephone_interlocuteur} onChange={e=>setForm({...form,telephone_interlocuteur:e.target.value})}/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Source</label>
+            <select className="inv-sel" value={form.source_bien} style={{ width:"100%" }} onChange={e=>setForm({...form,source_bien:e.target.value})}>
+              {SOURCES_BIEN_VISITE.map(s=><option key={s} value={s}>{s || "Sélectionner"}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Conseiller Profero</label>
+            <InpText value={form.conseiller_profero} onChange={e=>setForm({...form,conseiller_profero:e.target.value})} placeholder={profil?.nom || "Conseiller"}/>
+          </div>
+          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Lien annonce</label>
+            <InpText value={form.lien_annonce} onChange={e=>setForm({...form,lien_annonce:e.target.value})} placeholder="https://…"/>
+          </div>
+          <div style={{ marginBottom:12, gridColumn: "1 / 3" }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Note rapide</label>
+            <textarea className="inv-textarea" rows={3} value={form.commentaire} onChange={e=>setForm({...form,commentaire:e.target.value})} placeholder="Information utile avant analyse détaillée : vendeur motivé, point fort, point bloquant, action à faire…"/>
+          </div>
         </div>
+
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
           <button className="inv-btn inv-btn-out" onClick={onClose}>Annuler</button>
           <button className="inv-btn inv-btn-gold" onClick={sauvegarder} disabled={saving}>{saving?"Enregistrement…":"Enregistrer"}</button>
@@ -3476,17 +3522,10 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   };
 
   const quitterFicheBien = async () => {
-    if (ficheTab === "fiche" && ficheVisiteRef.current?.sauvegarder) {
-      await ficheVisiteRef.current.sauvegarder({ refresh:false });
-    }
     onRetour();
   };
 
   const changerOngletFiche = async (key) => {
-    if (ficheTab === "fiche" && key !== "fiche" && ficheVisiteRef.current?.sauvegarder) {
-      await ficheVisiteRef.current.sauvegarder({ refresh:false });
-      await charger();
-    }
     setFicheTab(key);
   };
 
@@ -3525,17 +3564,6 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           </div>
         </div>
         <span style={{ background:`${couleur}18`, color:couleur, border:`1px solid ${couleur}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{bien.statut}</span>
-        {ficheTab === "fiche" && (
-          <button
-            className="inv-btn inv-btn-gold inv-btn-sm"
-            onClick={() => ficheVisiteRef.current?.sauvegarder?.()}
-            disabled={visiteSaveState.saving}
-            title="Enregistrer la fiche visite"
-          >
-            <Icon as={Save} size={12} strokeWidth={2.2}/>
-            {visiteSaveState.saving ? "Sauvegarde…" : visiteSaveState.saved ? "Sauvegardé" : "Enregistrer"}
-          </button>
-        )}
         <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={genererPresentationClientPDF} title="Générer la fiche client investisseur">
           <Icon as={Sparkles} size={12} strokeWidth={2.2}/> Fiche client
         </button>
@@ -3573,7 +3601,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
 
       <div style={{ display:"flex", gap:4, marginBottom:18, borderBottom:`1px solid ${T.border}`, paddingBottom:8, flexWrap:"wrap" }}>
         {[
-          ["fiche", "Fiche visite", FileText],
+          ["fiche", "Fiche bien", FileText],
           ["terrain", "Visite terrain", PhoneIcon],
           ["simulateur", "Simulateur", BarChart3],
         ].map(([key,label,IconComp]) => (
@@ -3675,58 +3703,82 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
       ) : ficheTab === "terrain" ? (
         <ModeVisiteTerrainOnglet bien={bien} profil={profil} T={T} onSaved={charger} />
       ) : (
-      <div style={{ display:"grid", gridTemplateColumns:"0.82fr 1.18fr", gap:16, alignItems:"start" }}>
-        <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
-          <ClientsAssociesCard />
-          <AutoScoreBienCard bien={bien} T={T} />
-          <AnalyseRapideBienCard bien={bien} T={T} onSaved={charger} />
-          <div className="inv-card">
-            <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={PhoneIcon} size={13}/>Visite terrain</span></div>
-            <div className="inv-card-bd">
-              <div style={{fontSize:FONT.sm.size+1,color:T.textSub,lineHeight:1.55,marginBottom:10}}>Ouvrez l’onglet dédié pour remplir rapidement la visite sur mobile, avec checklist et décision immédiate.</div>
-              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setFicheTab("terrain")} style={{width:"100%",justifyContent:"center"}}>Ouvrir la visite terrain</button>
-            </div>
-          </div>
-          <MatchingClientsBienCard bien={bien} clients={clients} propositions={props} T={T} onAssociate={associerClientMatching} />
-
-          <div className="inv-card">
-            <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Informations</span></div>
-            <div className="inv-card-bd">
-              {[["Référence Profero", bien.reference_interne || "—"],["Géolocalisation", (isValidLatLng(parseFloat(bien.latitude), parseFloat(bien.longitude)) ? `${parseFloat(bien.latitude).toFixed(6)}, ${parseFloat(bien.longitude).toFixed(6)}` : "À valider")],["Interlocuteur", bien.interlocuteur],["Téléphone", bien.telephone_interlocuteur],["Source", bien.source_bien || bien.visite_data?.identification?.source],["Conseiller", bien.conseiller_profero || bien.visite_data?.identification?.conseiller_profero],["Lien annonce", bien.lien_annonce ? <a href={bien.lien_annonce} target="_blank" rel="noreferrer" style={{color:T.accent}}>Voir l'annonce ↗</a> : "—"],["Date visite", fmtDate(bien.date_visite)],["Date relance", fmtDate(bien.date_relance)],["Statut relance", bien.statut_relance||"—"]].map(([l,v])=>(
-                <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
-              ))}
-            </div>
-          </div>
-
-          <div className="inv-card">
-            <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Wallet} size={13} strokeWidth={2.2}/>Données Financières</span></div>
-            <div className="inv-card-bd">
-              {[["Prix de vente", fmtEur(bien.prix_vente)],["Prix travaux", fmtEur(bien.prix_travaux)],["Coût total", fmtEur(bien.cout_total)],["Montant offre", fmtEur(bien.montant_offre)],["Rendement brut", bien.rendement_brut > 0 ? bien.rendement_brut.toFixed(1)+"%" : "—"],["Cash-flow estimé", bien.cashflow_estime ? fmtEur(bien.cashflow_estime)+"/mois" : "—"]].map(([l,v])=>(
-                <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc" style={{fontFamily:"'DM Mono',monospace",fontWeight:700}}>{v}</span></div>
-              ))}
-              {(bien.lien_drive || bien.lien_rentabilite) && (
-                <div style={{ marginTop:12, display:"flex", gap:8, flexWrap:"wrap" }}>
-                  {bien.lien_drive && <a href={bien.lien_drive} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:T.accentBorder}}><Icon as={FileText} size={12} strokeWidth={2.2}/> Dossier Drive <Icon as={ExternalLink} size={10}/></a>}
-                  {bien.lien_rentabilite && <a href={bien.lien_rentabilite} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{color:T.accent,borderColor:T.accentBorder}}><Icon as={BarChart3} size={12} strokeWidth={2.2}/> Rentabilité <Icon as={ExternalLink} size={10}/></a>}
-                </div>
-              )}
-            </div>
-          </div>
-          {bien.commentaire && (
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 360px", gap:16, alignItems:"start" }}>
+          <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
             <div className="inv-card">
-              <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Commentaire</span></div>
-              <div className="inv-card-bd" style={{ fontSize:13, color:T.textSub, lineHeight:1.7 }}>{bien.commentaire}</div>
+              <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13} strokeWidth={2.2}/>Fiche bien simplifiée</span>
+                <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,fontWeight:800}}>Saisie rapide équipe</span>
+              </div>
+              <div className="inv-card-bd">
+                <div style={{padding:"10px 12px",borderRadius:RADIUS.md,background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.textSub,fontSize:FONT.sm.size+1,lineHeight:1.5,marginBottom:12}}>
+                  Cette fiche garde les éléments principaux pour décider vite. Les détails techniques, DPE, urbanisme, photos, risques et questions à l’agent sont regroupés dans l’onglet <strong style={{color:T.accent}}>Visite terrain</strong>.
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                  <div>
+                    <div style={{fontSize:FONT.xs.size,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8}}>Identification</div>
+                    {[
+                      ["Référence", bien.reference_interne || "—"],
+                      ["Statut", bien.statut || "—"],
+                      ["Adresse", [bien.adresse,bien.code_postal,bien.ville].filter(Boolean).join(" ") || "—"],
+                      ["Interlocuteur", bien.interlocuteur || "—"],
+                      ["Téléphone", bien.telephone_interlocuteur || "—"],
+                      ["Source", bien.source_bien || bien.visite_data?.identification?.source || "—"],
+                      ["Conseiller", bien.conseiller_profero || bien.visite_data?.identification?.conseiller_profero || "—"],
+                      ["Date visite", fmtDate(bien.date_visite)],
+                    ].map(([l,v])=>(
+                      <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v}</span></div>
+                    ))}
+                    {bien.lien_annonce && (
+                      <a href={bien.lien_annonce} target="_blank" rel="noreferrer" className="inv-btn inv-btn-out inv-btn-sm" style={{marginTop:10,color:T.accent,borderColor:T.accentBorder}}><Icon as={ExternalLink} size={12}/> Ouvrir l’annonce</a>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{fontSize:FONT.xs.size,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8}}>Budget rapide</div>
+                    {[
+                      ["Prix affiché", fmtEur(bien.prix_vente || generalBien.prix_affiche)],
+                      ["Travaux estimés", fmtEur(bien.prix_travaux || financeBien.budget_travaux_ttc)],
+                      ["Offre cible", fmtEur(bien.montant_offre || conclusionBien.prix_offre_recommande || financeBien.prix_acquisition_negocie)],
+                      ["Coût total", fmtEur(bien.cout_total || financeBien.cout_total_operation_calcule)],
+                      ["Rendement brut", bien.rendement_brut ? Number(bien.rendement_brut).toFixed(1)+" %" : (financeBien.rendement_brut_calcule ? Number(financeBien.rendement_brut_calcule).toFixed(1)+" %" : "—")],
+                      ["Cash-flow", bien.cashflow_estime ? fmtEur(bien.cashflow_estime)+"/mois" : (financeBien.cashflow_mensuel ? fmtEur(financeBien.cashflow_mensuel)+"/mois" : "—")],
+                    ].map(([l,v])=>(
+                      <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc" style={{fontFamily:"'DM Mono',monospace",fontWeight:800}}>{v}</span></div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
 
-          <OffreAchatBienCard bien={bien} T={T} onSaved={charger} />
-          <ChecklistDocumentsBienCard bien={bien} T={T} onSaved={charger} />
-          <DocumentsSection folder={`biens/${id}`} T={T} categories={DOCUMENT_CATEGORIES_BIEN} />
-          <HistoriqueBienCard bien={bien} propositions={props} T={T} />
+            {bien.commentaire && (
+              <div className="inv-card">
+                <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Note rapide</span></div>
+                <div className="inv-card-bd" style={{ fontSize:13, color:T.textSub, lineHeight:1.7 }}>{bien.commentaire}</div>
+              </div>
+            )}
+
+            <DocumentsSection folder={`biens/${id}`} T={T} categories={DOCUMENT_CATEGORIES_BIEN} />
+            <HistoriqueBienCard bien={bien} propositions={props} T={T} />
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
+            <ClientsAssociesCard />
+
+            <div className="inv-card">
+              <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Actions rapides</span></div>
+              <div className="inv-card-bd" style={{display:"grid",gridTemplateColumns:"1fr",gap:8}}>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setFicheTab("terrain")} style={{width:"100%",justifyContent:"center"}}><Icon as={PhoneIcon} size={12}/> Remplir la visite terrain</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setFicheTab("simulateur")} style={{width:"100%",justifyContent:"center"}}><Icon as={BarChart3} size={12}/> Ouvrir le simulateur</button>
+                <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={genererPresentationClientPDF} style={{width:"100%",justifyContent:"center"}}><Icon as={FileText} size={12}/> Générer la fiche client</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setShowEdit(true)} style={{width:"100%",justifyContent:"center"}}><Icon as={Pencil} size={12}/> Modifier les infos principales</button>
+              </div>
+            </div>
+
+            <AnalyseRapideBienCard bien={bien} T={T} onSaved={charger} />
+            <AutoScoreBienCard bien={bien} T={T} />
+            <MatchingClientsBienCard bien={bien} clients={clients} propositions={props} T={T} onAssociate={associerClientMatching} />
+          </div>
         </div>
-
-        <FicheVisiteBien ref={ficheVisiteRef} bien={bien} profil={profil} T={T} onSaved={charger} onSaveStateChange={setVisiteSaveState} />
-      </div>
       )}
 
       {showEdit && <FormulaireBien bien={bien} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
