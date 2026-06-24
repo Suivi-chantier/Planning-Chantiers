@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING } from "../constants";
+import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING, COULEURS_PALETTE } from "../constants";
 import { Icon } from "../ui";
 import {
   HardHat, TriangleAlert, Users, Building2, Package, ClipboardCheck,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap, Wind,
   MapPin, Thermometer, Check, X, Clock, ArrowRight, Pencil,
+  CalendarDays, ChevronLeft, ChevronRight, AlertCircle, RefreshCw, ExternalLink,
 } from "lucide-react";
 
 // ─── WIDGET CONTAINER ─────────────────────────────────────────────────────────
@@ -196,6 +197,10 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
           .dashboard-page .dashboard-row{grid-template-columns:1fr!important}
           .dashboard-page .dash-chantier-item{padding:12px!important}
           .dashboard-page .dash-chantier-name{font-size:15px!important}
+          .dashboard-page .dash-agenda-grid{grid-template-columns:repeat(2,1fr)!important}
+        }
+        @media (min-width:768px) and (max-width:1100px){
+          .dashboard-page .dash-agenda-grid{grid-template-columns:repeat(4,1fr)!important}
         }
       `}</style>
 
@@ -394,6 +399,11 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
 
         </div>
       </div>
+
+      {/* Agendas équipe — pleine largeur */}
+      <div style={{ marginBottom: 24 }}>
+        <AgendaWidget T={T} accent={acc.accent} branch={branch} />
+      </div>
     </div>
   );
 }
@@ -495,6 +505,258 @@ function WeatherDisplay({ weather, T }) {
         })}
       </div>
     </div>
+  );
+}
+
+// ─── AGENDAS ÉQUIPE (Google Calendar) ─────────────────────────────────────────
+// Lit les agendas Google des membres de l'équipe via l'Edge Function
+// `list-team-calendar-events` (compte og@ + refresh_token OAuth) et les affiche
+// en vue semaine. ⚠️ Chaque agenda doit être partagé avec og@groupe-profero.com.
+
+const JOURS_COURTS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+// Lundi de la semaine courante décalée de `offset` semaines (heure locale).
+function lundiSemaine(offset = 0) {
+  const now = new Date();
+  const jour = now.getDay();                 // 0 = dimanche … 6 = samedi
+  const versLundi = jour === 0 ? -6 : 1 - jour;
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + versLundi + offset * 7);
+}
+// Clé jour locale "AAAA-MM-JJ" à partir d'une Date.
+function cleJour(d) {
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+// Clé jour d'un événement (gère tout-la-journée "AAAA-MM-JJ" et daté ISO).
+function cleJourEvent(ev) {
+  if (!ev.start) return null;
+  if (ev.allDay) return String(ev.start).slice(0, 10);
+  const d = new Date(ev.start);
+  return isNaN(d) ? null : cleJour(d);
+}
+
+function AgendaWidget({ T, accent, branch = "renovation" }) {
+  const [team, setTeam]       = useState([]);     // [{ email, nom, color }]
+  const [offset, setOffset]   = useState(0);      // décalage de semaine
+  const [events, setEvents]   = useState([]);
+  const [calErrors, setCalErrors] = useState([]); // agendas non lisibles
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState("");
+  const [hidden, setHidden]   = useState(() => new Set()); // emails masqués
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // 1. Charger l'équipe (utilisateurs actifs de la branche, avec email).
+  useEffect(() => {
+    let annule = false;
+    supabase.from("utilisateurs").select("email,nom,branches,actif").order("nom")
+      .then(({ data }) => {
+        if (annule) return;
+        const membres = (data || [])
+          .filter(u => u.actif && u.email && (!Array.isArray(u.branches) || u.branches.length === 0 || u.branches.includes(branch)))
+          .map((u, i) => ({
+            email: String(u.email).trim().toLowerCase(),
+            nom: u.nom || u.email,
+            color: COULEURS_PALETTE[i % COULEURS_PALETTE.length],
+          }));
+        setTeam(membres);
+      });
+    return () => { annule = true; };
+  }, [branch]);
+
+  // 2. Bornes de la semaine affichée.
+  const lundi = lundiSemaine(offset);
+  const lundiSuivant = new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() + 7);
+  const jours = Array.from({ length: 7 }, (_, i) =>
+    new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() + i));
+  const todayKey = cleJour(new Date());
+
+  // 3. Charger les événements de la semaine pour toute l'équipe.
+  const emailsKey = team.map(m => m.email).join(",");
+  useEffect(() => {
+    if (!team.length) { setLoading(false); return; }
+    let annule = false;
+    setLoading(true); setError(""); setCalErrors([]);
+    supabase.functions.invoke("list-team-calendar-events", {
+      body: {
+        emails: team.map(m => m.email),
+        timeMin: lundi.toISOString(),
+        timeMax: lundiSuivant.toISOString(),
+        maxPerCalendar: 100,
+      },
+    }).then(({ data, error: fnErr }) => {
+      if (annule) return;
+      if (fnErr) { setError(fnErr.message || "Erreur de chargement des agendas."); setLoading(false); return; }
+      if (data?.error) { setError(data.error); setLoading(false); return; }
+      setEvents(Array.isArray(data?.events) ? data.events : []);
+      setCalErrors(Array.isArray(data?.errors) ? data.errors : []);
+      setLoading(false);
+    }).catch(e => { if (!annule) { setError(e.message); setLoading(false); } });
+    return () => { annule = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailsKey, offset, reloadKey]);
+
+  const colorFor = (email) => team.find(m => m.email === email)?.color || accent;
+  const nomFor   = (email) => team.find(m => m.email === email)?.nom || email;
+
+  // Événements visibles regroupés par jour, triés par heure.
+  const visibles = events.filter(ev => !hidden.has(ev.calendarEmail));
+  const parJour = {};
+  for (const ev of visibles) {
+    const k = cleJourEvent(ev);
+    if (!k) continue;
+    (parJour[k] = parJour[k] || []).push(ev);
+  }
+  Object.values(parJour).forEach(list => list.sort((a, b) => {
+    if (a.allDay && !b.allDay) return -1;
+    if (!a.allDay && b.allDay) return 1;
+    return String(a.start).localeCompare(String(b.start));
+  }));
+
+  const heure = (ev) => {
+    if (ev.allDay) return "journée";
+    try { return new Date(ev.start).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+    catch { return ""; }
+  };
+  const labelSemaine = `${lundi.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} – ${new Date(lundiSuivant.getFullYear(), lundiSuivant.getMonth(), lundiSuivant.getDate() - 1).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`;
+
+  const configManquante = /secrets google manquants/i.test(error);
+
+  const navBtn = (onClick, children, title) => (
+    <button onClick={onClick} title={title} style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: 28, height: 28, borderRadius: RADIUS.md,
+      background: "transparent", border: `1px solid ${T.border}`,
+      color: T.textSub, cursor: "pointer", fontFamily: "inherit",
+    }}>{children}</button>
+  );
+
+  return (
+    <DashWidget T={T} accent={accent} title="Agendas équipe" icon={CalendarDays}
+      action={
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600, whiteSpace: "nowrap" }}>{labelSemaine}</span>
+          {navBtn(() => setOffset(o => o - 1), <Icon as={ChevronLeft} size={14} />, "Semaine précédente")}
+          {offset !== 0 && (
+            <button onClick={() => setOffset(0)} style={{
+              border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+              borderRadius: RADIUS.md, padding: "3px 9px", fontSize: FONT.xs.size + 1,
+              fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+            }}>Auj.</button>
+          )}
+          {navBtn(() => setOffset(o => o + 1), <Icon as={ChevronRight} size={14} />, "Semaine suivante")}
+          {navBtn(() => setReloadKey(k => k + 1), <Icon as={RefreshCw} size={13} />, "Rafraîchir")}
+        </div>
+      }>
+
+      {/* Filtres par personne */}
+      {team.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+          {team.map(m => {
+            const off = hidden.has(m.email);
+            return (
+              <button key={m.email} onClick={() => setHidden(prev => {
+                const next = new Set(prev);
+                next.has(m.email) ? next.delete(m.email) : next.add(m.email);
+                return next;
+              })} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: off ? "transparent" : m.color + "1f",
+                border: `1px solid ${off ? T.border : m.color + "66"}`,
+                color: off ? T.textMuted : T.text,
+                borderRadius: RADIUS.pill, padding: "3px 10px",
+                fontSize: FONT.xs.size + 1, fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit",
+                opacity: off ? 0.55 : 1,
+              }}>
+                <span style={{ width: 9, height: 9, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
+                {m.nom}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Contenu */}
+      {loading ? (
+        <div style={{ color: T.textMuted, fontSize: FONT.sm.size, padding: "16px 0" }}>Chargement des agendas…</div>
+      ) : configManquante ? (
+        <div style={{
+          background: "#f5a62310", border: "1px solid #f5a62333", borderRadius: RADIUS.md,
+          padding: "12px 14px", fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.55,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, color: "#f5a623", fontWeight: 700, marginBottom: 6 }}>
+            <Icon as={AlertCircle} size={15} /> Connexion Google à configurer
+          </div>
+          Ajoutez les secrets <strong>GOOGLE_OAUTH_CLIENT_ID</strong>, <strong>GOOGLE_OAUTH_CLIENT_SECRET</strong> et <strong>GOOGLE_OAUTH_REFRESH_TOKEN</strong> dans Supabase (mêmes valeurs que la fonction d'écriture <em>create-mission-calendar-event</em>), puis déployez la fonction <em>list-team-calendar-events</em>.
+        </div>
+      ) : error ? (
+        <div style={{ color: "#e15a5a", fontSize: FONT.sm.size, padding: "12px 0" }}>
+          <Icon as={AlertCircle} size={14} /> {error}
+        </div>
+      ) : team.length === 0 ? (
+        <div style={{ color: T.textMuted, fontSize: FONT.sm.size, padding: "12px 0" }}>
+          Aucun membre d'équipe avec email pour cette branche.
+        </div>
+      ) : (
+        <>
+          <div className="dash-agenda-grid" style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+            {jours.map((d, i) => {
+              const k = cleJour(d);
+              const evs = parJour[k] || [];
+              const estAuj = k === todayKey;
+              return (
+                <div key={k} style={{
+                  border: `1px solid ${estAuj ? accent + "88" : T.border}`,
+                  background: estAuj ? accent + "0f" : T.card,
+                  borderRadius: RADIUS.md, padding: "8px 8px 10px",
+                  minHeight: 90, display: "flex", flexDirection: "column", gap: 5,
+                }}>
+                  <div style={{
+                    fontSize: FONT.xs.size, fontWeight: 700, color: estAuj ? accent : T.textSub,
+                    textTransform: "uppercase", letterSpacing: .4, marginBottom: 2,
+                    display: "flex", justifyContent: "space-between", alignItems: "baseline",
+                  }}>
+                    <span>{JOURS_COURTS[i]}</span>
+                    <span style={{ fontSize: FONT.xs.size, fontWeight: 600, color: T.textMuted }}>{d.getDate()}</span>
+                  </div>
+                  {evs.length === 0 ? (
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, opacity: .5 }}>—</div>
+                  ) : evs.map((ev, j) => {
+                    const c = colorFor(ev.calendarEmail);
+                    return (
+                      <a key={ev.id + j} href={ev.htmlLink || undefined} target="_blank" rel="noopener noreferrer"
+                        title={`${nomFor(ev.calendarEmail)} · ${heure(ev)} — ${ev.summary}${ev.location ? `\n${ev.location}` : ""}`}
+                        style={{
+                          display: "block", textDecoration: "none",
+                          background: c + "1c", borderLeft: `3px solid ${c}`,
+                          borderRadius: RADIUS.sm + 1, padding: "3px 6px",
+                          cursor: ev.htmlLink ? "pointer" : "default",
+                        }}>
+                        <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: c, lineHeight: 1.2 }}>
+                          {ev.allDay ? "Journée" : heure(ev)}
+                        </div>
+                        <div style={{ fontSize: FONT.xs.size + 1, color: T.text, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {ev.summary}
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+
+          {calErrors.length > 0 && (
+            <div style={{ marginTop: 12, fontSize: FONT.xs.size + 1, color: T.textMuted, lineHeight: 1.5 }}>
+              <Icon as={AlertCircle} size={12} />{" "}
+              {calErrors.length} agenda{calErrors.length > 1 ? "s" : ""} non lisible{calErrors.length > 1 ? "s" : ""} :{" "}
+              {calErrors.map(e => nomFor(e.email)).join(", ")}.{" "}
+              <span>Chaque personne doit partager son agenda Google avec <strong>og@groupe-profero.com</strong>.</span>
+            </div>
+          )}
+        </>
+      )}
+    </DashWidget>
   );
 }
 
