@@ -644,27 +644,42 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     }
 
     // 2-bis) DOUBLE ÉCRITURE V2 : on reporte l'avancement arbitré sur les tâches
-    //   d'ouvrage (phasages.ouvrages[].taches[]), matchées par NOM (les tâches V2
-    //   migrées ont des id régénérés). Additif : ne touche pas plan_travaux ci-dessus.
-    //   Permet aux dashboards V2 (Phase B) de refléter la validation.
+    //   d'ouvrage (phasages.ouvrages[].taches[]). Match par tache_id en priorité
+    //   (l'auto-match a rattaché une vraie tâche du plan, même si le nom écrit
+    //   par l'ouvrier diffère), puis fallback par nom si aucun tache_id.
+    //   Additif : ne touche pas plan_travaux ci-dessus.
+    const arbitresParId = {};
     const arbitresParNom = {};
     lignes.forEach(li => {
       const arb = li.avancement_arbitre;
       if (arb == null || arb === "") return;
-      const nom = (li.planifie || "").trim().toLowerCase();
-      if (!nom) return;
       const av = parseInt(arb) || 0;
-      if (arbitresParNom[nom] == null || av > arbitresParNom[nom]) arbitresParNom[nom] = av;
+      if (li.tache_id) {
+        const k = String(li.tache_id);
+        if (arbitresParId[k] == null || av > arbitresParId[k]) arbitresParId[k] = av;
+      } else {
+        const nom = (li.planifie || "").trim().toLowerCase();
+        if (!nom) return;
+        if (arbitresParNom[nom] == null || av > arbitresParNom[nom]) arbitresParNom[nom] = av;
+      }
     });
-    if (Object.keys(arbitresParNom).length > 0) {
+    if (Object.keys(arbitresParId).length > 0 || Object.keys(arbitresParNom).length > 0) {
       const phV2 = phasages.find(p => p.chantier_id === rapport.chantier_id);
       if (phV2 && Array.isArray(phV2.ouvrages)) {
         let touchedO = false;
         const ouvragesNext = phV2.ouvrages.map(o => ({
           ...o,
           taches: (o.taches || []).map(t => {
+            const tid = String(t.id || "");
+            if (tid && arbitresParId[tid] != null) {
+              touchedO = true;
+              return { ...t, avancement: arbitresParId[tid] };
+            }
             const nom = (t.nom || "").trim().toLowerCase();
-            if (nom && arbitresParNom[nom] != null) { touchedO = true; return { ...t, avancement: arbitresParNom[nom] }; }
+            if (nom && arbitresParNom[nom] != null) {
+              touchedO = true;
+              return { ...t, avancement: arbitresParNom[nom] };
+            }
             return t;
           }),
         }));
