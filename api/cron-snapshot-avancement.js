@@ -28,12 +28,35 @@ function parisNow() {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-// Calcule l'avancement (pondéré par heures vendues) d'un phasage.
-// Compatible nouveau modèle (heures au niveau ouvrage) ET legacy
-// (heures_vendues par sous-tâche).
+// Calcule l'avancement d'un phasage.
+// V2 (prioritaire) : tâches des ouvrages — avancement d'un ouvrage pondéré par
+//   heures_estimees, avancement chantier pondéré par prix_ht (même formule que
+//   la page Phasage V2 et les dashboards).
+// V1 (repli si aucun ouvrage) : tâches de plan_travaux pondérées heures_vendues.
 function calcAvancementPhasage(phasage) {
+  const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
+
+  if (ouvrages.length > 0) {
+    const allTaches = ouvrages.flatMap(o => Array.isArray(o.taches) ? o.taches : []);
+    const total     = allTaches.length;
+    if (total === 0) return { avancement: 0, terminees: 0, total: 0 };
+    const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) >= 100).length;
+    const avOuvrage = (o) => {
+      const ts = Array.isArray(o.taches) ? o.taches : [];
+      if (ts.length === 0) return 0;
+      const he = ts.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+      if (he > 0) return ts.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0) / he;
+      return ts.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / ts.length;
+    };
+    const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
+    const avancement = totalPrix > 0
+      ? Math.round(ouvrages.reduce((s, o) => s + avOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix)
+      : Math.round(ouvrages.reduce((s, o) => s + avOuvrage(o), 0) / ouvrages.length);
+    return { avancement, terminees, total };
+  }
+
+  // ── Repli V1 : plan_travaux
   const plan = phasage?.plan_travaux || {};
-  // Toutes les sous-tâches du plan (clés ≠ "meta" et ≠ "_*")
   const allTaches = [];
   for (const k of Object.keys(plan)) {
     if (k === "meta" || k.includes("__")) continue;
@@ -43,8 +66,6 @@ function calcAvancementPhasage(phasage) {
 
   const terminees = allTaches.filter(t => (parseFloat(t.avancement) || 0) >= 100).length;
   const total     = allTaches.length;
-
-  // Pondération par heures vendues si disponible (legacy), sinon moyenne simple
   const totalHV = allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
   let avancement;
   if (totalHV > 0) {
@@ -85,7 +106,7 @@ module.exports = async function handler(req, res) {
   try {
     const { data: phasages, error: phErr } = await supabase
       .from("phasages")
-      .select("id, chantier_id, chantier_nom, plan_travaux");
+      .select("id, chantier_id, chantier_nom, plan_travaux, ouvrages");
     if (phErr) throw new Error(phErr.message);
 
     let chantiersDejaSnapshotes = new Set();
