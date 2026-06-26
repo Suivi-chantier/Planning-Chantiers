@@ -2208,6 +2208,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
       {matKpiModal && (() => {
         const lignes = commandeLignes;
         const total = totalLignes(lignes);
+        const sansPrix = (l) => l.prix_total == null && l.prix_unitaire == null;
+        const sansPrixCount = lignes.filter(sansPrix).length;
         const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || (id || null);
         const ouvrageLabelOf = (id) => ouvrages.find(o => o.id === id)?.libelle || null;
         return (
@@ -2221,7 +2223,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 <Icon as={Receipt} size={18}/>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>Commandes du chantier</div>
-                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{chantier?.nom || ""} · {lignes.length} ligne{lignes.length > 1 ? "s" : ""}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+                    {chantier?.nom || ""} · {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+                    {sansPrixCount > 0 && <span style={{ color: "#f5a623", fontWeight: 700 }}> · {sansPrixCount} sans prix</span>}
+                  </div>
                 </div>
                 <button onClick={() => setMatKpiModal(false)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
               </div>
@@ -2232,13 +2237,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                   const st = statutLigne(l);
                   const lot = lotLabelOf(l.lot_id);
                   const ouv = ouvrageLabelOf(l.ouvrage_id);
+                  const noPrix = sansPrix(l);
                   return (
-                    <div key={l.id} style={{ padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div key={l.id} style={{ padding: "9px 0 9px 10px", borderBottom: `1px solid ${T.border}`, borderLeft: noPrix ? "3px solid #f5a623" : "3px solid transparent", marginLeft: -10 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ flex: 1, fontSize: FONT.sm.size, fontWeight: 600, color: T.text }}>{l.libelle || "(sans libellé)"}</span>
-                        <span style={{ fontSize: FONT.xs.size, color: T.textMuted, whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: FONT.xs.size, color: noPrix ? "#f5a623" : T.textMuted, fontWeight: noPrix ? 700 : 400, whiteSpace: "nowrap" }}>
                           {l.quantite != null ? `${l.quantite}${l.unite ? " " + l.unite : ""}` : ""}
-                          {l.prix_total != null ? ` · ${fmtEur(l.prix_total)} €` : (l.prix_unitaire != null ? ` · ${fmtEur(l.prix_unitaire)} €` : "")}
+                          {l.prix_total != null ? ` · ${fmtEur(l.prix_total)} €` : (l.prix_unitaire != null ? ` · ${fmtEur(l.prix_unitaire)} €` : " · ⚠ prix manquant")}
                         </span>
                         <span style={{ fontSize: 10, fontWeight: 800, color: st.color, flexShrink: 0, minWidth: 70, textAlign: "right" }}>{st.label}</span>
                       </div>
