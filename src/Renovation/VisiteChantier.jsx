@@ -1217,7 +1217,7 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
           .visite-audit .audit-kpis{ grid-template-columns:repeat(2,1fr) !important; gap:8px !important; }
         }
       `}</style>
-      <div style={{ maxWidth: 960, margin: "0 auto", paddingBottom: isMobile ? 84 : 0 }}>
+      <div style={{ maxWidth: 960, margin: "0 auto", paddingBottom: isMobile ? 150 : 0 }}>
 
         {/* Bouton retour */}
         <button onClick={handleBack} style={{
@@ -1325,9 +1325,11 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
             + exports. La sauvegarde est automatique (indicateur dans l'en-tête). */}
         {isMobile && !parcours && (
           <div style={{
-            position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90,
-            display: "flex", gap: 8,
-            padding: "10px 12px calc(10px + env(safe-area-inset-bottom))",
+            // Posée AU-DESSUS de la bottom-nav de l'appli (fixe, ~52px + safe-area,
+            // z-index 200). On dégage donc ~60px + safe-area et on passe au-dessus.
+            position: "fixed", left: 0, right: 0,
+            bottom: "calc(60px + env(safe-area-inset-bottom))", zIndex: 201,
+            display: "flex", gap: 8, padding: "10px 12px",
             background: T.surface, borderTop: `1px solid ${T.border}`,
             boxShadow: "0 -6px 20px rgba(0,0,0,0.28)",
           }}>
