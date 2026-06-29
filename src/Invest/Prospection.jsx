@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V18 Fluidify enrichi : champs dédiés + analyse avancée + mail passage signé
+ * CRM Prospection — V19 scoring transformation : Froid/Tiède/Chaud selon probabilité de signature + Fluidify enrichi
  *
  * Objectif :
  * - CRM volontairement simple
@@ -266,25 +266,218 @@ function fmtDateTimeMaybe(value) {
   }
 }
 
+function containsPositiveIntent(text = "") {
+  const value = String(text || "").toLowerCase();
+  return [
+    "interested",
+    "intéress",
+    "interess",
+    "rdv",
+    "rendez",
+    "ok pour",
+    "partant",
+    "souhaite",
+    "demande",
+    "rappeler",
+    "call",
+    "meeting",
+    "échange",
+    "echange",
+  ].some((word) => value.includes(word));
+}
+
+function transformationScoreDetail(p = {}) {
+  if (p.statut === "perdu") {
+    return {
+      score: 0,
+      label: "Perdu",
+      color: DA,
+      reasons: ["Prospect classé perdu."],
+      penalties: [],
+      breakdown: { intention: 0, avancement: 0, qualification: 0, suivi: 0 },
+    };
+  }
+
+  if (p.statut === "signe" || p.statut === "converti") {
+    return {
+      score: 100,
+      label: "Signé",
+      color: SU,
+      reasons: ["Prospect transformé en client."],
+      penalties: [],
+      breakdown: { intention: 35, avancement: 25, qualification: 25, suivi: 15 },
+    };
+  }
+
+  const data = fluidifyData(p);
+  const reasons = [];
+  const penalties = [];
+
+  let intention = 0;
+  const funnel = String(data.funnel || "").toLowerCase();
+  const conversation = String(data.statut_conversation || "").toLowerCase();
+  const typeReponse = String(data.type_reponse || "");
+  const commentaires = String(data.commentaires || p.commentaire || "");
+  const objectif = String(p.objectif || data.icp || "");
+
+  if (p.date_rdv || funnel.includes("rdv")) {
+    intention = 35;
+    reasons.push("RDV identifié ou déjà calé.");
+  } else if (funnel.includes("interested") || containsPositiveIntent(typeReponse) || containsPositiveIntent(commentaires)) {
+    intention = 25;
+    reasons.push("Signal d’intérêt positif détecté.");
+  } else if (objectif.length > 12 || typeReponse.length > 12) {
+    intention = 20;
+    reasons.push("Besoin ou réponse exploitable identifié.");
+  } else if (conversation || funnel) {
+    intention = 10;
+    reasons.push("Conversation engagée mais intention encore faible.");
+  }
+
+  let avancement = 0;
+  switch (p.statut) {
+    case "proposition":
+      avancement = 25;
+      reasons.push("Proposition envoyée.");
+      break;
+    case "rdv":
+      avancement = 20;
+      reasons.push("Prospect passé en étape RDV.");
+      break;
+    case "contact":
+      avancement = 10;
+      reasons.push("Premier contact engagé.");
+      break;
+    case "relance":
+      avancement = 8;
+      reasons.push("Prospect en relance simple.");
+      break;
+    case "relance_1":
+      avancement = 6;
+      reasons.push("Prospect en Relance 1.");
+      break;
+    case "relance_2":
+      avancement = 3;
+      reasons.push("Prospect en Relance 2 : probabilité plus faible.");
+      break;
+    case "nouveau":
+    default:
+      avancement = 5;
+      reasons.push("Lead entrant à traiter.");
+      break;
+  }
+
+  let qualification = 0;
+  if (p.telephone || p.email) {
+    qualification += 5;
+    reasons.push("Coordonnées exploitables.");
+  } else {
+    penalties.push("Aucun téléphone ou email renseigné.");
+  }
+
+  if (p.objectif || data.icp) {
+    qualification += 5;
+    reasons.push("Objectif ou ICP renseigné.");
+  }
+
+  if (Number(p.budget_global || 0) > 0) {
+    qualification += 7;
+    reasons.push("Budget renseigné.");
+  }
+
+  if (p.zone_recherche) {
+    qualification += 4;
+    reasons.push("Zone géographique renseignée.");
+  }
+
+  if (data.icp) {
+    qualification += 4;
+    reasons.push("Profil investisseur / ICP Fluidify disponible.");
+  }
+
+  let suivi = 0;
+  const actionDate = dateOnly(p.date_prochaine_action);
+  const rdvDate = dateOnly(p.date_rdv);
+  const today = todayIso();
+  const next14 = addDays(14);
+
+  if (rdvDate && rdvDate >= today && rdvDate <= next14) {
+    suivi += 15;
+    reasons.push("RDV prévu prochainement.");
+  } else if (rdvDate) {
+    suivi += 10;
+    reasons.push("RDV renseigné.");
+  } else if (actionDate && actionDate >= today) {
+    suivi += 8;
+    reasons.push("Prochaine action planifiée.");
+  }
+
+  let penalty = 0;
+
+  if (isLate(p.date_prochaine_action)) {
+    penalty -= 10;
+    penalties.push("Action de relance en retard.");
+  }
+
+  if (isActiveProspect(p) && !p.date_prochaine_action && !p.date_rdv) {
+    penalty -= 10;
+    penalties.push("Aucune prochaine action planifiée.");
+  }
+
+  if (p.statut === "relance_2" && !p.date_rdv) {
+    penalty -= 10;
+    penalties.push("Relance 2 sans RDV : probabilité de transformation réduite.");
+  }
+
+  if (!p.telephone && !p.email) {
+    penalty -= 8;
+    penalties.push("Prospect difficilement joignable.");
+  }
+
+  const rawScore = intention + avancement + qualification + suivi + penalty;
+  const score = Math.max(0, Math.min(100, Math.round(rawScore)));
+
+  let label = "Froid";
+  let color = "#60A5FA";
+
+  if (score >= 70) {
+    label = "Chaud";
+    color = "#EF4444";
+  } else if (score >= 40) {
+    label = "Tiède";
+    color = WA;
+  }
+
+  return {
+    score,
+    label,
+    color,
+    reasons: reasons.slice(0, 7),
+    penalties,
+    breakdown: {
+      intention,
+      avancement,
+      qualification,
+      suivi,
+      penalty,
+    },
+  };
+}
+
 function priorityScore(p) {
-  let score = 0;
-
-  if (p.telephone || p.email) score += 20;
-  if (p.objectif) score += 20;
-  if (Number(p.budget_global || 0) > 0) score += 20;
-  if (p.date_rdv) score += 20;
-  if (p.statut === "proposition" || p.statut === "signe" || p.statut === "converti") score += 20;
-
-  return Math.min(100, score);
+  return transformationScoreDetail(p).score;
 }
 
 function temperature(p) {
-  const s = priorityScore(p);
-  if (p.statut === "perdu") return { label: "Perdu", color: DA };
-  if (p.statut === "signe" || p.statut === "converti") return { label: "Signé", color: SU };
-  if (s >= 70) return { label: "Chaud", color: DA };
-  if (s >= 40) return { label: "Tiède", color: WA };
-  return { label: "Froid", color: "#60A5FA" };
+  const detail = transformationScoreDetail(p);
+  return {
+    label: detail.label,
+    color: detail.color,
+    score: detail.score,
+    reasons: detail.reasons,
+    penalties: detail.penalties,
+    breakdown: detail.breakdown,
+  };
 }
 
 function prospectToForm(p) {
@@ -1607,7 +1800,7 @@ function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
               </span>
             </div>
 
-            <Badge color={temp.color} T={T}>{temp.label}</Badge>
+            <Badge color={temp.color} T={T}>{temp.label} · {temp.score}/100</Badge>
           </div>
         </div>
       </div>
@@ -1768,7 +1961,7 @@ function PlanningMiniCard({ p, onClick, selected, T }) {
         >
           {prospectName(p)}
         </div>
-        <Badge color={temp.color} T={T}>{temp.label}</Badge>
+        <Badge color={temp.color} T={T}>{temp.label} · {temp.score}/100</Badge>
       </div>
 
       <div
@@ -2000,7 +2193,7 @@ function ListView({ prospects, selectedId, onSelect, onStatusChange, T }) {
                     {prospectName(p)}
                   </div>
                   <div style={{ display: "flex", gap: 5, marginTop: 4, alignItems: "center" }}>
-                    <Badge color={temp.color} T={T}>{temp.label}</Badge>
+                    <Badge color={temp.color} T={T}>{temp.label} · {temp.score}/100</Badge>
                     {p.source && <span style={{ color: T.textMuted, fontSize: 10.5 }}>{p.source}</span>}
                   </div>
                 </div>
@@ -2139,6 +2332,128 @@ function PipelineView({
           T={T}
         />
       ))}
+    </div>
+  );
+}
+
+function ScoreTransformationCard({ prospect, T }) {
+  const detail = transformationScoreDetail(prospect);
+  const maxBreakdown = 35;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${detail.color}40`,
+        borderRadius: 18,
+        padding: 12,
+        margin: "10px 0 12px",
+        background: `linear-gradient(135deg, ${detail.color}16, rgba(255,255,255,.035))`,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+        <div>
+          <div style={{ color: T.text, fontSize: 13, fontWeight: 950, display: "flex", alignItems: "center", gap: 7 }}>
+            <Icon as={TrendingUp} size={14} />
+            Score de transformation
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2 }}>
+            Probabilité estimée que le prospect signe un accompagnement Profero Invest
+          </div>
+        </div>
+
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ color: detail.color, fontSize: 24, lineHeight: 1, fontWeight: 950 }}>
+            {detail.score}/100
+          </div>
+          <div style={{ color: detail.color, fontSize: 11, fontWeight: 950, marginTop: 4 }}>
+            {detail.label}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ height: 10, borderRadius: 999, background: "rgba(148,163,184,.18)", overflow: "hidden", marginBottom: 10 }}>
+        <div
+          style={{
+            width: `${Math.max(3, detail.score)}%`,
+            height: "100%",
+            background: detail.color,
+            borderRadius: 999,
+          }}
+        />
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))",
+          gap: 8,
+          marginBottom: 10,
+        }}
+      >
+        {[
+          ["Intention", detail.breakdown.intention, 35],
+          ["Avancement", detail.breakdown.avancement, 25],
+          ["Qualification", detail.breakdown.qualification, 25],
+          ["Suivi", detail.breakdown.suivi, 15],
+        ].map(([label, value, max]) => (
+          <div
+            key={label}
+            style={{
+              border: `1px solid ${T.border}`,
+              background: "rgba(255,255,255,.035)",
+              borderRadius: 14,
+              padding: "8px 10px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, color: T.textMuted, fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: ".06em" }}>
+              <span>{label}</span>
+              <span>{value}/{max}</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 999, background: "rgba(148,163,184,.18)", overflow: "hidden", marginTop: 7 }}>
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.max(0, Math.min(100, (Number(value || 0) / Number(max || maxBreakdown)) * 100))}%`,
+                  background: detail.color,
+                  borderRadius: 999,
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {(detail.reasons.length > 0 || detail.penalties.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 5 }}>
+              Motifs positifs
+            </div>
+            <div style={{ display: "grid", gap: 4 }}>
+              {detail.reasons.slice(0, 5).map((reason) => (
+                <div key={reason} style={{ color: T.textSub, fontSize: 11.5, lineHeight: 1.35 }}>
+                  • {reason}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {detail.penalties.length > 0 && (
+            <div>
+              <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 5 }}>
+                Points de vigilance
+              </div>
+              <div style={{ display: "grid", gap: 4 }}>
+                {detail.penalties.slice(0, 5).map((penalty) => (
+                  <div key={penalty} style={{ color: WA, fontSize: 11.5, lineHeight: 1.35 }}>
+                    • {penalty}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3598,6 +3913,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <StatusPills value={form.statut} onChange={quickStatus} />
                 </div>
 
+                {selected?.id && <ScoreTransformationCard prospect={{ ...selected, ...form }} T={T} />}
                 {selected?.id && <FluidifyDetailCard prospect={selected} T={T} />}
 
                 <SectionTitle icon={UserPlus} title="Identité du prospect" T={T} />
