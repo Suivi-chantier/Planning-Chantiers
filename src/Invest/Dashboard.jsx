@@ -4,7 +4,7 @@ import { FONT, RADIUS, SPACING, SEMANTIC } from "../constants";
 import { Icon } from "../ui";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Plus, Trash2,
-  Search, RefreshCw, Check, Phone, Calendar, FileText, Mail, Home,
+  Search, RefreshCw, Check, Phone, Calendar, FileText, Home,
   TrendingUp, Wallet, Euro, Lock, AlertTriangle, Eye,
   Sparkles, Sun, LayoutGrid, Send, Handshake, Bell, Briefcase,
 } from "lucide-react";
@@ -20,9 +20,10 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V4 — Morning Routine cadrée Profero Invest
+// TABLEAU DE BORD V4.2 — Morning Routine cadrée Profero Invest
 // À copier-coller en remplacement du fichier / bloc Tableau de bord actuel.
-// Cette version ajoute checklist obligatoire, commentaires, responsables, échéances, sauvegarde Supabase optionnelle et rappel mail 8h via Edge Function.
+// Cette version ajoute checklist obligatoire, commentaires, responsables, échéances et sauvegarde Supabase optionnelle.
+// La partie rappel mail 8h / Edge Function a été volontairement retirée pour être reprise plus tard.
 // ─────────────────────────────────────────────────────────────
 
 const DASH_CLIENT_STATUS_CONFIG = [
@@ -797,7 +798,6 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
   const [stepNotes, setStepNotes] = useState({});
   const [dailyGoals, setDailyGoals] = useState({ p1:"", p2:"", p3:"" });
   const [saveStatus, setSaveStatus] = useState("");
-  const [mailStatus, setMailStatus] = useState("");
 
   useEffect(() => {
     try {
@@ -924,7 +924,7 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
         step_key:"routine_v4",
         item_type:"dashboard",
         item_id:stats.today || dashIso(new Date()),
-        item_label:"Morning Routine Profero Invest V4",
+        item_label:"Morning Routine Profero Invest V4.2",
         decision:status,
         comment:JSON.stringify({ dailyGoals, decisions, checklists, stepNotes, completedSteps, progress }),
         responsable:"Matthieu",
@@ -970,15 +970,6 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
     try { await navigator.clipboard.writeText(lines.join("\n")); setSaveStatus("Synthèse copiée"); } catch { setSaveStatus(lines.join("\n")); }
   };
 
-  const sendReminderTest = async () => {
-    setMailStatus("Envoi du test…");
-    try {
-      const { data, error } = await supabase.functions.invoke("send-morning-routine-reminder", { body:{ source:"manual_test", date:stats.today || dashIso(new Date()) } });
-      if (error || data?.error) throw new Error(data?.error || error?.message || "Erreur inconnue");
-      setMailStatus("✅ Test envoyé");
-    } catch (e) { setMailStatus(`⚠ ${e.message || "Fonction email non configurée"}`); }
-  };
-
   const globalBlockingCount = DASH_MORNING_STEPS.reduce((sum, step) => {
     const data = routine.steps[step.key] || { items:[] };
     const missingChecklist = routineChecklistComplete(step.key, checklists) ? 0 : 1;
@@ -991,7 +982,7 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
     <>
       <div className="inv-card" style={{ marginBottom:SPACING.xxl - 2, border:`1.5px solid ${globalBlockingCount ? WA : SU}` }}>
         <div className="inv-card-hd blue" style={{ justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
-          <span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={LayoutDashboard} size={14} strokeWidth={2.3}/> Morning Routine V4 — checklist de direction 8h30 à 10h30</span>
+          <span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={LayoutDashboard} size={14} strokeWidth={2.3}/> Morning Routine V4.2 — checklist de direction 8h30 à 10h30</span>
           <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
             <AlertBadge level={globalBlockingCount ? "danger" : "success"} T={T}>{globalBlockingCount ? `${globalBlockingCount} contrôle${globalBlockingCount > 1 ? "s" : ""} manquant${globalBlockingCount > 1 ? "s" : ""}` : "Routine finalisable"}</AlertBadge>
             <AlertBadge level="info" T={T}>{progress}% complété</AlertBadge>
@@ -1007,10 +998,8 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
             <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
               {!started ? <button type="button" className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setStarted(true)}><Icon as={Sun} size={12}/> Démarrer</button> : <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={resetRoutine}><Icon as={RefreshCw} size={12}/> Réinitialiser</button>}
               <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={copySummary}><Icon as={FileText} size={12}/> Copier synthèse</button>
-              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={sendReminderTest}><Icon as={Mail} size={12}/> Test mail 8h</button>
             </div>
           </div>
-          {mailStatus && <div style={{ marginTop:8, fontSize:FONT.xs.size + 1, color:mailStatus.startsWith("✅") ? SU : WA, fontWeight:800 }}>{mailStatus}</div>}
           <div style={{ marginTop:SPACING.md, height:10, borderRadius:RADIUS.pill, background:T.input, border:`1px solid ${T.border}`, overflow:"hidden" }}><div style={{ height:"100%", width:`${progress}%`, background:routineDone ? SU : T.accent, borderRadius:RADIUS.pill }}/></div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:8, marginTop:SPACING.md }}>
             <KPICard icon={AlertTriangle} label="Urgences" value={(stats.actionsRetard || 0) + (stats.todayClients.blocked || 0)} color={(stats.actionsRetard || 0) + (stats.todayClients.blocked || 0) ? DA : SU}/>
