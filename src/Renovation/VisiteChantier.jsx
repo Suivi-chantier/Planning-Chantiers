@@ -311,6 +311,24 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
     if (res.ok) setView("liste");
   };
 
+  // Persistance silencieuse (autosave de l'audit) : enregistre sans naviguer ni
+  // basculer l'indicateur global `saving`. L'écran d'audit gère son propre
+  // indicateur d'état. Lève une erreur en cas d'échec pour que l'appelant réagisse.
+  const persistVisite = async (visite) => {
+    const res = await upsertVisite(visite);
+    if (res.ok) {
+      setVisites(prev => {
+        const idx = prev.findIndex(v => v.id === visite.id);
+        if (idx >= 0) { const n = [...prev]; n[idx] = visite; return n; }
+        return [visite, ...prev];
+      });
+      return;
+    }
+    const msg = res.error?.message || "Erreur inconnue";
+    console.error("persistVisite:", msg);
+    throw new Error(msg);
+  };
+
   const askDelete = (v) => setToDelete(v);
   const confirmDelete = async () => {
     if (!toDelete) return;
@@ -403,7 +421,7 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
         toutesVisites={visites}
         T={T} acc={acc}
         saving={saving}
-        onSave={async (v) => { setSelected(v); await handleSave(v); setView("audit"); setSaving(false); }}
+        onSave={async (v) => { setSelected(v); await persistVisite(v); }}
         onBack={() => setView("liste")}
         onDelete={() => askDelete(selected)}
       />
@@ -900,7 +918,15 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   const [showAll,  setShowAll]  = useState(false); // élargir au-delà de lots_audites
   const [lightbox, setLightbox] = useState(null);  // { urls:[], idx:0 }
   const [exporting,setExporting]= useState(null);   // "docx" | "pdf" | null
+  const [parcours, setParcours] = useState(false);  // mode plein écran one-task-at-a-time
+  const [saveState, setSaveState] = useState("saved"); // "saving" | "saved" | "error"
   const isMobile = useIsMobile();
+
+  // Réf vers le draft courant (pour les sauvegardes différées / au retour).
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  // Réfs des sections de lot, pour la navigation par chips (scrollIntoView).
+  const lotRefs = useRef({});
 
   // ── Rapports du chantier : pour afficher "déclaré faite le …" sous les tâches.
   const [rapports, setRapports] = useState([]);
@@ -1041,12 +1067,34 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   const setNote = (val) => { setDraft(d => ({ ...d, note_generale: val })); setDirty(true); };
   const setStatutVisite = (val) => { setDraft(d => ({ ...d, statut: val })); setDirty(true); };
 
-  const handleSave = async () => { await onSave(draft); setDirty(false); };
+  // Flush : enregistre le draft courant et met à jour l'indicateur d'état.
+  const handleSave = async () => {
+    setSaveState("saving");
+    try {
+      await onSave(draftRef.current);
+      setDirty(false);
+      setSaveState("saved");
+    } catch (e) {
+      setSaveState("error");
+      throw e;
+    }
+  };
 
-  // Retour : sauvegarde automatiquement les modifications en cours (sans popup)
-  // puis revient aux visites. Si la sauvegarde échoue, on reste sur l'audit.
+  // Autosave débouncé (~800 ms après la dernière modif). On saute le tout
+  // premier rendu pour ne pas réécrire la visite à l'ouverture.
+  const firstSaveRef = useRef(true);
+  useEffect(() => {
+    if (firstSaveRef.current) { firstSaveRef.current = false; return; }
+    setDirty(true);
+    const t = setTimeout(() => { handleSave().catch(() => {}); }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+
+  // Retour : flush des modifications en cours (sans popup) puis retour aux
+  // visites. Si la sauvegarde échoue, on reste sur l'audit.
   const handleBack = async () => {
-    if (dirty) {
+    if (dirty || saveState === "saving") {
       try {
         await handleSave();
       } catch (e) {
@@ -1055,6 +1103,17 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
       }
     }
     onBack();
+  };
+
+  // « Tout valider » : passe en "valide" toutes les tâches d'un lot encore non
+  // statuées (statut null). N'écrase pas les "reserve"/"non_commence" déjà posés.
+  const validerToutLot = (lotId) => {
+    setDraft(d => {
+      const n = JSON.parse(JSON.stringify(d));
+      (n.audit?.[lotId] || []).forEach(t => { if (!t.statut) t.statut = "valide"; });
+      return n;
+    });
+    setDirty(true);
   };
 
   // ── Méta des lots affichés (lots en portée OU tous si showAll), avec audit
@@ -1076,6 +1135,25 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   const nb_af   = toutes.filter(t => t.statut === "non_commence").length;
   const nb_nd   = toutes.filter(t => !t.statut).length;
   const total   = toutes.length;
+  const nbStatues = total - nb_nd;
+
+  // ── Liste à plat des points à statuer (= exactement ce que voit la vue liste) :
+  //    tâches des lots affichés (dans l'ordre) PUIS items de checklist. Sert au
+  //    mode parcours pour naviguer par index. Les valeurs vivent dans `draft`,
+  //    on ne stocke ici que des descripteurs (kind + localisation).
+  const flatItems = [
+    ...lotsAffiches.flatMap(lot =>
+      lot.taches.map((t, i) => ({
+        key: `t:${lot.id}:${t.tache_id || i}`,
+        kind: "tache", lotId: lot.id, idx: i,
+        groupLabel: lot.label, groupColor: lot.couleur,
+      }))),
+    ...checklist.map((it, i) => ({
+      key: `c:${it.id || i}`,
+      kind: "check", idx: i,
+      groupLabel: "Points de vigilance", groupColor: acc.accent,
+    })),
+  ];
 
   // ── Export : construit le payload commun (Word + PDF)
   const buildPayload = () => ({
@@ -1087,7 +1165,7 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   });
 
   const handleExportWord = async () => {
-    if (dirty || exporting) return;
+    if (dirty || exporting || saveState === "saving") return;
     setExporting("docx");
     try {
       const res = await fetch("/api/generate-visite-docx", {
@@ -1115,7 +1193,7 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   };
 
   const handleExportPdf = async () => {
-    if (dirty || exporting) return;
+    if (dirty || exporting || saveState === "saving") return;
     setExporting("pdf");
     try {
       await exportVisitePdf(buildPayload());
@@ -1187,18 +1265,26 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
           }}>
             {STATUTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
-          {!isMobile && (<>
-          <button onClick={handleSave} disabled={saving} style={{
+          {/* Indicateur d'autosave (remplace le bouton Enregistrer) */}
+          <div title="Sauvegarde automatique" style={{
             display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "9px 18px", borderRadius: RADIUS.md,
-            background: dirty ? acc.accent : T.card,
-            color: dirty ? acc.onAccent : T.textMuted,
-            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
-            border: dirty ? "none" : `1px solid ${T.border}`,
-            transition: "all .2s",
+            padding: "9px 14px", borderRadius: RADIUS.md,
+            background: T.card, border: `1px solid ${T.border}`,
+            color: saveState === "saving" ? acc.accent : (dirty ? T.textSub : "#22c55e"),
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, whiteSpace: "nowrap",
           }}>
-            <Icon as={dirty ? Save : Check} size={13}/>
-            {saving ? "Sauvegarde…" : dirty ? "Sauvegarder" : "Sauvegardé"}
+            <Icon as={saveState === "saving" ? Save : Check} size={13}/>
+            {saveState === "saving" ? "Enregistrement…" : dirty ? "Modifié…" : "Enregistré"}
+          </div>
+          {!isMobile && (<>
+          <button onClick={() => setParcours(true)} title="Statuer les points un par un, en plein écran" style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 16px", borderRadius: RADIUS.md, border: "none",
+            background: acc.accent, color: acc.onAccent,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>
+            <Icon as={ArrowRight} size={14}/>
+            Mode parcours
           </button>
           <button onClick={handleExportWord} disabled={!!exporting || dirty} title={dirty ? "Sauvegarde d'abord la visite" : "Exporter en .docx"}
             style={{
@@ -1235,9 +1321,9 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
           </button>
         </div>
 
-        {/* Barre d'actions fixe — toujours à portée sur mobile, et sur desktop
-            dès qu'il y a des modifications non enregistrées (évite de perdre l'audit). */}
-        {(isMobile || dirty) && (
+        {/* Barre d'actions fixe (mobile) — « Mode parcours » à portée du pouce,
+            + exports. La sauvegarde est automatique (indicateur dans l'en-tête). */}
+        {isMobile && !parcours && (
           <div style={{
             position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90,
             display: "flex", gap: 8,
@@ -1245,15 +1331,14 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
             background: T.surface, borderTop: `1px solid ${T.border}`,
             boxShadow: "0 -6px 20px rgba(0,0,0,0.28)",
           }}>
-            <button onClick={handleSave} disabled={saving} style={{
+            <button onClick={() => setParcours(true)} style={{
               flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
               padding: "13px 14px", borderRadius: RADIUS.md,
-              background: dirty ? acc.accent : T.card, color: dirty ? acc.onAccent : T.textMuted,
-              border: dirty ? "none" : `1px solid ${T.border}`,
+              background: acc.accent, color: acc.onAccent, border: "none",
               fontFamily: "inherit", fontSize: 15, fontWeight: 800, cursor: "pointer",
             }}>
-              <Icon as={dirty ? Save : Check} size={16}/>
-              {saving ? "Sauvegarde…" : dirty ? "Sauvegarder" : "Sauvegardé"}
+              <Icon as={ArrowRight} size={16}/>
+              Mode parcours
             </button>
             <button onClick={handleExportWord} disabled={!!exporting || dirty} title="Exporter en Word" style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -1313,8 +1398,37 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
               {nb_af  > 0 && <div style={{ width: `${(nb_af /total)*100}%`, background: "#94a3b8" }} />}
             </div>
             <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, whiteSpace: "nowrap", fontWeight: 600 }}>
-              {total - nb_nd}/{total} évaluées
+              {nbStatues}/{total} statués
             </span>
+          </div>
+        )}
+
+        {/* ── Chips de navigation par lot (clic = scroll jusqu'au lot) ── */}
+        {lotsAffiches.length > 1 && (
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 16, WebkitOverflowScrolling: "touch" }}>
+            {lotsAffiches.map(lot => {
+              const st = lot.taches.filter(t => t.statut).length;
+              const tot = lot.taches.length;
+              const done = tot > 0 && st === tot;
+              return (
+                <button key={lot.id}
+                  onClick={() => lotRefs.current[lot.id]?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  style={{
+                    flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "6px 12px", borderRadius: RADIUS.pill, cursor: "pointer",
+                    border: `1px solid ${done ? "#22c55e66" : lot.couleur + "55"}`,
+                    background: done ? "rgba(34,197,94,0.10)" : lot.couleur + "12",
+                    color: done ? "#22c55e" : T.text,
+                    fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700, whiteSpace: "nowrap",
+                  }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: lot.couleur, flexShrink: 0 }}/>
+                  {lot.label}
+                  {done
+                    ? <Icon as={Check} size={12} strokeWidth={3}/>
+                    : <span style={{ color: T.textMuted, fontWeight: 600 }}>{st}/{tot}</span>}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -1528,14 +1642,15 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
               const lot_ok  = lot.taches.filter(t => t.statut === "valide").length;
               const lot_res = lot.taches.filter(t => t.statut === "reserve").length;
               const lot_af  = lot.taches.filter(t => t.statut === "non_commence").length;
+              const lot_reste = lot.taches.filter(t => !t.statut).length;
               const isExp   = expanded[lot.id] !== false;
               const groupes = groupByOuvrage(lot.taches);
 
               return (
-                <div key={lot.id} style={{
+                <div key={lot.id} ref={el => { lotRefs.current[lot.id] = el; }} style={{
                   background: T.surface, border: `1px solid ${isExp ? lot.couleur + "66" : T.border}`,
                   borderRadius: RADIUS.xl, overflow: "hidden", transition: "border .2s",
-                  opacity: lot.horsScope ? .9 : 1,
+                  opacity: lot.horsScope ? .9 : 1, scrollMarginTop: 12,
                 }}>
                   <div onClick={() => setExpanded(prev => ({ ...prev, [lot.id]: !isExp }))}
                     style={{
@@ -1557,11 +1672,26 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
                         {groupes.length} ouvrage{groupes.length > 1 ? "s" : ""} · {lot.taches.length} tâche{lot.taches.length > 1 ? "s" : ""}
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: 5 }}>
-                      {lot_ok  > 0 && <Pill val={lot_ok}  color="#22c55e" label="Validé" />}
-                      {lot_res > 0 && <Pill val={lot_res} color="#f59e0b" label="Rés"   />}
-                      {lot_af  > 0 && <Pill val={lot_af}  color="#94a3b8" label="À faire" />}
-                    </div>
+                    {!isMobile && (
+                      <div style={{ display: "flex", gap: 5 }}>
+                        {lot_ok  > 0 && <Pill val={lot_ok}  color="#22c55e" label="Validé" />}
+                        {lot_res > 0 && <Pill val={lot_res} color="#f59e0b" label="Rés"   />}
+                        {lot_af  > 0 && <Pill val={lot_af}  color="#94a3b8" label="À faire" />}
+                      </div>
+                    )}
+                    {lot_reste > 0 && (
+                      <button onClick={e => { e.stopPropagation(); validerToutLot(lot.id); }}
+                        title={`Valider les ${lot_reste} tâche${lot_reste > 1 ? "s" : ""} non statuée${lot_reste > 1 ? "s" : ""} de ce lot`}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
+                          padding: isMobile ? "8px 10px" : "6px 12px", borderRadius: RADIUS.md,
+                          border: "1px solid #22c55e66", background: "rgba(34,197,94,0.12)", color: "#22c55e",
+                          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap",
+                        }}>
+                        <Icon as={Check} size={13} strokeWidth={3}/>
+                        Tout OK
+                      </button>
+                    )}
                     <Icon as={isExp ? ChevronUp : ChevronDown} size={14} color={isExp ? lot.couleur : T.textMuted}/>
                   </div>
 
@@ -1695,6 +1825,20 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
           </div>
         )}
 
+        {/* Mode parcours plein écran (one-task-at-a-time) */}
+        {parcours && (
+          <ParcoursAudit
+            items={flatItems}
+            draft={draft}
+            updateTache={updateTache}
+            updateChecklistItem={updateChecklistItem}
+            photoPathPrefix={photoPathPrefix}
+            onLightbox={setLightbox}
+            T={T} acc={acc}
+            onClose={() => setParcours(false)}
+          />
+        )}
+
         {/* Récap réserves / à réaliser en bas */}
         {(nb_res + nb_af) > 0 && (
           <div style={{
@@ -1752,6 +1896,223 @@ function AuditVisite({ visite, chantiers, phasages, toutesVisites = [], T, acc, 
   );
 }
 
+// ─── MODE PARCOURS (one-task-at-a-time, plein écran) ─────────────────────────
+// Parcourt la MÊME liste à plat que la vue liste (tâches des lots + checklist).
+// Écrit dans le même `draft` via les updaters d'AuditVisite → autosave normal.
+function ParcoursAudit({ items, draft, updateTache, updateChecklistItem, photoPathPrefix, onLightbox, T, acc, onClose }) {
+  const [idx, setIdx]       = useState(0);
+  const [showEnd, setShowEnd] = useState(false);
+  const startX = useRef(null);
+
+  const total = items.length;
+  const item  = items[idx];
+
+  // Valeur live d'un descripteur, lue dans le draft courant.
+  const liveOf = (it) => {
+    if (!it) return null;
+    if (it.kind === "tache") {
+      const t = draft.audit?.[it.lotId]?.[it.idx] || {};
+      return { nom: t.nom, ouvrage: t.ouvrage_libelle, avancement: t.avancement, heures: t.heures_estimees,
+        statut: t.statut, commentaire: t.commentaire, photos: t.photos, pathPrefix: `${photoPathPrefix}/${it.lotId}` };
+    }
+    const c = draft.checklist?.[it.idx] || {};
+    return { nom: c.label, ouvrage: "", avancement: 0, heures: 0,
+      statut: c.statut, commentaire: c.commentaire, photos: c.photos, pathPrefix: `${photoPathPrefix}/checklist` };
+  };
+  const onChangeCurrent = (updates) => {
+    if (!item) return;
+    if (item.kind === "tache") updateTache(item.lotId, item.idx, updates);
+    else updateChecklistItem(item.idx, updates);
+  };
+
+  const goNext = () => { if (idx >= total - 1) setShowEnd(true); else setIdx(i => Math.min(total - 1, i + 1)); };
+  const goPrev = () => setIdx(i => Math.max(0, i - 1));
+
+  const cur = liveOf(item);
+  const setStatut = (s) => {
+    const nv = s === cur.statut ? null : s;
+    onChangeCurrent({ statut: nv });
+    if (nv === "valide") setTimeout(goNext, 250); // accélérateur : on enchaîne
+  };
+
+  const onTouchStart = (e) => { startX.current = e.touches[0]?.clientX ?? null; };
+  const onTouchEnd = (e) => {
+    if (startX.current == null) return;
+    const dx = (e.changedTouches[0]?.clientX ?? 0) - startX.current;
+    if (dx < -50) goNext(); else if (dx > 50) goPrev();
+    startX.current = null;
+  };
+
+  // Bilan (pour l'écran de fin)
+  const lives = items.map(liveOf);
+  const n_ok  = lives.filter(t => t?.statut === "valide").length;
+  const n_res = lives.filter(t => t?.statut === "reserve").length;
+  const n_af  = lives.filter(t => t?.statut === "non_commence").length;
+  const n_nd  = lives.filter(t => !t?.statut).length;
+
+  const shell = (children) => (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1100, background: T.bg,
+      display: "flex", flexDirection: "column",
+    }}>{children}</div>
+  );
+
+  if (total === 0) {
+    return shell(
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: 24 }}>
+        <div style={{ color: T.textSub, fontSize: FONT.md.size }}>Aucun point à parcourir.</div>
+        <button onClick={onClose} style={{ padding: "12px 22px", borderRadius: RADIUS.md, border: "none", background: acc.accent, color: acc.onAccent, fontFamily: "inherit", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>Fermer</button>
+      </div>
+    );
+  }
+
+  if (showEnd) {
+    return shell(
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: 24, textAlign: "center" }}>
+        <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(34,197,94,0.15)", color: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon as={Check} size={34} strokeWidth={3}/>
+        </div>
+        <div style={{ fontSize: FONT.xl.size + 2, fontWeight: 800, color: T.text }}>Parcours terminé</div>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", justifyContent: "center" }}>
+          {[
+            { label: "Validées",       val: n_ok,  color: "#22c55e" },
+            { label: "Réserves",       val: n_res, color: "#f59e0b" },
+            { label: "Pas commencées", val: n_af,  color: "#94a3b8" },
+            { label: "Non évaluées",   val: n_nd,  color: T.textMuted },
+          ].map(s => (
+            <div key={s.label} style={{ minWidth: 84 }}>
+              <div style={{ fontSize: 30, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.val}</div>
+              <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 4, fontWeight: 600 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+          <button onClick={() => { setShowEnd(false); setIdx(total - 1); }} style={{ padding: "12px 20px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: T.surface, color: T.textSub, fontFamily: "inherit", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Revenir</button>
+          <button onClick={onClose} style={{ padding: "12px 24px", borderRadius: RADIUS.md, border: "none", background: acc.accent, color: acc.onAccent, fontFamily: "inherit", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>Terminer l'audit</button>
+        </div>
+      </div>
+    );
+  }
+
+  const isReserve = cur.statut === "reserve";
+
+  return shell(
+    <>
+      {/* Barre haute : progression + compteur + fermer */}
+      <div style={{ padding: "calc(10px + env(safe-area-inset-top)) 14px 10px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, height: 5, borderRadius: 3, background: T.border, overflow: "hidden" }}>
+            <div style={{ width: `${((idx + 1) / total) * 100}%`, height: "100%", background: acc.accent, transition: "width .2s" }}/>
+          </div>
+          <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text, whiteSpace: "nowrap" }}>{idx + 1}/{total}</span>
+          <button onClick={onClose} title="Terminer le parcours" style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
+            border: `1px solid ${T.border}`, background: T.card, color: T.textSub, cursor: "pointer",
+          }}>
+            <Icon as={X} size={16}/>
+          </button>
+        </div>
+      </div>
+
+      {/* Corps : une tâche en grand */}
+      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+        style={{ flex: 1, overflowY: "auto", padding: "22px 18px", display: "flex", flexDirection: "column" }}>
+        <div style={{ maxWidth: 620, margin: "0 auto", width: "100%" }}>
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 14,
+            padding: "4px 12px", borderRadius: RADIUS.pill,
+            background: item.groupColor + "1A", color: item.groupColor,
+            fontSize: FONT.xs.size + 1, fontWeight: 800,
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: item.groupColor }}/>
+            {item.groupLabel}
+          </span>
+
+          <div style={{ fontSize: 22, fontWeight: 800, color: T.text, lineHeight: 1.25, letterSpacing: -0.3 }}>{cur.nom}</div>
+          {(cur.ouvrage || cur.heures > 0 || cur.avancement > 0) && (
+            <div style={{ fontSize: FONT.sm.size, color: T.textMuted, marginTop: 8, display: "flex", flexWrap: "wrap", gap: 12 }}>
+              {cur.ouvrage && <span>↳ {cur.ouvrage}</span>}
+              {cur.heures > 0 && <span style={{ color: item.groupColor, fontWeight: 600 }}>{cur.heures}h estimées</span>}
+              {cur.avancement > 0 && <span style={{ color: cur.avancement === 100 ? "#22c55e" : T.textMuted }}>{cur.avancement}% au phasage</span>}
+            </div>
+          )}
+
+          {/* Segments de statut, en grand */}
+          <div style={{ display: "flex", gap: 8, marginTop: 22 }}>
+            {STATUTS_TACHE.map(btn => {
+              const active = cur.statut === btn.id;
+              return (
+                <button key={btn.id} onClick={() => setStatut(btn.id)} style={{
+                  flex: 1, padding: "16px 6px", borderRadius: RADIUS.lg,
+                  fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+                  background: active ? btn.color + "26" : T.surface,
+                  border: `2px solid ${active ? btn.color : T.border}`,
+                  color: active ? btn.color : T.textSub,
+                  transition: "all .12s",
+                }}>
+                  {btn.full}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Commentaire + photo : révélés quand Réserve */}
+          {isReserve && (
+            <div style={{ marginTop: 18 }}>
+              <textarea
+                value={cur.commentaire || ""}
+                onChange={e => onChangeCurrent({ commentaire: e.target.value })}
+                placeholder="Commentaire / observation…"
+                rows={3}
+                style={{
+                  width: "100%", background: T.fieldBg || T.card,
+                  border: `1px solid ${T.fieldBorder || T.border}`, borderRadius: RADIUS.md,
+                  padding: "12px 14px", color: T.text, fontFamily: "inherit",
+                  fontSize: 16, resize: "vertical", outline: "none", boxSizing: "border-box",
+                }}
+              />
+              <PhotosPicker
+                photos={cur.photos || []}
+                onChange={(nv) => onChangeCurrent({ photos: nv })}
+                pathPrefix={cur.pathPrefix}
+                color={item.groupColor}
+                onLightbox={onLightbox}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Barre basse : navigation */}
+      <div style={{
+        display: "flex", gap: 10, padding: "10px 14px calc(10px + env(safe-area-inset-bottom))",
+        borderTop: `1px solid ${T.border}`, background: T.surface,
+      }}>
+        <button onClick={goPrev} disabled={idx === 0} style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+          padding: "14px 18px", borderRadius: RADIUS.md,
+          border: `1px solid ${T.border}`, background: T.card, color: T.textSub,
+          fontFamily: "inherit", fontSize: 15, fontWeight: 700,
+          cursor: idx === 0 ? "not-allowed" : "pointer", opacity: idx === 0 ? .45 : 1,
+        }}>
+          <Icon as={ChevronLeftIcon} size={18}/>
+          Précédent
+        </button>
+        <button onClick={goNext} style={{
+          flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+          padding: "14px 18px", borderRadius: RADIUS.md, border: "none",
+          background: acc.accent, color: acc.onAccent,
+          fontFamily: "inherit", fontSize: 15, fontWeight: 800, cursor: "pointer",
+        }}>
+          {idx >= total - 1 ? "Terminer" : "Suivant"}
+          <Icon as={ChevronRight} size={18}/>
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ─── TÂCHE AUDIT ──────────────────────────────────────────────────────────────
 function TacheAudit({ tache, lotColor, isHeritee = false, declareLe = null, isMobile = false, T, pathPrefix, onLightbox, onChange }) {
   // Format robuste : accepte ISO (YYYY-MM-DD) ou déjà-FR (DD/MM/YYYY).
@@ -1764,11 +2125,20 @@ function TacheAudit({ tache, lotColor, isHeritee = false, declareLe = null, isMo
   const [showPhotos,  setShowPhotos]  = useState((tache.photos || []).length > 0);
 
   const setStatut = (s) => {
-    onChange({ statut: s === tache.statut ? null : s });
-    if (s === "reserve" && !showComment) setShowComment(true);
+    const nv = s === tache.statut ? null : s;
+    onChange({ statut: nv });
+    // Réserve = exception à documenter : on révèle commentaire ET photo direct.
+    if (nv === "reserve") { setShowComment(true); setShowPhotos(true); }
   };
 
   const statutColor = statutColorOf(tache.statut);
+
+  // Teinte de fond de la ligne selon le statut (très clair), transparent si non statué.
+  const rowTint =
+    tache.statut === "valide"       ? "rgba(34,197,94,0.07)"  :
+    tache.statut === "reserve"      ? "rgba(245,158,11,0.09)" :
+    tache.statut === "non_commence" ? "rgba(148,163,184,0.08)" :
+    (isHeritee ? "rgba(245,158,11,0.05)" : "transparent");
 
   // ── Indicateur de statut (pastille) — pleine + halo quand un statut est posé
   const dot = (
@@ -1902,7 +2272,7 @@ function TacheAudit({ tache, lotColor, isHeritee = false, declareLe = null, isMo
     return (
       <div className="audit-tache-row" style={{
         padding: "12px 14px", borderBottom: `1px solid ${T.sectionDivider || T.border}`,
-        background: isHeritee && !tache.statut ? "rgba(245,158,11,0.04)" : "transparent",
+        background: rowTint, transition: "background .15s",
       }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           {dot}
@@ -1920,7 +2290,7 @@ function TacheAudit({ tache, lotColor, isHeritee = false, declareLe = null, isMo
   return (
     <div className="audit-tache-row" style={{
       padding: "10px 18px", borderBottom: `1px solid ${T.sectionDivider || T.border}`,
-      background: isHeritee && !tache.statut ? "rgba(245,158,11,0.04)" : "transparent",
+      background: rowTint, transition: "background .15s",
     }}>
       <div style={{ display: "grid", gridTemplateColumns: "20px 1fr auto", gap: 12, alignItems: "start" }}>
         {dot}
