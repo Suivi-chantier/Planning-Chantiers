@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19 scoring transformation : Froid/Tiède/Chaud selon probabilité de signature + Fluidify enrichi
+ * CRM Prospection — V20 actions prioritaires : prochaine action et date mises en avant + scoring transformation
  *
  * Objectif :
  * - CRM volontairement simple
@@ -191,6 +191,66 @@ function compareActionDate(a, b) {
   const da = a?.date_prochaine_action ? new Date(a.date_prochaine_action).getTime() : Number.MAX_SAFE_INTEGER;
   const db = b?.date_prochaine_action ? new Date(b.date_prochaine_action).getTime() : Number.MAX_SAFE_INTEGER;
   return da - db;
+}
+
+function nextActionMeta(p = {}) {
+  const action = txt(p.prochaine_action);
+  const date = dateOnly(p.date_prochaine_action);
+  const today = todayIso();
+  const tomorrow = addDays(1);
+
+  if (!action && !date) {
+    return {
+      action: "Action à définir",
+      dateLabel: "Aucune date",
+      status: "À compléter",
+      color: WA,
+      icon: AlertTriangle,
+      urgent: true,
+    };
+  }
+
+  if (date && date < today) {
+    return {
+      action: action || "Action à définir",
+      dateLabel: fmtDate(date),
+      status: "En retard",
+      color: DA,
+      icon: AlertTriangle,
+      urgent: true,
+    };
+  }
+
+  if (date === today) {
+    return {
+      action: action || "Action à définir",
+      dateLabel: "Aujourd’hui",
+      status: "À faire aujourd’hui",
+      color: WA,
+      icon: Clock,
+      urgent: true,
+    };
+  }
+
+  if (date === tomorrow) {
+    return {
+      action: action || "Action à définir",
+      dateLabel: "Demain",
+      status: "Action demain",
+      color: "#8B5CF6",
+      icon: Calendar,
+      urgent: false,
+    };
+  }
+
+  return {
+    action: action || "Action à définir",
+    dateLabel: date ? fmtDate(date) : "Aucune date",
+    status: date ? "Planifiée" : "Date à définir",
+    color: date ? SU : WA,
+    icon: date ? CalendarDays : Clock,
+    urgent: !date,
+  };
 }
 
 function prospectName(p) {
@@ -1727,6 +1787,81 @@ function QuickFilterButton({ active, icon, label, count, color, onClick, T }) {
   );
 }
 
+function NextActionHighlight({ prospect, T, compact = false, large = false }) {
+  const meta = nextActionMeta(prospect);
+  const IconAction = meta.icon;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${meta.color}${large ? "55" : "3D"}`,
+        background: `linear-gradient(135deg, ${meta.color}${large ? "1F" : "17"}, rgba(255,255,255,.035))`,
+        borderRadius: large ? 18 : 14,
+        padding: compact ? "7px 8px" : large ? "12px 14px" : "9px 10px",
+        display: "grid",
+        gridTemplateColumns: "auto minmax(0, 1fr) auto",
+        gap: compact ? 7 : 10,
+        alignItems: "center",
+        boxShadow: meta.urgent && large ? `0 14px 35px ${meta.color}18` : "none",
+      }}
+    >
+      <div
+        style={{
+          width: compact ? 24 : large ? 38 : 30,
+          height: compact ? 24 : large ? 38 : 30,
+          borderRadius: compact ? 9 : 13,
+          background: `${meta.color}20`,
+          color: meta.color,
+          border: `1px solid ${meta.color}45`,
+          display: "grid",
+          placeItems: "center",
+          flexShrink: 0,
+        }}
+      >
+        <Icon as={IconAction} size={compact ? 12 : large ? 17 : 14} />
+      </div>
+
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            color: T.text,
+            fontSize: compact ? 11.5 : large ? 15 : 12.5,
+            fontWeight: 950,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {meta.action}
+        </div>
+        <div
+          style={{
+            color: meta.color,
+            fontSize: compact ? 10 : large ? 12 : 10.5,
+            fontWeight: 900,
+            marginTop: large ? 3 : 1,
+          }}
+        >
+          {meta.status}
+        </div>
+      </div>
+
+      <div
+        style={{
+          color: meta.color,
+          fontSize: compact ? 10.5 : large ? 14 : 11.5,
+          fontWeight: 950,
+          textAlign: "right",
+          whiteSpace: "nowrap",
+          fontFamily: "'DM Mono', monospace",
+        }}
+      >
+        {meta.dateLabel}
+      </div>
+    </div>
+  );
+}
+
 function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
   const temp = temperature(p);
   const late = isLate(p.date_prochaine_action);
@@ -1792,12 +1927,8 @@ function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
               marginTop: 7,
             }}
           >
-            <div style={{ color: late ? DA : T.textSub, fontSize: 10.5, display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-              <Icon as={Clock} size={10} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {p.prochaine_action || "Aucune action"}
-                {p.date_prochaine_action ? ` · ${fmtDate(p.date_prochaine_action)}` : ""}
-              </span>
+            <div style={{ minWidth: 0 }}>
+              <NextActionHighlight prospect={p} T={T} compact />
             </div>
 
             <Badge color={temp.color} T={T}>{temp.label} · {temp.score}/100</Badge>
@@ -1964,22 +2095,8 @@ function PlanningMiniCard({ p, onClick, selected, T }) {
         <Badge color={temp.color} T={T}>{temp.label} · {temp.score}/100</Badge>
       </div>
 
-      <div
-        style={{
-          color: late ? DA : T.textSub,
-          fontSize: 10.5,
-          marginTop: 4,
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          minWidth: 0,
-        }}
-      >
-        <Icon as={ListChecks} size={10} />
-        <span style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-          {p.prochaine_action || "Action à définir"}
-          {p.date_prochaine_action ? ` · ${fmtDate(p.date_prochaine_action)}` : ""}
-        </span>
+      <div style={{ marginTop: 7 }}>
+        <NextActionHighlight prospect={p} T={T} compact />
       </div>
     </button>
   );
@@ -2127,7 +2244,7 @@ function ListView({ prospects, selectedId, onSelect, onStatusChange, T }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.4fr .9fr .75fr .8fr .9fr .65fr",
+          gridTemplateColumns: "1.35fr .9fr .75fr .75fr 1.25fr .65fr",
           gap: 8,
           padding: "9px 10px",
           borderBottom: `1px solid ${T.border}`,
@@ -2142,7 +2259,7 @@ function ListView({ prospects, selectedId, onSelect, onStatusChange, T }) {
         <div>Contact</div>
         <div>Statut</div>
         <div>Responsable</div>
-        <div>Prochaine action</div>
+        <div>Action prioritaire</div>
         <div style={{ textAlign: "right" }}>CA</div>
       </div>
 
@@ -2168,7 +2285,7 @@ function ListView({ prospects, selectedId, onSelect, onStatusChange, T }) {
                 style={{
                   width: "100%",
                   display: "grid",
-                  gridTemplateColumns: "1.4fr .9fr .75fr .8fr .9fr .65fr",
+                  gridTemplateColumns: "1.35fr .9fr .75fr .75fr 1.25fr .65fr",
                   gap: 8,
                   alignItems: "center",
                   padding: "9px 10px",
@@ -2256,21 +2373,7 @@ function ListView({ prospects, selectedId, onSelect, onStatusChange, T }) {
                 </div>
 
                 <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      color: late ? DA : T.textSub,
-                      fontSize: 11.5,
-                      fontWeight: late ? 900 : 600,
-                      overflow: "hidden",
-                      whiteSpace: "nowrap",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {p.prochaine_action || "À définir"}
-                  </div>
-                  <div style={{ color: late ? DA : T.textMuted, fontSize: 10.5, marginTop: 2 }}>
-                    {p.date_prochaine_action ? fmtDate(p.date_prochaine_action) : "Pas de date"}
-                  </div>
+                  <NextActionHighlight prospect={p} T={T} compact />
                 </div>
 
                 <div
@@ -3981,12 +4084,16 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     <Input type="date" value={form.date_rdv} onChange={(v) => setField("date_rdv", v)} />
                   </Field>
 
-                  <Field label="Prochaine relance">
+                  <Field label="Date prochaine action">
                     <Input type="date" value={form.date_prochaine_action} onChange={(v) => setField("date_prochaine_action", v)} />
                   </Field>
                 </div>
 
                 <SectionTitle icon={CalendarDays} title="Suivi commercial et relances" T={T} />
+
+                <div style={{ marginBottom: 10 }}>
+                  <NextActionHighlight prospect={{ ...currentProspect, ...form }} T={T} large />
+                </div>
 
                 <div
                   style={{
@@ -4000,10 +4107,15 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     <Select value={form.prochaine_action} onChange={(v) => setField("prochaine_action", v)} options={PROCHAINES_ACTIONS} />
                   </Field>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, alignItems: "end" }}>
-                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 2)}>J+2</button>
-                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 7)}>J+7</button>
-                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 15)}>J+15</button>
+                  <div>
+                    <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, marginBottom: 5, textTransform: "uppercase", letterSpacing: ".06em" }}>
+                      Date rapide
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, alignItems: "end" }}>
+                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 2)}>J+2</button>
+                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 7)}>J+7</button>
+                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 15)}>J+15</button>
+                    </div>
                   </div>
                 </div>
 
