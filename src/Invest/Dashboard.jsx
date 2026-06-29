@@ -20,9 +20,9 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V1 — Cockpit Profero Invest
+// TABLEAU DE BORD V2 — Morning Routine Profero Invest
 // À copier-coller en remplacement du fichier / bloc Tableau de bord actuel.
-// Cette version garde le code couleur existant via T, SU, WA, DA.
+// Cette version ajoute un onglet Morning Routine strict en gardant le code couleur existant via T, SU, WA, DA.
 // ─────────────────────────────────────────────────────────────
 
 const DASH_CLIENT_STATUS_CONFIG = [
@@ -33,6 +33,7 @@ const DASH_CLIENT_STATUS_CONFIG = [
 ];
 
 const DASH_TABS = [
+  { key:"routine", label:"Morning Routine", icon:LayoutDashboard },
   { key:"today", label:"Aujourd’hui", icon:Sun },
   { key:"week", label:"Cette semaine", icon:Calendar },
   { key:"month", label:"Ce mois", icon:BarChart3 },
@@ -49,6 +50,15 @@ const DASH_OBJECTIVES = [
   { key:"signatures", label:"Signatures clients", target:2, icon:Handshake },
   { key:"prospects", label:"Prospects entrants", target:20, icon:Users },
   { key:"biens", label:"Biens présentés", target:5, icon:Home },
+];
+
+const DASH_MORNING_STEPS = [
+  { key:"global", label:"Vue globale", time:"8h30 – 8h40", duration:"10 min", icon:LayoutDashboard },
+  { key:"collaborateurs", label:"Collaborateurs", time:"8h40 – 9h05", duration:"25 min", icon:Users },
+  { key:"prospects", label:"Prospects", time:"9h05 – 9h30", duration:"25 min", icon:Phone },
+  { key:"clients", label:"Clients actifs", time:"9h30 – 10h00", duration:"30 min", icon:Briefcase },
+  { key:"biens", label:"Biens identifiés", time:"10h00 – 10h20", duration:"20 min", icon:Home },
+  { key:"synthese", label:"Synthèse", time:"10h20 – 10h30", duration:"10 min", icon:Send },
 ];
 
 const DASH_MOCK_COLLABORATEURS = [
@@ -477,6 +487,301 @@ function CollaborateurCard({ c, period="today", T=THEMES_INV.dark, onClick }) {
   );
 }
 
+
+function routineDecisionLabel(decision) {
+  return {
+    done:"Traité",
+    report:"Reporté",
+    assign:"Assigné",
+    block:"Bloqué",
+  }[decision] || "À décider";
+}
+
+function routineDecisionLevel(decision) {
+  return decision === "done" ? "success" : decision === "block" ? "danger" : decision ? "warning" : "info";
+}
+
+function RoutineDecisionRow({ item, decision, onDecision, T=THEMES_INV.dark, onNavigate }) {
+  const color = item.color || (item.level === "danger" ? DA : item.level === "warning" ? WA : T.accent);
+  const IconComp = item.icon || Bell;
+  return (
+    <div style={{ border:`1px solid ${decision ? T.border : item.required ? `${color}55` : T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"10px 11px" }}>
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12 }}>
+        <button type="button" onClick={() => item.onClickTarget && onNavigate?.(item.onClickTarget, item.onClickFilter)} style={{ display:"flex", alignItems:"flex-start", gap:9, minWidth:0, flex:1, border:"none", background:"transparent", padding:0, textAlign:"left", cursor:item.onClickTarget ? "pointer" : "default", fontFamily:"inherit" }}>
+          <span style={{ width:28, height:28, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", color, background:`${color}16`, flexShrink:0 }}><Icon as={IconComp} size={14} strokeWidth={2.3}/></span>
+          <span style={{ minWidth:0 }}>
+            <span style={{ display:"block", fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.title}</span>
+            <span style={{ display:"block", fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.sub}</span>
+          </span>
+        </button>
+        <AlertBadge level={routineDecisionLevel(decision)} T={T}>{routineDecisionLabel(decision)}</AlertBadge>
+      </div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:10 }}>
+        {[
+          ["done", "Traité", SU],
+          ["report", "Reporter", WA],
+          ["assign", "Assigner", T.accent],
+          ["block", "Bloquer", DA],
+        ].map(([key, label, btnColor]) => (
+          <button key={key} type="button" onClick={() => onDecision?.(item.id, key)} style={{ border:`1px solid ${decision === key ? btnColor : T.border}`, background:decision === key ? `${btnColor}16` : T.card, color:decision === key ? btnColor : T.textSub, borderRadius:RADIUS.pill, padding:"5px 9px", fontFamily:"inherit", fontSize:FONT.xs.size, fontWeight:900, cursor:"pointer" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoutineStepCard({ step, isActive, isDone, canComplete, unresolved=0, onOpen, onComplete, children, T=THEMES_INV.dark }) {
+  const IconComp = step.icon || LayoutDashboard;
+  const border = isDone ? SU : isActive ? T.accent : T.border;
+  return (
+    <div style={{ border:`1.5px solid ${border}`, background:isActive ? T.card : T.input, borderRadius:RADIUS.lg, overflow:"hidden", boxShadow:isActive ? T.shadowSm : "none" }}>
+      <button type="button" onClick={onOpen} style={{ width:"100%", border:"none", background:isActive ? T.accentBg : T.sectionHd, padding:SPACING.md, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, cursor:"pointer", fontFamily:"inherit", textAlign:"left" }}>
+        <span style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
+          <span style={{ width:34, height:34, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", background:isDone ? `${SU}16` : isActive ? T.accentBg : T.input, color:isDone ? SU : isActive ? T.accent : T.textSub, flexShrink:0 }}><Icon as={isDone ? Check : IconComp} size={16} strokeWidth={2.4}/></span>
+          <span style={{ minWidth:0 }}>
+            <span style={{ display:"block", color:T.text, fontSize:FONT.lg.size, fontWeight:900 }}>{step.label}</span>
+            <span style={{ display:"block", color:T.textMuted, fontSize:FONT.xs.size, marginTop:2 }}>{step.time} · {step.duration}</span>
+          </span>
+        </span>
+        <span style={{ display:"flex", alignItems:"center", gap:7, flexShrink:0 }}>
+          {unresolved > 0 && <AlertBadge level="danger" T={T}>{unresolved} décision{unresolved > 1 ? "s" : ""}</AlertBadge>}
+          {isDone ? <AlertBadge level="success" T={T}>Validé</AlertBadge> : isActive ? <AlertBadge level="info" T={T}>En cours</AlertBadge> : <AlertBadge level="info" T={T}>À faire</AlertBadge>}
+        </span>
+      </button>
+      {isActive && (
+        <div style={{ padding:SPACING.md }}>
+          {children}
+          <div style={{ display:"flex", justifyContent:"flex-end", marginTop:SPACING.md }}>
+            <button type="button" className={canComplete ? "inv-btn inv-btn-gold inv-btn-sm" : "inv-btn inv-btn-out inv-btn-sm"} onClick={onComplete} disabled={!canComplete} title={!canComplete ? "Décision obligatoire sur les éléments rouges/oranges avant validation" : "Valider cette étape"}>
+              <Icon as={Check} size={12} strokeWidth={2.2}/> Valider l’étape
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MorningRoutineDashboard({ stats, clients=[], biens=[], compact=false, T=THEMES_INV.dark, onNavigate }) {
+  const storageKey = `profero_morning_routine_v2_${stats?.today || dashIso(new Date())}`;
+  const [started, setStarted] = useState(false);
+  const [activeStep, setActiveStep] = useState("global");
+  const [completedSteps, setCompletedSteps] = useState({});
+  const [decisions, setDecisions] = useState({});
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      setStarted(!!saved.started);
+      setActiveStep(saved.activeStep || "global");
+      setCompletedSteps(saved.completedSteps || {});
+      setDecisions(saved.decisions || {});
+    } catch {}
+  }, [storageKey]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(storageKey, JSON.stringify({ started, activeStep, completedSteps, decisions })); } catch {}
+  }, [storageKey, started, activeStep, completedSteps, decisions]);
+
+  const routine = useMemo(() => {
+    const criticalCount = (stats.actionsRetard || 0) + (stats.todayClients.blocked || 0) + (stats.todayBiens.toRelance || 0) + (stats.todayProspects.sansAction || 0);
+    const globalItems = [
+      { id:"global-actions-retard", title:`${stats.actionsRetard} action(s) en retard`, sub:"Décider : traiter, reporter, assigner ou bloquer", level:stats.actionsRetard ? "danger" : "success", color:stats.actionsRetard ? DA : SU, icon:AlertTriangle, required:stats.actionsRetard > 0, onClickTarget:"crm", onClickFilter:{ type:"actions_week_or_late" } },
+      { id:"global-rdv", title:`${stats.rdvToday || 0} RDV prévu(s) aujourd’hui`, sub:"Vérifier les créneaux et les préparations nécessaires", level:"info", color:T.accent, icon:Calendar, required:false },
+      { id:"global-clients-bloques", title:`${stats.todayClients.blocked} dossier(s) client bloqué(s)`, sub:"Aucun blocage ne doit rester sans décision", level:stats.todayClients.blocked ? "danger" : "success", color:stats.todayClients.blocked ? DA : SU, icon:Briefcase, required:stats.todayClients.blocked > 0, onClickTarget:"crm", onClickFilter:{ type:"blocked" } },
+      { id:"global-biens-relance", title:`${stats.todayBiens.toRelance} bien(s) à relancer`, sub:"Relancer ou archiver pour éviter un stock dormant", level:stats.todayBiens.toRelance ? "warning" : "success", color:stats.todayBiens.toRelance ? WA : SU, icon:Home, required:stats.todayBiens.toRelance > 0, onClickTarget:"biens", onClickFilter:{ type:"a_relancer" } },
+    ];
+
+    const collaborateurItems = stats.collaborateurs.map(c => ({
+      id:`collab-${c.name}`,
+      title:`${c.name} — ${c.open || 0} tâche(s) ouverte(s), ${c.late || 0} retard`,
+      sub:`${c.validation || 0} validation(s) Matthieu · dernière activité ${c.lastNewsHours >= 999 ? "non renseignée" : `il y a ${c.lastNewsHours}h`}`,
+      level:c.late > 0 || c.validation > 0 || c.lastNewsHours > 24 ? "warning" : "success",
+      color:c.late > 0 ? DA : c.validation > 0 || c.lastNewsHours > 24 ? WA : SU,
+      icon:Users,
+      required:c.late > 0 || c.validation > 0 || c.lastNewsHours > 24,
+      onClickTarget:"crm",
+      onClickFilter:{ type:"collaborateur", value:c.name },
+    }));
+
+    const prospectItems = [
+      { id:"prospects-relances", title:`${stats.todayProspects.relances} relance(s) prospect aujourd’hui`, sub:"Les relances du jour doivent être planifiées ou traitées", level:stats.todayProspects.relances ? "warning" : "success", color:stats.todayProspects.relances ? WA : SU, icon:Phone, required:stats.todayProspects.relances > 0, onClickTarget:"crm", onClickFilter:{ type:"relance_today" } },
+      { id:"prospects-stagnants", title:`${stats.todayProspects.stagnants} prospect(s) stagnant(s) +7 jours`, sub:"Chaque prospect chaud doit avoir une prochaine action datée", level:stats.todayProspects.stagnants ? "warning" : "success", color:stats.todayProspects.stagnants ? WA : SU, icon:AlertTriangle, required:stats.todayProspects.stagnants > 0, onClickTarget:"crm", onClickFilter:{ type:"stagnants" } },
+      { id:"prospects-sans-action", title:`${stats.todayProspects.sansAction} prospect(s) sans prochaine action`, sub:"Règle stricte : aucun prospect chaud sans prochaine action", level:stats.todayProspects.sansAction ? "danger" : "success", color:stats.todayProspects.sansAction ? DA : SU, icon:Bell, required:stats.todayProspects.sansAction > 0, onClickTarget:"crm", onClickFilter:{ type:"sans_action" } },
+      { id:"prospects-entrants", title:`${stats.todayProspects.entrants} nouveau(x) prospect(s) depuis hier`, sub:"Qualifier ou assigner dans la journée", level:stats.todayProspects.entrants ? "info" : "success", color:T.accent, icon:Users, required:false, onClickTarget:"crm", onClickFilter:{ type:"new_since_yesterday" } },
+    ];
+
+    const clientItems = [
+      { id:"clients-bloques", title:`${stats.todayClients.blocked} dossier(s) bloqué(s)`, sub:"Aucune situation bloquée ne doit rester sans décision", level:stats.todayClients.blocked ? "danger" : "success", color:stats.todayClients.blocked ? DA : SU, icon:AlertTriangle, required:stats.todayClients.blocked > 0, onClickTarget:"crm", onClickFilter:{ type:"blocked" } },
+      { id:"clients-documents", title:`${stats.todayClients.documentsWaiting} document(s) client en attente`, sub:"Relancer ou assigner le suivi", level:stats.todayClients.documentsWaiting ? "warning" : "success", color:stats.todayClients.documentsWaiting ? WA : SU, icon:FileText, required:stats.todayClients.documentsWaiting > 0, onClickTarget:"crm", onClickFilter:{ type:"documents_waiting" } },
+      { id:"clients-partenaires", title:`${stats.todayClients.partnerRelances} relance(s) partenaire`, sub:"Banque, notaire, assurance ou courtier", level:stats.todayClients.partnerRelances ? "warning" : "success", color:stats.todayClients.partnerRelances ? WA : SU, icon:Briefcase, required:stats.todayClients.partnerRelances > 0, onClickTarget:"crm", onClickFilter:{ type:"partner_relance" } },
+      { id:"clients-sans-action", title:`${stats.todayClients.sansAction} client(s) sans prochaine action`, sub:"Règle stricte : aucun client actif sans prochaine action", level:stats.todayClients.sansAction ? "danger" : "success", color:stats.todayClients.sansAction ? DA : SU, icon:Bell, required:stats.todayClients.sansAction > 0, onClickTarget:"crm", onClickFilter:{ type:"sans_action" } },
+    ];
+
+    const bienItems = [
+      { id:"biens-trier", title:`${stats.todayBiens.newToSort} nouvelle(s) annonce(s) à trier`, sub:"Décider : analyser, proposer, relancer ou archiver", level:stats.todayBiens.newToSort ? "warning" : "success", color:stats.todayBiens.newToSort ? WA : SU, icon:Search, required:stats.todayBiens.newToSort > 0, onClickTarget:"biens", onClickFilter:{ type:"new_to_sort" } },
+      { id:"biens-analyse", title:`${stats.todayBiens.inAnalysis} bien(s) en analyse`, sub:"Faire avancer les analyses ou assigner", level:stats.todayBiens.inAnalysis ? "info" : "success", color:T.accent, icon:Home, required:false, onClickTarget:"biens", onClickFilter:{ type:"analyse" } },
+      { id:"biens-match", title:`${stats.todayBiens.toMatch} bien(s) à matcher avec un client`, sub:"Chaque opportunité doit être rapprochée d’un profil", level:stats.todayBiens.toMatch ? "warning" : "success", color:stats.todayBiens.toMatch ? WA : SU, icon:Handshake, required:stats.todayBiens.toMatch > 0, onClickTarget:"biens", onClickFilter:{ type:"to_match" } },
+      { id:"biens-relance", title:`${stats.todayBiens.toRelance} bien(s) à relancer`, sub:"Relancer le vendeur/agent ou archiver", level:stats.todayBiens.toRelance ? "danger" : "success", color:stats.todayBiens.toRelance ? DA : SU, icon:Bell, required:stats.todayBiens.toRelance > 0, onClickTarget:"biens", onClickFilter:{ type:"a_relancer" } },
+      { id:"biens-incomplets", title:`${stats.todayBiens.incomplets} fiche(s) bien incomplète(s)`, sub:"Compléter les fiches importantes uniquement", level:stats.todayBiens.incomplets ? "warning" : "success", color:stats.todayBiens.incomplets ? WA : SU, icon:FileText, required:false, onClickTarget:"biens", onClickFilter:{ type:"incomplete" } },
+    ];
+
+    const plan = [
+      stats.actionsRetard > 0 ? `Matthieu — décider des ${stats.actionsRetard} action(s) en retard avant midi` : null,
+      stats.todayClients.blocked > 0 ? `Matthieu — débloquer ou assigner ${stats.todayClients.blocked} dossier(s) client` : null,
+      stats.todayProspects.relances > 0 ? `Tom — traiter les ${stats.todayProspects.relances} relance(s) prospect du jour` : null,
+      stats.todayProspects.sansAction > 0 ? `Tom — dater une prochaine action pour ${stats.todayProspects.sansAction} prospect(s)` : null,
+      stats.todayClients.documentsWaiting > 0 ? `Benjamin — relancer les documents client en attente` : null,
+      stats.todayBiens.toMatch > 0 ? `Benjamin — matcher ${stats.todayBiens.toMatch} bien(s) avec des profils clients` : null,
+      stats.todayBiens.toRelance > 0 ? `Matthieu/Benjamin — relancer ${stats.todayBiens.toRelance} bien(s) ou les archiver` : null,
+      stats.rdvToday > 0 ? `Matthieu — préparer les ${stats.rdvToday} RDV du jour` : null,
+    ].filter(Boolean);
+
+    return {
+      criticalCount,
+      steps:{
+        global:{ intro:"Objectif : savoir immédiatement si la journée est normale ou critique.", items:globalItems },
+        collaborateurs:{ intro:"Objectif : aucun collaborateur ne doit rester sans mission prioritaire claire.", items:collaborateurItems },
+        prospects:{ intro:"Objectif : aucun prospect chaud sans prochaine action datée.", items:prospectItems },
+        clients:{ intro:"Objectif : aucun client actif sans prochaine action claire.", items:clientItems },
+        biens:{ intro:"Objectif : chaque nouveau bien doit finir dans une décision : analyser, proposer, relancer ou archiver.", items:bienItems },
+        synthese:{ intro:"Objectif : transformer la routine en plan d’action concret pour la journée.", items:[], plan },
+      },
+    };
+  }, [stats, T]);
+
+  const completedCount = DASH_MORNING_STEPS.filter(s => completedSteps[s.key]).length;
+  const progress = Math.round((completedCount / DASH_MORNING_STEPS.length) * 100);
+  const currentIndex = DASH_MORNING_STEPS.findIndex(s => s.key === activeStep);
+  const nextStep = DASH_MORNING_STEPS[currentIndex + 1]?.key || "synthese";
+  const routineDone = completedCount === DASH_MORNING_STEPS.length;
+
+  const setDecision = (id, value) => setDecisions(prev => ({ ...prev, [id]:value }));
+  const resetRoutine = () => { setStarted(false); setActiveStep("global"); setCompletedSteps({}); setDecisions({}); };
+  const completeStep = (stepKey) => {
+    setCompletedSteps(prev => ({ ...prev, [stepKey]:true }));
+    const idx = DASH_MORNING_STEPS.findIndex(s => s.key === stepKey);
+    const next = DASH_MORNING_STEPS[idx + 1]?.key;
+    if (next) setActiveStep(next);
+  };
+
+  const summaryText = [
+    `Morning Routine Profero Invest — ${new Date().toLocaleDateString("fr-FR")}`,
+    `Progression : ${progress}%`,
+    `Actions en retard : ${stats.actionsRetard}`,
+    `Prospects à relancer : ${stats.todayProspects.relances}`,
+    `Clients bloqués : ${stats.todayClients.blocked}`,
+    `Biens à relancer : ${stats.todayBiens.toRelance}`,
+    "",
+    "Plan d’action du jour :",
+    ...(routine.steps.synthese.plan.length ? routine.steps.synthese.plan.map((x, i) => `${i + 1}. ${x}`) : ["1. Aucun point critique détecté — maintenir le suivi courant."]),
+  ].join("\n");
+
+  const copySummary = async () => {
+    try { await navigator.clipboard.writeText(summaryText); } catch {}
+  };
+
+  return (
+    <>
+      <div className="inv-card" style={{ marginBottom:SPACING.xxl - 2, overflow:"hidden" }}>
+        <div className="inv-card-hd blue" style={{ justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={LayoutDashboard} size={14} strokeWidth={2.3}/> Morning Routine — cadre strict 8h30 à 10h30</span>
+          <span style={{ display:"inline-flex", gap:7, alignItems:"center" }}>
+            <AlertBadge level={routineDone ? "success" : routine.criticalCount > 0 ? "danger" : "info"} T={T}>{progress}% complété</AlertBadge>
+          </span>
+        </div>
+        <div className="inv-card-bd">
+          <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) auto", gap:SPACING.md, alignItems:"center" }}>
+            <div>
+              <div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text, lineHeight:1.1 }}>Routine de pilotage du matin</div>
+              <div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:5 }}>Suivre les étapes dans l’ordre. Les éléments rouges/oranges doivent recevoir une décision avant validation.</div>
+            </div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
+              {!started ? <button type="button" className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setStarted(true)}><Icon as={Sun} size={12}/> Démarrer la routine</button> : <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={resetRoutine}><Icon as={RefreshCw} size={12}/> Réinitialiser</button>}
+              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={copySummary}><Icon as={FileText} size={12}/> Copier synthèse</button>
+            </div>
+          </div>
+
+          <div style={{ marginTop:SPACING.md, height:10, borderRadius:RADIUS.pill, background:T.input, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${progress}%`, background:routineDone ? SU : T.accent, borderRadius:RADIUS.pill }}/>
+          </div>
+
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:8, marginTop:SPACING.md }}>
+            <KPICard icon={AlertTriangle} label="Urgences" value={(stats.actionsRetard || 0) + (stats.todayClients.blocked || 0)} color={(stats.actionsRetard || 0) + (stats.todayClients.blocked || 0) ? DA : SU}/>
+            <KPICard icon={Phone} label="Prospects à traiter" value={(stats.todayProspects.relances || 0) + (stats.todayProspects.sansAction || 0)} color={(stats.todayProspects.relances || 0) + (stats.todayProspects.sansAction || 0) ? WA : SU}/>
+            <KPICard icon={Briefcase} label="Clients à sécuriser" value={(stats.todayClients.documentsWaiting || 0) + (stats.todayClients.partnerRelances || 0)} color={(stats.todayClients.documentsWaiting || 0) + (stats.todayClients.partnerRelances || 0) ? WA : SU}/>
+            <KPICard icon={Home} label="Biens à décider" value={(stats.todayBiens.newToSort || 0) + (stats.todayBiens.toMatch || 0) + (stats.todayBiens.toRelance || 0)} color={(stats.todayBiens.toRelance || 0) ? DA : WA}/>
+          </div>
+        </div>
+      </div>
+
+      {!started && (
+        <div style={{ marginBottom:SPACING.xxl - 2, padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.lg, color:T.textMuted, background:T.input, textAlign:"center", fontSize:FONT.sm.size + 1 }}>
+          Clique sur <strong style={{ color:T.text }}>Démarrer la routine</strong> pour dérouler le cadre strict. Tu peux déjà consulter les autres onglets, mais la routine ne sera pas considérée comme lancée.
+        </div>
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns:"minmax(240px,.32fr) minmax(0,1fr)", gap:SPACING.md, alignItems:"start", marginBottom:SPACING.xxl - 2 }}>
+        <div className="inv-card" style={{ position:"sticky", top:12 }}>
+          <div className="inv-card-hd blue"><span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={Check} size={13}/> Séquence obligatoire</span></div>
+          <div className="inv-card-bd" style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {DASH_MORNING_STEPS.map((s, i) => {
+              const active = activeStep === s.key;
+              const done = !!completedSteps[s.key];
+              return (
+                <button key={s.key} type="button" onClick={() => setActiveStep(s.key)} style={{ border:`1px solid ${active ? T.accentBorder : done ? `${SU}55` : T.border}`, background:active ? T.accentBg : done ? `${SU}10` : T.input, color:active ? T.accent : T.text, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, fontFamily:"inherit", cursor:"pointer", textAlign:"left" }}>
+                  <span style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}><span style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size, color:done ? SU : active ? T.accent : T.textMuted }}>{String(i + 1).padStart(2, "0")}</span><span style={{ fontSize:FONT.sm.size, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.label}</span></span>
+                  {done ? <Icon as={Check} size={13} color={SU}/> : active ? <Icon as={Bell} size={13} color={T.accent}/> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
+          {DASH_MORNING_STEPS.map((step, idx) => {
+            const data = routine.steps[step.key] || { items:[], intro:"" };
+            const unresolved = (data.items || []).filter(item => item.required && !decisions[item.id]).length;
+            const previousDone = idx === 0 || DASH_MORNING_STEPS.slice(0, idx).every(s => completedSteps[s.key]);
+            const stepRulesOk = step.key === "synthese" ? Object.keys(completedSteps).length >= DASH_MORNING_STEPS.length - 1 : unresolved === 0;
+            const canComplete = started && previousDone && stepRulesOk;
+            const isActive = activeStep === step.key;
+            return (
+              <RoutineStepCard key={step.key} step={step} isActive={isActive} isDone={!!completedSteps[step.key]} unresolved={unresolved} canComplete={canComplete} onOpen={() => setActiveStep(step.key)} onComplete={() => completeStep(step.key)} T={T}>
+                <div style={{ color:T.textSub, fontSize:FONT.sm.size + 1, marginBottom:SPACING.md }}>{data.intro}</div>
+                {step.key !== "synthese" ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                    {(data.items || []).map(item => <RoutineDecisionRow key={item.id} item={item} decision={decisions[item.id]} onDecision={setDecision} T={T} onNavigate={onNavigate}/>) }
+                    {(data.items || []).length === 0 && <MiniList items={[]} T={T} empty="Aucun point à traiter dans cette étape"/>}
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:SPACING.md, marginBottom:SPACING.md }}>
+                      <KPICard icon={Check} label="Étapes validées" value={`${completedCount}/${DASH_MORNING_STEPS.length}`} color={routineDone ? SU : T.accent}/>
+                      <KPICard icon={Send} label="Actions du plan" value={data.plan.length || 1} color="#FFC200"/>
+                      <KPICard icon={AlertTriangle} label="Décisions prises" value={Object.keys(decisions).length} color={Object.keys(decisions).length ? SU : WA}/>
+                    </div>
+                    <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
+                      <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, marginBottom:8 }}>Plan d’action du jour</div>
+                      <ol style={{ margin:0, paddingLeft:20, color:T.textSub, fontSize:FONT.sm.size + 1, lineHeight:1.7 }}>
+                        {(data.plan.length ? data.plan : ["Aucun point critique détecté — maintenir le suivi courant."]).map((x, i) => <li key={i}>{x}</li>)}
+                      </ol>
+                    </div>
+                  </div>
+                )}
+              </RoutineStepCard>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function TodayDashboard({ stats, clients=[], biens=[], propositions=[], compact=false, T=THEMES_INV.dark, onNavigate }) {
   const go = (target, filter) => onNavigate?.(target, filter);
   const prospectCards = [
@@ -680,7 +985,7 @@ function MissionActionsCollaborateursDashboard({ T=THEMES_INV.dark, onNavigate }
 }
 
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
-  const [activeTab, setActiveTab] = useState("today");
+  const [activeTab, setActiveTab] = useState("routine");
   const [compact, setCompact] = useState(false);
   const [clientsDash, setClientsDash] = useState([]);
   const [biensDash, setBiensDash] = useState([]);
@@ -722,13 +1027,13 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1420, margin:"0 auto" }}>
       <div style={{ marginBottom:SPACING.xl, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:SPACING.md, flexWrap:"wrap" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24} strokeWidth={2}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Tableau de bord</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Cockpit de pilotage Profero Invest — aujourd’hui, semaine et mois</div>{stats && <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:9 }}>{stats.actionsRetard > 0 && <AlertBadge level="danger" T={T}>{stats.actionsRetard} action{stats.actionsRetard > 1 ? "s" : ""} en retard</AlertBadge>}{stats.todayProspects.stagnants > 0 && <AlertBadge level="warning" T={T}>{stats.todayProspects.stagnants} prospect{stats.todayProspects.stagnants > 1 ? "s" : ""} stagnant{stats.todayProspects.stagnants > 1 ? "s" : ""}</AlertBadge>}{stats.todayClients.blocked > 0 && <AlertBadge level="danger" T={T}>{stats.todayClients.blocked} dossier{stats.todayClients.blocked > 1 ? "s" : ""} bloqué{stats.todayClients.blocked > 1 ? "s" : ""}</AlertBadge>}{stats.actionsRetard === 0 && stats.todayProspects.stagnants === 0 && stats.todayClients.blocked === 0 && <AlertBadge level="success" T={T}>Pilotage sain</AlertBadge>}</div>}</div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24} strokeWidth={2}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Tableau de bord</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Morning Routine stricte + cockpit Profero Invest</div>{stats && <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:9 }}>{stats.actionsRetard > 0 && <AlertBadge level="danger" T={T}>{stats.actionsRetard} action{stats.actionsRetard > 1 ? "s" : ""} en retard</AlertBadge>}{stats.todayProspects.stagnants > 0 && <AlertBadge level="warning" T={T}>{stats.todayProspects.stagnants} prospect{stats.todayProspects.stagnants > 1 ? "s" : ""} stagnant{stats.todayProspects.stagnants > 1 ? "s" : ""}</AlertBadge>}{stats.todayClients.blocked > 0 && <AlertBadge level="danger" T={T}>{stats.todayClients.blocked} dossier{stats.todayClients.blocked > 1 ? "s" : ""} bloqué{stats.todayClients.blocked > 1 ? "s" : ""}</AlertBadge>}{stats.actionsRetard === 0 && stats.todayProspects.stagnants === 0 && stats.todayClients.blocked === 0 && <AlertBadge level="success" T={T}>Pilotage sain</AlertBadge>}</div>}</div></div>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setCompact(v => !v)} title="Basculer entre affichage condensé et détaillé"><Icon as={compact ? Eye : LayoutGrid} size={12} strokeWidth={2.2}/>{compact ? "Mode détaillé" : "Mode condensé"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={chargerDashboard}><Icon as={RefreshCw} size={12} strokeWidth={2.2}/>Actualiser</button></div>
       </div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, marginBottom:SPACING.xl, flexWrap:"wrap" }}><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{DASH_TABS.map(renderTabButton)}</div>{stats && <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}><AlertBadge level="info" T={T} icon={Users}>{stats.prospects} prospects</AlertBadge><AlertBadge level="info" T={T} icon={Briefcase}>{stats.actifs} clients actifs</AlertBadge><AlertBadge level="info" T={T} icon={Home}>{stats.biensTotaux} biens</AlertBadge><AlertBadge level="success" T={T} icon={Euro}>{fmtDashboardEur(stats.baseHonorairesPipeline)} pipeline</AlertBadge></div>}</div>
       {optionalErrors.length > 0 && <div style={{ marginBottom:SPACING.md, padding:`${SPACING.sm + 2}px ${SPACING.md}px`, borderRadius:RADIUS.md, background:dashSemantic("warning", { bg:"#fffbeb", border:"#fde68a" }).bg, border:`1px solid ${dashSemantic("warning", { bg:"#fffbeb", border:"#fde68a" }).border}`, color:WA, fontSize:FONT.sm.size }}>Certaines données optionnelles ne sont pas disponibles. Le tableau reste utilisable avec les données existantes.</div>}
       {dashboardError && <div style={{ marginBottom:SPACING.md, padding:`${SPACING.sm + 2}px ${SPACING.md}px`, borderRadius:RADIUS.md, background:dashSemantic("danger", { bg:"#fff1f2", border:"#fecdd3" }).bg, border:`1px solid ${dashSemantic("danger", { bg:"#fff1f2", border:"#fecdd3" }).border}`, color:DA, fontSize:FONT.sm.size + 1 }}>{dashboardError}</div>}
-      {loading ? <div style={{ textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}><Icon as={RefreshCw} size={14} style={{ animation:"spin 1s linear infinite" }}/>Chargement du cockpit…</div> : stats && <>{activeTab === "today" && <TodayDashboard stats={stats} clients={clientsDash} biens={biensDash} propositions={propsDash} compact={compact} T={T} onNavigate={go}/>} {activeTab === "week" && <WeekDashboard stats={stats} clients={clientsDash} compact={compact} T={T} onNavigate={go} profil={profil} onMoveEtape={changerEtapeClient}/>} {activeTab === "month" && <MonthDashboard stats={stats} compact={compact} T={T} onNavigate={go}/>} {!compact && <><ClientsStatutsBoard clients={clientsDash} T={T} movingClientId={movingClientId} onMoveClient={changerStatutClient} onOpenStatus={(statut) => go("crm", { type:"statut", value:statut })}/><PipelineEtapesBoard clients={clientsDash} T={T} movingClientId={movingEtapeClientId} onMoveClient={changerEtapeClient} onOpenEtape={(etape) => go("crm", etape ? { type:"etape", value:etape } : { type:"all" })}/><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:SPACING.md, alignItems:"start" }}><ClientsARisqueDashboard clients={clientsDash} propositions={propsDash} T={T} onNavigate={go}/><div><PerformanceCommercialeDashboard stats={stats} T={T}/><ValeurBusinessDashboard stats={stats} T={T}/><DirectionPilotageDashboard stats={stats} T={T}/></div></div></>}</>}
+      {loading ? <div style={{ textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}><Icon as={RefreshCw} size={14} style={{ animation:"spin 1s linear infinite" }}/>Chargement du cockpit…</div> : stats && <>{activeTab === "routine" && <MorningRoutineDashboard stats={stats} clients={clientsDash} biens={biensDash} compact={compact} T={T} onNavigate={go}/>} {activeTab === "today" && <TodayDashboard stats={stats} clients={clientsDash} biens={biensDash} propositions={propsDash} compact={compact} T={T} onNavigate={go}/>} {activeTab === "week" && <WeekDashboard stats={stats} clients={clientsDash} compact={compact} T={T} onNavigate={go} profil={profil} onMoveEtape={changerEtapeClient}/>} {activeTab === "month" && <MonthDashboard stats={stats} compact={compact} T={T} onNavigate={go}/>} {!compact && <><ClientsStatutsBoard clients={clientsDash} T={T} movingClientId={movingClientId} onMoveClient={changerStatutClient} onOpenStatus={(statut) => go("crm", { type:"statut", value:statut })}/><PipelineEtapesBoard clients={clientsDash} T={T} movingClientId={movingEtapeClientId} onMoveClient={changerEtapeClient} onOpenEtape={(etape) => go("crm", etape ? { type:"etape", value:etape } : { type:"all" })}/><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:SPACING.md, alignItems:"start" }}><ClientsARisqueDashboard clients={clientsDash} propositions={propsDash} T={T} onNavigate={go}/><div><PerformanceCommercialeDashboard stats={stats} T={T}/><ValeurBusinessDashboard stats={stats} T={T}/><DirectionPilotageDashboard stats={stats} T={T}/></div></div></>}</>}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -749,6 +1054,9 @@ export {
   PerformanceCommercialeDashboard,
   ValeurBusinessDashboard,
   MissionActionsCollaborateursDashboard,
+  MorningRoutineDashboard,
+  RoutineDecisionRow,
+  RoutineStepCard,
   AlertBadge,
   PipelineBar,
   DashboardSection,
