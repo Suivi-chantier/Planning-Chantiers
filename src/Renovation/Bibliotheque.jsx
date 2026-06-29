@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, loadPhases } from "../constants";
+import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package,
 } from "lucide-react";
 
-// PHASES dynamiques : init avec les défauts, remplacement async au mount
-let PHASES = [...PHASES_DEFAUT];
-loadPhases().then(p => { PHASES = p; });
+// LOTS dynamiques (phasage v2) : init avec les défauts, remplacement async au mount
+let LOTS = [...LOTS_DEFAUT];
+loadLots().then(l => { LOTS = l; });
 
 const CATEGORIES_BASE = [
   { label: "Plâtrerie",                   ids: ["cloison", "doublage", "plafond", "lainage", "faux_plafond", "double"] },
@@ -25,7 +25,9 @@ const CATEGORIES_BASE = [
 // vendues au client. Permet à l'import devis de pré-remplir heures_estimees
 // de chaque tâche dans PhasageV2.
 function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) {
-  const phase = PHASES.find(p => p.id === st.phaseId);
+  // Compat : on lit l'ancien champ `phaseId` (phasage v1) en repli sur `lotId`.
+  const lotId = st.lotId ?? st.phaseId ?? "";
+  const lot = LOTS.find(l => l.id === lotId);
 
   function update(field, value) {
     const next = [...(editData.sous_taches || [])];
@@ -60,18 +62,18 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
         }}
       />
 
-      {/* Phase */}
+      {/* Lot */}
       <select
-        value={st.phaseId || ""}
-        onChange={e => update("phaseId", e.target.value)}
+        value={lotId}
+        onChange={e => update("lotId", e.target.value)}
         style={{
           padding: "6px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
-          background: T.inputBg, color: st.phaseId ? (phase?.couleur || T.text) : T.textMuted,
-          fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", cursor: "pointer", fontWeight: st.phaseId ? 700 : 400,
+          background: T.inputBg, color: lotId ? (lot?.couleur || T.text) : T.textMuted,
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", cursor: "pointer", fontWeight: lotId ? 700 : 400,
         }}
       >
-        <option value="">Phase automatique…</option>
-        {PHASES.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.label}</option>)}
+        <option value="">Lot automatique…</option>
+        {LOTS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
       </select>
 
       {/* Ratio (%) */}
@@ -282,7 +284,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
   const cadence = parseFloat(ouvrage.cadence) || null;
 
   function addSousTache() {
-    const next = [...(editData.sous_taches || []), { nom: "", phaseId: "", ratio: null }];
+    const next = [...(editData.sous_taches || []), { nom: "", lotId: "", ratio: null }];
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
@@ -326,13 +328,13 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
           {!isEdit && (ouvrage.sous_taches || []).length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               {(ouvrage.sous_taches || []).slice(0, 4).map((st, i) => {
-                const ph = PHASES.find(p => p.id === st.phaseId);
+                const lo = LOTS.find(l => l.id === (st.lotId ?? st.phaseId));
                 return (
                   <span key={i} style={{
                     fontSize: FONT.xs.size, padding: "2px 7px", borderRadius: RADIUS.sm,
-                    background: ph ? `${ph.couleur}22` : T.card,
-                    color: ph ? ph.couleur : T.textMuted,
-                    border: `1px solid ${ph ? ph.couleur + "44" : T.border}`,
+                    background: lo ? `${lo.couleur}22` : T.card,
+                    color: lo ? lo.couleur : T.textMuted,
+                    border: `1px solid ${lo ? lo.couleur + "44" : T.border}`,
                     fontWeight: 600,
                   }}>{st.nom || "—"}</span>
                 );
@@ -439,7 +441,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
                   display: "grid", gridTemplateColumns: "1fr 180px 80px 26px",
                   gap: 8, padding: "0 12px 6px",
                 }}>
-                  {["Nom de la sous-tâche", "Phase de travail", "Ratio", ""].map((h, i) => (
+                  {["Nom de la sous-tâche", "Lot de travail", "Ratio", ""].map((h, i) => (
                     <div key={i} style={{
                       fontSize: 10, fontWeight: 700, color: T.textMuted,
                       textTransform: "uppercase", letterSpacing: 0.8,
@@ -843,7 +845,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                 Bibliothèque de ratios
               </div>
               <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
-                Ouvrages, sous-tâches, phases et cadences · utilisés à l'import du devis
+                Ouvrages, sous-tâches, lots et cadences · utilisés à l'import du devis
               </div>
             </div>
           </div>
