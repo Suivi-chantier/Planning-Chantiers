@@ -20,9 +20,9 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V2 — Morning Routine Profero Invest
+// TABLEAU DE BORD V3 — Morning Routine stricte Profero Invest
 // À copier-coller en remplacement du fichier / bloc Tableau de bord actuel.
-// Cette version ajoute un onglet Morning Routine strict en gardant le code couleur existant via T, SU, WA, DA.
+// Cette version renforce la liaison données + les décisions par élément critique en gardant le code couleur existant via T, SU, WA, DA.
 // ─────────────────────────────────────────────────────────────
 
 const DASH_CLIENT_STATUS_CONFIG = [
@@ -401,7 +401,7 @@ function buildDashboardStats({ clients = [], biens = [], propositions = [], plan
   const clientsBlocked = clientsActifs.filter(c => { const d = dashDaysSince(dashLastActivityClient(c)); return d !== null && d > 5; });
   const partnerRelances = openActions.filter(a => dashIsPartnerAction(a) && (!a.due_date || dashDaysSince(a.due_date) > 3));
   const documentsWaiting = openActions.filter(dashIsDocumentAction);
-  const clientsSansAction = clientsReels.filter(c => !c.prochaine_action && !c.date_prochaine_action);
+  const clientsSansAction = clientsActifs.filter(c => !c.prochaine_action && !c.date_prochaine_action);
   const actionsLate = openActions.filter(a => a.due_date && a.due_date < todayIso);
   const actionsWeek = openActions.filter(a => a.due_date && dashWithin(a.due_date, startWeekIso, endWeekIso));
   const actionsDoneWeek = doneActions.filter(a => dashWithin(a.completed_at || a.done_at || a.updated_at, startWeekIso, endWeekIso));
@@ -564,8 +564,8 @@ function RoutineStepCard({ step, isActive, isDone, canComplete, unresolved=0, on
   );
 }
 
-function MorningRoutineDashboard({ stats, clients=[], biens=[], compact=false, T=THEMES_INV.dark, onNavigate }) {
-  const storageKey = `profero_morning_routine_v2_${stats?.today || dashIso(new Date())}`;
+function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[], planning=[], actions=[], compact=false, T=THEMES_INV.dark, onNavigate }) {
+  const storageKey = `profero_morning_routine_v3_${stats?.today || dashIso(new Date())}`;
   const [started, setStarted] = useState(false);
   const [activeStep, setActiveStep] = useState("global");
   const [completedSteps, setCompletedSteps] = useState({});
@@ -588,13 +588,72 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], compact=false, T
   }, [storageKey, started, activeStep, completedSteps, decisions]);
 
   const routine = useMemo(() => {
-    const criticalCount = (stats.actionsRetard || 0) + (stats.todayClients.blocked || 0) + (stats.todayBiens.toRelance || 0) + (stats.todayProspects.sansAction || 0);
-    const globalItems = [
-      { id:"global-actions-retard", title:`${stats.actionsRetard} action(s) en retard`, sub:"Décider : traiter, reporter, assigner ou bloquer", level:stats.actionsRetard ? "danger" : "success", color:stats.actionsRetard ? DA : SU, icon:AlertTriangle, required:stats.actionsRetard > 0, onClickTarget:"crm", onClickFilter:{ type:"actions_week_or_late" } },
-      { id:"global-rdv", title:`${stats.rdvToday || 0} RDV prévu(s) aujourd’hui`, sub:"Vérifier les créneaux et les préparations nécessaires", level:"info", color:T.accent, icon:Calendar, required:false },
-      { id:"global-clients-bloques", title:`${stats.todayClients.blocked} dossier(s) client bloqué(s)`, sub:"Aucun blocage ne doit rester sans décision", level:stats.todayClients.blocked ? "danger" : "success", color:stats.todayClients.blocked ? DA : SU, icon:Briefcase, required:stats.todayClients.blocked > 0, onClickTarget:"crm", onClickFilter:{ type:"blocked" } },
-      { id:"global-biens-relance", title:`${stats.todayBiens.toRelance} bien(s) à relancer`, sub:"Relancer ou archiver pour éviter un stock dormant", level:stats.todayBiens.toRelance ? "warning" : "success", color:stats.todayBiens.toRelance ? WA : SU, icon:Home, required:stats.todayBiens.toRelance > 0, onClickTarget:"biens", onClickFilter:{ type:"a_relancer" } },
-    ];
+    const todayIso = stats.today || dashIso(new Date());
+    const prospects = clients.filter(c => (c.statut || "Prospect") === "Prospect");
+    const clientsActifs = clients.filter(c => c.statut === "Actif");
+    const openActions = actions.filter(dashIsOpenAction);
+    const lateActions = openActions.filter(a => a.due_date && a.due_date < todayIso);
+    const blockedActions = openActions.filter(dashIsBlockedAction);
+    const rdvToday = planning.filter(e => e.date_rdv === todayIso);
+
+    const prospectsRelanceToday = prospects.filter(c => c.date_prochaine_action === todayIso);
+    const prospectsSansAction = prospects.filter(c => !c.prochaine_action && !c.date_prochaine_action);
+    const prospectsStagnants = prospects.filter(c => {
+      const d = dashDaysSince(dashLastActivityClient(c));
+      return d !== null && d > 7;
+    });
+    const prospectsEntrants = prospects.filter(c => dashWithin(c.created_at, stats.yesterday || dashAddDays(new Date(), -1), todayIso));
+
+    const clientsSansAction = clientsActifs.filter(c => !c.prochaine_action && !c.date_prochaine_action);
+    const clientsBloques = clientsActifs.filter(c => {
+      const d = dashDaysSince(dashLastActivityClient(c));
+      return d !== null && d > 5;
+    });
+    const partnerActions = openActions.filter(a => dashIsPartnerAction(a) && (!a.due_date || dashDaysSince(a.due_date) > 3));
+    const documentActions = openActions.filter(dashIsDocumentAction);
+
+    const biensRelance = biens.filter(b => b.date_relance && b.date_relance <= todayIso);
+    const biensNouveaux = biens.filter(b => dashBienIsNewToSort(b, todayIso, stats.yesterday || dashAddDays(new Date(), -1)));
+    const biensAnalyse = biens.filter(dashBienInAnalysis);
+    const proposedBienIds = new Set(propositions.map(p => p.bien_id).filter(Boolean));
+    const biensToMatch = biens.filter(b => !proposedBienIds.has(b.id) && (getBienScore(b) >= 35 || dashBienInAnalysis(b)));
+
+    const requiredRows = [];
+    const makeId = (prefix, value, fallback) => `${prefix}-${value || fallback}`;
+    const shortClient = c => `${getClientName(c)}${c.etape ? ` · ${c.etape}` : ""}${c.date_prochaine_action ? ` · prochaine action ${safeDate(c.date_prochaine_action)}` : ""}`;
+    const shortBien = b => `${b.ville || "Ville non renseignée"}${b.statut ? ` · ${b.statut}` : ""}${b.date_relance ? ` · relance ${safeDate(b.date_relance)}` : ""}`;
+
+    const addRequired = (arr, item) => {
+      requiredRows.push(item.id);
+      arr.push({ ...item, required:true });
+    };
+
+    const globalItems = [];
+    lateActions.forEach((a, i) => addRequired(globalItems, {
+      id:makeId("global-action-retard", a.id, i),
+      title:dashActionTitle(a) || "Action en retard",
+      sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client non lié"} · échéance ${safeDate(a.due_date)}`,
+      level:"danger", color:DA, icon:AlertTriangle, onClickTarget:"crm", onClickFilter:{ type:"actions_week_or_late" },
+    }));
+    clientsBloques.forEach((c, i) => addRequired(globalItems, {
+      id:makeId("global-client-bloque", c.id, i),
+      title:`${getClientName(c)} — dossier bloqué +5 jours`,
+      sub:shortClient(c),
+      level:"danger", color:DA, icon:Briefcase, onClickTarget:"crm", onClickFilter:{ type:"blocked", client_id:c.id },
+    }));
+    biensRelance.forEach((b, i) => addRequired(globalItems, {
+      id:makeId("global-bien-relance", b.id, i),
+      title:`${getBienLabel(b)} — bien à relancer`,
+      sub:shortBien(b),
+      level:"warning", color:WA, icon:Home, onClickTarget:"biens", onClickFilter:{ type:"a_relancer", bien_id:b.id },
+    }));
+    rdvToday.forEach((e, i) => globalItems.push({
+      id:makeId("global-rdv", e.id, i),
+      title:e.titre || "RDV du jour",
+      sub:`${e.heure_debut ? e.heure_debut.slice(0,5) : "Horaire libre"} · ${e.type || "RDV"}`,
+      level:"info", color:T.accent, icon:Calendar, required:false, onClickTarget:"planning", onClickFilter:{ type:"today", rdv_id:e.id },
+    }));
+    if (!globalItems.length) globalItems.push({ id:"global-ok", title:"Aucune urgence rouge détectée", sub:"La journée démarre sans blocage prioritaire", level:"success", color:SU, icon:Check, required:false });
 
     const collaborateurItems = stats.collaborateurs.map(c => ({
       id:`collab-${c.name}`,
@@ -608,38 +667,103 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], compact=false, T
       onClickFilter:{ type:"collaborateur", value:c.name },
     }));
 
-    const prospectItems = [
-      { id:"prospects-relances", title:`${stats.todayProspects.relances} relance(s) prospect aujourd’hui`, sub:"Les relances du jour doivent être planifiées ou traitées", level:stats.todayProspects.relances ? "warning" : "success", color:stats.todayProspects.relances ? WA : SU, icon:Phone, required:stats.todayProspects.relances > 0, onClickTarget:"crm", onClickFilter:{ type:"relance_today" } },
-      { id:"prospects-stagnants", title:`${stats.todayProspects.stagnants} prospect(s) stagnant(s) +7 jours`, sub:"Chaque prospect chaud doit avoir une prochaine action datée", level:stats.todayProspects.stagnants ? "warning" : "success", color:stats.todayProspects.stagnants ? WA : SU, icon:AlertTriangle, required:stats.todayProspects.stagnants > 0, onClickTarget:"crm", onClickFilter:{ type:"stagnants" } },
-      { id:"prospects-sans-action", title:`${stats.todayProspects.sansAction} prospect(s) sans prochaine action`, sub:"Règle stricte : aucun prospect chaud sans prochaine action", level:stats.todayProspects.sansAction ? "danger" : "success", color:stats.todayProspects.sansAction ? DA : SU, icon:Bell, required:stats.todayProspects.sansAction > 0, onClickTarget:"crm", onClickFilter:{ type:"sans_action" } },
-      { id:"prospects-entrants", title:`${stats.todayProspects.entrants} nouveau(x) prospect(s) depuis hier`, sub:"Qualifier ou assigner dans la journée", level:stats.todayProspects.entrants ? "info" : "success", color:T.accent, icon:Users, required:false, onClickTarget:"crm", onClickFilter:{ type:"new_since_yesterday" } },
-    ];
+    const prospectItems = [];
+    prospectsRelanceToday.forEach((c, i) => addRequired(prospectItems, {
+      id:makeId("prospect-relance", c.id, i),
+      title:`${getClientName(c)} — relance prévue aujourd’hui`,
+      sub:c.prochaine_action || shortClient(c),
+      level:"warning", color:WA, icon:Phone, onClickTarget:"crm", onClickFilter:{ type:"relance_today", client_id:c.id },
+    }));
+    prospectsSansAction.forEach((c, i) => addRequired(prospectItems, {
+      id:makeId("prospect-sans-action", c.id, i),
+      title:`${getClientName(c)} — aucune prochaine action`,
+      sub:"Règle stricte : dater une prochaine action ou sortir le prospect du pipeline",
+      level:"danger", color:DA, icon:Bell, onClickTarget:"crm", onClickFilter:{ type:"sans_action", client_id:c.id },
+    }));
+    prospectsStagnants.forEach((c, i) => {
+      if (prospectItems.some(x => x.id === makeId("prospect-sans-action", c.id, i))) return;
+      addRequired(prospectItems, {
+        id:makeId("prospect-stagnant", c.id, i),
+        title:`${getClientName(c)} — stagnant +7 jours`,
+        sub:shortClient(c),
+        level:"warning", color:WA, icon:AlertTriangle, onClickTarget:"crm", onClickFilter:{ type:"stagnants", client_id:c.id },
+      });
+    });
+    prospectsEntrants.forEach((c, i) => prospectItems.push({
+      id:makeId("prospect-entrant", c.id, i),
+      title:`${getClientName(c)} — nouveau prospect entrant`,
+      sub:"À qualifier ou assigner dans la journée",
+      level:"info", color:T.accent, icon:Users, required:false, onClickTarget:"crm", onClickFilter:{ type:"new_since_yesterday", client_id:c.id },
+    }));
+    if (!prospectItems.length) prospectItems.push({ id:"prospects-ok", title:"Aucun prospect critique ce matin", sub:"Relances et prochaines actions sous contrôle", level:"success", color:SU, icon:Check, required:false });
 
-    const clientItems = [
-      { id:"clients-bloques", title:`${stats.todayClients.blocked} dossier(s) bloqué(s)`, sub:"Aucune situation bloquée ne doit rester sans décision", level:stats.todayClients.blocked ? "danger" : "success", color:stats.todayClients.blocked ? DA : SU, icon:AlertTriangle, required:stats.todayClients.blocked > 0, onClickTarget:"crm", onClickFilter:{ type:"blocked" } },
-      { id:"clients-documents", title:`${stats.todayClients.documentsWaiting} document(s) client en attente`, sub:"Relancer ou assigner le suivi", level:stats.todayClients.documentsWaiting ? "warning" : "success", color:stats.todayClients.documentsWaiting ? WA : SU, icon:FileText, required:stats.todayClients.documentsWaiting > 0, onClickTarget:"crm", onClickFilter:{ type:"documents_waiting" } },
-      { id:"clients-partenaires", title:`${stats.todayClients.partnerRelances} relance(s) partenaire`, sub:"Banque, notaire, assurance ou courtier", level:stats.todayClients.partnerRelances ? "warning" : "success", color:stats.todayClients.partnerRelances ? WA : SU, icon:Briefcase, required:stats.todayClients.partnerRelances > 0, onClickTarget:"crm", onClickFilter:{ type:"partner_relance" } },
-      { id:"clients-sans-action", title:`${stats.todayClients.sansAction} client(s) sans prochaine action`, sub:"Règle stricte : aucun client actif sans prochaine action", level:stats.todayClients.sansAction ? "danger" : "success", color:stats.todayClients.sansAction ? DA : SU, icon:Bell, required:stats.todayClients.sansAction > 0, onClickTarget:"crm", onClickFilter:{ type:"sans_action" } },
-    ];
+    const clientItems = [];
+    clientsBloques.forEach((c, i) => addRequired(clientItems, {
+      id:makeId("client-bloque", c.id, i),
+      title:`${getClientName(c)} — dossier bloqué`,
+      sub:shortClient(c),
+      level:"danger", color:DA, icon:AlertTriangle, onClickTarget:"crm", onClickFilter:{ type:"blocked", client_id:c.id },
+    }));
+    clientsSansAction.forEach((c, i) => addRequired(clientItems, {
+      id:makeId("client-sans-action", c.id, i),
+      title:`${getClientName(c)} — client actif sans prochaine action`,
+      sub:"Règle stricte : aucun client actif sans prochaine action claire",
+      level:"danger", color:DA, icon:Bell, onClickTarget:"crm", onClickFilter:{ type:"sans_action", client_id:c.id },
+    }));
+    documentActions.forEach((a, i) => addRequired(clientItems, {
+      id:makeId("client-document", a.id, i),
+      title:dashActionTitle(a) || "Document client en attente",
+      sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client"} · ${a.step_label || "document"}`,
+      level:"warning", color:WA, icon:FileText, onClickTarget:"crm", onClickFilter:{ type:"documents_waiting" },
+    }));
+    partnerActions.forEach((a, i) => addRequired(clientItems, {
+      id:makeId("client-partenaire", a.id, i),
+      title:dashActionTitle(a) || "Relance partenaire",
+      sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client"} · ${a.step_label || "banque / notaire / assurance"}`,
+      level:"warning", color:WA, icon:Briefcase, onClickTarget:"crm", onClickFilter:{ type:"partner_relance" },
+    }));
+    if (!clientItems.length) clientItems.push({ id:"clients-ok", title:"Aucun client actif critique ce matin", sub:"Pas de blocage, document ou relance partenaire prioritaire", level:"success", color:SU, icon:Check, required:false });
 
-    const bienItems = [
-      { id:"biens-trier", title:`${stats.todayBiens.newToSort} nouvelle(s) annonce(s) à trier`, sub:"Décider : analyser, proposer, relancer ou archiver", level:stats.todayBiens.newToSort ? "warning" : "success", color:stats.todayBiens.newToSort ? WA : SU, icon:Search, required:stats.todayBiens.newToSort > 0, onClickTarget:"biens", onClickFilter:{ type:"new_to_sort" } },
-      { id:"biens-analyse", title:`${stats.todayBiens.inAnalysis} bien(s) en analyse`, sub:"Faire avancer les analyses ou assigner", level:stats.todayBiens.inAnalysis ? "info" : "success", color:T.accent, icon:Home, required:false, onClickTarget:"biens", onClickFilter:{ type:"analyse" } },
-      { id:"biens-match", title:`${stats.todayBiens.toMatch} bien(s) à matcher avec un client`, sub:"Chaque opportunité doit être rapprochée d’un profil", level:stats.todayBiens.toMatch ? "warning" : "success", color:stats.todayBiens.toMatch ? WA : SU, icon:Handshake, required:stats.todayBiens.toMatch > 0, onClickTarget:"biens", onClickFilter:{ type:"to_match" } },
-      { id:"biens-relance", title:`${stats.todayBiens.toRelance} bien(s) à relancer`, sub:"Relancer le vendeur/agent ou archiver", level:stats.todayBiens.toRelance ? "danger" : "success", color:stats.todayBiens.toRelance ? DA : SU, icon:Bell, required:stats.todayBiens.toRelance > 0, onClickTarget:"biens", onClickFilter:{ type:"a_relancer" } },
-      { id:"biens-incomplets", title:`${stats.todayBiens.incomplets} fiche(s) bien incomplète(s)`, sub:"Compléter les fiches importantes uniquement", level:stats.todayBiens.incomplets ? "warning" : "success", color:stats.todayBiens.incomplets ? WA : SU, icon:FileText, required:false, onClickTarget:"biens", onClickFilter:{ type:"incomplete" } },
-    ];
+    const bienItems = [];
+    biensNouveaux.forEach((b, i) => addRequired(bienItems, {
+      id:makeId("bien-trier", b.id, i),
+      title:`${getBienLabel(b)} — nouvelle annonce à trier`,
+      sub:"Décider : analyser, proposer, relancer ou archiver",
+      level:"warning", color:WA, icon:Search, onClickTarget:"biens", onClickFilter:{ type:"new_to_sort", bien_id:b.id },
+    }));
+    biensToMatch.forEach((b, i) => addRequired(bienItems, {
+      id:makeId("bien-match", b.id, i),
+      title:`${getBienLabel(b)} — à matcher avec un client`,
+      sub:`Score ${getBienScore(b)} · ${shortBien(b)}`,
+      level:"warning", color:WA, icon:Handshake, onClickTarget:"biens", onClickFilter:{ type:"to_match", bien_id:b.id },
+    }));
+    biensRelance.forEach((b, i) => addRequired(bienItems, {
+      id:makeId("bien-relance", b.id, i),
+      title:`${getBienLabel(b)} — relance bien`,
+      sub:shortBien(b),
+      level:"danger", color:DA, icon:Bell, onClickTarget:"biens", onClickFilter:{ type:"a_relancer", bien_id:b.id },
+    }));
+    biensAnalyse.slice(0, 8).forEach((b, i) => bienItems.push({
+      id:makeId("bien-analyse", b.id, i),
+      title:`${getBienLabel(b)} — en analyse`,
+      sub:`Score ${getBienScore(b)} · ${shortBien(b)}`,
+      level:"info", color:T.accent, icon:Home, required:false, onClickTarget:"biens", onClickFilter:{ type:"analyse", bien_id:b.id },
+    }));
+    if (!bienItems.length) bienItems.push({ id:"biens-ok", title:"Aucun bien critique ce matin", sub:"Pas de relance ou décision urgente sur le stock", level:"success", color:SU, icon:Check, required:false });
 
+    const allItems = [globalItems, collaborateurItems, prospectItems, clientItems, bienItems].flat();
+    const criticalCount = allItems.filter(item => item.required).length;
     const plan = [
-      stats.actionsRetard > 0 ? `Matthieu — décider des ${stats.actionsRetard} action(s) en retard avant midi` : null,
-      stats.todayClients.blocked > 0 ? `Matthieu — débloquer ou assigner ${stats.todayClients.blocked} dossier(s) client` : null,
-      stats.todayProspects.relances > 0 ? `Tom — traiter les ${stats.todayProspects.relances} relance(s) prospect du jour` : null,
-      stats.todayProspects.sansAction > 0 ? `Tom — dater une prochaine action pour ${stats.todayProspects.sansAction} prospect(s)` : null,
-      stats.todayClients.documentsWaiting > 0 ? `Benjamin — relancer les documents client en attente` : null,
-      stats.todayBiens.toMatch > 0 ? `Benjamin — matcher ${stats.todayBiens.toMatch} bien(s) avec des profils clients` : null,
-      stats.todayBiens.toRelance > 0 ? `Matthieu/Benjamin — relancer ${stats.todayBiens.toRelance} bien(s) ou les archiver` : null,
-      stats.rdvToday > 0 ? `Matthieu — préparer les ${stats.rdvToday} RDV du jour` : null,
-    ].filter(Boolean);
+      ...lateActions.slice(0, 5).map(a => `Matthieu — décider l’action en retard : ${dashActionTitle(a) || "action sans titre"}`),
+      ...clientsBloques.slice(0, 5).map(c => `Matthieu — débloquer le dossier ${getClientName(c)}`),
+      ...prospectsRelanceToday.slice(0, 5).map(c => `Tom — relancer ${getClientName(c)} aujourd’hui`),
+      ...prospectsSansAction.slice(0, 5).map(c => `Tom — créer une prochaine action datée pour ${getClientName(c)}`),
+      ...documentActions.slice(0, 5).map(a => `Benjamin — relancer/documenter : ${dashActionTitle(a) || "document client"}`),
+      ...partnerActions.slice(0, 5).map(a => `Matthieu/Benjamin — relancer partenaire : ${dashActionTitle(a) || "partenaire"}`),
+      ...biensToMatch.slice(0, 5).map(b => `Benjamin — matcher ${getBienLabel(b)} avec un profil client`),
+      ...biensRelance.slice(0, 5).map(b => `Matthieu/Benjamin — relancer ou archiver ${getBienLabel(b)}`),
+      ...rdvToday.slice(0, 3).map(e => `Matthieu — préparer le RDV : ${e.titre || "RDV du jour"}`),
+    ];
 
     return {
       criticalCount,
@@ -652,7 +776,7 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], compact=false, T
         synthese:{ intro:"Objectif : transformer la routine en plan d’action concret pour la journée.", items:[], plan },
       },
     };
-  }, [stats, T]);
+  }, [stats, clients, biens, propositions, planning, actions, T]);
 
   const completedCount = DASH_MORNING_STEPS.filter(s => completedSteps[s.key]).length;
   const progress = Math.round((completedCount / DASH_MORNING_STEPS.length) * 100);
@@ -1003,13 +1127,57 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     const today = dashDate(new Date());
     const endMonth = dashEndOfMonth(today);
     const previousYear = dashAddDays(today, -370);
-    const safeQuery = async (label, query) => { try { const { data, error } = await query; if (error) { console.warn(`[TableauBord] ${label}:`, error); setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]); return []; } return data || []; } catch (e) { console.warn(`[TableauBord] ${label}:`, e); setOptionalErrors(prev => [...prev, `${label} : non disponible`]); return []; } };
+    const runQuery = async (label, primaryQuery, fallbackQuery=null) => {
+      const execute = async (query) => {
+        const { data, error } = await query;
+        if (error) throw error;
+        return data || [];
+      };
+      try {
+        return await execute(primaryQuery);
+      } catch (primaryError) {
+        if (fallbackQuery) {
+          try {
+            console.warn(`[TableauBord] ${label} : requête principale indisponible, fallback utilisé`, primaryError);
+            return await execute(fallbackQuery);
+          } catch (fallbackError) {
+            console.warn(`[TableauBord] ${label}:`, fallbackError);
+            setOptionalErrors(prev => [...prev, `${label} : ${fallbackError.message || "non disponible"}`]);
+            return [];
+          }
+        }
+        console.warn(`[TableauBord] ${label}:`, primaryError);
+        setOptionalErrors(prev => [...prev, `${label} : ${primaryError.message || "non disponible"}`]);
+        return [];
+      }
+    };
+
     const [clients, biens, propositions, planning, actions] = await Promise.all([
-      safeQuery("Clients", supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,date_premier_contact,prochaine_action,date_prochaine_action,created_at,updated_at,etape,source,conseiller")),
-      safeQuery("Biens", supabase.from("invest_biens").select("id,adresse,ville,statut,date_relance,date_visite,rendement_brut,cashflow_estime,prix_vente,prix_travaux,cout_total,montant_offre,visite_data,latitude,longitude,reference_interne,conseiller_profero,created_at,updated_at")),
-      safeQuery("Propositions", supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)")),
-      safeQuery("Planning", supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at,updated_at").gte("date_rdv", dashIso(previousYear)).lte("date_rdv", dashIso(endMonth)).order("date_rdv", { ascending:true }).order("heure_debut", { ascending:true })),
-      safeQuery("Actions mission", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(300)),
+      runQuery(
+        "Clients",
+        supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,date_premier_contact,prochaine_action,date_prochaine_action,created_at,updated_at,etape,source,conseiller"),
+        supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,date_premier_contact,prochaine_action,date_prochaine_action,created_at,etape,source,conseiller")
+      ),
+      runQuery(
+        "Biens",
+        supabase.from("invest_biens").select("id,adresse,ville,statut,date_relance,date_visite,rendement_brut,cashflow_estime,prix_vente,prix_travaux,cout_total,montant_offre,visite_data,latitude,longitude,reference_interne,conseiller_profero,created_at,updated_at"),
+        supabase.from("invest_biens").select("id,adresse,ville,statut,date_relance,date_visite,rendement_brut,cashflow_estime,prix_vente,prix_travaux,cout_total,montant_offre,visite_data,latitude,longitude,reference_interne,conseiller_profero,created_at")
+      ),
+      runQuery(
+        "Propositions",
+        supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)"),
+        supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition")
+      ),
+      runQuery(
+        "Planning",
+        supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at,updated_at").gte("date_rdv", dashIso(previousYear)).lte("date_rdv", dashIso(endMonth)).order("date_rdv", { ascending:true }).order("heure_debut", { ascending:true }),
+        supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at").gte("date_rdv", dashIso(previousYear)).lte("date_rdv", dashIso(endMonth)).order("date_rdv", { ascending:true }).order("heure_debut", { ascending:true })
+      ),
+      runQuery(
+        "Actions mission",
+        supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(300),
+        supabase.from("invest_mission_actions").select("*").order("due_date", { ascending:true, nullsFirst:false }).limit(300)
+      ),
     ]);
     setClientsDash(clients); setBiensDash(biens); setPropsDash(propositions); setPlanningDash(planning); setActionsDash(actions); setLoading(false);
   }, []);
@@ -1033,7 +1201,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, marginBottom:SPACING.xl, flexWrap:"wrap" }}><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{DASH_TABS.map(renderTabButton)}</div>{stats && <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}><AlertBadge level="info" T={T} icon={Users}>{stats.prospects} prospects</AlertBadge><AlertBadge level="info" T={T} icon={Briefcase}>{stats.actifs} clients actifs</AlertBadge><AlertBadge level="info" T={T} icon={Home}>{stats.biensTotaux} biens</AlertBadge><AlertBadge level="success" T={T} icon={Euro}>{fmtDashboardEur(stats.baseHonorairesPipeline)} pipeline</AlertBadge></div>}</div>
       {optionalErrors.length > 0 && <div style={{ marginBottom:SPACING.md, padding:`${SPACING.sm + 2}px ${SPACING.md}px`, borderRadius:RADIUS.md, background:dashSemantic("warning", { bg:"#fffbeb", border:"#fde68a" }).bg, border:`1px solid ${dashSemantic("warning", { bg:"#fffbeb", border:"#fde68a" }).border}`, color:WA, fontSize:FONT.sm.size }}>Certaines données optionnelles ne sont pas disponibles. Le tableau reste utilisable avec les données existantes.</div>}
       {dashboardError && <div style={{ marginBottom:SPACING.md, padding:`${SPACING.sm + 2}px ${SPACING.md}px`, borderRadius:RADIUS.md, background:dashSemantic("danger", { bg:"#fff1f2", border:"#fecdd3" }).bg, border:`1px solid ${dashSemantic("danger", { bg:"#fff1f2", border:"#fecdd3" }).border}`, color:DA, fontSize:FONT.sm.size + 1 }}>{dashboardError}</div>}
-      {loading ? <div style={{ textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}><Icon as={RefreshCw} size={14} style={{ animation:"spin 1s linear infinite" }}/>Chargement du cockpit…</div> : stats && <>{activeTab === "routine" && <MorningRoutineDashboard stats={stats} clients={clientsDash} biens={biensDash} compact={compact} T={T} onNavigate={go}/>} {activeTab === "today" && <TodayDashboard stats={stats} clients={clientsDash} biens={biensDash} propositions={propsDash} compact={compact} T={T} onNavigate={go}/>} {activeTab === "week" && <WeekDashboard stats={stats} clients={clientsDash} compact={compact} T={T} onNavigate={go} profil={profil} onMoveEtape={changerEtapeClient}/>} {activeTab === "month" && <MonthDashboard stats={stats} compact={compact} T={T} onNavigate={go}/>} {!compact && <><ClientsStatutsBoard clients={clientsDash} T={T} movingClientId={movingClientId} onMoveClient={changerStatutClient} onOpenStatus={(statut) => go("crm", { type:"statut", value:statut })}/><PipelineEtapesBoard clients={clientsDash} T={T} movingClientId={movingEtapeClientId} onMoveClient={changerEtapeClient} onOpenEtape={(etape) => go("crm", etape ? { type:"etape", value:etape } : { type:"all" })}/><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:SPACING.md, alignItems:"start" }}><ClientsARisqueDashboard clients={clientsDash} propositions={propsDash} T={T} onNavigate={go}/><div><PerformanceCommercialeDashboard stats={stats} T={T}/><ValeurBusinessDashboard stats={stats} T={T}/><DirectionPilotageDashboard stats={stats} T={T}/></div></div></>}</>}
+      {loading ? <div style={{ textAlign:"center", padding:`${SPACING.xxxl}px 0`, color:T.textMuted, display:"flex", justifyContent:"center", alignItems:"center", gap:8 }}><Icon as={RefreshCw} size={14} style={{ animation:"spin 1s linear infinite" }}/>Chargement du cockpit…</div> : stats && <>{activeTab === "routine" && <MorningRoutineDashboard stats={stats} clients={clientsDash} biens={biensDash} propositions={propsDash} planning={planningDash} actions={actionsDash} compact={compact} T={T} onNavigate={go}/>} {activeTab === "today" && <TodayDashboard stats={stats} clients={clientsDash} biens={biensDash} propositions={propsDash} compact={compact} T={T} onNavigate={go}/>} {activeTab === "week" && <WeekDashboard stats={stats} clients={clientsDash} compact={compact} T={T} onNavigate={go} profil={profil} onMoveEtape={changerEtapeClient}/>} {activeTab === "month" && <MonthDashboard stats={stats} compact={compact} T={T} onNavigate={go}/>} {!compact && <><ClientsStatutsBoard clients={clientsDash} T={T} movingClientId={movingClientId} onMoveClient={changerStatutClient} onOpenStatus={(statut) => go("crm", { type:"statut", value:statut })}/><PipelineEtapesBoard clients={clientsDash} T={T} movingClientId={movingEtapeClientId} onMoveClient={changerEtapeClient} onOpenEtape={(etape) => go("crm", etape ? { type:"etape", value:etape } : { type:"all" })}/><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:SPACING.md, alignItems:"start" }}><ClientsARisqueDashboard clients={clientsDash} propositions={propsDash} T={T} onNavigate={go}/><div><PerformanceCommercialeDashboard stats={stats} T={T}/><ValeurBusinessDashboard stats={stats} T={T}/><DirectionPilotageDashboard stats={stats} T={T}/></div></div></>}</>}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
