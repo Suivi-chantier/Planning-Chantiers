@@ -4,7 +4,7 @@ import { FONT, RADIUS, SPACING, SEMANTIC } from "../constants";
 import { Icon } from "../ui";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Plus, Trash2,
-  Search, RefreshCw, Check, Phone, Calendar, FileText, Home,
+  Search, RefreshCw, Check, Phone, Calendar, FileText, Mail, Home,
   TrendingUp, Wallet, Euro, Lock, AlertTriangle, Eye,
   Sparkles, Sun, LayoutGrid, Send, Handshake, Bell, Briefcase,
 } from "lucide-react";
@@ -20,9 +20,9 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V3 — Morning Routine stricte Profero Invest
+// TABLEAU DE BORD V4 — Morning Routine cadrée Profero Invest
 // À copier-coller en remplacement du fichier / bloc Tableau de bord actuel.
-// Cette version renforce la liaison données + les décisions par élément critique en gardant le code couleur existant via T, SU, WA, DA.
+// Cette version ajoute checklist obligatoire, commentaires, responsables, échéances, sauvegarde Supabase optionnelle et rappel mail 8h via Edge Function.
 // ─────────────────────────────────────────────────────────────
 
 const DASH_CLIENT_STATUS_CONFIG = [
@@ -488,51 +488,272 @@ function CollaborateurCard({ c, period="today", T=THEMES_INV.dark, onClick }) {
 }
 
 
+const DASH_MORNING_CHECKLISTS = {
+  global:[
+    "J’ai identifié les urgences rouges du jour",
+    "J’ai vérifié les actions en retard",
+    "J’ai vérifié les RDV du jour",
+    "J’ai vérifié les clients bloqués",
+    "J’ai vérifié les biens à relancer",
+    "J’ai défini les 3 priorités absolues de la journée",
+  ],
+  collaborateurs:[
+    "Statut du jour de Tom vérifié",
+    "Statut du jour de Benjamin vérifié",
+    "Missions prioritaires du jour contrôlées",
+    "Tâches en retard contrôlées",
+    "Validations Matthieu traitées",
+    "Consignes du jour formulées",
+  ],
+  prospects:[
+    "Prospects à relancer aujourd’hui contrôlés",
+    "Prospects sans prochaine action traités",
+    "Prospects stagnants +7 jours traités",
+    "Nouveaux entrants qualifiés ou assignés",
+    "Chaque prospect critique a une prochaine action datée",
+  ],
+  clients:[
+    "Clients bloqués contrôlés",
+    "Clients actifs sans prochaine action traités",
+    "Documents clients en attente contrôlés",
+    "Relances partenaires contrôlées",
+    "Chaque client critique a un responsable et une échéance",
+  ],
+  biens:[
+    "Nouvelles annonces triées",
+    "Biens à relancer traités",
+    "Biens à matcher contrôlés",
+    "Opportunités chaudes arbitrées",
+    "Chaque bien critique a une décision : analyser, proposer, relancer ou archiver",
+  ],
+  synthese:[
+    "Plan d’action du jour relu",
+    "Responsables confirmés",
+    "Échéances confirmées",
+    "Synthèse copiée ou prête à envoyer",
+  ],
+};
+
+const DASH_RESPONSABLES_ROUTINE = ["Matthieu", "Tom", "Benjamin", "Camille", "À définir"];
+
+const DASH_ROUTINE_DECISIONS = {
+  global:[
+    ["done", "Traité", SU],
+    ["report", "Reporter", WA],
+    ["assign", "Assigner", "#0D2E5C"],
+    ["block", "Bloquer", DA],
+  ],
+  collaborateur:[
+    ["ok", "Rien à signaler", SU],
+    ["consigne", "Créer consigne", "#0D2E5C"],
+    ["relance", "Demander retour", WA],
+    ["reassign", "Réassigner", "#c084fc"],
+    ["block", "Arbitrage Matthieu", DA],
+  ],
+  prospect:[
+    ["call", "Appeler", SU],
+    ["message", "Envoyer message", "#0D2E5C"],
+    ["task", "Créer tâche", "#c084fc"],
+    ["report", "Reporter", WA],
+    ["lost", "Perdu / archiver", DA],
+  ],
+  client:[
+    ["advance", "Faire avancer", SU],
+    ["relance_client", "Relancer client", "#0D2E5C"],
+    ["relance_partner", "Relancer partenaire", WA],
+    ["document", "Demander document", "#c084fc"],
+    ["assign_tom", "Assigner Tom", "#4db8ff"],
+    ["assign_benjamin", "Assigner Benjamin", "#4db8ff"],
+    ["arbitrage", "Arbitrage Matthieu", DA],
+  ],
+  bien:[
+    ["analyse", "Analyser", "#0D2E5C"],
+    ["match", "Matcher client", "#c084fc"],
+    ["relance", "Relancer", WA],
+    ["offer", "Faire offre", SU],
+    ["archive", "Archiver", DA],
+  ],
+};
+
 function routineDecisionLabel(decision) {
-  return {
-    done:"Traité",
-    report:"Reporté",
-    assign:"Assigné",
-    block:"Bloqué",
-  }[decision] || "À décider";
+  const all = Object.values(DASH_ROUTINE_DECISIONS).flat();
+  return all.find(x => x[0] === decision)?.[1] || "À décider";
 }
 
 function routineDecisionLevel(decision) {
-  return decision === "done" ? "success" : decision === "block" ? "danger" : decision ? "warning" : "info";
+  if (["done", "ok", "call", "advance", "offer"].includes(decision)) return "success";
+  if (["block", "lost", "archive", "arbitrage"].includes(decision)) return "danger";
+  if (decision) return "warning";
+  return "info";
 }
 
-function RoutineDecisionRow({ item, decision, onDecision, T=THEMES_INV.dark, onNavigate }) {
-  const color = item.color || (item.level === "danger" ? DA : item.level === "warning" ? WA : T.accent);
-  const IconComp = item.icon || Bell;
+function routineDecisionColor(decision, T=THEMES_INV.dark) {
+  const all = Object.values(DASH_ROUTINE_DECISIONS).flat();
+  return all.find(x => x[0] === decision)?.[2] || T.accent;
+}
+
+function routineRequiresComment(decision) {
+  return ["report", "block", "lost", "archive", "reassign", "arbitrage", "relance", "relance_partner", "assign"].includes(decision);
+}
+
+function routineNeedsActionFields(item, decision) {
+  if (!item?.required || !decision) return false;
+  if (["ok", "lost", "archive"].includes(decision)) return false;
+  return ["prospect", "client", "bien", "collaborateur", "global"].includes(item.type);
+}
+
+function routineItemIsComplete(item, state = {}) {
+  if (!item.required) return true;
+  if (!state.decision) return false;
+  if (routineRequiresComment(state.decision) && !String(state.comment || "").trim()) return false;
+  if (routineNeedsActionFields(item, state.decision)) {
+    if (!String(state.next_action || "").trim()) return false;
+    if (!String(state.responsable || "").trim()) return false;
+    if (!state.due_date) return false;
+  }
+  if (Array.isArray(item.checks) && item.checks.length) {
+    const checks = state.checks || {};
+    if (!item.checks.every((_, idx) => checks[idx])) return false;
+  }
+  return true;
+}
+
+function routineMissingReason(item, state = {}) {
+  if (!item.required) return "";
+  if (!state.decision) return "Décision obligatoire";
+  if (routineRequiresComment(state.decision) && !String(state.comment || "").trim()) return "Commentaire obligatoire";
+  if (routineNeedsActionFields(item, state.decision)) {
+    if (!String(state.next_action || "").trim()) return "Prochaine action obligatoire";
+    if (!String(state.responsable || "").trim()) return "Responsable obligatoire";
+    if (!state.due_date) return "Échéance obligatoire";
+  }
+  if (Array.isArray(item.checks) && item.checks.length) {
+    const checks = state.checks || {};
+    if (!item.checks.every((_, idx) => checks[idx])) return "Cases de contrôle obligatoires";
+  }
+  return "";
+}
+
+function routineChecklistComplete(stepKey, checklists) {
+  const list = DASH_MORNING_CHECKLISTS[stepKey] || [];
+  const checked = checklists?.[stepKey] || {};
+  return list.every((_, idx) => checked[idx]);
+}
+
+function routineChecklistCount(stepKey, checklists) {
+  const list = DASH_MORNING_CHECKLISTS[stepKey] || [];
+  const checked = checklists?.[stepKey] || {};
+  return list.filter((_, idx) => checked[idx]).length;
+}
+
+function RoutineChecklist({ stepKey, value={}, onChange, T=THEMES_INV.dark }) {
+  const list = DASH_MORNING_CHECKLISTS[stepKey] || [];
+  if (!list.length) return null;
+  const checkedCount = list.filter((_, idx) => value[idx]).length;
   return (
-    <div style={{ border:`1px solid ${decision ? T.border : item.required ? `${color}55` : T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"10px 11px" }}>
-      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12 }}>
-        <button type="button" onClick={() => item.onClickTarget && onNavigate?.(item.onClickTarget, item.onClickFilter)} style={{ display:"flex", alignItems:"flex-start", gap:9, minWidth:0, flex:1, border:"none", background:"transparent", padding:0, textAlign:"left", cursor:item.onClickTarget ? "pointer" : "default", fontFamily:"inherit" }}>
-          <span style={{ width:28, height:28, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", color, background:`${color}16`, flexShrink:0 }}><Icon as={IconComp} size={14} strokeWidth={2.3}/></span>
-          <span style={{ minWidth:0 }}>
-            <span style={{ display:"block", fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.title}</span>
-            <span style={{ display:"block", fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.sub}</span>
-          </span>
-        </button>
-        <AlertBadge level={routineDecisionLevel(decision)} T={T}>{routineDecisionLabel(decision)}</AlertBadge>
+    <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, marginBottom:SPACING.md }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:10 }}>
+        <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text }}>Checklist obligatoire</div>
+        <AlertBadge level={checkedCount === list.length ? "success" : "warning"} T={T}>{checkedCount}/{list.length}</AlertBadge>
       </div>
-      <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:10 }}>
-        {[
-          ["done", "Traité", SU],
-          ["report", "Reporter", WA],
-          ["assign", "Assigner", T.accent],
-          ["block", "Bloquer", DA],
-        ].map(([key, label, btnColor]) => (
-          <button key={key} type="button" onClick={() => onDecision?.(item.id, key)} style={{ border:`1px solid ${decision === key ? btnColor : T.border}`, background:decision === key ? `${btnColor}16` : T.card, color:decision === key ? btnColor : T.textSub, borderRadius:RADIUS.pill, padding:"5px 9px", fontFamily:"inherit", fontSize:FONT.xs.size, fontWeight:900, cursor:"pointer" }}>
-            {label}
-          </button>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))", gap:7 }}>
+        {list.map((label, idx) => (
+          <label key={`${stepKey}-${idx}`} style={{ display:"flex", alignItems:"flex-start", gap:8, cursor:"pointer", border:`1px solid ${value[idx] ? `${SU}55` : T.border}`, background:value[idx] ? `${SU}0f` : T.card, borderRadius:RADIUS.md, padding:"8px 9px" }}>
+            <input type="checkbox" checked={!!value[idx]} onChange={e => onChange?.(idx, e.target.checked)} style={{ marginTop:2 }}/>
+            <span style={{ fontSize:FONT.sm.size, color:value[idx] ? T.text : T.textSub, fontWeight:value[idx] ? 800 : 650, lineHeight:1.35 }}>{label}</span>
+          </label>
         ))}
       </div>
     </div>
   );
 }
 
-function RoutineStepCard({ step, isActive, isDone, canComplete, unresolved=0, onOpen, onComplete, children, T=THEMES_INV.dark }) {
+function RoutinePriorities({ value={}, onChange, T=THEMES_INV.dark }) {
+  const set = (key, val) => onChange?.({ ...value, [key]:val });
+  return (
+    <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, marginBottom:SPACING.md }}>
+      <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, marginBottom:8 }}>3 priorités absolues de la journée</div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))", gap:8 }}>
+        {[1,2,3].map(n => (
+          <input key={n} className="inv-inp" value={value[`p${n}`] || ""} onChange={e => set(`p${n}`, e.target.value)} placeholder={`Priorité n°${n}`} style={{ width:"100%", textAlign:"left" }}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoutineStepNotes({ stepKey, value="", onChange, T=THEMES_INV.dark }) {
+  return (
+    <div style={{ marginTop:SPACING.md }}>
+      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.7, marginBottom:5 }}>Note de synthèse de l’étape</div>
+      <textarea className="inv-inp" value={value || ""} onChange={e => onChange?.(e.target.value)} placeholder="Note rapide : décision importante, point de vigilance, consigne à garder…" rows={2} style={{ width:"100%", minHeight:54, textAlign:"left", resize:"vertical" }}/>
+    </div>
+  );
+}
+
+function RoutineDecisionRow({ item, state={}, onChange, T=THEMES_INV.dark, onNavigate }) {
+  const decision = state?.decision || "";
+  const color = item.color || (item.level === "danger" ? DA : item.level === "warning" ? WA : T.accent);
+  const IconComp = item.icon || Bell;
+  const missing = routineMissingReason(item, state);
+  const decisions = DASH_ROUTINE_DECISIONS[item.type] || DASH_ROUTINE_DECISIONS.global;
+  const update = patch => onChange?.(item.id, { ...(state || {}), ...patch });
+  const checkValue = state.checks || {};
+
+  return (
+    <div style={{ border:`1px solid ${missing ? `${color}66` : T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:"11px 12px" }}>
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12 }}>
+        <button type="button" onClick={() => item.onClickTarget && onNavigate?.(item.onClickTarget, item.onClickFilter)} style={{ display:"flex", alignItems:"flex-start", gap:9, minWidth:0, flex:1, border:"none", background:"transparent", padding:0, textAlign:"left", cursor:item.onClickTarget ? "pointer" : "default", fontFamily:"inherit" }}>
+          <span style={{ width:30, height:30, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", color, background:`${color}16`, flexShrink:0 }}><Icon as={IconComp} size={15} strokeWidth={2.3}/></span>
+          <span style={{ minWidth:0 }}>
+            <span style={{ display:"block", fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.title}</span>
+            <span style={{ display:"block", fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.sub}</span>
+          </span>
+        </button>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:5 }}>
+          <AlertBadge level={routineDecisionLevel(decision)} T={T}>{routineDecisionLabel(decision)}</AlertBadge>
+          {missing && <span style={{ fontSize:FONT.xs.size, color:DA, fontWeight:900 }}>{missing}</span>}
+        </div>
+      </div>
+
+      {Array.isArray(item.checks) && item.checks.length > 0 && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:6, marginTop:10 }}>
+          {item.checks.map((label, idx) => (
+            <label key={`${item.id}-check-${idx}`} style={{ display:"flex", alignItems:"center", gap:7, fontSize:FONT.xs.size + 1, color:T.textSub, background:T.card, border:`1px solid ${checkValue[idx] ? `${SU}55` : T.border}`, borderRadius:RADIUS.md, padding:"6px 7px", cursor:"pointer" }}>
+              <input type="checkbox" checked={!!checkValue[idx]} onChange={e => update({ checks:{ ...checkValue, [idx]:e.target.checked } })}/>
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:10 }}>
+        {decisions.map(([key, label, btnColor]) => (
+          <button key={key} type="button" onClick={() => update({ decision:key })} style={{ border:`1px solid ${decision === key ? btnColor : T.border}`, background:decision === key ? `${btnColor}16` : T.card, color:decision === key ? btnColor : T.textSub, borderRadius:RADIUS.pill, padding:"5px 9px", fontFamily:"inherit", fontSize:FONT.xs.size, fontWeight:900, cursor:"pointer" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {decision && item.required && (
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(160px,.55fr) 145px", gap:8, marginTop:10 }}>
+          <input className="inv-inp" value={state.next_action || ""} onChange={e => update({ next_action:e.target.value })} placeholder="Prochaine action obligatoire" style={{ width:"100%", textAlign:"left" }}/>
+          <select className="inv-sel" value={state.responsable || ""} onChange={e => update({ responsable:e.target.value })}>
+            <option value="">Responsable</option>
+            {DASH_RESPONSABLES_ROUTINE.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <input className="inv-inp" type="date" value={state.due_date || ""} onChange={e => update({ due_date:e.target.value })} style={{ width:"100%" }}/>
+        </div>
+      )}
+
+      {(decision || item.required) && (
+        <textarea className="inv-inp" value={state.comment || ""} onChange={e => update({ comment:e.target.value })} placeholder={routineRequiresComment(decision) ? "Commentaire obligatoire : pourquoi, risque, arbitrage…" : "Commentaire de suivi"} rows={2} style={{ width:"100%", minHeight:50, textAlign:"left", resize:"vertical", marginTop:8 }}/>
+      )}
+    </div>
+  );
+}
+
+function RoutineStepCard({ step, isActive, isDone, canComplete, unresolved=0, checklistDone=false, checklistCount=0, checklistTotal=0, onOpen, onComplete, children, T=THEMES_INV.dark }) {
   const IconComp = step.icon || LayoutDashboard;
   const border = isDone ? SU : isActive ? T.accent : T.border;
   return (
@@ -542,19 +763,21 @@ function RoutineStepCard({ step, isActive, isDone, canComplete, unresolved=0, on
           <span style={{ width:34, height:34, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", background:isDone ? `${SU}16` : isActive ? T.accentBg : T.input, color:isDone ? SU : isActive ? T.accent : T.textSub, flexShrink:0 }}><Icon as={isDone ? Check : IconComp} size={16} strokeWidth={2.4}/></span>
           <span style={{ minWidth:0 }}>
             <span style={{ display:"block", color:T.text, fontSize:FONT.lg.size, fontWeight:900 }}>{step.label}</span>
-            <span style={{ display:"block", color:T.textMuted, fontSize:FONT.xs.size, marginTop:2 }}>{step.time} · {step.duration}</span>
+            <span style={{ display:"block", color:T.textMuted, fontSize:FONT.xs.size, marginTop:2 }}>{step.time} · {step.duration} · checklist {checklistCount}/{checklistTotal}</span>
           </span>
         </span>
-        <span style={{ display:"flex", alignItems:"center", gap:7, flexShrink:0 }}>
-          {unresolved > 0 && <AlertBadge level="danger" T={T}>{unresolved} décision{unresolved > 1 ? "s" : ""}</AlertBadge>}
+        <span style={{ display:"flex", alignItems:"center", gap:7, flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
+          {!checklistDone && <AlertBadge level="warning" T={T}>Checklist</AlertBadge>}
+          {unresolved > 0 && <AlertBadge level="danger" T={T}>{unresolved} manque{unresolved > 1 ? "s" : ""}</AlertBadge>}
           {isDone ? <AlertBadge level="success" T={T}>Validé</AlertBadge> : isActive ? <AlertBadge level="info" T={T}>En cours</AlertBadge> : <AlertBadge level="info" T={T}>À faire</AlertBadge>}
         </span>
       </button>
       {isActive && (
         <div style={{ padding:SPACING.md }}>
           {children}
-          <div style={{ display:"flex", justifyContent:"flex-end", marginTop:SPACING.md }}>
-            <button type="button" className={canComplete ? "inv-btn inv-btn-gold inv-btn-sm" : "inv-btn inv-btn-out inv-btn-sm"} onClick={onComplete} disabled={!canComplete} title={!canComplete ? "Décision obligatoire sur les éléments rouges/oranges avant validation" : "Valider cette étape"}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginTop:SPACING.md, flexWrap:"wrap" }}>
+            <div style={{ color:canComplete ? SU : DA, fontSize:FONT.xs.size + 1, fontWeight:900 }}>{canComplete ? "Étape prête à valider" : "Validation bloquée : compléter la checklist et les décisions obligatoires"}</div>
+            <button type="button" className={canComplete ? "inv-btn inv-btn-gold inv-btn-sm" : "inv-btn inv-btn-out inv-btn-sm"} onClick={onComplete} disabled={!canComplete}>
               <Icon as={Check} size={12} strokeWidth={2.2}/> Valider l’étape
             </button>
           </div>
@@ -565,11 +788,16 @@ function RoutineStepCard({ step, isActive, isDone, canComplete, unresolved=0, on
 }
 
 function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[], planning=[], actions=[], compact=false, T=THEMES_INV.dark, onNavigate }) {
-  const storageKey = `profero_morning_routine_v3_${stats?.today || dashIso(new Date())}`;
+  const storageKey = `profero_morning_routine_v4_${stats?.today || dashIso(new Date())}`;
   const [started, setStarted] = useState(false);
   const [activeStep, setActiveStep] = useState("global");
   const [completedSteps, setCompletedSteps] = useState({});
   const [decisions, setDecisions] = useState({});
+  const [checklists, setChecklists] = useState({});
+  const [stepNotes, setStepNotes] = useState({});
+  const [dailyGoals, setDailyGoals] = useState({ p1:"", p2:"", p3:"" });
+  const [saveStatus, setSaveStatus] = useState("");
+  const [mailStatus, setMailStatus] = useState("");
 
   useEffect(() => {
     try {
@@ -580,12 +808,15 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
       setActiveStep(saved.activeStep || "global");
       setCompletedSteps(saved.completedSteps || {});
       setDecisions(saved.decisions || {});
+      setChecklists(saved.checklists || {});
+      setStepNotes(saved.stepNotes || {});
+      setDailyGoals(saved.dailyGoals || { p1:"", p2:"", p3:"" });
     } catch {}
   }, [storageKey]);
 
   useEffect(() => {
-    try { window.localStorage.setItem(storageKey, JSON.stringify({ started, activeStep, completedSteps, decisions })); } catch {}
-  }, [storageKey, started, activeStep, completedSteps, decisions]);
+    try { window.localStorage.setItem(storageKey, JSON.stringify({ started, activeStep, completedSteps, decisions, checklists, stepNotes, dailyGoals })); } catch {}
+  }, [storageKey, started, activeStep, completedSteps, decisions, checklists, stepNotes, dailyGoals]);
 
   const routine = useMemo(() => {
     const todayIso = stats.today || dashIso(new Date());
@@ -595,273 +826,216 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
     const lateActions = openActions.filter(a => a.due_date && a.due_date < todayIso);
     const blockedActions = openActions.filter(dashIsBlockedAction);
     const rdvToday = planning.filter(e => e.date_rdv === todayIso);
-
     const prospectsRelanceToday = prospects.filter(c => c.date_prochaine_action === todayIso);
     const prospectsSansAction = prospects.filter(c => !c.prochaine_action && !c.date_prochaine_action);
-    const prospectsStagnants = prospects.filter(c => {
-      const d = dashDaysSince(dashLastActivityClient(c));
-      return d !== null && d > 7;
-    });
+    const prospectsStagnants = prospects.filter(c => { const d = dashDaysSince(dashLastActivityClient(c)); return d !== null && d > 7; });
     const prospectsEntrants = prospects.filter(c => dashWithin(c.created_at, stats.yesterday || dashAddDays(new Date(), -1), todayIso));
-
     const clientsSansAction = clientsActifs.filter(c => !c.prochaine_action && !c.date_prochaine_action);
-    const clientsBloques = clientsActifs.filter(c => {
-      const d = dashDaysSince(dashLastActivityClient(c));
-      return d !== null && d > 5;
-    });
+    const clientsBloques = clientsActifs.filter(c => { const d = dashDaysSince(dashLastActivityClient(c)); return d !== null && d > 5; });
     const partnerActions = openActions.filter(a => dashIsPartnerAction(a) && (!a.due_date || dashDaysSince(a.due_date) > 3));
     const documentActions = openActions.filter(dashIsDocumentAction);
-
     const biensRelance = biens.filter(b => b.date_relance && b.date_relance <= todayIso);
     const biensNouveaux = biens.filter(b => dashBienIsNewToSort(b, todayIso, stats.yesterday || dashAddDays(new Date(), -1)));
     const biensAnalyse = biens.filter(dashBienInAnalysis);
     const proposedBienIds = new Set(propositions.map(p => p.bien_id).filter(Boolean));
     const biensToMatch = biens.filter(b => !proposedBienIds.has(b.id) && (getBienScore(b) >= 35 || dashBienInAnalysis(b)));
 
-    const requiredRows = [];
     const makeId = (prefix, value, fallback) => `${prefix}-${value || fallback}`;
     const shortClient = c => `${getClientName(c)}${c.etape ? ` · ${c.etape}` : ""}${c.date_prochaine_action ? ` · prochaine action ${safeDate(c.date_prochaine_action)}` : ""}`;
     const shortBien = b => `${b.ville || "Ville non renseignée"}${b.statut ? ` · ${b.statut}` : ""}${b.date_relance ? ` · relance ${safeDate(b.date_relance)}` : ""}`;
-
-    const addRequired = (arr, item) => {
-      requiredRows.push(item.id);
-      arr.push({ ...item, required:true });
-    };
+    const addRequired = (arr, item) => arr.push({ ...item, required:true });
 
     const globalItems = [];
-    lateActions.forEach((a, i) => addRequired(globalItems, {
-      id:makeId("global-action-retard", a.id, i),
-      title:dashActionTitle(a) || "Action en retard",
-      sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client non lié"} · échéance ${safeDate(a.due_date)}`,
-      level:"danger", color:DA, icon:AlertTriangle, onClickTarget:"crm", onClickFilter:{ type:"actions_week_or_late" },
-    }));
-    clientsBloques.forEach((c, i) => addRequired(globalItems, {
-      id:makeId("global-client-bloque", c.id, i),
-      title:`${getClientName(c)} — dossier bloqué +5 jours`,
-      sub:shortClient(c),
-      level:"danger", color:DA, icon:Briefcase, onClickTarget:"crm", onClickFilter:{ type:"blocked", client_id:c.id },
-    }));
-    biensRelance.forEach((b, i) => addRequired(globalItems, {
-      id:makeId("global-bien-relance", b.id, i),
-      title:`${getBienLabel(b)} — bien à relancer`,
-      sub:shortBien(b),
-      level:"warning", color:WA, icon:Home, onClickTarget:"biens", onClickFilter:{ type:"a_relancer", bien_id:b.id },
-    }));
-    rdvToday.forEach((e, i) => globalItems.push({
-      id:makeId("global-rdv", e.id, i),
-      title:e.titre || "RDV du jour",
-      sub:`${e.heure_debut ? e.heure_debut.slice(0,5) : "Horaire libre"} · ${e.type || "RDV"}`,
-      level:"info", color:T.accent, icon:Calendar, required:false, onClickTarget:"planning", onClickFilter:{ type:"today", rdv_id:e.id },
-    }));
-    if (!globalItems.length) globalItems.push({ id:"global-ok", title:"Aucune urgence rouge détectée", sub:"La journée démarre sans blocage prioritaire", level:"success", color:SU, icon:Check, required:false });
+    lateActions.forEach((a, i) => addRequired(globalItems, { id:makeId("global-action-retard", a.id, i), type:"global", title:dashActionTitle(a) || "Action en retard", sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client non lié"} · échéance ${safeDate(a.due_date)}`, level:"danger", color:DA, icon:AlertTriangle, checks:["Impact évalué", "Décision prise"], onClickTarget:"crm", onClickFilter:{ type:"actions_week_or_late" } }));
+    clientsBloques.forEach((c, i) => addRequired(globalItems, { id:makeId("global-client-bloque", c.id, i), type:"global", title:`${getClientName(c)} — dossier bloqué +5 jours`, sub:shortClient(c), level:"danger", color:DA, icon:Briefcase, checks:["Blocage identifié", "Responsable défini"], onClickTarget:"crm", onClickFilter:{ type:"blocked", client_id:c.id } }));
+    biensRelance.forEach((b, i) => addRequired(globalItems, { id:makeId("global-bien-relance", b.id, i), type:"global", title:`${getBienLabel(b)} — bien à relancer`, sub:shortBien(b), level:"warning", color:WA, icon:Home, checks:["Statut vérifié", "Décision prise"], onClickTarget:"biens", onClickFilter:{ type:"a_relancer", bien_id:b.id } }));
+    rdvToday.forEach((e, i) => globalItems.push({ id:makeId("global-rdv", e.id, i), type:"global", title:e.titre || "RDV du jour", sub:`${e.heure_debut ? e.heure_debut.slice(0,5) : "Horaire libre"} · ${e.type || "RDV"}`, level:"info", color:T.accent, icon:Calendar, required:false, onClickTarget:"planning", onClickFilter:{ type:"today", rdv_id:e.id } }));
+    if (!globalItems.length) globalItems.push({ id:"global-ok", type:"global", title:"Aucune urgence rouge détectée", sub:"La journée démarre sans blocage prioritaire", level:"success", color:SU, icon:Check, required:false });
 
-    const collaborateurItems = stats.collaborateurs.map(c => ({
-      id:`collab-${c.name}`,
-      title:`${c.name} — ${c.open || 0} tâche(s) ouverte(s), ${c.late || 0} retard`,
-      sub:`${c.validation || 0} validation(s) Matthieu · dernière activité ${c.lastNewsHours >= 999 ? "non renseignée" : `il y a ${c.lastNewsHours}h`}`,
-      level:c.late > 0 || c.validation > 0 || c.lastNewsHours > 24 ? "warning" : "success",
-      color:c.late > 0 ? DA : c.validation > 0 || c.lastNewsHours > 24 ? WA : SU,
-      icon:Users,
-      required:c.late > 0 || c.validation > 0 || c.lastNewsHours > 24,
-      onClickTarget:"crm",
-      onClickFilter:{ type:"collaborateur", value:c.name },
-    }));
+    const collaborateurItems = stats.collaborateurs.map(c => ({ id:`collab-${c.name}`, type:"collaborateur", title:`${c.name} — ${c.open || 0} tâche(s) ouverte(s), ${c.late || 0} retard`, sub:`${c.validation || 0} validation(s) Matthieu · dernière activité ${c.lastNewsHours >= 999 ? "non renseignée" : `il y a ${c.lastNewsHours}h`}`, level:c.late > 0 || c.validation > 0 || c.lastNewsHours > 24 ? "warning" : "success", color:c.late > 0 ? DA : c.validation > 0 || c.lastNewsHours > 24 ? WA : SU, icon:Users, required:true, checks:["Statut vérifié", "Mission prioritaire définie", "Blocage écarté ou noté", "Consigne donnée"], onClickTarget:"crm", onClickFilter:{ type:"collaborateur", value:c.name } }));
 
     const prospectItems = [];
-    prospectsRelanceToday.forEach((c, i) => addRequired(prospectItems, {
-      id:makeId("prospect-relance", c.id, i),
-      title:`${getClientName(c)} — relance prévue aujourd’hui`,
-      sub:c.prochaine_action || shortClient(c),
-      level:"warning", color:WA, icon:Phone, onClickTarget:"crm", onClickFilter:{ type:"relance_today", client_id:c.id },
-    }));
-    prospectsSansAction.forEach((c, i) => addRequired(prospectItems, {
-      id:makeId("prospect-sans-action", c.id, i),
-      title:`${getClientName(c)} — aucune prochaine action`,
-      sub:"Règle stricte : dater une prochaine action ou sortir le prospect du pipeline",
-      level:"danger", color:DA, icon:Bell, onClickTarget:"crm", onClickFilter:{ type:"sans_action", client_id:c.id },
-    }));
-    prospectsStagnants.forEach((c, i) => {
-      if (prospectItems.some(x => x.id === makeId("prospect-sans-action", c.id, i))) return;
-      addRequired(prospectItems, {
-        id:makeId("prospect-stagnant", c.id, i),
-        title:`${getClientName(c)} — stagnant +7 jours`,
-        sub:shortClient(c),
-        level:"warning", color:WA, icon:AlertTriangle, onClickTarget:"crm", onClickFilter:{ type:"stagnants", client_id:c.id },
-      });
-    });
-    prospectsEntrants.forEach((c, i) => prospectItems.push({
-      id:makeId("prospect-entrant", c.id, i),
-      title:`${getClientName(c)} — nouveau prospect entrant`,
-      sub:"À qualifier ou assigner dans la journée",
-      level:"info", color:T.accent, icon:Users, required:false, onClickTarget:"crm", onClickFilter:{ type:"new_since_yesterday", client_id:c.id },
-    }));
-    if (!prospectItems.length) prospectItems.push({ id:"prospects-ok", title:"Aucun prospect critique ce matin", sub:"Relances et prochaines actions sous contrôle", level:"success", color:SU, icon:Check, required:false });
+    prospectsRelanceToday.forEach((c, i) => addRequired(prospectItems, { id:makeId("prospect-relance", c.id, i), type:"prospect", title:`${getClientName(c)} — relance prévue aujourd’hui`, sub:c.prochaine_action || shortClient(c), level:"warning", color:WA, icon:Phone, checks:["Dernier contact vérifié", "Prochaine action définie", "Date renseignée", "Responsable défini"], onClickTarget:"crm", onClickFilter:{ type:"relance_today", client_id:c.id } }));
+    prospectsSansAction.forEach((c, i) => addRequired(prospectItems, { id:makeId("prospect-sans-action", c.id, i), type:"prospect", title:`${getClientName(c)} — aucune prochaine action`, sub:"Règle stricte : dater une prochaine action ou sortir le prospect du pipeline", level:"danger", color:DA, icon:Bell, checks:["Dernier contact vérifié", "Prochaine action définie", "Date renseignée", "Responsable défini"], onClickTarget:"crm", onClickFilter:{ type:"sans_action", client_id:c.id } }));
+    prospectsStagnants.forEach((c, i) => addRequired(prospectItems, { id:makeId("prospect-stagnant", c.id, i), type:"prospect", title:`${getClientName(c)} — stagnant +7 jours`, sub:shortClient(c), level:"warning", color:WA, icon:AlertTriangle, checks:["Cause stagnation notée", "Décision prise", "Relance datée", "Responsable défini"], onClickTarget:"crm", onClickFilter:{ type:"stagnants", client_id:c.id } }));
+    prospectsEntrants.forEach((c, i) => prospectItems.push({ id:makeId("prospect-entrant", c.id, i), type:"prospect", title:`${getClientName(c)} — nouveau prospect entrant`, sub:"À qualifier ou assigner dans la journée", level:"info", color:T.accent, icon:Users, required:false, onClickTarget:"crm", onClickFilter:{ type:"new_since_yesterday", client_id:c.id } }));
+    if (!prospectItems.length) prospectItems.push({ id:"prospects-ok", type:"prospect", title:"Aucun prospect critique ce matin", sub:"Relances et prochaines actions sous contrôle", level:"success", color:SU, icon:Check, required:false });
 
     const clientItems = [];
-    clientsBloques.forEach((c, i) => addRequired(clientItems, {
-      id:makeId("client-bloque", c.id, i),
-      title:`${getClientName(c)} — dossier bloqué`,
-      sub:shortClient(c),
-      level:"danger", color:DA, icon:AlertTriangle, onClickTarget:"crm", onClickFilter:{ type:"blocked", client_id:c.id },
-    }));
-    clientsSansAction.forEach((c, i) => addRequired(clientItems, {
-      id:makeId("client-sans-action", c.id, i),
-      title:`${getClientName(c)} — client actif sans prochaine action`,
-      sub:"Règle stricte : aucun client actif sans prochaine action claire",
-      level:"danger", color:DA, icon:Bell, onClickTarget:"crm", onClickFilter:{ type:"sans_action", client_id:c.id },
-    }));
-    documentActions.forEach((a, i) => addRequired(clientItems, {
-      id:makeId("client-document", a.id, i),
-      title:dashActionTitle(a) || "Document client en attente",
-      sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client"} · ${a.step_label || "document"}`,
-      level:"warning", color:WA, icon:FileText, onClickTarget:"crm", onClickFilter:{ type:"documents_waiting" },
-    }));
-    partnerActions.forEach((a, i) => addRequired(clientItems, {
-      id:makeId("client-partenaire", a.id, i),
-      title:dashActionTitle(a) || "Relance partenaire",
-      sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client"} · ${a.step_label || "banque / notaire / assurance"}`,
-      level:"warning", color:WA, icon:Briefcase, onClickTarget:"crm", onClickFilter:{ type:"partner_relance" },
-    }));
-    if (!clientItems.length) clientItems.push({ id:"clients-ok", title:"Aucun client actif critique ce matin", sub:"Pas de blocage, document ou relance partenaire prioritaire", level:"success", color:SU, icon:Check, required:false });
+    clientsBloques.forEach((c, i) => addRequired(clientItems, { id:makeId("client-bloque", c.id, i), type:"client", title:`${getClientName(c)} — dossier bloqué`, sub:shortClient(c), level:"danger", color:DA, icon:AlertTriangle, checks:["Étape vérifiée", "Blocage identifié", "Responsable défini", "Échéance fixée"], onClickTarget:"crm", onClickFilter:{ type:"blocked", client_id:c.id } }));
+    clientsSansAction.forEach((c, i) => addRequired(clientItems, { id:makeId("client-sans-action", c.id, i), type:"client", title:`${getClientName(c)} — client actif sans prochaine action`, sub:"Règle stricte : aucun client actif sans prochaine action claire", level:"danger", color:DA, icon:Bell, checks:["Étape vérifiée", "Prochaine action définie", "Responsable défini", "Échéance fixée"], onClickTarget:"crm", onClickFilter:{ type:"sans_action", client_id:c.id } }));
+    documentActions.forEach((a, i) => addRequired(clientItems, { id:makeId("client-document", a.id, i), type:"client", title:dashActionTitle(a) || "Document client en attente", sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client"} · ${a.step_label || "document"}`, level:"warning", color:WA, icon:FileText, checks:["Document identifié", "Demande formulée", "Échéance fixée"], onClickTarget:"crm", onClickFilter:{ type:"documents_waiting" } }));
+    partnerActions.forEach((a, i) => addRequired(clientItems, { id:makeId("client-partenaire", a.id, i), type:"client", title:dashActionTitle(a) || "Relance partenaire", sub:`${a.client ? `${a.client.prenom || ""} ${a.client.nom || ""}`.trim() : "Client"} · ${a.step_label || "banque / notaire / assurance"}`, level:"warning", color:WA, icon:Briefcase, checks:["Partenaire identifié", "Relance prévue", "Échéance fixée"], onClickTarget:"crm", onClickFilter:{ type:"partner_relance" } }));
+    if (!clientItems.length) clientItems.push({ id:"clients-ok", type:"client", title:"Aucun client actif critique ce matin", sub:"Pas de blocage, document ou relance partenaire prioritaire", level:"success", color:SU, icon:Check, required:false });
 
     const bienItems = [];
-    biensNouveaux.forEach((b, i) => addRequired(bienItems, {
-      id:makeId("bien-trier", b.id, i),
-      title:`${getBienLabel(b)} — nouvelle annonce à trier`,
-      sub:"Décider : analyser, proposer, relancer ou archiver",
-      level:"warning", color:WA, icon:Search, onClickTarget:"biens", onClickFilter:{ type:"new_to_sort", bien_id:b.id },
-    }));
-    biensToMatch.forEach((b, i) => addRequired(bienItems, {
-      id:makeId("bien-match", b.id, i),
-      title:`${getBienLabel(b)} — à matcher avec un client`,
-      sub:`Score ${getBienScore(b)} · ${shortBien(b)}`,
-      level:"warning", color:WA, icon:Handshake, onClickTarget:"biens", onClickFilter:{ type:"to_match", bien_id:b.id },
-    }));
-    biensRelance.forEach((b, i) => addRequired(bienItems, {
-      id:makeId("bien-relance", b.id, i),
-      title:`${getBienLabel(b)} — relance bien`,
-      sub:shortBien(b),
-      level:"danger", color:DA, icon:Bell, onClickTarget:"biens", onClickFilter:{ type:"a_relancer", bien_id:b.id },
-    }));
-    biensAnalyse.slice(0, 8).forEach((b, i) => bienItems.push({
-      id:makeId("bien-analyse", b.id, i),
-      title:`${getBienLabel(b)} — en analyse`,
-      sub:`Score ${getBienScore(b)} · ${shortBien(b)}`,
-      level:"info", color:T.accent, icon:Home, required:false, onClickTarget:"biens", onClickFilter:{ type:"analyse", bien_id:b.id },
-    }));
-    if (!bienItems.length) bienItems.push({ id:"biens-ok", title:"Aucun bien critique ce matin", sub:"Pas de relance ou décision urgente sur le stock", level:"success", color:SU, icon:Check, required:false });
+    biensNouveaux.forEach((b, i) => addRequired(bienItems, { id:makeId("bien-trier", b.id, i), type:"bien", title:`${getBienLabel(b)} — nouvelle annonce à trier`, sub:"Décider : analyser, proposer, relancer ou archiver", level:"warning", color:WA, icon:Search, checks:["Prix vérifié", "Travaux vérifiés", "Rentabilité vérifiée", "Décision prise"], onClickTarget:"biens", onClickFilter:{ type:"new_to_sort", bien_id:b.id } }));
+    biensToMatch.forEach((b, i) => addRequired(bienItems, { id:makeId("bien-match", b.id, i), type:"bien", title:`${getBienLabel(b)} — à matcher avec un client`, sub:`Score ${getBienScore(b)} · ${shortBien(b)}`, level:"warning", color:WA, icon:Handshake, checks:["Profil client vérifié", "Matching décidé", "Responsable défini"], onClickTarget:"biens", onClickFilter:{ type:"to_match", bien_id:b.id } }));
+    biensRelance.forEach((b, i) => addRequired(bienItems, { id:makeId("bien-relance", b.id, i), type:"bien", title:`${getBienLabel(b)} — relance bien`, sub:shortBien(b), level:"danger", color:DA, icon:Bell, checks:["Statut vendeur vérifié", "Relance ou archivage décidé", "Échéance fixée"], onClickTarget:"biens", onClickFilter:{ type:"a_relancer", bien_id:b.id } }));
+    biensAnalyse.slice(0, 8).forEach((b, i) => bienItems.push({ id:makeId("bien-analyse", b.id, i), type:"bien", title:`${getBienLabel(b)} — en analyse`, sub:`Score ${getBienScore(b)} · ${shortBien(b)}`, level:"info", color:T.accent, icon:Home, required:false, onClickTarget:"biens", onClickFilter:{ type:"analyse", bien_id:b.id } }));
+    if (!bienItems.length) bienItems.push({ id:"biens-ok", type:"bien", title:"Aucun bien critique ce matin", sub:"Pas de relance ou décision urgente sur le stock", level:"success", color:SU, icon:Check, required:false });
 
-    const allItems = [globalItems, collaborateurItems, prospectItems, clientItems, bienItems].flat();
-    const criticalCount = allItems.filter(item => item.required).length;
     const plan = [
-      ...lateActions.slice(0, 5).map(a => `Matthieu — décider l’action en retard : ${dashActionTitle(a) || "action sans titre"}`),
-      ...clientsBloques.slice(0, 5).map(c => `Matthieu — débloquer le dossier ${getClientName(c)}`),
-      ...prospectsRelanceToday.slice(0, 5).map(c => `Tom — relancer ${getClientName(c)} aujourd’hui`),
-      ...prospectsSansAction.slice(0, 5).map(c => `Tom — créer une prochaine action datée pour ${getClientName(c)}`),
-      ...documentActions.slice(0, 5).map(a => `Benjamin — relancer/documenter : ${dashActionTitle(a) || "document client"}`),
-      ...partnerActions.slice(0, 5).map(a => `Matthieu/Benjamin — relancer partenaire : ${dashActionTitle(a) || "partenaire"}`),
-      ...biensToMatch.slice(0, 5).map(b => `Benjamin — matcher ${getBienLabel(b)} avec un profil client`),
-      ...biensRelance.slice(0, 5).map(b => `Matthieu/Benjamin — relancer ou archiver ${getBienLabel(b)}`),
-      ...rdvToday.slice(0, 3).map(e => `Matthieu — préparer le RDV : ${e.titre || "RDV du jour"}`),
+      ...Object.values(decisions).filter(x => x?.next_action).map(x => `${x.responsable || "À définir"} — ${x.next_action}${x.due_date ? ` avant le ${safeDate(x.due_date)}` : ""}${x.comment ? ` · ${x.comment}` : ""}`),
+      ...lateActions.slice(0, 3).map(a => `Matthieu — décider l’action en retard : ${dashActionTitle(a) || "action sans titre"}`),
+      ...prospectsRelanceToday.slice(0, 3).map(c => `Tom — relancer ${getClientName(c)} aujourd’hui`),
+      ...biensToMatch.slice(0, 3).map(b => `Benjamin — matcher ${getBienLabel(b)} avec un profil client`),
     ];
 
+    const allItems = [globalItems, collaborateurItems, prospectItems, clientItems, bienItems].flat();
     return {
-      criticalCount,
+      allItems,
+      criticalCount:allItems.filter(item => item.required).length,
       steps:{
-        global:{ intro:"Objectif : savoir immédiatement si la journée est normale ou critique.", items:globalItems },
+        global:{ intro:"Objectif : savoir immédiatement si la journée est normale ou critique. Les 3 priorités sont obligatoires.", items:globalItems },
         collaborateurs:{ intro:"Objectif : aucun collaborateur ne doit rester sans mission prioritaire claire.", items:collaborateurItems },
-        prospects:{ intro:"Objectif : aucun prospect chaud sans prochaine action datée.", items:prospectItems },
-        clients:{ intro:"Objectif : aucun client actif sans prochaine action claire.", items:clientItems },
+        prospects:{ intro:"Objectif : aucun prospect chaud ou stagnant sans prochaine action datée.", items:prospectItems },
+        clients:{ intro:"Objectif : aucun client actif sans responsable, prochaine action et échéance.", items:clientItems },
         biens:{ intro:"Objectif : chaque nouveau bien doit finir dans une décision : analyser, proposer, relancer ou archiver.", items:bienItems },
         synthese:{ intro:"Objectif : transformer la routine en plan d’action concret pour la journée.", items:[], plan },
       },
     };
-  }, [stats, clients, biens, propositions, planning, actions, T]);
+  }, [stats, clients, biens, propositions, planning, actions, T, decisions]);
 
   const completedCount = DASH_MORNING_STEPS.filter(s => completedSteps[s.key]).length;
-  const progress = Math.round((completedCount / DASH_MORNING_STEPS.length) * 100);
+  const stepTotals = DASH_MORNING_STEPS.reduce((acc, s) => {
+    const data = routine.steps[s.key] || { items:[] };
+    const checklistTotal = (DASH_MORNING_CHECKLISTS[s.key] || []).length;
+    const checklistDone = routineChecklistCount(s.key, checklists);
+    const requiredItems = (data.items || []).filter(x => x.required);
+    const itemsDone = requiredItems.filter(x => routineItemIsComplete(x, decisions[x.id])).length;
+    acc.total += checklistTotal + requiredItems.length;
+    acc.done += checklistDone + itemsDone;
+    return acc;
+  }, { total:0, done:0 });
+  const progress = stepTotals.total ? Math.round((stepTotals.done / stepTotals.total) * 100) : Math.round((completedCount / DASH_MORNING_STEPS.length) * 100);
   const currentIndex = DASH_MORNING_STEPS.findIndex(s => s.key === activeStep);
   const nextStep = DASH_MORNING_STEPS[currentIndex + 1]?.key || "synthese";
   const routineDone = completedCount === DASH_MORNING_STEPS.length;
 
-  const setDecision = (id, value) => setDecisions(prev => ({ ...prev, [id]:value }));
-  const resetRoutine = () => { setStarted(false); setActiveStep("global"); setCompletedSteps({}); setDecisions({}); };
+  const updateDecision = (id, value) => setDecisions(prev => ({ ...prev, [id]:value }));
+  const updateChecklist = (stepKey, idx, checked) => setChecklists(prev => ({ ...prev, [stepKey]:{ ...(prev[stepKey] || {}), [idx]:checked } }));
+  const resetRoutine = () => { setStarted(false); setActiveStep("global"); setCompletedSteps({}); setDecisions({}); setChecklists({}); setStepNotes({}); setDailyGoals({ p1:"", p2:"", p3:"" }); setSaveStatus(""); };
+
+  const saveRoutineLog = useCallback(async (status="in_progress") => {
+    try {
+      const payload = {
+        routine_date:stats.today || dashIso(new Date()),
+        step_key:"routine_v4",
+        item_type:"dashboard",
+        item_id:stats.today || dashIso(new Date()),
+        item_label:"Morning Routine Profero Invest V4",
+        decision:status,
+        comment:JSON.stringify({ dailyGoals, decisions, checklists, stepNotes, completedSteps, progress }),
+        responsable:"Matthieu",
+        due_date:stats.today || dashIso(new Date()),
+        checked_items:checklists,
+        status,
+        created_by:"dashboard",
+        updated_at:new Date().toISOString(),
+      };
+      const { error } = await supabase.from("invest_morning_routine_logs").upsert(payload, { onConflict:"routine_date,step_key,item_id" });
+      if (error) throw error;
+      setSaveStatus("Sauvegardé dans Supabase");
+    } catch (e) {
+      setSaveStatus("Sauvegarde locale active — table Supabase non configurée");
+    }
+  }, [stats, dailyGoals, decisions, checklists, stepNotes, completedSteps, progress]);
+
+  useEffect(() => { if (started) saveRoutineLog("in_progress"); }, [completedSteps]);
+
   const completeStep = (stepKey) => {
     setCompletedSteps(prev => ({ ...prev, [stepKey]:true }));
     const idx = DASH_MORNING_STEPS.findIndex(s => s.key === stepKey);
     const next = DASH_MORNING_STEPS[idx + 1]?.key;
     if (next) setActiveStep(next);
+    saveRoutineLog(stepKey === "synthese" ? "completed" : "in_progress");
   };
-
-  const summaryText = [
-    `Morning Routine Profero Invest — ${new Date().toLocaleDateString("fr-FR")}`,
-    `Progression : ${progress}%`,
-    `Actions en retard : ${stats.actionsRetard}`,
-    `Prospects à relancer : ${stats.todayProspects.relances}`,
-    `Clients bloqués : ${stats.todayClients.blocked}`,
-    `Biens à relancer : ${stats.todayBiens.toRelance}`,
-    "",
-    "Plan d’action du jour :",
-    ...(routine.steps.synthese.plan.length ? routine.steps.synthese.plan.map((x, i) => `${i + 1}. ${x}`) : ["1. Aucun point critique détecté — maintenir le suivi courant."]),
-  ].join("\n");
 
   const copySummary = async () => {
-    try { await navigator.clipboard.writeText(summaryText); } catch {}
+    const lines = [
+      `Morning Routine Profero Invest — ${new Date().toLocaleDateString("fr-FR")}`,
+      "",
+      "Priorités du jour :",
+      `1. ${dailyGoals.p1 || "—"}`,
+      `2. ${dailyGoals.p2 || "—"}`,
+      `3. ${dailyGoals.p3 || "—"}`,
+      "",
+      "Plan d’action :",
+      ...(routine.steps.synthese.plan.length ? routine.steps.synthese.plan.map((x, i) => `${i + 1}. ${x}`) : ["1. Aucun point critique détecté — maintenir le suivi courant."]),
+      "",
+      "Notes :",
+      ...Object.entries(stepNotes).filter(([,v]) => String(v || "").trim()).map(([k,v]) => `- ${DASH_MORNING_STEPS.find(s => s.key === k)?.label || k} : ${v}`),
+    ];
+    try { await navigator.clipboard.writeText(lines.join("\n")); setSaveStatus("Synthèse copiée"); } catch { setSaveStatus(lines.join("\n")); }
   };
+
+  const sendReminderTest = async () => {
+    setMailStatus("Envoi du test…");
+    try {
+      const { data, error } = await supabase.functions.invoke("send-morning-routine-reminder", { body:{ source:"manual_test", date:stats.today || dashIso(new Date()) } });
+      if (error || data?.error) throw new Error(data?.error || error?.message || "Erreur inconnue");
+      setMailStatus("✅ Test envoyé");
+    } catch (e) { setMailStatus(`⚠ ${e.message || "Fonction email non configurée"}`); }
+  };
+
+  const globalBlockingCount = DASH_MORNING_STEPS.reduce((sum, step) => {
+    const data = routine.steps[step.key] || { items:[] };
+    const missingChecklist = routineChecklistComplete(step.key, checklists) ? 0 : 1;
+    const unresolved = (data.items || []).filter(item => item.required && !routineItemIsComplete(item, decisions[item.id])).length;
+    const missingGoals = step.key === "global" && (!dailyGoals.p1 || !dailyGoals.p2 || !dailyGoals.p3) ? 1 : 0;
+    return sum + missingChecklist + unresolved + missingGoals;
+  }, 0);
 
   return (
     <>
-      <div className="inv-card" style={{ marginBottom:SPACING.xxl - 2, overflow:"hidden" }}>
-        <div className="inv-card-hd blue" style={{ justifyContent:"space-between", alignItems:"center" }}>
-          <span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={LayoutDashboard} size={14} strokeWidth={2.3}/> Morning Routine — cadre strict 8h30 à 10h30</span>
-          <span style={{ display:"inline-flex", gap:7, alignItems:"center" }}>
-            <AlertBadge level={routineDone ? "success" : routine.criticalCount > 0 ? "danger" : "info"} T={T}>{progress}% complété</AlertBadge>
-          </span>
+      <div className="inv-card" style={{ marginBottom:SPACING.xxl - 2, border:`1.5px solid ${globalBlockingCount ? WA : SU}` }}>
+        <div className="inv-card-hd blue" style={{ justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
+          <span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={LayoutDashboard} size={14} strokeWidth={2.3}/> Morning Routine V4 — checklist de direction 8h30 à 10h30</span>
+          <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+            <AlertBadge level={globalBlockingCount ? "danger" : "success"} T={T}>{globalBlockingCount ? `${globalBlockingCount} contrôle${globalBlockingCount > 1 ? "s" : ""} manquant${globalBlockingCount > 1 ? "s" : ""}` : "Routine finalisable"}</AlertBadge>
+            <AlertBadge level="info" T={T}>{progress}% complété</AlertBadge>
+          </div>
         </div>
         <div className="inv-card-bd">
           <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) auto", gap:SPACING.md, alignItems:"center" }}>
             <div>
-              <div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text, lineHeight:1.1 }}>Routine de pilotage du matin</div>
-              <div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:5 }}>Suivre les étapes dans l’ordre. Les éléments rouges/oranges doivent recevoir une décision avant validation.</div>
+              <div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text, lineHeight:1.1 }}>Cadre strict de pilotage du matin</div>
+              <div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:5 }}>Tu coches, tu commentes, tu assignes, tu dates. La routine ne se termine pas tant qu’un point critique reste sans décision exploitable.</div>
+              {saveStatus && <div style={{ marginTop:7, fontSize:FONT.xs.size + 1, color:T.textMuted }}>{saveStatus}</div>}
             </div>
             <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
-              {!started ? <button type="button" className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setStarted(true)}><Icon as={Sun} size={12}/> Démarrer la routine</button> : <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={resetRoutine}><Icon as={RefreshCw} size={12}/> Réinitialiser</button>}
+              {!started ? <button type="button" className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setStarted(true)}><Icon as={Sun} size={12}/> Démarrer</button> : <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={resetRoutine}><Icon as={RefreshCw} size={12}/> Réinitialiser</button>}
               <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={copySummary}><Icon as={FileText} size={12}/> Copier synthèse</button>
+              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={sendReminderTest}><Icon as={Mail} size={12}/> Test mail 8h</button>
             </div>
           </div>
-
-          <div style={{ marginTop:SPACING.md, height:10, borderRadius:RADIUS.pill, background:T.input, border:`1px solid ${T.border}`, overflow:"hidden" }}>
-            <div style={{ height:"100%", width:`${progress}%`, background:routineDone ? SU : T.accent, borderRadius:RADIUS.pill }}/>
-          </div>
-
+          {mailStatus && <div style={{ marginTop:8, fontSize:FONT.xs.size + 1, color:mailStatus.startsWith("✅") ? SU : WA, fontWeight:800 }}>{mailStatus}</div>}
+          <div style={{ marginTop:SPACING.md, height:10, borderRadius:RADIUS.pill, background:T.input, border:`1px solid ${T.border}`, overflow:"hidden" }}><div style={{ height:"100%", width:`${progress}%`, background:routineDone ? SU : T.accent, borderRadius:RADIUS.pill }}/></div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:8, marginTop:SPACING.md }}>
             <KPICard icon={AlertTriangle} label="Urgences" value={(stats.actionsRetard || 0) + (stats.todayClients.blocked || 0)} color={(stats.actionsRetard || 0) + (stats.todayClients.blocked || 0) ? DA : SU}/>
-            <KPICard icon={Phone} label="Prospects à traiter" value={(stats.todayProspects.relances || 0) + (stats.todayProspects.sansAction || 0)} color={(stats.todayProspects.relances || 0) + (stats.todayProspects.sansAction || 0) ? WA : SU}/>
+            <KPICard icon={Phone} label="Prospects à cadrer" value={(stats.todayProspects.relances || 0) + (stats.todayProspects.sansAction || 0)} color={(stats.todayProspects.relances || 0) + (stats.todayProspects.sansAction || 0) ? WA : SU}/>
             <KPICard icon={Briefcase} label="Clients à sécuriser" value={(stats.todayClients.documentsWaiting || 0) + (stats.todayClients.partnerRelances || 0)} color={(stats.todayClients.documentsWaiting || 0) + (stats.todayClients.partnerRelances || 0) ? WA : SU}/>
             <KPICard icon={Home} label="Biens à décider" value={(stats.todayBiens.newToSort || 0) + (stats.todayBiens.toMatch || 0) + (stats.todayBiens.toRelance || 0)} color={(stats.todayBiens.toRelance || 0) ? DA : WA}/>
           </div>
         </div>
       </div>
 
-      {!started && (
-        <div style={{ marginBottom:SPACING.xxl - 2, padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.lg, color:T.textMuted, background:T.input, textAlign:"center", fontSize:FONT.sm.size + 1 }}>
-          Clique sur <strong style={{ color:T.text }}>Démarrer la routine</strong> pour dérouler le cadre strict. Tu peux déjà consulter les autres onglets, mais la routine ne sera pas considérée comme lancée.
-        </div>
-      )}
+      {!started && <div style={{ marginBottom:SPACING.xxl - 2, padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.lg, color:T.textMuted, background:T.input, textAlign:"center", fontSize:FONT.sm.size + 1 }}>Clique sur <strong style={{ color:T.text }}>Démarrer</strong> pour lancer le cadre strict. Les cases, commentaires, responsables et échéances sont sauvegardés localement puis dans Supabase si la table V4 est installée.</div>}
 
       <div style={{ display:"grid", gridTemplateColumns:"minmax(240px,.32fr) minmax(0,1fr)", gap:SPACING.md, alignItems:"start", marginBottom:SPACING.xxl - 2 }}>
         <div className="inv-card" style={{ position:"sticky", top:12 }}>
-          <div className="inv-card-hd blue"><span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={Check} size={13}/> Séquence obligatoire</span></div>
+          <div className="inv-card-hd blue"><span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={Check} size={13}/> Séquence verrouillée</span></div>
           <div className="inv-card-bd" style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {DASH_MORNING_STEPS.map((s, i) => {
               const active = activeStep === s.key;
               const done = !!completedSteps[s.key];
-              return (
-                <button key={s.key} type="button" onClick={() => setActiveStep(s.key)} style={{ border:`1px solid ${active ? T.accentBorder : done ? `${SU}55` : T.border}`, background:active ? T.accentBg : done ? `${SU}10` : T.input, color:active ? T.accent : T.text, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, fontFamily:"inherit", cursor:"pointer", textAlign:"left" }}>
-                  <span style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}><span style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size, color:done ? SU : active ? T.accent : T.textMuted }}>{String(i + 1).padStart(2, "0")}</span><span style={{ fontSize:FONT.sm.size, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.label}</span></span>
-                  {done ? <Icon as={Check} size={13} color={SU}/> : active ? <Icon as={Bell} size={13} color={T.accent}/> : null}
-                </button>
-              );
+              const checklistCount = routineChecklistCount(s.key, checklists);
+              const checklistTotal = (DASH_MORNING_CHECKLISTS[s.key] || []).length;
+              return <button key={s.key} type="button" onClick={() => setActiveStep(s.key)} style={{ border:`1px solid ${active ? T.accentBorder : done ? `${SU}55` : T.border}`, background:active ? T.accentBg : done ? `${SU}10` : T.input, color:active ? T.accent : T.text, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, fontFamily:"inherit", cursor:"pointer", textAlign:"left" }}>
+                <span style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}><span style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size, color:done ? SU : active ? T.accent : T.textMuted }}>{String(i + 1).padStart(2, "0")}</span><span style={{ fontSize:FONT.sm.size, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.label}</span></span>
+                <span style={{ fontSize:FONT.xs.size, color:done ? SU : T.textMuted, fontWeight:900 }}>{checklistCount}/{checklistTotal}</span>
+              </button>;
             })}
           </div>
         </div>
@@ -869,34 +1043,25 @@ function MorningRoutineDashboard({ stats, clients=[], biens=[], propositions=[],
         <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
           {DASH_MORNING_STEPS.map((step, idx) => {
             const data = routine.steps[step.key] || { items:[], intro:"" };
-            const unresolved = (data.items || []).filter(item => item.required && !decisions[item.id]).length;
+            const unresolved = (data.items || []).filter(item => item.required && !routineItemIsComplete(item, decisions[item.id])).length;
             const previousDone = idx === 0 || DASH_MORNING_STEPS.slice(0, idx).every(s => completedSteps[s.key]);
-            const stepRulesOk = step.key === "synthese" ? Object.keys(completedSteps).length >= DASH_MORNING_STEPS.length - 1 : unresolved === 0;
-            const canComplete = started && previousDone && stepRulesOk;
+            const checklistDone = routineChecklistComplete(step.key, checklists);
+            const checklistCount = routineChecklistCount(step.key, checklists);
+            const checklistTotal = (DASH_MORNING_CHECKLISTS[step.key] || []).length;
+            const goalsOk = step.key !== "global" || (dailyGoals.p1 && dailyGoals.p2 && dailyGoals.p3);
+            const syntheseOk = step.key !== "synthese" || DASH_MORNING_STEPS.slice(0, -1).every(s => completedSteps[s.key]);
+            const canComplete = started && previousDone && checklistDone && goalsOk && syntheseOk && unresolved === 0;
             const isActive = activeStep === step.key;
             return (
-              <RoutineStepCard key={step.key} step={step} isActive={isActive} isDone={!!completedSteps[step.key]} unresolved={unresolved} canComplete={canComplete} onOpen={() => setActiveStep(step.key)} onComplete={() => completeStep(step.key)} T={T}>
+              <RoutineStepCard key={step.key} step={step} isActive={isActive} isDone={!!completedSteps[step.key]} unresolved={unresolved + (!goalsOk ? 1 : 0)} checklistDone={checklistDone} checklistCount={checklistCount} checklistTotal={checklistTotal} canComplete={canComplete} onOpen={() => setActiveStep(step.key)} onComplete={() => completeStep(step.key)} T={T}>
                 <div style={{ color:T.textSub, fontSize:FONT.sm.size + 1, marginBottom:SPACING.md }}>{data.intro}</div>
-                {step.key !== "synthese" ? (
-                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                    {(data.items || []).map(item => <RoutineDecisionRow key={item.id} item={item} decision={decisions[item.id]} onDecision={setDecision} T={T} onNavigate={onNavigate}/>) }
-                    {(data.items || []).length === 0 && <MiniList items={[]} T={T} empty="Aucun point à traiter dans cette étape"/>}
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:SPACING.md, marginBottom:SPACING.md }}>
-                      <KPICard icon={Check} label="Étapes validées" value={`${completedCount}/${DASH_MORNING_STEPS.length}`} color={routineDone ? SU : T.accent}/>
-                      <KPICard icon={Send} label="Actions du plan" value={data.plan.length || 1} color="#FFC200"/>
-                      <KPICard icon={AlertTriangle} label="Décisions prises" value={Object.keys(decisions).length} color={Object.keys(decisions).length ? SU : WA}/>
-                    </div>
-                    <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
-                      <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, marginBottom:8 }}>Plan d’action du jour</div>
-                      <ol style={{ margin:0, paddingLeft:20, color:T.textSub, fontSize:FONT.sm.size + 1, lineHeight:1.7 }}>
-                        {(data.plan.length ? data.plan : ["Aucun point critique détecté — maintenir le suivi courant."]).map((x, i) => <li key={i}>{x}</li>)}
-                      </ol>
-                    </div>
-                  </div>
-                )}
+                <RoutineChecklist stepKey={step.key} value={checklists[step.key] || {}} onChange={(idx, checked) => updateChecklist(step.key, idx, checked)} T={T}/>
+                {step.key === "global" && <RoutinePriorities value={dailyGoals} onChange={setDailyGoals} T={T}/>} 
+                {step.key !== "synthese" ? <div style={{ display:"flex", flexDirection:"column", gap:8 }}>{(data.items || []).map(item => <RoutineDecisionRow key={item.id} item={item} state={decisions[item.id] || {}} onChange={updateDecision} T={T} onNavigate={onNavigate}/>) }{(data.items || []).length === 0 && <MiniList items={[]} T={T} empty="Aucun point à traiter dans cette étape"/>}</div> : <div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:SPACING.md, marginBottom:SPACING.md }}><KPICard icon={Check} label="Étapes validées" value={`${completedCount}/${DASH_MORNING_STEPS.length}`} color={routineDone ? SU : T.accent}/><KPICard icon={Send} label="Actions du plan" value={data.plan.length || 1} color="#FFC200"/><KPICard icon={AlertTriangle} label="Contrôles manquants" value={globalBlockingCount} color={globalBlockingCount ? DA : SU}/></div>
+                  <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, marginBottom:8 }}>Plan d’action du jour</div><ol style={{ margin:0, paddingLeft:20, color:T.textSub, fontSize:FONT.sm.size + 1, lineHeight:1.7 }}>{(data.plan.length ? data.plan : ["Aucun point critique détecté — maintenir le suivi courant."]).map((x, i) => <li key={i}>{x}</li>)}</ol></div>
+                </div>}
+                <RoutineStepNotes stepKey={step.key} value={stepNotes[step.key] || ""} onChange={v => setStepNotes(prev => ({ ...prev, [step.key]:v }))} T={T}/>
               </RoutineStepCard>
             );
           })}
@@ -1195,7 +1360,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1420, margin:"0 auto" }}>
       <div style={{ marginBottom:SPACING.xl, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:SPACING.md, flexWrap:"wrap" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24} strokeWidth={2}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Tableau de bord</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Morning Routine stricte + cockpit Profero Invest</div>{stats && <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:9 }}>{stats.actionsRetard > 0 && <AlertBadge level="danger" T={T}>{stats.actionsRetard} action{stats.actionsRetard > 1 ? "s" : ""} en retard</AlertBadge>}{stats.todayProspects.stagnants > 0 && <AlertBadge level="warning" T={T}>{stats.todayProspects.stagnants} prospect{stats.todayProspects.stagnants > 1 ? "s" : ""} stagnant{stats.todayProspects.stagnants > 1 ? "s" : ""}</AlertBadge>}{stats.todayClients.blocked > 0 && <AlertBadge level="danger" T={T}>{stats.todayClients.blocked} dossier{stats.todayClients.blocked > 1 ? "s" : ""} bloqué{stats.todayClients.blocked > 1 ? "s" : ""}</AlertBadge>}{stats.actionsRetard === 0 && stats.todayProspects.stagnants === 0 && stats.todayClients.blocked === 0 && <AlertBadge level="success" T={T}>Pilotage sain</AlertBadge>}</div>}</div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:48, height:48, borderRadius:RADIUS.lg, flexShrink:0, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24} strokeWidth={2}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:800, color:T.text, letterSpacing:-0.3 }}>Tableau de bord</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Morning Routine V4 cadrée + cockpit Profero Invest</div>{stats && <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:9 }}>{stats.actionsRetard > 0 && <AlertBadge level="danger" T={T}>{stats.actionsRetard} action{stats.actionsRetard > 1 ? "s" : ""} en retard</AlertBadge>}{stats.todayProspects.stagnants > 0 && <AlertBadge level="warning" T={T}>{stats.todayProspects.stagnants} prospect{stats.todayProspects.stagnants > 1 ? "s" : ""} stagnant{stats.todayProspects.stagnants > 1 ? "s" : ""}</AlertBadge>}{stats.todayClients.blocked > 0 && <AlertBadge level="danger" T={T}>{stats.todayClients.blocked} dossier{stats.todayClients.blocked > 1 ? "s" : ""} bloqué{stats.todayClients.blocked > 1 ? "s" : ""}</AlertBadge>}{stats.actionsRetard === 0 && stats.todayProspects.stagnants === 0 && stats.todayClients.blocked === 0 && <AlertBadge level="success" T={T}>Pilotage sain</AlertBadge>}</div>}</div></div>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setCompact(v => !v)} title="Basculer entre affichage condensé et détaillé"><Icon as={compact ? Eye : LayoutGrid} size={12} strokeWidth={2.2}/>{compact ? "Mode détaillé" : "Mode condensé"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={chargerDashboard}><Icon as={RefreshCw} size={12} strokeWidth={2.2}/>Actualiser</button></div>
       </div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.md, marginBottom:SPACING.xl, flexWrap:"wrap" }}><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{DASH_TABS.map(renderTabButton)}</div>{stats && <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}><AlertBadge level="info" T={T} icon={Users}>{stats.prospects} prospects</AlertBadge><AlertBadge level="info" T={T} icon={Briefcase}>{stats.actifs} clients actifs</AlertBadge><AlertBadge level="info" T={T} icon={Home}>{stats.biensTotaux} biens</AlertBadge><AlertBadge level="success" T={T} icon={Euro}>{fmtDashboardEur(stats.baseHonorairesPipeline)} pipeline</AlertBadge></div>}</div>
@@ -1225,6 +1390,9 @@ export {
   MorningRoutineDashboard,
   RoutineDecisionRow,
   RoutineStepCard,
+  RoutineChecklist,
+  RoutinePriorities,
+  RoutineStepNotes,
   AlertBadge,
   PipelineBar,
   DashboardSection,
