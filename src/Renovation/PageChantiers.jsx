@@ -3,6 +3,7 @@ import { supabase, photoTransform, getClientId } from "../supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 import { Icon } from "../ui";
+import { CARD_SHADOW } from "../mobileUI";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
@@ -768,7 +769,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       <div className="pchan-list" style={{ flex: 1, overflowY: "auto", background: bg, padding: "28px 32px" }}>
         <style>{`
           .chantier-card { transition: all .18s; cursor: pointer; }
-          .chantier-card:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(0,0,0,0.4); border-color: ${acc.border} !important; }
+          .chantier-card:hover { transform: translateY(-3px); box-shadow: 0 16px 34px rgba(16,24,40,0.14); border-color: ${acc.border} !important; }
           @media(max-width:768px) { .chantiers-grid { grid-template-columns: 1fr !important; } }
           @media(max-width:767px) {
             .pchan-list{padding:14px 12px!important}
@@ -895,7 +896,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                   onClick={() => setSelected(chantier.id)}
                   style={{
                     background: surface, border: `1px solid ${border}`,
-                    borderRadius: RADIUS.xl, overflow: "hidden",
+                    borderRadius: 16, overflow: "hidden", boxShadow: CARD_SHADOW,
                     display: "flex", flexDirection: "column",
                     borderTop: `3px solid ${chantier.couleur}`,
                   }}>
