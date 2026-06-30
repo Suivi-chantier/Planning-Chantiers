@@ -20,44 +20,49 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V5 — Morning Routine ultra cadrée Profero Invest
-// Objectif : maîtriser chaque dossier chaque matin avec décisions, commentaires,
-// responsables, actions créées, mise à jour CRM / biens, historique Supabase et PDF.
+// TABLEAU DE BORD V6 — Morning Routine métier Profero Invest
+// Objectif : suivi strict des urgences, prospects, clients et stock de biens.
+// Version calibrée selon les réponses métier Matthieu : uniquement les éléments
+// qui nécessitent une décision, clients sous contrôle visibles séparément,
+// score prospect, relances automatiques J+1/J+3/J+7/J+14/J+30, actions créées.
 // Rappel mail volontairement exclu de cette version.
 // ─────────────────────────────────────────────────────────────
 
-const V5_TABS = [
+const V6_TABS = [
   { key:"routine", label:"Morning Routine", icon:LayoutDashboard },
-  { key:"plan", label:"Plan d’action", icon:Send },
+  { key:"plan", label:"Actions & consignes", icon:Send },
   { key:"suivi", label:"Suivi dossiers", icon:Briefcase },
   { key:"historique", label:"Historique", icon:FileText },
-  { key:"mensuel", label:"Vue mensuelle", icon:BarChart3 },
+  { key:"mensuel", label:"Pilotage mensuel", icon:BarChart3 },
 ];
 
-const V5_STEPS = [
-  { key:"urgences", label:"Urgences", icon:AlertTriangle, help:"Tâches en retard et points bloquants à arbitrer en premier." },
-  { key:"priorites", label:"3 priorités", icon:Sparkles, help:"Les 3 priorités absolues du jour sont obligatoires." },
-  { key:"collaborateurs", label:"Collaborateurs", icon:Users, help:"Tom, Benjamin, Camille, Matthieu et collaborateurs ajoutés." },
-  { key:"prospects", label:"Prospects", icon:Phone, help:"Tous les prospects classés selon leur niveau de transformation." },
-  { key:"clients", label:"Clients actifs", icon:Briefcase, help:"Tous les clients selon leur étape, blocages et actions futures." },
-  { key:"biens", label:"Biens", icon:Home, help:"Tous les biens nécessitant une décision, une action ou un responsable." },
-  { key:"synthese", label:"Synthèse", icon:Send, help:"Plan d’action court par responsable." },
+const V6_STEPS = [
+  { key:"urgences", label:"Urgences tous dossiers", icon:AlertTriangle, help:"Toutes les urgences prospects, clients, biens et tâches en retard." },
+  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Les 3 priorités absolues du jour sont obligatoires." },
+  { key:"collaborateurs", label:"Consignes équipe", icon:Users, help:"Actions assignées à Tom, Benjamin, Camille ou autres responsables." },
+  { key:"prospects", label:"Prospects à décider", icon:Phone, help:"Prospects chauds, rouges, orange, sans action ou à relancer." },
+  { key:"clients", label:"Clients actifs", icon:Briefcase, help:"Tous les clients actifs, avec alertes mises en avant et RAS séparés." },
+  { key:"biens", label:"Stock de biens", icon:Home, help:"Tout le cycle du bien depuis l’annonce repérée jusqu’au suivi offre / travaux." },
+  { key:"synthese", label:"Synthèse", icon:Send, help:"Plan d’action PDF par responsable avec commentaires détaillés." },
   { key:"validation", label:"Validation finale", icon:Check, help:"Finalisation stricte ou validation forcée avec motif." },
 ];
 
-const V5_BASE_COLLABORATORS = ["Tom", "Benjamin", "Camille", "Matthieu"];
-const V5_RESPONSABLES = ["Matthieu", "Tom", "Benjamin", "Camille", "Autre"];
-const V5_URGENCIES = ["Faible", "Normal", "Élevé"];
+const V6_BASE_COLLABORATORS = ["Tom", "Benjamin", "Camille", "Matthieu"];
+const V6_RESPONSABLES = ["Matthieu", "Tom", "Benjamin", "Camille", "Autre"];
+const V6_URGENCIES = ["Faible", "Normal", "Élevé"];
+const V6_RELANCE_SEQUENCE = [1, 3, 7, 14, 30];
+const V6_CLIENT_STEPS = ["Contrat signé", "Documents reçus", "Stratégie définie", "Recherche de biens", "Visites", "Présentation opportunité", "Offre d’achat", "Offre acceptée", "Financement", "Compromis", "Travaux", "Mise en location", "Terminé"];
+const V6_BIEN_STATUTS = ["Nouveau", "À trier", "À analyser", "Analyse en cours", "À visiter", "Visite programmée", "Visité", "À matcher", "Proposé à client", "Offre à faire", "Offre envoyée", "Offre acceptée", "Refusé", "Archivé", "En travaux", "Terminé"];
 
-const V5_DECISIONS = {
+const V6_DECISIONS = {
   urgence:["Traiter moi-même", "Assigner", "Reporter", "Bloquer", "Arbitrage Matthieu", "Clôturer / ne plus suivre"],
   collaborateur:["Rien à signaler", "Demander retour", "Donner consigne", "Réassigner", "Bloquer pour arbitrage", "Créer tâche"],
-  prospect:["Appeler", "Envoyer message", "Créer tâche", "Reporter", "Passer perdu", "Archiver", "Assigner à Tom", "Assigner à Benjamin"],
-  client:["Faire avancer", "Assigner", "Arbitrer", "Demander document", "Relancer client", "Relancer partenaire", "Mettre en surveillance", "Mettre en pause avec motif", "Urgence dirigeant", "Clôturer dossier"],
-  bien:["Analyser", "Proposer à un client", "Relancer agent / vendeur", "Faire offre", "Archiver", "Demander visite terrain", "Matcher avec client"],
+  prospect:["Appeler", "Envoyer WhatsApp", "Envoyer mail", "Programmer RDV", "Créer tâche", "Assigner", "Reporter", "Passer froid", "Passer perdu", "Archiver"],
+  client:["Faire avancer", "Relancer client", "Relancer banque", "Relancer notaire", "Relancer assurance", "Demander document", "Assigner à Tom", "Assigner à Benjamin", "Assigner à Camille", "Arbitrage Matthieu", "Mettre en pause", "Clôturer"],
+  bien:["Analyser", "Demander visite terrain", "Proposer à un client", "Matcher avec client", "Relancer agent / vendeur", "Faire offre", "Revoir le prix", "Archiver", "Mettre en attente", "Créer tâche travaux", "Créer tâche analyse"],
 };
 
-const V5_CHECKLISTS = {
+const V6_CHECKLISTS = {
   urgences:[
     { id:"late_tasks", label:"Tâches en retard vérifiées", required:true },
     { id:"red_alerts", label:"Chaque urgence rouge a une décision", required:true },
@@ -70,10 +75,8 @@ const V5_CHECKLISTS = {
     { id:"p3", label:"Priorité n°3 remplie", required:true },
   ],
   collaborateurs:[
-    { id:"missions", label:"Chaque collaborateur a une mission prioritaire", required:true },
-    { id:"objectifs", label:"Chaque collaborateur a un objectif du jour", required:true },
-    { id:"consignes", label:"Consignes du jour formulées", required:true },
-    { id:"risques", label:"Tâches en retard / blocages contrôlés", required:true },
+    { id:"assigned", label:"Les actions assignées à l’équipe sont contrôlées", required:false },
+    { id:"clear", label:"Les consignes importantes sont présentes dans le plan d’action", required:false },
   ],
   prospects:[
     { id:"classified", label:"Prospects classés par niveau", required:true },
@@ -179,29 +182,75 @@ function isDocumentAction(a={}) {
   return txt.includes("document") || txt.includes("piece") || txt.includes("pièce") || txt.includes("justificatif") || txt.includes("dossier manquant");
 }
 
+function prospectScore(c={}) {
+  const txt = normTxt(`${c.etape || ""} ${c.prochaine_action || ""} ${c.source || ""} ${c.commentaire || ""} ${c.motivation || ""} ${c.projet || ""} ${c.urgence || ""}`);
+  let score = 0;
+  // Délai / urgence projet
+  if (txt.includes("urgent") || txt.includes("rapid") || txt.includes("court terme") || txt.includes("3 mois")) score += 20;
+  else if (txt.includes("6 mois") || txt.includes("moyen terme")) score += 12;
+  else score += 6;
+  // Capacité financière approximée par budget renseigné
+  const budget = Number(c.budget) || 0;
+  if (budget >= 200000) score += 20;
+  else if (budget >= 150000) score += 16;
+  else if (budget >= 100000) score += 10;
+  else if (budget > 0) score += 6;
+  // Motivation claire
+  if (txt.includes("motivé") || txt.includes("motive") || txt.includes("très intéressé") || txt.includes("interessé") || txt.includes("intéressé")) score += 20;
+  else if (txt.includes("rdv") || txt.includes("appel") || txt.includes("proposition")) score += 14;
+  else score += 5;
+  // Qualité / maturité du contact
+  if (txt.includes("rdv fait") || txt.includes("proposition envoy") || txt.includes("qualifié") || txt.includes("qualifie")) score += 20;
+  else if (txt.includes("rdv fixé") || txt.includes("analyse")) score += 12;
+  else score += 5;
+  // Source
+  if (txt.includes("recommand") || txt.includes("parrain") || txt.includes("réseau") || txt.includes("reseau")) score += 20;
+  else if (txt.includes("site") || txt.includes("formulaire") || txt.includes("linkedin")) score += 12;
+  else score += 7;
+  return Math.max(0, Math.min(100, score));
+}
+
+function nextRelanceDateFromCount(count=0) {
+  const idx = Math.min(Math.max(Number(count) || 0, 0), V6_RELANCE_SEQUENCE.length - 1);
+  const d = new Date();
+  d.setDate(d.getDate() + V6_RELANCE_SEQUENCE[idx]);
+  return isoDate(d);
+}
+
 function prospectClass(c={}) {
   const last = daysSince(lastClientActivity(c));
-  const raw = normTxt(`${c.etape || ""} ${c.prochaine_action || ""} ${c.source || ""}`);
-  const budget = Number(c.budget) || 0;
-  const hasNoAction = !c.prochaine_action && !c.date_prochaine_action;
-  const isHot = raw.includes("rdv fait") || raw.includes("proposition") || raw.includes("qualifie") || raw.includes("qualifié") || budget >= 150000;
-  if (hasNoAction || (last !== null && last >= 10)) return { label:"Rouge", level:"danger", reason:hasNoAction ? "Sans prochaine action" : `Sans action depuis ${last} jours` };
-  if (last !== null && last >= 7) return { label:"Orange", level:"warning", reason:`Sans action depuis ${last} jours` };
-  if (isHot) return { label:"Chaud", level:"success", reason:"Facilement transformable" };
-  if (c.date_prochaine_action === todayIso()) return { label:"Relance du jour", level:"warning", reason:"Relance prévue aujourd’hui" };
-  return { label:"Suivi", level:"info", reason:"Prospect à maintenir actif" };
+  const score = prospectScore(c);
+  const hasNoAction = !c.prochaine_action || !c.date_prochaine_action;
+  const hasNoOwner = !c.conseiller;
+  const badges = [];
+  if (score >= 70) badges.push({ label:"Chaud", level:"success" });
+  if (c.date_prochaine_action === todayIso()) badges.push({ label:"Relance du jour", level:"warning" });
+  if (last !== null && last >= 10) badges.push({ label:"Rouge +10j", level:"danger" });
+  else if (last !== null && last >= 7) badges.push({ label:"Orange +7j", level:"warning" });
+  if (hasNoAction) badges.push({ label:"Sans action", level:"danger" });
+  if (hasNoOwner) badges.push({ label:"Sans responsable", level:"danger" });
+  const main = badges.find(b => b.level === "danger") || badges.find(b => b.level === "warning") || badges.find(b => b.level === "success") || { label:"Suivi", level:"info" };
+  const reason = hasNoAction ? "Prospect sans prochaine action datée" : hasNoOwner ? "Prospect sans responsable" : last !== null && last >= 10 ? `Sans action depuis ${last} jours` : last !== null && last >= 7 ? `Sans action depuis ${last} jours` : score >= 70 ? `Prospect chaud — score ${score}/100` : "Prospect à maintenir actif";
+  return { label:main.label, level:main.level, reason, score, badges };
 }
 
 function bienClass(b={}) {
-  const statut = normTxt(b.statut || "");
+  const statutRaw = b.statut || "";
+  const statut = normTxt(statutRaw);
   const score = getBienScore(b);
-  if (b.date_relance && b.date_relance <= todayIso()) return { label:"À relancer", level:"danger", reason:`Relance prévue le ${safeDate(b.date_relance)}` };
-  if (statut.includes("nouveau") || statut.includes("trier")) return { label:"Nouvelle annonce", level:"warning", reason:"Annonce à classer" };
-  if (statut.includes("analyse") || statut.includes("analyser")) return { label:"À analyser", level:"warning", reason:"Analyse à finaliser" };
-  if (statut.includes("offre envoy")) return { label:"Offre envoyée", level:"warning", reason:"Suivi offre à faire" };
-  if (!isBienFicheComplete(b)) return { label:"Fiche incomplète", level:"warning", reason:"Fiche bien à compléter" };
-  if (score >= 45) return { label:"Opportunité", level:"success", reason:`Score Profero ${score}` };
-  return { label:"Stock", level:"info", reason:"Bien à suivre" };
+  const hasNoStatus = !String(statutRaw || "").trim();
+  const hasNoAction = !b.date_relance && !statut.includes("termine") && !statut.includes("archiv") && !statut.includes("refus");
+  const isOffer = statut.includes("offre envoy") || statut.includes("offre à faire") || statut.includes("offre a faire") || statut.includes("offre accept");
+  if (hasNoStatus) return { label:"Sans statut", level:"danger", reason:"Bien sans statut", score };
+  if (b.date_relance && b.date_relance <= todayIso()) return { label:"Relance dépassée", level:"danger", reason:`Relance prévue le ${safeDate(b.date_relance)}`, score };
+  if (hasNoAction && !statut.includes("termine") && !statut.includes("archiv")) return { label:"Sans action", level:"danger", reason:"Bien sans prochaine action / relance", score };
+  if (isOffer) return { label:"Offre en cours", level:"warning", reason:"Offre à suivre", score };
+  if (statut.includes("nouveau") || statut.includes("trier")) return { label:"Nouvelle annonce", level:"warning", reason:"Annonce à classer", score };
+  if (statut.includes("analyse") || statut.includes("analyser")) return { label:"À analyser", level:"warning", reason:"Analyse à finaliser", score };
+  if (statut.includes("visite") || statut.includes("matcher") || statut.includes("proposé")) return { label:"Tâche à effectuer", level:"warning", reason:"Action à effectuer sur le bien", score };
+  if (!isBienFicheComplete(b)) return { label:"Fiche incomplète", level:"warning", reason:"Fiche bien incomplète", score };
+  if (score >= 70) return { label:"Prioritaire", level:"success", reason:"Score Profero prioritaire", score };
+  return { label:"Sous contrôle", level:"info", reason:"Bien sans décision urgente", score };
 }
 
 function levelColor(level, T) {
@@ -229,7 +278,7 @@ function emptyRoutineState() {
 }
 
 function storageKeyFor(date=todayIso()) {
-  return `profero_invest_morning_routine_v5_${date}`;
+  return `profero_invest_morning_routine_v6_${date}`;
 }
 
 function decisionKey(item) {
@@ -242,7 +291,7 @@ function defaultDecision(item) {
     comment:"",
     responsable:item.responsable || "Matthieu",
     next_action:item.defaultAction || "",
-    due_date:item.requiresDate ? todayIso() : "",
+    due_date:item.requiresDate ? (item.suggestedDueDate || todayIso()) : "",
     force_validated:false,
     force_reason:"",
     create_task:true,
@@ -322,7 +371,7 @@ function SectionCard({ title, icon, subtitle, children, T=THEMES_INV.dark, actio
 function RoutineDecisionCard({ item, decision, onChange, T=THEMES_INV.dark, compact=false }) {
   const d = decision || defaultDecision(item);
   const type = item.type || "urgence";
-  const options = V5_DECISIONS[type] || V5_DECISIONS.urgence;
+  const options = V6_DECISIONS[type] || V6_DECISIONS.urgence;
   const color = levelColor(item.level, T);
   const complete = isDecisionComplete(item, d);
   const detailGrid = compact ? "1fr" : "repeat(auto-fit,minmax(190px,1fr))";
@@ -332,7 +381,7 @@ function RoutineDecisionCard({ item, decision, onChange, T=THEMES_INV.dark, comp
       <div style={{ display:"flex", justifyContent:"space-between", gap:12, alignItems:"flex-start", marginBottom:SPACING.sm }}>
         <div style={{ minWidth:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap", marginBottom:4 }}>
-            <AlertBadge level={item.level} T={T}>{item.badge || item.category || item.type}</AlertBadge>
+            {safeArr(item.badges).length ? safeArr(item.badges).map((b, idx) => <AlertBadge key={`${b.label}-${idx}`} level={b.level} T={T}>{b.label}</AlertBadge>) : <AlertBadge level={item.level} T={T}>{item.badge || item.category || item.type}</AlertBadge>}
             {item.meta && <span style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:700 }}>{item.meta}</span>}
           </div>
           <div style={{ fontSize:FONT.lg.size - 1, fontWeight:900, color:T.text, lineHeight:1.25 }}>{item.label}</div>
@@ -346,7 +395,7 @@ function RoutineDecisionCard({ item, decision, onChange, T=THEMES_INV.dark, comp
 
       <div style={{ display:"grid", gridTemplateColumns:detailGrid, gap:SPACING.sm, marginTop:SPACING.sm }}>
         <SelectInput label="Décision" required value={d.decision} onChange={v => patch({ decision:v })} options={options} T={T}/>
-        <SelectInput label="Responsable" required value={d.responsable} onChange={v => patch({ responsable:v })} options={V5_RESPONSABLES} T={T}/>
+        <SelectInput label="Responsable" required value={d.responsable} onChange={v => patch({ responsable:v })} options={V6_RESPONSABLES} T={T}/>
         <TextInput label="Action future" required={item.requiresNextAction} value={d.next_action} onChange={v => patch({ next_action:v })} placeholder="Ex : appeler, relancer, analyser…" T={T}/>
         <TextInput label="Échéance" required={item.requiresDate} type="date" value={d.due_date} onChange={v => patch({ due_date:v })} T={T}/>
       </div>
@@ -384,8 +433,8 @@ function PriorityEditor({ priorities, onChange, T=THEMES_INV.dark }) {
             </div>
             <div style={{ display:"grid", gap:SPACING.sm }}>
               <TextInput label="Titre de la priorité" required value={p.title} onChange={v => update(idx, { title:v })} placeholder="Ex : relancer les prospects rouges" T={T}/>
-              <SelectInput label="Responsable" required value={p.responsable} onChange={v => update(idx, { responsable:v })} options={V5_RESPONSABLES} T={T}/>
-              <SelectInput label="Niveau d’urgence" required value={p.urgency} onChange={v => update(idx, { urgency:v })} options={V5_URGENCIES} T={T}/>
+              <SelectInput label="Responsable" required value={p.responsable} onChange={v => update(idx, { responsable:v })} options={V6_RESPONSABLES} T={T}/>
+              <SelectInput label="Niveau d’urgence" required value={p.urgency} onChange={v => update(idx, { urgency:v })} options={V6_URGENCIES} T={T}/>
               <TextInput label="Échéance" type="date" value={p.due_date} onChange={v => update(idx, { due_date:v })} T={T}/>
               <TextArea label="Commentaire / résultat attendu" required value={p.comment} onChange={v => update(idx, { comment:v })} T={T}/>
             </div>
@@ -422,8 +471,8 @@ function CollaboratorEditor({ names, values, onChange, onAdd, T=THEMES_INV.dark,
                 <TextInput label="Objectif du jour" required value={v.objectif} onChange={val => update(name, { objectif:val })} T={T}/>
                 <TextInput label="Blocage éventuel" value={v.blocage} onChange={val => update(name, { blocage:val })} T={T}/>
                 <TextArea label="Message / consigne à envoyer" required value={v.consigne} onChange={val => update(name, { consigne:val })} T={T}/>
-                <SelectInput label="Décision" required value={v.decision} onChange={val => update(name, { decision:val })} options={V5_DECISIONS.collaborateur} T={T}/>
-                <SelectInput label="Niveau d’urgence" required value={v.urgency} onChange={val => update(name, { urgency:val })} options={V5_URGENCIES} T={T}/>
+                <SelectInput label="Décision" required value={v.decision} onChange={val => update(name, { decision:val })} options={V6_DECISIONS.collaborateur} T={T}/>
+                <SelectInput label="Niveau d’urgence" required value={v.urgency} onChange={val => update(name, { urgency:val })} options={V6_URGENCIES} T={T}/>
               </div>
             </div>
           );
@@ -431,6 +480,21 @@ function CollaboratorEditor({ names, values, onChange, onAdd, T=THEMES_INV.dark,
       </div>
     </div>
   );
+}
+
+function ConsignesCollaborateursView({ plan=[], T=THEMES_INV.dark }) {
+  const names = ["Matthieu", "Tom", "Benjamin", "Camille"];
+  const assigned = plan.filter(p => p.responsable && p.responsable !== "Matthieu");
+  if (!assigned.length) {
+    return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>Aucune consigne collaborateur pour le moment. Les consignes apparaîtront ici dès qu’une décision sera assignée à Tom, Benjamin, Camille ou un autre responsable.</div>;
+  }
+  const responsables = Array.from(new Set([...names, ...assigned.map(p => p.responsable)])).filter(r => assigned.some(p => p.responsable === r));
+  return <div style={{ display:"grid", gap:SPACING.md }}>{responsables.map(r => <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}><div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text }}>{r}</div><AlertBadge level="info" T={T}>{assigned.filter(p => p.responsable === r).length} consigne(s)</AlertBadge></div>{assigned.filter(p => p.responsable === r).map((p, i) => <div key={i} style={{ padding:"8px 0", borderTop:i ? `1px solid ${T.border}` : "none" }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text }}>{p.title}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2 }}>Échéance : {safeDate(p.due_date)} · Source : {p.source || "—"}</div>{p.comment && <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:4 }}>{p.comment}</div>}</div>)}</div>)}</div>;
+}
+
+function RoutineInfoList({ items=[], empty="Aucun dossier sous contrôle", T=THEMES_INV.dark }) {
+  if (!items.length) return <div style={{ padding:SPACING.md, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
+  return <div style={{ display:"grid", gap:8 }}>{items.map(item => <div key={decisionKey(item)} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ minWidth:0 }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.label}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>{item.details || item.reason}</div></div><AlertBadge level="success" T={T}>Sous contrôle</AlertBadge></div>)}</div>;
 }
 
 function MiniMonthlyChart({ data=[], T=THEMES_INV.dark }) {
@@ -451,7 +515,7 @@ function MiniMonthlyChart({ data=[], T=THEMES_INV.dark }) {
   );
 }
 
-function buildV5Data({ clients=[], biens=[], propositions=[], planning=[], actions=[] }) {
+function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actions=[] }) {
   const today = todayIso();
   const { startWeek, endWeek } = getWeekRange();
   const prospects = clients.filter(c => (c.statut || "Prospect") === "Prospect");
@@ -463,7 +527,7 @@ function buildV5Data({ clients=[], biens=[], propositions=[], planning=[], actio
   const partnerActions = openActions.filter(isPartnerAction);
   const docActions = openActions.filter(isDocumentAction);
 
-  const collaboratorNames = V5_BASE_COLLABORATORS;
+  const collaboratorNames = V6_BASE_COLLABORATORS;
   const collaboratorStats = collaboratorNames.reduce((acc, name) => {
     const list = actions.filter(a => normTxt(actionOwner(a)).includes(normTxt(name)));
     acc[name] = { open:list.filter(isOpenAction).length, late:list.filter(a => isOpenAction(a) && a.due_date && a.due_date < today).length, blocked:list.filter(isBlockedAction).length, doneToday:list.filter(a => isDoneAction(a) && isWithin(a.updated_at || a.completed_at || a.done_at, today, today)).length };
@@ -472,41 +536,46 @@ function buildV5Data({ clients=[], biens=[], propositions=[], planning=[], actio
 
   const prospectItems = prospects.map(c => {
     const pc = prospectClass(c);
+    const relanceCount = Number(c.relance_count || c.nb_relances || 0) || 0;
     return {
       type:"prospect", id:c.id, source:"invest_clients", label:getClientName(c), category:pc.label, level:pc.level,
-      reason:pc.reason, responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir la prochaine action prospect",
-      requiresNextAction:true, requiresDate:true, critical:pc.level !== "info" || pc.label === "Chaud",
-      meta:`Budget ${fmtDashboardEur(c.budget)} · ${c.etape || "Étape non renseignée"}`,
-      details:`Source : ${c.source || "—"} · Prochaine action : ${c.prochaine_action || "—"} · Relance : ${safeDate(c.date_prochaine_action)}`,
+      badges:pc.badges, reason:pc.reason, responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir la prochaine action prospect",
+      requiresNextAction:true, requiresDate:true, critical:pc.level !== "info" || pc.score >= 70,
+      suggestedDueDate:nextRelanceDateFromCount(relanceCount), score:pc.score,
+      meta:`Score ${pc.score}/100 · Budget ${fmtDashboardEur(c.budget)} · ${c.etape || "Étape non renseignée"}`,
+      details:`Source : ${c.source || "—"} · Prochaine action : ${c.prochaine_action || "—"} · Relance : ${safeDate(c.date_prochaine_action)} · Relance proposée : ${safeDate(nextRelanceDateFromCount(relanceCount))}`,
       raw:c,
     };
-  }).sort((a,b) => ({ danger:0, warning:1, success:2, info:3 }[a.level] - { danger:0, warning:1, success:2, info:3 }[b.level]));
+  }).sort((a,b) => ({ danger:0, warning:1, success:2, info:3 }[a.level] - { danger:0, warning:1, success:2, info:3 }[b.level] || (b.score || 0) - (a.score || 0)));
 
   const clientItems = clientsMetier.map(c => {
     const noStage = !c.etape;
     const noOwner = !c.conseiller;
+    const noNextAction = !c.prochaine_action || !c.date_prochaine_action;
+    const last = daysSince(lastClientActivity(c));
     const hasDoc = docActions.some(a => a.client_id === c.id);
-    const blocked = noStage || hasDoc || blockedActions.some(a => a.client_id === c.id);
+    const blocked = noStage || noOwner || noNextAction || hasDoc || blockedActions.some(a => a.client_id === c.id);
+    const level = noStage || noOwner || noNextAction || (last !== null && last >= 10) ? "danger" : hasDoc || (last !== null && last >= 7) ? "warning" : "info";
+    const reason = noStage ? "Étape non renseignée" : noOwner ? "Client sans responsable" : noNextAction ? "Client sans prochaine action datée" : last !== null && last >= 10 ? `Sans avancée depuis ${last} jours` : hasDoc ? "Document manquant / à contrôler" : last !== null && last >= 7 ? `Sans avancée depuis ${last} jours` : "Sous contrôle";
     return {
-      type:"client", id:c.id, source:"invest_clients", label:getClientName(c), category:c.etape || "Étape non renseignée", level:blocked ? "danger" : noOwner ? "warning" : "info",
-      reason:blocked ? (noStage ? "Étape non renseignée" : hasDoc ? "Document manquant / à contrôler" : "Action bloquée") : "Client à piloter par étape",
-      responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir l’action future du dossier",
-      requiresNextAction:true, requiresDate:false, critical:blocked || noOwner || !c.prochaine_action,
+      type:"client", id:c.id, source:"invest_clients", label:getClientName(c), category:c.etape || "Étape non renseignée", level,
+      reason, responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir l’action future du dossier",
+      requiresNextAction:true, requiresDate:true, critical:blocked || level !== "info",
       meta:`Statut ${c.statut || "—"} · Budget ${fmtDashboardEur(c.budget)}`,
-      details:`Prochaine action : ${c.prochaine_action || "—"} · Date : ${safeDate(c.date_prochaine_action)} · Responsable : ${c.conseiller || "—"}`,
+      details:`Étape : ${c.etape || "—"} · Prochaine action : ${c.prochaine_action || "—"} · Date : ${safeDate(c.date_prochaine_action)} · Responsable : ${c.conseiller || "—"}`,
       raw:c,
     };
-  });
+  }).sort((a,b) => ({ danger:0, warning:1, info:2, success:3 }[a.level] - { danger:0, warning:1, info:2, success:3 }[b.level]));
 
-  const bienItems = biens.map(b => {
+  const biensActifs = biens.filter(b => !["archivé", "archive", "terminé", "termine", "refusé", "refuse"].some(s => normTxt(b.statut || "").includes(s)));
+  const bienItems = biensActifs.map(b => {
     const bc = bienClass(b);
-    const score = getBienScore(b);
     return {
       type:"bien", id:b.id, source:"invest_biens", label:getBienLabel(b), category:bc.label, level:bc.level,
       reason:bc.reason, responsable:b.conseiller_profero || "Benjamin", defaultAction:"Prévoir l’action suivante sur le bien",
-      requiresNextAction:true, requiresDate:false, critical:bc.level !== "info",
-      meta:`Score ${score} · ${b.statut || "Statut non renseigné"}`,
-      details:`Prix ${fmtDashboardEur(b.prix_vente)} · Travaux ${fmtDashboardEur(b.prix_travaux)} · Rendement ${b.rendement_brut ? fmtDashboardPct(b.rendement_brut) : "—"} · Cash-flow ${fmtDashboardEur(b.cashflow_estime)}`,
+      requiresNextAction:true, requiresDate:true, critical:bc.level !== "info",
+      meta:`${b.statut || "Statut non renseigné"}`,
+      details:`Prix ${fmtDashboardEur(b.prix_vente)} · Travaux ${fmtDashboardEur(b.prix_travaux)} · Coût total ${fmtDashboardEur(b.cout_total)} · Rendement ${b.rendement_brut ? fmtDashboardPct(b.rendement_brut) : "—"} · Cash-flow ${fmtDashboardEur(b.cashflow_estime)} · Score ${bc.score}`,
       raw:b,
     };
   }).sort((a,b) => ({ danger:0, warning:1, success:2, info:3 }[a.level] - { danger:0, warning:1, success:2, info:3 }[b.level]));
@@ -530,7 +599,7 @@ function buildV5Data({ clients=[], biens=[], propositions=[], planning=[], actio
   const prospectsThisMonth = prospects.filter(p => monthKey(p.created_at) === monthKey(new Date())).length;
 
   return {
-    today, startWeek, endWeek, prospects, clientsMetier, biens, propositions, planning, actions,
+    today, startWeek, endWeek, prospects, clientsMetier, biens:biensActifs, propositions, planning, actions,
     prospectItems, clientItems, bienItems, urgencyItems, collaboratorStats,
     stats:{
       lateActions:lateActions.length, blockedActions:blockedActions.length, prospectsRed:prospectItems.filter(i => i.level === "danger").length, prospectsOrange:prospectItems.filter(i => i.level === "warning").length,
@@ -562,7 +631,7 @@ function actionPlanFromRoutine(routine, data) {
 
 function printActionPlanPDF(routine, data) {
   const lines = actionPlanFromRoutine(routine, data);
-  const grouped = V5_RESPONSABLES.reduce((acc, r) => ({ ...acc, [r]:lines.filter(l => (l.responsable || "") === r) }), {});
+  const grouped = V6_RESPONSABLES.reduce((acc, r) => ({ ...acc, [r]:lines.filter(l => (l.responsable || "") === r) }), {});
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Plan d'action ${todayIso()}</title><style>body{font-family:Arial,sans-serif;color:#0D2E5C;margin:32px}h1{font-size:24px;margin:0 0 6px}h2{margin-top:24px;border-bottom:1px solid #ddd;padding-bottom:6px}.muted{color:#667085}.item{margin:10px 0;padding:10px;border:1px solid #e5e7eb;border-radius:8px}.title{font-weight:700}.meta{font-size:12px;color:#667085;margin-top:4px}</style></head><body><h1>Plan d'action du jour — Profero Invest</h1><div class="muted">Routine du ${todayIso()}</div>${Object.entries(grouped).map(([r,list]) => list.length ? `<h2>${r}</h2>${list.map(l => `<div class="item"><div class="title">${l.title || "Action"}</div><div class="meta">Échéance : ${l.due_date || "—"} · Source : ${l.source || "—"} · Décision : ${l.decision || "—"}</div><div>${l.comment || ""}</div></div>`).join("")}` : "").join("")}<h2>Points bloquants</h2>${Object.entries(routine.decisions || {}).filter(([,d]) => normTxt(d.decision || "").includes("bloquer") || normTxt(d.decision || "").includes("arbitrage")).map(([k,d]) => `<div class="item"><div class="title">${k}</div><div>${d.comment || d.force_reason || ""}</div></div>`).join("") || "<div class='muted'>Aucun point bloquant saisi.</div>"}</body></html>`;
   const w = window.open("", "_blank");
   if (!w) return;
@@ -603,8 +672,8 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       } catch (e) { setOptionalErrors(prev => [...prev, `${label} : non disponible`]); return []; }
     };
     const [c,b,p,pl,a,h] = await Promise.all([
-      safeQuery("Clients", supabase.from("invest_clients").select("id,nom,prenom,statut,budget,date_signature,date_premier_contact,prochaine_action,date_prochaine_action,created_at,updated_at,etape,source,conseiller").order("created_at", { ascending:false })),
-      safeQuery("Biens", supabase.from("invest_biens").select("id,adresse,ville,statut,date_relance,date_visite,rendement_brut,cashflow_estime,prix_vente,prix_travaux,cout_total,montant_offre,visite_data,latitude,longitude,reference_interne,conseiller_profero,created_at,updated_at").order("created_at", { ascending:false })),
+      safeQuery("Clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false })),
+      safeQuery("Biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false })),
       safeQuery("Propositions", supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)")),
       safeQuery("Planning", supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at,updated_at").order("date_rdv", { ascending:false }).limit(300)),
       safeQuery("Actions", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(500)),
@@ -617,14 +686,15 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
   useEffect(() => { try { window.localStorage.setItem(storageKeyFor(), JSON.stringify(routine)); } catch {} }, [routine]);
 
-  const data = useMemo(() => buildV5Data({ clients, biens, propositions, planning, actions }), [clients, biens, propositions, planning, actions]);
-  const collaborators = useMemo(() => [...V5_BASE_COLLABORATORS, ...safeArr(routine.extraCollaborators).filter(Boolean)], [routine.extraCollaborators]);
-  const visibleProspects = quickMode ? data.prospectItems.filter(i => i.critical) : data.prospectItems;
-  const visibleClients = quickMode ? data.clientItems.filter(i => i.critical) : data.clientItems;
-  const visibleBiens = quickMode ? data.bienItems.filter(i => i.critical) : data.bienItems;
-  const allRequiredItems = useMemo(() => [...data.urgencyItems, ...visibleProspects.filter(i => i.critical || !quickMode), ...visibleClients.filter(i => i.critical || !quickMode), ...visibleBiens.filter(i => i.critical || !quickMode)], [data, visibleProspects, visibleClients, visibleBiens, quickMode]);
+  const data = useMemo(() => buildV6Data({ clients, biens, propositions, planning, actions }), [clients, biens, propositions, planning, actions]);
+  const collaborators = useMemo(() => ["Matthieu", "Tom", "Benjamin", "Camille"], []);
+  const visibleProspects = quickMode ? data.prospectItems.filter(i => i.level === "danger" || i.score >= 70) : data.prospectItems.filter(i => i.critical);
+  const visibleClients = quickMode ? data.clientItems.filter(i => i.level === "danger") : data.clientItems;
+  const visibleBiens = quickMode ? data.bienItems.filter(i => i.level === "danger" || normTxt(i.category).includes("offre")) : data.bienItems.filter(i => i.critical);
+  const clientDecisionItems = data.clientItems.filter(i => i.critical);
+  const allRequiredItems = useMemo(() => [...data.urgencyItems, ...data.prospectItems.filter(i => i.critical), ...clientDecisionItems, ...data.bienItems.filter(i => i.critical)], [data, clientDecisionItems]);
   const incompleteItems = allRequiredItems.filter(item => !isDecisionComplete(item, routine.decisions[decisionKey(item)]));
-  const incompleteCollaborators = collaborators.filter(name => !isCollaboratorComplete(routine.collaborators[name]));
+  const incompleteCollaborators = [];
   const prioritiesOk = safeArr(routine.priorities).every(isPriorityComplete);
   const finalOk = prioritiesOk && incompleteCollaborators.length === 0 && incompleteItems.length === 0;
   const plan = useMemo(() => actionPlanFromRoutine(routine, data), [routine, data]);
@@ -655,7 +725,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Morning Routine — Client", comment:d.comment });
     } else if (item.originalType === "bien" || item.type === "bien") {
       const decisionNorm = normTxt(d.decision);
-      const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
+      const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
       await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
       createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Morning Routine — Bien", comment:d.comment });
     } else {
@@ -689,14 +759,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       setRoutine(prev => ({ ...prev, savedRoutineId:routineId, status:complete ? "completed" : "in_progress", completed_at:complete ? new Date().toISOString() : prev.completed_at, force_completed:forced }));
       await loadDashboard();
     } catch (e) {
-      setError(e?.message || "Impossible d’enregistrer la routine. Vérifie la migration Supabase V5.");
+      setError(e?.message || "Impossible d’enregistrer la routine. Vérifie la migration Supabase V6.");
     } finally { setSaving(false); }
   };
 
   const forceCompleteAllowed = Boolean(String(routine.force_reason || "").trim());
 
   const renderChecklist = (stepKey) => {
-    const list = V5_CHECKLISTS[stepKey] || [];
+    const list = V6_CHECKLISTS[stepKey] || [];
     return <div style={{ display:"grid", gap:6 }}>{list.map(ch => <label key={ch.id} style={{ display:"flex", alignItems:"center", gap:8, color:T.textSub, fontSize:FONT.sm.size, fontWeight:800 }}><input type="checkbox" checked={Boolean(routine.checklist?.[stepKey]?.[ch.id])} onChange={e => updateChecklist(stepKey, ch.id, e.target.checked)}/>{ch.label}{ch.required && <span style={{ color:DA }}>*</span>}</label>)}<TextArea label="Note libre de l’étape" value={routine.stepNotes?.[stepKey] || ""} onChange={v => updateStepNote(stepKey, v)} T={T}/></div>;
   };
 
@@ -708,16 +778,16 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const renderStep = () => {
     if (activeStep === "urgences") return <><SectionCard title="Urgences à traiter" icon={AlertTriangle} subtitle="Les tâches en retard sont affichées en premier" T={T}>{renderItems(data.urgencyItems, "Aucune urgence critique détectée", quickMode)}</SectionCard><SectionCard title="Checklist Urgences" icon={Check} T={T}>{renderChecklist("urgences")}</SectionCard></>;
     if (activeStep === "priorites") return <><SectionCard title="3 priorités obligatoires du jour" icon={Sparkles} subtitle="Impossible de terminer la routine sans ces 3 priorités" T={T}><PriorityEditor priorities={routine.priorities} onChange={priorities => setRoutine(prev => ({ ...prev, priorities }))} T={T}/></SectionCard><SectionCard title="Checklist Priorités" icon={Check} T={T}>{renderChecklist("priorites")}</SectionCard></>;
-    if (activeStep === "collaborateurs") return <><SectionCard title="Collaborateurs" icon={Users} subtitle="Chaque personne doit avoir une mission, un objectif et une consigne" T={T}><CollaboratorEditor names={collaborators} values={routine.collaborators || {}} onChange={collaborators => setRoutine(prev => ({ ...prev, collaborators }))} onAdd={name => setRoutine(prev => ({ ...prev, extraCollaborators:[...safeArr(prev.extraCollaborators), name] }))} T={T} statsByName={data.collaboratorStats}/></SectionCard><SectionCard title="Checklist Collaborateurs" icon={Check} T={T}>{renderChecklist("collaborateurs")}</SectionCard></>;
-    if (activeStep === "prospects") return <><SectionCard title="Prospects classés" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects critiques uniquement" : "Mode strict : tous les prospects"} T={T}>{renderItems(visibleProspects, "Aucun prospect à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard></>;
-    if (activeStep === "clients") return <><SectionCard title="Clients par étape" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients critiques uniquement" : "Tous les clients actifs / signés / en cours"} T={T}>{renderItems(visibleClients, "Aucun client à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Clients" icon={Check} T={T}>{renderChecklist("clients")}</SectionCard></>;
-    if (activeStep === "biens") return <><SectionCard title="Biens identifiés" icon={Home} subtitle={quickMode ? "Mode rapide : biens critiques uniquement" : "Tous les biens avec score et décision"} T={T}>{renderItems(visibleBiens, "Aucun bien à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Biens" icon={Check} T={T}>{renderChecklist("biens")}</SectionCard></>;
+    if (activeStep === "collaborateurs") return <><SectionCard title="Consignes collaborateurs" icon={Users} subtitle="Générées automatiquement à partir des décisions assignées" T={T}><ConsignesCollaborateursView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Consignes" icon={Check} T={T}>{renderChecklist("collaborateurs")}</SectionCard></>;
+    if (activeStep === "prospects") return <><SectionCard title="Prospects classés" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds uniquement" : "Uniquement les prospects qui nécessitent une décision"} T={T}>{renderItems(visibleProspects, "Aucun prospect à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard></>;
+    if (activeStep === "clients") { const clientsAlertes = visibleClients.filter(i => i.critical); const clientsOk = quickMode ? [] : visibleClients.filter(i => !i.critical); return <><SectionCard title="Clients à décider" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients rouges uniquement" : "Alertes en premier : sans action, sans étape, sans responsable ou sans avancée"} T={T}>{renderItems(clientsAlertes, "Aucun client en alerte", quickMode)}</SectionCard>{!quickMode && <SectionCard title="Clients sous contrôle" icon={Check} subtitle="Visibles pour maîtrise globale, sans décision obligatoire" T={T}><RoutineInfoList items={clientsOk} T={T}/></SectionCard>}<SectionCard title="Checklist Clients" icon={Check} T={T}>{renderChecklist("clients")}</SectionCard></>; }
+    if (activeStep === "biens") return <><SectionCard title="Biens identifiés" icon={Home} subtitle={quickMode ? "Mode rapide : biens rouges / offres en cours" : "Biens nécessitant une tâche, une relance ou une décision"} T={T}>{renderItems(visibleBiens, "Aucun bien à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Biens" icon={Check} T={T}>{renderChecklist("biens")}</SectionCard></>;
     if (activeStep === "synthese") return <><SectionCard title="Plan d’action court" icon={Send} subtitle="Regroupé par responsable" T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Synthèse" icon={Check} T={T}>{renderChecklist("synthese")}</SectionCard></>;
-    return <SectionCard title="Validation finale" icon={Check} T={T}><div style={{ display:"grid", gap:SPACING.md }}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:SPACING.md }}><KPICard icon={Sparkles} label="Priorités complètes" value={prioritiesOk ? "Oui" : "Non"} color={prioritiesOk ? SU : DA}/><KPICard icon={Users} label="Collaborateurs incomplets" value={incompleteCollaborators.length} color={incompleteCollaborators.length ? DA : SU}/><KPICard icon={AlertTriangle} label="Décisions manquantes" value={incompleteItems.length} color={incompleteItems.length ? DA : SU}/><KPICard icon={Send} label="Actions au plan" value={plan.length} color="#FFC200"/></div>{!finalOk && <div style={{ padding:SPACING.md, borderRadius:RADIUS.md, background:SEMANTIC?.danger?.bg || "#fff1f2", border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, color:DA, fontWeight:800 }}>Routine non finalisable : {incompleteItems.length} décision(s) manquante(s), {incompleteCollaborators.length} collaborateur(s) incomplet(s), priorités {prioritiesOk ? "OK" : "incomplètes"}.</div>}<TextArea label="Motif de validation forcée" value={routine.force_reason} onChange={v => setRoutine(prev => ({ ...prev, force_reason:v }))} placeholder="Obligatoire si tu veux terminer malgré des éléments incomplets." T={T}/><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" disabled={saving} onClick={() => saveRoutine({ complete:false })}><Icon as={Save} size={12}/>Enregistrer brouillon</button><button className="inv-btn inv-btn-gold inv-btn-sm" disabled={saving || !finalOk} onClick={() => saveRoutine({ complete:true, forced:false })}><Icon as={Check} size={12}/>Terminer la routine</button><button className="inv-btn inv-btn-sm" style={{ background:DA, color:"white" }} disabled={saving || finalOk || !forceCompleteAllowed} onClick={() => saveRoutine({ complete:true, forced:true })}><Icon as={AlertTriangle} size={12}/>Forcer avec motif</button></div></div></SectionCard>;
+    return <SectionCard title="Validation finale" icon={Check} T={T}><div style={{ display:"grid", gap:SPACING.md }}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:SPACING.md }}><KPICard icon={Sparkles} label="Priorités complètes" value={prioritiesOk ? "Oui" : "Non"} color={prioritiesOk ? SU : DA}/><KPICard icon={Users} label="Consignes équipe" value={plan.filter(p => p.responsable && p.responsable !== "Matthieu").length} color={T.accent}/><KPICard icon={AlertTriangle} label="Décisions manquantes" value={incompleteItems.length} color={incompleteItems.length ? DA : SU}/><KPICard icon={Send} label="Actions au plan" value={plan.length} color="#FFC200"/></div>{!finalOk && <div style={{ padding:SPACING.md, borderRadius:RADIUS.md, background:SEMANTIC?.danger?.bg || "#fff1f2", border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, color:DA, fontWeight:800 }}>Routine non finalisable : {incompleteItems.length} décision(s) manquante(s), priorités {prioritiesOk ? "OK" : "incomplètes"}.</div>}<TextArea label="Motif de validation forcée" value={routine.force_reason} onChange={v => setRoutine(prev => ({ ...prev, force_reason:v }))} placeholder="Obligatoire si tu veux terminer malgré des éléments incomplets." T={T}/><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" disabled={saving} onClick={() => saveRoutine({ complete:false })}><Icon as={Save} size={12}/>Enregistrer brouillon</button><button className="inv-btn inv-btn-gold inv-btn-sm" disabled={saving || !finalOk} onClick={() => saveRoutine({ complete:true, forced:false })}><Icon as={Check} size={12}/>Terminer la routine</button><button className="inv-btn inv-btn-sm" style={{ background:DA, color:"white" }} disabled={saving || finalOk || !forceCompleteAllowed} onClick={() => saveRoutine({ complete:true, forced:true })}><Icon as={AlertTriangle} size={12}/>Forcer avec motif</button></div></div></SectionCard>;
   };
 
   const renderTab = () => {
-    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v5-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Étapes de la routine</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V5_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "urgences" ? data.urgencyItems.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "prospects" ? visibleProspects.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
+    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Étapes de la routine</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "urgences" ? data.urgencyItems.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "prospects" ? visibleProspects.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
     if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
     if (activeTab === "suivi") return <SuiviDossiers data={data} T={T} onNavigate={onNavigate}/>;
     if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
@@ -727,15 +797,15 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Morning Routine Profero Invest</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Maîtriser chaque dossier : contrôler, décider, déléguer, relancer.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level={incompleteCollaborators.length ? "warning" : "success"} T={T}>{incompleteCollaborators.length} collaborateur(s) incomplet(s)</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Morning Routine Profero Invest V6</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Priorité aux urgences : prospects, clients, stock de biens et consignes équipe.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
 
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.xl }}>{V5_TABS.map(tab => { const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.pill, padding:"9px 13px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"inherit", fontWeight:900 }}><Icon as={tab.icon} size={14}/>{tab.label}</button> })}</div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.xl }}>{V6_TABS.map(tab => { const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.pill, padding:"9px 13px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"inherit", fontWeight:900 }}><Icon as={tab.icon} size={14}/>{tab.label}</button> })}</div>
       {optionalErrors.length > 0 && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.warning?.border || "#fde68a"}`, background:SEMANTIC?.warning?.bg || "#fffbeb", borderRadius:RADIUS.md, color:WA }}>Certaines données optionnelles ne sont pas disponibles. La page reste utilisable.</div>}
       {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
       {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement…</div> : renderTab()}
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:980px){.inv-v5-routine-layout{grid-template-columns:1fr!important}.inv-card[style*="sticky"]{position:relative!important;top:auto!important}}`}</style>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:980px){.inv-v6-routine-layout{grid-template-columns:1fr!important}.inv-card[style*="sticky"]{position:relative!important;top:auto!important}}`}</style>
     </div>
   );
 }
@@ -751,7 +821,7 @@ function SuiviDossiers({ data, T=THEMES_INV.dark, onNavigate }) {
 }
 
 function HistoriqueRoutines({ history=[], T=THEMES_INV.dark }) {
-  return <SectionCard title="Historique des routines" icon={FileText} subtitle="Après migration Supabase V5" T={T}>{history.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucune routine enregistrée pour le moment.</div> : <div style={{ display:"grid", gap:8 }}>{history.map(r => <div key={r.id} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:SPACING.md, display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div><div style={{ fontWeight:900, color:T.text }}>{safeDate(r.routine_date)}</div><div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{r.status} · {r.completion_forced ? "forcée" : "standard"}</div></div><AlertBadge level={r.status === "completed" ? "success" : "warning"} T={T}>{r.status}</AlertBadge></div>)}</div>}</SectionCard>;
+  return <SectionCard title="Historique des routines" icon={FileText} subtitle="Après migration Supabase V6" T={T}>{history.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucune routine enregistrée pour le moment.</div> : <div style={{ display:"grid", gap:8 }}>{history.map(r => <div key={r.id} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:SPACING.md, display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div><div style={{ fontWeight:900, color:T.text }}>{safeDate(r.routine_date)}</div><div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{r.status} · {r.completion_forced ? "forcée" : "standard"}</div></div><AlertBadge level={r.status === "completed" ? "success" : "warning"} T={T}>{r.status}</AlertBadge></div>)}</div>}</SectionCard>;
 }
 
 function VueMensuelle({ data, T=THEMES_INV.dark }) {
