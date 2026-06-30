@@ -514,12 +514,15 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       .btn-print{display:none!important}
 
       /* ============== DASHBOARD ============== */
-      .dashboard-row-1,.dashboard-row-2{grid-template-columns:1fr!important;gap:12px!important}
+      .dashboard-row-1,.dashboard-row-2,.dashboard-row{grid-template-columns:1fr!important;gap:12px!important}
+      .dash-stats-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px!important}
+      .dash-agenda-grid{grid-template-columns:1fr!important}
 
       /* ============== MODALES (bottom sheet) ============== */
       .cell-modal-backdrop,.modal-backdrop{align-items:flex-end!important;padding:0!important}
       .cell-modal-box,.modal-box{border-radius:20px 20px 0 0!important;max-height:94vh!important;max-width:100%!important;width:100%!important}
       .cell-modal-body,.modal-body-grid{grid-template-columns:1fr!important}
+      .cm-body-left{border-right:none!important;padding:16px!important}
 
       /* ============== TABS ============== */
       .tab{padding:7px 12px!important;font-size:12px!important;letter-spacing:.3px!important}
@@ -551,6 +554,10 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
 
       /* ============== ÉLÉMENTS À MASQUER PAR DÉFAUT ============== */
       .desktop-toolbar{display:none!important}
+
+      /* ============== ÉQUIPE — BILAN SEMAINE ============== */
+      .bilan-header{flex-wrap:wrap!important;padding:16px!important;gap:10px!important}
+      .bilan-header-actions{flex-wrap:wrap!important;gap:12px!important;width:100%!important;justify-content:space-between!important}
 
       /* ============== IFRAMES ============== */
       iframe{max-width:100%!important}

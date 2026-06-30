@@ -687,7 +687,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
              (align-items:stretch), et le contenu principal a 0px de large. */
           .pic-page{flex-direction:column!important}
 
-          .pic-page .pic-list-panel{position:absolute;left:0;top:0;bottom:0;width:88%;max-width:320px;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
+          .pic-page .pic-list-panel{position:absolute;left:0;top:0;bottom:0;width:88%!important;max-width:320px!important;z-index:60;transform:translateX(-100%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,0.4)}
           .pic-page .pic-list-panel.open{transform:translateX(0)}
           .pic-page .pic-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.5);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
           .pic-page .pic-drawer-backdrop.open{opacity:1;pointer-events:auto}
@@ -724,6 +724,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
 
           /* Cartes côtes : grille 2x2 reste lisible */
           .pic-page .cote-card input{min-height:34px!important;padding:5px 8px!important;font-size:14px!important}
+
+          /* Labels un peu plus lisibles sur mobile */
+          .pic-page .lbl{font-size:12px!important}
         }
       `}</style>
 
