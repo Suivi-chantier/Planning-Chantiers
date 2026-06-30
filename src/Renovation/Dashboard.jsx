@@ -232,7 +232,8 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
     const tachesSummary = todosEnRetard.length > 0 ? `${todosEnRetard.length} en retard`
       : mesTodos.length > 0 ? `${mesTodos.length} à faire` : null;
     return (
-      <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
+      <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"14px 12px" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {/* En-tête compact */}
         <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8 }}>
           <div style={{ fontSize:22, fontWeight:800, letterSpacing:-0.3, color:T.text }}>{greeting}</div>
@@ -331,6 +332,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
 
         {/* Agenda équipe — widget autonome, en bas (secondaire) */}
         <AgendaWidget T={T} accent={acc.accent} branch={branch}/>
+        </div>
       </div>
     );
   }
