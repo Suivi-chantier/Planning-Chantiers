@@ -1719,9 +1719,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
         />
       ) : (
-        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "260px minmax(0, 1fr) minmax(0, 1.2fr)", minHeight: 0 }}>
+        <div className={`p2-cols ${selectedOuvrageId ? "show-taches" : selectedLotId ? "show-ouvrages" : "show-lots"}`}
+          style={{ flex: 1, display: "grid", gridTemplateColumns: "260px minmax(0, 1fr) minmax(0, 1.2fr)", minHeight: 0 }}>
           {/* ── Colonne 1 : Lots ── */}
-          <div style={{ display: "flex", flexDirection: "column", borderRight: `1px solid ${T.border}`, minHeight: 0 }}>
+          <div className="p2-pane p2-pane-lots" style={{ display: "flex", flexDirection: "column", borderRight: `1px solid ${T.border}`, minHeight: 0 }}>
             <div style={colHeader}><Icon as={Boxes} size={12}/> Lots</div>
             <div style={colBody}>
               {/* On masque les lots vides (aucun ouvrage, donc aucune tâche).
@@ -1840,8 +1841,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </div>
 
           {/* ── Colonne 2 : Ouvrages ── */}
-          <div style={{ display: "flex", flexDirection: "column", borderRight: `1px solid ${T.border}`, minHeight: 0 }}>
+          <div className="p2-pane p2-pane-ouvrages" style={{ display: "flex", flexDirection: "column", borderRight: `1px solid ${T.border}`, minHeight: 0 }}>
             <div style={colHeader}>
+              <button className="mobile-only" onClick={() => { setSelectedLotId(null); setSelectedOuvrageId(null); }}
+                style={{ alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${T.border}`, color: T.textSub, borderRadius: RADIUS.sm, padding: "3px 9px", fontFamily: "inherit", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                ‹ Lots
+              </button>
               <Icon as={Hammer} size={12}/> Ouvrages
               {selectedLotId && (
                 <>
@@ -1951,8 +1956,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
           </div>
 
           {/* ── Colonne 3 : Tâches ── */}
-          <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div className="p2-pane p2-pane-taches" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
             <div style={colHeader}>
+              <button className="mobile-only" onClick={() => setSelectedOuvrageId(null)}
+                style={{ alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${T.border}`, color: T.textSub, borderRadius: RADIUS.sm, padding: "3px 9px", fontFamily: "inherit", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                ‹ Ouvrages
+              </button>
               <Icon as={ClipboardList} size={12}/> Tâches
               {selectedOuvrage && (
                 <>

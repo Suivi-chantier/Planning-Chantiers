@@ -555,6 +555,15 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       /* ============== ÉLÉMENTS À MASQUER PAR DÉFAUT ============== */
       .desktop-toolbar{display:none!important}
 
+      /* ============== PHASAGE V2 (drill-down mobile) ============== */
+      /* 3 colonnes Lots/Ouvrages/Tâches → un seul panneau à la fois selon la
+         sélection (classe show-* posée par le composant), avec bouton retour. */
+      .p2-cols{grid-template-columns:1fr!important}
+      .p2-cols .p2-pane{display:none!important;border-right:none!important}
+      .p2-cols.show-lots .p2-pane-lots{display:flex!important}
+      .p2-cols.show-ouvrages .p2-pane-ouvrages{display:flex!important}
+      .p2-cols.show-taches .p2-pane-taches{display:flex!important}
+
       /* ============== COMMANDES ============== */
       /* Grande table commandes : le wrapper coupe (overflow:hidden) → scroll horizontal */
       .cmd-table-wrapper{overflow-x:auto!important;-webkit-overflow-scrolling:touch}
