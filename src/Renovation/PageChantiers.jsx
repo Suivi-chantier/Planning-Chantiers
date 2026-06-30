@@ -978,10 +978,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   return (
     <div className="pchan-detail" style={{ flex: 1, overflowY: "auto", background: bg }}>
       <style>{`
-        .ch-stat-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: ${RADIUS.lg}px; padding: 14px 16px; }
+        .ch-stat-card { background: ${surface}; border: 1px solid ${border}; border-radius: 14px; padding: 14px 16px; box-shadow: ${CARD_SHADOW}; }
         .ch-photo-upload:hover { border-color: ${acc.accent} !important; background: ${acc.bg10} !important; }
         .tache-row { border-bottom: 1px solid rgba(255,255,255,0.05); transition: background .12s; }
-        .tache-row:hover { background: rgba(255,255,255,0.04); }
+        .tache-row:hover { background: rgba(128,128,128,0.06); }
         .tache-row:last-child { border-bottom: none; }
         @media(max-width:768px) { .ch-fin-grid { grid-template-columns: 1fr 1fr !important; } .ch-content-grid { grid-template-columns: 1fr !important; } .ch-map-grid { grid-template-columns: 1fr !important; } .ch-budget-grid { grid-template-columns: 1fr !important; } .ch-budget-totaux { grid-template-columns: 1fr 1fr !important; } }
         @media(max-width:767px) {
@@ -1097,7 +1097,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             <div className="ch-photo-upload" style={{
               height: 240, borderRadius: RADIUS.xl, overflow: "hidden", position: "relative",
               border: `2px dashed ${border}`, cursor: "pointer", transition: "all .18s",
-              background: "rgba(255,255,255,0.03)",
+              background: "rgba(128,128,128,0.08)",
             }} onClick={() => fileInputRef.current?.click()}>
               {photoMap[selected] ? (
                 <>
@@ -1498,7 +1498,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                         )}
                       </span>
                     </div>
-                    <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)", overflow: "hidden", display: "flex" }}>
+                    <div style={{ height: 6, borderRadius: 3, background: "rgba(128,128,128,0.2)", overflow: "hidden", display: "flex" }}>
                       <div style={{ width: `${widthVendu}%`, background: col, transition: "width .4s ease" }}/>
                       {widthOver > 0 && (
                         <div style={{
@@ -2156,7 +2156,7 @@ function AvancementCircle({ value, accent }) {
   return (
     <div style={{ position: "relative", width: 110, height: 110, flexShrink: 0 }}>
       <svg width="110" height="110" viewBox="0 0 110 110">
-        <circle cx="55" cy="55" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="9"/>
+        <circle cx="55" cy="55" r={r} fill="none" stroke="rgba(128,128,128,0.2)" strokeWidth="9"/>
         <circle cx="55" cy="55" r={r} fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
           strokeDasharray={`${dash} ${circ}`} strokeDashoffset={circ / 4}
           style={{ transition: "stroke-dasharray .5s ease" }}/>
