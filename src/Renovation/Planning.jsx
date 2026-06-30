@@ -622,7 +622,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       {/* === VUE DESKTOP === */}
       {!isMobile && (
         <div style={{ flex:1, overflowY:"auto", padding:"20px 28px" }}>
-          <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+          <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch", background:T.surface, border:`1px solid ${T.border}`, borderRadius:16, boxShadow:CARD_SHADOW, padding:18 }}>
             {/* En-tête colonnes : jours + dates + météo */}
             <div style={{
               display:"grid", gridTemplateColumns:`160px repeat(${JOURS.length},minmax(140px,1fr))`,
