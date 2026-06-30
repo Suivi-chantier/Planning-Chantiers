@@ -398,11 +398,11 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
       {/* En-tête facture */}
       <div style={card}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div className="responsive-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div><label style={labelStyle}>Fournisseur</label><input value={fact.fournisseur} onChange={e => setFact(f => ({ ...f, fournisseur: e.target.value }))} style={inputStyle} /></div>
           <div><label style={labelStyle}>N° facture</label><input value={fact.numero} onChange={e => setFact(f => ({ ...f, numero: e.target.value }))} style={inputStyle} /></div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div className="responsive-grid-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <div><label style={labelStyle}>Date</label><input type="date" value={fact.date_facture} onChange={e => setFact(f => ({ ...f, date_facture: e.target.value }))} style={inputStyle} /></div>
           <div><label style={labelStyle}>Période</label><input value={fact.periode} onChange={e => setFact(f => ({ ...f, periode: e.target.value }))} placeholder="2026-06" style={inputStyle} /></div>
           <div><label style={labelStyle}>Montant HT (€)</label><input inputMode="decimal" value={fact.montant_ht} onChange={e => setFact(f => ({ ...f, montant_ht: e.target.value }))} style={inputStyle} /></div>

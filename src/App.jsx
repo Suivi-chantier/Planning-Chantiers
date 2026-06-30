@@ -555,6 +555,13 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       /* ============== ÉLÉMENTS À MASQUER PAR DÉFAUT ============== */
       .desktop-toolbar{display:none!important}
 
+      /* ============== COMMANDES ============== */
+      /* Grande table commandes : le wrapper coupe (overflow:hidden) → scroll horizontal */
+      .cmd-table-wrapper{overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+      .cmd-table-wrapper table{min-width:720px!important}
+      /* Modale d'import + conversion demande : grilles repliées en colonne */
+      .cmd-import-globals,.cmd-import-row1,.cmd-import-row2,.cmd-convert-grid{grid-template-columns:1fr!important}
+
       /* ============== ÉQUIPE — BILAN SEMAINE ============== */
       .bilan-header{flex-wrap:wrap!important;padding:16px!important;gap:10px!important}
       .bilan-header-actions{flex-wrap:wrap!important;gap:12px!important;width:100%!important;justify-content:space-between!important}

@@ -561,7 +561,7 @@ const FG = ({ label, children, T }) => (
     {children}
   </div>
 );
-const FR2 = ({ children }) => <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
+const FR2 = ({ children }) => <div className="responsive-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
 const MSec = ({ children, T }) => (
   <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', color: T?.textMuted || '#5b6a8a', margin: '14px 0 8px', paddingBottom: 6, borderBottom: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}` }}>{children}</div>
 );
@@ -684,7 +684,7 @@ function ChantiersTab({ chantiers, archives, onRestore, onOpenChantier, loading 
 
       <Card T={T}>
         <CardHdr T={T} acc={acc} title="📋 Chantiers actifs" right={<span style={{ fontSize: 10, color: T?.textMuted || '#5b6a8a' }}>● OK  ● Attention  ● Alerte</span>}/>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-scroll" style={{ overflowX: 'auto' }}>
           <table className="da-table" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
             <thead>
               <tr>

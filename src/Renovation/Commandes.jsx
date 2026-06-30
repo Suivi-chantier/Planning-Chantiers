@@ -544,7 +544,7 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
                     <Icon as={Settings} size={12}/>
                     Paramètres globaux — appliqués à toutes les lignes sélectionnées
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "end" }}>
+                  <div className="cmd-import-globals" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "end" }}>
                     <div>
                       <div style={{ fontSize: 11, color: P.textMuted, marginBottom: 5, fontWeight: 600 }}>Fournisseur</div>
                       <input
@@ -613,7 +613,7 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
                         transition: "all .15s",
                       }}>
                         {/* Ligne 1 : checkbox + désignation + référence + qté + prix */}
-                        <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 100px 80px 90px", gap: 8, alignItems: "start", marginBottom: 8 }}>
+                        <div className="cmd-import-row1" style={{ display: "grid", gridTemplateColumns: "28px 1fr 100px 80px 90px", gap: 8, alignItems: "start", marginBottom: 8 }}>
                           <input type="checkbox" checked={l.selected}
                             onChange={e => updateLigne(l._id, "selected", e.target.checked)}
                             style={{ width: 16, height: 16, marginTop: 6, cursor: "pointer", accentColor: "#5b9cf6" }} />
@@ -636,7 +636,7 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
                             style={{ ...inpStyle, color: "#50c878" }} />
                         </div>
                         {/* Ligne 2 : biblio + tâche */}
-                        <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr", gap: 8, paddingLeft: 0 }}>
+                        <div className="cmd-import-row2" style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr", gap: 8, paddingLeft: 0 }}>
                           <div />
                           <div>
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: P.textMuted, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>
@@ -892,7 +892,7 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSuppr
 
                 <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: P.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>↳ Convertir en commande</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div className="cmd-convert-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <input value={draft.article || ""} onChange={e => set(d.id, "article", e.target.value)}
                       placeholder="Article exact *" style={inp(!draft.article)} />
                     <input value={draft.fournisseur || ""} onChange={e => set(d.id, "fournisseur", e.target.value)}
