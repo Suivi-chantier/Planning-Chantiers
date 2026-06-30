@@ -20,7 +20,7 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V7.2 — Dashboard Pilotage Quotidien Profero Invest
+// TABLEAU DE BORD V7.3 — Dashboard Pilotage Quotidien Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
@@ -220,6 +220,90 @@ function prospectMotivation(c={}) {
 
 function prospectComment(c={}) {
   return firstFilled(c, ["commentaire", "commentaires", "notes", "note", "historique", "dernier_commentaire"]);
+}
+
+function contactTypeValue(c={}) {
+  return normTxt(firstFilled(c, ["contact_type", "type_contact", "type", "categorie_contact", "catégorie_contact", "nature_contact", "nature"]));
+}
+
+function contactStatusValue(c={}) {
+  return normTxt(firstFilled(c, ["statut", "status", "statut_crm", "pipeline_stage", "phase", "statut_pipeline", "classe", "categorie_prospect", "catégorie_prospect", "categorie"]));
+}
+
+function contactStepValue(c={}) {
+  return normTxt(firstFilled(c, ["etape", "étape", "step", "parcours", "phase_client", "etape_client"]));
+}
+
+const PROSPECT_STATUS_KEYWORDS = [
+  "prospect", "lead", "nouveau", "a qualifier", "à qualifier", "qualifie", "qualifié",
+  "rdv a fixer", "rdv à fixer", "rdv fixe", "rdv fixé", "rdv fait",
+  "proposition envoy", "relance", "a relancer", "à relancer", "chaud", "tiede", "tiède", "froid", "perdu"
+];
+
+const CLIENT_STATUS_KEYWORDS = [
+  "client", "actif", "inactif", "signe", "signé", "contrat", "documents", "strategie", "stratégie",
+  "recherche", "presentation", "présentation", "offre d'achat", "offre achat", "offre acceptee", "offre acceptée",
+  "financement", "compromis", "travaux", "location", "termine", "terminé"
+];
+
+function isTerminatedContact(c={}) {
+  const status = contactStatusValue(c);
+  const step = contactStepValue(c);
+  return status.includes("termine") || status.includes("terminé") || step.includes("termine") || step.includes("terminé") || status.includes("archive") || status.includes("archivé");
+}
+
+function isExplicitProspect(c={}) {
+  const type = contactTypeValue(c);
+  const status = contactStatusValue(c);
+  const step = contactStepValue(c);
+  const rawStatut = normTxt(c?.statut || "");
+  if (c?._dashboard_record_type === "prospect") return true;
+  if (type.includes("prospect") || type.includes("lead") || type.includes("prospection")) return true;
+  if (rawStatut === "prospect") return true;
+  return PROSPECT_STATUS_KEYWORDS.some(k => status.includes(normTxt(k)) || step.includes(normTxt(k)));
+}
+
+function isExplicitClient(c={}) {
+  const type = contactTypeValue(c);
+  const status = contactStatusValue(c);
+  const step = contactStepValue(c);
+  const rawStatut = normTxt(c?.statut || "");
+  if (type.includes("client")) return true;
+  if (["actif", "inactif", "terminé", "termine"].includes(rawStatut)) return true;
+  if (c?.date_signature) return true;
+  if (CLIENT_STATUS_KEYWORDS.some(k => status.includes(normTxt(k)) || step.includes(normTxt(k)))) return true;
+  return false;
+}
+
+function isProspectRecord(c={}) {
+  if (isTerminatedContact(c) && !isExplicitProspect(c)) return false;
+  if (isExplicitProspect(c) && !isExplicitClient(c)) return true;
+  if (isExplicitProspect(c) && !c?.date_signature && !normTxt(c?.statut || "").includes("actif")) return true;
+  return false;
+}
+
+function isClientRecord(c={}) {
+  if (isTerminatedContact(c)) return false;
+  if (isProspectRecord(c)) return false;
+  return isExplicitClient(c);
+}
+
+function withSourceTable(rows=[], table="") {
+  return safeArr(rows).map(r => ({ ...r, _source_table:table, _dashboard_record_type:"prospect" }));
+}
+
+function uniqueBySourceAndId(rows=[]) {
+  const seen = new Set();
+  const out = [];
+  safeArr(rows).forEach((row, index) => {
+    const source = row?._source_table || "invest_clients";
+    const id = row?.id || row?.uuid || row?.client_id || row?.prospect_id || `${source}-${index}`;
+    const key = `${source}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ ...row, id });
+  });
+  return out;
 }
 
 function toDate(value) {
@@ -814,11 +898,14 @@ function MiniMonthlyChart({ data=[], T=THEMES_INV.dark }) {
   );
 }
 
-function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actions=[] }) {
+function buildV6Data({ clients=[], crmProspects=[], biens=[], propositions=[], planning=[], actions=[] }) {
   const today = todayIso();
   const { startWeek, endWeek } = getWeekRange();
-  const prospects = clients.filter(c => (c.statut || "Prospect") === "Prospect");
-  const clientsMetier = clients.filter(c => (c.statut || "") !== "Prospect" && (c.statut || "") !== "Terminé");
+  const prospects = uniqueBySourceAndId([
+    ...safeArr(clients).filter(isProspectRecord),
+    ...safeArr(crmProspects),
+  ]);
+  const clientsMetier = safeArr(clients).filter(isClientRecord);
   const openActions = actions.filter(isOpenAction);
   const doneActions = actions.filter(isDoneAction);
   const lateActions = openActions.filter(a => a.due_date && isDueTodayOrPast(a.due_date));
@@ -1074,6 +1161,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [error, setError] = useState("");
   const [optionalErrors, setOptionalErrors] = useState([]);
   const [clients, setClients] = useState([]);
+  const [crmProspects, setCrmProspects] = useState([]);
   const [biens, setBiens] = useState([]);
   const [propositions, setPropositions] = useState([]);
   const [planning, setPlanning] = useState([]);
@@ -1101,14 +1189,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       try {
         const { data, error } = await query;
         if (error) {
-          console.warn(`[Dashboard V7.2] ${label} non disponible :`, error);
+          console.warn(`[Dashboard V7.3] ${label} non disponible :`, error);
           if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
           else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
           return [];
         }
         return data || [];
       } catch (e) {
-        console.warn(`[Dashboard V7.2] ${label} non disponible :`, e);
+        console.warn(`[Dashboard V7.3] ${label} non disponible :`, e);
         if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
         else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
         return [];
@@ -1143,9 +1231,26 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       safeQuery("Reports récurrents", supabase.from("invest_morning_routine_recurrences").select("*").order("updated_at", { ascending:false }).limit(300), { silent:true }),
       safeQuery("Liens actions dashboard", supabase.from("invest_dashboard_action_links").select("*").order("created_at", { ascending:false }).limit(300), { silent:true }),
     ]);
+
+    // Support des éventuelles tables dédiées au CRM Prospection.
+    // Si elles n'existent pas, elles sont simplement ignorées.
+    const prospectTables = [
+      "invest_prospects",
+      "invest_prospection",
+      "invest_crm_prospects",
+      "invest_crm_prospection",
+      "invest_prospection_contacts",
+      "crm_prospection",
+      "crm_prospects",
+      "prospects"
+    ];
+    const prospectTableResults = await Promise.all(
+      prospectTables.map(table => safeQuery(`CRM Prospection ${table}`, supabase.from(table).select("*").order("created_at", { ascending:false }).limit(1000), { silent:true }))
+    );
+    const crmProspectionRows = prospectTableResults.flatMap((rows, index) => withSourceTable(rows, prospectTables[index]));
     const documents = [...safeArr(docsMain), ...safeArr(docsClients), ...safeArr(docsBiens), ...safeArr(driveLinks)];
     const finance = [...safeArr(financeMain), ...safeArr(financeAlt), ...safeArr(suiviFinancier)];
-    setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setHistory(h); setNotifications(n);
+    setClients(c); setCrmProspects(crmProspectionRows); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setHistory(h); setNotifications(n);
     setCoverageData({ documents, finance, structuration, routineItems, recurrences, actionLinks, notifications:n, planning:pl, propositions:p });
     setLoading(false);
   }, []);
@@ -1153,7 +1258,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
   useEffect(() => { try { window.localStorage.setItem(storageKeyFor(), JSON.stringify(routine)); } catch {} }, [routine]);
 
-  const data = useMemo(() => buildV6Data({ clients, biens, propositions, planning, actions }), [clients, biens, propositions, planning, actions]);
+  const data = useMemo(() => buildV6Data({ clients, crmProspects, biens, propositions, planning, actions }), [clients, crmProspects, biens, propositions, planning, actions]);
   const collaborators = useMemo(() => ["Matthieu", "Tom", "Benjamin", "Camille"], []);
   const unresolvedUrgencyItems = useMemo(() => data.urgencyItems.filter(item => !isResolvedToday(routine, item)), [data.urgencyItems, routine]);
   const visibleProspects = (quickMode ? data.prospectItems.filter(i => !i.readOnly && (i.level === "danger" || i.score >= 70)) : data.prospectItems.filter(i => i.critical || i.readOnly)).filter(item => !isResolvedToday(routine, item));
@@ -1251,7 +1356,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     }
   };
 
-  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.2", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
+  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.3", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
     if (!responsable || !title) return null;
     const basePayload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
     const linkedPayload = {
@@ -1283,18 +1388,22 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     const baseTitle = d.next_action || `${d.decision} — ${item.label}`;
     let createdTaskId = null;
     if (item.originalType === "prospect" || item.type === "prospect") {
-      await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || null, conseiller:d.responsable || null, statut:normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver") ? "Inactif" : item.raw?.statut }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.2 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      const sourceTable = item.raw?._source_table || "invest_clients";
+      const updatePayload = { prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || null, conseiller:d.responsable || null };
+      if (normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver")) updatePayload.statut = "Inactif";
+      else if (item.raw?.statut) updatePayload.statut = item.raw.statut;
+      await supabase.from(sourceTable).update(updatePayload).eq("id", item.raw?.id || item.id);
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:sourceTable === "invest_clients" ? (item.raw?.id || item.id) : null, step_label:"Dashboard V7.3 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "client" || item.type === "client") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || item.raw?.date_prochaine_action || null, conseiller:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.2 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.3 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "bien" || item.type === "bien") {
       const decisionNorm = normTxt(d.decision);
       const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
       await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.2 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.3 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else {
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.2 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.3 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
     }
     return createdTaskId;
   };
@@ -1434,7 +1543,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.2</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.3</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
 
