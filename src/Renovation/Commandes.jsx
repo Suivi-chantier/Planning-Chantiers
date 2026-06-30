@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
-import { CARD_SHADOW } from "../mobileUI";
+import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
@@ -1834,6 +1834,17 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           </button>
         </div>
       </div>
+
+      {/* Résumé commandes */}
+      {!loading && commandes.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <SummaryBar T={T} items={[
+            { label: "À compléter", value: counts.a_completer || 0, color: "#f5a623", icon: Package },
+            { label: "Urgentes",    value: commandes.filter(r => r.priorite === "urgent" && r.statut !== "facture").length, color: "#e05c5c", icon: AlertTriangle },
+            { label: "Total",       value: commandes.length, color: acc.accent, icon: ShoppingCart },
+          ]}/>
+        </div>
+      )}
 
       {/* Tableau commandes ou vues groupées */}
       {viewMode === "liste" && !isMobile && (
