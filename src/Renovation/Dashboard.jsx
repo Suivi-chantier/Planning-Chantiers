@@ -48,36 +48,66 @@ function DashWidget({ title, icon: IconComp, children, action, T, accent = "#FFC
   );
 }
 
-// ─── SECTION ACCORDÉON MOBILE ─────────────────────────────────────────────────
-// En-tête toujours visible (titre + métrique clé) ; contenu dépliable.
-function MobileSection({ title, icon: IconComp, summary, defaultOpen = false, T, accent = "#FFC200", children }) {
+// ─── CARTES MOBILES PREMIUM ───────────────────────────────────────────────────
+const CARD_SHADOW = "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)";
+
+// KPI : carte surélevée, icône en pastille dégradée, grand chiffre.
+function MobileStat({ icon: IconComp, label, value, color, T }) {
+  return (
+    <div style={{
+      background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`,
+      boxShadow: CARD_SHADOW, padding: "13px 14px 12px",
+      display: "flex", flexDirection: "column", gap: 9,
+    }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: 11,
+        background: `linear-gradient(135deg, ${color}2e, ${color}12)`, color,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}><Icon as={IconComp} size={18} strokeWidth={2.2}/></div>
+      <div style={{ fontSize: 27, fontWeight: 800, color: T.text, letterSpacing: -0.5, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.textMuted }}>{label}</div>
+    </div>
+  );
+}
+
+// Section accordéon : carte surélevée, métrique en pastille colorée, ouverture animée.
+function MobileSection({ title, icon: IconComp, summary, summaryTone, defaultOpen = false, T, accent = "#FFC200", children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{
-      background: T.widgetBg, border: `1px solid ${T.border}`,
-      borderRadius: RADIUS.lg, overflow: "hidden",
+      background: T.surface, border: `1px solid ${T.border}`,
+      borderRadius: 16, overflow: "hidden", boxShadow: CARD_SHADOW,
     }}>
       <button onClick={() => setOpen(o => !o)} style={{
-        width: "100%", display: "flex", alignItems: "center", gap: 10,
-        padding: "13px 14px", background: "transparent", border: "none",
+        width: "100%", display: "flex", alignItems: "center", gap: 12,
+        padding: "14px 15px", background: "transparent", border: "none",
         cursor: "pointer", fontFamily: "inherit", color: T.text, textAlign: "left",
       }}>
         {IconComp && (
           <div style={{
-            width: 26, height: 26, borderRadius: RADIUS.md, flexShrink: 0,
-            background: accent + "1a", color: accent,
+            width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+            background: `linear-gradient(135deg, ${accent}2e, ${accent}14)`, color: accent,
             display: "flex", alignItems: "center", justifyContent: "center",
-          }}><Icon as={IconComp} size={15} strokeWidth={2}/></div>
+          }}><Icon as={IconComp} size={17} strokeWidth={2.2}/></div>
         )}
-        <span style={{ fontWeight: 700, fontSize: 15 }}>{title}</span>
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: -0.2 }}>{title}</span>
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {summary != null && summary !== "" && (
-            <span style={{ fontSize: 13, fontWeight: 700, color: T.textSub }}>{summary}</span>
+            <span style={{
+              fontSize: 13, fontWeight: 800, lineHeight: 1,
+              color: summaryTone || T.textSub,
+              background: summaryTone ? `${summaryTone}1f` : T.card,
+              padding: "5px 10px", borderRadius: 999,
+            }}>{summary}</span>
           )}
-          <Icon as={open ? ChevronUp : ChevronDown} size={16} style={{ color: T.textMuted }}/>
+          <Icon as={ChevronDown} size={18} style={{ color: T.textMuted, transform: open ? "rotate(180deg)" : "none", transition: "transform .25s ease" }}/>
         </span>
       </button>
-      {open && <div style={{ padding: "0 14px 14px" }}>{children}</div>}
+      <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows .28s ease" }}>
+        <div style={{ overflow: "hidden" }}>
+          <div style={{ padding: "0 15px 15px" }}>{children}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -233,18 +263,39 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
       : mesTodos.length > 0 ? `${mesTodos.length} à faire` : null;
     return (
       <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"14px 12px" }}>
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {/* En-tête compact */}
-        <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8 }}>
-          <div style={{ fontSize:22, fontWeight:800, letterSpacing:-0.3, color:T.text }}>{greeting}</div>
-          <div style={{ fontSize:FONT.xs.size+1, color:T.textMuted, textTransform:"capitalize", textAlign:"right" }}>
-            {now.toLocaleDateString("fr-FR", { weekday:"short", day:"numeric", month:"short" })}
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+
+        {/* Hero — ancre visuelle : date, salutation, résumé du jour */}
+        <div style={{
+          borderRadius:18, padding:"17px 18px 18px", position:"relative", overflow:"hidden",
+          background:"linear-gradient(135deg, #20283a 0%, #2f3a52 100%)",
+          boxShadow:"0 10px 28px rgba(16,24,40,0.20)",
+        }}>
+          <div style={{ position:"absolute", top:-45, right:-35, width:150, height:150, borderRadius:"50%", background:`radial-gradient(circle, ${acc.accent}45, transparent 70%)` }}/>
+          <div style={{ position:"relative" }}>
+            <div style={{ fontSize:12, fontWeight:700, letterSpacing:0.4, color:"rgba(255,255,255,0.6)", textTransform:"capitalize" }}>
+              {now.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" })}
+            </div>
+            <div style={{ fontSize:28, fontWeight:800, letterSpacing:-0.4, color:"#fff", marginTop:2 }}>{greeting}</div>
+            {todayJour && ouvriersAttendus.length > 0 && (
+              <div style={{ marginTop:12, display:"flex", gap:16, flexWrap:"wrap", fontSize:13, color:"rgba(255,255,255,0.85)" }}>
+                <span><b style={{ color:acc.accent, fontSize:15 }}>{chantiersAujourdHui.length}</b> chantiers</span>
+                <span><b style={{ color:acc.accent, fontSize:15 }}>{ouvriersAttendus.length}</b> ouvriers</span>
+                <span><b style={{ color: tauxRendus>=80?"#4ade80":tauxRendus>=50?"#fbbf24":"#f87171", fontSize:15 }}>{rendus}/{ouvriersAttendus.length}</b> rapports</span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* KPI 2×2 */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-          {stats.map((s,i) => <StatCard key={i} T={T} {...s}/>)}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+          {[
+            { icon: Building2,      label:"Chantiers actifs",   value: chantiersAujourdHui.length, color: acc.accent },
+            { icon: HardHat,        label:"Ouvriers terrain",   value: ouvriersAttendus.length,    color: "#5b8af5" },
+            { icon: Package,        label:"Commandes à passer", value: cmdCount,                   color: "#f5a623" },
+            { icon: ClipboardCheck, label:"Rapports rendus",    value: ouvriersAttendus.length ? `${rendus}/${ouvriersAttendus.length}` : "—",
+              color: tauxRendus === null ? "#94a3b8" : tauxRendus>=80?"#22c55e":tauxRendus>=50?"#f59e0b":"#ef4444" },
+          ].map((s,i) => <MobileStat key={i} T={T} {...s}/>)}
         </div>
 
         {/* Chantiers du jour — ouvert par défaut */}
@@ -276,7 +327,8 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
 
         {/* Activité équipe */}
         <MobileSection T={T} accent={acc.accent} icon={Users} title="Activité équipe"
-          summary={todayJour && ouvriersAttendus.length ? `${rendus}/${ouvriersAttendus.length}` : null}>
+          summary={todayJour && ouvriersAttendus.length ? `${rendus}/${ouvriersAttendus.length}` : null}
+          summaryTone={tauxRendus===null?undefined:tauxRendus>=80?"#22c55e":tauxRendus>=50?"#f59e0b":"#ef4444"}>
           {todayJour && ouvriersAttendus.length === 0 ? (
             <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Personne planifié</div>
           ) : !todayJour ? (
@@ -307,7 +359,8 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
         </MobileSection>
 
         {/* Mes tâches */}
-        <MobileSection T={T} accent={acc.accent} icon={ClipboardCheck} title="Mes tâches" summary={tachesSummary}>
+        <MobileSection T={T} accent={acc.accent} icon={ClipboardCheck} title="Mes tâches" summary={tachesSummary}
+          summaryTone={todosEnRetard.length>0?"#ef4444":undefined}>
           {!monEmail ? (
             <div style={{ fontSize:FONT.sm.size, color:T.textMuted }}>Aucun email associé à votre profil.</div>
           ) : mesTodos.length === 0 ? (
