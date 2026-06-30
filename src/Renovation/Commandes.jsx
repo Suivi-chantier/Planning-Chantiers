@@ -2249,6 +2249,8 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
       )}
 
       <style>{`
+        .cmd-table-wrapper tbody tr { transition: background .12s; }
+        .cmd-table-wrapper tbody tr:hover td { background: rgba(128,128,128,0.05); }
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes slideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
