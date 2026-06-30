@@ -51,21 +51,32 @@ function DashWidget({ title, icon: IconComp, children, action, T, accent = "#FFC
 // ─── CARTES MOBILES PREMIUM ───────────────────────────────────────────────────
 const CARD_SHADOW = "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)";
 
-// KPI : carte surélevée, icône en pastille dégradée, grand chiffre.
-function MobileStat({ icon: IconComp, label, value, color, T }) {
+// KPI : carte surélevée teintée, icône pleine à ombre colorée, grand chiffre,
+// + sous-texte de contexte et barre de progression optionnelle.
+function MobileStat({ icon: IconComp, label, value, sub, bar, color, T }) {
   return (
     <div style={{
-      background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`,
-      boxShadow: CARD_SHADOW, padding: "13px 14px 12px",
-      display: "flex", flexDirection: "column", gap: 9,
+      background: `linear-gradient(155deg, ${color}14, ${T.surface} 58%)`,
+      borderRadius: 16, border: `1px solid ${T.border}`,
+      boxShadow: CARD_SHADOW, padding: "14px 14px 13px",
+      display: "flex", flexDirection: "column", gap: 9, position: "relative", overflow: "hidden",
     }}>
       <div style={{
-        width: 36, height: 36, borderRadius: 11,
-        background: `linear-gradient(135deg, ${color}2e, ${color}12)`, color,
+        width: 38, height: 38, borderRadius: 12,
+        background: `linear-gradient(135deg, ${color}, ${color}c0)`, color: "#fff",
         display: "flex", alignItems: "center", justifyContent: "center",
-      }}><Icon as={IconComp} size={18} strokeWidth={2.2}/></div>
-      <div style={{ fontSize: 27, fontWeight: 800, color: T.text, letterSpacing: -0.5, lineHeight: 1 }}>{value}</div>
+        boxShadow: `0 5px 14px ${color}55`,
+      }}><Icon as={IconComp} size={19} strokeWidth={2.3}/></div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+        <span style={{ fontSize: 28, fontWeight: 800, color: T.text, letterSpacing: -0.6, lineHeight: 1 }}>{value}</span>
+      </div>
       <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.textMuted }}>{label}</div>
+      {bar != null && (
+        <div style={{ height: 5, borderRadius: 3, background: T.card, overflow: "hidden", marginTop: 1 }}>
+          <div style={{ height: "100%", width: `${Math.max(3, bar)}%`, background: `linear-gradient(90deg, ${color}, ${color}cc)`, borderRadius: 3, transition: "width .4s" }}/>
+        </div>
+      )}
+      {sub && <div style={{ fontSize: 11, color: T.textSub, fontWeight: 600 }}>{sub}</div>}
     </div>
   );
 }
@@ -75,7 +86,7 @@ function MobileSection({ title, icon: IconComp, summary, summaryTone, defaultOpe
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{
-      background: T.surface, border: `1px solid ${T.border}`,
+      background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${accent}`,
       borderRadius: 16, overflow: "hidden", boxShadow: CARD_SHADOW,
     }}>
       <button onClick={() => setOpen(o => !o)} style={{
@@ -261,27 +272,50 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
     const rendus = ouvriersAttendus.length - ouvriersManquants.length;
     const tachesSummary = todosEnRetard.length > 0 ? `${todosEnRetard.length} en retard`
       : mesTodos.length > 0 ? `${mesTodos.length} à faire` : null;
+    const prenom = (profil?.prenom || profil?.nom || "").trim().split(" ")[0];
+    const heroWi = weather && !weather.error && weather.current ? weatherInfo(weather.current.weather_code) : null;
     return (
       <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"14px 12px" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
 
-        {/* Hero — ancre visuelle : date, salutation, résumé du jour */}
+        {/* Hero — ancre visuelle : date, salutation nominative, météo, résumé du jour */}
         <div style={{
           borderRadius:18, padding:"17px 18px 18px", position:"relative", overflow:"hidden",
-          background:"linear-gradient(135deg, #20283a 0%, #2f3a52 100%)",
-          boxShadow:"0 10px 28px rgba(16,24,40,0.20)",
+          background:"linear-gradient(135deg, #1c2536 0%, #2f3a52 60%, #3a3050 100%)",
+          boxShadow:"0 12px 30px rgba(16,24,40,0.22)",
         }}>
-          <div style={{ position:"absolute", top:-45, right:-35, width:150, height:150, borderRadius:"50%", background:`radial-gradient(circle, ${acc.accent}45, transparent 70%)` }}/>
+          <div style={{ position:"absolute", top:-50, right:-40, width:170, height:170, borderRadius:"50%", background:`radial-gradient(circle, ${acc.accent}50, transparent 70%)` }}/>
+          <div style={{ position:"absolute", bottom:-60, left:-30, width:140, height:140, borderRadius:"50%", background:"radial-gradient(circle, rgba(91,138,245,0.25), transparent 70%)" }}/>
           <div style={{ position:"relative" }}>
-            <div style={{ fontSize:12, fontWeight:700, letterSpacing:0.4, color:"rgba(255,255,255,0.6)", textTransform:"capitalize" }}>
-              {now.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" })}
+            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontSize:12, fontWeight:700, letterSpacing:0.4, color:"rgba(255,255,255,0.6)", textTransform:"capitalize" }}>
+                  {now.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" })}
+                </div>
+                <div style={{ fontSize:27, fontWeight:800, letterSpacing:-0.4, color:"#fff", marginTop:3 }}>
+                  {greeting}{prenom ? `, ${prenom}` : ""}
+                </div>
+              </div>
+              {heroWi && (
+                <div style={{ display:"flex", alignItems:"center", gap:7, background:"rgba(255,255,255,0.10)", border:"1px solid rgba(255,255,255,0.14)", borderRadius:13, padding:"8px 12px", flexShrink:0 }}>
+                  <Icon as={heroWi.icon} size={19} style={{ color:"#fff" }}/>
+                  <span style={{ fontSize:17, fontWeight:800, color:"#fff" }}>{Math.round(weather.current.temperature_2m)}°</span>
+                </div>
+              )}
             </div>
-            <div style={{ fontSize:28, fontWeight:800, letterSpacing:-0.4, color:"#fff", marginTop:2 }}>{greeting}</div>
             {todayJour && ouvriersAttendus.length > 0 && (
-              <div style={{ marginTop:12, display:"flex", gap:16, flexWrap:"wrap", fontSize:13, color:"rgba(255,255,255,0.85)" }}>
-                <span><b style={{ color:acc.accent, fontSize:15 }}>{chantiersAujourdHui.length}</b> chantiers</span>
-                <span><b style={{ color:acc.accent, fontSize:15 }}>{ouvriersAttendus.length}</b> ouvriers</span>
-                <span><b style={{ color: tauxRendus>=80?"#4ade80":tauxRendus>=50?"#fbbf24":"#f87171", fontSize:15 }}>{rendus}/{ouvriersAttendus.length}</b> rapports</span>
+              <div style={{ marginTop:14, display:"flex", gap:8, flexWrap:"wrap" }}>
+                {[
+                  { icon: Building2,      value: chantiersAujourdHui.length,             label: "chantiers", color: acc.accent },
+                  { icon: HardHat,        value: ouvriersAttendus.length,                label: "ouvriers",  color: acc.accent },
+                  { icon: ClipboardCheck, value: `${rendus}/${ouvriersAttendus.length}`, label: "rapports",  color: tauxRendus>=80?"#4ade80":tauxRendus>=50?"#fbbf24":"#f87171" },
+                ].map((c,i) => (
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:7, background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:11, padding:"7px 11px" }}>
+                    <Icon as={c.icon} size={14} style={{ color:c.color }}/>
+                    <span style={{ color:"#fff", fontWeight:800, fontSize:14 }}>{c.value}</span>
+                    <span style={{ color:"rgba(255,255,255,0.6)", fontSize:12 }}>{c.label}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -290,17 +324,18 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
         {/* KPI 2×2 */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
           {[
-            { icon: Building2,      label:"Chantiers actifs",   value: chantiersAujourdHui.length, color: acc.accent },
-            { icon: HardHat,        label:"Ouvriers terrain",   value: ouvriersAttendus.length,    color: "#5b8af5" },
-            { icon: Package,        label:"Commandes à passer", value: cmdCount,                   color: "#f5a623" },
+            { icon: Building2,      label:"Chantiers actifs",   value: chantiersAujourdHui.length, sub: `sur ${chantiers?.length || 0} au total`, color: acc.accent },
+            { icon: HardHat,        label:"Ouvriers terrain",   value: ouvriersAttendus.length,    sub: "attendus aujourd'hui",                  color: "#5b8af5" },
+            { icon: Package,        label:"Commandes à passer", value: cmdCount,                   sub: cmdCount > 0 ? "à traiter" : "tout est passé", color: "#f5a623" },
             { icon: ClipboardCheck, label:"Rapports rendus",    value: ouvriersAttendus.length ? `${rendus}/${ouvriersAttendus.length}` : "—",
+              bar: tauxRendus ?? 0,
               color: tauxRendus === null ? "#94a3b8" : tauxRendus>=80?"#22c55e":tauxRendus>=50?"#f59e0b":"#ef4444" },
           ].map((s,i) => <MobileStat key={i} T={T} {...s}/>)}
         </div>
 
         {/* Chantiers du jour — ouvert par défaut */}
         <MobileSection T={T} accent={acc.accent} icon={HardHat} title="Chantiers du jour"
-          summary={todayJour ? chantiersAujourdHui.length : "—"} defaultOpen>
+          summary={todayJour ? chantiersAujourdHui.length : "—"}>
           {!todayJour ? (
             <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>C'est le week-end — aucune activité prévue.</div>
           ) : chantiersAujourdHui.length === 0 ? (
@@ -326,7 +361,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
         </MobileSection>
 
         {/* Activité équipe */}
-        <MobileSection T={T} accent={acc.accent} icon={Users} title="Activité équipe"
+        <MobileSection T={T} accent="#5b8af5" icon={Users} title="Activité équipe"
           summary={todayJour && ouvriersAttendus.length ? `${rendus}/${ouvriersAttendus.length}` : null}
           summaryTone={tauxRendus===null?undefined:tauxRendus>=80?"#22c55e":tauxRendus>=50?"#f59e0b":"#ef4444"}>
           {todayJour && ouvriersAttendus.length === 0 ? (
@@ -359,7 +394,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
         </MobileSection>
 
         {/* Mes tâches */}
-        <MobileSection T={T} accent={acc.accent} icon={ClipboardCheck} title="Mes tâches" summary={tachesSummary}
+        <MobileSection T={T} accent="#f5a623" icon={ClipboardCheck} title="Mes tâches" summary={tachesSummary}
           summaryTone={todosEnRetard.length>0?"#ef4444":undefined}>
           {!monEmail ? (
             <div style={{ fontSize:FONT.sm.size, color:T.textMuted }}>Aucun email associé à votre profil.</div>
@@ -377,7 +412,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
         </MobileSection>
 
         {/* Météo */}
-        <MobileSection T={T} accent={acc.accent} icon={Cloud} title={`Météo · ${weather?.city || weatherCity}`}>
+        <MobileSection T={T} accent="#38bdf8" icon={Cloud} title={`Météo · ${weather?.city || weatherCity}`}>
           {!weather ? <div style={{ color:T.textMuted, fontSize:FONT.sm.size }}>Chargement…</div>
             : weather.error ? <div style={{ color:"#e15a5a", fontSize:FONT.sm.size }}>Météo indisponible</div>
             : <WeatherDisplay weather={weather} T={T}/>}
