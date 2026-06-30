@@ -333,6 +333,18 @@ function isDecisionComplete(item, decision) {
   return true;
 }
 
+
+function missingDecisionFields(item, d = {}) {
+  const missing = [];
+  if (!String(d.decision || "").trim()) missing.push("décision");
+  if (!String(d.comment || "").trim()) missing.push("commentaire");
+  if (!String(d.responsable || "").trim()) missing.push("responsable");
+  if (item.requiresNextAction && !String(d.next_action || "").trim()) missing.push("action future");
+  if (item.requiresDate && !String(d.due_date || "").trim()) missing.push("échéance");
+  if (d.force_validated && !String(d.force_reason || "").trim()) missing.push("motif de validation forcée");
+  return missing;
+}
+
 function isPriorityComplete(p) {
   return Boolean(String(p?.title || "").trim() && String(p?.responsable || "").trim() && String(p?.comment || "").trim() && String(p?.urgency || "").trim());
 }
@@ -439,19 +451,31 @@ function RoutineDecisionCard({ item, decision, onChange, onResolve=null, T=THEME
       </div>
       {d.force_validated && <div style={{ marginTop:SPACING.sm }}><TextArea label="Motif de validation forcée" required value={d.force_reason} onChange={v => patch({ force_reason:v })} placeholder="Motif obligatoire si tu forces la validation." T={T}/></div>}
 
-      {onResolve && (
-        <div style={{ marginTop:SPACING.sm, paddingTop:SPACING.sm, borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm, flexWrap:"wrap" }}>
-          <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, fontWeight:800 }}>
-            Valider l’urgence la fait disparaître de la routine du jour sans supprimer le dossier.
+      {onResolve && (() => {
+        const missing = missingDecisionFields(item, d);
+        const canResolve = missing.length === 0;
+        const disabledTitle = canResolve ? "Valider cette urgence pour aujourd’hui" : `Compléter avant validation : ${missing.join(", ")}`;
+        const disabledStyle = canResolve ? {} : { opacity:.45, cursor:"not-allowed", filter:"grayscale(.35)" };
+        const safeResolve = (label) => {
+          if (!canResolve) return;
+          onResolve(item, label);
+        };
+        return (
+          <div style={{ marginTop:SPACING.sm, paddingTop:SPACING.sm, borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm, flexWrap:"wrap" }}>
+            <div style={{ fontSize:FONT.xs.size + 1, color:canResolve ? T.textMuted : DA, fontWeight:800 }}>
+              {canResolve
+                ? "Validation autorisée : l’urgence disparaîtra de la routine du jour sans supprimer le dossier."
+                : `Validation bloquée : complète ${missing.join(", ")}.`}
+            </div>
+            <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+              <button type="button" className="inv-btn inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={{ background:canResolve ? SU : T.textMuted, color:"white", ...disabledStyle }} onClick={() => safeResolve("Traiter moi-même")}><Icon as={Check} size={12}/> Traité</button>
+              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={disabledStyle} onClick={() => safeResolve("Reporter")}><Icon as={Calendar} size={12}/> Reporter</button>
+              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={disabledStyle} onClick={() => safeResolve("Assigner")}><Icon as={Users} size={12}/> Assigner</button>
+              <button type="button" className="inv-btn inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={{ background:canResolve ? DA : T.textMuted, color:"white", ...disabledStyle }} onClick={() => safeResolve("Bloquer")}><Icon as={AlertTriangle} size={12}/> Bloquer</button>
+            </div>
           </div>
-          <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-            <button type="button" className="inv-btn inv-btn-sm" style={{ background:SU, color:"white" }} onClick={() => onResolve(item, "Traiter moi-même")}><Icon as={Check} size={12}/> Traité</button>
-            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onResolve(item, "Reporter")}><Icon as={Calendar} size={12}/> Reporter</button>
-            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onResolve(item, "Assigner")}><Icon as={Users} size={12}/> Assigner</button>
-            <button type="button" className="inv-btn inv-btn-sm" style={{ background:DA, color:"white" }} onClick={() => onResolve(item, "Bloquer")}><Icon as={AlertTriangle} size={12}/> Bloquer</button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -800,6 +824,11 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const resolveUrgencyForToday = (item, decisionLabel="Traiter moi-même") => {
     ensureStarted();
     const key = decisionKey(item);
+    const currentBeforeResolve = routine.decisions?.[key] || defaultDecision(item);
+    if (!isDecisionComplete(item, currentBeforeResolve)) {
+      setError(`Validation impossible : complète d’abord ${missingDecisionFields(item, currentBeforeResolve).join(", ")}.`);
+      return;
+    }
     const entityKey = routineEntityKey(item);
     setRoutine(prev => {
       const current = prev.decisions?.[key] || defaultDecision(item);
