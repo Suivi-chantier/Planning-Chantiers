@@ -5242,6 +5242,7 @@ function AvancementChantierTab({
         </div>
 
         <div
+          className="table-scroll"
           style={{
             overflowX: "auto",
             width: "100%",
@@ -5980,6 +5981,7 @@ function AchatTab({
       </div>
 
       <div
+        className="ef-grid-4"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
@@ -6071,7 +6073,7 @@ function AchatTab({
           overflow: "hidden",
         }}
       >
-        <div style={{ overflowX: "auto", maxHeight: "68vh" }}>
+        <div className="table-scroll" style={{ overflowX: "auto", maxHeight: "68vh" }}>
           <table style={{ width: "100%", minWidth: 1550, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr>

@@ -555,6 +555,11 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       /* ============== ÉLÉMENTS À MASQUER PAR DÉFAUT ============== */
       .desktop-toolbar{display:none!important}
 
+      /* ============== ÉTATS FINANCIERS ============== */
+      /* Grosses matrices déjà scrollables (overflowX) ; on empile les grilles KPI. */
+      .ef-kpis{grid-template-columns:repeat(2,1fr)!important;gap:8px!important}
+      .ef-grid-4{grid-template-columns:repeat(2,1fr)!important;gap:8px!important}
+
       /* ============== PHASAGE V2 (drill-down mobile) ============== */
       /* 3 colonnes Lots/Ouvrages/Tâches → un seul panneau à la fois selon la
          sélection (classe show-* posée par le composant), avec bouton retour. */
