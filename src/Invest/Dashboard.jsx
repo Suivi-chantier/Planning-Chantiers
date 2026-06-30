@@ -20,7 +20,7 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V7.1 — Dashboard Pilotage Quotidien Profero Invest
+// TABLEAU DE BORD V7.2 — Dashboard Pilotage Quotidien Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
@@ -128,6 +128,100 @@ function safeArr(v) {
   return Array.isArray(v) ? v : [];
 }
 
+
+function firstFilled(obj={}, keys=[]) {
+  for (const key of keys) {
+    if (!key) continue;
+    const value = obj?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+  }
+  return "";
+}
+
+function numberFromAny(value) {
+  if (value === undefined || value === null || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const cleaned = String(value).replace(/[^0-9,.-]/g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function joinNonEmpty(parts=[], separator=" · ") {
+  return parts.map(v => String(v || "").trim()).filter(Boolean).join(separator);
+}
+
+function prospectOwner(c={}) {
+  return firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to", "commercial", "collaborateur"]) || "Matthieu";
+}
+
+function prospectSource(c={}) {
+  return firstFilled(c, ["source_lead", "source", "origine", "canal", "provenance", "lead_source"]);
+}
+
+function prospectStage(c={}) {
+  return firstFilled(c, ["statut_crm", "pipeline_stage", "phase", "etape", "statut_pipeline", "classe", "categorie_prospect"]);
+}
+
+function prospectPriority(c={}) {
+  return firstFilled(c, ["priorite", "priorité", "niveau_priorite", "niveau_urgence", "urgence"]);
+}
+
+function prospectLastContact(c={}) {
+  return firstFilled(c, ["date_dernier_contact", "dernier_contact", "last_contact_at", "last_contact", "date_contact", "updated_at", "date_premier_contact", "created_at"]);
+}
+
+function prospectNextAction(c={}) {
+  return firstFilled(c, ["prochaine_action", "next_action", "action_prevue", "action_a_mener", "action"]);
+}
+
+function prospectNextActionDate(c={}) {
+  return firstFilled(c, ["date_prochaine_action", "relance_date", "date_relance", "next_action_date", "due_date", "echeance", "échéance"]);
+}
+
+function prospectEmail(c={}) {
+  return firstFilled(c, ["email", "mail", "adresse_mail"]);
+}
+
+function prospectPhone(c={}) {
+  return firstFilled(c, ["telephone", "téléphone", "tel", "mobile", "phone", "whatsapp"]);
+}
+
+function prospectLocation(c={}) {
+  return joinNonEmpty([firstFilled(c, ["ville", "city"]), firstFilled(c, ["pays", "country"])]);
+}
+
+function prospectZone(c={}) {
+  return firstFilled(c, ["zone_ciblee", "zone_ciblée", "zone", "secteur", "ville_cible", "localisation_recherche"]);
+}
+
+function prospectGoal(c={}) {
+  return firstFilled(c, ["objectif", "objectif_investissement", "strategie", "stratégie", "type_projet", "projet", "besoin"]);
+}
+
+function prospectHorizon(c={}) {
+  return firstFilled(c, ["horizon", "horizon_projet", "delai_projet", "délai_projet", "delai", "délai", "urgence"]);
+}
+
+function prospectBudget(c={}) {
+  return numberFromAny(firstFilled(c, ["budget_cible", "budget", "budget_max", "montant_projet", "enveloppe"]));
+}
+
+function prospectApport(c={}) {
+  return numberFromAny(firstFilled(c, ["apport", "apport_disponible", "fonds_propres"]));
+}
+
+function prospectCapacity(c={}) {
+  return numberFromAny(firstFilled(c, ["capacite_emprunt", "capacité_emprunt", "capacite", "capacité", "financement_possible", "enveloppe_financement"]));
+}
+
+function prospectMotivation(c={}) {
+  return firstFilled(c, ["motivation", "niveau_motivation", "interet", "intérêt", "temperature", "température"]);
+}
+
+function prospectComment(c={}) {
+  return firstFilled(c, ["commentaire", "commentaires", "notes", "note", "historique", "dernier_commentaire"]);
+}
+
 function toDate(value) {
   if (!value) return null;
   const d = value instanceof Date ? new Date(value) : new Date(value);
@@ -201,30 +295,51 @@ function isDocumentAction(a={}) {
 }
 
 function prospectScore(c={}) {
-  const txt = normTxt(`${c.etape || ""} ${c.prochaine_action || ""} ${c.source || ""} ${c.commentaire || ""} ${c.motivation || ""} ${c.projet || ""} ${c.urgence || ""}`);
+  // Score CRM Prospection sur 100, aligné sur tes critères : délai, capacité, motivation, qualité, source.
+  const stage = normTxt(prospectStage(c));
+  const horizon = normTxt(prospectHorizon(c));
+  const motivation = normTxt(`${prospectMotivation(c)} ${prospectComment(c)} ${prospectGoal(c)}`);
+  const source = normTxt(prospectSource(c));
+  const priority = normTxt(prospectPriority(c));
+  const budget = prospectBudget(c);
+  const apport = prospectApport(c);
+  const capacity = prospectCapacity(c);
+
   let score = 0;
-  // Délai / urgence projet
-  if (txt.includes("urgent") || txt.includes("rapid") || txt.includes("court terme") || txt.includes("3 mois")) score += 20;
-  else if (txt.includes("6 mois") || txt.includes("moyen terme")) score += 12;
-  else score += 6;
-  // Capacité financière approximée par budget renseigné
-  const budget = Number(c.budget) || 0;
-  if (budget >= 200000) score += 20;
-  else if (budget >= 150000) score += 16;
-  else if (budget >= 100000) score += 10;
-  else if (budget > 0) score += 6;
-  // Motivation claire
-  if (txt.includes("motivé") || txt.includes("motive") || txt.includes("très intéressé") || txt.includes("interessé") || txt.includes("intéressé")) score += 20;
-  else if (txt.includes("rdv") || txt.includes("appel") || txt.includes("proposition")) score += 14;
+
+  // 1. Délai / urgence du projet — 20 pts
+  if (priority.includes("urgent") || horizon.includes("urgent") || horizon.includes("rapid") || horizon.includes("court terme") || horizon.includes("1 mois") || horizon.includes("3 mois")) score += 20;
+  else if (horizon.includes("6 mois") || horizon.includes("moyen terme")) score += 14;
+  else if (horizon) score += 9;
   else score += 5;
-  // Qualité / maturité du contact
-  if (txt.includes("rdv fait") || txt.includes("proposition envoy") || txt.includes("qualifié") || txt.includes("qualifie")) score += 20;
-  else if (txt.includes("rdv fixé") || txt.includes("analyse")) score += 12;
+
+  // 2. Capacité financière — 20 pts
+  const financial = Math.max(budget, capacity);
+  if (financial >= 200000 || apport >= 50000) score += 20;
+  else if (financial >= 150000 || apport >= 30000) score += 16;
+  else if (financial >= 100000 || apport >= 15000) score += 11;
+  else if (financial > 0 || apport > 0) score += 7;
+  else score += 3;
+
+  // 3. Motivation claire — 20 pts
+  if (motivation.includes("très motiv") || motivation.includes("tres motiv") || motivation.includes("motivé") || motivation.includes("motive") || motivation.includes("prêt") || motivation.includes("pret") || motivation.includes("validé") || motivation.includes("valide")) score += 20;
+  else if (motivation.includes("intéress") || motivation.includes("interess") || motivation.includes("objectif") || motivation.includes("projet clair") || motivation.includes("locatif")) score += 14;
+  else if (motivation) score += 8;
+  else score += 4;
+
+  // 4. Qualité / maturité commerciale — 20 pts
+  if (stage.includes("proposition envoy") || stage.includes("rdv fait") || stage.includes("qualifié") || stage.includes("qualifie") || stage.includes("étude") || stage.includes("etude")) score += 20;
+  else if (stage.includes("rdv fixé") || stage.includes("rdv fixe") || stage.includes("premier échange") || stage.includes("premier echange") || stage.includes("qualification")) score += 14;
+  else if (stage.includes("lead") || stage.includes("nouveau")) score += 7;
   else score += 5;
-  // Source
-  if (txt.includes("recommand") || txt.includes("parrain") || txt.includes("réseau") || txt.includes("reseau")) score += 20;
-  else if (txt.includes("site") || txt.includes("formulaire") || txt.includes("linkedin")) score += 12;
-  else score += 7;
+
+  // 5. Source — 20 pts
+  if (source.includes("recommand") || source.includes("parrain") || source.includes("réseau") || source.includes("reseau") || source.includes("client") || source.includes("notaire")) score += 20;
+  else if (source.includes("upi") || source.includes("congr") || source.includes("partenaire") || source.includes("linkedin")) score += 15;
+  else if (source.includes("site") || source.includes("formulaire") || source.includes("meta") || source.includes("facebook") || source.includes("google")) score += 11;
+  else if (source) score += 8;
+  else score += 4;
+
   return Math.max(0, Math.min(100, score));
 }
 
@@ -236,28 +351,35 @@ function nextRelanceDateFromCount(count=0) {
 }
 
 function prospectClass(c={}) {
-  const last = daysSince(lastClientActivity(c));
+  const nextAction = prospectNextAction(c);
+  const nextDate = prospectNextActionDate(c);
+  const owner = prospectOwner(c);
+  const stage = normTxt(prospectStage(c));
+  const last = daysSince(prospectLastContact(c));
   const score = prospectScore(c);
-  const hasNoAction = !c.prochaine_action || !c.date_prochaine_action;
-  const hasNoOwner = !c.conseiller;
-  const hasFutureAction = Boolean(c.date_prochaine_action && isFutureDate(c.date_prochaine_action));
+  const hasNoAction = !nextAction || !nextDate;
+  const hasNoOwner = !owner;
+  const hasFutureAction = Boolean(nextDate && isFutureDate(nextDate));
   const badges = [];
+
   if (score >= 70) badges.push({ label:"Chaud", level:"success" });
-  if (c.date_prochaine_action === todayIso()) badges.push({ label:"Relance du jour", level:"warning" });
+  if (stage.includes("rdv à fixer") || stage.includes("rdv a fixer")) badges.push({ label:"RDV à fixer", level:"warning" });
+  if (stage.includes("proposition envoy")) badges.push({ label:"Proposition envoyée", level:"warning" });
+  if (nextDate === todayIso()) badges.push({ label:"Relance du jour", level:"warning" });
   if (hasFutureAction) badges.push({ label:"Échéance à venir", level:"info" });
   if (!hasFutureAction && last !== null && last >= 10) badges.push({ label:"Rouge +10j", level:"danger" });
   else if (!hasFutureAction && last !== null && last >= 7) badges.push({ label:"Orange +7j", level:"warning" });
   if (hasNoAction) badges.push({ label:"Sans action", level:"danger" });
   if (hasNoOwner) badges.push({ label:"Sans responsable", level:"danger" });
 
-  const hasBlockingAlert = hasNoAction || hasNoOwner || (!hasFutureAction && last !== null && last >= 7) || c.date_prochaine_action === todayIso();
+  const hasBlockingAlert = hasNoAction || hasNoOwner || (!hasFutureAction && last !== null && last >= 7) || nextDate === todayIso() || stage.includes("proposition envoy") || stage.includes("rdv à fixer") || stage.includes("rdv a fixer");
   const scheduledReadOnly = hasFutureAction && !hasNoAction && !hasNoOwner && !hasBlockingAlert;
 
   if (scheduledReadOnly) {
     return {
       label:score >= 70 ? "Chaud programmé" : "Échéance à venir",
       level:"info",
-      reason:`${readOnlyReasonFromDate(c.date_prochaine_action)}${score >= 70 ? ` · Prospect chaud — score ${score}/100` : ""}`,
+      reason:`${readOnlyReasonFromDate(nextDate)}${score >= 70 ? ` · Prospect chaud — score ${score}/100` : ""}`,
       score,
       badges,
       readOnly:true,
@@ -266,7 +388,7 @@ function prospectClass(c={}) {
   }
 
   const main = badges.find(b => b.level === "danger") || badges.find(b => b.level === "warning") || badges.find(b => b.level === "success") || { label:"Suivi", level:"info" };
-  const reason = hasNoAction ? "Prospect sans prochaine action datée" : hasNoOwner ? "Prospect sans responsable" : last !== null && last >= 10 ? `Sans action depuis ${last} jours` : last !== null && last >= 7 ? `Sans action depuis ${last} jours` : score >= 70 ? `Prospect chaud — score ${score}/100` : "Prospect à maintenir actif";
+  const reason = hasNoAction ? "Prospect sans prochaine action datée" : hasNoOwner ? "Prospect sans responsable" : last !== null && last >= 10 ? `Sans contact depuis ${last} jours` : last !== null && last >= 7 ? `Sans contact depuis ${last} jours` : score >= 70 ? `Prospect chaud — score ${score}/100` : "Prospect à maintenir actif";
   return { label:main.label, level:main.level, reason, score, badges, readOnly:false, scheduledFuture:false };
 }
 
@@ -713,14 +835,34 @@ function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actio
 
   const prospectItems = prospects.map(c => {
     const pc = prospectClass(c);
-    const relanceCount = Number(c.relance_count || c.nb_relances || 0) || 0;
+    const relanceCount = Number(firstFilled(c, ["relance_count", "nb_relances", "nombre_relances", "relances_count"])) || 0;
+    const nextDate = prospectNextActionDate(c);
+    const nextAction = prospectNextAction(c);
+    const budget = prospectBudget(c);
+    const apport = prospectApport(c);
+    const capacity = prospectCapacity(c);
     return {
       type:"prospect", id:c.id, source:"invest_clients", label:getClientName(c), category:pc.label, level:pc.level,
-      badges:pc.badges, reason:pc.reason, responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir la prochaine action prospect",
+      badges:pc.badges, reason:pc.reason, responsable:prospectOwner(c), defaultAction:nextAction || "Définir la prochaine action prospect",
       requiresNextAction:true, requiresDate:true, readOnly:Boolean(pc.readOnly), scheduledFuture:Boolean(pc.scheduledFuture), critical:!pc.readOnly && (pc.level !== "info" || pc.score >= 70),
       suggestedDueDate:nextRelanceDateFromCount(relanceCount), score:pc.score,
-      meta:`Score ${pc.score}/100 · Budget ${fmtDashboardEur(c.budget)} · ${c.etape || "Étape non renseignée"}`,
-      details:`Source : ${c.source || "—"} · Prochaine action : ${c.prochaine_action || "—"} · Relance : ${safeDate(c.date_prochaine_action)} · Relance proposée : ${safeDate(nextRelanceDateFromCount(relanceCount))}`,
+      meta:joinNonEmpty([`Score ${pc.score}/100`, `Budget ${fmtDashboardEur(budget)}`, prospectStage(c) || "Étape non renseignée", prospectPriority(c) ? `Priorité ${prospectPriority(c)}` : ""]),
+      details:joinNonEmpty([
+        prospectEmail(c) ? `Email : ${prospectEmail(c)}` : "",
+        prospectPhone(c) ? `Téléphone : ${prospectPhone(c)}` : "",
+        prospectSource(c) ? `Source : ${prospectSource(c)}` : "Source : —",
+        prospectLocation(c) ? `Localisation : ${prospectLocation(c)}` : "",
+        prospectZone(c) ? `Zone ciblée : ${prospectZone(c)}` : "",
+        prospectGoal(c) ? `Objectif : ${prospectGoal(c)}` : "",
+        prospectHorizon(c) ? `Horizon : ${prospectHorizon(c)}` : "",
+        apport ? `Apport : ${fmtDashboardEur(apport)}` : "",
+        capacity ? `Capacité : ${fmtDashboardEur(capacity)}` : "",
+        prospectLastContact(c) ? `Dernier contact : ${safeDate(prospectLastContact(c))}` : "Dernier contact : —",
+        `Prochaine action : ${nextAction || "—"}`,
+        `Relance : ${safeDate(nextDate)}`,
+        `Relance proposée : ${safeDate(nextRelanceDateFromCount(relanceCount))}`,
+        prospectComment(c) ? `Note : ${prospectComment(c)}` : "",
+      ]),
       raw:c,
     };
   }).sort((a,b) => ({ danger:0, warning:1, success:2, info:3 }[a.level] - { danger:0, warning:1, success:2, info:3 }[b.level] || (b.score || 0) - (a.score || 0)));
@@ -959,14 +1101,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       try {
         const { data, error } = await query;
         if (error) {
-          console.warn(`[Dashboard V7.1] ${label} non disponible :`, error);
+          console.warn(`[Dashboard V7.2] ${label} non disponible :`, error);
           if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
           else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
           return [];
         }
         return data || [];
       } catch (e) {
-        console.warn(`[Dashboard V7.1] ${label} non disponible :`, e);
+        console.warn(`[Dashboard V7.2] ${label} non disponible :`, e);
         if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
         else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
         return [];
@@ -1109,7 +1251,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     }
   };
 
-  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.1", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
+  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.2", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
     if (!responsable || !title) return null;
     const basePayload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
     const linkedPayload = {
@@ -1142,17 +1284,17 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     let createdTaskId = null;
     if (item.originalType === "prospect" || item.type === "prospect") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || null, conseiller:d.responsable || null, statut:normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver") ? "Inactif" : item.raw?.statut }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.1 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.2 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "client" || item.type === "client") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || item.raw?.date_prochaine_action || null, conseiller:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.1 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.2 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "bien" || item.type === "bien") {
       const decisionNorm = normTxt(d.decision);
       const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
       await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.1 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.2 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else {
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.1 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.2 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
     }
     return createdTaskId;
   };
@@ -1292,7 +1434,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.1</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.2</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
 
@@ -1315,7 +1457,7 @@ function ActionPlanView({ plan=[], T=THEMES_INV.dark }) {
 function DataCoveragePanel({ data, coverageData={}, T=THEMES_INV.dark }) {
   const biens = safeArr(data?.biens);
   const modules = [
-    { label:"CRM prospects", value:data?.stats?.prospects || 0, detail:"Score, relances, responsable, prochaine action", level:(data?.stats?.prospectsRed || 0) ? "danger" : "success", icon:Phone },
+    { label:"CRM prospects", value:data?.stats?.prospects || 0, detail:"Score, source, objectif, horizon, capacité, relances, responsable, prochaine action", level:(data?.stats?.prospectsRed || 0) ? "danger" : "success", icon:Phone },
     { label:"CRM clients", value:data?.stats?.clients || 0, detail:"Étapes, prochaine action, documents, responsables", level:(data?.stats?.clientsBlocked || 0) ? "danger" : "success", icon:Briefcase },
     { label:"Stock de biens", value:data?.stats?.biens || 0, detail:"Statuts, relances, offres, analyse, visite terrain", level:(data?.stats?.biensToAct || 0) ? "warning" : "success", icon:Home },
     { label:"Propositions / matching", value:coverageCount(coverageData.propositions), detail:"Biens proposés aux clients et offres actives", level:coverageCount(coverageData.propositions) ? "info" : "warning", icon:Handshake },
