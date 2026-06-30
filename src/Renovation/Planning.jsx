@@ -4,10 +4,10 @@ import { supabase } from "../supabase";
 import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
 import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
-import { CARD_SHADOW } from "../mobileUI";
+import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import {
   ChevronLeft, ChevronRight, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
-  ArrowRightLeft,
+  ArrowRightLeft, Clock, TriangleAlert, Check,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap,
 } from "lucide-react";
 
@@ -415,6 +415,27 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       {/* === VUE MOBILE === */}
       {isMobile && (
         <div style={{ flex:1, overflowY:"auto", padding:"12px 12px 24px" }}>
+          {/* Résumé de la semaine */}
+          {(() => {
+            const heuresVals = Object.values(heuresParOuvrier);
+            const totalH = heuresVals.reduce((s, h) => s + h, 0);
+            const surcharge = heuresVals.filter(h => h > 40).length;
+            const actifs = chantiers.filter(c => JOURS.some(j => {
+              const cell = getCell(c.id, j);
+              return cell.planifie || cell.ouvriers?.length > 0;
+            })).length;
+            return (
+              <div style={{ marginBottom:14 }}>
+                <SummaryBar T={T} items={[
+                  { label:"Chantiers actifs", value:actifs,        color:acc.accent, icon:CalendarCheck },
+                  { label:"Heures équipe",    value:`${totalH}h`,   color:"#5b8af5",  icon:Clock },
+                  { label: surcharge > 0 ? "En surcharge" : "Charge OK", value: surcharge > 0 ? surcharge : "✓",
+                    color: surcharge > 0 ? "#ef4444" : "#22c55e", icon: surcharge > 0 ? TriangleAlert : Check },
+                ]}/>
+              </div>
+            );
+          })()}
+
           {/* Sélecteur de jour en chips */}
           <div className="tabs-scroll" style={{ display:"flex", gap:6, marginBottom:14, paddingBottom:4 }}>
             {JOURS.map((j, di) => {
