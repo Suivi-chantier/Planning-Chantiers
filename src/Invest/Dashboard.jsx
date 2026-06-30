@@ -20,13 +20,13 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V6.4 — Morning Routine métier Profero Invest
+// TABLEAU DE BORD V6.5 — Morning Routine métier Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
 // score prospect, relances automatiques J+1/J+3/J+7/J+14/J+30, actions créées.
 // Rappel mail volontairement exclu de cette version.
-// V6.4 : liens directs fiche client/prospect/bien + échéances futures en lecture seule.
+// V6.5 : suppression de l’onglet “Urgences tous dossiers”. Les urgences restent dans chaque catégorie métier ; priorités placées après la revue dossiers.
 // ─────────────────────────────────────────────────────────────
 
 const V6_TABS = [
@@ -38,12 +38,11 @@ const V6_TABS = [
 ];
 
 const V6_STEPS = [
-  { key:"urgences", label:"Urgences tous dossiers", icon:AlertTriangle, help:"Toutes les urgences prospects, clients, biens et tâches en retard." },
-  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Les 3 priorités absolues du jour sont obligatoires." },
   { key:"collaborateurs", label:"Consignes équipe", icon:Users, help:"Actions assignées à Tom, Benjamin, Camille ou autres responsables." },
   { key:"prospects", label:"Prospects à décider", icon:Phone, help:"Prospects chauds, rouges, orange, sans action ou à relancer." },
   { key:"clients", label:"Clients actifs", icon:Briefcase, help:"Tous les clients actifs, avec alertes mises en avant et RAS séparés." },
   { key:"biens", label:"Stock de biens", icon:Home, help:"Tout le cycle du bien depuis l’annonce repérée jusqu’au suivi offre / travaux." },
+  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Les priorités sont définies après la revue prospects / clients / biens." },
   { key:"synthese", label:"Synthèse", icon:Send, help:"Plan d’action PDF par responsable avec commentaires détaillés." },
   { key:"validation", label:"Validation finale", icon:Check, help:"Finalisation stricte ou validation forcée avec motif." },
 ];
@@ -824,7 +823,7 @@ function printActionPlanPDF(routine, data) {
 
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [activeTab, setActiveTab] = useState("routine");
-  const [activeStep, setActiveStep] = useState("urgences");
+  const [activeStep, setActiveStep] = useState("collaborateurs");
   const [quickMode, setQuickMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -890,13 +889,12 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const visibleClients = (quickMode ? data.clientItems.filter(i => i.level === "danger") : data.clientItems).filter(item => !isResolvedToday(routine, item));
   const visibleBiens = (quickMode ? data.bienItems.filter(i => !i.readOnly && (i.level === "danger" || normTxt(i.category).includes("offre"))) : data.bienItems.filter(i => i.critical || i.readOnly)).filter(item => !isResolvedToday(routine, item));
   const clientDecisionItems = data.clientItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i));
-  const allRequiredItems = useMemo(() => [
-    ...unresolvedUrgencyItems,
+  const allRequiredItems = useMemo(() => uniqueItemsByDecisionKey([
     ...data.prospectItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
     ...clientDecisionItems.filter(i => !i.readOnly),
     ...data.bienItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
-  ], [data, routine, clientDecisionItems, unresolvedUrgencyItems]);
-  const allItemsForSave = useMemo(() => uniqueItemsByDecisionKey([...data.urgencyItems, ...data.prospectItems, ...data.clientItems, ...data.bienItems]), [data]);
+  ]), [data, routine, clientDecisionItems]);
+  const allItemsForSave = useMemo(() => uniqueItemsByDecisionKey([...data.prospectItems, ...data.clientItems, ...data.bienItems]), [data]);
   const incompleteItems = allRequiredItems.filter(item => !isDecisionComplete(item, routine.decisions[decisionKey(item)]));
   const incompleteCollaborators = [];
   const prioritiesOk = safeArr(routine.priorities).every(isPriorityComplete);
@@ -1084,7 +1082,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       const prospectsDecision = visibleProspects.filter(i => !i.readOnly);
       const prospectsInfo = quickMode ? [] : data.prospectItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
       return <>
-        <SectionCard title="Prospects à décider" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds arrivés à échéance" : "Les échéances futures restent en lecture seule plus bas"} T={T}>{renderItems(prospectsDecision, "Aucun prospect à traiter aujourd’hui", quickMode)}</SectionCard>
+        <SectionCard title="Prospects à décider" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds arrivés à échéance" : "Les échéances futures restent en lecture seule plus bas"} T={T}>{renderItems(prospectsDecision, "Aucun prospect à traiter aujourd’hui", quickMode, true)}</SectionCard>
         {!quickMode && <SectionCard title="Prospects — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={prospectsInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
         <SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard>
       </>;
@@ -1093,7 +1091,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       const clientsAlertes = visibleClients.filter(i => i.critical && !i.readOnly);
       const clientsOk = quickMode ? [] : visibleClients.filter(i => !i.critical || i.readOnly);
       return <>
-        <SectionCard title="Clients à décider" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients rouges arrivés à échéance" : "Alertes en premier : sans action, sans étape, sans responsable ou sans avancée"} T={T}>{renderItems(clientsAlertes, "Aucun client à traiter aujourd’hui", quickMode)}</SectionCard>
+        <SectionCard title="Clients à décider" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients rouges arrivés à échéance" : "Alertes en premier : sans action, sans étape, sans responsable ou sans avancée"} T={T}>{renderItems(clientsAlertes, "Aucun client à traiter aujourd’hui", quickMode, true)}</SectionCard>
         {!quickMode && <SectionCard title="Clients sous contrôle / lecture seule" icon={Check} subtitle="Échéance non passée ou dossier sous contrôle : visible sans décision obligatoire" T={T}><RoutineInfoList items={clientsOk} T={T} onOpen={openLinkedRecord}/></SectionCard>}
         <SectionCard title="Checklist Clients" icon={Check} T={T}>{renderChecklist("clients")}</SectionCard>
       </>;
@@ -1102,7 +1100,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       const biensDecision = visibleBiens.filter(i => !i.readOnly);
       const biensInfo = quickMode ? [] : data.bienItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
       return <>
-        <SectionCard title="Stock de biens à décider" icon={Home} subtitle={quickMode ? "Mode rapide : biens rouges / offres arrivées à échéance" : "Biens nécessitant une tâche, une relance ou une décision"} T={T}>{renderItems(biensDecision, "Aucun bien à traiter aujourd’hui", quickMode)}</SectionCard>
+        <SectionCard title="Stock de biens à décider" icon={Home} subtitle={quickMode ? "Mode rapide : biens rouges / offres arrivées à échéance" : "Biens nécessitant une tâche, une relance ou une décision"} T={T}>{renderItems(biensDecision, "Aucun bien à traiter aujourd’hui", quickMode, true)}</SectionCard>
         {!quickMode && <SectionCard title="Stock de biens — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={biensInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
         <SectionCard title="Checklist Biens" icon={Check} T={T}>{renderChecklist("biens")}</SectionCard>
       </>;
@@ -1112,7 +1110,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   };
 
   const renderTab = () => {
-    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Étapes de la routine</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "urgences" ? unresolvedUrgencyItems.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
+    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Routine — revue métier</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
     if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
     if (activeTab === "suivi") return <SuiviDossiers data={data} T={T} onNavigate={onNavigate}/>;
     if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
@@ -1122,7 +1120,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Morning Routine Profero Invest V6</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Priorité aux urgences : prospects, clients, stock de biens et consignes équipe.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Morning Routine Profero Invest V6.5</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Les urgences restent dans chaque catégorie : prospects, clients, stock de biens. Priorités définies après la revue.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
 
