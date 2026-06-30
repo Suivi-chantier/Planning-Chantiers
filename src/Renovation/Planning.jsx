@@ -6,7 +6,7 @@ import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
 import {
-  ChevronLeft, ChevronRight, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft, Clock, TriangleAlert, Check,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap,
 } from "lucide-react";
@@ -47,6 +47,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   // Vue forcée à "planifie" — les vues "réel" et "bilan" ont été retirées
   // car peu utilisées (les rapports ouvriers couvrent déjà le réel).
   const v = "planifie";
+  const [showEmptyWeek, setShowEmptyWeek] = useState(false); // grille PC : afficher les chantiers sans tâche de la semaine
   const [modal, setModal] = useState(null);
   const [cellDraft, setCellDraft] = useState(null);
   const [cmdDraft, setCmdDraft] = useState("");
@@ -661,8 +662,12 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               })}
             </div>
 
-            {/* Lignes de chantier */}
-            {chantiers.map(c => {
+            {/* Lignes de chantier : actives visibles, vides repliées en bas */}
+            {(() => {
+              const hasWeekActivity = (cc) => JOURS.some(j => { const cl = getCell(cc.id, j); return cl.planifie || cl.reel || cl.ouvriers?.length > 0 || cl.vehicules?.length > 0; });
+              const actifs = chantiers.filter(hasWeekActivity);
+              const vides  = chantiers.filter(cc => !hasWeekActivity(cc));
+              const renderRow = (c) => {
               const onLabel = contrastText(c.couleur);
               const onChip = onLabel;
               return (
@@ -771,7 +776,27 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                   })}
                 </div>
               );
-            })}
+              };
+              return (
+                <>
+                  {actifs.map(renderRow)}
+                  {vides.length > 0 && (
+                    <div style={{ minWidth: 860, marginTop: 6 }}>
+                      <button onClick={() => setShowEmptyWeek(s => !s)} style={{
+                        width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                        background: "transparent", border: `1px dashed ${T.border}`, color: T.textSub,
+                        borderRadius: RADIUS.md, padding: "9px 12px", cursor: "pointer", fontFamily: "inherit",
+                        fontSize: FONT.sm.size, fontWeight: 700,
+                      }}>
+                        <Icon as={showEmptyWeek ? ChevronUp : ChevronDown} size={15}/>
+                        {showEmptyWeek ? "Masquer les chantiers sans tâche" : `${vides.length} chantier${vides.length > 1 ? "s" : ""} sans tâche cette semaine`}
+                      </button>
+                    </div>
+                  )}
+                  {showEmptyWeek && vides.map(renderRow)}
+                </>
+              );
+            })()}
 
             {/* Récap heures par ouvrier sur la semaine */}
             {Object.keys(heuresParOuvrier).length > 0 && (
