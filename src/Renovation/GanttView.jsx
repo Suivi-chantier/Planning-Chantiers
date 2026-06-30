@@ -389,7 +389,7 @@ export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: 3 }}>
+          <div style={{ display: isMobile ? "none" : "flex", gap: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: 3 }}>
             <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} disabled={zoom <= 0.5}
               style={{ background: "transparent", border: "none", color: T.text, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 14, opacity: zoom <= 0.5 ? 0.4 : 1 }}>−</button>
             <span style={{ padding: "4px 8px", fontSize: 12, color: T.textMuted, fontWeight: 600 }}>{Math.round(zoom * 100)}%</span>
@@ -433,7 +433,37 @@ export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
         )}
       </div>
 
-      {/* TIMELINE */}
+      {/* TIMELINE (desktop) / LISTE (mobile) — le Gantt n'a pas de sens < 400px */}
+      {isMobile ? (
+        <div style={{ flex: 1, overflow: "auto", padding: "10px 12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+          {taches.map((t, i) => {
+            const done = t.avancement >= 100;
+            return (
+              <div key={t.id || i} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderLeft: `4px solid ${t.phase.couleur}`, borderRadius: 10, padding: "10px 12px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 14, flexShrink: 0 }}>{t.phase.emoji}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontWeight: 700, color: T.text, fontSize: 14 }}>
+                    {t.nom || "(sans nom)"}
+                  </span>
+                  {t.ancre && <span title="Date imposée" style={{ fontSize: 11 }}>📌</span>}
+                  <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 700, flexShrink: 0 }}>{t.heures}h</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: T.textMuted }}>
+                  <span>{fmtDateShort(t.start)} → {fmtDateShort(t.end)}</span>
+                  <span style={{ marginLeft: "auto", fontWeight: 800, color: done ? "#50c878" : T.text }}>{t.avancement}%</span>
+                </div>
+                <div style={{ marginTop: 6, height: 6, borderRadius: 3, background: T.card, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.min(100, t.avancement)}%`,
+                    background: done ? "#50c878" : t.phase.couleur, transition: "width .3s" }}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
       <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
         <div style={{ display: "flex", minWidth: LABEL_W + widthPx }}>
 
@@ -596,6 +626,7 @@ export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
