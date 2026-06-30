@@ -777,8 +777,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             .pchan-list .pchan-list-header{flex-direction:column;align-items:flex-start!important;gap:10px!important}
             .pchan-list .pchan-stats{width:100%;gap:8px!important}
             .pchan-list .pchan-stats > div{flex:1;min-width:0!important;padding:8px 10px!important}
-            .pchan-list .chantier-card .chantier-card-photo{height:130px!important}
-            .pchan-list .chantier-card .chantier-card-body{padding:12px 14px!important;gap:8px!important}
+            .pchan-list .chantier-card .chantier-card-photo{height:96px!important}
+            .pchan-list .chantier-card .chantier-card-body{padding:11px 13px!important;gap:7px!important}
             .pchan-list .chantier-card .chantier-card-name{font-size:15px!important}
           }
         `}</style>
@@ -902,7 +902,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             );
           }
           return (
-          <div className="chantiers-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
+          <div className="chantiers-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
             {chantiersFiltres.map(chantier => {
               const phasage = trouverPhasage(phasages, chantier);
               const av      = phasage ? calcAvancement(phasage) : null;
@@ -922,13 +922,12 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     display: "flex", flexDirection: "column",
                     borderTop: `3px solid ${chantier.couleur}`,
                   }}>
-                  <div className="chantier-card-photo" style={{ height: 160, background: "rgba(255,255,255,0.04)", position: "relative", overflow: "hidden", flexShrink: 0 }}>
+                  <div className="chantier-card-photo" style={{ height: 104, background: "rgba(128,128,128,0.10)", position: "relative", overflow: "hidden", flexShrink: 0 }}>
                     {photo ? (
                       <img src={photo} alt={chantier.nom} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
                     ) : (
-                      <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: textMuted }}>
-                        <Icon as={Building2} size={32} strokeWidth={1.5} style={{ opacity: .35 }}/>
-                        <span style={{ fontSize: FONT.xs.size, opacity: .6 }}>Aucune photo</span>
+                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: textMuted }}>
+                        <Icon as={Building2} size={26} strokeWidth={1.5} style={{ opacity: .35 }}/>
                       </div>
                     )}
                     {statut && <div style={{ position: "absolute", top: 10, right: 10 }}><StatutBadge statut={statut}/></div>}
@@ -939,19 +938,16 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     )}
                   </div>
 
-                  <div className="chantier-card-body" style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div className="chantier-card-body" style={{ padding: "11px 13px", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
                     <div className="chantier-card-name" style={{
                       fontSize: FONT.md.size, fontWeight: 700, color: text,
-                      letterSpacing: -0.2,
+                      letterSpacing: -0.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     }}>{chantier.nom}</div>
 
                     {av !== null ? (
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                          <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Avancement</span>
-                          <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: av >= 100 ? "#22c55e" : acc.accent }}>{av}%</span>
-                        </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <ProgressBar value={av} color={acc.accent}/>
+                        <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: av >= 100 ? "#22c55e" : acc.accent, flexShrink: 0, minWidth: 32, textAlign: "right" }}>{av}%</span>
                       </div>
                     ) : (
                       <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, opacity: .55, fontStyle: "italic" }}>
@@ -960,22 +956,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     )}
 
                     {fin && fin.prixVendu > 0 && (
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <div style={{ flex: 1, background: "rgba(128,128,128,0.08)", borderRadius: RADIUS.md, padding: "8px 10px" }}>
-                          <div style={{ fontSize: FONT.xs.size, color: textMuted, marginBottom: 2 }}>Marché</div>
-                          <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text }}>{fmt(fin.prixVendu)}</div>
-                        </div>
-                        <div style={{
-                          flex: 1,
-                          background: fin.marge >= 0 ? "rgba(34,197,94,0.10)" : "rgba(225,90,90,0.10)",
-                          borderRadius: RADIUS.md, padding: "8px 10px",
-                        }}>
-                          <div style={{ fontSize: FONT.xs.size, color: textMuted, marginBottom: 2 }}>Marge</div>
-                          <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: fin.marge >= 0 ? "#22c55e" : "#e15a5a" }}>
-                            {fmt(fin.marge)}{" "}
-                            <span style={{ fontSize: FONT.xs.size, opacity: .7, fontWeight: 600 }}>({fin.margePct.toFixed(0)}%)</span>
-                          </div>
-                        </div>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, fontSize: FONT.xs.size + 1 }}>
+                        <span style={{ color: textMuted }}>{fmt(fin.prixVendu)}</span>
+                        <span style={{ color: fin.marge >= 0 ? "#22c55e" : "#e15a5a", fontWeight: 700 }}>
+                          {fin.marge >= 0 ? "+" : ""}{fmt(fin.marge)} <span style={{ opacity: .7, fontWeight: 600 }}>({fin.margePct.toFixed(0)}%)</span>
+                        </span>
                       </div>
                     )}
                   </div>
