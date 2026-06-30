@@ -4,6 +4,7 @@ import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS,
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import { CARD_SHADOW } from "../mobileUI";
+import { useIsMobile } from "./Navigation";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
   ExternalLink, AlertTriangle, Search, Bell, User, Building2,
@@ -1152,6 +1153,7 @@ function VueGroupee({ commandes, groupBy, chantiers, materiaux, T, acc, onEditRo
 // ─── PAGE COMMANDES ───────────────────────────────────────────────────────────
 function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
+  const isMobile = useIsMobile();
   const [rows, setRows] = useState([]);
   const [materiaux, setMateriaux] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1834,7 +1836,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
       </div>
 
       {/* Tableau commandes ou vues groupées */}
-      {viewMode === "liste" && (
+      {viewMode === "liste" && !isMobile && (
       <div className="cmd-table-wrapper" style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, overflow: "hidden", boxShadow: CARD_SHADOW }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -2107,6 +2109,107 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
         </table>
       </div>
       )}
+
+      {/* Vue liste MOBILE : cartes de commande (lecture) + édition empilée */}
+      {viewMode === "liste" && isMobile && (() => {
+        const field = { background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontFamily: "inherit", fontSize: 16, width: "100%", outline: "none", boxSizing: "border-box" };
+        const lbl = { fontSize: 11, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, marginBottom: 5, display: "block" };
+        const cmdEditCard = (keyId) => (
+          <div key={keyId} style={{ background: T.surface, border: `1px solid ${acc.accent}66`, borderRadius: 14, boxShadow: CARD_SHADOW, padding: 14, display: "flex", flexDirection: "column", gap: 11 }}>
+            <div><label style={lbl}>Chantier</label>
+              <select value={editDraft.chantier_id || ""} onChange={e => setEditDraft(p => ({ ...p, chantier_id: e.target.value }))} style={field}>
+                <option value="">— Chantier —</option>
+                {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+              </select>
+            </div>
+            <div><label style={lbl}>Article</label>
+              {renderBiblioRowEditor(editDraft, setEditDraft)}
+              <input value={editDraft.article || ""} onChange={e => setEditDraft(p => ({ ...p, article: e.target.value }))} placeholder="Article" style={field}/>
+            </div>
+            <div><label style={lbl}>Fournisseur</label>
+              <input value={editDraft.fournisseur || ""} onChange={e => setEditDraft(p => ({ ...p, fournisseur: e.target.value }))} placeholder="Fournisseur" style={field}/>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1 }}><label style={lbl}>Quantité</label>
+                <input value={editDraft.quantite || ""} onChange={e => setEditDraft(p => ({ ...p, quantite: e.target.value }))} placeholder="Qté" style={field}/>
+              </div>
+              <div style={{ flex: 1 }}><label style={lbl}>Priorité</label>
+                <select value={editDraft.priorite || "normal"} onChange={e => setEditDraft(p => ({ ...p, priorite: e.target.value }))} style={field}>
+                  <option value="normal">🟡 Normal</option><option value="urgent">🔴 URGENT</option>
+                </select>
+              </div>
+            </div>
+            <div><label style={lbl}>Statut</label>
+              <select value={editDraft.statut || "a_completer"} onChange={e => setEditDraft(p => ({ ...p, statut: e.target.value }))} style={field}>
+                {STATUTS_COMMANDES.map(k => <option key={k} value={k}>{STATUTS[k].label}</option>)}
+              </select>
+            </div>
+            <div><label style={lbl}>Ouvrier demandeur</label>
+              <input value={editDraft.ouvrier_demandeur || ""} onChange={e => setEditDraft(p => ({ ...p, ouvrier_demandeur: e.target.value }))} placeholder="Ouvrier" style={field}/>
+            </div>
+            <div><label style={lbl}>Notes</label>
+              <input value={editDraft.notes || ""} onChange={e => setEditDraft(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" style={field}/>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => saveRow(editDraft)} style={{ flex: 1, background: acc.accent, color: acc.onAccent, border: "none", borderRadius: 10, padding: 11, fontFamily: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <Icon as={Check} size={16}/> Enregistrer
+              </button>
+              <button onClick={() => { setEditRow(null); setNewRow(null); setEditDraft(null); }} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 10, padding: "11px 14px", color: T.textSub, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>Annuler</button>
+            </div>
+          </div>
+        );
+        const cmdReadCard = (row) => {
+          const ch = chantiers.find(c => c.id === row.chantier_id);
+          const st = STATUTS[row.statut] || STATUTS.a_completer;
+          const urgent = row.priorite === "urgent";
+          const matLie = row.materiau_id ? materiaux.find(m => m.id === row.materiau_id) : null;
+          return (
+            <div key={row.id} style={{
+              background: T.surface, border: `1px solid ${T.border}`,
+              borderLeft: `4px solid ${urgent ? "#e05c5c" : (ch?.couleur || T.border)}`,
+              borderRadius: 14, boxShadow: CARD_SHADOW, padding: "12px 14px",
+              display: "flex", flexDirection: "column", gap: 8,
+            }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: T.text }}>{row.article || matLie?.nom || "—"}</div>
+                  {row.fournisseur && <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 1 }}>{row.fournisseur}</div>}
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: st.color, background: st.bg, border: `1px solid ${st.border}`, borderRadius: 999, padding: "4px 10px", whiteSpace: "nowrap", flexShrink: 0 }}>{st.label}</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", fontSize: 12, color: T.textMuted }}>
+                {ch && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: ch.couleur }}/>{ch.nom}</span>}
+                {row.quantite && <span>Qté {row.quantite}</span>}
+                {urgent && <span style={{ color: "#e05c5c", fontWeight: 800 }}>🔴 URGENT</span>}
+              </div>
+              {(row.ouvrier_demandeur || row.notes) && (
+                <div style={{ fontSize: 12, color: T.textSub }}>
+                  {row.ouvrier_demandeur && <b style={{ color: T.text, fontWeight: 600 }}>{row.ouvrier_demandeur}</b>}
+                  {row.ouvrier_demandeur && row.notes ? " · " : ""}{row.notes}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+                <button onClick={() => { setEditRow(row.id); setEditDraft({ ...row }); }} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 8, color: T.text, fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  <Icon as={Pencil} size={14}/> Modifier
+                </button>
+                <button onClick={() => deleteRow(row.id)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 12px", color: "#e05c5c", cursor: "pointer" }}>
+                  <Icon as={Trash2} size={14}/>
+                </button>
+              </div>
+            </div>
+          );
+        };
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {newRow && editDraft && cmdEditCard("new")}
+            {loading ? (
+              <div style={{ textAlign: "center", padding: 32, color: T.textMuted }}>Chargement…</div>
+            ) : filtered.length === 0 && !newRow ? (
+              <div style={{ textAlign: "center", padding: 32, color: T.textMuted }}>Aucune commande — touche « + Nouvelle commande ».</div>
+            ) : filtered.map(row => (editRow === row.id && editDraft) ? cmdEditCard(row.id) : cmdReadCard(row))}
+          </div>
+        );
+      })()}
 
       {/* Vue groupée par fournisseur */}
       {viewMode === "fournisseur" && (
