@@ -4,6 +4,7 @@ import { supabase } from "../supabase";
 import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
 import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
+import { CARD_SHADOW } from "../mobileUI";
 import {
   ChevronLeft, ChevronRight, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft,
@@ -424,12 +425,13 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               const wi = w ? weatherInfo(w.code) : null;
               return (
                 <button key={j} onClick={() => setMobileDay(j)} style={{
-                  flex:"0 0 auto", padding:"6px 10px", borderRadius:RADIUS.md, cursor:"pointer",
-                  fontFamily:"inherit", transition:"all .12s",
-                  display:"flex", flexDirection:"column", alignItems:"center", gap:2, minWidth:58,
-                  background: sel ? acc.accent : T.card,
+                  flex:"0 0 auto", padding:"8px 11px", borderRadius:14, cursor:"pointer",
+                  fontFamily:"inherit", transition:"all .15s",
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:3, minWidth:60,
+                  background: sel ? `linear-gradient(135deg, ${acc.accent}, ${acc.accent}cc)` : T.surface,
                   color:      sel ? acc.onAccent : T.textSub,
-                  border:    `1.5px solid ${sel ? acc.accent : T.border}`,
+                  border:    `1.5px solid ${sel ? "transparent" : T.border}`,
+                  boxShadow:  sel ? `0 5px 14px ${acc.accent}55` : CARD_SHADOW,
                   fontWeight: sel ? 800 : 600,
                 }}>
                   <span style={{ fontSize: FONT.xs.size, letterSpacing:.8, textTransform:"uppercase" }}>{j.slice(0,3)}</span>
@@ -454,11 +456,12 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               return (
                 <div key={c.id} onClick={() => openModal(c.id, mobileDay)}
                   style={{
-                    background: filled ? T.cardFill : T.card,
-                    border: `1px solid ${filled ? c.couleur + "66" : T.border}`,
+                    background: filled ? `linear-gradient(160deg, ${c.couleur}10, ${T.surface} 55%)` : T.surface,
+                    border: `1px solid ${filled ? c.couleur + "44" : T.border}`,
                     borderLeft: `5px solid ${c.couleur}`,
-                    borderRadius: RADIUS.lg,
-                    padding: "12px 14px", cursor: "pointer",
+                    borderRadius: 16,
+                    boxShadow: CARD_SHADOW,
+                    padding: "13px 15px", cursor: "pointer",
                     display: "flex", flexDirection: "column", gap: 8,
                   }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
