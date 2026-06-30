@@ -3,7 +3,8 @@ import { supabase, photoTransform, getClientId } from "../supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 import { Icon } from "../ui";
-import { CARD_SHADOW, SummaryBar } from "../mobileUI";
+import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
+import { useIsMobile } from "./Navigation";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
@@ -408,6 +409,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const [loading, setLoading]           = useState(true);
   const [selected, setSelected]         = useState(initialSelectedId);
   const [statutFilter, setStatutFilter] = useState("tous");
+  const [detailTab, setDetailTab]       = useState("apercu"); // onglet de la fiche détail (mobile)
+  const isMobile = useIsMobile();
   const [statutMenuOpen, setStatutMenuOpen] = useState(false);
 
   // Statut effectif d'un chantier : chantier.statut (source de vérité) ; fallback
@@ -1088,6 +1091,18 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
       <div className="pchan-detail-body" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1200, margin: "0 auto" }}>
 
+        {/* Onglets (mobile uniquement) — sur desktop tout s'affiche en scroll */}
+        {isMobile && (
+          <MobileTabs T={T} accent={acc.accent} onAccent={acc.onAccent}
+            value={detailTab} onChange={setDetailTab}
+            tabs={[
+              { id: "apercu",   label: "Aperçu",   icon: Building2 },
+              { id: "finances", label: "Finances", icon: Wallet },
+              { id: "suivi",    label: "Suivi",    icon: ClipboardList },
+            ]}/>
+        )}
+
+        {(!isMobile || detailTab === "apercu") && (<>
         {/* ── Section 1 : Photo + avancement ── */}
         <div className="ch-content-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 20 }}>
           <div>
@@ -1440,6 +1455,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           <NotesChantier chantierId={selected} T={T} accent={acc.accent}/>
         </div>
 
+        </>)}
+        {(!isMobile || detailTab === "finances") && (<>
         {/* ── Section : Suivi des heures par ouvrage ── */}
         {heuresParOuvrage.length > 0 && (
           <div>
@@ -1791,6 +1808,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           );
         })()}
 
+        </>)}
+        {(!isMobile || detailTab === "suivi") && (<>
         {/* ── Section 3 : Comptes rendus ── */}
         <div>
           <div>
@@ -2080,6 +2099,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             </div>
           )}
         </div>
+        </>)}
 
       </div>
 
