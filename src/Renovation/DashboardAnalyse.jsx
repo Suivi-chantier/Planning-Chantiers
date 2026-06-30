@@ -516,7 +516,9 @@ const Card = ({ children, style: cs = {}, T }) => (
   <div style={{
     background: T?.surface || '#262a32',
     border: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`,
-    borderRadius: RADIUS.lg, overflow: 'hidden', ...cs,
+    borderRadius: 16, overflow: 'hidden',
+    boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)',
+    ...cs,
   }}>{children}</div>
 );
 
@@ -568,13 +570,13 @@ const MSec = ({ children, T }) => (
 
 const inpCls = (T) => ({
   fontFamily: "'DM Mono',monospace", fontSize: 13,
-  background: 'rgba(255,255,255,0.04)', border: `1px solid ${T?.border || 'rgba(255,255,255,0.10)'}`,
+  background: 'rgba(128,128,128,0.08)', border: `1px solid ${T?.border || 'rgba(255,255,255,0.10)'}`,
   borderRadius: 10, padding: '9px 12px', color: T?.text || '#f0f0f0',
   outline: 'none', width: '100%', boxSizing: 'border-box',
 });
 const edtCls = (T) => ({
   fontFamily: "'DM Mono',monospace", fontSize: 13,
-  background: 'rgba(255,255,255,0.025)', border: 'none',
+  background: 'rgba(128,128,128,0.05)', border: 'none',
   borderBottom: `1px dashed ${T?.border || 'rgba(255,255,255,0.20)'}`,
   color: T?.text || '#f0f0f0', textAlign: 'right',
   outline: 'none', padding: '3px 7px', minWidth: 68, borderRadius: '6px 6px 0 0',
@@ -733,7 +735,7 @@ function ChantiersTab({ chantiers, archives, onRestore, onOpenChantier, loading 
                     </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, height: 5, background: 'rgba(255,255,255,0.06)', borderRadius: 3, position: 'relative', minWidth: 70 }}>
+                        <div style={{ flex: 1, height: 5, background: 'rgba(128,128,128,0.18)', borderRadius: 3, position: 'relative', minWidth: 70 }}>
                           <div style={{ height: '100%', width: `${c.avR}%`, background: avColor, borderRadius: 3, transition: 'width .4s' }}/>
                           <div style={{ position: 'absolute', top: -3, left: `${Math.min(c.avP, 100)}%`, width: 2, height: 11, background: T?.textMuted || '#5b6a8a', borderRadius: 1 }}/>
                         </div>
@@ -769,7 +771,7 @@ function ChantiersTab({ chantiers, archives, onRestore, onOpenChantier, loading 
                               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: matColor, fontWeight: 700 }}>{pctMat.toFixed(0)}%</span>
                               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: T?.textMuted || '#5b6a8a' }}>{fmt(c.matC)} / {fmt(c.budMat)}</span>
                             </div>
-                            <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ height: 6, background: 'rgba(128,128,128,0.18)', borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
                               <div style={{
                                 height: '100%', width: `${Math.min(100, pctMat)}%`,
                                 background: matColor, borderRadius: 3, transition: 'width .4s',
