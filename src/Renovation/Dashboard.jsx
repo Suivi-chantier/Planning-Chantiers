@@ -2,11 +2,12 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING, COULEURS_PALETTE } from "../constants";
 import { Icon } from "../ui";
+import { useIsMobile } from "./Navigation";
 import {
   HardHat, TriangleAlert, Users, Building2, Package, ClipboardCheck,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap, Wind,
   MapPin, Thermometer, Check, X, Clock, ArrowRight, Pencil,
-  CalendarDays, ChevronLeft, ChevronRight, AlertCircle, RefreshCw, ExternalLink,
+  CalendarDays, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertCircle, RefreshCw, ExternalLink,
 } from "lucide-react";
 
 // ─── WIDGET CONTAINER ─────────────────────────────────────────────────────────
@@ -43,6 +44,40 @@ function DashWidget({ title, icon: IconComp, children, action, T, accent = "#FFC
         {action}
       </div>
       <div style={{ padding: "16px 20px", flex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+// ─── SECTION ACCORDÉON MOBILE ─────────────────────────────────────────────────
+// En-tête toujours visible (titre + métrique clé) ; contenu dépliable.
+function MobileSection({ title, icon: IconComp, summary, defaultOpen = false, T, accent = "#FFC200", children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{
+      background: T.widgetBg, border: `1px solid ${T.border}`,
+      borderRadius: RADIUS.lg, overflow: "hidden",
+    }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: "100%", display: "flex", alignItems: "center", gap: 10,
+        padding: "13px 14px", background: "transparent", border: "none",
+        cursor: "pointer", fontFamily: "inherit", color: T.text, textAlign: "left",
+      }}>
+        {IconComp && (
+          <div style={{
+            width: 26, height: 26, borderRadius: RADIUS.md, flexShrink: 0,
+            background: accent + "1a", color: accent,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}><Icon as={IconComp} size={15} strokeWidth={2}/></div>
+        )}
+        <span style={{ fontWeight: 700, fontSize: 15 }}>{title}</span>
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {summary != null && summary !== "" && (
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.textSub }}>{summary}</span>
+          )}
+          <Icon as={open ? ChevronUp : ChevronDown} size={16} style={{ color: T.textMuted }}/>
+        </span>
+      </button>
+      {open && <div style={{ padding: "0 14px 14px" }}>{children}</div>}
     </div>
   );
 }
@@ -101,6 +136,7 @@ function weatherInfo(code) {
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
 function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
+  const isMobile = useIsMobile();
   const todayJour = getTodayJour();
   const now = new Date();
   const todayIso = now.toISOString().slice(0, 10);
@@ -187,6 +223,117 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
       icon: ClipboardCheck,
       color: tauxRendus === null ? acc.accent : tauxRendus >= 80 ? "#22c55e" : tauxRendus >= 50 ? "#f59e0b" : "#ef4444" },
   ];
+
+  // ─── RENDU MOBILE : en-tête compact + KPI 2×2 + sections accordéon ──────────
+  // Pensé pour la consultation au pouce : chaque section montre sa métrique clé
+  // dans son en-tête (état visible sans déplier), on ouvre que ce qu'on veut.
+  if (isMobile) {
+    const rendus = ouvriersAttendus.length - ouvriersManquants.length;
+    const tachesSummary = todosEnRetard.length > 0 ? `${todosEnRetard.length} en retard`
+      : mesTodos.length > 0 ? `${mesTodos.length} à faire` : null;
+    return (
+      <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
+        {/* En-tête compact */}
+        <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8 }}>
+          <div style={{ fontSize:22, fontWeight:800, letterSpacing:-0.3, color:T.text }}>{greeting}</div>
+          <div style={{ fontSize:FONT.xs.size+1, color:T.textMuted, textTransform:"capitalize", textAlign:"right" }}>
+            {now.toLocaleDateString("fr-FR", { weekday:"short", day:"numeric", month:"short" })}
+          </div>
+        </div>
+
+        {/* KPI 2×2 */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          {stats.map((s,i) => <StatCard key={i} T={T} {...s}/>)}
+        </div>
+
+        {/* Chantiers du jour — ouvert par défaut */}
+        <MobileSection T={T} accent={acc.accent} icon={HardHat} title="Chantiers du jour"
+          summary={todayJour ? chantiersAujourdHui.length : "—"} defaultOpen>
+          {!todayJour ? (
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>C'est le week-end — aucune activité prévue.</div>
+          ) : chantiersAujourdHui.length === 0 ? (
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size, lineHeight:1.6 }}>Aucun ouvrier planifié pour {todayJour}.</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {chantiersAujourdHui.map(c => (
+                <div key={c.id} style={{ display:"flex", gap:10, padding:"10px 12px", borderRadius:RADIUS.lg, background:c.couleur+"1c", border:`1px solid ${c.couleur}44` }}>
+                  <div style={{ width:4, alignSelf:"stretch", borderRadius:2, background:c.couleur, flexShrink:0 }}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:FONT.base.size, color:T.text, marginBottom:4 }}>{c.nom}</div>
+                    {c.cell.planifie && <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.5, marginBottom:6, whiteSpace:"pre-wrap" }}>{c.cell.planifie}</div>}
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                      {c.cell.ouvriers.map(o => (
+                        <span key={o} style={{ background:c.couleur, color:"#1a1f2e", borderRadius:RADIUS.sm+2, padding:"2px 8px", fontSize:FONT.xs.size, fontWeight:700 }}>{o}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </MobileSection>
+
+        {/* Activité équipe */}
+        <MobileSection T={T} accent={acc.accent} icon={Users} title="Activité équipe"
+          summary={todayJour && ouvriersAttendus.length ? `${rendus}/${ouvriersAttendus.length}` : null}>
+          {todayJour && ouvriersAttendus.length === 0 ? (
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Personne planifié</div>
+          ) : !todayJour ? (
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Week-end</div>
+          ) : (
+            <>
+              <div style={{ height:6, borderRadius:3, background:T.card, marginBottom:12, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${tauxRendus||0}%`, background: tauxRendus===null?"#94a3b8":tauxRendus>=80?"#4caf78":tauxRendus>=50?"#f5a623":"#e15a5a", transition:"width .3s" }}/>
+              </div>
+              {ouvriersManquants.length > 0 ? (
+                <>
+                  <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginBottom:5, fontWeight:700, letterSpacing:.8, textTransform:"uppercase" }}>En attente</div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                    {ouvriersManquants.map(o => (
+                      <span key={o} style={{ display:"inline-flex", alignItems:"center", gap:4, background:"rgba(225,90,90,0.12)", color:"#e15a5a", border:"1px solid rgba(225,90,90,0.25)", borderRadius:RADIUS.sm+2, padding:"3px 9px", fontSize:FONT.xs.size+1, fontWeight:700 }}>
+                        <Icon as={Clock} size={10}/>{o}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600 }}>
+                  <Icon as={Check} size={16}/>Tous les rapports sont rendus
+                </div>
+              )}
+            </>
+          )}
+        </MobileSection>
+
+        {/* Mes tâches */}
+        <MobileSection T={T} accent={acc.accent} icon={ClipboardCheck} title="Mes tâches" summary={tachesSummary}>
+          {!monEmail ? (
+            <div style={{ fontSize:FONT.sm.size, color:T.textMuted }}>Aucun email associé à votre profil.</div>
+          ) : mesTodos.length === 0 ? (
+            <div style={{ display:"flex", alignItems:"center", gap:8, color:"#4caf78", fontSize:FONT.sm.size, fontWeight:600 }}>
+              <Icon as={Check} size={16}/>Aucune tâche en cours
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {todosEnRetard.length > 0 && <AlertGroup T={T} color="#e15a5a" icon={TriangleAlert} label={`${todosEnRetard.length} en retard`} items={todosEnRetard.slice(0,4).map(t=>({text:t.texte, sub:formatDateLimite(t.date_limite)}))}/>}
+              {todosAujourdhui.length > 0 && <AlertGroup T={T} color="#f5a623" icon={Clock} label={`${todosAujourdhui.length} aujourd'hui`} items={todosAujourdhui.slice(0,4).map(t=>({text:t.texte}))}/>}
+              {todosAutres.length > 0 && <AlertGroup T={T} color={acc.accent} icon={ClipboardCheck} label={`${todosAutres.length} à venir`} items={todosAutres.slice(0,4).map(t=>({text:t.texte, sub:t.date_limite?formatDateLimite(t.date_limite):null}))}/>}
+            </div>
+          )}
+        </MobileSection>
+
+        {/* Météo */}
+        <MobileSection T={T} accent={acc.accent} icon={Cloud} title={`Météo · ${weather?.city || weatherCity}`}>
+          {!weather ? <div style={{ color:T.textMuted, fontSize:FONT.sm.size }}>Chargement…</div>
+            : weather.error ? <div style={{ color:"#e15a5a", fontSize:FONT.sm.size }}>Météo indisponible</div>
+            : <WeatherDisplay weather={weather} T={T}/>}
+        </MobileSection>
+
+        {/* Agenda équipe — widget autonome, en bas (secondaire) */}
+        <AgendaWidget T={T} accent={acc.accent} branch={branch}/>
+      </div>
+    );
+  }
 
   return (
     <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"28px 32px" }}>
