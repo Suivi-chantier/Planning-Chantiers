@@ -135,3 +135,118 @@ export function MobileCard({ accent, T, style, children }) {
     </div>
   );
 }
+
+// ─── PILL (badge) ─────────────────────────────────────────────────────────────
+export function Pill({ children, color = "#5b8af5", solid = false, style }) {
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      fontSize: 12, fontWeight: 800, lineHeight: 1, whiteSpace: "nowrap",
+      padding: "5px 10px", borderRadius: 999,
+      color: solid ? "#fff" : color,
+      background: solid ? color : `${color}1f`,
+      ...(solid ? {} : { border: `1px solid ${color}33` }),
+      ...style,
+    }}>{children}</span>
+  );
+}
+
+// ─── PASTILLE DE STATUT ───────────────────────────────────────────────────────
+export function StatusDot({ color = "#22c55e", size = 8 }) {
+  return <span style={{ width: size, height: size, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: `0 0 0 3px ${color}22` }}/>;
+}
+
+// ─── SÉLECTEUR SEGMENTÉ (onglets) ─────────────────────────────────────────────
+// tabs : [{ id, label, icon, count }]
+export function MobileTabs({ tabs, value, onChange, accent = "#FFC200", onAccent = "#fff", T }) {
+  return (
+    <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+      {tabs.map(t => {
+        const sel = t.id === value;
+        return (
+          <button key={t.id} onClick={() => onChange(t.id)} style={{
+            flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 14px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+            fontSize: 13, fontWeight: 700, transition: "all .15s", whiteSpace: "nowrap",
+            background: sel ? `linear-gradient(135deg, ${accent}, ${accent}cc)` : T.surface,
+            color: sel ? onAccent : T.textSub,
+            border: `1px solid ${sel ? "transparent" : T.border}`,
+            boxShadow: sel ? `0 5px 14px ${accent}55` : CARD_SHADOW,
+          }}>
+            {t.icon && <Icon as={t.icon} size={15}/>}
+            {t.label}
+            {t.count != null && <span style={{ fontSize: 11, fontWeight: 800, opacity: 0.85 }}>· {t.count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── ÉLÉMENT DE LISTE SURÉLEVÉ ────────────────────────────────────────────────
+export function MobileListItem({ accent, icon: IconComp, title, subtitle, right, onClick, T, children }) {
+  const c = accent || "#5b8af5";
+  return (
+    <div onClick={onClick} style={{
+      background: T.surface, border: `1px solid ${T.border}`,
+      ...(accent ? { borderLeft: `4px solid ${accent}` } : {}),
+      borderRadius: 14, boxShadow: CARD_SHADOW, padding: "12px 14px",
+      display: "flex", alignItems: "center", gap: 12, cursor: onClick ? "pointer" : "default",
+    }}>
+      {IconComp && (
+        <div style={{
+          width: 36, height: 36, borderRadius: 11, flexShrink: 0,
+          background: `linear-gradient(135deg, ${c}, ${c}c0)`, color: "#fff",
+          display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${c}44`,
+        }}><Icon as={IconComp} size={18}/></div>
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 2 }}>{subtitle}</div>}
+        {children}
+      </div>
+      {right}
+    </div>
+  );
+}
+
+// ─── ÉTAT VIDE ────────────────────────────────────────────────────────────────
+export function MobileEmptyState({ icon: IconComp, title, hint, T }) {
+  return (
+    <div style={{ textAlign: "center", padding: "36px 24px", color: T.textMuted }}>
+      {IconComp && (
+        <div style={{ width: 56, height: 56, borderRadius: 16, margin: "0 auto 14px", background: T.card, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon as={IconComp} size={26} style={{ opacity: 0.5 }}/>
+        </div>
+      )}
+      <div style={{ fontSize: 15, fontWeight: 700, color: T.textSub }}>{title}</div>
+      {hint && <div style={{ fontSize: 13, marginTop: 6, lineHeight: 1.5, maxWidth: 280, margin: "6px auto 0" }}>{hint}</div>}
+    </div>
+  );
+}
+
+// ─── BANDEAU DE CHIFFRES CLÉS (pages-outils) ──────────────────────────────────
+// items : [{ label, value, color, icon }]
+export function SummaryBar({ items, T }) {
+  return (
+    <div style={{ display: "flex", gap: 10, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+      {items.map((it, i) => {
+        const c = it.color || "#5b8af5";
+        return (
+          <div key={i} style={{
+            flex: "1 0 auto", minWidth: 0,
+            background: `linear-gradient(155deg, ${c}14, ${T.surface} 60%)`,
+            border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: CARD_SHADOW,
+            padding: "10px 14px", display: "flex", flexDirection: "column", gap: 3,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {it.icon && <Icon as={it.icon} size={14} style={{ color: c }}/>}
+              <span style={{ fontSize: 21, fontWeight: 800, color: T.text, letterSpacing: -0.4, lineHeight: 1 }}>{it.value}</span>
+            </div>
+            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.textMuted }}>{it.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
