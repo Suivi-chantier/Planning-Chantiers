@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
+import { CARD_SHADOW } from "../mobileUI";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
   ExternalLink, AlertTriangle, Search, Bell, User, Building2,
@@ -1011,7 +1012,7 @@ function VueGroupee({ commandes, groupBy, chantiers, materiaux, T, acc, onEditRo
         return (
           <div key={g.key} style={{
             background: T.surface, border: `1px solid ${T.border}`,
-            borderRadius: RADIUS.xl, overflow: "hidden",
+            borderRadius: 16, overflow: "hidden", boxShadow: CARD_SHADOW,
             borderLeft: g.couleur ? `4px solid ${g.couleur}` : `1px solid ${T.border}`,
           }}>
             {/* Header du groupe */}
@@ -1834,7 +1835,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
 
       {/* Tableau commandes ou vues groupées */}
       {viewMode === "liste" && (
-      <div className="cmd-table-wrapper" style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+      <div className="cmd-table-wrapper" style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, overflow: "hidden", boxShadow: CARD_SHADOW }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: T.card, borderBottom: `2px solid ${T.border}` }}>
