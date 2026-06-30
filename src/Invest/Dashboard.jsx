@@ -20,12 +20,13 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V6 — Morning Routine métier Profero Invest
+// TABLEAU DE BORD V6.2 — Morning Routine métier Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
 // score prospect, relances automatiques J+1/J+3/J+7/J+14/J+30, actions créées.
 // Rappel mail volontairement exclu de cette version.
+// V6.2 : validation rapide des urgences du jour avec disparition immédiate de la routine.
 // ─────────────────────────────────────────────────────────────
 
 const V6_TABS = [
@@ -272,6 +273,7 @@ function emptyRoutineState() {
     extraCollaborators:[],
     checklist:{},
     decisions:{},
+    resolvedUrgencies:{},
     stepNotes:{},
     savedRoutineId:null,
   };
@@ -283,6 +285,27 @@ function storageKeyFor(date=todayIso()) {
 
 function decisionKey(item) {
   return `${item.type}:${item.id}`;
+}
+
+function routineEntityKey(item) {
+  if (!item) return "";
+  const type = item.originalType || item.type || "item";
+  const id = item.raw?.id || item.sourceId || item.id || item.label || "unknown";
+  return `${type}:${id}`;
+}
+
+function isResolvedToday(routine, item) {
+  const resolved = routine?.resolvedUrgencies || {};
+  return Boolean(resolved[decisionKey(item)] || resolved[routineEntityKey(item)]);
+}
+
+function uniqueItemsByDecisionKey(items=[]) {
+  const map = new Map();
+  safeArr(items).forEach(item => {
+    const key = decisionKey(item);
+    if (!map.has(key)) map.set(key, item);
+  });
+  return Array.from(map.values());
 }
 
 function defaultDecision(item) {
@@ -368,7 +391,7 @@ function SectionCard({ title, icon, subtitle, children, T=THEMES_INV.dark, actio
   );
 }
 
-function RoutineDecisionCard({ item, decision, onChange, T=THEMES_INV.dark, compact=false }) {
+function RoutineDecisionCard({ item, decision, onChange, onResolve=null, T=THEMES_INV.dark, compact=false }) {
   const d = decision || defaultDecision(item);
   const type = item.type || "urgence";
   const options = V6_DECISIONS[type] || V6_DECISIONS.urgence;
@@ -415,6 +438,20 @@ function RoutineDecisionCard({ item, decision, onChange, T=THEMES_INV.dark, comp
         </label>
       </div>
       {d.force_validated && <div style={{ marginTop:SPACING.sm }}><TextArea label="Motif de validation forcée" required value={d.force_reason} onChange={v => patch({ force_reason:v })} placeholder="Motif obligatoire si tu forces la validation." T={T}/></div>}
+
+      {onResolve && (
+        <div style={{ marginTop:SPACING.sm, paddingTop:SPACING.sm, borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm, flexWrap:"wrap" }}>
+          <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, fontWeight:800 }}>
+            Valider l’urgence la fait disparaître de la routine du jour sans supprimer le dossier.
+          </div>
+          <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+            <button type="button" className="inv-btn inv-btn-sm" style={{ background:SU, color:"white" }} onClick={() => onResolve(item, "Traiter moi-même")}><Icon as={Check} size={12}/> Traité</button>
+            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onResolve(item, "Reporter")}><Icon as={Calendar} size={12}/> Reporter</button>
+            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onResolve(item, "Assigner")}><Icon as={Users} size={12}/> Assigner</button>
+            <button type="button" className="inv-btn inv-btn-sm" style={{ background:DA, color:"white" }} onClick={() => onResolve(item, "Bloquer")}><Icon as={AlertTriangle} size={12}/> Bloquer</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -495,6 +532,42 @@ function ConsignesCollaborateursView({ plan=[], T=THEMES_INV.dark }) {
 function RoutineInfoList({ items=[], empty="Aucun dossier sous contrôle", T=THEMES_INV.dark }) {
   if (!items.length) return <div style={{ padding:SPACING.md, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
   return <div style={{ display:"grid", gap:8 }}>{items.map(item => <div key={decisionKey(item)} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ minWidth:0 }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.label}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>{item.details || item.reason}</div></div><AlertBadge level="success" T={T}>Sous contrôle</AlertBadge></div>)}</div>;
+}
+
+function ResolvedUrgenciesView({ routine, data, onUndo, T=THEMES_INV.dark }) {
+  const resolved = routine?.resolvedUrgencies || {};
+  const allItems = uniqueItemsByDecisionKey([...data.urgencyItems, ...data.prospectItems, ...data.clientItems, ...data.bienItems]);
+  const seen = new Set();
+  const rows = Object.entries(resolved).map(([key, info]) => {
+    const item = allItems.find(i => decisionKey(i) === key || routineEntityKey(i) === key);
+    return { key, info, item };
+  }).filter(row => {
+    if (!row.info) return false;
+    const uniq = row.info.entity_key || row.key;
+    if (seen.has(uniq)) return false;
+    seen.add(uniq);
+    return true;
+  });
+  if (!rows.length) return null;
+  return (
+    <SectionCard title="Urgences validées aujourd’hui" icon={Check} subtitle="Elles ne sont plus affichées dans la routine du jour" T={T}>
+      <div style={{ display:"grid", gap:8 }}>
+        {rows.map(({ key, info, item }) => (
+          <div key={key} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                {info.label || item?.label || key}
+              </div>
+              <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>
+                {info.decision || "Validé"} · {info.resolved_at ? new Date(info.resolved_at).toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" }) : "aujourd’hui"}
+              </div>
+            </div>
+            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onUndo?.(key)}><Icon as={X} size={12}/> Réafficher</button>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  );
 }
 
 function MiniMonthlyChart({ data=[], T=THEMES_INV.dark }) {
@@ -664,20 +737,36 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
 
   const loadDashboard = useCallback(async () => {
     setLoading(true); setError(""); setOptionalErrors([]);
-    const safeQuery = async (label, query) => {
+
+    // Les tables principales doivent être disponibles.
+    // Les tables secondaires restent silencieuses si elles ne sont pas encore installées
+    // afin de ne pas afficher un bandeau d'alerte inutile dans la routine.
+    const safeQuery = async (label, query, options = {}) => {
+      const { required = false, silent = false } = options;
       try {
         const { data, error } = await query;
-        if (error) { setOptionalErrors(prev => [...prev, `${label} : ${error.message}`]); return []; }
+        if (error) {
+          console.warn(`[TableauBord V6] ${label} non disponible :`, error);
+          if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
+          else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
+          return [];
+        }
         return data || [];
-      } catch (e) { setOptionalErrors(prev => [...prev, `${label} : non disponible`]); return []; }
+      } catch (e) {
+        console.warn(`[TableauBord V6] ${label} non disponible :`, e);
+        if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
+        else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
+        return [];
+      }
     };
+
     const [c,b,p,pl,a,h] = await Promise.all([
-      safeQuery("Clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false })),
-      safeQuery("Biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false })),
-      safeQuery("Propositions", supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)")),
-      safeQuery("Planning", supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at,updated_at").order("date_rdv", { ascending:false }).limit(300)),
-      safeQuery("Actions", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(500)),
-      safeQuery("Historique routines", supabase.from("invest_morning_routines").select("*").order("routine_date", { ascending:false }).limit(30)),
+      safeQuery("les clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false }), { required:true }),
+      safeQuery("les biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false }), { required:true }),
+      safeQuery("Propositions", supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)"), { silent:true }),
+      safeQuery("Planning", supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at,updated_at").order("date_rdv", { ascending:false }).limit(300), { silent:true }),
+      safeQuery("Actions", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(500), { silent:true }),
+      safeQuery("Historique routines", supabase.from("invest_morning_routines").select("*").order("routine_date", { ascending:false }).limit(30), { silent:true }),
     ]);
     setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setHistory(h);
     setLoading(false);
@@ -688,11 +777,18 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
 
   const data = useMemo(() => buildV6Data({ clients, biens, propositions, planning, actions }), [clients, biens, propositions, planning, actions]);
   const collaborators = useMemo(() => ["Matthieu", "Tom", "Benjamin", "Camille"], []);
-  const visibleProspects = quickMode ? data.prospectItems.filter(i => i.level === "danger" || i.score >= 70) : data.prospectItems.filter(i => i.critical);
-  const visibleClients = quickMode ? data.clientItems.filter(i => i.level === "danger") : data.clientItems;
-  const visibleBiens = quickMode ? data.bienItems.filter(i => i.level === "danger" || normTxt(i.category).includes("offre")) : data.bienItems.filter(i => i.critical);
-  const clientDecisionItems = data.clientItems.filter(i => i.critical);
-  const allRequiredItems = useMemo(() => [...data.urgencyItems, ...data.prospectItems.filter(i => i.critical), ...clientDecisionItems, ...data.bienItems.filter(i => i.critical)], [data, clientDecisionItems]);
+  const unresolvedUrgencyItems = useMemo(() => data.urgencyItems.filter(item => !isResolvedToday(routine, item)), [data.urgencyItems, routine]);
+  const visibleProspects = (quickMode ? data.prospectItems.filter(i => i.level === "danger" || i.score >= 70) : data.prospectItems.filter(i => i.critical)).filter(item => !isResolvedToday(routine, item));
+  const visibleClients = (quickMode ? data.clientItems.filter(i => i.level === "danger") : data.clientItems).filter(item => !isResolvedToday(routine, item));
+  const visibleBiens = (quickMode ? data.bienItems.filter(i => i.level === "danger" || normTxt(i.category).includes("offre")) : data.bienItems.filter(i => i.critical)).filter(item => !isResolvedToday(routine, item));
+  const clientDecisionItems = data.clientItems.filter(i => i.critical && !isResolvedToday(routine, i));
+  const allRequiredItems = useMemo(() => [
+    ...unresolvedUrgencyItems,
+    ...data.prospectItems.filter(i => i.critical && !isResolvedToday(routine, i)),
+    ...clientDecisionItems,
+    ...data.bienItems.filter(i => i.critical && !isResolvedToday(routine, i)),
+  ], [data, routine, clientDecisionItems, unresolvedUrgencyItems]);
+  const allItemsForSave = useMemo(() => uniqueItemsByDecisionKey([...data.urgencyItems, ...data.prospectItems, ...data.clientItems, ...data.bienItems]), [data]);
   const incompleteItems = allRequiredItems.filter(item => !isDecisionComplete(item, routine.decisions[decisionKey(item)]));
   const incompleteCollaborators = [];
   const prioritiesOk = safeArr(routine.priorities).every(isPriorityComplete);
@@ -700,6 +796,50 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const plan = useMemo(() => actionPlanFromRoutine(routine, data), [routine, data]);
 
   const updateDecision = (item, value) => setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(item)]:value } }));
+
+  const resolveUrgencyForToday = (item, decisionLabel="Traiter moi-même") => {
+    ensureStarted();
+    const key = decisionKey(item);
+    const entityKey = routineEntityKey(item);
+    setRoutine(prev => {
+      const current = prev.decisions?.[key] || defaultDecision(item);
+      const nextDecision = {
+        ...current,
+        decision:current.decision || decisionLabel,
+        comment:current.comment || `Urgence validée dans la morning routine du ${todayIso()}.`,
+        responsable:current.responsable || item.responsable || "Matthieu",
+        next_action:current.next_action || item.defaultAction || `Suivi ${item.label}`,
+        due_date:current.due_date || todayIso(),
+        create_task:decisionLabel === "Traiter moi-même" ? false : true,
+        resolved_at:new Date().toISOString(),
+      };
+      const info = {
+        resolved_at:new Date().toISOString(),
+        decision:nextDecision.decision,
+        label:item.label,
+        entity_key:entityKey,
+      };
+      return {
+        ...prev,
+        decisions:{ ...prev.decisions, [key]:nextDecision },
+        resolvedUrgencies:{ ...(prev.resolvedUrgencies || {}), [key]:info, [entityKey]:info },
+      };
+    });
+  };
+
+  const undoResolvedUrgency = (resolvedKey) => {
+    setRoutine(prev => {
+      const next = { ...(prev.resolvedUrgencies || {}) };
+      const info = next[resolvedKey];
+      delete next[resolvedKey];
+      if (info?.entity_key) delete next[info.entity_key];
+      Object.entries(next).forEach(([k, v]) => {
+        if (v?.entity_key === resolvedKey || v?.entity_key === info?.entity_key) delete next[k];
+      });
+      return { ...prev, resolvedUrgencies:next };
+    });
+  };
+
   const updateChecklist = (step, id, checked) => setRoutine(prev => ({ ...prev, checklist:{ ...prev.checklist, [step]:{ ...(prev.checklist[step] || {}), [id]:checked } } }));
   const updateStepNote = (step, value) => setRoutine(prev => ({ ...prev, stepNotes:{ ...prev.stepNotes, [step]:value } }));
 
@@ -737,7 +877,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const saveRoutine = async ({ complete=false, forced=false }={}) => {
     setSaving(true); setError("");
     try {
-      const routinePayload = { routine_date:todayIso(), status:complete ? "completed" : "in_progress", started_at:routine.started_at || new Date().toISOString(), completed_at:complete ? new Date().toISOString() : null, created_by:profil?.email || profil?.nom || "Matthieu", completion_forced:forced, force_reason:routine.force_reason || null, priorite_1:routine.priorities?.[0]?.title || null, priorite_2:routine.priorities?.[1]?.title || null, priorite_3:routine.priorities?.[2]?.title || null, summary:JSON.stringify({ plan, collaborators:routine.collaborators, stepNotes:routine.stepNotes }) };
+      const routinePayload = { routine_date:todayIso(), status:complete ? "completed" : "in_progress", started_at:routine.started_at || new Date().toISOString(), completed_at:complete ? new Date().toISOString() : null, created_by:profil?.email || profil?.nom || "Matthieu", completion_forced:forced, force_reason:routine.force_reason || null, priorite_1:routine.priorities?.[0]?.title || null, priorite_2:routine.priorities?.[1]?.title || null, priorite_3:routine.priorities?.[2]?.title || null, summary:JSON.stringify({ plan, collaborators:routine.collaborators, stepNotes:routine.stepNotes, resolvedUrgencies:routine.resolvedUrgencies || {} }) };
       let routineId = routine.savedRoutineId;
       if (!routineId) {
         const { data:created, error:insertError } = await supabase.from("invest_morning_routines").insert(routinePayload).select("id").single();
@@ -748,7 +888,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
         if (updateError) throw updateError;
       }
       const itemRows = [];
-      for (const item of allRequiredItems) {
+      for (const item of allItemsForSave) {
         const d = routine.decisions[decisionKey(item)] || defaultDecision(item);
         if (!String(d.decision || "").trim() && !d.force_validated) continue;
         let createdTaskId = null;
@@ -770,13 +910,35 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     return <div style={{ display:"grid", gap:6 }}>{list.map(ch => <label key={ch.id} style={{ display:"flex", alignItems:"center", gap:8, color:T.textSub, fontSize:FONT.sm.size, fontWeight:800 }}><input type="checkbox" checked={Boolean(routine.checklist?.[stepKey]?.[ch.id])} onChange={e => updateChecklist(stepKey, ch.id, e.target.checked)}/>{ch.label}{ch.required && <span style={{ color:DA }}>*</span>}</label>)}<TextArea label="Note libre de l’étape" value={routine.stepNotes?.[stepKey] || ""} onChange={v => updateStepNote(stepKey, v)} T={T}/></div>;
   };
 
-  const renderItems = (items, empty, compact=false) => {
+  const renderItems = (items, empty, compact=false, allowResolve=false) => {
     if (!items.length) return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
-    return <div style={{ display:"grid", gap:SPACING.md }}>{items.map(item => <RoutineDecisionCard key={decisionKey(item)} item={item} decision={routine.decisions[decisionKey(item)] || defaultDecision(item)} onChange={v => updateDecision(item, v)} T={T} compact={compact}/>)}</div>;
+    return (
+      <div style={{ display:"grid", gap:SPACING.md }}>
+        {items.map(item => (
+          <RoutineDecisionCard
+            key={decisionKey(item)}
+            item={item}
+            decision={routine.decisions[decisionKey(item)] || defaultDecision(item)}
+            onChange={v => updateDecision(item, v)}
+            onResolve={allowResolve ? resolveUrgencyForToday : null}
+            T={T}
+            compact={compact}
+          />
+        ))}
+      </div>
+    );
   };
 
   const renderStep = () => {
-    if (activeStep === "urgences") return <><SectionCard title="Urgences à traiter" icon={AlertTriangle} subtitle="Les tâches en retard sont affichées en premier" T={T}>{renderItems(data.urgencyItems, "Aucune urgence critique détectée", quickMode)}</SectionCard><SectionCard title="Checklist Urgences" icon={Check} T={T}>{renderChecklist("urgences")}</SectionCard></>;
+    if (activeStep === "urgences") return (
+      <>
+        <SectionCard title="Urgences à traiter" icon={AlertTriangle} subtitle="Valide chaque urgence pour la faire disparaître de la routine du jour" T={T}>
+          {renderItems(unresolvedUrgencyItems, "Aucune urgence critique détectée", quickMode, true)}
+        </SectionCard>
+        <ResolvedUrgenciesView routine={routine} data={data} onUndo={undoResolvedUrgency} T={T}/>
+        <SectionCard title="Checklist Urgences" icon={Check} T={T}>{renderChecklist("urgences")}</SectionCard>
+      </>
+    );
     if (activeStep === "priorites") return <><SectionCard title="3 priorités obligatoires du jour" icon={Sparkles} subtitle="Impossible de terminer la routine sans ces 3 priorités" T={T}><PriorityEditor priorities={routine.priorities} onChange={priorities => setRoutine(prev => ({ ...prev, priorities }))} T={T}/></SectionCard><SectionCard title="Checklist Priorités" icon={Check} T={T}>{renderChecklist("priorites")}</SectionCard></>;
     if (activeStep === "collaborateurs") return <><SectionCard title="Consignes collaborateurs" icon={Users} subtitle="Générées automatiquement à partir des décisions assignées" T={T}><ConsignesCollaborateursView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Consignes" icon={Check} T={T}>{renderChecklist("collaborateurs")}</SectionCard></>;
     if (activeStep === "prospects") return <><SectionCard title="Prospects classés" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds uniquement" : "Uniquement les prospects qui nécessitent une décision"} T={T}>{renderItems(visibleProspects, "Aucun prospect à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard></>;
@@ -787,7 +949,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   };
 
   const renderTab = () => {
-    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Étapes de la routine</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "urgences" ? data.urgencyItems.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "prospects" ? visibleProspects.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
+    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Étapes de la routine</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "urgences" ? unresolvedUrgencyItems.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "prospects" ? visibleProspects.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
     if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
     if (activeTab === "suivi") return <SuiviDossiers data={data} T={T} onNavigate={onNavigate}/>;
     if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
@@ -802,7 +964,6 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       </div>
 
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.xl }}>{V6_TABS.map(tab => { const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.pill, padding:"9px 13px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"inherit", fontWeight:900 }}><Icon as={tab.icon} size={14}/>{tab.label}</button> })}</div>
-      {optionalErrors.length > 0 && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.warning?.border || "#fde68a"}`, background:SEMANTIC?.warning?.bg || "#fffbeb", borderRadius:RADIUS.md, color:WA }}>Certaines données optionnelles ne sont pas disponibles. La page reste utilisable.</div>}
       {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
       {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement…</div> : renderTab()}
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:980px){.inv-v6-routine-layout{grid-template-columns:1fr!important}.inv-card[style*="sticky"]{position:relative!important;top:auto!important}}`}</style>
