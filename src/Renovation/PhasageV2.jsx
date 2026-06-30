@@ -3335,10 +3335,11 @@ function KpiCard({ T, icon, iconColor, label, value, sub, accent, bold, onClick 
       title={onClick ? "Cliquer pour voir le détail" : undefined}
       className={onClick ? "p2-kpi-clic" : undefined}
       style={{
-      background: T.card,
+      background: T.surface,
       border: `1px solid ${T.border}`,
-      borderRadius: RADIUS.md,
-      padding: "10px 12px",
+      borderRadius: 14,
+      boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)",
+      padding: "11px 13px",
       display: "flex", flexDirection: "column", gap: 6,
       minWidth: 0,
       cursor: onClick ? "pointer" : "default",

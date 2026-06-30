@@ -4718,9 +4718,10 @@ function FraisGenerauxTab({
       {/* ─── Tableau mensuel ────────────────────────────────────────────────── */}
       <div
         style={{
-          background: card,
+          background: T.surface,
           border: `1px solid ${T.border}`,
-          borderRadius: RADIUS.lg,
+          borderRadius: 16,
+          boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)",
           padding: 18,
           marginBottom: 20,
         }}
@@ -4999,7 +5000,8 @@ function AvancementChantierTab({
         style={{
           background: T.surface,
           border: `1px solid ${T.border}`,
-          borderRadius: RADIUS.lg,
+          borderRadius: 16,
+          boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)",
           padding: 16,
           marginBottom: 16,
         }}
@@ -6374,12 +6376,14 @@ function KpiCard({ T, icon, iconColor, label, value, highlight = false }) {
       style={{
         background: T.surface,
         border: `1px solid ${highlight ? iconColor + "55" : T.border}`,
-        borderRadius: RADIUS.lg,
+        borderRadius: 16,
         padding: "16px 18px",
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        boxShadow: highlight ? `0 0 0 1px ${iconColor}22` : "none",
+        boxShadow: highlight
+          ? `0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06), 0 0 0 1px ${iconColor}33`
+          : "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

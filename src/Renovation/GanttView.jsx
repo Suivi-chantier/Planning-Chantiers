@@ -441,7 +441,8 @@ export default function GanttView({ planTravaux, chantierNom, T, onClose }) {
             return (
               <div key={t.id || i} style={{
                 background: T.surface, border: `1px solid ${T.border}`,
-                borderLeft: `4px solid ${t.phase.couleur}`, borderRadius: 10, padding: "10px 12px",
+                borderLeft: `4px solid ${t.phase.couleur}`, borderRadius: 14, padding: "11px 13px",
+                boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 14, flexShrink: 0 }}>{t.phase.emoji}</span>
