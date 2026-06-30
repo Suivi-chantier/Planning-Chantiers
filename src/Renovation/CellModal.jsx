@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie } from "../constants";
+import { useDirtyGuard } from "../hooks";
 
 function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicules=[],saving,onClose,T,weekId,year,week}){
   if(!chantier)return null;
+
+  // La journée se sauvegarde à la fermeture (onClose) : tant que l'éditeur est
+  // ouvert, on bloque l'auto-reload (MAJ PWA) pour ne pas perdre la saisie.
+  useDirtyGuard("cell-modal", true);
 
   const [rapports, setRapports] = useState([]);
   const [loadingRapports, setLoadingRapports] = useState(true);

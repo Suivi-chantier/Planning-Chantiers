@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
+import { useDirtyGuard } from "../hooks";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package,
@@ -282,6 +283,9 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
+
+  // Bloque l'auto-reload pendant l'édition d'un ouvrage (sauvegarde au clic).
+  useDirtyGuard("ouvrage-edit-" + ouvrage.id, isEdit);
 
   function addSousTache() {
     const next = [...(editData.sous_taches || []), { nom: "", lotId: "", ratio: null }];

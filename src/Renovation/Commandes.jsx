@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
+import { useDirtyGuard } from "../hooks";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
   ExternalLink, AlertTriangle, Search, Bell, User, Building2,
@@ -221,6 +222,10 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
   const [lotGlobal, setLotGlobal] = useState("");
   const [importing, setImporting] = useState(false);
   const dropRef = useRef(null);
+
+  // Empêche l'auto-reload (MAJ PWA) de fermer la modale pendant une analyse/saisie :
+  // dès qu'un fichier est chargé ou des lignes extraites, on bloque le rechargement.
+  useDirtyGuard("import-commande", !!file || lignes.length > 0 || !!fournisseurGlobal);
 
   // Tenter un matching automatique biblio par nom/référence
   const tryMatchBiblio = (designation, reference) => {

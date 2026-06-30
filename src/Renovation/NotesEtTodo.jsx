@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { getBranchAccent, FONT, RADIUS, SPACING } from "../constants";
 import { Icon } from "../ui";
+import { useDirtyGuard } from "../hooks";
 import {
   ClipboardList, ListTodo, User, Trash2, Pencil, X, Plus, Check,
   Calendar, AlarmClock, FileText, CircleCheck, Circle, HardHat, ListChecks,
@@ -92,6 +93,9 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
   const [draftSousTaches, setDraftSousTaches] = useState(todo.sous_taches || []);
   const [sousTachesExpanded, setSousTachesExpanded] = useState(true);
   const inputRef = useRef();
+
+  // Bloque l'auto-reload pendant l'édition d'une tâche (sauvegarde au clic).
+  useDirtyGuard("todo-edit-" + todo.id, editing);
 
   const chantier = todo.chantier_id ? chantiers.find(c => c.id === todo.chantier_id) : null;
 
@@ -481,6 +485,9 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
   const [saving, setSaving]       = useState(false);
   const [notesDirty, setNotesDirty] = useState(false);
   const [notesSaveStatus, setNotesSaveStatus] = useState(""); // "" | "saving" | "saved"
+
+  // Bloque l'auto-reload tant qu'une nouvelle tâche est en cours de saisie.
+  useDirtyGuard("todo-new", !!newTodo.trim());
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [notifStatus, setNotifStatus]   = useState(""); // message éphémère
   const notesTimer = useRef(null);

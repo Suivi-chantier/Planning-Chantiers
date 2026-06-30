@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { confirmSuppressionMassive } from "../guards";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
+import { useDirtyGuard } from "../hooks";
 import {
   Package, Plus, Search, X, Trash2, Pencil, ExternalLink, Check,
   AlertTriangle, FileSpreadsheet, Sheet, Tag, Euro, Link2, Inbox,
@@ -600,6 +601,9 @@ function ArticleModal({ article, onClose, onSave, T, acc, fournisseurs = [] }) {
   const [draft, setDraft] = useState(article || emptyArticle());
   const [saving, setSaving] = useState(false);
   acc = acc || getBranchAccent("renovation");
+
+  // Bloque l'auto-reload tant que la fiche article est ouverte (save au clic).
+  useDirtyGuard("article-modal", true);
 
   const set = (field, val) => setDraft(p => ({ ...p, [field]: val }));
 

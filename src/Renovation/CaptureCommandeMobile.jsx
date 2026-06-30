@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase, photoTransform } from "../supabase";
+import { useDraft, useDirtyGuard } from "../hooks";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -79,7 +80,11 @@ const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U",
 
 export default function CaptureCommandeMobile({ chantiers = [], T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
-  const [step, setStep] = useState("home");      // home | setup | analyzing | verify
+  // step / form / options persistés en localStorage (useDraft) : une saisie en
+  // cours survit à tout rechargement (MAJ PWA, refresh, app tuée par Android…).
+  // Les photos (objets File) ne sont pas sérialisables et ne sont donc PAS
+  // restaurées — mais elles sont déjà uploadées (photoUrl), qui lui est persisté.
+  const [step, setStep, clearStep] = useDraft("capture-cmd-step", "home"); // home | setup | analyzing | verify
   const [recents, setRecents] = useState([]);
   const [loadingRecents, setLoadingRecents] = useState(true);
   const [phasages, setPhasages] = useState([]);
@@ -87,15 +92,28 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
 
   // Brouillon de saisie
   const [chantierDefaut, setChantierDefaut] = useState(() => localStorage.getItem(LS_DERNIER_CHANTIER) || "");
-  const [typeEvenement, setTypeEvenement] = useState("comptoir");
-  const [photoUrl, setPhotoUrl] = useState("");
-  const [photos, setPhotos] = useState([]); // [{ file, preview, mediaType }] — BL multi-pages
-  const [repartir, setRepartir] = useState(false);
-  const [dejaPaye, setDejaPaye] = useState(false); // payé direct / pas de facture à venir
-  const [form, setForm] = useState({
+  const [typeEvenement, setTypeEvenement, clearTypeEvenement] = useDraft("capture-cmd-type", "comptoir");
+  const [photoUrl, setPhotoUrl, clearPhotoUrl] = useDraft("capture-cmd-photourl", "");
+  const [photos, setPhotos] = useState([]); // [{ file, preview, mediaType }] — BL multi-pages (non persisté)
+  const [repartir, setRepartir, clearRepartir] = useDraft("capture-cmd-repartir", false);
+  const [dejaPaye, setDejaPaye, clearDejaPaye] = useDraft("capture-cmd-dejapaye", false); // payé direct / pas de facture à venir
+  const [form, setForm, clearForm] = useDraft("capture-cmd-form", {
     fournisseur: "", doc_type: "bl", doc_numero: "", numero_en_attente: false,
     date_doc: "", montant_ht: "", lignes: [ligneVide()],
   });
+
+  // L'analyse IA ne peut pas reprendre après un reload (photos perdues) :
+  // si un brouillon restauré était bloqué en "analyzing", on revient à "setup".
+  useEffect(() => { if (step === "analyzing") setStep("setup"); /* eslint-disable-next-line */ }, []);
+
+  // Bloque l'auto-reload tant qu'une capture est en cours.
+  useDirtyGuard("capture-cmd", step !== "home");
+
+  // Efface tous les brouillons (après enregistrement réussi ou abandon explicite).
+  const clearDrafts = useCallback(() => {
+    clearForm(); clearStep(); clearTypeEvenement();
+    clearPhotoUrl(); clearRepartir(); clearDejaPaye();
+  }, [clearForm, clearStep, clearTypeEvenement, clearPhotoUrl, clearRepartir, clearDejaPaye]);
   const [iaErr, setIaErr] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
@@ -289,6 +307,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     setSaving(false);
     await loadRecents();
     setStep("home");
+    clearDrafts(); // saisie enregistrée : on efface le brouillon local
   };
 
   // ── Styles partagés ──
