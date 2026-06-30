@@ -4,7 +4,7 @@ import { supabase } from "../supabase";
 import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
 import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
-import { CARD_SHADOW, SummaryBar } from "../mobileUI";
+import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
 import {
   ChevronLeft, ChevronRight, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft, Clock, TriangleAlert, Check,
@@ -474,29 +474,41 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0 || cell.vehicules?.length > 0;
               const di = JOURS.indexOf(mobileDay);
               const onChip = contrastText(c.couleur);
+              const taches = filled ? getDisplayTaches(cell) : [];
               return (
                 <div key={c.id} onClick={() => openModal(c.id, mobileDay)}
                   style={{
                     background: filled ? `linear-gradient(160deg, ${c.couleur}10, ${T.surface} 55%)` : T.surface,
                     border: `1px solid ${filled ? c.couleur + "44" : T.border}`,
                     borderLeft: `5px solid ${c.couleur}`,
-                    borderRadius: 16,
+                    borderRadius: 14,
                     boxShadow: CARD_SHADOW,
-                    padding: "13px 15px", cursor: "pointer",
-                    display: "flex", flexDirection: "column", gap: 8,
+                    padding: "11px 13px", cursor: "pointer",
+                    display: "flex", flexDirection: "column", gap: 6,
                   }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  {/* En-tête : nom + nb tâches + indicateurs + calendrier (icône) */}
+                  <div style={{ display:"flex", alignItems:"center", gap:7 }}>
                     <div style={{
-                      fontWeight:800, fontSize:14, letterSpacing:.4, textTransform:"uppercase",
+                      fontWeight:800, fontSize:14, letterSpacing:.3, textTransform:"uppercase",
                       color:T.text, flex:1, minWidth:0,
                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                     }}>
                       {c.nom}
                     </div>
-                    <div style={{ display:"flex", gap:5 }}>
-                      {commandes[c.id]?.trim() && <Icon as={Package} size={12} color="#f5a623"/>}
-                      {notesData[c.id]?.trim() && <Icon as={StickyNote} size={12} color="#8070d0"/>}
-                    </div>
+                    {filled && taches.length > 0 && (
+                      <span style={{ fontSize:10.5, fontWeight:800, color:T.textMuted, flexShrink:0 }}>
+                        {taches.length} tâche{taches.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {commandes[c.id]?.trim() && <Icon as={Package} size={13} color="#f5a623"/>}
+                    {notesData[c.id]?.trim() && <Icon as={StickyNote} size={13} color="#8070d0"/>}
+                    {filled && (
+                      <a href={makeGCalUrl(c, mobileDay, di, cell)} target="_blank" rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()} title="Ajouter à Google Agenda"
+                        style={{ display:"inline-flex", color:T.textSub, lineHeight:0, flexShrink:0 }}>
+                        <Icon as={Calendar} size={14}/>
+                      </a>
+                    )}
                   </div>
                   {!filled ? (
                     <div style={{ color:T.textMuted, fontSize:13, fontStyle:"italic", display:"flex", alignItems:"center", gap:6 }}>
@@ -505,68 +517,35 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                     </div>
                   ) : (
                     <>
-                      <div style={{ fontSize:13, lineHeight:1.5, color: T.text, display:"flex", flexDirection:"column", gap:4 }}>
-                        {(() => {
-                          const displayTaches = getDisplayTaches(cell);
-                          if (displayTaches.length === 0) return <span style={{ color:T.emptyColor }}>—</span>;
-                          return displayTaches.map((tache, ti) => (
-                            <div key={tache.id || ti} style={{ display:"flex", alignItems:"flex-start", gap:6 }}>
-                              <span style={{ flex:1, minWidth:0, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{tache.text}</span>
-                              <button
-                                title="Déplacer vers un autre jour"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const r = e.currentTarget.getBoundingClientRect();
-                                  setMoveMenu({ cId: c.id, jour: mobileDay, taskIdx: ti, x: r.right, y: r.bottom });
-                                }}
-                                style={{
-                                  background:"transparent", border:`1px solid ${T.border}`,
-                                  borderRadius:RADIUS.sm, padding:"3px 6px",
-                                  cursor:"pointer", color:T.textSub, flexShrink:0, lineHeight:0,
-                                }}>
-                                <Icon as={ArrowRightLeft} size={12}/>
-                              </button>
-                            </div>
-                          ));
-                        })()}
-                      </div>
-                      {cell.ouvriers?.length > 0 && (
-                        <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginTop:2 }}>
-                          {cell.ouvriers.map(o => (
+                      {/* Aperçu des tâches : 2 lignes max (détail complet dans la modale au tap) */}
+                      {taches.length > 0 && (
+                        <div style={{
+                          fontSize:12.5, lineHeight:1.45, color:T.textSub,
+                          overflow:"hidden", display:"-webkit-box",
+                          WebkitLineClamp:2, WebkitBoxOrient:"vertical",
+                        }}>
+                          {taches.map(t => t.text).join("  ·  ")}
+                        </div>
+                      )}
+                      {(cell.ouvriers?.length > 0 || cell.vehicules?.length > 0) && (
+                        <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                          {cell.ouvriers?.map(o => (
                             <span key={o} style={{
                               background: c.couleur, color: onChip,
                               borderRadius: RADIUS.sm + 2,
                               padding: "2px 9px", fontSize: 11, fontWeight: 700,
                             }}>{o}</span>
                           ))}
-                        </div>
-                      )}
-                      {cell.vehicules?.length > 0 && (
-                        <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginTop:4 }}>
-                          {cell.vehicules.map(vh => (
+                          {cell.vehicules?.map(vh => (
                             <span key={vh.id} style={{
                               display:"inline-flex", alignItems:"center", gap:4,
                               background: "transparent", color: T.textSub,
                               border:`1px solid ${T.border}`, borderRadius: RADIUS.sm + 2,
                               padding: "2px 9px", fontSize: 11, fontWeight: 700,
-                            }}>🚐 {vh.nom}{vh.immatriculation ? ` · ${vh.immatriculation}` : ""}</span>
+                            }}>🚐 {vh.nom}</span>
                           ))}
                         </div>
                       )}
-                      <a href={makeGCalUrl(c, mobileDay, di, cell)} target="_blank" rel="noopener noreferrer"
-                        onClick={e => e.stopPropagation()}
-                        title="Ajouter à Google Agenda"
-                        style={{
-                          alignSelf:"flex-end",
-                          display:"inline-flex", alignItems:"center", gap:5,
-                          fontSize:11, textDecoration:"none",
-                          background: T.card, border:`1px solid ${T.border}`,
-                          color: T.textSub,
-                          borderRadius: RADIUS.sm + 2, padding:"4px 10px", fontWeight:600,
-                        }}>
-                        <Icon as={Calendar} size={12}/>
-                        Ajouter au calendrier
-                      </a>
                     </>
                   )}
                 </div>
@@ -578,13 +557,9 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               </div>
             )}
 
-            {/* Récap heures par ouvrier sur la semaine (mobile) */}
+            {/* Récap heures par ouvrier sur la semaine — repliable */}
             {Object.keys(heuresParOuvrier).length > 0 && (
-              <div style={{ marginTop:18, paddingTop:14, borderTop:`1px solid ${T.headerBorder}` }}>
-                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2,
-                  textTransform:"uppercase", color:T.textMuted, marginBottom:8 }}>
-                  Heures · semaine {week}
-                </div>
+              <MobileSection T={T} accent="#5b8af5" icon={Clock} title={`Heures · semaine ${week}`}>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
                   {ouvriers.filter(o => heuresParOuvrier[o]).map(o => {
                     const h = heuresParOuvrier[o];
@@ -605,7 +580,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                     );
                   })}
                 </div>
-              </div>
+              </MobileSection>
             )}
           </div>
         </div>
