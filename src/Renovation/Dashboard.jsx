@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING, COULEURS_PALETTE } from "../constants";
 import { Icon } from "../ui";
 import { useIsMobile } from "./Navigation";
-import { MobileHero, MobileStat, MobileSection } from "../mobileUI";
+import { MobileHero, MobileStat, MobileSection, CARD_SHADOW } from "../mobileUI";
 import {
   HardHat, TriangleAlert, Users, Building2, Package, ClipboardCheck,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap, Wind,
@@ -15,9 +15,10 @@ import {
 function DashWidget({ title, icon: IconComp, children, action, T, accent = "#FFC200" }) {
   return (
     <div style={{
-      background: T.widgetBg,
+      background: T.surface,
       border: `1px solid ${T.border}`,
-      borderRadius: RADIUS.xl,
+      borderRadius: 16,
+      boxShadow: CARD_SHADOW,
       overflow: "hidden",
       display: "flex", flexDirection: "column",
     }}>
@@ -53,24 +54,26 @@ function DashWidget({ title, icon: IconComp, children, action, T, accent = "#FFC
 function StatCard({ label, value, sub, icon: IconComp, color, T }) {
   return (
     <div style={{
-      background: T.widgetBg,
+      background: `linear-gradient(155deg, ${color}12, ${T.surface} 60%)`,
       border: `1px solid ${T.border}`,
-      borderRadius: RADIUS.lg,
-      padding: "14px 16px",
+      borderRadius: 16,
+      boxShadow: CARD_SHADOW,
+      padding: "16px 18px",
       display: "flex", alignItems: "center", gap: 14,
     }}>
       <div style={{
-        width: 44, height: 44, borderRadius: RADIUS.md,
-        background: color + "18", color: color,
+        width: 46, height: 46, borderRadius: 13,
+        background: `linear-gradient(135deg, ${color}, ${color}c0)`, color: "#fff",
         display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        boxShadow: `0 5px 14px ${color}55`,
       }}>
-        <Icon as={IconComp} size={22} strokeWidth={2} />
+        <Icon as={IconComp} size={23} strokeWidth={2.2} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700, marginBottom: 2 }}>
+        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700, marginBottom: 3 }}>
           {label}
         </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: T.text, lineHeight: 1.1, letterSpacing: -0.3 }}>
+        <div style={{ fontSize: 24, fontWeight: 800, color: T.text, lineHeight: 1.1, letterSpacing: -0.4 }}>
           {value}
           {sub && <span style={{ fontSize: 13, color: T.textMuted, fontWeight: 600, marginLeft: 5 }}>{sub}</span>}
         </div>
@@ -194,12 +197,25 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
   // ─── RENDU MOBILE : en-tête compact + KPI 2×2 + sections accordéon ──────────
   // Pensé pour la consultation au pouce : chaque section montre sa métrique clé
   // dans son en-tête (état visible sans déplier), on ouvre que ce qu'on veut.
+  // Données dérivées pour le hero (mobile + desktop)
+  const rendus = ouvriersAttendus.length - ouvriersManquants.length;
+  const prenom = (profil?.prenom || profil?.nom || "").trim().split(" ")[0];
+  const heroWi = weather && !weather.error && weather.current ? weatherInfo(weather.current.weather_code) : null;
+  const heroWeatherRight = heroWi && (
+    <div style={{ display:"flex", alignItems:"center", gap:7, background:"rgba(255,255,255,0.10)", border:"1px solid rgba(255,255,255,0.14)", borderRadius:13, padding:"8px 12px", flexShrink:0 }}>
+      <Icon as={heroWi.icon} size={19} style={{ color:"#fff" }}/>
+      <span style={{ fontSize:17, fontWeight:800, color:"#fff" }}>{Math.round(weather.current.temperature_2m)}°</span>
+    </div>
+  );
+  const heroChips = todayJour && ouvriersAttendus.length > 0 ? [
+    { icon: Building2,      value: chantiersAujourdHui.length,             label: "chantiers", color: acc.accent },
+    { icon: HardHat,        value: ouvriersAttendus.length,                label: "ouvriers",  color: acc.accent },
+    { icon: ClipboardCheck, value: `${rendus}/${ouvriersAttendus.length}`, label: "rapports",  color: tauxRendus>=80?"#4ade80":tauxRendus>=50?"#fbbf24":"#f87171" },
+  ] : null;
+
   if (isMobile) {
-    const rendus = ouvriersAttendus.length - ouvriersManquants.length;
     const tachesSummary = todosEnRetard.length > 0 ? `${todosEnRetard.length} en retard`
       : mesTodos.length > 0 ? `${mesTodos.length} à faire` : null;
-    const prenom = (profil?.prenom || profil?.nom || "").trim().split(" ")[0];
-    const heroWi = weather && !weather.error && weather.current ? weatherInfo(weather.current.weather_code) : null;
     return (
       <div className="page-padding dashboard-page" style={{ flex:1, overflowY:"auto", padding:"14px 12px" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -209,17 +225,8 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
           accent={acc.accent}
           eyebrow={now.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" })}
           title={`${greeting}${prenom ? `, ${prenom}` : ""}`}
-          right={heroWi && (
-            <div style={{ display:"flex", alignItems:"center", gap:7, background:"rgba(255,255,255,0.10)", border:"1px solid rgba(255,255,255,0.14)", borderRadius:13, padding:"8px 12px", flexShrink:0 }}>
-              <Icon as={heroWi.icon} size={19} style={{ color:"#fff" }}/>
-              <span style={{ fontSize:17, fontWeight:800, color:"#fff" }}>{Math.round(weather.current.temperature_2m)}°</span>
-            </div>
-          )}
-          chips={todayJour && ouvriersAttendus.length > 0 ? [
-            { icon: Building2,      value: chantiersAujourdHui.length,             label: "chantiers", color: acc.accent },
-            { icon: HardHat,        value: ouvriersAttendus.length,                label: "ouvriers",  color: acc.accent },
-            { icon: ClipboardCheck, value: `${rendus}/${ouvriersAttendus.length}`, label: "rapports",  color: tauxRendus>=80?"#4ade80":tauxRendus>=50?"#fbbf24":"#f87171" },
-          ] : null}
+          right={heroWeatherRight}
+          chips={heroChips}
         />
 
         {/* KPI 2×2 */}
@@ -342,18 +349,15 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
         }
       `}</style>
 
-      {/* En-tête */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{
-          fontSize: FONT.sm.size, color: T.textMuted, marginBottom: 4,
-          letterSpacing: .3, textTransform: "capitalize",
-        }}>
-          {now.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
-        </div>
-        <div className="dash-title" style={{
-          fontSize: FONT.h1.size + 4, fontWeight: 800,
-          letterSpacing: -0.4, lineHeight: 1.1, color: T.text,
-        }}>{greeting}</div>
+      {/* En-tête — hero premium partagé */}
+      <div style={{ marginBottom: 22 }}>
+        <MobileHero
+          accent={acc.accent}
+          eyebrow={now.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
+          title={`${greeting}${prenom ? `, ${prenom}` : ""}`}
+          right={heroWeatherRight}
+          chips={heroChips}
+        />
       </div>
 
       {/* Stats KPI : 4 tuiles */}
