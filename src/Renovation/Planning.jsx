@@ -467,9 +467,13 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
             })}
           </div>
 
-          {/* Liste verticale des chantiers pour le jour sélectionné */}
+          {/* Chantiers actifs du jour en cartes ; les vides regroupés dans « À planifier » */}
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {chantiers.map(c => {
+            {(() => {
+              const isFilled = (cc) => { const cl = getCell(cc.id, mobileDay); return cl.planifie || cl.reel || cl.ouvriers?.length > 0 || cl.vehicules?.length > 0; };
+              const actifs = chantiers.filter(isFilled);
+              const vides  = chantiers.filter(cc => !isFilled(cc));
+              const renderCard = (c) => {
               const cell = getCell(c.id, mobileDay);
               const filled = cell.planifie || cell.reel || cell.ouvriers?.length > 0 || cell.vehicules?.length > 0;
               const di = JOURS.indexOf(mobileDay);
@@ -550,12 +554,41 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                   )}
                 </div>
               );
-            })}
-            {chantiers.length === 0 && (
-              <div style={{ textAlign:"center", padding:"40px 20px", color:T.textMuted, fontSize:14 }}>
-                Aucun chantier configuré.
-              </div>
-            )}
+              };
+              if (chantiers.length === 0) return (
+                <div style={{ textAlign:"center", padding:"40px 20px", color:T.textMuted, fontSize:14 }}>
+                  Aucun chantier configuré.
+                </div>
+              );
+              return (
+                <>
+                  {actifs.length === 0 && (
+                    <div style={{ textAlign:"center", padding:"6px 12px 2px", color:T.textMuted, fontSize:13, lineHeight:1.5 }}>
+                      Rien de planifié ce jour. Déplie « À planifier » pour assigner un chantier.
+                    </div>
+                  )}
+                  {actifs.map(renderCard)}
+                  {vides.length > 0 && (
+                    <MobileSection T={T} accent="#94a3b8" icon={Plus} title="À planifier" summary={vides.length} defaultOpen={actifs.length === 0}>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        {vides.map(c => (
+                          <button key={c.id} onClick={() => openModal(c.id, mobileDay)} style={{
+                            display:"flex", alignItems:"center", gap:10, width:"100%", textAlign:"left",
+                            background:T.surface, border:`1px solid ${T.border}`, borderLeft:`4px solid ${c.couleur}`,
+                            borderRadius:12, padding:"10px 12px", cursor:"pointer", fontFamily:"inherit",
+                          }}>
+                            <span style={{ flex:1, minWidth:0, fontWeight:700, fontSize:14, color:T.text, textTransform:"uppercase", letterSpacing:.3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.nom}</span>
+                            <span style={{ display:"inline-flex", alignItems:"center", gap:4, color:acc.accent, fontSize:12, fontWeight:700, flexShrink:0 }}>
+                              <Icon as={Plus} size={14}/> Planifier
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </MobileSection>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Récap heures par ouvrier sur la semaine — repliable */}
             {Object.keys(heuresParOuvrier).length > 0 && (
