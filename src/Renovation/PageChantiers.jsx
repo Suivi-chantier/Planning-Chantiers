@@ -3,7 +3,7 @@ import { supabase, photoTransform, getClientId } from "../supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 import { Icon } from "../ui";
-import { CARD_SHADOW } from "../mobileUI";
+import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
@@ -41,7 +41,7 @@ function StatutBadge({ statut }) {
 function ProgressBar({ value, color, height = 6 }) {
   const pct = Math.min(100, Math.max(0, value || 0));
   return (
-    <div style={{ width: "100%", height, borderRadius: height, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+    <div style={{ width: "100%", height, borderRadius: height, background: "rgba(128,128,128,0.2)", overflow: "hidden" }}>
       <div style={{
         height: "100%", width: `${pct}%`, borderRadius: height,
         background: pct >= 100 ? "#22c55e" : (color || "#FFC300"),
@@ -799,6 +799,28 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           </div>
         </div>
 
+        {/* ── Résumé financier ── */}
+        {chantiers.length > 0 && (() => {
+          let caTotal = 0, margeTotal = 0;
+          chantiers.forEach(c => {
+            const ph = trouverPhasage(phasages, c);
+            if (!ph) return;
+            const ptsCh = pointages.filter(p => p.chantier_id === ph.chantier_id);
+            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh);
+            caTotal += f.prixVendu || 0;
+            margeTotal += f.marge || 0;
+          });
+          return (
+            <div style={{ marginBottom: 16 }}>
+              <SummaryBar T={T} items={[
+                { label: "Chantiers", value: chantiers.length, color: acc.accent, icon: HardHat },
+                { label: "CA total",  value: fmt(caTotal),     color: "#5b8af5",   icon: Wallet },
+                { label: "Marge",     value: fmt(margeTotal),  color: margeTotal >= 0 ? "#22c55e" : "#e15a5a", icon: TrendingUp },
+              ]}/>
+            </div>
+          );
+        })()}
+
         {/* ── Filtres par statut ── */}
         {(() => {
           const counts = chantiers.reduce((acc, c) => {
@@ -939,7 +961,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
                     {fin && fin.prixVendu > 0 && (
                       <div style={{ display: "flex", gap: 8 }}>
-                        <div style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: RADIUS.md, padding: "8px 10px" }}>
+                        <div style={{ flex: 1, background: "rgba(128,128,128,0.08)", borderRadius: RADIUS.md, padding: "8px 10px" }}>
                           <div style={{ fontSize: FONT.xs.size, color: textMuted, marginBottom: 2 }}>Marché</div>
                           <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text }}>{fmt(fin.prixVendu)}</div>
                         </div>
