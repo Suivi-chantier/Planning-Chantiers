@@ -3,7 +3,26 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  build: { sourcemap: true },
+  build: {
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Découpe les grosses dépendances en chunks séparés : téléchargement en
+        // parallèle, cache indépendant, et les libs lourdes (recharts, xlsx) ne
+        // chargent qu'avec les pages lazy qui les utilisent.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) return 'react';
+          if (id.includes('recharts') || id.includes('/d3-') || id.includes('victory')) return 'charts';
+          if (id.includes('xlsx')) return 'xlsx';
+          if (id.includes('@supabase')) return 'supabase';
+          if (id.includes('lucide-react')) return 'icons';
+          if (id.includes('html2pdf') || id.includes('jspdf') || id.includes('html2canvas')) return 'pdf';
+          return 'vendor';
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({

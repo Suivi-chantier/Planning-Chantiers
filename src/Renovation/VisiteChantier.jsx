@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import html2pdf from "html2pdf.js";
 import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
@@ -2589,6 +2588,7 @@ async function exportVisitePdf(payload) {
 
   const safeName = (chantier?.nom || "visite").replace(/[^a-zA-Z0-9-_]/g, "_");
   try {
+    const html2pdf = (await import("html2pdf.js")).default; // chargé à la demande
     await html2pdf().set({
       margin: [10, 0, 10, 0],
       filename: `Visite-${safeName}-${visite.date}.pdf`,

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
-import html2pdf from "html2pdf.js";
 import { supabase, photoTransform } from "../supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
@@ -593,6 +592,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       },
     };
     try {
+      const html2pdf = (await import("html2pdf.js")).default; // chargé à la demande
       const blob = await html2pdf().set(opts).from(container.querySelector(".page") || container).outputPdf("blob");
       return blob;
     } finally {

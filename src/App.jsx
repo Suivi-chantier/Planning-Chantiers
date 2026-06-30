@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
 import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent } from "./constants";
 import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
@@ -28,6 +28,20 @@ function AccesRefuse({ T, page }) {
   );
 }
 
+// ─── FALLBACK DE CHARGEMENT (pages lazy-loaded) ──────────────────────────────
+function PageLoader({ T }) {
+  const t = T || {};
+  return (
+    <div style={{
+      flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 40, color: t.textMuted || "#888", background: t.bg || "#1e2128",
+      fontFamily: "'Barlow Condensed','Arial Narrow',sans-serif", fontSize: 13, letterSpacing: 2,
+    }}>
+      CHARGEMENT…
+    </div>
+  );
+}
+
 import { Sidebar, BottomNav } from "./Renovation/Navigation";
 import PageDashboard          from "./Renovation/Dashboard";
 import PagePlanning           from "./Renovation/Planning";
@@ -41,19 +55,23 @@ import BoutonAide             from "./Renovation/PageAide";
 import PageEquipe             from "./Renovation/Equipe";
 import PageValidation         from "./Renovation/Validation";
 import PagePlans              from "./Renovation/Plans";
-import PagePhasage            from "./Renovation/Phasage";
-import PagePhasageV2          from "./Renovation/PhasageV2";
-import PageBibliotheque       from "./Renovation/Bibliotheque";
-import PageBibliothequeMateriaux from "./Renovation/PageBibliothequeMateriaux";
-import PageGuideOuvrages      from "./Renovation/PageGuideOuvrages";
 import PageAdmin              from "./Renovation/Admin";
 import PageRapportMobile      from "./Renovation/RapportMobile";
-import PageInvest             from "./PageInvest";
 import PageVisiteChantier     from "./Renovation/VisiteChantier";
 import PageInfoClient         from "./Renovation/PageInfoClient";
 import PageChantiers          from "./Renovation/PageChantiers";
-import PageDashboardAnalyse   from "./Renovation/DashboardAnalyse";
-import PageEtatsFinanciers    from "./Renovation/EtatsFinanciers";
+
+// Pages lourdes ou peu fréquentes : chargées à la demande (code-splitting) pour
+// alléger le bundle initial. recharts (DashboardAnalyse, Invest) et xlsx
+// (Phasage, PhasageV2 via devisImport) ne sont ainsi plus dans le chunk principal.
+const PagePhasage            = lazy(() => import("./Renovation/Phasage"));
+const PagePhasageV2          = lazy(() => import("./Renovation/PhasageV2"));
+const PageBibliotheque       = lazy(() => import("./Renovation/Bibliotheque"));
+const PageBibliothequeMateriaux = lazy(() => import("./Renovation/PageBibliothequeMateriaux"));
+const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages"));
+const PageInvest             = lazy(() => import("./PageInvest"));
+const PageDashboardAnalyse   = lazy(() => import("./Renovation/DashboardAnalyse"));
+const PageEtatsFinanciers    = lazy(() => import("./Renovation/EtatsFinanciers"));
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 // Centralisé dans src/access.js. App.jsx charge la config au mount et propage.
@@ -641,6 +659,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           </div>
         </div>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
+          <Suspense fallback={<PageLoader T={T}/>}>
           {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} T={T} initialSelectedId={chantierToOpen} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
           {page==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
           {page==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} vehicules={vehicules} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
@@ -663,6 +682,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
           {page==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}
           {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
+          </Suspense>
         </div>
       </div>
       <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages}/>
@@ -784,7 +804,9 @@ export default function App() {
   );
 
   if (authState === "invest") return (
-    <PageInvest profil={profil} onRetourPortail={handleRetourPortail} onLogout={handleLogout} />
+    <Suspense fallback={<PageLoader/>}>
+      <PageInvest profil={profil} onRetourPortail={handleRetourPortail} onLogout={handleLogout} />
+    </Suspense>
   );
 
   return null;
