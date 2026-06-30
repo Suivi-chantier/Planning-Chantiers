@@ -20,7 +20,7 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V7 — Dashboard Pilotage Quotidien Profero Invest
+// TABLEAU DE BORD V7.1 — Dashboard Pilotage Quotidien Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
@@ -32,6 +32,7 @@ import {
 const V6_TABS = [
   { key:"dashboard", label:"Pilotage quotidien", icon:LayoutDashboard },
   { key:"plan", label:"Plan d’action", icon:Send },
+  { key:"suivi", label:"Suivi dossiers", icon:LayoutGrid },
   { key:"historique", label:"Historique", icon:FileText },
   { key:"mensuel", label:"Vue mensuelle", icon:BarChart3 },
 ];
@@ -327,7 +328,7 @@ function emptyRoutineState() {
 }
 
 function storageKeyFor(date=todayIso()) {
-  return `profero_invest_dashboard_v7_${date}`;
+  return `profero_invest_dashboard_v7_1_${date}`;
 }
 
 function decisionKey(item) {
@@ -830,6 +831,38 @@ function isDueWithinDays(value, days=7) {
   return d >= t && d <= end;
 }
 
+function getLooseAmount(row={}) {
+  const keys = ["montant_attente", "montant_restant", "reste_a_payer", "montant_ttc", "ttc", "montant_ht", "ht", "amount", "montant", "total_ttc", "total", "honoraire", "honoraires", "value"];
+  for (const key of keys) {
+    const raw = row?.[key];
+    const n = typeof raw === "number" ? raw : Number(String(raw || "").replace(/[^0-9,.-]/g, "").replace(",", "."));
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+function isPaidLike(row={}) {
+  const txt = normTxt(`${row.statut || ""} ${row.status || ""} ${row.paiement_statut || ""} ${row.reglement || ""} ${row.regle || ""} ${row.paid || ""} ${row.encaisse || ""} ${row.encaissement || ""}`);
+  return txt.includes("regle") || txt.includes("régl") || txt.includes("paye") || txt.includes("payé") || txt.includes("paid") || txt.includes("encaiss");
+}
+
+function isIncomeLike(row={}) {
+  const txt = normTxt(`${row.type || ""} ${row.categorie || ""} ${row.category || ""} ${row.libelle || ""} ${row.label || ""} ${row.description || ""} ${row.source || ""}`);
+  return txt.includes("encaisse") || txt.includes("honoraire") || txt.includes("forfait") || txt.includes("client") || txt.includes("vente") || txt.includes("facture") || txt.includes("commission");
+}
+
+function computeCoverageEncaissement(financeRows=[], fallbackAmount=0) {
+  const rows = safeArr(financeRows);
+  const total = rows.reduce((sum, row) => {
+    if (isPaidLike(row)) return sum;
+    if (!isIncomeLike(row) && !getLooseAmount(row)) return sum;
+    return sum + getLooseAmount(row);
+  }, 0);
+  return total > 0 ? total : fallbackAmount;
+}
+
+function coverageCount(v) { return safeArr(v).length; }
+
 function computeCriticalBarStats(data, clients=[], biens=[], actions=[]) {
   const relancesProspects = safeArr(data.prospectItems).filter(i => i.level === "danger" && !i.readOnly).length;
   const relancesClients = safeArr(data.clientItems).filter(i => i.level === "danger" && !i.readOnly).length;
@@ -905,6 +938,9 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [actions, setActions] = useState([]);
   const [history, setHistory] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [coverageData, setCoverageData] = useState({
+    documents:[], finance:[], structuration:[], routineItems:[], recurrences:[], actionLinks:[], notifications:[], planning:[], propositions:[]
+  });
   const [routine, setRoutine] = useState(() => {
     try {
       const saved = window.localStorage.getItem(storageKeyFor());
@@ -923,21 +959,26 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       try {
         const { data, error } = await query;
         if (error) {
-          console.warn(`[Dashboard V7] ${label} non disponible :`, error);
+          console.warn(`[Dashboard V7.1] ${label} non disponible :`, error);
           if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
           else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
           return [];
         }
         return data || [];
       } catch (e) {
-        console.warn(`[Dashboard V7] ${label} non disponible :`, e);
+        console.warn(`[Dashboard V7.1] ${label} non disponible :`, e);
         if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
         else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
         return [];
       }
     };
 
-    const [c,b,p,pl,a,h,n] = await Promise.all([
+    const [
+      c,b,p,pl,a,h,n,
+      docsMain, docsClients, docsBiens, driveLinks,
+      financeMain, financeAlt, suiviFinancier,
+      structuration, routineItems, recurrences, actionLinks
+    ] = await Promise.all([
       safeQuery("les clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false }), { required:true }),
       safeQuery("les biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false }), { required:true }),
       safeQuery("Propositions", supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)"), { silent:true }),
@@ -945,8 +986,25 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       safeQuery("Actions", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(500), { silent:true }),
       safeQuery("Historique routines", supabase.from("invest_morning_routines").select("*").order("routine_date", { ascending:false }).limit(30), { silent:true }),
       safeQuery("Notifications actions", supabase.from("invest_action_notifications").select("*").order("created_at", { ascending:false }).limit(80), { silent:true }),
+
+      // Couverture des autres onglets/modules : ces tables restent optionnelles.
+      // Si une table n'existe pas encore, la routine continue sans bandeau d'erreur.
+      safeQuery("Documents", supabase.from("invest_documents").select("*").limit(500), { silent:true }),
+      safeQuery("Documents clients", supabase.from("invest_client_documents").select("*").limit(500), { silent:true }),
+      safeQuery("Documents biens", supabase.from("invest_bien_documents").select("*").limit(500), { silent:true }),
+      safeQuery("Liens Google Drive", supabase.from("invest_google_drive_links").select("*").limit(500), { silent:true }),
+      safeQuery("Suivi financier", supabase.from("invest_suivi_financier").select("*").limit(700), { silent:true }),
+      safeQuery("Finance", supabase.from("invest_finance").select("*").limit(700), { silent:true }),
+      safeQuery("Encaissements", supabase.from("invest_encaissements").select("*").limit(700), { silent:true }),
+      safeQuery("Structuration patrimoniale", supabase.from("invest_structuration_patrimoniale").select("*").limit(300), { silent:true }),
+      safeQuery("Décisions routines", supabase.from("invest_morning_routine_items").select("*").order("created_at", { ascending:false }).limit(300), { silent:true }),
+      safeQuery("Reports récurrents", supabase.from("invest_morning_routine_recurrences").select("*").order("updated_at", { ascending:false }).limit(300), { silent:true }),
+      safeQuery("Liens actions dashboard", supabase.from("invest_dashboard_action_links").select("*").order("created_at", { ascending:false }).limit(300), { silent:true }),
     ]);
+    const documents = [...safeArr(docsMain), ...safeArr(docsClients), ...safeArr(docsBiens), ...safeArr(driveLinks)];
+    const finance = [...safeArr(financeMain), ...safeArr(financeAlt), ...safeArr(suiviFinancier)];
     setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setHistory(h); setNotifications(n);
+    setCoverageData({ documents, finance, structuration, routineItems, recurrences, actionLinks, notifications:n, planning:pl, propositions:p });
     setLoading(false);
   }, []);
 
@@ -971,7 +1029,10 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const prioritiesOk = safeArr(routine.priorities).every(isPriorityComplete);
   const finalOk = prioritiesOk && incompleteCollaborators.length === 0 && incompleteItems.length === 0;
   const plan = useMemo(() => actionPlanFromRoutine(routine, data), [routine, data]);
-  const criticalBarStats = useMemo(() => computeCriticalBarStats(data, clients, biens, actions), [data, clients, biens, actions]);
+  const criticalBarStats = useMemo(() => {
+    const base = computeCriticalBarStats(data, clients, biens, actions);
+    return { ...base, encaissementAttente:computeCoverageEncaissement(coverageData.finance, base.encaissementAttente) };
+  }, [data, clients, biens, actions, coverageData.finance]);
 
   const updateDecision = (item, value) => setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(item)]:value } }));
 
@@ -1040,7 +1101,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
         linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
         priority,
         status:"unread",
-        source_module:"dashboard_v7",
+        source_module:"dashboard_v7_1",
         created_by:profil?.email || profil?.nom || "Matthieu",
       });
     } catch (e) {
@@ -1048,14 +1109,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     }
   };
 
-  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
+  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.1", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
     if (!responsable || !title) return null;
     const basePayload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
     const linkedPayload = {
       ...basePayload,
       linked_entity_type:linked_entity_type || null,
       linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
-      source_module:"dashboard_v7",
+      source_module:"dashboard_v7_1",
       source_context:{ comment, created_from:"dashboard_pilotage_quotidien", routine_date:todayIso() },
     };
     let created = null;
@@ -1081,17 +1142,17 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     let createdTaskId = null;
     if (item.originalType === "prospect" || item.type === "prospect") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || null, conseiller:d.responsable || null, statut:normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver") ? "Inactif" : item.raw?.statut }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:item.raw?.id || item.id, step_label:"Dashboard V7 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.1 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "client" || item.type === "client") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || item.raw?.date_prochaine_action || null, conseiller:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.1 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "bien" || item.type === "bien") {
       const decisionNorm = normTxt(d.decision);
       const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
       await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.1 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else {
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.1 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
     }
     return createdTaskId;
   };
@@ -1223,7 +1284,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const renderTab = () => {
     if (activeTab === "dashboard") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Routine — revue métier</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
     if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
-    if (activeTab === "suivi") return <SuiviDossiers data={data} T={T} onNavigate={onNavigate}/>;
+    if (activeTab === "suivi") return <SuiviDossiers data={data} coverageData={coverageData} T={T} onNavigate={onNavigate}/>;
     if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
     return <VueMensuelle data={data} T={T}/>;
   };
@@ -1231,7 +1292,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.1</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
 
@@ -1251,8 +1312,71 @@ function ActionPlanView({ plan=[], T=THEMES_INV.dark }) {
   return <div style={{ display:"grid", gap:SPACING.md }}>{responsables.map(r => <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text, marginBottom:8 }}>{r}</div>{plan.filter(p => (p.responsable || "À définir") === r).map((p, i) => <div key={i} style={{ padding:"8px 0", borderTop:i ? `1px solid ${T.border}` : "none" }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text }}>{p.title}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2 }}>Échéance : {safeDate(p.due_date)} · Source : {p.source || "—"}</div>{p.comment && <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:4 }}>{p.comment}</div>}</div>)}</div>)}</div>;
 }
 
-function SuiviDossiers({ data, T=THEMES_INV.dark, onNavigate }) {
-  return <div style={{ display:"grid", gap:SPACING.md }}><SectionCard title="Prospects" icon={Phone} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}><KPICard icon={Phone} label="Total prospects" value={data.stats.prospects} color="#4db8ff"/><KPICard icon={AlertTriangle} label="Rouges" value={data.stats.prospectsRed} color={DA}/><KPICard icon={Bell} label="Orange" value={data.stats.prospectsOrange} color={WA}/></div></SectionCard><SectionCard title="Clients" icon={Briefcase} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}><KPICard icon={Users} label="Clients suivis" value={data.stats.clients} color="#4db8ff"/><KPICard icon={AlertTriangle} label="Bloqués" value={data.stats.clientsBlocked} color={DA}/><KPICard icon={FileText} label="Documents / partenaires" value={data.docActions.length + data.partnerActions.length} color={WA}/></div></SectionCard><SectionCard title="Biens" icon={Home} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}><KPICard icon={Home} label="Biens en stock" value={data.stats.biens} color="#4db8ff"/><KPICard icon={Sparkles} label="À traiter" value={data.stats.biensToAct} color={WA}/></div></SectionCard></div>;
+function DataCoveragePanel({ data, coverageData={}, T=THEMES_INV.dark }) {
+  const biens = safeArr(data?.biens);
+  const modules = [
+    { label:"CRM prospects", value:data?.stats?.prospects || 0, detail:"Score, relances, responsable, prochaine action", level:(data?.stats?.prospectsRed || 0) ? "danger" : "success", icon:Phone },
+    { label:"CRM clients", value:data?.stats?.clients || 0, detail:"Étapes, prochaine action, documents, responsables", level:(data?.stats?.clientsBlocked || 0) ? "danger" : "success", icon:Briefcase },
+    { label:"Stock de biens", value:data?.stats?.biens || 0, detail:"Statuts, relances, offres, analyse, visite terrain", level:(data?.stats?.biensToAct || 0) ? "warning" : "success", icon:Home },
+    { label:"Propositions / matching", value:coverageCount(coverageData.propositions), detail:"Biens proposés aux clients et offres actives", level:coverageCount(coverageData.propositions) ? "info" : "warning", icon:Handshake },
+    { label:"Planning / échéances", value:coverageCount(coverageData.planning), detail:"RDV, visites, notaire, financement, relances", level:coverageCount(coverageData.planning) ? "info" : "warning", icon:Calendar },
+    { label:"Actions équipe", value:coverageCount(data?.openActions), detail:"Actions assignées, bloquées, en retard, notifications", level:(data?.stats?.blockedActions || 0) ? "danger" : "success", icon:Users },
+    { label:"Documents / Drive", value:coverageCount(coverageData.documents), detail:"Contrats, fiches patrimoine, pièces, documents biens", level:coverageCount(coverageData.documents) ? "success" : "warning", icon:FileText },
+    { label:"Simulateur / analyse", value:biens.filter(hasSimulateurBien).length, detail:"Rentabilité, cash-flow, travaux, lots, analyse financière du bien", level:biens.filter(hasSimulateurBien).length ? "success" : "warning", icon:BarChart3 },
+    { label:"Visite terrain", value:biens.filter(b => Boolean(b.visite_data)).length, detail:"Données de visite terrain rattachées au bien", level:biens.filter(b => Boolean(b.visite_data)).length ? "success" : "warning", icon:Eye },
+    { label:"Encaissements / financier", value:coverageCount(coverageData.finance), detail:"Forfaits signés non payés, honoraires, suivi financier", level:coverageCount(coverageData.finance) ? "success" : "warning", icon:Euro },
+    { label:"Structuration patrimoniale", value:coverageCount(coverageData.structuration), detail:"Profils, collecte, stratégie et documents patrimoniaux", level:coverageCount(coverageData.structuration) ? "success" : "warning", icon:Wallet },
+    { label:"Historique routine", value:coverageCount(coverageData.routineItems) + coverageCount(coverageData.recurrences), detail:"Décisions, reports, alertes récurrentes", level:coverageCount(coverageData.routineItems) ? "success" : "warning", icon:FileText },
+  ];
+  return (
+    <SectionCard title="Couverture des données par onglet" icon={LayoutGrid} subtitle="Contrôle que le dashboard exploite bien les données utiles de l’application" T={T}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))", gap:SPACING.md }}>
+        {modules.map(m => {
+          const color = levelColor(m.level, T);
+          return (
+            <div key={m.label} style={{ border:`1px solid ${color}44`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
+              <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:7, fontWeight:900, color:T.text }}><Icon as={m.icon} size={15}/>{m.label}</span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:900, color }}>{m.value}</span>
+              </div>
+              <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:6, lineHeight:1.35 }}>{m.detail}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop:SPACING.md, padding:SPACING.md, border:`1px solid ${T.border}`, background:T.card, borderRadius:RADIUS.md, fontSize:FONT.sm.size, color:T.textSub }}>
+        Les modules en orange ne bloquent pas le dashboard : cela signifie simplement que la table dédiée n’est pas encore présente ou pas encore alimentée. Le dashboard utilise alors les données principales existantes, notamment clients, biens, actions et planning.
+      </div>
+    </SectionCard>
+  );
+}
+
+function SuiviDossiers({ data, coverageData={}, T=THEMES_INV.dark, onNavigate }) {
+  return <div style={{ display:"grid", gap:SPACING.md }}>
+    <DataCoveragePanel data={data} coverageData={coverageData} T={T}/>
+    <SectionCard title="Prospects" icon={Phone} T={T}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}>
+        <KPICard icon={Phone} label="Total prospects" value={data.stats.prospects} color="#4db8ff"/>
+        <KPICard icon={AlertTriangle} label="Rouges" value={data.stats.prospectsRed} color={DA}/>
+        <KPICard icon={Bell} label="Orange" value={data.stats.prospectsOrange} color={WA}/>
+      </div>
+    </SectionCard>
+    <SectionCard title="Clients" icon={Briefcase} T={T}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}>
+        <KPICard icon={Users} label="Clients suivis" value={data.stats.clients} color="#4db8ff"/>
+        <KPICard icon={AlertTriangle} label="Bloqués" value={data.stats.clientsBlocked} color={DA}/>
+        <KPICard icon={FileText} label="Documents / partenaires" value={data.docActions.length + data.partnerActions.length + coverageCount(coverageData.documents)} color={WA}/>
+      </div>
+    </SectionCard>
+    <SectionCard title="Biens" icon={Home} T={T}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}>
+        <KPICard icon={Home} label="Biens en stock" value={data.stats.biens} color="#4db8ff"/>
+        <KPICard icon={Sparkles} label="À traiter" value={data.stats.biensToAct} color={WA}/>
+        <KPICard icon={BarChart3} label="Simulateurs" value={safeArr(data.biens).filter(hasSimulateurBien).length} color="#c084fc"/>
+        <KPICard icon={Eye} label="Visites terrain" value={safeArr(data.biens).filter(b => Boolean(b.visite_data)).length} color="#FFC200"/>
+      </div>
+    </SectionCard>
+  </div>;
 }
 
 function HistoriqueRoutines({ history=[], T=THEMES_INV.dark }) {
