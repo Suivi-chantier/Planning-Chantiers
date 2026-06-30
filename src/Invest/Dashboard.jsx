@@ -7,7 +7,7 @@ import {
   Search, RefreshCw, Save, Download, X, Check, Phone, Calendar,
   MessageSquare, FileText, Home, TrendingUp, Wallet, Euro, Filter,
   Lock, AlertTriangle, ChevronDown, ChevronUp, Eye, Sparkles, Sun,
-  LayoutGrid, Send, Handshake, Bell, Briefcase, Copy, Pencil,
+  LayoutGrid, Send, Handshake, Bell, Briefcase, Copy, Pencil, ExternalLink,
 } from "lucide-react";
 
 import {
@@ -20,13 +20,13 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V6.2 — Morning Routine métier Profero Invest
+// TABLEAU DE BORD V6.4 — Morning Routine métier Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
 // score prospect, relances automatiques J+1/J+3/J+7/J+14/J+30, actions créées.
 // Rappel mail volontairement exclu de cette version.
-// V6.2 : validation rapide des urgences du jour avec disparition immédiate de la routine.
+// V6.4 : liens directs fiche client/prospect/bien + échéances futures en lecture seule.
 // ─────────────────────────────────────────────────────────────
 
 const V6_TABS = [
@@ -105,6 +105,24 @@ const V6_CHECKLISTS = {
 
 function todayIso() {
   return isoDate(new Date());
+}
+
+function isFutureDate(value) {
+  const d = toDate(value);
+  const t = toDate(new Date());
+  if (!d || !t) return false;
+  return d > t;
+}
+
+function isDueTodayOrPast(value) {
+  const d = toDate(value);
+  const t = toDate(new Date());
+  if (!d || !t) return false;
+  return d <= t;
+}
+
+function readOnlyReasonFromDate(value) {
+  return isFutureDate(value) ? `Échéance à venir le ${safeDate(value)} — lecture seule aujourd’hui` : "";
 }
 
 function safeArr(v) {
@@ -223,16 +241,34 @@ function prospectClass(c={}) {
   const score = prospectScore(c);
   const hasNoAction = !c.prochaine_action || !c.date_prochaine_action;
   const hasNoOwner = !c.conseiller;
+  const hasFutureAction = Boolean(c.date_prochaine_action && isFutureDate(c.date_prochaine_action));
   const badges = [];
   if (score >= 70) badges.push({ label:"Chaud", level:"success" });
   if (c.date_prochaine_action === todayIso()) badges.push({ label:"Relance du jour", level:"warning" });
-  if (last !== null && last >= 10) badges.push({ label:"Rouge +10j", level:"danger" });
-  else if (last !== null && last >= 7) badges.push({ label:"Orange +7j", level:"warning" });
+  if (hasFutureAction) badges.push({ label:"Échéance à venir", level:"info" });
+  if (!hasFutureAction && last !== null && last >= 10) badges.push({ label:"Rouge +10j", level:"danger" });
+  else if (!hasFutureAction && last !== null && last >= 7) badges.push({ label:"Orange +7j", level:"warning" });
   if (hasNoAction) badges.push({ label:"Sans action", level:"danger" });
   if (hasNoOwner) badges.push({ label:"Sans responsable", level:"danger" });
+
+  const hasBlockingAlert = hasNoAction || hasNoOwner || (!hasFutureAction && last !== null && last >= 7) || c.date_prochaine_action === todayIso();
+  const scheduledReadOnly = hasFutureAction && !hasNoAction && !hasNoOwner && !hasBlockingAlert;
+
+  if (scheduledReadOnly) {
+    return {
+      label:score >= 70 ? "Chaud programmé" : "Échéance à venir",
+      level:"info",
+      reason:`${readOnlyReasonFromDate(c.date_prochaine_action)}${score >= 70 ? ` · Prospect chaud — score ${score}/100` : ""}`,
+      score,
+      badges,
+      readOnly:true,
+      scheduledFuture:true,
+    };
+  }
+
   const main = badges.find(b => b.level === "danger") || badges.find(b => b.level === "warning") || badges.find(b => b.level === "success") || { label:"Suivi", level:"info" };
   const reason = hasNoAction ? "Prospect sans prochaine action datée" : hasNoOwner ? "Prospect sans responsable" : last !== null && last >= 10 ? `Sans action depuis ${last} jours` : last !== null && last >= 7 ? `Sans action depuis ${last} jours` : score >= 70 ? `Prospect chaud — score ${score}/100` : "Prospect à maintenir actif";
-  return { label:main.label, level:main.level, reason, score, badges };
+  return { label:main.label, level:main.level, reason, score, badges, readOnly:false, scheduledFuture:false };
 }
 
 function bienClass(b={}) {
@@ -240,18 +276,31 @@ function bienClass(b={}) {
   const statut = normTxt(statutRaw);
   const score = getBienScore(b);
   const hasNoStatus = !String(statutRaw || "").trim();
+  const hasFutureRelance = Boolean(b.date_relance && isFutureDate(b.date_relance));
   const hasNoAction = !b.date_relance && !statut.includes("termine") && !statut.includes("archiv") && !statut.includes("refus");
   const isOffer = statut.includes("offre envoy") || statut.includes("offre à faire") || statut.includes("offre a faire") || statut.includes("offre accept");
-  if (hasNoStatus) return { label:"Sans statut", level:"danger", reason:"Bien sans statut", score };
-  if (b.date_relance && b.date_relance <= todayIso()) return { label:"Relance dépassée", level:"danger", reason:`Relance prévue le ${safeDate(b.date_relance)}`, score };
-  if (hasNoAction && !statut.includes("termine") && !statut.includes("archiv")) return { label:"Sans action", level:"danger", reason:"Bien sans prochaine action / relance", score };
-  if (isOffer) return { label:"Offre en cours", level:"warning", reason:"Offre à suivre", score };
-  if (statut.includes("nouveau") || statut.includes("trier")) return { label:"Nouvelle annonce", level:"warning", reason:"Annonce à classer", score };
-  if (statut.includes("analyse") || statut.includes("analyser")) return { label:"À analyser", level:"warning", reason:"Analyse à finaliser", score };
-  if (statut.includes("visite") || statut.includes("matcher") || statut.includes("proposé")) return { label:"Tâche à effectuer", level:"warning", reason:"Action à effectuer sur le bien", score };
-  if (!isBienFicheComplete(b)) return { label:"Fiche incomplète", level:"warning", reason:"Fiche bien incomplète", score };
-  if (score >= 70) return { label:"Prioritaire", level:"success", reason:"Score Profero prioritaire", score };
-  return { label:"Sous contrôle", level:"info", reason:"Bien sans décision urgente", score };
+
+  if (hasFutureRelance) {
+    return {
+      label:"Échéance à venir",
+      level:"info",
+      reason:readOnlyReasonFromDate(b.date_relance),
+      score,
+      readOnly:true,
+      scheduledFuture:true,
+    };
+  }
+
+  if (hasNoStatus) return { label:"Sans statut", level:"danger", reason:"Bien sans statut", score, readOnly:false, scheduledFuture:false };
+  if (b.date_relance && isDueTodayOrPast(b.date_relance)) return { label:"Relance arrivée", level:"danger", reason:`Relance prévue le ${safeDate(b.date_relance)}`, score, readOnly:false, scheduledFuture:false };
+  if (hasNoAction && !statut.includes("termine") && !statut.includes("archiv")) return { label:"Sans action", level:"danger", reason:"Bien sans prochaine action / relance", score, readOnly:false, scheduledFuture:false };
+  if (isOffer) return { label:"Offre en cours", level:"warning", reason:"Offre à suivre", score, readOnly:false, scheduledFuture:false };
+  if (statut.includes("nouveau") || statut.includes("trier")) return { label:"Nouvelle annonce", level:"warning", reason:"Annonce à classer", score, readOnly:false, scheduledFuture:false };
+  if (statut.includes("analyse") || statut.includes("analyser")) return { label:"À analyser", level:"warning", reason:"Analyse à finaliser", score, readOnly:false, scheduledFuture:false };
+  if (statut.includes("visite") || statut.includes("matcher") || statut.includes("proposé")) return { label:"Tâche à effectuer", level:"warning", reason:"Action à effectuer sur le bien", score, readOnly:false, scheduledFuture:false };
+  if (!isBienFicheComplete(b)) return { label:"Fiche incomplète", level:"warning", reason:"Fiche bien incomplète", score, readOnly:false, scheduledFuture:false };
+  if (score >= 70) return { label:"Prioritaire", level:"success", reason:"Score Profero prioritaire", score, readOnly:false, scheduledFuture:false };
+  return { label:"Sous contrôle", level:"info", reason:"Bien sans décision urgente", score, readOnly:true, scheduledFuture:false };
 }
 
 function levelColor(level, T) {
@@ -403,7 +452,7 @@ function SectionCard({ title, icon, subtitle, children, T=THEMES_INV.dark, actio
   );
 }
 
-function RoutineDecisionCard({ item, decision, onChange, onResolve=null, T=THEMES_INV.dark, compact=false }) {
+function RoutineDecisionCard({ item, decision, onChange, onResolve=null, onOpen=null, T=THEMES_INV.dark, compact=false, readOnly=false }) {
   const d = decision || defaultDecision(item);
   const type = item.type || "urgence";
   const options = V6_DECISIONS[type] || V6_DECISIONS.urgence;
@@ -423,11 +472,23 @@ function RoutineDecisionCard({ item, decision, onChange, onResolve=null, T=THEME
           <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:3 }}>{item.reason}</div>
           {item.details && !compact && <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:6 }}>{item.details}</div>}
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-          {complete ? <AlertBadge level="success" T={T}>Complet</AlertBadge> : <AlertBadge level="danger" T={T}>À compléter</AlertBadge>}
+        <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
+          {onOpen && (
+            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onOpen(item)} title="Ouvrir la fiche liée">
+              <Icon as={ExternalLink} size={12}/> Fiche
+            </button>
+          )}
+          {readOnly || item.readOnly ? <AlertBadge level="info" T={T}>Lecture seule</AlertBadge> : complete ? <AlertBadge level="success" T={T}>Complet</AlertBadge> : <AlertBadge level="danger" T={T}>À compléter</AlertBadge>}
         </div>
       </div>
 
+      {(readOnly || item.readOnly) && (
+        <div style={{ marginTop:SPACING.sm, padding:SPACING.md, borderRadius:RADIUS.md, border:`1px solid ${T.border}`, background:T.card, color:T.textSub, fontSize:FONT.sm.size, fontWeight:800 }}>
+          Échéance non passée : cette ligne reste visible pour information, sans décision obligatoire aujourd’hui.
+        </div>
+      )}
+
+      {!(readOnly || item.readOnly) && <>
       <div style={{ display:"grid", gridTemplateColumns:detailGrid, gap:SPACING.sm, marginTop:SPACING.sm }}>
         <SelectInput label="Décision" required value={d.decision} onChange={v => patch({ decision:v })} options={options} T={T}/>
         <SelectInput label="Responsable" required value={d.responsable} onChange={v => patch({ responsable:v })} options={V6_RESPONSABLES} T={T}/>
@@ -450,8 +511,9 @@ function RoutineDecisionCard({ item, decision, onChange, onResolve=null, T=THEME
         </label>
       </div>
       {d.force_validated && <div style={{ marginTop:SPACING.sm }}><TextArea label="Motif de validation forcée" required value={d.force_reason} onChange={v => patch({ force_reason:v })} placeholder="Motif obligatoire si tu forces la validation." T={T}/></div>}
+      </>}
 
-      {onResolve && (() => {
+      {onResolve && !(readOnly || item.readOnly) && (() => {
         const missing = missingDecisionFields(item, d);
         const canResolve = missing.length === 0;
         const disabledTitle = canResolve ? "Valider cette urgence pour aujourd’hui" : `Compléter avant validation : ${missing.join(", ")}`;
@@ -553,12 +615,28 @@ function ConsignesCollaborateursView({ plan=[], T=THEMES_INV.dark }) {
   return <div style={{ display:"grid", gap:SPACING.md }}>{responsables.map(r => <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}><div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text }}>{r}</div><AlertBadge level="info" T={T}>{assigned.filter(p => p.responsable === r).length} consigne(s)</AlertBadge></div>{assigned.filter(p => p.responsable === r).map((p, i) => <div key={i} style={{ padding:"8px 0", borderTop:i ? `1px solid ${T.border}` : "none" }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text }}>{p.title}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2 }}>Échéance : {safeDate(p.due_date)} · Source : {p.source || "—"}</div>{p.comment && <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:4 }}>{p.comment}</div>}</div>)}</div>)}</div>;
 }
 
-function RoutineInfoList({ items=[], empty="Aucun dossier sous contrôle", T=THEMES_INV.dark }) {
-  if (!items.length) return <div style={{ padding:SPACING.md, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
-  return <div style={{ display:"grid", gap:8 }}>{items.map(item => <div key={decisionKey(item)} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ minWidth:0 }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.label}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>{item.details || item.reason}</div></div><AlertBadge level="success" T={T}>Sous contrôle</AlertBadge></div>)}</div>;
+function RoutineInfoList({ items=[], empty="Aucun dossier sous contrôle", T=THEMES_INV.dark, onOpen=null }) {
+  if (!items.length) return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
+  return (
+    <div style={{ display:"grid", gap:8 }}>
+      {items.map(item => (
+        <div key={decisionKey(item)} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.label}</div>
+            <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>{item.reason} · {item.meta}</div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
+            {item.scheduledFuture && <AlertBadge level="info" T={T}>Échéance à venir</AlertBadge>}
+            <AlertBadge level={item.level || "info"} T={T}>{item.category || "Info"}</AlertBadge>
+            {onOpen && <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onOpen(item)}><Icon as={ExternalLink} size={12}/> Fiche</button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function ResolvedUrgenciesView({ routine, data, onUndo, T=THEMES_INV.dark }) {
+function ResolvedUrgenciesView({ routine, data, onUndo, onOpen=null, T=THEMES_INV.dark }) {
   const resolved = routine?.resolvedUrgencies || {};
   const allItems = uniqueItemsByDecisionKey([...data.urgencyItems, ...data.prospectItems, ...data.clientItems, ...data.bienItems]);
   const seen = new Set();
@@ -586,7 +664,10 @@ function ResolvedUrgenciesView({ routine, data, onUndo, T=THEMES_INV.dark }) {
                 {info.decision || "Validé"} · {info.resolved_at ? new Date(info.resolved_at).toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" }) : "aujourd’hui"}
               </div>
             </div>
-            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onUndo?.(key)}><Icon as={X} size={12}/> Réafficher</button>
+            <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+              {onOpen && item && <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onOpen(item)}><Icon as={ExternalLink} size={12}/> Fiche</button>}
+              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onUndo?.(key)}><Icon as={X} size={12}/> Réafficher</button>
+            </div>
           </div>
         ))}
       </div>
@@ -619,7 +700,7 @@ function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actio
   const clientsMetier = clients.filter(c => (c.statut || "") !== "Prospect" && (c.statut || "") !== "Terminé");
   const openActions = actions.filter(isOpenAction);
   const doneActions = actions.filter(isDoneAction);
-  const lateActions = openActions.filter(a => a.due_date && a.due_date < today);
+  const lateActions = openActions.filter(a => a.due_date && isDueTodayOrPast(a.due_date));
   const blockedActions = openActions.filter(isBlockedAction);
   const partnerActions = openActions.filter(isPartnerAction);
   const docActions = openActions.filter(isDocumentAction);
@@ -627,7 +708,7 @@ function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actio
   const collaboratorNames = V6_BASE_COLLABORATORS;
   const collaboratorStats = collaboratorNames.reduce((acc, name) => {
     const list = actions.filter(a => normTxt(actionOwner(a)).includes(normTxt(name)));
-    acc[name] = { open:list.filter(isOpenAction).length, late:list.filter(a => isOpenAction(a) && a.due_date && a.due_date < today).length, blocked:list.filter(isBlockedAction).length, doneToday:list.filter(a => isDoneAction(a) && isWithin(a.updated_at || a.completed_at || a.done_at, today, today)).length };
+    acc[name] = { open:list.filter(isOpenAction).length, late:list.filter(a => isOpenAction(a) && a.due_date && isDueTodayOrPast(a.due_date)).length, blocked:list.filter(isBlockedAction).length, doneToday:list.filter(a => isDoneAction(a) && isWithin(a.updated_at || a.completed_at || a.done_at, today, today)).length };
     return acc;
   }, {});
 
@@ -637,7 +718,7 @@ function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actio
     return {
       type:"prospect", id:c.id, source:"invest_clients", label:getClientName(c), category:pc.label, level:pc.level,
       badges:pc.badges, reason:pc.reason, responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir la prochaine action prospect",
-      requiresNextAction:true, requiresDate:true, critical:pc.level !== "info" || pc.score >= 70,
+      requiresNextAction:true, requiresDate:true, readOnly:Boolean(pc.readOnly), scheduledFuture:Boolean(pc.scheduledFuture), critical:!pc.readOnly && (pc.level !== "info" || pc.score >= 70),
       suggestedDueDate:nextRelanceDateFromCount(relanceCount), score:pc.score,
       meta:`Score ${pc.score}/100 · Budget ${fmtDashboardEur(c.budget)} · ${c.etape || "Étape non renseignée"}`,
       details:`Source : ${c.source || "—"} · Prochaine action : ${c.prochaine_action || "—"} · Relance : ${safeDate(c.date_prochaine_action)} · Relance proposée : ${safeDate(nextRelanceDateFromCount(relanceCount))}`,
@@ -651,13 +732,16 @@ function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actio
     const noNextAction = !c.prochaine_action || !c.date_prochaine_action;
     const last = daysSince(lastClientActivity(c));
     const hasDoc = docActions.some(a => a.client_id === c.id);
-    const blocked = noStage || noOwner || noNextAction || hasDoc || blockedActions.some(a => a.client_id === c.id);
-    const level = noStage || noOwner || noNextAction || (last !== null && last >= 10) ? "danger" : hasDoc || (last !== null && last >= 7) ? "warning" : "info";
-    const reason = noStage ? "Étape non renseignée" : noOwner ? "Client sans responsable" : noNextAction ? "Client sans prochaine action datée" : last !== null && last >= 10 ? `Sans avancée depuis ${last} jours` : hasDoc ? "Document manquant / à contrôler" : last !== null && last >= 7 ? `Sans avancée depuis ${last} jours` : "Sous contrôle";
+    const hasFutureAction = Boolean(c.date_prochaine_action && isFutureDate(c.date_prochaine_action));
+    const blockedAction = blockedActions.some(a => a.client_id === c.id);
+    const blocked = noStage || noOwner || noNextAction || hasDoc || blockedAction;
+    const scheduledReadOnly = hasFutureAction && !noStage && !noOwner && !noNextAction && !hasDoc && !blockedAction;
+    const level = scheduledReadOnly ? "info" : noStage || noOwner || noNextAction || (last !== null && last >= 10) ? "danger" : hasDoc || (last !== null && last >= 7) ? "warning" : "info";
+    const reason = scheduledReadOnly ? readOnlyReasonFromDate(c.date_prochaine_action) : noStage ? "Étape non renseignée" : noOwner ? "Client sans responsable" : noNextAction ? "Client sans prochaine action datée" : last !== null && last >= 10 ? `Sans avancée depuis ${last} jours` : hasDoc ? "Document manquant / à contrôler" : last !== null && last >= 7 ? `Sans avancée depuis ${last} jours` : "Sous contrôle";
     return {
       type:"client", id:c.id, source:"invest_clients", label:getClientName(c), category:c.etape || "Étape non renseignée", level,
       reason, responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir l’action future du dossier",
-      requiresNextAction:true, requiresDate:true, critical:blocked || level !== "info",
+      requiresNextAction:true, requiresDate:true, readOnly:Boolean(scheduledReadOnly), scheduledFuture:Boolean(scheduledReadOnly), critical:!scheduledReadOnly && (blocked || level !== "info"),
       meta:`Statut ${c.statut || "—"} · Budget ${fmtDashboardEur(c.budget)}`,
       details:`Étape : ${c.etape || "—"} · Prochaine action : ${c.prochaine_action || "—"} · Date : ${safeDate(c.date_prochaine_action)} · Responsable : ${c.conseiller || "—"}`,
       raw:c,
@@ -670,7 +754,7 @@ function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actio
     return {
       type:"bien", id:b.id, source:"invest_biens", label:getBienLabel(b), category:bc.label, level:bc.level,
       reason:bc.reason, responsable:b.conseiller_profero || "Benjamin", defaultAction:"Prévoir l’action suivante sur le bien",
-      requiresNextAction:true, requiresDate:true, critical:bc.level !== "info",
+      requiresNextAction:true, requiresDate:true, readOnly:Boolean(bc.readOnly), scheduledFuture:Boolean(bc.scheduledFuture), critical:!bc.readOnly && bc.level !== "info",
       meta:`${b.statut || "Statut non renseigné"}`,
       details:`Prix ${fmtDashboardEur(b.prix_vente)} · Travaux ${fmtDashboardEur(b.prix_travaux)} · Coût total ${fmtDashboardEur(b.cout_total)} · Rendement ${b.rendement_brut ? fmtDashboardPct(b.rendement_brut) : "—"} · Cash-flow ${fmtDashboardEur(b.cashflow_estime)} · Score ${bc.score}`,
       raw:b,
@@ -678,7 +762,7 @@ function buildV6Data({ clients=[], biens=[], propositions=[], planning=[], actio
   }).sort((a,b) => ({ danger:0, warning:1, success:2, info:3 }[a.level] - { danger:0, warning:1, success:2, info:3 }[b.level]));
 
   const urgencyItems = [
-    ...lateActions.map(a => ({ type:"urgence", id:`action-${a.id}`, source:"invest_mission_actions", sourceId:a.id, label:actionTitle(a), category:"Tâche en retard", level:"danger", reason:`Échéance ${safeDate(a.due_date)} · ${a.client ? getClientName(a.client) : ""}`, responsable:actionOwner(a) || "Matthieu", defaultAction:actionTitle(a), requiresNextAction:true, requiresDate:true, critical:true, raw:a })),
+    ...lateActions.map(a => ({ type:"urgence", id:`action-${a.id}`, source:"invest_mission_actions", sourceId:a.id, label:actionTitle(a), category:(a.due_date === today ? "Tâche du jour" : "Tâche en retard"), level:"danger", reason:`Échéance ${safeDate(a.due_date)} · ${a.client ? getClientName(a.client) : ""}`, responsable:actionOwner(a) || "Matthieu", defaultAction:actionTitle(a), requiresNextAction:true, requiresDate:true, critical:true, raw:a })),
     ...prospectItems.filter(i => i.level === "danger").slice(0, 20).map(i => ({ ...i, type:"urgence", id:`prospect-${i.id}`, originalType:"prospect" })),
     ...clientItems.filter(i => i.level === "danger").slice(0, 20).map(i => ({ ...i, type:"urgence", id:`client-${i.id}`, originalType:"client" })),
     ...bienItems.filter(i => i.level === "danger").slice(0, 20).map(i => ({ ...i, type:"urgence", id:`bien-${i.id}`, originalType:"bien" })),
@@ -802,15 +886,15 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const data = useMemo(() => buildV6Data({ clients, biens, propositions, planning, actions }), [clients, biens, propositions, planning, actions]);
   const collaborators = useMemo(() => ["Matthieu", "Tom", "Benjamin", "Camille"], []);
   const unresolvedUrgencyItems = useMemo(() => data.urgencyItems.filter(item => !isResolvedToday(routine, item)), [data.urgencyItems, routine]);
-  const visibleProspects = (quickMode ? data.prospectItems.filter(i => i.level === "danger" || i.score >= 70) : data.prospectItems.filter(i => i.critical)).filter(item => !isResolvedToday(routine, item));
+  const visibleProspects = (quickMode ? data.prospectItems.filter(i => !i.readOnly && (i.level === "danger" || i.score >= 70)) : data.prospectItems.filter(i => i.critical || i.readOnly)).filter(item => !isResolvedToday(routine, item));
   const visibleClients = (quickMode ? data.clientItems.filter(i => i.level === "danger") : data.clientItems).filter(item => !isResolvedToday(routine, item));
-  const visibleBiens = (quickMode ? data.bienItems.filter(i => i.level === "danger" || normTxt(i.category).includes("offre")) : data.bienItems.filter(i => i.critical)).filter(item => !isResolvedToday(routine, item));
-  const clientDecisionItems = data.clientItems.filter(i => i.critical && !isResolvedToday(routine, i));
+  const visibleBiens = (quickMode ? data.bienItems.filter(i => !i.readOnly && (i.level === "danger" || normTxt(i.category).includes("offre"))) : data.bienItems.filter(i => i.critical || i.readOnly)).filter(item => !isResolvedToday(routine, item));
+  const clientDecisionItems = data.clientItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i));
   const allRequiredItems = useMemo(() => [
     ...unresolvedUrgencyItems,
-    ...data.prospectItems.filter(i => i.critical && !isResolvedToday(routine, i)),
-    ...clientDecisionItems,
-    ...data.bienItems.filter(i => i.critical && !isResolvedToday(routine, i)),
+    ...data.prospectItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
+    ...clientDecisionItems.filter(i => !i.readOnly),
+    ...data.bienItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
   ], [data, routine, clientDecisionItems, unresolvedUrgencyItems]);
   const allItemsForSave = useMemo(() => uniqueItemsByDecisionKey([...data.urgencyItems, ...data.prospectItems, ...data.clientItems, ...data.bienItems]), [data]);
   const incompleteItems = allRequiredItems.filter(item => !isDecisionComplete(item, routine.decisions[decisionKey(item)]));
@@ -934,12 +1018,36 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
 
   const forceCompleteAllowed = Boolean(String(routine.force_reason || "").trim());
 
+  const openLinkedRecord = (item) => {
+    const itemType = item?.originalType || item?.type || "";
+    const raw = item?.raw || {};
+    const id = raw.id || item?.sourceId || item?.id;
+    if (!onNavigate) return;
+
+    if (itemType === "bien" || item?.source === "invest_biens") {
+      onNavigate("biens", { type:"open_bien", id, bien_id:id, bienId:id, source:"morning_routine" });
+      return;
+    }
+
+    if (itemType === "prospect" || itemType === "client" || item?.source === "invest_clients") {
+      onNavigate("crm", { type:"open_client", id, client_id:id, clientId:id, statut:raw.statut, source:"morning_routine" });
+      return;
+    }
+
+    if (item?.source === "invest_mission_actions" && raw.client_id) {
+      onNavigate("crm", { type:"open_client", id:raw.client_id, client_id:raw.client_id, clientId:raw.client_id, source:"morning_routine_action" });
+      return;
+    }
+
+    onNavigate("crm", { type:"actions_week_or_late", source:"morning_routine" });
+  };
+
   const renderChecklist = (stepKey) => {
     const list = V6_CHECKLISTS[stepKey] || [];
     return <div style={{ display:"grid", gap:6 }}>{list.map(ch => <label key={ch.id} style={{ display:"flex", alignItems:"center", gap:8, color:T.textSub, fontSize:FONT.sm.size, fontWeight:800 }}><input type="checkbox" checked={Boolean(routine.checklist?.[stepKey]?.[ch.id])} onChange={e => updateChecklist(stepKey, ch.id, e.target.checked)}/>{ch.label}{ch.required && <span style={{ color:DA }}>*</span>}</label>)}<TextArea label="Note libre de l’étape" value={routine.stepNotes?.[stepKey] || ""} onChange={v => updateStepNote(stepKey, v)} T={T}/></div>;
   };
 
-  const renderItems = (items, empty, compact=false, allowResolve=false) => {
+  const renderItems = (items, empty, compact=false, allowResolve=false, readOnly=false) => {
     if (!items.length) return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
     return (
       <div style={{ display:"grid", gap:SPACING.md }}>
@@ -952,6 +1060,8 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
             onResolve={allowResolve ? resolveUrgencyForToday : null}
             T={T}
             compact={compact}
+            readOnly={readOnly || item.readOnly}
+            onOpen={openLinkedRecord}
           />
         ))}
       </div>
@@ -964,21 +1074,45 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
         <SectionCard title="Urgences à traiter" icon={AlertTriangle} subtitle="Valide chaque urgence pour la faire disparaître de la routine du jour" T={T}>
           {renderItems(unresolvedUrgencyItems, "Aucune urgence critique détectée", quickMode, true)}
         </SectionCard>
-        <ResolvedUrgenciesView routine={routine} data={data} onUndo={undoResolvedUrgency} T={T}/>
+        <ResolvedUrgenciesView routine={routine} data={data} onUndo={undoResolvedUrgency} onOpen={openLinkedRecord} T={T}/>
         <SectionCard title="Checklist Urgences" icon={Check} T={T}>{renderChecklist("urgences")}</SectionCard>
       </>
     );
     if (activeStep === "priorites") return <><SectionCard title="3 priorités obligatoires du jour" icon={Sparkles} subtitle="Impossible de terminer la routine sans ces 3 priorités" T={T}><PriorityEditor priorities={routine.priorities} onChange={priorities => setRoutine(prev => ({ ...prev, priorities }))} T={T}/></SectionCard><SectionCard title="Checklist Priorités" icon={Check} T={T}>{renderChecklist("priorites")}</SectionCard></>;
     if (activeStep === "collaborateurs") return <><SectionCard title="Consignes collaborateurs" icon={Users} subtitle="Générées automatiquement à partir des décisions assignées" T={T}><ConsignesCollaborateursView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Consignes" icon={Check} T={T}>{renderChecklist("collaborateurs")}</SectionCard></>;
-    if (activeStep === "prospects") return <><SectionCard title="Prospects classés" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds uniquement" : "Uniquement les prospects qui nécessitent une décision"} T={T}>{renderItems(visibleProspects, "Aucun prospect à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard></>;
-    if (activeStep === "clients") { const clientsAlertes = visibleClients.filter(i => i.critical); const clientsOk = quickMode ? [] : visibleClients.filter(i => !i.critical); return <><SectionCard title="Clients à décider" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients rouges uniquement" : "Alertes en premier : sans action, sans étape, sans responsable ou sans avancée"} T={T}>{renderItems(clientsAlertes, "Aucun client en alerte", quickMode)}</SectionCard>{!quickMode && <SectionCard title="Clients sous contrôle" icon={Check} subtitle="Visibles pour maîtrise globale, sans décision obligatoire" T={T}><RoutineInfoList items={clientsOk} T={T}/></SectionCard>}<SectionCard title="Checklist Clients" icon={Check} T={T}>{renderChecklist("clients")}</SectionCard></>; }
-    if (activeStep === "biens") return <><SectionCard title="Biens identifiés" icon={Home} subtitle={quickMode ? "Mode rapide : biens rouges / offres en cours" : "Biens nécessitant une tâche, une relance ou une décision"} T={T}>{renderItems(visibleBiens, "Aucun bien à afficher", quickMode)}</SectionCard><SectionCard title="Checklist Biens" icon={Check} T={T}>{renderChecklist("biens")}</SectionCard></>;
+    if (activeStep === "prospects") {
+      const prospectsDecision = visibleProspects.filter(i => !i.readOnly);
+      const prospectsInfo = quickMode ? [] : data.prospectItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
+      return <>
+        <SectionCard title="Prospects à décider" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds arrivés à échéance" : "Les échéances futures restent en lecture seule plus bas"} T={T}>{renderItems(prospectsDecision, "Aucun prospect à traiter aujourd’hui", quickMode)}</SectionCard>
+        {!quickMode && <SectionCard title="Prospects — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={prospectsInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
+        <SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard>
+      </>;
+    }
+    if (activeStep === "clients") {
+      const clientsAlertes = visibleClients.filter(i => i.critical && !i.readOnly);
+      const clientsOk = quickMode ? [] : visibleClients.filter(i => !i.critical || i.readOnly);
+      return <>
+        <SectionCard title="Clients à décider" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients rouges arrivés à échéance" : "Alertes en premier : sans action, sans étape, sans responsable ou sans avancée"} T={T}>{renderItems(clientsAlertes, "Aucun client à traiter aujourd’hui", quickMode)}</SectionCard>
+        {!quickMode && <SectionCard title="Clients sous contrôle / lecture seule" icon={Check} subtitle="Échéance non passée ou dossier sous contrôle : visible sans décision obligatoire" T={T}><RoutineInfoList items={clientsOk} T={T} onOpen={openLinkedRecord}/></SectionCard>}
+        <SectionCard title="Checklist Clients" icon={Check} T={T}>{renderChecklist("clients")}</SectionCard>
+      </>;
+    }
+    if (activeStep === "biens") {
+      const biensDecision = visibleBiens.filter(i => !i.readOnly);
+      const biensInfo = quickMode ? [] : data.bienItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
+      return <>
+        <SectionCard title="Stock de biens à décider" icon={Home} subtitle={quickMode ? "Mode rapide : biens rouges / offres arrivées à échéance" : "Biens nécessitant une tâche, une relance ou une décision"} T={T}>{renderItems(biensDecision, "Aucun bien à traiter aujourd’hui", quickMode)}</SectionCard>
+        {!quickMode && <SectionCard title="Stock de biens — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={biensInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
+        <SectionCard title="Checklist Biens" icon={Check} T={T}>{renderChecklist("biens")}</SectionCard>
+      </>;
+    }
     if (activeStep === "synthese") return <><SectionCard title="Plan d’action court" icon={Send} subtitle="Regroupé par responsable" T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Synthèse" icon={Check} T={T}>{renderChecklist("synthese")}</SectionCard></>;
     return <SectionCard title="Validation finale" icon={Check} T={T}><div style={{ display:"grid", gap:SPACING.md }}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:SPACING.md }}><KPICard icon={Sparkles} label="Priorités complètes" value={prioritiesOk ? "Oui" : "Non"} color={prioritiesOk ? SU : DA}/><KPICard icon={Users} label="Consignes équipe" value={plan.filter(p => p.responsable && p.responsable !== "Matthieu").length} color={T.accent}/><KPICard icon={AlertTriangle} label="Décisions manquantes" value={incompleteItems.length} color={incompleteItems.length ? DA : SU}/><KPICard icon={Send} label="Actions au plan" value={plan.length} color="#FFC200"/></div>{!finalOk && <div style={{ padding:SPACING.md, borderRadius:RADIUS.md, background:SEMANTIC?.danger?.bg || "#fff1f2", border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, color:DA, fontWeight:800 }}>Routine non finalisable : {incompleteItems.length} décision(s) manquante(s), priorités {prioritiesOk ? "OK" : "incomplètes"}.</div>}<TextArea label="Motif de validation forcée" value={routine.force_reason} onChange={v => setRoutine(prev => ({ ...prev, force_reason:v }))} placeholder="Obligatoire si tu veux terminer malgré des éléments incomplets." T={T}/><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" disabled={saving} onClick={() => saveRoutine({ complete:false })}><Icon as={Save} size={12}/>Enregistrer brouillon</button><button className="inv-btn inv-btn-gold inv-btn-sm" disabled={saving || !finalOk} onClick={() => saveRoutine({ complete:true, forced:false })}><Icon as={Check} size={12}/>Terminer la routine</button><button className="inv-btn inv-btn-sm" style={{ background:DA, color:"white" }} disabled={saving || finalOk || !forceCompleteAllowed} onClick={() => saveRoutine({ complete:true, forced:true })}><Icon as={AlertTriangle} size={12}/>Forcer avec motif</button></div></div></SectionCard>;
   };
 
   const renderTab = () => {
-    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Étapes de la routine</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "urgences" ? unresolvedUrgencyItems.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "prospects" ? visibleProspects.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
+    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Étapes de la routine</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "urgences" ? unresolvedUrgencyItems.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
     if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
     if (activeTab === "suivi") return <SuiviDossiers data={data} T={T} onNavigate={onNavigate}/>;
     if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
