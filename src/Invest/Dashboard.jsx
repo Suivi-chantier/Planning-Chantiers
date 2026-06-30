@@ -20,29 +20,28 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V6.5 — Morning Routine métier Profero Invest
+// TABLEAU DE BORD V7 — Dashboard Pilotage Quotidien Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
 // score prospect, relances automatiques J+1/J+3/J+7/J+14/J+30, actions créées.
 // Rappel mail volontairement exclu de cette version.
-// V6.5 : suppression de l’onglet “Urgences tous dossiers”. Les urgences restent dans chaque catégorie métier ; priorités placées après la revue dossiers.
+// V7 : cockpit à 3 niveaux — bandeau critique 10 secondes, onglets métier prospects/clients/biens/équipe, fiche liée au clic et notifications collaborateurs liées aux actions créées.
 // ─────────────────────────────────────────────────────────────
 
 const V6_TABS = [
-  { key:"routine", label:"Morning Routine", icon:LayoutDashboard },
-  { key:"plan", label:"Actions & consignes", icon:Send },
-  { key:"suivi", label:"Suivi dossiers", icon:Briefcase },
+  { key:"dashboard", label:"Pilotage quotidien", icon:LayoutDashboard },
+  { key:"plan", label:"Plan d’action", icon:Send },
   { key:"historique", label:"Historique", icon:FileText },
-  { key:"mensuel", label:"Pilotage mensuel", icon:BarChart3 },
+  { key:"mensuel", label:"Vue mensuelle", icon:BarChart3 },
 ];
 
 const V6_STEPS = [
-  { key:"collaborateurs", label:"Consignes équipe", icon:Users, help:"Actions assignées à Tom, Benjamin, Camille ou autres responsables." },
-  { key:"prospects", label:"Prospects à décider", icon:Phone, help:"Prospects chauds, rouges, orange, sans action ou à relancer." },
-  { key:"clients", label:"Clients actifs", icon:Briefcase, help:"Tous les clients actifs, avec alertes mises en avant et RAS séparés." },
-  { key:"biens", label:"Stock de biens", icon:Home, help:"Tout le cycle du bien depuis l’annonce repérée jusqu’au suivi offre / travaux." },
-  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Les priorités sont définies après la revue prospects / clients / biens." },
+  { key:"prospects", label:"Prospects", icon:Phone, help:"Prospects rouges, orange, chauds, relances et échéances." },
+  { key:"clients", label:"Clients", icon:Briefcase, help:"Clients actifs classés par étape, alertes en haut et dossiers sous contrôle en lecture." },
+  { key:"biens", label:"Stock de biens", icon:Home, help:"Tout le cycle du bien, avec tâches et relances en haut." },
+  { key:"collaborateurs", label:"Équipe", icon:Users, help:"Consignes et actions assignées à Matthieu, Tom, Benjamin, Camille ou autres." },
+  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Priorités définies après la revue métier." },
   { key:"synthese", label:"Synthèse", icon:Send, help:"Plan d’action PDF par responsable avec commentaires détaillés." },
   { key:"validation", label:"Validation finale", icon:Check, help:"Finalisation stricte ou validation forcée avec motif." },
 ];
@@ -328,7 +327,7 @@ function emptyRoutineState() {
 }
 
 function storageKeyFor(date=todayIso()) {
-  return `profero_invest_morning_routine_v6_${date}`;
+  return `profero_invest_dashboard_v7_${date}`;
 }
 
 function decisionKey(item) {
@@ -821,9 +820,79 @@ function printActionPlanPDF(routine, data) {
   setTimeout(() => w.print(), 300);
 }
 
+
+function isDueWithinDays(value, days=7) {
+  const d = toDate(value);
+  const t = toDate(new Date());
+  if (!d || !t) return false;
+  const end = new Date(t);
+  end.setDate(end.getDate() + days);
+  return d >= t && d <= end;
+}
+
+function computeCriticalBarStats(data, clients=[], biens=[], actions=[]) {
+  const relancesProspects = safeArr(data.prospectItems).filter(i => i.level === "danger" && !i.readOnly).length;
+  const relancesClients = safeArr(data.clientItems).filter(i => i.level === "danger" && !i.readOnly).length;
+  const relancesBiens = safeArr(data.bienItems).filter(i => i.level === "danger" && !i.readOnly).length;
+  const relancesRetard = relancesProspects + relancesClients + relancesBiens;
+
+  const tachesBloquees = safeArr(actions).filter(a => isBlockedAction(a) || (isOpenAction(a) && a.due_date && isDueTodayOrPast(a.due_date))).length;
+
+  const echeances7J = [
+    ...safeArr(actions).filter(a => isPartnerAction(a) && isDueWithinDays(a.due_date, 7)),
+    ...safeArr(clients).filter(c => isDueWithinDays(c.date_prochaine_action, 7) && normTxt(`${c.prochaine_action || ""} ${c.etape || ""}`).match(/notaire|financement|banque|compromis|document/)),
+    ...safeArr(biens).filter(b => isDueWithinDays(b.date_relance, 7) && normTxt(b.statut || "").includes("offre")),
+  ].length;
+
+  const encaissementAttente = safeArr(clients).filter(c => {
+    const signed = Boolean(c.date_signature) || normTxt(c.statut || "").includes("actif");
+    const paiementTxt = normTxt(`${c.statut_paiement || ""} ${c.paiement_statut || ""} ${c.honoraire_regle || ""} ${c.reglement || ""} ${c.paid || ""}`);
+    const paid = paiementTxt.includes("regle") || paiementTxt.includes("régl") || paiementTxt.includes("pay") || paiementTxt.includes("encaiss");
+    return signed && !paid;
+  }).length * HONORAIRE_BASE_CONTRAT_HT;
+
+  return { relancesRetard, tachesBloquees, echeances7J, encaissementAttente };
+}
+
+function CriticalBar({ stats, T=THEMES_INV.dark, onSelect }) {
+  const cards = [
+    { key:"relances", label:"Relances en retard", value:stats.relancesRetard, icon:Phone, color:stats.relancesRetard ? DA : SU, hint:"Prospects + clients + biens" },
+    { key:"equipe", label:"Tâches bloquées", value:stats.tachesBloquees, icon:AlertTriangle, color:stats.tachesBloquees ? DA : SU, hint:"Équipe / actions" },
+    { key:"echeances", label:"Échéances < 7 jours", value:stats.echeances7J, icon:Calendar, color:stats.echeances7J ? WA : SU, hint:"Notaire / financement / offres" },
+    { key:"encaissements", label:"Encaissements attente", value:fmtDashboardEur(stats.encaissementAttente), icon:Euro, color:stats.encaissementAttente ? WA : SU, hint:"Forfaits signés non payés" },
+  ];
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xl }}>
+      {cards.map(c => <button key={c.key} type="button" onClick={() => onSelect?.(c.key)} style={{ border:`1px solid ${c.color}55`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, textAlign:"left", cursor:"pointer", fontFamily:"inherit", boxShadow:T.shadowSm }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+          <span style={{ width:34, height:34, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", color:c.color, background:`${c.color}14` }}><Icon as={c.icon} size={17}/></span>
+          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color:c.color }}>{c.value}</span>
+        </div>
+        <div style={{ fontSize:FONT.sm.size+1, fontWeight:900, color:T.text, marginTop:9 }}>{c.label}</div>
+        <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3 }}>{c.hint}</div>
+      </button>)}
+    </div>
+  );
+}
+
+function NotificationsCollaborateurs({ notifications=[], T=THEMES_INV.dark, onOpen }) {
+  const unread = safeArr(notifications).filter(n => !n.read_at && n.status !== "read");
+  return (
+    <SectionCard title="Notifications collaborateurs" icon={Bell} subtitle="Actions créées depuis le dashboard et retours équipe" T={T}>
+      {unread.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucune notification collaborateur à traiter.</div> : <div style={{ display:"grid", gap:8 }}>
+        {unread.slice(0,12).map(n => <button key={n.id} type="button" onClick={() => onOpen?.({ type:n.linked_entity_type || n.item_type, id:n.linked_entity_id || n.item_id, source:n.source_module })} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:SPACING.md, textAlign:"left", cursor:"pointer", fontFamily:"inherit" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ fontWeight:900, color:T.text }}>{n.title || "Notification action"}</div><AlertBadge level={n.priority === "high" ? "danger" : "info"} T={T}>{n.recipient || "Équipe"}</AlertBadge></div>
+          <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:4 }}>{n.message || n.comment || "Action liée au dashboard quotidien"}</div>
+          <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:4 }}>Lien : {n.linked_entity_type || "—"} · {n.linked_entity_id || "—"}</div>
+        </button>)}
+      </div>}
+    </SectionCard>
+  );
+}
+
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
-  const [activeTab, setActiveTab] = useState("routine");
-  const [activeStep, setActiveStep] = useState("collaborateurs");
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeStep, setActiveStep] = useState("prospects");
   const [quickMode, setQuickMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -835,6 +904,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [planning, setPlanning] = useState([]);
   const [actions, setActions] = useState([]);
   const [history, setHistory] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [routine, setRoutine] = useState(() => {
     try {
       const saved = window.localStorage.getItem(storageKeyFor());
@@ -853,29 +923,30 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       try {
         const { data, error } = await query;
         if (error) {
-          console.warn(`[TableauBord V6] ${label} non disponible :`, error);
+          console.warn(`[Dashboard V7] ${label} non disponible :`, error);
           if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
           else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
           return [];
         }
         return data || [];
       } catch (e) {
-        console.warn(`[TableauBord V6] ${label} non disponible :`, e);
+        console.warn(`[Dashboard V7] ${label} non disponible :`, e);
         if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
         else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
         return [];
       }
     };
 
-    const [c,b,p,pl,a,h] = await Promise.all([
+    const [c,b,p,pl,a,h,n] = await Promise.all([
       safeQuery("les clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false }), { required:true }),
       safeQuery("les biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false }), { required:true }),
       safeQuery("Propositions", supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)"), { silent:true }),
       safeQuery("Planning", supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at,updated_at").order("date_rdv", { ascending:false }).limit(300), { silent:true }),
       safeQuery("Actions", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(500), { silent:true }),
       safeQuery("Historique routines", supabase.from("invest_morning_routines").select("*").order("routine_date", { ascending:false }).limit(30), { silent:true }),
+      safeQuery("Notifications actions", supabase.from("invest_action_notifications").select("*").order("created_at", { ascending:false }).limit(80), { silent:true }),
     ]);
-    setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setHistory(h);
+    setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setHistory(h); setNotifications(n);
     setLoading(false);
   }, []);
 
@@ -900,6 +971,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const prioritiesOk = safeArr(routine.priorities).every(isPriorityComplete);
   const finalOk = prioritiesOk && incompleteCollaborators.length === 0 && incompleteItems.length === 0;
   const plan = useMemo(() => actionPlanFromRoutine(routine, data), [routine, data]);
+  const criticalBarStats = useMemo(() => computeCriticalBarStats(data, clients, biens, actions), [data, clients, biens, actions]);
 
   const updateDecision = (item, value) => setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(item)]:value } }));
 
@@ -956,12 +1028,51 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
 
   const ensureStarted = () => setRoutine(prev => prev.status === "not_started" ? { ...prev, status:"in_progress", started_at:new Date().toISOString() } : prev);
 
-  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Morning Routine", comment="" }) => {
+  const createActionNotification = async ({ actionId, responsable, title, message, linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
+    if (!responsable || responsable === "Matthieu") return;
+    try {
+      await supabase.from("invest_action_notifications").insert({
+        action_id:actionId || null,
+        recipient:responsable,
+        title:title || "Nouvelle action assignée",
+        message:message || "Action créée depuis le Dashboard Pilotage Quotidien.",
+        linked_entity_type:linked_entity_type || null,
+        linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
+        priority,
+        status:"unread",
+        source_module:"dashboard_v7",
+        created_by:profil?.email || profil?.nom || "Matthieu",
+      });
+    } catch (e) {
+      console.warn("Notification collaborateur non bloquante", e);
+    }
+  };
+
+  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
     if (!responsable || !title) return null;
-    const payload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
-    const { data:created, error:insertError } = await supabase.from("invest_mission_actions").insert(payload).select("id").single();
-    if (insertError) throw insertError;
-    return created?.id || null;
+    const basePayload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
+    const linkedPayload = {
+      ...basePayload,
+      linked_entity_type:linked_entity_type || null,
+      linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
+      source_module:"dashboard_v7",
+      source_context:{ comment, created_from:"dashboard_pilotage_quotidien", routine_date:todayIso() },
+    };
+    let created = null;
+    let insertError = null;
+    const first = await supabase.from("invest_mission_actions").insert(linkedPayload).select("id").single();
+    if (first.error) {
+      insertError = first.error;
+      const fallback = await supabase.from("invest_mission_actions").insert(basePayload).select("id").single();
+      if (fallback.error) throw fallback.error;
+      created = fallback.data;
+    } else {
+      created = first.data;
+    }
+    const actionId = created?.id || null;
+    await createActionNotification({ actionId, responsable, title, message:comment, linked_entity_type, linked_entity_id, priority });
+    if (insertError) console.warn("Action créée sans colonnes de liaison V7. Exécute la migration V7 pour activer les relations complètes.", insertError);
+    return actionId;
   };
 
   const applyDecision = async (item, d) => {
@@ -970,17 +1081,17 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     let createdTaskId = null;
     if (item.originalType === "prospect" || item.type === "prospect") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || null, conseiller:d.responsable || null, statut:normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver") ? "Inactif" : item.raw?.statut }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:item.raw?.id || item.id, step_label:"Morning Routine — Prospect", comment:d.comment });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:item.raw?.id || item.id, step_label:"Dashboard V7 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "client" || item.type === "client") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || item.raw?.date_prochaine_action || null, conseiller:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Morning Routine — Client", comment:d.comment });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "bien" || item.type === "bien") {
       const decisionNorm = normTxt(d.decision);
       const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
       await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Morning Routine — Bien", comment:d.comment });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else {
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Morning Routine — Urgence", comment:d.comment });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
     }
     return createdTaskId;
   };
@@ -1010,7 +1121,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       setRoutine(prev => ({ ...prev, savedRoutineId:routineId, status:complete ? "completed" : "in_progress", completed_at:complete ? new Date().toISOString() : prev.completed_at, force_completed:forced }));
       await loadDashboard();
     } catch (e) {
-      setError(e?.message || "Impossible d’enregistrer la routine. Vérifie la migration Supabase V6.");
+      setError(e?.message || "Impossible d’enregistrer la routine. Vérifie la migration Supabase V7.");
     } finally { setSaving(false); }
   };
 
@@ -1077,7 +1188,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       </>
     );
     if (activeStep === "priorites") return <><SectionCard title="3 priorités obligatoires du jour" icon={Sparkles} subtitle="Impossible de terminer la routine sans ces 3 priorités" T={T}><PriorityEditor priorities={routine.priorities} onChange={priorities => setRoutine(prev => ({ ...prev, priorities }))} T={T}/></SectionCard><SectionCard title="Checklist Priorités" icon={Check} T={T}>{renderChecklist("priorites")}</SectionCard></>;
-    if (activeStep === "collaborateurs") return <><SectionCard title="Consignes collaborateurs" icon={Users} subtitle="Générées automatiquement à partir des décisions assignées" T={T}><ConsignesCollaborateursView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Consignes" icon={Check} T={T}>{renderChecklist("collaborateurs")}</SectionCard></>;
+    if (activeStep === "collaborateurs") return <><NotificationsCollaborateurs notifications={notifications} T={T} onOpen={(payload) => { if (!onNavigate) return; if (payload?.type === "bien") onNavigate("biens", { type:"open_bien", id:payload.id, bien_id:payload.id, source:"notification_collaborateur" }); else onNavigate("crm", { type:"open_client", id:payload.id, client_id:payload.id, source:"notification_collaborateur" }); }}/><SectionCard title="Consignes collaborateurs" icon={Users} subtitle="Générées automatiquement à partir des décisions assignées" T={T}><ConsignesCollaborateursView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Consignes" icon={Check} T={T}>{renderChecklist("collaborateurs")}</SectionCard></>;
     if (activeStep === "prospects") {
       const prospectsDecision = visibleProspects.filter(i => !i.readOnly);
       const prospectsInfo = quickMode ? [] : data.prospectItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
@@ -1110,7 +1221,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   };
 
   const renderTab = () => {
-    if (activeTab === "routine") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Routine — revue métier</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
+    if (activeTab === "dashboard") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Routine — revue métier</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
     if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
     if (activeTab === "suivi") return <SuiviDossiers data={data} T={T} onNavigate={onNavigate}/>;
     if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
@@ -1120,9 +1231,11 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Morning Routine Profero Invest V6.5</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Les urgences restent dans chaque catégorie : prospects, clients, stock de biens. Priorités définies après la revue.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
+
+      {!loading && <CriticalBar stats={criticalBarStats} T={T} onSelect={(key) => { if (key === "relances") { setActiveTab("dashboard"); setActiveStep("prospects"); } else if (key === "equipe") { setActiveTab("dashboard"); setActiveStep("collaborateurs"); } else if (key === "echeances") { setActiveTab("dashboard"); setActiveStep("clients"); } else if (key === "encaissements") { setActiveTab("mensuel"); } }} />}
 
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.xl }}>{V6_TABS.map(tab => { const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.pill, padding:"9px 13px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"inherit", fontWeight:900 }}><Icon as={tab.icon} size={14}/>{tab.label}</button> })}</div>
       {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
@@ -1143,7 +1256,7 @@ function SuiviDossiers({ data, T=THEMES_INV.dark, onNavigate }) {
 }
 
 function HistoriqueRoutines({ history=[], T=THEMES_INV.dark }) {
-  return <SectionCard title="Historique des routines" icon={FileText} subtitle="Après migration Supabase V6" T={T}>{history.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucune routine enregistrée pour le moment.</div> : <div style={{ display:"grid", gap:8 }}>{history.map(r => <div key={r.id} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:SPACING.md, display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div><div style={{ fontWeight:900, color:T.text }}>{safeDate(r.routine_date)}</div><div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{r.status} · {r.completion_forced ? "forcée" : "standard"}</div></div><AlertBadge level={r.status === "completed" ? "success" : "warning"} T={T}>{r.status}</AlertBadge></div>)}</div>}</SectionCard>;
+  return <SectionCard title="Historique des routines" icon={FileText} subtitle="Après migration Supabase V7" T={T}>{history.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucune routine enregistrée pour le moment.</div> : <div style={{ display:"grid", gap:8 }}>{history.map(r => <div key={r.id} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:SPACING.md, display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div><div style={{ fontWeight:900, color:T.text }}>{safeDate(r.routine_date)}</div><div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{r.status} · {r.completion_forced ? "forcée" : "standard"}</div></div><AlertBadge level={r.status === "completed" ? "success" : "warning"} T={T}>{r.status}</AlertBadge></div>)}</div>}</SectionCard>;
 }
 
 function VueMensuelle({ data, T=THEMES_INV.dark }) {
