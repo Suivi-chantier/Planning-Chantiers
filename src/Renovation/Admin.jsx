@@ -54,6 +54,10 @@ function OngletUtilisateurs({ T, acc }) {
   const [invRole, setInvRole]         = useState("conducteur");
   const [invBranches, setInvBranches] = useState(["renovation"]);
   const [invLoading, setInvLoading]   = useState(false);
+  // Prénom-planning : clé de jointure compte ↔ planning, requise pour le rôle ouvrier.
+  const [invPrenomPlanning, setInvPrenomPlanning] = useState("");
+  // Liste des prénoms (config Admin "ouvriers") pour le sélecteur ouvrier.
+  const [ouvriersConfig, setOuvriersConfig] = useState(DEFAULT_OUVRIERS);
 
   // Édition
   const [editId, setEditId]   = useState(null);
@@ -103,6 +107,12 @@ function OngletUtilisateurs({ T, acc }) {
   };
   useEffect(() => { charger(); }, []);
 
+  // Charge la liste des prénoms-planning depuis la config (onglet Ouvriers).
+  useEffect(() => {
+    supabase.from("planning_config").select("value").eq("key", "ouvriers").single()
+      .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setOuvriersConfig(data.value); });
+  }, []);
+
   const flash = (type, msg) => {
     if (type === "ok") { setSucces(msg); setErreur(""); setTimeout(() => setSucces(""), 4000); }
     else               { setErreur(msg); setSucces(""); setTimeout(() => setErreur(""), 5000); }
@@ -115,12 +125,24 @@ function OngletUtilisateurs({ T, acc }) {
   const inviter = async () => {
     if (!invEmail.trim() || !invNom.trim()) { flash("err", "Email et nom sont obligatoires."); return; }
     if (invBranches.length === 0) { flash("err", "Sélectionnez au moins une branche."); return; }
+    // Pour un ouvrier, le prénom-planning est obligatoire (clé de jointure).
+    const prenomPlanning = invRole === "ouvrier" ? invPrenomPlanning.trim() : null;
+    if (invRole === "ouvrier" && !prenomPlanning) {
+      flash("err", "Sélectionnez le prénom-planning de l'ouvrier.");
+      return;
+    }
     setInvLoading(true);
     try {
-      // 1. Vérifier doublon
+      // 1. Vérifier doublon email
       const { data: exist } = await supabase
         .from("utilisateurs").select("id").eq("email", invEmail.trim().toLowerCase()).single();
       if (exist) { flash("err", "Cet email est déjà enregistré."); setInvLoading(false); return; }
+
+      // 1b. Un prénom-planning = une personne : refuser s'il est déjà relié.
+      if (prenomPlanning && utilisateurs.some(u => u.prenom_planning === prenomPlanning)) {
+        flash("err", `Le prénom-planning « ${prenomPlanning} » est déjà relié à un compte.`);
+        setInvLoading(false); return;
+      }
 
       // 2. Envoyer invitation Supabase Auth via Edge Function
       await callAdminUsers({ action: "invite", email: invEmail.trim().toLowerCase() });
@@ -132,11 +154,18 @@ function OngletUtilisateurs({ T, acc }) {
         role:     invRole,
         branches: invBranches,
         actif:    true,
+        ...(prenomPlanning ? { prenom_planning: prenomPlanning } : {}),
       });
-      if (dbErr) { flash("err", "Profil non créé : " + dbErr.message); setInvLoading(false); return; }
+      if (dbErr) {
+        // 23505 = violation d'unicité (index prenom_planning) → message clair.
+        const msg = dbErr.code === "23505" && /prenom_planning/.test(dbErr.message || "")
+          ? `Le prénom-planning « ${prenomPlanning} » est déjà relié à un compte.`
+          : "Profil non créé : " + dbErr.message;
+        flash("err", msg); setInvLoading(false); return;
+      }
 
       flash("ok", `✓ Invitation envoyée à ${invEmail}. ${invNom} recevra un email pour créer son mot de passe.`);
-      setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["renovation"]);
+      setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["renovation"]); setInvPrenomPlanning("");
       setShowForm(false);
       charger();
     } catch (e) {
@@ -308,6 +337,23 @@ function OngletUtilisateurs({ T, acc }) {
               </div>
             </div>
           </div>
+
+          {/* Prénom-planning : requis pour relier un compte ouvrier au planning */}
+          {invRole === "ouvrier" && (
+            <div style={{ marginBottom:12 }}>
+              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Prénom-planning *</label>
+              <select className="ti" value={invPrenomPlanning} onChange={e=>setInvPrenomPlanning(e.target.value)} style={{ width:"100%" }}>
+                <option value="">— Sélectionner —</option>
+                {ouvriersConfig.map(o => {
+                  const pris = utilisateurs.some(u => u.prenom_planning === o);
+                  return <option key={o} value={o} disabled={pris}>{o}{pris ? " (déjà relié)" : ""}</option>;
+                })}
+              </select>
+              <div style={{ fontSize:FONT.xs.size, color:T.textSub, marginTop:6, lineHeight:1.5 }}>
+                Relie ce compte à son prénom exact dans le planning et les comptes rendus — indispensable pour que l'ouvrier voie ses chantiers.
+              </div>
+            </div>
+          )}
 
           {/* Info invitation */}
           <div style={{ display:"flex", alignItems:"flex-start", gap:8, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.xs.size+1, color:"#4db8ff", marginBottom:16, lineHeight:1.6 }}>
