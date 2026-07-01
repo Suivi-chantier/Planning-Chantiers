@@ -72,6 +72,7 @@ const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages
 const PageInvest             = lazy(() => import("./PageInvest"));
 const PageDashboardAnalyse   = lazy(() => import("./Renovation/DashboardAnalyse"));
 const PageEtatsFinanciers    = lazy(() => import("./Renovation/EtatsFinanciers"));
+const EspaceOuvrier          = lazy(() => import("./Renovation/EspaceOuvrier"));
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 // Centralisé dans src/access.js. App.jsx charge la config au mount et propage.
@@ -692,10 +693,18 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
 
 // ─── ROUTEUR RACINE ───────────────────────────────────────────────────────────
 export default function App() {
-  // authState : "loading" | "login" | "creer-mdp" | "portail" | "renovation" | "invest"
+  // authState : "loading" | "login" | "creer-mdp" | "portail" | "renovation" | "invest" | "ouvrier"
   const [authState, setAuthState] = useState("loading");
   const [user, setUser]           = useState(null);
   const [profil, setProfil]       = useState(null);
+
+  // Destination après authentification, selon le profil.
+  // Un ouvrier va toujours sur son espace dédié (court-circuite branches/portail).
+  const destForProfil = (p) => {
+    if (p?.role === "ouvrier") return "ouvrier";
+    const branches = p?.branches || ["renovation"];
+    return branches.length === 1 ? branches[0] : "portail";
+  };
 
   useEffect(() => {
     // Écoute uniquement les nouvelles connexions via lien invitation
@@ -727,8 +736,7 @@ export default function App() {
           .from("utilisateurs").select("*").eq("email", session.user.email).single();
         if (p && p.actif) {
           setUser(session.user); setProfil(p);
-          const branches = p.branches || ["renovation"];
-          setAuthState(branches.length === 1 ? branches[0] : "portail");
+          setAuthState(destForProfil(p));
         } else {
           await supabase.auth.signOut(); setAuthState("login");
         }
@@ -743,8 +751,7 @@ export default function App() {
 
   const handleLogin = (u, p) => {
     setUser(u); setProfil(p);
-    const branches = p.branches || ["renovation"];
-    setAuthState(branches.length === 1 ? branches[0] : "portail");
+    setAuthState(destForProfil(p));
   };
 
   const handleLogout = async () => {
@@ -760,8 +767,7 @@ export default function App() {
         .from("utilisateurs").select("*").eq("email", session.user.email).single();
       if (p && p.actif) {
         setUser(session.user); setProfil(p);
-        const branches = p.branches || ["renovation"];
-        setAuthState(branches.length === 1 ? branches[0] : "portail");
+        setAuthState(destForProfil(p));
       } else {
         setAuthState("login");
       }
@@ -807,6 +813,14 @@ export default function App() {
     <Suspense fallback={<PageLoader/>}>
       <PageInvest profil={profil} onRetourPortail={handleRetourPortail} onLogout={handleLogout} />
     </Suspense>
+  );
+
+  if (authState === "ouvrier") return (
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoader/>}>
+        <EspaceOuvrier user={user} profil={profil} onLogout={handleLogout} />
+      </Suspense>
+    </ErrorBoundary>
   );
 
   return null;
