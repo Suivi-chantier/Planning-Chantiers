@@ -7,8 +7,16 @@
 -- Voir le plan complet : public/plan-espace-ouvrier.md
 --
 -- Ordre d'application :
---   0A  fondations non destructives (colonne + helpers)     [APPLIQUÉ]
---   0C  réécriture des policies RLS (par lots)              [À VENIR]
+--   0A    fondations non destructives (colonne + helpers)   [APPLIQUÉ]
+--   0C-1  verrouillage tables financières/sensibles          [APPLIQUÉ]
+--   0C-2  verrouillage autres tables bureau-only            [À VENIR]
+--   0C-3  policies anon + ouvrier (config/cells/rapports/besoins) [À VENIR]
+--
+-- Modèle : chaque policy s'appuie sur public.est_ouvrier().
+--   bureau  (authenticated non-ouvrier) : accès conservé (not est_ouvrier())
+--   ouvrier : bloqué, sauf policies dédiées filtrées (0C-3)
+--   anon    : fermé, sauf 4 chemins du formulaire public (0C-3)
+-- Hors périmètre 0C : tables invest_*, cr_*, bucket storage "photos".
 -- =====================================================================
 
 
@@ -64,3 +72,36 @@ set search_path = public
 as $$
   select prenom_planning from public.utilisateurs where email = auth.email() limit 1;
 $$;
+
+
+-- ---------------------------------------------------------------------
+-- 0C-1 — Verrouillage bureau-only des tables financières/sensibles — APPLIQUÉ
+-- Bureau (authenticated non-ouvrier) : accès complet. anon + ouvrier : rien.
+-- Aucune de ces tables n'est lue par le formulaire public.
+-- ---------------------------------------------------------------------
+do $$
+declare
+  r record;
+  t text;
+  cibles text[] := array[
+    'pointages','data_history',
+    'phasages','phasages_history','phasages_backup_premig_v2',
+    'commandes','commande_lignes','factures','facture_bl',
+    'commandes_detail','commandes_passees','fournisseurs'
+  ];
+begin
+  foreach t in array cibles loop
+    for r in
+      select policyname from pg_policies
+      where schemaname = 'public' and tablename = t
+    loop
+      execute format('drop policy if exists %I on public.%I', r.policyname, t);
+    end loop;
+    execute format('alter table public.%I enable row level security', t);
+    execute format(
+      'create policy "bureau_all" on public.%I for all to authenticated ' ||
+      'using (not public.est_ouvrier()) with check (not public.est_ouvrier())',
+      t
+    );
+  end loop;
+end $$;
