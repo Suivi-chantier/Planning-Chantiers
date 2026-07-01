@@ -264,6 +264,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
   // seule à la fois → limite le scroll). null = tout replié.
   const [openTache, setOpenTache] = useState(null);
   const accordionInitRef = useRef(false);
+  // Sections repliées en mode embarqué (page condensée, moins de scroll).
+  const [showIndirectes, setShowIndirectes] = useState(false);
+  const [openChantierPhotos, setOpenChantierPhotos] = useState({});
   const [planData, setPlanData]     = useState(null);
   // Brouillon : persistance locale pour que les saisies survivent à un refresh
   // et que l'ouvrier puisse compléter le formulaire tout au long de la journée.
@@ -853,7 +856,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
         </div>
       )}
 
-      {/* ── Bandeau règles à respecter ── */}
+      {/* ── Bandeau règles à respecter (masqué dans l'espace ouvrier pour alléger) ── */}
+      {!embedded && (
       <div style={{
         ...S.card,
         background:"#fff8e1",
@@ -892,6 +896,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
           </li>
         </ul>
       </div>
+      )}
 
       {/* ── Compteur total journée ── */}
       {(() => {
@@ -961,6 +966,22 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
         const addIndirect = () => setHeuresIndirectes(prev => [...prev, { motif: "", chantier_id: chantiersProposes[0]?.id || "", heures: "" }]);
         const removeIndirect = (i) => setHeuresIndirectes(prev => prev.filter((_, idx) => idx !== i));
         const updateIndirect = (i, patch) => setHeuresIndirectes(prev => prev.map((x, idx) => idx === i ? { ...x, ...patch } : x));
+        // Embarqué : replié tant qu'il n'y a rien → un simple bouton "+".
+        if (embedded && !showIndirectes && heuresIndirectes.length === 0) {
+          return (
+            <div style={{margin:"12px 16px"}}>
+              <button onClick={()=>{ setShowIndirectes(true); addIndirect(); }} style={{
+                width:"100%", padding:"12px", border:"1.5px dashed #b2741666", borderRadius:RADIUS.xl,
+                background:"rgba(178,116,22,0.05)", color:"#b27416", fontFamily:"inherit",
+                fontSize:FONT.base.size, fontWeight:700, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+              }}>
+                <Icon as={Plus} size={14} strokeWidth={2.2}/>
+                Heures indirectes (intempéries, SAV…)
+              </button>
+            </div>
+          );
+        }
         return (
           <div style={{...S.card, borderLeft:`4px solid #b27416`, padding:"14px 16px"}}>
             <div style={{...S.sectionTitle("#b27416")}}>
@@ -1400,7 +1421,56 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
 
       {/* Photos + besoins du chantier — affichés dans la section du chantier
           (pas pour le groupe "Autres tâches" qui n'a pas encore de chantier). */}
-      {group.cId && (
+      {group.cId && (embedded ? (
+        /* Version condensée : Photos repliables + Besoins en bouton direct. */
+        <div style={{margin:"12px 16px", display:"flex", flexDirection:"column", gap:10}}>
+          {openChantierPhotos[group.cId] ? (
+            <div style={{...S.card, margin:0, border:`1.5px solid ${group.chantier_couleur}55`, background:`${group.chantier_couleur}0A`}}>
+              <button onClick={()=>setOpenChantierPhotos(p=>({...p,[group.cId]:false}))} style={{
+                width:"100%", display:"flex", alignItems:"center", gap:6, background:"transparent",
+                border:"none", cursor:"pointer", fontFamily:"inherit", padding:0, marginBottom:10,
+              }}>
+                <span style={{...S.sectionTitle(T.text), marginBottom:0}}>
+                  <Icon as={Camera} size={13} strokeWidth={2.2}/> Photos du chantier
+                </span>
+                <Icon as={ChevronRight} size={15} style={{marginLeft:"auto", color:T.textMuted, transform:"rotate(90deg)"}}/>
+              </button>
+              <PhotosPicker
+                photos={photosChantier[group.cId] || []}
+                onChange={(arr)=>setPhotosChantier(p=>({...p,[group.cId]:arr}))}
+                pathPrefix={`rapports/${ouvrier}/${dateKey}/chantier-${group.cId}`}
+                color={group.chantier_couleur}
+                label="Vue globale, avancement…"
+              />
+            </div>
+          ) : (
+            <button onClick={()=>setOpenChantierPhotos(p=>({...p,[group.cId]:true}))} style={{
+              width:"100%", padding:"12px", border:`1.5px dashed ${group.chantier_couleur}66`, borderRadius:RADIUS.xl,
+              background:`${group.chantier_couleur}0A`, color:T.text, fontFamily:"inherit",
+              fontSize:FONT.base.size, fontWeight:700, cursor:"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+            }}>
+              <Icon as={Camera} size={14} strokeWidth={2.2}/>
+              Photos du chantier{(photosChantier[group.cId]||[]).length ? ` · ${(photosChantier[group.cId]||[]).length}` : ""}
+            </button>
+          )}
+          {(() => {
+            const nb = Object.values(paniers[group.cId]||{}).filter(v=>v.qty>0).length;
+            const VIOLET = "#9040c0";
+            return (
+              <button onClick={()=>setBesoinDrawer(group.cId)} style={{
+                width:"100%", padding:"12px", border:"1.5px dashed rgba(176,96,255,0.4)", borderRadius:RADIUS.xl,
+                background:"rgba(176,96,255,0.05)", color:VIOLET, fontFamily:"inherit",
+                fontSize:FONT.base.size, fontWeight:700, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+              }}>
+                <Icon as={nb > 0 ? Pencil : ShoppingCart} size={14} strokeWidth={2.2}/>
+                Besoins commande{nb ? ` · ${nb} article${nb>1?"s":""}` : ""}
+              </button>
+            );
+          })()}
+        </div>
+      ) : (
         <>
           <div style={{...S.card, border:`1.5px solid ${group.chantier_couleur}55`, background:`${group.chantier_couleur}0A`}}>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
@@ -1468,7 +1538,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
             );
           })()}
         </>
-      )}
+      ))}
         </React.Fragment>
       ))}
 
