@@ -10,7 +10,8 @@
 --   0A    fondations non destructives (colonne + helpers)   [APPLIQUÉ]
 --   0C-1  verrouillage tables financières/sensibles          [APPLIQUÉ]
 --   0C-2  verrouillage autres tables bureau-only            [APPLIQUÉ]
---   0C-3  policies anon + ouvrier (config/cells/rapports/besoins) [À VENIR]
+--   0C-3  policies anon + ouvrier (config/cells/rapports/besoins) [APPLIQUÉ]
+--   → PHASE 0 TERMINÉE (bureau + formulaire public testés OK).
 --
 -- Modèle : chaque policy s'appuie sur public.est_ouvrier().
 --   bureau  (authenticated non-ouvrier) : accès conservé (not est_ouvrier())
@@ -139,3 +140,78 @@ begin
     );
   end loop;
 end $$;
+
+
+-- ---------------------------------------------------------------------
+-- 0C-3 — Policies fines pour les 4 tables à chemins anon/ouvrier — APPLIQUÉ
+-- Préserve le formulaire public (SELECT config/cells + INSERT rapports/besoins
+-- en anon) et ouvre l'accès ouvrier filtré (utilisé dès la Phase 1+).
+-- ---------------------------------------------------------------------
+
+-- 1) Purge des policies existantes de ces 4 tables
+do $$
+declare
+  r record;
+  t text;
+  cibles text[] := array['planning_config','planning_cells','rapports','besoins'];
+begin
+  foreach t in array cibles loop
+    for r in
+      select policyname from pg_policies
+      where schemaname = 'public' and tablename = t
+    loop
+      execute format('drop policy if exists %I on public.%I', r.policyname, t);
+    end loop;
+    execute format('alter table public.%I enable row level security', t);
+  end loop;
+end $$;
+
+-- 2) planning_config
+create policy "config_bureau_all" on public.planning_config
+  for all to authenticated
+  using (not public.est_ouvrier()) with check (not public.est_ouvrier());
+create policy "config_ouvrier_sel" on public.planning_config
+  for select to authenticated
+  using (public.est_ouvrier());
+create policy "config_anon_sel" on public.planning_config
+  for select to anon
+  using (true);
+
+-- 3) planning_cells
+create policy "cells_bureau_all" on public.planning_cells
+  for all to authenticated
+  using (not public.est_ouvrier()) with check (not public.est_ouvrier());
+create policy "cells_ouvrier_sel" on public.planning_cells
+  for select to authenticated
+  using (public.est_ouvrier() and public.mon_prenom_planning() = any(ouvriers));
+create policy "cells_anon_sel" on public.planning_cells
+  for select to anon
+  using (true);
+
+-- 4) rapports
+create policy "rapports_bureau_all" on public.rapports
+  for all to authenticated
+  using (not public.est_ouvrier()) with check (not public.est_ouvrier());
+create policy "rapports_ouvrier_sel" on public.rapports
+  for select to authenticated
+  using (public.est_ouvrier() and ouvrier = public.mon_prenom_planning());
+create policy "rapports_ouvrier_ins" on public.rapports
+  for insert to authenticated
+  with check (public.est_ouvrier() and ouvrier = public.mon_prenom_planning());
+create policy "rapports_anon_ins" on public.rapports
+  for insert to anon
+  with check (true);
+
+-- 5) besoins
+create policy "besoins_bureau_all" on public.besoins
+  for all to authenticated
+  using (not public.est_ouvrier()) with check (not public.est_ouvrier());
+create policy "besoins_ouvrier_sel" on public.besoins
+  for select to authenticated
+  using (public.est_ouvrier() and ouvrier_demandeur = public.mon_prenom_planning());
+create policy "besoins_ouvrier_ins" on public.besoins
+  for insert to authenticated
+  with check (public.est_ouvrier() and ouvrier_demandeur = public.mon_prenom_planning());
+create policy "besoins_anon_ins" on public.besoins
+  for insert to anon
+  with check (true);
