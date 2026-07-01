@@ -267,6 +267,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
   // Sections repliées en mode embarqué (page condensée, moins de scroll).
   const [showIndirectes, setShowIndirectes] = useState(false);
   const [openChantierPhotos, setOpenChantierPhotos] = useState({});
+  // Repli au niveau du bloc chantier (embarqué). true = replié.
+  const [collapsedChantiers, setCollapsedChantiers] = useState({});
+  const chantierInitRef = useRef(false);
   const [planData, setPlanData]     = useState(null);
   // Brouillon : persistance locale pour que les saisies survivent à un refresh
   // et que l'ouvrier puisse compléter le formulaire tout au long de la journée.
@@ -454,6 +457,20 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
       accordionInitRef.current = true;
       const first = taches.findIndex(t => !t.statut);
       setOpenTache(first >= 0 ? first : 0);
+    }
+  }, [embedded, taches]);
+
+  // Repli chantiers (embarqué) : ne déplier que le chantier de la 1re tâche à
+  // remplir, replier les autres (une seule fois, ensuite l'ouvrier pilote).
+  useEffect(() => {
+    if (embedded && !chantierInitRef.current && taches.length > 0) {
+      chantierInitRef.current = true;
+      const actif = taches.find(t => !t.statut) || taches[0];
+      const activeKey = actif ? (actif.chantier_id || "_libres") : null;
+      const collapsed = {};
+      Array.from(new Set(taches.map(t => t.chantier_id || "_libres")))
+        .forEach(k => { if (k !== activeKey) collapsed[k] = true; });
+      setCollapsedChantiers(collapsed);
     }
   }, [embedded, taches]);
 
@@ -1139,11 +1156,13 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
           borderRadius:RADIUS.xl, boxShadow:"0 2px 8px rgba(16,24,40,0.06)", overflow:"hidden",
         } : { display:"contents" }}>
           {(embedded || hasMultipleGroups || group.isLibres) && (
-            <div style={embedded ? {
+            <div
+              onClick={embedded ? () => setCollapsedChantiers(c => ({ ...c, [group.key]: !c[group.key] })) : undefined}
+              style={embedded ? {
               padding:"12px 14px",
               background: group.isLibres ? T.bg : `${group.chantier_couleur}14`,
-              borderBottom: `1px solid ${T.border}`,
-              display:"flex", alignItems:"center", gap:10,
+              borderBottom: collapsedChantiers[group.key] ? "none" : `1px solid ${T.border}`,
+              display:"flex", alignItems:"center", gap:10, cursor:"pointer",
             } : {
               margin:"16px 16px 0",
               padding:"12px 14px",
@@ -1168,8 +1187,19 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
                   {group.chantier_nom}
                 </div>
               </div>
+              {embedded && (
+                <>
+                  <span style={{ flexShrink:0, background:T.bg, color:T.textSub, borderRadius:RADIUS.pill,
+                    padding:"3px 9px", fontSize:FONT.xs.size, fontWeight:800 }}>
+                    {group.items.filter(x=>x.t.statut).length}/{group.items.length}
+                  </span>
+                  <Icon as={ChevronRight} size={16} style={{ color:T.textMuted, flexShrink:0,
+                    transform: collapsedChantiers[group.key] ? "none" : "rotate(90deg)", transition:"transform .2s" }}/>
+                </>
+              )}
             </div>
           )}
+          {!collapsedChantiers[group.key] && (<>
 
       {group.items.map(({ t, idx }, gi) => {
         const dureeOk    = t.statut==="non_faite" || (t.heures_reelles && parseFloat(t.heures_reelles)>0);
@@ -1551,6 +1581,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
           })()}
         </>
       ))}
+        </>)}
         </div>
       ))}
 
