@@ -5,12 +5,21 @@ import { Icon } from "../ui";
 import { MapPin, ClipboardList, CheckCircle2, CalendarX, Navigation, Building2, Clock } from "lucide-react";
 import { MobileStat, MobileSection, MobileCard, MobileEmptyState } from "../mobileUI";
 
-// Lien carte universel (Google Maps ouvre l'app native sur mobile).
-function gpsUrl(geo) {
-  if (!geo) return null;
-  const q = (geo.lat != null && geo.lon != null) ? `${geo.lat},${geo.lon}` : geo.adresse;
-  if (!q) return null;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+// Liens de navigation — ouvrent directement l'app (Maps / Waze) en itinéraire.
+// On privilégie les coordonnées GPS, sinon on retombe sur l'adresse texte.
+function hasGeo(geo) {
+  return !!(geo && ((geo.lat != null && geo.lon != null) || geo.adresse));
+}
+function mapsUrl(geo) {
+  if (!hasGeo(geo)) return null;
+  const dest = (geo.lat != null && geo.lon != null) ? `${geo.lat},${geo.lon}` : geo.adresse;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=driving`;
+}
+function wazeUrl(geo) {
+  if (!hasGeo(geo)) return null;
+  return (geo.lat != null && geo.lon != null)
+    ? `https://waze.com/ul?ll=${geo.lat},${geo.lon}&navigate=yes`
+    : `https://waze.com/ul?q=${encodeURIComponent(geo.adresse)}&navigate=yes`;
 }
 
 export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
@@ -121,7 +130,8 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
         </MobileCard>
       ) : (
         chantiersJour.map((c, i) => {
-          const url = gpsUrl(c.geo);
+          const maps = mapsUrl(c.geo);
+          const waze = wazeUrl(c.geo);
           return (
             <MobileSection
               key={`${c.chantier_id}_${i}`}
@@ -139,15 +149,29 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
                   <span style={{ fontSize:13.5, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
                 </div>
               )}
-              {url && (
-                <a href={url} target="_blank" rel="noopener noreferrer" style={{
-                  display:"inline-flex", alignItems:"center", gap:6, textDecoration:"none",
-                  background:"#5b8af514", color:"#5b8af5", border:"1px solid #5b8af540",
-                  borderRadius:12, padding:"8px 14px", fontSize:13.5, fontWeight:700, marginBottom:12,
-                }}>
-                  <Icon as={Navigation} size={13} strokeWidth={2.2}/>
-                  Y aller (GPS)
-                </a>
+              {(maps || waze) && (
+                <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+                  {maps && (
+                    <a href={maps} target="_blank" rel="noopener noreferrer" style={{
+                      display:"inline-flex", alignItems:"center", gap:6, textDecoration:"none",
+                      background:"#1a73e814", color:"#1a73e8", border:"1px solid #1a73e840",
+                      borderRadius:12, padding:"8px 14px", fontSize:13.5, fontWeight:700,
+                    }}>
+                      <Icon as={MapPin} size={14} strokeWidth={2.2}/>
+                      Maps
+                    </a>
+                  )}
+                  {waze && (
+                    <a href={waze} target="_blank" rel="noopener noreferrer" style={{
+                      display:"inline-flex", alignItems:"center", gap:6, textDecoration:"none",
+                      background:"#05c8f714", color:"#0797b8", border:"1px solid #05c8f755",
+                      borderRadius:12, padding:"8px 14px", fontSize:13.5, fontWeight:700,
+                    }}>
+                      <Icon as={Navigation} size={14} strokeWidth={2.2}/>
+                      Waze
+                    </a>
+                  )}
+                </div>
               )}
               {c.taches.length > 0 ? (
                 <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:8 }}>
