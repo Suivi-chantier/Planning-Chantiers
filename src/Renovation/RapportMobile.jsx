@@ -94,7 +94,7 @@ async function sendRapportEmail(rapport, chantierNom) {
 // Les photos de chantier sont énormes (10-20 Mo) et échouent sur mauvaise
 // connexion. On redimensionne (max 1600px) + réencode en JPEG qualité 0.7 avant
 // upload. Tout échec renvoie le fichier original (jamais bloquant).
-async function compressImage(file, maxDim = 1600, quality = 0.7) {
+export async function compressImage(file, maxDim = 1600, quality = 0.7) {
   if (!file?.type?.startsWith("image/")) return file;
   try {
     const bitmap = await createImageBitmap(file);
@@ -114,7 +114,7 @@ async function compressImage(file, maxDim = 1600, quality = 0.7) {
 // ─── HELPER UPLOAD PHOTO ──────────────────────────────────────────────────────
 // Renvoie { url } en cas de succès, { error } en cas d'échec (au lieu de
 // retourner null silencieusement) — pour que l'UI puisse afficher l'erreur.
-async function uploadRapportPhoto(file, pathPrefix) {
+export async function uploadRapportPhoto(file, pathPrefix) {
   try {
     const toUpload = await compressImage(file);
     const ext = (toUpload.name.split(".").pop() || "jpg").toLowerCase();

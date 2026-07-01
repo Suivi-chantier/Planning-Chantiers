@@ -9,6 +9,7 @@ import {
 import { MobileHero } from "../mobileUI";
 import OuvrierDashboard from "./OuvrierDashboard";
 import OuvrierPlanning from "./OuvrierPlanning";
+import OuvrierCommande from "./OuvrierCommande";
 import PageRapportMobile from "./RapportMobile";
 
 // Météo (Open-Meteo) — même mapping que Dashboard/Planning.
@@ -136,7 +137,7 @@ export default function EspaceOuvrier({ user, profil, onLogout }) {
 
           {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
           {tab === "planning"         && <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}/>}
-          {tab === "demande-commande" && <Placeholder titre="Mes demandes" phase="Phase 6"/>}
+          {tab === "demande-commande" && <OuvrierCommande prenom={prenom} T={T} accent={ACCENT}/>}
         </div>
       )}
 

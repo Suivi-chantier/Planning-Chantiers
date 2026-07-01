@@ -877,6 +877,10 @@ function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSuppr
                     {d.quantite && <span style={{ color: P.textSub }}> · {d.quantite}</span>}
                   </div>
                   {d.notes && <div style={{ fontSize: 12, color: P.textMuted, marginTop: 4 }}>{d.notes}</div>}
+                  {d.photo_url && (
+                    <img src={d.photo_url} alt="" onClick={() => window.open(d.photo_url, "_blank")}
+                      style={{ marginTop: 8, width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${P.border}`, cursor: "pointer", display: "block" }} />
+                  )}
                 </div>
 
                 <div style={{ padding: "8px 14px", borderBottom: `1px solid ${P.border}`, background: "rgba(255,194,0,0.03)" }}>
@@ -1231,7 +1235,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
 
   const loadBesoins = async () => {
     const { data } = await supabase.from("besoins")
-      .select("id, chantier_id, materiau_id, article, quantite, ouvrier_demandeur, notes, created_at")
+      .select("id, chantier_id, materiau_id, article, quantite, ouvrier_demandeur, notes, priorite, photo_url, created_at")
       .eq("statut", "en_attente")
       .order("created_at", { ascending: false });
     setBesoins(data || []);
