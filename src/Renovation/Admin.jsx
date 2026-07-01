@@ -58,6 +58,9 @@ function OngletUtilisateurs({ T, acc }) {
   const [invPrenomPlanning, setInvPrenomPlanning] = useState("");
   // Liste des prénoms (config Admin "ouvriers") pour le sélecteur ouvrier.
   const [ouvriersConfig, setOuvriersConfig] = useState(DEFAULT_OUVRIERS);
+  // Bascule : afficher un bandeau "connectez-vous" sur le formulaire public.
+  const [espaceActif, setEspaceActif] = useState(false);
+  const [bascLoading, setBascLoading] = useState(false);
 
   // Édition
   const [editId, setEditId]   = useState(null);
@@ -111,7 +114,23 @@ function OngletUtilisateurs({ T, acc }) {
   useEffect(() => {
     supabase.from("planning_config").select("value").eq("key", "ouvriers").single()
       .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setOuvriersConfig(data.value); });
+    supabase.from("planning_config").select("value").eq("key", "espace_ouvrier_actif").maybeSingle()
+      .then(({ data }) => setEspaceActif(data?.value === true));
   }, []);
+
+  // Active/désactive le bandeau d'invitation sur le formulaire public.
+  const toggleEspace = async () => {
+    const next = !espaceActif;
+    setBascLoading(true);
+    const { error } = await supabase.from("planning_config")
+      .upsert({ key: "espace_ouvrier_actif", value: next }, { onConflict: "key" });
+    setBascLoading(false);
+    if (error) { flash("err", "Erreur : " + error.message); return; }
+    setEspaceActif(next);
+    flash("ok", next
+      ? "Bandeau d'invitation activé sur le formulaire public."
+      : "Bandeau d'invitation désactivé.");
+  };
 
   const flash = (type, msg) => {
     if (type === "ok") { setSucces(msg); setErreur(""); setTimeout(() => setSucces(""), 4000); }
@@ -239,6 +258,32 @@ function OngletUtilisateurs({ T, acc }) {
         }}>
           <Icon as={showForm?X:UserPlus} size={13}/>
           {showForm ? "Annuler" : "Inviter un collaborateur"}
+        </button>
+      </div>
+
+      {/* ── Bascule espace ouvrier ── */}
+      <div style={{
+        background:T.card, border:`1px solid ${espaceActif ? "rgba(80,200,120,0.4)" : T.border}`,
+        borderRadius:12, padding:"14px 16px", margin:"14px 0",
+        display:"flex", alignItems:"center", justifyContent:"space-between", gap:14, flexWrap:"wrap",
+      }}>
+        <div style={{ flex:"1 1 260px", minWidth:0 }}>
+          <div style={{ fontWeight:800, fontSize:FONT.sm.size+1, color:T.text, marginBottom:3 }}>
+            Bascule vers l'espace ouvrier
+          </div>
+          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, lineHeight:1.5 }}>
+            Activé, le formulaire public de compte rendu affiche un bandeau invitant les ouvriers à se connecter à leur espace.
+            Le lien public reste fonctionnel — active-le seulement quand les comptes sont prêts.
+          </div>
+        </div>
+        <button onClick={toggleEspace} disabled={bascLoading} title={espaceActif ? "Désactiver" : "Activer"} style={{
+          flexShrink:0, width:54, height:30, borderRadius:999, border:"none", cursor: bascLoading ? "wait" : "pointer",
+          background: espaceActif ? "#50c878" : T.border, position:"relative", transition:"background .2s", padding:0,
+        }}>
+          <span style={{
+            position:"absolute", top:3, left: espaceActif ? 27 : 3, width:24, height:24, borderRadius:"50%",
+            background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.3)", transition:"left .2s",
+          }}/>
         </button>
       </div>
 

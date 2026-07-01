@@ -270,6 +270,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
   // Repli au niveau du bloc chantier (embarqué). true = replié.
   const [collapsedChantiers, setCollapsedChantiers] = useState({});
   const chantierInitRef = useRef(false);
+  // Bandeau "connectez-vous" du formulaire public, piloté par planning_config.
+  const [espaceActif, setEspaceActif] = useState(false);
   const [planData, setPlanData]     = useState(null);
   // Brouillon : persistance locale pour que les saisies survivent à un refresh
   // et que l'ouvrier puisse compléter le formulaire tout au long de la journée.
@@ -299,6 +301,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
           if (r.key === "chantiers") setChantiers(r.value);
           if (r.key === "ouvriers")  setOuvriers(r.value);
           if (r.key === "heures_par_jour" && r.value) setHeuresParJour({ ...HEURES_PAR_JOUR_DEFAUT, ...r.value });
+          if (r.key === "espace_ouvrier_actif") setEspaceActif(r.value === true);
         });
       }
     };
@@ -689,6 +692,26 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
         <div style={{fontSize:FONT.h2.size-2,fontWeight:800,color:"#fff",letterSpacing:-0.3}}>Mon compte rendu</div>
         <div style={{fontSize:FONT.base.size,color:"rgba(255,255,255,0.5)",marginTop:4}}>{dateStr}</div>
       </div>
+
+      {/* Bandeau bascule : invite à se connecter à l'espace ouvrier (Phase 7). */}
+      {!embedded && espaceActif && (
+        <div style={{...S.card, marginTop:20, marginBottom:0, background:T.infoBg, border:`1px solid ${T.infoBd}`, borderLeft:`4px solid ${T.info}`}}>
+          <div style={{display:"flex", alignItems:"flex-start", gap:10}}>
+            <Icon as={Sparkles} size={18} color={T.info} strokeWidth={2.2} style={{flexShrink:0, marginTop:2}}/>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FONT.base.size, fontWeight:800, color:T.text, marginBottom:3}}>Tu as maintenant ton espace personnel</div>
+              <div style={{fontSize:FONT.sm.size+1, color:T.textSub, lineHeight:1.5, marginBottom:10}}>
+                Connecte-toi pour retrouver ton planning, faire ton compte rendu et suivre tes demandes de commande.
+              </div>
+              <a href="/" style={{display:"inline-flex", alignItems:"center", gap:6, textDecoration:"none",
+                background:T.info, color:"#fff", borderRadius:RADIUS.lg, padding:"10px 16px", fontWeight:800, fontSize:FONT.base.size}}>
+                Me connecter <Icon as={ChevronRight} size={16} strokeWidth={2.5}/>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{...S.card, marginTop:32}}>
         <span style={S.label}>C'est qui ?</span>
         <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
