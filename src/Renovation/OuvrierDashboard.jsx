@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS } from "../constants";
 import { Icon } from "../ui";
-import { MapPin, ClipboardList, ChevronRight, CheckCircle2, CalendarX, Navigation, Building2 } from "lucide-react";
-import { MobileCard, MobileEmptyState, Pill } from "../mobileUI";
+import { MapPin, ClipboardList, CheckCircle2, CalendarX, Navigation, Building2, Clock } from "lucide-react";
+import { MobileStat, MobileSection, MobileCard, MobileEmptyState } from "../mobileUI";
 
 // Lien carte universel (Google Maps ouvre l'app native sur mobile).
 function gpsUrl(geo) {
@@ -13,7 +13,7 @@ function gpsUrl(geo) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 }
 
-export default function OuvrierDashboard({ prenom, T, accent = "#FFC200", onGoCompteRendu }) {
+export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
   const [loading, setLoading]             = useState(true);
   const [chantiersJour, setChantiersJour] = useState([]);
   const [crRendu, setCrRendu]             = useState(false);
@@ -81,21 +81,35 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200", onGoCo
     </div>
   );
 
+  const totalTaches = chantiersJour.reduce((s, c) => s + c.taches.length, 0);
+  const crColor = crRendu ? "#22c55e" : "#f59e0b";
+
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-      {/* Résumé du jour */}
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-        <Pill color={accent} solid={false}>
-          <Icon as={Building2} size={13} strokeWidth={2.2}/>
-          {chantiersJour.length} chantier{chantiersJour.length > 1 ? "s" : ""}
-        </Pill>
-        <Pill color={crRendu ? "#22c55e" : "#f59e0b"}>
-          <Icon as={crRendu ? CheckCircle2 : ClipboardList} size={13} strokeWidth={2.2}/>
-          {crRendu ? "CR rendu" : "CR à faire"}
-        </Pill>
+      {/* KPI du jour */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        <MobileStat icon={Building2}     label="Chantiers du jour" value={chantiersJour.length} color="#5b8af5" T={T}/>
+        <MobileStat icon={ClipboardList} label="Tâches prévues"    value={totalTaches}          color="#8b5cf6" T={T}/>
       </div>
 
-      {/* Chantiers du jour */}
+      {/* Statut compte rendu du jour */}
+      <MobileCard T={T} accent={crColor} style={{ padding:"13px 15px", display:"flex", alignItems:"center", gap:13 }}>
+        <div style={{
+          width:40, height:40, borderRadius:12, flexShrink:0,
+          background:`linear-gradient(135deg, ${crColor}, ${crColor}c0)`, color:"#fff",
+          display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 5px 14px ${crColor}55`,
+        }}>
+          <Icon as={crRendu ? CheckCircle2 : Clock} size={20} strokeWidth={2.3}/>
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontWeight:700, fontSize:15, color:T.text }}>Compte rendu du jour</div>
+          <div style={{ fontSize:13, color:crColor, fontWeight:700, marginTop:1 }}>
+            {crRendu ? "Déjà rendu — merci !" : "À faire en fin de journée"}
+          </div>
+        </div>
+      </MobileCard>
+
+      {/* Chantiers du jour — accordéons repliables (limite le scroll) */}
       {chantiersJour.length === 0 ? (
         <MobileCard T={T}>
           <MobileEmptyState
@@ -109,12 +123,18 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200", onGoCo
         chantiersJour.map((c, i) => {
           const url = gpsUrl(c.geo);
           return (
-            <MobileCard key={`${c.chantier_id}_${i}`} T={T} accent={c.couleur} style={{ padding:"14px 16px" }}>
-              <div style={{ fontSize:18, fontWeight:800, color:T.text, letterSpacing:-0.2, marginBottom:c.geo?.adresse ? 6 : 12 }}>
-                {c.nom}
-              </div>
+            <MobileSection
+              key={`${c.chantier_id}_${i}`}
+              T={T}
+              accent={c.couleur}
+              icon={Building2}
+              title={c.nom}
+              summary={`${c.taches.length} tâche${c.taches.length > 1 ? "s" : ""}`}
+              summaryTone={c.couleur}
+              defaultOpen={chantiersJour.length === 1}
+            >
               {c.geo?.adresse && (
-                <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginBottom:12 }}>
+                <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginBottom:10 }}>
                   <Icon as={MapPin} size={14} color={T.textMuted} strokeWidth={2} style={{ marginTop:2, flexShrink:0 }}/>
                   <span style={{ fontSize:13.5, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
                 </div>
@@ -130,39 +150,24 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200", onGoCo
                 </a>
               )}
               {c.taches.length > 0 ? (
-                <div>
-                  <div style={{ fontSize:10.5, fontWeight:800, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted, marginBottom:8 }}>
-                    Tâches prévues
-                  </div>
-                  <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:7 }}>
-                    {c.taches.map((t, j) => (
-                      <li key={j} style={{ display:"flex", alignItems:"flex-start", gap:8, fontSize:14, color:T.text, lineHeight:1.4 }}>
-                        <span style={{ width:6, height:6, borderRadius:"50%", background:c.couleur, marginTop:7, flexShrink:0 }}/>
-                        <span>{t}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:8 }}>
+                  {c.taches.map((t, j) => (
+                    <li key={j} style={{
+                      display:"flex", alignItems:"flex-start", gap:10, fontSize:14, color:T.text, lineHeight:1.4,
+                      background:T.bg, borderRadius:10, padding:"10px 12px",
+                    }}>
+                      <span style={{ width:7, height:7, borderRadius:"50%", background:c.couleur, marginTop:6, flexShrink:0, boxShadow:`0 0 0 3px ${c.couleur}22` }}/>
+                      <span>{t}</span>
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <div style={{ fontSize:13, color:T.textMuted, fontStyle:"italic" }}>Aucune tâche détaillée pour ce chantier.</div>
               )}
-            </MobileCard>
+            </MobileSection>
           );
         })
       )}
-
-      {/* Gros bouton compte rendu */}
-      <button onClick={onGoCompteRendu} style={{
-        width:"100%", padding:"16px", border:"none", borderRadius:16,
-        background:`linear-gradient(135deg, ${accent}, ${accent}cc)`, color:"#1a1f2e", fontFamily:"inherit",
-        fontSize:17, fontWeight:800, cursor:"pointer",
-        display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-        boxShadow:`0 6px 18px ${accent}55`,
-      }}>
-        <Icon as={ClipboardList} size={18} strokeWidth={2.3}/>
-        Faire mon compte rendu
-        <Icon as={ChevronRight} size={18} strokeWidth={2.5}/>
-      </button>
     </div>
   );
 }

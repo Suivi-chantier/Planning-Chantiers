@@ -20,7 +20,7 @@ export const CARD_SHADOW = "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24
 // ─── HERO ─────────────────────────────────────────────────────────────────────
 // eyebrow : petite ligne au-dessus (date, contexte) ; title : titre principal ;
 // right : élément à droite (météo, action…) ; chips : [{icon,value,label,color}].
-export function MobileHero({ eyebrow, title, right, chips, accent = "#FFC200" }) {
+export function MobileHero({ eyebrow, title, right, chips, accent = "#FFC200", logo }) {
   return (
     <div style={{
       borderRadius: 18, padding: "17px 18px 18px", position: "relative", overflow: "hidden",
@@ -30,6 +30,7 @@ export function MobileHero({ eyebrow, title, right, chips, accent = "#FFC200" })
       <div style={{ position: "absolute", top: -50, right: -40, width: 170, height: 170, borderRadius: "50%", background: `radial-gradient(circle, ${accent}50, transparent 70%)` }}/>
       <div style={{ position: "absolute", bottom: -60, left: -30, width: 140, height: 140, borderRadius: "50%", background: "radial-gradient(circle, rgba(91,138,245,0.25), transparent 70%)" }}/>
       <div style={{ position: "relative" }}>
+        {logo && <img src={logo} alt="" style={{ height: 26, objectFit: "contain", objectPosition: "left", display: "block", marginBottom: 10 }}/>}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
           <div style={{ minWidth: 0 }}>
             {eyebrow && <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: "rgba(255,255,255,0.6)", textTransform: "capitalize" }}>{eyebrow}</div>}
