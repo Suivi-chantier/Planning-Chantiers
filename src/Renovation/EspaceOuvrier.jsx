@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { FONT, RADIUS, SEMANTIC, PROFERO_YELLOW, LOGO_RENO_V } from "../constants";
 import { Icon } from "../ui";
 import { LayoutDashboard, CalendarDays, ClipboardList, ShoppingCart, LogOut } from "lucide-react";
+import OuvrierDashboard from "./OuvrierDashboard";
 
 // ─── THÈME LIGHT CHANTIER ─────────────────────────────────────────────────────
 // Aligné sur RapportMobile.jsx (lisibilité extérieure, palette claire Profero).
@@ -83,7 +84,7 @@ export default function EspaceOuvrier({ user, profil, onLogout }) {
 
       {/* ── Contenu de l'onglet ── */}
       <div style={{ paddingBottom:NAV_H + 12 }}>
-        {tab === "dashboard"        && <Placeholder titre="Tableau de bord"          phase="Phase 3"/>}
+        {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} onGoCompteRendu={() => setTab("compte-rendu")}/>}
         {tab === "planning"         && <Placeholder titre="Mon planning"             phase="Phase 4"/>}
         {tab === "compte-rendu"     && <Placeholder titre="Mon compte rendu"         phase="Phase 5"/>}
         {tab === "demande-commande" && <Placeholder titre="Mes demandes de commande" phase="Phase 6"/>}
