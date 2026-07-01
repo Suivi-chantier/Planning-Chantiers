@@ -313,6 +313,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
     if (step !== "rapport") return;
     const nom = ouvrier.trim();
     if (!nom) return;
+    // Ne rien sauvegarder tant que les tâches ne sont pas chargées : sinon, en
+    // mode embarqué (étape "rapport" dès le montage), l'autosave écraserait le
+    // brouillon existant par un brouillon vide avant même le chargement.
+    if (!taches.length) return;
     try {
       const payload = {
         taches, trajetMatin, trajetSoir, heuresIndirectes, remarque,
@@ -400,9 +404,12 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
     // Si présent : on saute le rechargement du planning et on reprend tel quel.
     try {
       const raw = localStorage.getItem(brouillonKey(nom, dateKey));
-      if (raw) {
-        const b = JSON.parse(raw);
-        setTaches(Array.isArray(b.taches) ? b.taches : []);
+      const b = raw ? JSON.parse(raw) : null;
+      // On ne reprend le brouillon que s'il contient réellement des tâches : un
+      // brouillon vide (ex. sauvé avant le chargement du planning) ne doit pas
+      // masquer les tâches du jour.
+      if (b && Array.isArray(b.taches) && b.taches.length > 0) {
+        setTaches(b.taches);
         setTrajetMatin(b.trajetMatin || "");
         setTrajetSoir(b.trajetSoir || "");
         setHeuresIndirectes(Array.isArray(b.heuresIndirectes) ? b.heuresIndirectes : []);
