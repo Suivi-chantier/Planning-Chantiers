@@ -1133,9 +1133,18 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
       )}
 
       {chantierGroups.map(group => (
-        <React.Fragment key={group.key}>
-          {(hasMultipleGroups || group.isLibres) && (
-            <div style={{
+        <div key={group.key} style={embedded ? {
+          margin:"12px 12px", background:T.surface, border:`1px solid ${T.border}`,
+          borderLeft:`5px solid ${group.isLibres ? T.borderHover : (group.chantier_couleur || T.info)}`,
+          borderRadius:RADIUS.xl, boxShadow:"0 2px 8px rgba(16,24,40,0.06)", overflow:"hidden",
+        } : { display:"contents" }}>
+          {(embedded || hasMultipleGroups || group.isLibres) && (
+            <div style={embedded ? {
+              padding:"12px 14px",
+              background: group.isLibres ? T.bg : `${group.chantier_couleur}14`,
+              borderBottom: `1px solid ${T.border}`,
+              display:"flex", alignItems:"center", gap:10,
+            } : {
               margin:"16px 16px 0",
               padding:"12px 14px",
               background: group.isLibres ? T.bg : `${group.chantier_couleur}1F`,
@@ -1162,7 +1171,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
             </div>
           )}
 
-      {group.items.map(({ t, idx }) => {
+      {group.items.map(({ t, idx }, gi) => {
         const dureeOk    = t.statut==="non_faite" || (t.heures_reelles && parseFloat(t.heures_reelles)>0);
         const avRenseigne = !(t.avancement===""||t.avancement===undefined||t.avancement===null);
         const av100 = parseInt(t.avancement)===100;
@@ -1172,7 +1181,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
         const stColor = !t.statut ? "#c07800" : t.statut==="faite" ? T.success : t.statut==="en_cours" ? "#c07800" : T.danger;
         const ouverte = !embedded || openTache === idx;
         return (
-        <div key={idx} style={{...S.card, borderLeft:`4px solid ${t.chantier_couleur||T.info}`}}>
+        <div key={idx} style={embedded ? {
+          padding:"12px 14px",
+          ...(gi > 0 ? { borderTop:`1px solid ${T.border}` } : {}),
+        } : {...S.card, borderLeft:`4px solid ${t.chantier_couleur||T.info}`}}>
           {embedded && (
             <button onClick={()=>setOpenTache(o => o===idx ? null : idx)} style={{
               width:"100%", display:"flex", alignItems:"center", gap:10, textAlign:"left",
@@ -1423,7 +1435,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
           (pas pour le groupe "Autres tâches" qui n'a pas encore de chantier). */}
       {group.cId && (embedded ? (
         /* Version condensée : Photos repliables + Besoins en bouton direct. */
-        <div style={{margin:"12px 16px", display:"flex", flexDirection:"column", gap:10}}>
+        <div style={{padding:"12px 14px", borderTop:`1px solid ${T.border}`, display:"flex", flexDirection:"column", gap:10}}>
           {openChantierPhotos[group.cId] ? (
             <div style={{...S.card, margin:0, border:`1.5px solid ${group.chantier_couleur}55`, background:`${group.chantier_couleur}0A`}}>
               <button onClick={()=>setOpenChantierPhotos(p=>({...p,[group.cId]:false}))} style={{
@@ -1539,7 +1551,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
           })()}
         </>
       ))}
-        </React.Fragment>
+        </div>
       ))}
 
       {/* Ajouter tâche libre — bouton global en bas de tous les groupes */}
