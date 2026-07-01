@@ -9,7 +9,7 @@
 -- Ordre d'application :
 --   0A    fondations non destructives (colonne + helpers)   [APPLIQUÉ]
 --   0C-1  verrouillage tables financières/sensibles          [APPLIQUÉ]
---   0C-2  verrouillage autres tables bureau-only            [À VENIR]
+--   0C-2  verrouillage autres tables bureau-only            [APPLIQUÉ]
 --   0C-3  policies anon + ouvrier (config/cells/rapports/besoins) [À VENIR]
 --
 -- Modèle : chaque policy s'appuie sur public.est_ouvrier().
@@ -88,6 +88,40 @@ declare
     'phasages','phasages_history','phasages_backup_premig_v2',
     'commandes','commande_lignes','factures','facture_bl',
     'commandes_detail','commandes_passees','fournisseurs'
+  ];
+begin
+  foreach t in array cibles loop
+    for r in
+      select policyname from pg_policies
+      where schemaname = 'public' and tablename = t
+    loop
+      execute format('drop policy if exists %I on public.%I', r.policyname, t);
+    end loop;
+    execute format('alter table public.%I enable row level security', t);
+    execute format(
+      'create policy "bureau_all" on public.%I for all to authenticated ' ||
+      'using (not public.est_ouvrier()) with check (not public.est_ouvrier())',
+      t
+    );
+  end loop;
+end $$;
+
+
+-- ---------------------------------------------------------------------
+-- 0C-2 — Verrouillage bureau-only (reste des tables rénovation) — APPLIQUÉ
+-- (invest_*, cr_*, materiaux_bibliotheque, utilisateurs : NON touchées)
+-- ---------------------------------------------------------------------
+do $$
+declare
+  r record;
+  t text;
+  cibles text[] := array[
+    'bibliotheque_ratios','chantier_avancement_history','chantier_notes',
+    'clotures_journee','planning_chantiers','planning_commandes',
+    'planning_mensuel','planning_notes','plans','visites_chantier',
+    'profero_categories_ouvrages','profero_cotes',
+    'profero_ouvrages_selectionnes','profero_plans','profero_projets',
+    'vehicules','sourcing_annonces','sourcing_criteres','sourcing_logs'
   ];
 begin
   foreach t in array cibles loop
