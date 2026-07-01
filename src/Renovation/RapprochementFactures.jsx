@@ -48,9 +48,14 @@ function fileToBase64(file) {
 
 // `images` = [{ base64, mediaType }] (facture pouvant tenir sur plusieurs pages).
 async function analyseFacture(images) {
+  const { data: { session } } = await supabase.auth.getSession();
   const response = await fetch(EDGE_ANALYSE_FACTURE, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${session?.access_token}`,
+      "apikey": import.meta.env.VITE_SUPABASE_KEY,
+    },
     body: JSON.stringify({ images }),
   });
   const data = await response.json();
