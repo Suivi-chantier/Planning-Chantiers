@@ -20,7 +20,7 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V7.3 — Dashboard Pilotage Quotidien Profero Invest
+// TABLEAU DE BORD V7.4 — Dashboard Pilotage Quotidien Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
@@ -246,10 +246,41 @@ const CLIENT_STATUS_KEYWORDS = [
   "financement", "compromis", "travaux", "location", "termine", "terminé"
 ];
 
-function isTerminatedContact(c={}) {
+function booleanLikeTrue(value) {
+  if (value === true) return true;
+  if (value === false || value === undefined || value === null || value === "") return false;
+  const txt = normTxt(value);
+  return ["true", "1", "oui", "yes", "supprime", "supprimé", "deleted", "archive", "archivé"].includes(txt);
+}
+
+function isDeletedRecord(c={}) {
+  const deletedFlags = [
+    "deleted", "is_deleted", "isDeleted", "supprime", "supprimé", "is_supprime", "is_supprimé",
+    "removed", "is_removed", "trashed", "is_trashed", "in_trash", "corbeille"
+  ];
+  if (deletedFlags.some(key => booleanLikeTrue(c?.[key]))) return true;
+  if (firstFilled(c, ["deleted_at", "deletedAt", "removed_at", "trashed_at", "supprime_at", "supprimé_at"])) return true;
+  const txt = normTxt(joinNonEmpty([
+    firstFilled(c, ["statut", "status", "statut_crm", "pipeline_stage", "phase", "statut_pipeline", "classe", "categorie", "catégorie"]),
+    firstFilled(c, ["archive_status", "deletion_status", "etat", "état"])
+  ], " "));
+  return txt.includes("supprime") || txt.includes("supprimé") || txt.includes("deleted") || txt.includes("corbeille") || txt.includes("trash") || txt.includes("efface") || txt.includes("effacé");
+}
+
+function isInactiveProspectRecord(c={}) {
+  if (isDeletedRecord(c)) return true;
   const status = contactStatusValue(c);
   const step = contactStepValue(c);
-  return status.includes("termine") || status.includes("terminé") || step.includes("termine") || step.includes("terminé") || status.includes("archive") || status.includes("archivé");
+  const type = contactTypeValue(c);
+  const txt = `${status} ${step} ${type}`;
+  return txt.includes("archive") || txt.includes("archivé") || txt.includes("inactif") || txt.includes("perdu") || txt.includes("termine") || txt.includes("terminé") || txt.includes("clos") || txt.includes("closed") || txt.includes("annule") || txt.includes("annulé");
+}
+
+function isTerminatedContact(c={}) {
+  if (isDeletedRecord(c)) return true;
+  const status = contactStatusValue(c);
+  const step = contactStepValue(c);
+  return status.includes("termine") || status.includes("terminé") || step.includes("termine") || step.includes("terminé") || status.includes("archive") || status.includes("archivé") || status.includes("supprime") || status.includes("supprimé") || status.includes("deleted");
 }
 
 function isExplicitProspect(c={}) {
@@ -276,10 +307,15 @@ function isExplicitClient(c={}) {
 }
 
 function isProspectRecord(c={}) {
+  if (isInactiveProspectRecord(c)) return false;
   if (isTerminatedContact(c) && !isExplicitProspect(c)) return false;
   if (isExplicitProspect(c) && !isExplicitClient(c)) return true;
   if (isExplicitProspect(c) && !c?.date_signature && !normTxt(c?.statut || "").includes("actif")) return true;
   return false;
+}
+
+function isActiveProspectRecord(c={}) {
+  return isProspectRecord(c) && !isInactiveProspectRecord(c);
 }
 
 function isClientRecord(c={}) {
@@ -657,6 +693,42 @@ function SectionCard({ title, icon, subtitle, children, T=THEMES_INV.dark, actio
   );
 }
 
+
+function StepOverview({ title, subtitle, total=0, decisions=0, readOnly=0, resolved=0, icon, T=THEMES_INV.dark }) {
+  const IconComp = icon || LayoutDashboard;
+  const healthColor = decisions > 0 ? DA : SU;
+  return (
+    <div style={{
+      display:"grid",
+      gridTemplateColumns:"minmax(240px,1.4fr) repeat(3,minmax(120px,.45fr))",
+      gap:SPACING.sm,
+      alignItems:"stretch",
+      marginBottom:SPACING.md,
+    }} className="inv-v74-step-overview">
+      <div style={{ border:`1px solid ${T.border}`, background:T.card, borderRadius:RADIUS.lg, padding:SPACING.md, display:"flex", alignItems:"center", gap:SPACING.md }}>
+        <div style={{ width:38, height:38, borderRadius:RADIUS.md, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Icon as={IconComp} size={18}/></div>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text }}>{title}</div>
+          {subtitle && <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:3, lineHeight:1.35 }}>{subtitle}</div>}
+        </div>
+      </div>
+      {[
+        ["À décider", decisions, healthColor, AlertTriangle],
+        ["Lecture", readOnly, T.accent, Eye],
+        ["Validés", resolved, SU, Check],
+      ].map(([label,value,color,IconComp]) => (
+        <div key={label} style={{ border:`1px solid ${color}33`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+            <span style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.7 }}>{label}</span>
+            <Icon as={IconComp} size={13} color={color}/>
+          </div>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color, marginTop:5 }}>{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RoutineDecisionCard({ item, decision, onChange, onResolve=null, onOpen=null, T=THEMES_INV.dark, compact=false, readOnly=false }) {
   const d = decision || defaultDecision(item);
   const type = item.type || "urgence";
@@ -902,8 +974,8 @@ function buildV6Data({ clients=[], crmProspects=[], biens=[], propositions=[], p
   const today = todayIso();
   const { startWeek, endWeek } = getWeekRange();
   const prospects = uniqueBySourceAndId([
-    ...safeArr(clients).filter(isProspectRecord),
-    ...safeArr(crmProspects),
+    ...safeArr(clients).filter(isActiveProspectRecord),
+    ...safeArr(crmProspects).filter(isActiveProspectRecord),
   ]);
   const clientsMetier = safeArr(clients).filter(isClientRecord);
   const openActions = actions.filter(isOpenAction);
@@ -1189,14 +1261,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       try {
         const { data, error } = await query;
         if (error) {
-          console.warn(`[Dashboard V7.3] ${label} non disponible :`, error);
+          console.warn(`[Dashboard V7.4] ${label} non disponible :`, error);
           if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
           else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
           return [];
         }
         return data || [];
       } catch (e) {
-        console.warn(`[Dashboard V7.3] ${label} non disponible :`, e);
+        console.warn(`[Dashboard V7.4] ${label} non disponible :`, e);
         if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
         else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
         return [];
@@ -1348,7 +1420,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
         linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
         priority,
         status:"unread",
-        source_module:"dashboard_v7_1",
+        source_module:"dashboard_v7_4",
         created_by:profil?.email || profil?.nom || "Matthieu",
       });
     } catch (e) {
@@ -1356,14 +1428,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     }
   };
 
-  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.3", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
+  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.4", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
     if (!responsable || !title) return null;
     const basePayload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
     const linkedPayload = {
       ...basePayload,
       linked_entity_type:linked_entity_type || null,
       linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
-      source_module:"dashboard_v7_1",
+      source_module:"dashboard_v7_4",
       source_context:{ comment, created_from:"dashboard_pilotage_quotidien", routine_date:todayIso() },
     };
     let created = null;
@@ -1393,17 +1465,17 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       if (normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver")) updatePayload.statut = "Inactif";
       else if (item.raw?.statut) updatePayload.statut = item.raw.statut;
       await supabase.from(sourceTable).update(updatePayload).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:sourceTable === "invest_clients" ? (item.raw?.id || item.id) : null, step_label:"Dashboard V7.3 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:sourceTable === "invest_clients" ? (item.raw?.id || item.id) : null, step_label:"Dashboard V7.4 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "client" || item.type === "client") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || item.raw?.date_prochaine_action || null, conseiller:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.3 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.4 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "bien" || item.type === "bien") {
       const decisionNorm = normTxt(d.decision);
       const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
       await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.3 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.4 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else {
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.3 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.4 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
     }
     return createdTaskId;
   };
@@ -1505,8 +1577,9 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       const prospectsDecision = visibleProspects.filter(i => !i.readOnly);
       const prospectsInfo = quickMode ? [] : data.prospectItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
       return <>
-        <SectionCard title="Prospects à décider" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds arrivés à échéance" : "Les échéances futures restent en lecture seule plus bas"} T={T}>{renderItems(prospectsDecision, "Aucun prospect à traiter aujourd’hui", quickMode, true)}</SectionCard>
-        {!quickMode && <SectionCard title="Prospects — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={prospectsInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
+        <StepOverview title="Prospection active" subtitle="Uniquement les prospects actifs. Les prospects supprimés, archivés, inactifs ou perdus sont exclus du pilotage quotidien." total={data.stats.prospects} decisions={prospectsDecision.length} readOnly={prospectsInfo.length} resolved={Object.values(routine.resolvedUrgencies || {}).filter(r => String(r?.entity_key || "").startsWith("prospect:")).length} icon={Phone} T={T}/>
+        <SectionCard title="Prospects à décider" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds arrivés à échéance" : "Tri automatique : rouge, orange, chaud, puis lecture seule"} T={T}>{renderItems(prospectsDecision, "Aucun prospect actif à traiter aujourd’hui", quickMode, true)}</SectionCard>
+        {!quickMode && <SectionCard title="Prospects actifs — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={prospectsInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
         <SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard>
       </>;
     }
@@ -1514,6 +1587,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       const clientsAlertes = visibleClients.filter(i => i.critical && !i.readOnly);
       const clientsOk = quickMode ? [] : visibleClients.filter(i => !i.critical || i.readOnly);
       return <>
+        <StepOverview title="Clients actifs" subtitle="Tous les clients actifs restent visibles, mais seuls les dossiers en alerte exigent une décision." total={data.stats.clients} decisions={clientsAlertes.length} readOnly={clientsOk.length} resolved={Object.values(routine.resolvedUrgencies || {}).filter(r => String(r?.entity_key || "").startsWith("client:")).length} icon={Briefcase} T={T}/>
         <SectionCard title="Clients à décider" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients rouges arrivés à échéance" : "Alertes en premier : sans action, sans étape, sans responsable ou sans avancée"} T={T}>{renderItems(clientsAlertes, "Aucun client à traiter aujourd’hui", quickMode, true)}</SectionCard>
         {!quickMode && <SectionCard title="Clients sous contrôle / lecture seule" icon={Check} subtitle="Échéance non passée ou dossier sous contrôle : visible sans décision obligatoire" T={T}><RoutineInfoList items={clientsOk} T={T} onOpen={openLinkedRecord}/></SectionCard>}
         <SectionCard title="Checklist Clients" icon={Check} T={T}>{renderChecklist("clients")}</SectionCard>
@@ -1523,6 +1597,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       const biensDecision = visibleBiens.filter(i => !i.readOnly);
       const biensInfo = quickMode ? [] : data.bienItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
       return <>
+        <StepOverview title="Stock de biens" subtitle="Les biens sont triés par tâche à faire, relance dépassée, offre en cours, puis lecture seule." total={data.stats.biens} decisions={biensDecision.length} readOnly={biensInfo.length} resolved={Object.values(routine.resolvedUrgencies || {}).filter(r => String(r?.entity_key || "").startsWith("bien:")).length} icon={Home} T={T}/>
         <SectionCard title="Stock de biens à décider" icon={Home} subtitle={quickMode ? "Mode rapide : biens rouges / offres arrivées à échéance" : "Biens nécessitant une tâche, une relance ou une décision"} T={T}>{renderItems(biensDecision, "Aucun bien à traiter aujourd’hui", quickMode, true)}</SectionCard>
         {!quickMode && <SectionCard title="Stock de biens — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={biensInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
         <SectionCard title="Checklist Biens" icon={Check} T={T}>{renderChecklist("biens")}</SectionCard>
@@ -1543,7 +1618,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.3</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.4</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
 
@@ -1552,7 +1627,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.xl }}>{V6_TABS.map(tab => { const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.pill, padding:"9px 13px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"inherit", fontWeight:900 }}><Icon as={tab.icon} size={14}/>{tab.label}</button> })}</div>
       {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
       {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement…</div> : renderTab()}
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:980px){.inv-v6-routine-layout{grid-template-columns:1fr!important}.inv-card[style*="sticky"]{position:relative!important;top:auto!important}}`}</style>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:980px){.inv-v6-routine-layout{grid-template-columns:1fr!important}.inv-card[style*="sticky"]{position:relative!important;top:auto!important}.inv-v74-step-overview{grid-template-columns:1fr!important}}`}</style>
     </div>
   );
 }
@@ -1566,7 +1641,7 @@ function ActionPlanView({ plan=[], T=THEMES_INV.dark }) {
 function DataCoveragePanel({ data, coverageData={}, T=THEMES_INV.dark }) {
   const biens = safeArr(data?.biens);
   const modules = [
-    { label:"CRM prospects", value:data?.stats?.prospects || 0, detail:"Score, source, objectif, horizon, capacité, relances, responsable, prochaine action", level:(data?.stats?.prospectsRed || 0) ? "danger" : "success", icon:Phone },
+    { label:"CRM prospects actifs", value:data?.stats?.prospects || 0, detail:"Prospects actifs uniquement : score, source, objectif, horizon, capacité, relances, responsable, prochaine action", level:(data?.stats?.prospectsRed || 0) ? "danger" : "success", icon:Phone },
     { label:"CRM clients", value:data?.stats?.clients || 0, detail:"Étapes, prochaine action, documents, responsables", level:(data?.stats?.clientsBlocked || 0) ? "danger" : "success", icon:Briefcase },
     { label:"Stock de biens", value:data?.stats?.biens || 0, detail:"Statuts, relances, offres, analyse, visite terrain", level:(data?.stats?.biensToAct || 0) ? "warning" : "success", icon:Home },
     { label:"Propositions / matching", value:coverageCount(coverageData.propositions), detail:"Biens proposés aux clients et offres actives", level:coverageCount(coverageData.propositions) ? "info" : "warning", icon:Handshake },
@@ -1639,4 +1714,4 @@ function VueMensuelle({ data, T=THEMES_INV.dark }) {
 }
 
 export default TableauBord;
-export { TableauBord, AlertBadge, RoutineDecisionCard, PriorityEditor, CollaboratorEditor, ActionPlanView };
+export { TableauBord, AlertBadge, RoutineDecisionCard, PriorityEditor, CollaboratorEditor, ActionPlanView, StepOverview };
