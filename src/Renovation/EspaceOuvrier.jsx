@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { MobileHero } from "../mobileUI";
 import OuvrierDashboard from "./OuvrierDashboard";
+import OuvrierPlanning from "./OuvrierPlanning";
 
 // Météo (Open-Meteo) — même mapping que Dashboard/Planning.
 function weatherInfo(code) {
@@ -127,7 +128,7 @@ export default function EspaceOuvrier({ user, profil, onLogout }) {
         <MobileHero accent={ACCENT} logo={LOGO_RENO_H} eyebrow={dateLong} title={heroTitle} right={heroRight}/>
 
         {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
-        {tab === "planning"         && <Placeholder titre="Mon planning"    phase="Phase 4"/>}
+        {tab === "planning"         && <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}/>}
         {tab === "compte-rendu"     && <Placeholder titre="Mon compte rendu" phase="Phase 5"/>}
         {tab === "demande-commande" && <Placeholder titre="Mes demandes"     phase="Phase 6"/>}
       </div>
