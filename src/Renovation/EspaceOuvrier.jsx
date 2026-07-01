@@ -9,6 +9,7 @@ import {
 import { MobileHero } from "../mobileUI";
 import OuvrierDashboard from "./OuvrierDashboard";
 import OuvrierPlanning from "./OuvrierPlanning";
+import PageRapportMobile from "./RapportMobile";
 
 // Météo (Open-Meteo) — même mapping que Dashboard/Planning.
 function weatherInfo(code) {
@@ -120,18 +121,24 @@ export default function EspaceOuvrier({ user, profil, onLogout }) {
       minHeight:"100vh", background:T.bg, color:T.text,
       fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",
     }}>
-      <div style={{
-        padding:"14px 12px", display:"flex", flexDirection:"column", gap:12,
-        // Sur l'accueil, on réserve la place de la barre CTA collante en plus de la nav.
-        paddingBottom: NAV_H + (tab === "dashboard" ? 88 : 16),
-      }}>
-        <MobileHero accent={ACCENT} logo={LOGO_RENO_H} eyebrow={dateLong} title={heroTitle} right={heroRight}/>
+      {tab === "compte-rendu" ? (
+        // RapportMobile embarqué : formulaire plein écran avec son propre en-tête,
+        // on ne superpose donc pas le hero. Le padding bas (nav) est géré dans le
+        // composant (mode embedded).
+        <PageRapportMobile prenomFige={prenom} embedded />
+      ) : (
+        <div style={{
+          padding:"14px 12px", display:"flex", flexDirection:"column", gap:12,
+          // Sur l'accueil, on réserve la place de la barre CTA collante en plus de la nav.
+          paddingBottom: NAV_H + (tab === "dashboard" ? 88 : 16),
+        }}>
+          <MobileHero accent={ACCENT} logo={LOGO_RENO_H} eyebrow={dateLong} title={heroTitle} right={heroRight}/>
 
-        {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
-        {tab === "planning"         && <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}/>}
-        {tab === "compte-rendu"     && <Placeholder titre="Mon compte rendu" phase="Phase 5"/>}
-        {tab === "demande-commande" && <Placeholder titre="Mes demandes"     phase="Phase 6"/>}
-      </div>
+          {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
+          {tab === "planning"         && <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}/>}
+          {tab === "demande-commande" && <Placeholder titre="Mes demandes" phase="Phase 6"/>}
+        </div>
+      )}
 
       {/* Barre d'action collante — accès direct au compte rendu sans scroller */}
       {tab === "dashboard" && (

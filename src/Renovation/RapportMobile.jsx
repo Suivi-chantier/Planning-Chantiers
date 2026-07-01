@@ -90,15 +90,37 @@ async function sendRapportEmail(rapport, chantierNom) {
 }
 
 
+// ─── COMPRESSION PHOTO ────────────────────────────────────────────────────────
+// Les photos de chantier sont énormes (10-20 Mo) et échouent sur mauvaise
+// connexion. On redimensionne (max 1600px) + réencode en JPEG qualité 0.7 avant
+// upload. Tout échec renvoie le fichier original (jamais bloquant).
+async function compressImage(file, maxDim = 1600, quality = 0.7) {
+  if (!file?.type?.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < 1_500_000) { bitmap.close?.(); return file; }
+    const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", quality));
+    if (!blob || blob.size >= file.size) return file; // aucun gain → on garde l'original
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch { return file; }
+}
+
 // ─── HELPER UPLOAD PHOTO ──────────────────────────────────────────────────────
 // Renvoie { url } en cas de succès, { error } en cas d'échec (au lieu de
 // retourner null silencieusement) — pour que l'UI puisse afficher l'erreur.
 async function uploadRapportPhoto(file, pathPrefix) {
   try {
-    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const toUpload = await compressImage(file);
+    const ext = (toUpload.name.split(".").pop() || "jpg").toLowerCase();
     const safe = `${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
     const path = `${pathPrefix}/${safe}`;
-    const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+    const { error } = await supabase.storage.from("photos").upload(path, toUpload, { upsert: false });
     if (error) { console.error("upload photo:", error); return { error: error.message || "Erreur upload" }; }
     const { data } = supabase.storage.from("photos").getPublicUrl(path);
     if (!data?.publicUrl) return { error: "URL publique introuvable" };
@@ -219,9 +241,11 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
 }
 
 // ─── PAGE RAPPORT MOBILE ──────────────────────────────────────────────────────
-function PageRapportMobile() {
-  const [step, setStep]             = useState("login"); // login | rapport | done
-  const [ouvrier, setOuvrier]       = useState(() => localStorage.getItem("mon_prenom") || "");
+function PageRapportMobile({ prenomFige = null, embedded = false }) {
+  // prenomFige : quand fourni (espace ouvrier authentifié), le prénom vient de
+  // la session → on saute l'étape "c'est qui ?" et on masque le bouton Changer.
+  const [step, setStep]             = useState(prenomFige ? "rapport" : "login"); // login | rapport | done
+  const [ouvrier, setOuvrier]       = useState(() => prenomFige || localStorage.getItem("mon_prenom") || "");
   const [chantiers, setChantiers]   = useState([]);
   const [ouvriers, setOuvriers]     = useState(DEFAULT_OUVRIERS);
   const [taches, setTaches]         = useState([]);
@@ -401,6 +425,13 @@ function PageRapportMobile() {
     setLastSaved(null);
     loadTaches(nom);
   };
+
+  // Mode embarqué : prénom figé depuis la session → on enchaîne directement sur
+  // le chargement des tâches du jour (équivalent d'un "confirmer prénom" auto).
+  useEffect(() => {
+    if (prenomFige) confirmerPrenom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prenomFige]);
 
   // Statut → auto-remplit avancement (100/0) et heures (0 pour non_faite).
   // Si on quitte faite/non_faite vers en_cours, on vide pour forcer une vraie
@@ -599,7 +630,7 @@ function PageRapportMobile() {
   const total    = taches.length;
 
   const S = {
-    wrap:  { minHeight:"100vh", background:T.bg, fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", color:T.text },
+    wrap:  { minHeight: embedded ? "auto" : "100vh", background:T.bg, fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", color:T.text, ...(embedded ? { paddingBottom: 84 } : {}) },
     header:{ background:"#16181d", padding:"16px 20px 14px", borderBottom:`2px solid ${T.accent}` },
     card:  { background:T.card, borderRadius:RADIUS.xl, padding:"18px 16px", margin:"12px 16px", boxShadow:"0 2px 8px rgba(0,0,0,0.06)", border:`1px solid ${T.border}` },
     label: { fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.8, textTransform:"uppercase", color:T.textMuted, marginBottom:8, display:"block" },
@@ -726,6 +757,7 @@ function PageRapportMobile() {
             <div style={{fontSize:FONT.sm.size+1,color:T.accent,fontWeight:700,marginBottom:1}}>Bonjour {ouvrier}</div>
             <div style={{fontSize:FONT.lg.size+1,fontWeight:800,color:"#fff",letterSpacing:-0.2}}>{dateStr}</div>
           </div>
+          {!embedded && (
           <button onClick={()=>setStep("login")} style={{
             display:"inline-flex",alignItems:"center",gap:5,
             background:`${T.accent}1A`,border:`1px solid ${T.accent}4D`,
@@ -735,6 +767,7 @@ function PageRapportMobile() {
             <Icon as={LogOut} size={12}/>
             Changer
           </button>
+          )}
         </div>
         {total>0 && (
           <div style={{marginTop:12}}>
