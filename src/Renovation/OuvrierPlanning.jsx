@@ -2,29 +2,36 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS } from "../constants";
 import { Icon } from "../ui";
-import { ChevronLeft, ChevronRight, CalendarCheck, MapPin, CalendarX, Building2 } from "lucide-react";
-import { MobileCard, MobileEmptyState } from "../mobileUI";
+import { MapPin, CalendarX, Building2, CalendarDays } from "lucide-react";
+import { MobileCard, MobileEmptyState, MobileTabs } from "../mobileUI";
 import { NavButtons } from "./ouvrierNav";
 
 const MOIS = ["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
+const ABBR = { Lundi:"Lun", Mardi:"Mar", Mercredi:"Mer", Jeudi:"Jeu", Vendredi:"Ven" };
+
+// Semaine à afficher : la semaine en cours, sauf vendredi/samedi/dimanche
+// où on bascule sur la semaine suivante (le vendredi on prépare la suite).
+function semaineCible() {
+  const jsDay = new Date().getDay(); // 0=dim, 5=ven, 6=sam
+  const showNext = jsDay === 0 || jsDay === 5 || jsDay === 6;
+  const cur = getCurrentWeek();
+  let year = cur.year, week = cur.week;
+  if (showNext) { if (week >= 52) { year += 1; week = 1; } else week += 1; }
+  return { year, week, showNext };
+}
 
 export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
-  const now = getCurrentWeek();
-  const [year, setYear] = useState(now.year);
-  const [week, setWeek] = useState(now.week);
-  const [loading, setLoading] = useState(true);
-  const [cellsByDay, setCellsByDay] = useState({});
-  const [config, setConfig] = useState({ chantiers: DEFAULT_CHANTIERS, adresses: {} });
-
+  const { year, week, showNext } = semaineCible();
   const weekId    = getWeekId(year, week);
   const todayJour = getTodayJour();
-  const isCurrentWeek = year === now.year && week === now.week;
 
-  const prevWeek = () => { if (week === 1) { setYear(y => y - 1); setWeek(52); } else setWeek(w => w - 1); };
-  const nextWeek = () => { if (week >= 52) { setYear(y => y + 1); setWeek(1); } else setWeek(w => w + 1); };
-  const goNow    = () => { setYear(now.year); setWeek(now.week); };
+  const [loading, setLoading]     = useState(true);
+  const [cellsByDay, setCellsByDay] = useState({});
+  const [config, setConfig]       = useState({ chantiers: DEFAULT_CHANTIERS, adresses: {} });
+  // Jour sélectionné : aujourd'hui si semaine en cours, sinon lundi (semaine suivante).
+  const [jour, setJour] = useState(showNext ? "Lundi" : (todayJour || "Lundi"));
 
-  // Lundi + jour du décalage (même calcul ISO que le Planning conducteur).
+  // Lundi + décalage (même calcul ISO que le Planning conducteur).
   const dateDuJour = (dayIndex) => {
     const jan4 = new Date(year, 0, 4);
     const mon = new Date(jan4);
@@ -35,7 +42,6 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
   };
   const fmtJour = (d) => `${d.getDate()} ${MOIS[d.getMonth()]}`;
 
-  // Config chantiers/adresses (une fois)
   useEffect(() => {
     supabase.from("planning_config").select("key,value").in("key", ["chantiers", "chantier_adresses"])
       .then(({ data }) => {
@@ -48,7 +54,6 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
       });
   }, []);
 
-  // Cellules de la semaine (RLS = seulement les miennes)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -82,89 +87,77 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
     return () => { cancelled = true; };
   }, [weekId, config, prenom]);
 
-  const navBtn = {
-    width:36, height:36, borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center",
-    background:T.surface, border:`1px solid ${T.border}`, color:T.textSub, cursor:"pointer", flexShrink:0,
-  };
-  const hasAny = JOURS.some(j => (cellsByDay[j] || []).length > 0);
+  const dayCells = cellsByDay[jour] || [];
+  const jourIdx  = JOURS.indexOf(jour);
+  const tabs = JOURS.map(j => {
+    const n = (cellsByDay[j] || []).length;
+    return { id: j, label: ABBR[j], count: n > 0 ? n : null };
+  });
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-      {/* Navigation semaine */}
-      <MobileCard T={T} style={{ padding:"12px 14px", display:"flex", alignItems:"center", gap:10 }}>
-        <button onClick={prevWeek} style={navBtn}><Icon as={ChevronLeft} size={18}/></button>
-        <div style={{ flex:1, textAlign:"center", minWidth:0 }}>
-          <div style={{ fontSize:11, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted }}>Semaine {week}</div>
+      {/* Bandeau semaine */}
+      <MobileCard T={T} accent={accent} style={{ padding:"11px 14px", display:"flex", alignItems:"center", gap:10 }}>
+        <div style={{
+          width:38, height:38, borderRadius:12, flexShrink:0,
+          background:`linear-gradient(135deg, ${accent}, ${accent}c0)`, color:"#1a1f2e",
+          display:"flex", alignItems:"center", justifyContent:"center",
+        }}>
+          <Icon as={CalendarDays} size={19} strokeWidth={2.3}/>
+        </div>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted }}>
+            {showNext ? "Semaine prochaine" : "Cette semaine"}
+          </div>
           <div style={{ fontSize:15, fontWeight:800, color:T.text }}>
             {fmtJour(dateDuJour(0))} – {fmtJour(dateDuJour(4))}
           </div>
         </div>
-        <button onClick={nextWeek} style={navBtn}><Icon as={ChevronRight} size={18}/></button>
       </MobileCard>
 
-      {!isCurrentWeek && (
-        <button onClick={goNow} style={{
-          alignSelf:"center", display:"inline-flex", alignItems:"center", gap:6,
-          background:`${accent}22`, color:"#1a1f2e", border:`1px solid ${accent}`,
-          borderRadius:999, padding:"7px 16px", fontFamily:"inherit", fontSize:13, fontWeight:700, cursor:"pointer",
-        }}>
-          <Icon as={CalendarCheck} size={14}/>
-          Revenir à cette semaine
-        </button>
-      )}
+      {/* Sélecteur de jour */}
+      <MobileTabs tabs={tabs} value={jour} onChange={setJour} accent={accent} onAccent="#1a1f2e" T={T}/>
 
+      {/* Contenu du jour sélectionné */}
       {loading ? (
         <div style={{ padding:"40px 24px", textAlign:"center", color:T.textMuted, fontSize:13, letterSpacing:2 }}>CHARGEMENT…</div>
-      ) : !hasAny ? (
+      ) : dayCells.length === 0 ? (
         <MobileCard T={T}>
-          <MobileEmptyState T={T} icon={CalendarX} title="Aucune affectation cette semaine"
-            hint="Rien ne t'est planifié sur cette semaine. Utilise les flèches pour voir les autres semaines." />
+          <MobileEmptyState T={T} icon={CalendarX}
+            title={`Rien de prévu le ${jour.toLowerCase()}`}
+            hint="Aucun chantier ne t'est affecté ce jour-là." />
         </MobileCard>
       ) : (
-        JOURS.map((jour, idx) => {
-          const dayCells = cellsByDay[jour] || [];
-          if (!dayCells.length) return null;
-          const estAujourdhui = isCurrentWeek && jour === todayJour;
-          return (
-            <div key={jour} style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, padding:"2px 4px" }}>
-                <span style={{ fontSize:14, fontWeight:800, color:estAujourdhui ? accent : T.text, letterSpacing:-0.2 }}>
-                  {jour}
-                </span>
-                <span style={{ fontSize:12.5, color:T.textMuted, fontWeight:600 }}>{fmtJour(dateDuJour(idx))}</span>
-                {estAujourdhui && (
-                  <span style={{ fontSize:10.5, fontWeight:800, letterSpacing:0.4, textTransform:"uppercase",
-                    color:"#1a1f2e", background:accent, borderRadius:999, padding:"2px 8px" }}>Aujourd'hui</span>
-                )}
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:T.textSub, padding:"0 4px" }}>
+            {jour} {fmtJour(dateDuJour(jourIdx))} · {dayCells.length} chantier{dayCells.length > 1 ? "s" : ""}
+          </div>
+          {dayCells.map((c, i) => (
+            <MobileCard key={`${c.chantier_id}_${i}`} T={T} accent={c.couleur} style={{ padding:"13px 15px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:c.geo?.adresse ? 6 : 10 }}>
+                <Icon as={Building2} size={15} color={c.couleur} strokeWidth={2.3}/>
+                <span style={{ fontSize:16, fontWeight:800, color:T.text, letterSpacing:-0.2 }}>{c.nom}</span>
               </div>
-              {dayCells.map((c, i) => (
-                <MobileCard key={`${c.chantier_id}_${i}`} T={T} accent={c.couleur} style={{ padding:"13px 15px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:c.geo?.adresse ? 6 : 10 }}>
-                    <Icon as={Building2} size={15} color={c.couleur} strokeWidth={2.3}/>
-                    <span style={{ fontSize:16, fontWeight:800, color:T.text, letterSpacing:-0.2 }}>{c.nom}</span>
-                  </div>
-                  {c.geo?.adresse && (
-                    <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginBottom:10 }}>
-                      <Icon as={MapPin} size={13} color={T.textMuted} strokeWidth={2} style={{ marginTop:2, flexShrink:0 }}/>
-                      <span style={{ fontSize:13, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
-                    </div>
-                  )}
-                  <div style={{ marginBottom: c.taches.length ? 12 : 0 }}><NavButtons geo={c.geo}/></div>
-                  {c.taches.length > 0 && (
-                    <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:6 }}>
-                      {c.taches.map((t, j) => (
-                        <li key={j} style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:13.5, color:T.text, lineHeight:1.4 }}>
-                          <span style={{ width:6, height:6, borderRadius:"50%", background:c.couleur, marginTop:6, flexShrink:0 }}/>
-                          <span>{t}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </MobileCard>
-              ))}
-            </div>
-          );
-        })
+              {c.geo?.adresse && (
+                <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginBottom:10 }}>
+                  <Icon as={MapPin} size={13} color={T.textMuted} strokeWidth={2} style={{ marginTop:2, flexShrink:0 }}/>
+                  <span style={{ fontSize:13, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
+                </div>
+              )}
+              <div style={{ marginBottom: c.taches.length ? 12 : 0 }}><NavButtons geo={c.geo}/></div>
+              {c.taches.length > 0 && (
+                <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:6 }}>
+                  {c.taches.map((t, j) => (
+                    <li key={j} style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:13.5, color:T.text, lineHeight:1.4 }}>
+                      <span style={{ width:6, height:6, borderRadius:"50%", background:c.couleur, marginTop:6, flexShrink:0 }}/>
+                      <span>{t}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </MobileCard>
+          ))}
+        </div>
       )}
     </div>
   );
