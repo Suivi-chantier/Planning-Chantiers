@@ -63,6 +63,9 @@ export const ROLES_DEFAULT_RENOVATION = [
   { id: "conducteur", label: "Conducteur de travaux", color: "#50c878" },
   { id: "commercial", label: "Commercial",            color: "#4db8ff" },
   { id: "comptable",  label: "Comptable",             color: "#c084fc" },
+  // Rôle terrain : accède uniquement à l'espace ouvrier dédié (composant
+  // EspaceOuvrier, routé au niveau authState), jamais aux pages bureau.
+  { id: "ouvrier",    label: "Ouvrier",               color: "#f59e0b" },
 ];
 
 export const ROLES_DEFAULT_INVEST = [
@@ -139,6 +142,17 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "phasage",
     "phasage-v2",
     "etats-financiers",
+  ],
+
+  // Espace ouvrier : identifiants de pages DÉDIÉS, distincts des pages bureau
+  // ci-dessus. Ils correspondent aux 4 onglets du composant EspaceOuvrier et
+  // ne sont volontairement pas listés dans PAGES_RENOVATION (la matrice Admin
+  // ne gère que les pages bureau ; l'espace ouvrier a sa propre navigation).
+  ouvrier: [
+    "ouvrier-dashboard",
+    "ouvrier-planning",
+    "ouvrier-compte-rendu",
+    "ouvrier-demande-commande",
   ],
 };
 
