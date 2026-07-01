@@ -260,6 +260,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
   const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
   const [photosChantier, setPhotosChantier] = useState({}); // { chantier_id: [url, ...] }
   const [submitting, setSubmitting] = useState(false);
+  // Accordéon des tâches (mode embarqué only) : index de la tâche ouverte (une
+  // seule à la fois → limite le scroll). null = tout replié.
+  const [openTache, setOpenTache] = useState(null);
+  const accordionInitRef = useRef(false);
   const [planData, setPlanData]     = useState(null);
   // Brouillon : persistance locale pour que les saisies survivent à un refresh
   // et que l'ouvrier puisse compléter le formulaire tout au long de la journée.
@@ -432,6 +436,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
     if (prenomFige) confirmerPrenom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prenomFige]);
+
+  // Accordéon embarqué : à l'arrivée des tâches, ouvrir la première non remplie
+  // (une seule fois — ensuite l'ouvrier pilote lui-même).
+  useEffect(() => {
+    if (embedded && !accordionInitRef.current && taches.length > 0) {
+      accordionInitRef.current = true;
+      const first = taches.findIndex(t => !t.statut);
+      setOpenTache(first >= 0 ? first : 0);
+    }
+  }, [embedded, taches]);
 
   // Statut → auto-remplit avancement (100/0) et heures (0 pour non_faite).
   // Si on quitte faite/non_faite vers en_cours, on vide pour forcer une vraie
@@ -1126,8 +1140,29 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
         const av100 = parseInt(t.avancement)===100;
         const expliRequise = t.statut==="en_cours"||t.statut==="non_faite";
         const explOk = !!t.remarque?.trim();
+        const stLabel = !t.statut ? "À remplir" : t.statut==="faite" ? "Faite" : t.statut==="en_cours" ? "En cours" : "Non faite";
+        const stColor = !t.statut ? "#c07800" : t.statut==="faite" ? T.success : t.statut==="en_cours" ? "#c07800" : T.danger;
+        const ouverte = !embedded || openTache === idx;
         return (
         <div key={idx} style={{...S.card, borderLeft:`4px solid ${t.chantier_couleur||T.info}`}}>
+          {embedded && (
+            <button onClick={()=>setOpenTache(o => o===idx ? null : idx)} style={{
+              width:"100%", display:"flex", alignItems:"center", gap:10, textAlign:"left",
+              background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit", padding:0,
+              marginBottom: ouverte ? 12 : 0,
+            }}>
+              <span style={{ width:9, height:9, borderRadius:"50%", background:stColor, flexShrink:0, boxShadow:`0 0 0 3px ${stColor}22` }}/>
+              <span style={{ flex:1, minWidth:0, fontSize:FONT.md.size, fontWeight:700, color:T.text,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace: ouverte ? "normal" : "nowrap" }}>
+                {t.planifie?.trim() || "Nouvelle tâche"}
+              </span>
+              <span style={{ flexShrink:0, background:`${stColor}1f`, color:stColor, borderRadius:RADIUS.pill,
+                padding:"3px 9px", fontSize:FONT.xs.size, fontWeight:800 }}>{stLabel}</span>
+              <Icon as={ChevronRight} size={16} style={{ color:T.textMuted, flexShrink:0,
+                transform: ouverte ? "rotate(90deg)" : "none", transition:"transform .2s" }}/>
+            </button>
+          )}
+          {ouverte && (<>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
             {t.chantier_nom && (
               <div style={{display:"inline-block",background:t.chantier_couleur+"33",color:T.text,
@@ -1351,6 +1386,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
               label="Photos de la tâche"
             />
           </div>
+          </>)}
         </div>
         );
       })}
@@ -1431,7 +1467,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
 
       {/* Ajouter tâche libre — bouton global en bas de tous les groupes */}
       <div style={{padding:"0 16px 8px"}}>
-        <button onClick={addTacheLibre} style={{
+        <button onClick={()=>{ const n = taches.length; addTacheLibre(); if (embedded) setOpenTache(n); }} style={{
           width:"100%",padding:"12px",border:`1.5px dashed ${T.borderHover}`,borderRadius:RADIUS.xl,
           fontSize:FONT.base.size,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
           background:"transparent",color:T.textMuted,marginBottom:4,
