@@ -9,6 +9,7 @@ import {
   Phone,
   Mail,
   MessageCircle,
+  MessageSquare,
   Calendar,
   Save,
   Trash2,
@@ -37,7 +38,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.4 action libre + ajout action/tâche clarifié
+ * CRM Prospection — V19.4.1 action libre + tâche clarifiée — fix MessageSquare
  *
  * Objectif :
  * - CRM volontairement simple
