@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS } from "../constants";
 import { Icon } from "../ui";
-import { MapPin, ClipboardList, CheckCircle2, CalendarX, Building2, Clock } from "lucide-react";
+import { MapPin, ClipboardList, CheckCircle2, CalendarX, Building2, Clock, Users } from "lucide-react";
 import { MobileStat, MobileSection, MobileCard, MobileEmptyState } from "../mobileUI";
 import { NavButtons } from "./ouvrierNav";
 
@@ -47,12 +47,16 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
         } else if (cell.planifie?.trim()) {
           cell.planifie.split("\n").filter(l => l.trim()).forEach(l => taches.push(l.trim()));
         }
+        const equipe = new Set(cell.ouvriers || []);
+        (cell.taches || []).forEach(t => (t.ouvriers || []).forEach(o => equipe.add(o)));
+        const collegues = [...equipe].filter(n => n && n !== prenom);
         groups.push({
           chantier_id: cell.chantier_id,
           nom: ch?.nom || cell.chantier_id,
           couleur: ch?.couleur || "#5b8af5",
           geo: adresses[cell.chantier_id] || null,
           taches,
+          collegues,
         });
       });
 
@@ -131,6 +135,20 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
                   <span style={{ fontSize:13.5, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
                 </div>
               )}
+              {/* Collègues sur ce chantier */}
+              <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:12 }}>
+                <Icon as={Users} size={14} color={T.textMuted} strokeWidth={2.2}/>
+                {c.collegues.length > 0 ? (
+                  c.collegues.map(n => (
+                    <span key={n} style={{
+                      background:c.couleur+"22", color:T.text, border:`1px solid ${c.couleur}55`,
+                      borderRadius:999, padding:"2px 10px", fontSize:12.5, fontWeight:700,
+                    }}>{n}</span>
+                  ))
+                ) : (
+                  <span style={{ fontSize:12.5, color:T.textMuted, fontStyle:"italic" }}>Seul sur ce chantier</span>
+                )}
+              </div>
               <div style={{ marginBottom:12 }}><NavButtons geo={c.geo}/></div>
               {c.taches.length > 0 ? (
                 <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:8 }}>
