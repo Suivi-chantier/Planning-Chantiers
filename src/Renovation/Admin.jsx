@@ -654,7 +654,8 @@ const FOURNISSEUR_VARIABLES = ["{chantier}", "{phase}", "{liste_articles}", "{da
 const MODES_PAIEMENT = [
   { id: "",         label: "Non défini" },
   { id: "comptant", label: "Paiement comptant" },
-  { id: "echeance", label: "À facturer (échéance, ex : 30j fin de mois)" },
+  { id: "30j",      label: "Paiement à 30 jours (de l'achat)" },
+  { id: "echeance", label: "30 jours fin de mois" },
 ];
 
 function OngletFournisseurs({ T, acc }) {
@@ -1003,7 +1004,8 @@ function OngletFournisseurs({ T, acc }) {
                   )}
                   {f.mode_paiement && (
                     <div style={{ fontSize:FONT.xs.size, fontWeight:700, marginTop:4, color: f.mode_paiement === "comptant" ? "#4caf78" : "#5b8af5" }}>
-                      {f.mode_paiement === "comptant" ? "💵 Paiement comptant" : "🧾 À facturer (échéance)"}
+                      {f.mode_paiement === "comptant" ? "💵 " : "🧾 "}
+                      {(MODES_PAIEMENT.find(m => m.id === f.mode_paiement) || {}).label || f.mode_paiement}
                     </div>
                   )}
                   {apercu && (

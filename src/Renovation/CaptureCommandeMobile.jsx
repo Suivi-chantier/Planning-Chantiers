@@ -414,8 +414,9 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
       const p = ia.value;
       const fMatch = matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur;
       // Mode de facturation du fournisseur -> coche/décoche automatiquement "déjà payé"
+      // (comptant = payé ; tout autre mode défini = paiement/facture à venir).
       if (fMatch?.mode_paiement === "comptant") setDejaPaye(true);
-      else if (fMatch?.mode_paiement === "echeance") setDejaPaye(false);
+      else if (fMatch?.mode_paiement) setDejaPaye(false);
       const lignes = Array.isArray(p.lignes) && p.lignes.length
         ? p.lignes.map(l => {
             const lib = l.designation || l.libelle || "";
