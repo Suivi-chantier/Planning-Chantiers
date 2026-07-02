@@ -395,7 +395,10 @@ module.exports = async function handler(req, res) {
 
   // ── Supabase ──
   const supaUrl = process.env.VITE_SUPABASE_URL;
-  const supaKey = process.env.VITE_SUPABASE_KEY;
+  // Clé service role en priorité : la table `rapports` est protégée par RLS et
+  // n'a PAS de policy anon SELECT — avec la clé anon, la lecture renvoie 0 ligne
+  // et tout le monde serait relancé à tort. Fallback anon si non configurée.
+  const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_KEY;
   if (!supaUrl || !supaKey) {
     return res.status(500).json({ error: "Supabase env vars missing" });
   }

@@ -615,6 +615,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       });
     });
 
+    let insertError = null;
     for (const k of Object.keys(parChantier)) {
       const grp = parChantier[k];
       const photosCh = photosChantier[grp.chantier_id] || [];
@@ -643,7 +644,13 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         delete payload[dropped];
         ({ error: insErr } = await supabase.from("rapports").insert(payload));
       }
-      if (insErr) console.error("Insert rapport échec final:", insErr);
+      if (insErr) {
+        // Échec (souvent RLS : `ouvrier` ne correspond pas au prénom-planning du
+        // compte). On ne prétend PAS que c'est envoyé — on remonte l'erreur.
+        console.error("Insert rapport échec final:", insErr);
+        insertError = insErr;
+        continue; // on n'envoie ni email ni besoins pour ce chantier
+      }
       const rapport = rapportFull;
       try { await sendRapportEmail(rapport, grp.chantier_nom); } catch(e) { console.error("Email:",e); }
 
@@ -662,6 +669,19 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         });
       }
     } // ← fermeture du for
+
+    // Un insert a échoué : on NE valide PAS (le brouillon est conservé pour réessai).
+    if (insertError) {
+      setSubmitting(false);
+      alert(
+        "⚠ Ton compte rendu n'a pas pu être enregistré.\n\n" +
+        "Ton compte n'est peut-être pas correctement relié au planning " +
+        "(prénom-planning manquant). Préviens ton responsable — le compte rendu " +
+        "n'a PAS été envoyé, ton brouillon est conservé.\n\n" +
+        "Détail : " + (insertError.message || insertError.code || "erreur inconnue")
+      );
+      return;
+    }
 
     // CR envoyé → on efface le brouillon (sinon l'ouvrier le retrouverait demain).
     effacerBrouillon();
