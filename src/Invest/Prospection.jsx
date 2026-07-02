@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.3 ergonomie fiche + conseillers fusionnés
+ * CRM Prospection — V19.4 action libre + ajout action/tâche clarifié
  *
  * Objectif :
  * - CRM volontairement simple
@@ -136,6 +136,7 @@ const EMPTY_FORM = {
 const EMPTY_ACTION = {
   type_action: "note",
   resume: "",
+  tache_resume: "",
   tache_collaborateur: "",
   tache_email: "",
   tache_date: "",
@@ -3543,16 +3544,32 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setField("date_prochaine_action", addDays(days));
   };
 
-  const addAction = async () => {
+  const addAction = async (override = {}) => {
     if (!selected?.id) {
       setError("Sauvegarde d'abord le prospect avant d'ajouter une action.");
       return;
     }
 
-    const resume = String(actionForm.resume || "").trim();
+    const currentActionForm = {
+      ...actionForm,
+      ...override,
+    };
+
+    const isAssignedTask = Boolean(
+      currentActionForm.tache_collaborateur ||
+      currentActionForm.tache_email ||
+      currentActionForm.tache_date ||
+      currentActionForm.type_action === "tache"
+    );
+
+    const resume = String(
+      isAssignedTask
+        ? (currentActionForm.tache_resume || currentActionForm.resume || "")
+        : (currentActionForm.resume || "")
+    ).trim();
 
     if (!resume) {
-      setError("Écris une courte note d'action.");
+      setError(isAssignedTask ? "Écris l'objet ou la description de la tâche." : "Écris une courte note d'échange.");
       return;
     }
 
@@ -3562,15 +3579,20 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
     const nextAction = form.prochaine_action || selected.prochaine_action || "";
     const nextDate = form.date_prochaine_action || selected.date_prochaine_action || null;
-    const isAssignedTask = Boolean(actionForm.tache_collaborateur || actionForm.tache_email || actionForm.tache_date || actionForm.type_action === "tache");
 
-    if (isAssignedTask && !actionForm.tache_email) {
+    if (isAssignedTask && !currentActionForm.tache_collaborateur) {
+      setError("Pour assigner une tâche, renseigne le nom du collaborateur.");
+      setSaving(false);
+      return;
+    }
+
+    if (isAssignedTask && !currentActionForm.tache_email) {
       setError("Pour assigner une tâche, renseigne l'email du collaborateur.");
       setSaving(false);
       return;
     }
 
-    if (isAssignedTask && !actionForm.tache_date) {
+    if (isAssignedTask && !currentActionForm.tache_date) {
       setError("Pour assigner une tâche, renseigne une date d'échéance.");
       setSaving(false);
       return;
@@ -3580,7 +3602,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       prospect_id: selected.id,
       created_by: auteur(profil),
       date_action: new Date().toISOString(),
-      type_action: isAssignedTask ? "tache" : (actionForm.type_action || "note"),
+      type_action: isAssignedTask ? "tache" : (currentActionForm.type_action || "note"),
       resume,
       resultat: isAssignedTask ? "Tâche assignée" : "",
       prochaine_action: nextAction,
@@ -3589,9 +3611,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         source: "CRM Prospection",
         auteur: auteur(profil),
         tache_assignee: isAssignedTask,
-        collaborateur: actionForm.tache_collaborateur || "",
-        collaborateur_email: actionForm.tache_email || "",
-        date_echeance: actionForm.tache_date || null,
+        collaborateur: currentActionForm.tache_collaborateur || "",
+        collaborateur_email: currentActionForm.tache_email || "",
+        date_echeance: currentActionForm.tache_date || null,
         statut_tache: isAssignedTask ? "à faire" : "",
       },
     };
@@ -3639,9 +3661,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         task: {
           title: resume,
           type: actionPayload.type_action,
-          collaborator: actionForm.tache_collaborateur || actionForm.tache_email,
-          email: actionForm.tache_email,
-          date: actionForm.tache_date,
+          collaborator: currentActionForm.tache_collaborateur || currentActionForm.tache_email,
+          email: currentActionForm.tache_email,
+          date: currentActionForm.tache_date,
           assigned_by: auteur(profil),
         },
       });
@@ -3649,7 +3671,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       showMailNotice(
         taskMailResult.ok ? "success" : "warning",
         taskMailResult.ok
-          ? `Tâche assignée et mail envoyé à ${actionForm.tache_email}.`
+          ? `Tâche assignée et mail envoyé à ${currentActionForm.tache_email}.`
           : `Tâche assignée, mais le mail n'a pas été confirmé. Détail : ${taskMailResult.message}`
       );
     }
@@ -3660,7 +3682,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     await loadProspects();
 
     setSaving(false);
-    setMsg(isAssignedTask ? "Tâche assignée au collaborateur." : "Action ajoutée au prospect.");
+    setMsg(isAssignedTask ? "Tâche assignée au collaborateur." : "Échange ajouté à l'historique.");
     setTimeout(() => setMsg(""), 1800);
   };
 
@@ -4355,7 +4377,11 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   }}
                 >
                   <Field label="Prochaine action à réaliser">
-                    <Select value={form.prochaine_action} onChange={(v) => setField("prochaine_action", v)} options={PROCHAINES_ACTIONS} />
+                    <Input
+                      value={form.prochaine_action}
+                      onChange={(v) => setField("prochaine_action", v)}
+                      placeholder="Écris librement l’action à réaliser..."
+                    />
                   </Field>
 
                   <Field label="Date action">
@@ -4373,6 +4399,23 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                       <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 15)}>J+15</button>
                     </div>
                   </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: -2, marginBottom: 12 }}>
+                  {PROCHAINES_ACTIONS.filter(Boolean).map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className="inv-btn inv-btn-out inv-btn-sm"
+                      onClick={() => setField("prochaine_action", action)}
+                      style={{
+                        opacity: form.prochaine_action === action ? 1 : .82,
+                        borderColor: form.prochaine_action === action ? T.accent : T.border,
+                      }}
+                    >
+                      {action}
+                    </button>
+                  ))}
                 </div>
 
                 <div
@@ -4482,89 +4525,123 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     }}
                   >
                     <div>
-                      <div style={{ color: T.text, fontSize: 13, fontWeight: 900, marginBottom: 7 }}>
-                        Ajouter une action
-                      </div>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 110px", gap: 7 }}>
-                        <select
-                          className="inv-sel"
-                          value={actionForm.type_action}
-                          onChange={(e) => setActionForm((p) => ({ ...p, type_action: e.target.value }))}
-                          style={{ height: 34 }}
-                        >
-                          <option value="note">Note</option>
-                          <option value="appel">Appel</option>
-                          <option value="email">Email</option>
-                          <option value="whatsapp">WhatsApp</option>
-                          <option value="rdv">RDV</option>
-                          <option value="relance">Relance</option>
-                          <option value="tache">Tâche assignée</option>
-                        </select>
-
-                        <input
-                          className="inv-inp"
-                          value={actionForm.resume}
-                          onChange={(e) => setActionForm((p) => ({ ...p, resume: e.target.value }))}
-                          placeholder="Ex : Appel effectué, tâche à faire, relance prévue..."
-                          style={{ height: 34 }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              addAction();
-                            }
-                          }}
-                        />
-
-                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={addAction} disabled={saving}>
-                          Ajouter
-                        </button>
-                      </div>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 7, marginTop: 7 }}>
-                        <input
-                          className="inv-inp"
-                          value={actionForm.tache_collaborateur}
-                          onChange={(e) => setActionForm((p) => ({ ...p, tache_collaborateur: e.target.value }))}
-                          placeholder="Collaborateur assigné"
-                          style={{ height: 34 }}
-                        />
-                        <input
-                          className="inv-inp"
-                          type="email"
-                          value={actionForm.tache_email}
-                          onChange={(e) => setActionForm((p) => ({ ...p, tache_email: e.target.value }))}
-                          placeholder="Email collaborateur"
-                          style={{ height: 34 }}
-                        />
-                        <input
-                          className="inv-inp"
-                          type="date"
-                          value={actionForm.tache_date}
-                          onChange={(e) => setActionForm((p) => ({ ...p, tache_date: e.target.value }))}
-                          style={{ height: 34, fontSize: 12 }}
-                        />
+                      <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Icon as={MessageSquare} size={14} />
+                        Historiser un échange
                       </div>
 
                       <div
                         style={{
-                          marginTop: 7,
-                          padding: "8px 10px",
-                          borderRadius: 12,
                           border: `1px solid ${T.border}`,
-                          background: "rgba(255,255,255,.03)",
-                          color: T.textMuted,
-                          fontSize: 11.5,
-                          lineHeight: 1.35,
-                          display: "flex",
-                          gap: 7,
-                          alignItems: "flex-start",
+                          background: "rgba(255,255,255,.025)",
+                          borderRadius: 16,
+                          padding: 10,
+                          marginBottom: 10,
                         }}
                       >
-                        <Icon as={Clock} size={13} />
-                        <span>
-                          Pour assigner une tâche : complète le collaborateur, son email et la date. À la validation, un mail lui sera envoyé automatiquement.
-                        </span>
+                        <div style={{ display: "grid", gridTemplateColumns: "130px 1fr 118px", gap: 7 }}>
+                          <select
+                            className="inv-sel"
+                            value={actionForm.type_action === "tache" ? "note" : actionForm.type_action}
+                            onChange={(e) => setActionForm((p) => ({ ...p, type_action: e.target.value }))}
+                            style={{ height: 34 }}
+                          >
+                            <option value="note">Note</option>
+                            <option value="appel">Appel</option>
+                            <option value="email">Email</option>
+                            <option value="whatsapp">WhatsApp</option>
+                            <option value="rdv">RDV</option>
+                            <option value="relance">Relance</option>
+                          </select>
+
+                          <input
+                            className="inv-inp"
+                            value={actionForm.resume}
+                            onChange={(e) => setActionForm((p) => ({ ...p, resume: e.target.value }))}
+                            placeholder="Ex : Appel effectué, échange WhatsApp, retour client..."
+                            style={{ height: 34 }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                addAction({ type_action: actionForm.type_action === "tache" ? "note" : actionForm.type_action });
+                              }
+                            }}
+                          />
+
+                          <button
+                            className="inv-btn inv-btn-out inv-btn-sm"
+                            type="button"
+                            onClick={() => addAction({ type_action: actionForm.type_action === "tache" ? "note" : actionForm.type_action })}
+                            disabled={saving}
+                          >
+                            Ajouter
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Icon as={CheckCircle2} size={14} />
+                        Assigner une tâche à un collaborateur
+                      </div>
+
+                      <div
+                        style={{
+                          border: `1px solid ${T.accent}30`,
+                          background: "linear-gradient(135deg, rgba(201,163,74,.09), rgba(255,255,255,.025))",
+                          borderRadius: 16,
+                          padding: 10,
+                        }}
+                      >
+                        <input
+                          className="inv-inp"
+                          value={actionForm.tache_resume}
+                          onChange={(e) => setActionForm((p) => ({ ...p, tache_resume: e.target.value }))}
+                          placeholder="Objet de la tâche : ex. Rappeler le prospect, préparer la proposition..."
+                          style={{ height: 34, marginBottom: 7 }}
+                        />
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 7 }}>
+                          <input
+                            className="inv-inp"
+                            value={actionForm.tache_collaborateur}
+                            onChange={(e) => setActionForm((p) => ({ ...p, tache_collaborateur: e.target.value }))}
+                            placeholder="Collaborateur assigné"
+                            style={{ height: 34 }}
+                          />
+                          <input
+                            className="inv-inp"
+                            type="email"
+                            value={actionForm.tache_email}
+                            onChange={(e) => setActionForm((p) => ({ ...p, tache_email: e.target.value }))}
+                            placeholder="Email collaborateur"
+                            style={{ height: 34 }}
+                          />
+                          <input
+                            className="inv-inp"
+                            type="date"
+                            value={actionForm.tache_date}
+                            onChange={(e) => setActionForm((p) => ({ ...p, tache_date: e.target.value }))}
+                            style={{ height: 34, fontSize: 12 }}
+                          />
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", marginTop: 8 }}>
+                          <div style={{ color: T.textMuted, fontSize: 11.2, lineHeight: 1.35, display: "flex", gap: 7, alignItems: "flex-start" }}>
+                            <Icon as={Clock} size={13} />
+                            <span>
+                              À la validation, la tâche est ajoutée à l’historique et un mail est envoyé au collaborateur.
+                            </span>
+                          </div>
+
+                          <button
+                            className="inv-btn inv-btn-gold inv-btn-sm"
+                            type="button"
+                            onClick={() => addAction({ type_action: "tache" })}
+                            disabled={saving}
+                          >
+                            Assigner
+                          </button>
+                        </div>
                       </div>
                     </div>
 
