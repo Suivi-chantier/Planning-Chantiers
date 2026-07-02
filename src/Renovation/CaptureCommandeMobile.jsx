@@ -349,7 +349,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     supabase.from("phasages").select("id, chantier_id, plan_travaux")
       .then(({ data }) => setPhasages(data || []));
     loadLots().then(setLots);
-    supabase.from("fournisseurs").select("id, nom").order("nom").then(({ data }) => setFournisseurs(data || []));
+    supabase.from("fournisseurs").select("id, nom, mode_paiement").order("nom").then(({ data }) => setFournisseurs(data || []));
   }, []);
 
   const phasageForChantier = useCallback(
@@ -412,6 +412,10 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
 
     if (ia.status === "fulfilled" && ia.value) {
       const p = ia.value;
+      const fMatch = matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur;
+      // Mode de facturation du fournisseur -> coche/décoche automatiquement "déjà payé"
+      if (fMatch?.mode_paiement === "comptant") setDejaPaye(true);
+      else if (fMatch?.mode_paiement === "echeance") setDejaPaye(false);
       const lignes = Array.isArray(p.lignes) && p.lignes.length
         ? p.lignes.map(l => {
             const lib = l.designation || l.libelle || "";
@@ -429,7 +433,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           })
         : [ligneVide()];
       setForm({
-        fournisseur: (matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur?.nom) || p.fournisseur || "",
+        fournisseur: fMatch?.nom || p.fournisseur || "",
         doc_type: ["ticket", "bon_commande", "bl"].includes(p.doc_type) ? p.doc_type : "bl",
         doc_numero: p.doc_numero || "",
         numero_en_attente: false,

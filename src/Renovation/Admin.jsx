@@ -651,11 +651,17 @@ const MAIL_TYPE_DEFAUT =
 
 const FOURNISSEUR_VARIABLES = ["{chantier}", "{phase}", "{liste_articles}", "{date_besoin}", "{total_ht}"];
 
+const MODES_PAIEMENT = [
+  { id: "",         label: "Non défini" },
+  { id: "comptant", label: "Paiement comptant" },
+  { id: "echeance", label: "À facturer (échéance, ex : 30j fin de mois)" },
+];
+
 function OngletFournisseurs({ T, acc }) {
   const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [editId, setEditId]             = useState(null);
-  const [draft, setDraft]               = useState({ nom: "", email: "", mail_type: MAIL_TYPE_DEFAUT });
+  const [draft, setDraft]               = useState({ nom: "", email: "", mail_type: MAIL_TYPE_DEFAUT, mode_paiement: "" });
   const [showForm, setShowForm]         = useState(false);
   const [toDelete, setToDelete]         = useState(null);
   const [succes, setSucces]             = useState("");
@@ -736,12 +742,12 @@ function OngletFournisseurs({ T, acc }) {
     setNormRunning(false);
   };
 
-  const resetDraft = () => setDraft({ nom: "", email: "", mail_type: MAIL_TYPE_DEFAUT });
+  const resetDraft = () => setDraft({ nom: "", email: "", mail_type: MAIL_TYPE_DEFAUT, mode_paiement: "" });
 
   const ouvrirForm = (f = null) => {
     if (f) {
       setEditId(f.id);
-      setDraft({ nom: f.nom || "", email: f.email || "", mail_type: f.mail_type || MAIL_TYPE_DEFAUT });
+      setDraft({ nom: f.nom || "", email: f.email || "", mail_type: f.mail_type || MAIL_TYPE_DEFAUT, mode_paiement: f.mode_paiement || "" });
     } else {
       setEditId(null);
       resetDraft();
@@ -759,9 +765,10 @@ function OngletFournisseurs({ T, acc }) {
     if (!draft.nom.trim()) { flash("err", "Le nom du fournisseur est obligatoire."); return; }
     setSaving(true);
     const payload = {
-      nom:       draft.nom.trim(),
-      email:     draft.email?.trim() || null,
-      mail_type: draft.mail_type?.trim() || null,
+      nom:           draft.nom.trim(),
+      email:         draft.email?.trim() || null,
+      mail_type:     draft.mail_type?.trim() || null,
+      mode_paiement: draft.mode_paiement || null,
     };
     let err;
     if (editId) {
@@ -895,6 +902,16 @@ function OngletFournisseurs({ T, acc }) {
           </div>
 
           <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Mode de facturation</label>
+            <select className="ti" value={draft.mode_paiement} onChange={e=>setDraft(p=>({...p,mode_paiement:e.target.value}))} style={{ width:"100%" }}>
+              {MODES_PAIEMENT.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <div style={{ fontSize:FONT.xs.size+1, color:T.textMuted, marginTop:6, lineHeight:1.5 }}>
+              À la saisie d'une commande de ce fournisseur : « Comptant » cochera « déjà payé » ; « À facturer » laissera la commande en attente de la facture.
+            </div>
+          </div>
+
+          <div style={{ marginBottom:12 }}>
             <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Modèle de mail de commande</label>
             <textarea className="ti" value={draft.mail_type} onChange={e=>setDraft(p=>({...p,mail_type:e.target.value}))}
               rows={10} placeholder="Corps du mail envoyé au fournisseur…"
@@ -982,6 +999,11 @@ function OngletFournisseurs({ T, acc }) {
                     <div style={{ fontSize:FONT.xs.size+1, color:T.textMuted, marginTop:2, display:"inline-flex", alignItems:"center", gap:4 }}>
                       <Icon as={Mail} size={10}/>
                       {f.email}
+                    </div>
+                  )}
+                  {f.mode_paiement && (
+                    <div style={{ fontSize:FONT.xs.size, fontWeight:700, marginTop:4, color: f.mode_paiement === "comptant" ? "#4caf78" : "#5b8af5" }}>
+                      {f.mode_paiement === "comptant" ? "💵 Paiement comptant" : "🧾 À facturer (échéance)"}
                     </div>
                   )}
                   {apercu && (
