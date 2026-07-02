@@ -394,6 +394,43 @@ export function guessLotId(libelle) {
   return "";
 }
 
+// Normalise un nom de fournisseur (minuscules, sans accents ni ponctuation).
+function normFournisseur(s) {
+  return String(s || "").toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Trouve le fournisseur existant le plus proche d'un nom détecté (ex. IA).
+// Gère les variantes "Rexel Angers" / "Rexel France" -> "Rexel" via préfixe/inclusion,
+// et exige au moins 2 mots communs pour un match par similarité (évite de fusionner
+// "Point P" et "Point Vert" sur le seul mot "Point"). Renvoie { fournisseur, score }.
+// fournisseur = null si rien d'assez proche (score < 0.6) -> à créer.
+export function matchFournisseur(raw, fournisseurs) {
+  const a = normFournisseur(raw);
+  if (!a) return { fournisseur: null, score: 0 };
+  const aNs = a.replace(/ /g, "");
+  const aTok = new Set(a.split(" ").filter(w => w.length > 2));
+  let best = null, bestScore = 0;
+  for (const f of (fournisseurs || [])) {
+    const b = normFournisseur(f.nom);
+    if (!b) continue;
+    const bNs = b.replace(/ /g, "");
+    let score = 0;
+    if (a === b) score = 1;
+    else if (aNs.startsWith(bNs) || bNs.startsWith(aNs)) score = 0.9;
+    else if (aNs.includes(bNs) || bNs.includes(aNs)) score = 0.8;
+    else {
+      const bTok = new Set(b.split(" ").filter(w => w.length > 2));
+      const shared = [...aTok].filter(t => bTok.has(t)).length;
+      const denom = aTok.size + bTok.size;
+      score = (shared >= 2 && denom) ? (2 * shared) / denom : 0;
+    }
+    if (score > bestScore) { bestScore = score; best = f; }
+  }
+  return { fournisseur: bestScore >= 0.6 ? best : null, score: bestScore };
+}
+
 // Charge les phases personnalisées depuis Supabase, sinon retourne PHASES_DEFAUT.
 import { supabase as _supabase } from "./supabase";
 export async function loadPhases() {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { useDraft, useDirtyGuard } from "../hooks";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId } from "../constants";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
@@ -197,6 +197,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const [loadingRecents, setLoadingRecents] = useState(true);
   const [phasages, setPhasages] = useState([]);
   const [lots, setLots] = useState(LOTS_DEFAUT);
+  const [fournisseurs, setFournisseurs] = useState([]); // référentiel Admin → Fournisseurs
 
   // Consultation de l'historique des documents scannés (écran d'accueil)
   const [vueHome, setVueHome] = useState("recentes"); // recentes | chantier
@@ -266,6 +267,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     supabase.from("phasages").select("id, chantier_id, plan_travaux")
       .then(({ data }) => setPhasages(data || []));
     loadLots().then(setLots);
+    supabase.from("fournisseurs").select("id, nom").order("nom").then(({ data }) => setFournisseurs(data || []));
   }, []);
 
   const phasageForChantier = useCallback(
@@ -345,7 +347,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           })
         : [ligneVide()];
       setForm({
-        fournisseur: p.fournisseur || "",
+        fournisseur: (matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur?.nom) || p.fournisseur || "",
         doc_type: ["ticket", "bon_commande", "bl"].includes(p.doc_type) ? p.doc_type : "bl",
         doc_numero: p.doc_numero || "",
         numero_en_attente: false,
@@ -376,6 +378,18 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     // mémorise le dernier chantier choisi
     if (chantierDefaut) localStorage.setItem(LS_DERNIER_CHANTIER, chantierDefaut);
 
+    // Uniformise le fournisseur : rattache à l'existant le plus proche, sinon le crée.
+    let fournId = null;
+    let fournNom = form.fournisseur.trim() || null;
+    if (fournNom) {
+      const { fournisseur: f } = matchFournisseur(fournNom, fournisseurs);
+      if (f) { fournId = f.id; fournNom = f.nom; }
+      else {
+        const { data: nf } = await supabase.from("fournisseurs").insert({ nom: fournNom }).select("id, nom").single();
+        if (nf) { fournId = nf.id; fournNom = nf.nom; setFournisseurs(prev => [...prev, nf]); }
+      }
+    }
+
     const { data: cmd, error: e1 } = await supabase
       .from("commandes")
       .insert({
@@ -383,7 +397,8 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         doc_type: form.doc_type,
         doc_numero: form.doc_numero.trim() || null,
         numero_en_attente: !!form.numero_en_attente,
-        fournisseur_nom: form.fournisseur.trim() || null,
+        fournisseur_id: fournId,
+        fournisseur_nom: fournNom,
         date_doc: form.date_doc || null,
         montant_ht: toNum(form.montant_ht),
         photo_url: photoUrl || null,

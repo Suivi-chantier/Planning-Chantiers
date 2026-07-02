@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase, photoTransform } from "../supabase";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import {
   Receipt, Image as ImageIcon, Camera, Loader2, Check, X, AlertTriangle,
@@ -186,6 +186,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const [detail, setDetail] = useState(null);        // { kind, row } affiché dans la modale
   const [recherche, setRecherche] = useState("");
   const [chantiersMap, setChantiersMap] = useState({}); // id -> { nom, couleur }
+  const [fournisseurs, setFournisseurs] = useState([]); // référentiel Admin → Fournisseurs
   const [photoUrl, setPhotoUrl] = useState("");
   const [photos, setPhotos] = useState([]); // [{ file, preview, mediaType }] — facture multi-pages
   const [iaErr, setIaErr] = useState("");
@@ -238,7 +239,19 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         (Array.isArray(data?.value) ? data.value : []).forEach(c => { map[String(c.id)] = { nom: c.nom || c.id, couleur: c.couleur }; });
         setChantiersMap(map);
       });
+    supabase.from("fournisseurs").select("id, nom").order("nom").then(({ data }) => setFournisseurs(data || []));
   }, []);
+
+  // Rattache le fournisseur saisi à l'existant le plus proche, sinon le crée.
+  const resolveFourn = async () => {
+    const nom = (fact.fournisseur || "").trim();
+    if (!nom) return { id: null, nom: null };
+    const { fournisseur: f } = matchFournisseur(nom, fournisseurs);
+    if (f) return { id: f.id, nom: f.nom };
+    const { data: nf } = await supabase.from("fournisseurs").insert({ nom }).select("id, nom").single();
+    if (nf) { setFournisseurs(prev => [...prev, nf]); return { id: nf.id, nom: nf.nom }; }
+    return { id: null, nom };
+  };
 
   // Apparie une liste de BL aux commandes NON encore facturées, par NUMÉRO,
   // quel que soit le doc_type : une commande saisie comme "ticket" ou "bon de
@@ -306,7 +319,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     if (ia.status === "fulfilled" && ia.value) {
       const p = ia.value;
       setFact({
-        fournisseur: p.fournisseur || "",
+        fournisseur: (matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur?.nom) || p.fournisseur || "",
         numero: p.numero || "",
         date_facture: p.date_facture || "",
         periode: p.periode || "",
@@ -325,9 +338,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const saisirBl = async (i) => {
     const bl = bls[i];
     const montant = toNum(bl.montant_ht);
+    const fr = await resolveFourn();
     const { data: cmd, error } = await supabase.from("commandes").insert({
       type_evenement: "livraison", doc_type: "bl", doc_numero: bl.bl_numero || null,
-      numero_en_attente: false, fournisseur_nom: fact.fournisseur || null,
+      numero_en_attente: false, fournisseur_id: fr.id, fournisseur_nom: fr.nom,
       date_doc: fact.date_facture || null, montant_ht: montant, source: "facture",
       saisi_par: profil?.nom || profil?.email || null,
       statut_completude: "a_completer", statut_facturation: "en_attente_facture",
@@ -359,8 +373,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     if (!aucunManquant || saving) return;
     setSaving(true); setSaveErr("");
 
+    const fr = await resolveFourn();
     const { data: f, error: e1 } = await supabase.from("factures").insert({
-      fournisseur_nom: fact.fournisseur || null, numero: fact.numero || null,
+      fournisseur_id: fr.id, fournisseur_nom: fr.nom, numero: fact.numero || null,
       date_facture: fact.date_facture || null, periode: fact.periode || null,
       montant_ht: montantFacture, photo_url: photoUrl || null,
       statut: "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
@@ -392,8 +407,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     if (saving) return;
     if (!confirm("Archiver cette facture sans rapprocher les BL ?\n\nAucune commande ne sera modifiée. À utiliser pour les factures d'une période antérieure à la saisie des BL, ou les fournisseurs sans BL.")) return;
     setSaving(true); setSaveErr("");
+    const fr = await resolveFourn();
     const { error } = await supabase.from("factures").insert({
-      fournisseur_nom: fact.fournisseur || null, numero: fact.numero || null,
+      fournisseur_id: fr.id, fournisseur_nom: fr.nom, numero: fact.numero || null,
       date_facture: fact.date_facture || null, periode: fact.periode || null,
       montant_ht: montantFacture, photo_url: photoUrl || null,
       statut: "archivee", saisi_par: profil?.nom || profil?.email || null,
