@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.2 tâches collaborateurs + conseiller + suivi clarifié
+ * CRM Prospection — V19.3 ergonomie fiche + conseillers fusionnés
  *
  * Objectif :
  * - CRM volontairement simple
@@ -164,6 +164,33 @@ function normalizeSearch(v) {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function conseillerKey(name) {
+  const normalized = normalizeSearch(name);
+
+  if (!normalized) return "";
+
+  // Matthieu, Matthieu Fumoleau, mf.centralisation et variantes doivent être regroupés.
+  if (
+    normalized === "matthieu" ||
+    normalized === "matthieu fumoleau" ||
+    normalized.includes("mf.centralisation") ||
+    (normalized.includes("matthieu") && normalized.includes("fumoleau"))
+  ) {
+    return "matthieu-fumoleau";
+  }
+
+  return normalized;
+}
+
+function conseillerDisplayName(name) {
+  const key = conseillerKey(name);
+
+  if (!key) return "";
+  if (key === "matthieu-fumoleau") return "Matthieu Fumoleau";
+
+  return txt(name);
 }
 
 function dateOnly(v) {
@@ -1465,7 +1492,7 @@ function KpiAnalysisView({ prospects, stats, T }) {
   }));
 
   const bySourceCount = groupCount(prospects, (p) => p.source).slice(0, 8);
-  const byResponsable = groupCount(prospects, (p) => p.responsable).slice(0, 8);
+  const byResponsable = groupCount(prospects, (p) => conseillerDisplayName(p.responsable) || "Non renseigné").slice(0, 8);
   const caByStatus = groupSum(prospects, (p) => statusOf(p.statut).label, moneyValue).slice(0, 9);
   const caBySource = groupSum(prospects, (p) => p.source, moneyValue).slice(0, 8);
 
@@ -2277,7 +2304,7 @@ function ListView({ prospects, selectedId, onSelect, onStatusChange, T }) {
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {p.responsable || "—"}
+                  {conseillerDisplayName(p.responsable) || "—"}
                 </div>
 
                 <div style={{ minWidth: 0 }}>
@@ -2357,6 +2384,122 @@ function PipelineView({
           T={T}
         />
       ))}
+    </div>
+  );
+}
+
+function ProspectSummaryCard({ prospect, T }) {
+  const detail = transformationScoreDetail(prospect);
+  const conseiller = conseillerDisplayName(prospect.responsable) || "Conseiller non renseigné";
+  const action = txt(prospect.prochaine_action) || "Action à définir";
+  const actionDate = dateOnly(prospect.date_prochaine_action);
+  const etape = txt(prospect.prochain_point_etape) || "Point d’étape à définir";
+  const etapeDate = dateOnly(prospect.date_prochain_point_etape);
+  const isActionLate = actionDate && actionDate < todayIso();
+
+  const summaryItems = [
+    {
+      label: "Conseiller",
+      value: conseiller,
+      icon: Users,
+      color: T.accent,
+    },
+    {
+      label: "Action à faire",
+      value: action,
+      helper: actionDate ? fmtDate(actionDate) : "Date à définir",
+      icon: Clock,
+      color: isActionLate ? DA : WA,
+    },
+    {
+      label: "Point d’étape",
+      value: etape,
+      helper: etapeDate ? fmtDate(etapeDate) : "Date à définir",
+      icon: CalendarDays,
+      color: "#8B5CF6",
+    },
+    {
+      label: "Score",
+      value: `${detail.label} · ${detail.score}/100`,
+      icon: TrendingUp,
+      color: detail.color,
+    },
+  ];
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${T.border}`,
+        borderRadius: 20,
+        padding: 12,
+        margin: "10px 0 12px",
+        background: "linear-gradient(135deg, rgba(255,255,255,.055), rgba(255,255,255,.025))",
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+          gap: 9,
+        }}
+      >
+        {summaryItems.map((item) => (
+          <div
+            key={item.label}
+            style={{
+              border: `1px solid ${item.color}35`,
+              background: `${item.color}10`,
+              borderRadius: 16,
+              padding: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 12,
+                background: `${item.color}18`,
+                border: `1px solid ${item.color}45`,
+                color: item.color,
+                display: "grid",
+                placeItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              <Icon as={item.icon} size={14} />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em" }}>
+                {item.label}
+              </div>
+              <div
+                style={{
+                  color: T.text,
+                  fontSize: 12.5,
+                  fontWeight: 950,
+                  marginTop: 3,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+                title={item.value}
+              >
+                {item.value}
+              </div>
+              {item.helper && (
+                <div style={{ color: item.color, fontSize: 10.5, fontWeight: 900, marginTop: 2 }}>
+                  {item.helper}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3017,11 +3160,19 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   }, [prospects]);
 
   const conseillerOptions = useMemo(() => {
-    return Array.from(new Set(
-      prospects
-        .map((p) => txt(p.responsable))
-        .filter(Boolean)
-    )).sort((a, b) => a.localeCompare(b, "fr"));
+    const map = new Map();
+
+    prospects.forEach((p) => {
+      const raw = txt(p.responsable);
+      const key = conseillerKey(raw);
+      const label = conseillerDisplayName(raw);
+
+      if (key && label) map.set(key, label);
+    });
+
+    return Array.from(map.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
   }, [prospects]);
 
   const filtered = useMemo(() => {
@@ -3039,6 +3190,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         p.email,
         p.source,
         p.responsable,
+        conseillerDisplayName(p.responsable),
         p.objectif,
         p.zone_recherche,
         p.commentaire,
@@ -3047,7 +3199,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       ].join(" "));
 
       const okQuery = !q || haystack.includes(q);
-      const okAdvisor = advisorFilter === "all" || normalizeSearch(p.responsable) === normalizeSearch(advisorFilter);
+      const okAdvisor = advisorFilter === "all" || conseillerKey(p.responsable) === advisorFilter;
 
       let okQuick = true;
       if (quickFilter === "today") {
@@ -3929,8 +4081,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             title="Filtrer par conseiller"
           >
             <option value="all">Tous les conseillers</option>
-            {conseillerOptions.map((name) => (
-              <option key={name} value={name}>{name}</option>
+            {conseillerOptions.map((advisor) => (
+              <option key={advisor.key} value={advisor.key}>{advisor.label}</option>
             ))}
           </select>
 
@@ -4082,7 +4234,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             padding: 18,
           }}
         >
-          <div className="inv-card" onMouseDown={(e) => e.stopPropagation()} style={{ padding: 0, width: "min(1100px, 96vw)", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 30px 90px rgba(0,0,0,.45)" }}>
+          <div className="inv-card" onMouseDown={(e) => e.stopPropagation()} style={{ padding: 0, width: "min(1180px, 96vw)", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 30px 90px rgba(0,0,0,.45)" }}>
           <div
             className="inv-card-hd blue"
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
@@ -4109,7 +4261,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             </div>
           </div>
 
-          <div className="inv-card-bd" style={{ padding: 12 }}>
+          <div className="inv-card-bd" style={{ padding: 16 }}>
             {!selected && !isCreating ? (
               <div style={{ textAlign: "center", padding: 50, color: T.textMuted }}>
                 Sélectionne un prospect ou clique sur “Nouveau prospect”.
@@ -4119,6 +4271,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                 <div style={{ marginBottom: 12 }}>
                   <StatusPills value={form.statut} onChange={quickStatus} />
                 </div>
+
+                <ProspectSummaryCard prospect={currentProspect} T={T} />
 
                 {selected?.id && <ScoreTransformationCard prospect={{ ...selected, ...form }} T={T} />}
                 {selected?.id && <FluidifyDetailCard prospect={selected} T={T} />}
@@ -4153,8 +4307,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     <Select value={form.source} onChange={(v) => setField("source", v)} options={SOURCES} />
                   </Field>
 
-                  <Field label="Responsable">
-                    <Input value={form.responsable} onChange={(v) => setField("responsable", v)} />
+                  <Field label="Conseiller / responsable">
+                    <Input value={form.responsable} onChange={(v) => setField("responsable", v)} placeholder="Ex : Matthieu Fumoleau" />
                   </Field>
 
                   <Field label="Objectif">
@@ -4321,7 +4475,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "minmax(0, 1fr) 330px",
+                      gridTemplateColumns: "minmax(0, 1fr) minmax(360px, 430px)",
                       gap: 12,
                       borderTop: `1px solid ${T.border}`,
                       paddingTop: 12,
@@ -4367,7 +4521,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                         </button>
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 140px", gap: 7, marginTop: 7 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 7, marginTop: 7 }}>
                         <input
                           className="inv-inp"
                           value={actionForm.tache_collaborateur}
@@ -4419,7 +4573,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                         Dernières actions
                       </div>
 
-                      <div style={{ maxHeight: 142, overflowY: "auto" }}>
+                      <div style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
                         {actions.length === 0 ? (
                           <div style={{ color: T.textMuted, fontSize: 12, padding: 10, border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
                             Aucune action.
