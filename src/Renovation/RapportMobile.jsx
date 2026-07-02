@@ -241,7 +241,7 @@ function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Ph
 }
 
 // ─── PAGE RAPPORT MOBILE ──────────────────────────────────────────────────────
-function PageRapportMobile({ prenomFige = null, embedded = false }) {
+function PageRapportMobile({ prenomFige = null, embedded = false, preview = false }) {
   // prenomFige : quand fourni (espace ouvrier authentifié), le prénom vient de
   // la session → on saute l'étape "c'est qui ?" et on masque le bouton Changer.
   const [step, setStep]             = useState(prenomFige ? "rapport" : "login"); // login | rapport | done
@@ -518,6 +518,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
   const supprimerTache = (idx) => setTaches(t => t.filter((_, i) => i !== idx));
 
   const soumettre = async () => {
+    if (preview) return; // aperçu admin : lecture seule
     const tachesRemplies = taches.filter(t => t.planifie.trim());
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
     // Chantier obligatoire pour les tâches ajoutées manuellement
@@ -1651,17 +1652,17 @@ function PageRapportMobile({ prenomFige = null, embedded = false }) {
 
       {/* Bouton soumettre */}
       <div style={{padding:"8px 16px 32px"}}>
-        <button onClick={soumettre} disabled={submitting} style={{
+        <button onClick={soumettre} disabled={submitting || preview} style={{
           width:"100%",padding:"18px",border:"none",borderRadius:RADIUS.xl+2,fontSize:FONT.lg.size,
-          fontWeight:800,cursor:submitting?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:.4,
-          background: submitting ? T.borderHover : T.accent, color: T.accentText,
-          boxShadow:`0 4px 20px ${T.accent}4D`,
+          fontWeight:800,cursor:(submitting||preview)?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:.4,
+          background: (submitting||preview) ? T.borderHover : T.accent, color: T.accentText,
+          boxShadow: preview ? "none" : `0 4px 20px ${T.accent}4D`,
           display:"flex",alignItems:"center",justifyContent:"center",gap:8,
-          opacity: submitting ? 0.7 : 1,
+          opacity: (submitting||preview) ? 0.7 : 1,
         }}>
           <Icon as={submitting ? RotateCw : Check} size={18} strokeWidth={2.5}
             style={submitting ? {animation:"spin 1s linear infinite"} : {}}/>
-          {submitting ? "Envoi en cours…" : "Valider mon compte rendu"}
+          {preview ? "Aperçu — envoi désactivé" : submitting ? "Envoi en cours…" : "Valider mon compte rendu"}
         </button>
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>

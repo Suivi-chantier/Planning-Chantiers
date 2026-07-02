@@ -13,7 +13,7 @@ const STATUTS = {
 };
 const imgOf = (a) => a.image_url || a.image || a.photo || a.photo_url || null;
 
-export default function OuvrierCommande({ prenom, T, accent = "#FFC200" }) {
+export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview = false }) {
   const [view, setView] = useState("catalogue"); // catalogue | demandes
   const [chantiers, setChantiers] = useState(DEFAULT_CHANTIERS);
   const [biblio, setBiblio]       = useState([]);
@@ -89,6 +89,7 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200" }) {
   const panierCount = panierItems.reduce((s, v) => s + v.qty, 0);
 
   const envoyer = async () => {
+    if (preview) return; // aperçu admin : lecture seule
     if (panierItems.length === 0) return;
     setSubmitting(true);
     const rows = panierItems.map(({ article, qty }) => ({
@@ -258,14 +259,14 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200" }) {
           {panierItems.length > 0 && (
             <div style={{ position:"fixed", left:0, right:0, bottom:NAV_H, zIndex:49, padding:"10px 12px 12px",
               background:`linear-gradient(to top, ${T.bg} 62%, ${T.bg}cc 82%, transparent)` }}>
-              <button onClick={envoyer} disabled={submitting} style={{
+              <button onClick={envoyer} disabled={submitting || preview} style={{
                 width:"100%", padding:"15px", border:"none", borderRadius:15,
-                background:`linear-gradient(135deg, ${accent}, ${accent}cc)`, color:"#1a1f2e",
-                fontFamily:"inherit", fontSize:16, fontWeight:800, cursor: submitting ? "not-allowed" : "pointer",
-                display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:`0 8px 20px ${accent}66`,
+                background: preview ? T.border : `linear-gradient(135deg, ${accent}, ${accent}cc)`, color:"#1a1f2e",
+                fontFamily:"inherit", fontSize:16, fontWeight:800, cursor: (submitting || preview) ? "not-allowed" : "pointer",
+                display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow: preview ? "none" : `0 8px 20px ${accent}66`,
               }}>
                 <Icon as={Send} size={17} strokeWidth={2.3}/>
-                {submitting ? "Envoi…" : `Envoyer ma demande · ${panierCount} article${panierCount>1?"s":""}`}
+                {preview ? "Aperçu — envoi désactivé" : submitting ? "Envoi…" : `Envoyer ma demande · ${panierCount} article${panierCount>1?"s":""}`}
               </button>
             </div>
           )}

@@ -8,13 +8,14 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
   Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car,
+  Boxes, Car, Eye,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
   ROLES_DEFAULT_RENOVATION, ROLES_DEFAULT_INVEST,
   ROLE_PAGES_DEFAULT_RENOVATION, ROLE_PAGES_DEFAULT_INVEST,
 } from "../access";
+import EspaceOuvrier from "./EspaceOuvrier";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
 const callAdminUsers = async (payload) => {
@@ -61,6 +62,9 @@ function OngletUtilisateurs({ T, acc }) {
   // Bascule : afficher un bandeau "connectez-vous" sur le formulaire public.
   const [espaceActif, setEspaceActif] = useState(false);
   const [bascLoading, setBascLoading] = useState(false);
+  // Aperçu "vue collaborateur"
+  const [previewSel, setPreviewSel]       = useState("");
+  const [previewOuvrier, setPreviewOuvrier] = useState(null);
 
   // Édition
   const [editId, setEditId]   = useState(null);
@@ -286,6 +290,46 @@ function OngletUtilisateurs({ T, acc }) {
           }}/>
         </button>
       </div>
+
+      {/* ── Aperçu de la vue collaborateur (lecture seule) ── */}
+      <div style={{
+        background:T.card, border:`1px solid ${T.border}`,
+        borderRadius:12, padding:"14px 16px", margin:"14px 0",
+        display:"flex", alignItems:"center", justifyContent:"space-between", gap:14, flexWrap:"wrap",
+      }}>
+        <div style={{ flex:"1 1 240px", minWidth:0 }}>
+          <div style={{ fontWeight:800, fontSize:FONT.sm.size+1, color:T.text, marginBottom:3, display:"flex", alignItems:"center", gap:7 }}>
+            <Icon as={Eye} size={15}/> Voir la vue d'un collaborateur
+          </div>
+          <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, lineHeight:1.5 }}>
+            Prévisualise l'espace ouvrier tel qu'il le voit (planning, tableau de bord…). Lecture seule.
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
+          <select value={previewSel} onChange={e=>setPreviewSel(e.target.value)} style={{
+            background:T.fieldBg||T.card, border:`1px solid ${T.fieldBorder||T.border}`,
+            borderRadius:RADIUS.md, padding:"8px 10px", color:T.text, fontFamily:"inherit", fontSize:FONT.sm.size, outline:"none", cursor:"pointer",
+          }}>
+            <option value="">— Choisir un ouvrier —</option>
+            {(ouvriersConfig || []).filter(Boolean).map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <button onClick={()=>previewSel && setPreviewOuvrier(previewSel)} disabled={!previewSel} style={{
+            background: previewSel ? acc.accent : T.border, color: previewSel ? acc.onAccent : T.textMuted,
+            border:"none", borderRadius:RADIUS.md, padding:"8px 14px",
+            fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800, cursor: previewSel ? "pointer" : "not-allowed",
+            display:"inline-flex", alignItems:"center", gap:6, flexShrink:0,
+          }}>
+            <Icon as={Eye} size={14}/> Aperçu
+          </button>
+        </div>
+      </div>
+
+      {/* Overlay plein écran de l'aperçu */}
+      {previewOuvrier && (
+        <div style={{ position:"fixed", inset:0, zIndex:1400, overflowY:"auto", background:"#f4f6fa" }}>
+          <EspaceOuvrier profil={{ prenom_planning: previewOuvrier }} preview onLogout={()=>setPreviewOuvrier(null)} />
+        </div>
+      )}
 
       {/* Recherche + filtre */}
       {utilisateurs.length > 0 && (

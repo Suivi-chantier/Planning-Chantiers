@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { PROFERO_YELLOW, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import {
-  LayoutDashboard, CalendarDays, ClipboardList, ShoppingCart, LogOut, ChevronRight,
+  LayoutDashboard, CalendarDays, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye,
   Sun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, Zap,
 } from "lucide-react";
 import { MobileHero } from "../mobileUI";
@@ -67,7 +67,7 @@ function Placeholder({ titre, phase }) {
   );
 }
 
-export default function EspaceOuvrier({ user, profil, onLogout }) {
+export default function EspaceOuvrier({ user, profil, onLogout, preview = false }) {
   const [tab, setTab] = useState("dashboard");
   const [weather, setWeather] = useState(null);
   const prenom = profil?.prenom_planning || profil?.nom || "";
@@ -112,7 +112,7 @@ export default function EspaceOuvrier({ user, profil, onLogout }) {
         fontFamily:"inherit", fontSize:13, fontWeight:700,
       }}>
         <Icon as={LogOut} size={14}/>
-        Quitter
+        {preview ? "Fermer" : "Quitter"}
       </button>
     </div>
   );
@@ -122,11 +122,26 @@ export default function EspaceOuvrier({ user, profil, onLogout }) {
       minHeight:"100vh", background:T.bg, color:T.text,
       fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",
     }}>
+      {preview && (
+        <div style={{
+          position:"sticky", top:0, zIndex:60,
+          background:"#1a1f2e", color:"#fff", padding:"9px 14px",
+          display:"flex", alignItems:"center", gap:8, fontSize:13, fontWeight:700,
+        }}>
+          <Icon as={Eye} size={15} style={{ color:ACCENT }}/>
+          Aperçu — vue de {prenom || "l'ouvrier"}
+          <button onClick={onLogout} style={{
+            marginLeft:"auto", background:"rgba(255,255,255,0.16)", border:"none",
+            color:"#fff", borderRadius:8, padding:"5px 11px", fontFamily:"inherit",
+            fontWeight:700, cursor:"pointer",
+          }}>Fermer</button>
+        </div>
+      )}
       {tab === "compte-rendu" ? (
         // RapportMobile embarqué : formulaire plein écran avec son propre en-tête,
         // on ne superpose donc pas le hero. Le padding bas (nav) est géré dans le
         // composant (mode embedded).
-        <PageRapportMobile prenomFige={prenom} embedded />
+        <PageRapportMobile prenomFige={prenom} embedded preview={preview} />
       ) : (
         <div style={{
           padding:"14px 12px", display:"flex", flexDirection:"column", gap:12,
@@ -137,7 +152,7 @@ export default function EspaceOuvrier({ user, profil, onLogout }) {
 
           {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
           {tab === "planning"         && <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}/>}
-          {tab === "demande-commande" && <OuvrierCommande prenom={prenom} T={T} accent={ACCENT}/>}
+          {tab === "demande-commande" && <OuvrierCommande prenom={prenom} T={T} accent={ACCENT} preview={preview}/>}
         </div>
       )}
 
