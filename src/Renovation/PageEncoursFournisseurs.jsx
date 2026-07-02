@@ -52,7 +52,8 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
           .select("fournisseur_id, fournisseur_nom, montant_ht, date_doc, created_at, statut_facturation, source, lignes:commande_lignes(prix_total)")
           .is("facture_id", null).limit(5000),
         supabase.from("factures")
-          .select("fournisseur_id, fournisseur_nom, montant_ht, date_facture, created_at").limit(2000),
+          .select("fournisseur_id, fournisseur_nom, montant_ht, date_facture, created_at, statut")
+          .neq("statut", "archivee").limit(2000),
       ]);
       // mode de paiement par fournisseur (par id et par nom normalisé)
       const modeById = {}, modeByNom = {};
