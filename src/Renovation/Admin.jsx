@@ -37,6 +37,170 @@ const callAdminUsers = async (payload) => {
   return data;
 };
 
+// ─── ONGLET MAIL ENCOURS ──────────────────────────────────────────────────────
+// Choix des utilisateurs qui reçoivent le récap "Encours fournisseurs" envoyé
+// automatiquement chaque vendredi soir (cron GitHub Actions → /api/cron-encours-fournisseurs).
+// La liste est persistée dans planning_config.encours_mail_destinataires (tableau d'emails).
+function OngletMailEncours({ T, acc }) {
+  const [users, setUsers]     = useState([]);
+  const [selected, setSelected] = useState([]); // emails cochés
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+  const [msg, setMsg]         = useState(null);  // { type:"ok"|"err", txt }
+
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur", commercial:"Commercial", comptable:"Comptable", ouvrier:"Ouvrier" };
+
+  useEffect(() => {
+    (async () => {
+      const [uRes, cfgRes] = await Promise.all([
+        supabase.from("utilisateurs").select("id,nom,email,role,actif").order("nom"),
+        supabase.from("planning_config").select("value").eq("key", "encours_mail_destinataires").maybeSingle(),
+      ]);
+      setUsers((uRes.data || []).filter(u => u.email));
+      const val = cfgRes.data?.value;
+      const list = Array.isArray(val) ? val : (Array.isArray(val?.emails) ? val.emails : []);
+      setSelected(list.filter(Boolean));
+      setLoading(false);
+    })();
+  }, []);
+
+  const flash = (type, txt) => { setMsg({ type, txt }); setTimeout(() => setMsg(null), 4000); };
+  const toggle = (email) =>
+    setSelected(s => s.includes(email) ? s.filter(e => e !== email) : [...s, email]);
+
+  const enregistrer = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("planning_config")
+      .upsert({ key: "encours_mail_destinataires", value: selected }, { onConflict: "key" });
+    setSaving(false);
+    if (error) flash("err", "Erreur : " + error.message);
+    else flash("ok", selected.length
+      ? `${selected.length} destinataire${selected.length > 1 ? "s" : ""} enregistré${selected.length > 1 ? "s" : ""}.`
+      : "Liste vidée — le mail partira aux admin + comptable actifs par défaut.");
+  };
+
+  const actifs = users.filter(u => u.actif !== false);
+  const inactifs = users.filter(u => u.actif === false);
+
+  const ligneUser = (u) => {
+    const on = selected.includes(u.email);
+    return (
+      <button key={u.id} type="button" onClick={() => toggle(u.email)}
+        style={{
+          display:"flex",alignItems:"center",gap:12,width:"100%",textAlign:"left",
+          padding:"11px 14px",borderRadius:RADIUS.md,cursor:"pointer",
+          border:`1px solid ${on ? acc.accent : T.border}`,
+          background:on ? acc.bg10 : T.card,
+          fontFamily:"inherit",transition:"all .12s",marginBottom:8,
+        }}>
+        <div style={{
+          width:20,height:20,borderRadius:6,flexShrink:0,
+          border:`2px solid ${on ? acc.accent : T.border}`,
+          background:on ? acc.accent : "transparent",
+          display:"flex",alignItems:"center",justifyContent:"center",
+        }}>
+          {on && <Icon as={Check} size={13} color={acc.onAccent} strokeWidth={3}/>}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            {u.nom || u.email}
+          </div>
+          <div style={{fontSize:FONT.xs.size,color:T.textMuted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            {u.email}
+          </div>
+        </div>
+        <span style={{
+          fontSize:FONT.xs.size-1,fontWeight:700,color:T.textSub,
+          background:T.bg,border:`1px solid ${T.border}`,borderRadius:999,padding:"3px 9px",flexShrink:0,
+        }}>
+          {ROLE_LABELS[u.role] || u.role}
+        </span>
+      </button>
+    );
+  };
+
+  return (
+    <div className="ac">
+      {/* En-tête */}
+      <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:16}}>
+        <div style={{
+          width:34,height:34,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,
+          display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+        }}>
+          <Icon as={Send} size={17}/>
+        </div>
+        <div>
+          <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Mail « Encours fournisseurs »</div>
+          <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,maxWidth:560}}>
+            Cochez les utilisateurs qui recevront le récap des encours par mail, envoyé automatiquement
+            <strong style={{color:T.textSub}}> chaque vendredi soir</strong>.
+          </div>
+        </div>
+      </div>
+
+      {/* Bandeau info */}
+      <div style={{
+        display:"flex",gap:10,alignItems:"flex-start",padding:"11px 14px",marginBottom:16,
+        background:acc.bg10,border:`1px solid ${acc.accent}44`,borderRadius:RADIUS.md,
+      }}>
+        <Icon as={Info} size={15} color={acc.accent} style={{marginTop:1,flexShrink:0}}/>
+        <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.5}}>
+          Si aucun destinataire n'est coché, le mail est envoyé par défaut aux comptes
+          <strong> administrateur</strong> et <strong>comptable</strong> actifs.
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{
+          padding:"9px 13px",borderRadius:RADIUS.md,marginBottom:14,fontSize:FONT.xs.size+1,fontWeight:600,
+          background:msg.type==="ok" ? "#22c55e18" : "#ef444418",
+          color:msg.type==="ok" ? "#16a34a" : "#dc2626",
+          border:`1px solid ${msg.type==="ok" ? "#22c55e55" : "#ef444455"}`,
+        }}>{msg.txt}</div>
+      )}
+
+      {loading ? (
+        <div style={{color:T.textMuted,fontSize:FONT.sm.size,padding:"20px 0"}}>Chargement…</div>
+      ) : (
+        <>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:12,flexWrap:"wrap"}}>
+            <div style={{fontSize:FONT.xs.size,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:.5}}>
+              Destinataires ({selected.length} sélectionné{selected.length>1?"s":""})
+            </div>
+            <button type="button" onClick={enregistrer} disabled={saving}
+              style={{
+                display:"inline-flex",alignItems:"center",gap:7,padding:"9px 18px",borderRadius:RADIUS.md,
+                border:"none",background:acc.accent,color:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
+                cursor:saving?"default":"pointer",opacity:saving?.6:1,
+              }}>
+              <Icon as={Check} size={14} strokeWidth={3}/>
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          </div>
+
+          {actifs.map(ligneUser)}
+
+          {inactifs.length > 0 && (
+            <>
+              <div style={{fontSize:FONT.xs.size,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:.5,margin:"16px 0 8px"}}>
+                Comptes inactifs
+              </div>
+              {inactifs.map(ligneUser)}
+            </>
+          )}
+
+          {users.length === 0 && (
+            <div style={{color:T.textMuted,fontSize:FONT.sm.size,padding:"14px 0"}}>
+              Aucun utilisateur avec adresse email.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── ONGLET UTILISATEURS ──────────────────────────────────────────────────────
 function OngletUtilisateurs({ T, acc }) {
   const [utilisateurs, setUtilisateurs] = useState([]);
@@ -2149,6 +2313,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["emails",       "Emails",          Mail],
     ["fournisseurs", "Fournisseurs",    Truck],
     ["vehicules",    "Véhicules",       Car],
+    ...(isAdmin ? [["mail-encours",  "Mail encours",  Send]] : []),
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
     ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
     ...(isAdmin ? [["historique",   "Historique",   RefreshCw]] : []),
@@ -2217,6 +2382,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="vehicules" && (
         <OngletVehicules T={T} acc={acc}/>
+      )}
+
+      {adminTab==="mail-encours" && isAdmin && (
+        <OngletMailEncours T={T} acc={acc}/>
       )}
 
       {adminTab==="historique" && isAdmin && (
