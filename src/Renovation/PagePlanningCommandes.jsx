@@ -6,6 +6,7 @@ import {
   ShoppingCart, Package, Calendar, Check, AlertTriangle, Building2,
   ArrowRight, Info, X, Mail, Plus, Trash2, Copy, ChevronLeft,
   ChevronRight, Send, Receipt, Boxes, CheckCircle2, CalendarClock,
+  User, Inbox,
 } from "lucide-react";
 
 // ─── HELPERS DATES ───────────────────────────────────────────────────────────
@@ -61,7 +62,11 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   const [phasages, setPhasages]   = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
   const [lignesCmd, setLignesCmd] = useState([]); // commande_lignes existantes (+ en-tête commande)
+  const [besoins, setBesoins]     = useState([]); // demandes ouvrier en attente (table besoins)
   const [loading, setLoading]     = useState(true);
+
+  // Vue courante : "ouvrage" (backlog phasage) | "demandes" (paniers ouvrier)
+  const [vue, setVue] = useState("ouvrage");
 
   // Sélection master/detail
   const [selChantierId, setSelChantierId] = useState(null);
@@ -93,12 +98,20 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, phasage_id, commande:commandes(id, doc_numero, numero_en_attente, date_doc, fournisseur_nom, statut_completude, statut_facturation, type_evenement)");
     setLignesCmd(data || []);
   };
+  const loadBesoins = async () => {
+    const { data } = await supabase
+      .from("besoins")
+      .select("id, panier_id, chantier_id, materiau_id, article, quantite, ouvrier_demandeur, notes, priorite, photo_url, created_at")
+      .eq("statut", "en_attente")
+      .order("created_at", { ascending: false });
+    setBesoins(data || []);
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      await Promise.all([loadPhasages(), loadLignesCmd()]);
+      await Promise.all([loadPhasages(), loadLignesCmd(), loadBesoins()]);
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -270,6 +283,54 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
 
   const aucunChantier = !loading && modele.length === 0;
 
+  // ── Demandes ouvrier regroupées par panier (un envoi = un panier_id)
+  const paniers = useMemo(() => {
+    const map = new Map();
+    besoins.forEach(b => {
+      const key = b.panier_id || ("solo_" + b.id); // repli pour les demandes legacy
+      if (!map.has(key)) {
+        const chantier = chantiers.find(c => c.id === b.chantier_id);
+        map.set(key, {
+          panierId:        key,
+          chantierId:      b.chantier_id,
+          chantierNom:     chantier?.nom || b.chantier_id || "(sans chantier)",
+          chantierCouleur: chantier?.couleur || "#888",
+          ouvrier:         b.ouvrier_demandeur || "",
+          priorite:        "normal",
+          dateObj:         b.created_at ? new Date(b.created_at) : null,
+          articles:        [],
+        });
+      }
+      const p = map.get(key);
+      p.articles.push(b);
+      if (b.priorite === "urgent") p.priorite = "urgent"; // urgent si au moins un article urgent
+    });
+    return Array.from(map.values())
+      .sort((a, b) => (b.dateObj?.getTime() || 0) - (a.dateObj?.getTime() || 0));
+  }, [besoins, chantiers]);
+
+  // Valider tout le panier → besoins passent "traité" (ils reviendront via le scan du BL/reçu).
+  const validerPanier = async (panier) => {
+    const ids = panier.articles.map(a => a.id);
+    const { error } = await supabase.from("besoins").update({ statut: "traite" }).in("id", ids);
+    if (error) { alert("Erreur : " + error.message); return; }
+    setBesoins(prev => prev.filter(b => !ids.includes(b.id)));
+  };
+  // Refuser tout le panier → besoins passent "annulé".
+  const refuserPanier = async (panier) => {
+    if (!window.confirm(`Refuser cette demande de ${panier.ouvrier || "l'ouvrier"} ? Elle sera archivée.`)) return;
+    const ids = panier.articles.map(a => a.id);
+    const { error } = await supabase.from("besoins").update({ statut: "annule" }).in("id", ids);
+    if (error) { alert("Erreur : " + error.message); return; }
+    setBesoins(prev => prev.filter(b => !ids.includes(b.id)));
+  };
+  // Retirer un seul article du panier (annulé individuellement).
+  const retirerArticle = async (article) => {
+    const { error } = await supabase.from("besoins").update({ statut: "annule" }).eq("id", article.id);
+    if (error) { alert("Erreur : " + error.message); return; }
+    setBesoins(prev => prev.filter(b => b.id !== article.id));
+  };
+
   // Ouvre la modale de commande pour un ouvrage donné
   const commanderOuvrage = (chantier, ouvrage) => {
     const lignes = ouvrage.aCommander.map(m => ({
@@ -327,7 +388,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           </div>
         </div>
         {/* Bouton "commande du vendredi" */}
-        {!loading && stats.nbACommander > 0 && (
+        {!loading && vue === "ouvrage" && stats.nbACommander > 0 && (
           <button onClick={() => setVendrediOpen(true)} style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             background: acc.accent, color: "#1a1a1a", border: "none",
@@ -344,8 +405,36 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         )}
       </div>
 
+      {/* ── ONGLETS : Par ouvrage / Demandes ouvriers ── */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {[
+          { id: "ouvrage",  label: "Par ouvrage", badge: null },
+          { id: "demandes", label: "Demandes ouvriers", badge: paniers.length },
+        ].map(t => {
+          const actif = vue === t.id;
+          return (
+            <button key={t.id} onClick={() => setVue(t.id)} style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              background: actif ? acc.accent : surface, color: actif ? "#1a1a1a" : textSub,
+              border: `1px solid ${actif ? acc.accent : border}`, borderRadius: RADIUS.md,
+              padding: "8px 15px", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+              cursor: "pointer",
+            }}>
+              <Icon as={t.id === "demandes" ? Inbox : Boxes} size={15}/>
+              {t.label}
+              {t.badge != null && t.badge > 0 && (
+                <span style={{
+                  background: actif ? "rgba(0,0,0,0.18)" : acc.bg10, color: actif ? "#1a1a1a" : acc.accent,
+                  borderRadius: RADIUS.pill, padding: "1px 8px", fontSize: 12, fontWeight: 800,
+                }}>{t.badge}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* ── STATS ── */}
-      {!loading && modele.length > 0 && (
+      {!loading && vue === "ouvrage" && modele.length > 0 && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
           {[
             { label: "Chantiers en cours", val: stats.nbChantiers, color: text, icon: Building2 },
@@ -375,7 +464,13 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       )}
 
       {/* ── CONTENU ── */}
-      {loading ? (
+      {vue === "demandes" ? (
+        <VueDemandes
+          paniers={paniers} loading={loading}
+          onValider={validerPanier} onRefuser={refuserPanier} onRetirerArticle={retirerArticle}
+          T={T} acc={acc}
+        />
+      ) : loading ? (
         <div style={{ textAlign: "center", color: textMuted, padding: 80, fontSize: FONT.base.size }}>
           Chargement…
         </div>
@@ -1348,6 +1443,112 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── VUE "DEMANDES OUVRIERS" (paniers) ───────────────────────────────────────
+function VueDemandes({ paniers, loading, onValider, onRefuser, onRetirerArticle, T, acc }) {
+  const text      = T?.text      || "#f0f0f0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+  const surface   = T?.surface   || "#262a32";
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+
+  if (loading) {
+    return <div style={{ textAlign: "center", color: textMuted, padding: 80, fontSize: FONT.base.size }}>Chargement…</div>;
+  }
+  if (paniers.length === 0) {
+    return (
+      <div style={{ background: surface, border: `1px dashed ${border}`, borderRadius: RADIUS.xl, padding: "60px 30px", textAlign: "center", color: textMuted }}>
+        <div style={{ width: 64, height: 64, borderRadius: RADIUS.xl, background: acc.bg10, color: acc.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+          <Icon as={Inbox} size={28} strokeWidth={1.5}/>
+        </div>
+        <div style={{ fontSize: FONT.lg.size, color: text, fontWeight: 700, marginBottom: 6 }}>Aucune demande en attente</div>
+        <div style={{ fontSize: FONT.sm.size + 1, lineHeight: 1.6, maxWidth: 480, margin: "0 auto" }}>
+          Les paniers envoyés par les ouvriers depuis leur espace apparaîtront ici, prêts à valider.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14, alignItems: "start" }}>
+      {paniers.map(p => (
+        <PanierCard key={p.panierId} panier={p} onValider={onValider} onRefuser={onRefuser} onRetirerArticle={onRetirerArticle} T={T} acc={acc}/>
+      ))}
+    </div>
+  );
+}
+
+function PanierCard({ panier, onValider, onRefuser, onRetirerArticle, T, acc }) {
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+  const surface   = T?.surface   || "#262a32";
+  const card      = T?.card      || "rgba(255,255,255,0.04)";
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+  const urgent    = panier.priorite === "urgent";
+  const dateFmt   = panier.dateObj
+    ? panier.dateObj.toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    : null;
+
+  return (
+    <div style={{ background: surface, border: `1px solid ${urgent ? "#e15a5a55" : border}`, borderRadius: RADIUS.lg, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      {/* En-tête panier */}
+      <div style={{ padding: "12px 14px", borderBottom: `1px solid ${border}`, background: card }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, flexWrap: "wrap" }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: panier.chantierCouleur, flexShrink: 0 }}/>
+          <span style={{ fontSize: FONT.sm.size + 2, fontWeight: 800, color: text, letterSpacing: -0.2 }}>{panier.chantierNom}</span>
+          {urgent && (
+            <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 800, letterSpacing: .5, color: "#e15a5a", background: "rgba(225,90,90,0.14)", borderRadius: RADIUS.pill, padding: "2px 8px", textTransform: "uppercase" }}>
+              <Icon as={AlertTriangle} size={10}/> Urgent
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: FONT.xs.size, color: textMuted, flexWrap: "wrap" }}>
+          {panier.ouvrier && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon as={User} size={11}/> {panier.ouvrier}</span>}
+          {dateFmt && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon as={Calendar} size={11}/> {dateFmt}</span>}
+          <span>· {panier.articles.length} article{panier.articles.length > 1 ? "s" : ""}</span>
+        </div>
+      </div>
+
+      {/* Articles */}
+      <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+        {panier.articles.map(a => (
+          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md }}>
+            {a.photo_url && (
+              <img src={a.photo_url} alt="" style={{ width: 34, height: 34, borderRadius: RADIUS.sm, objectFit: "cover", flexShrink: 0 }}/>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.article || "(article)"}</div>
+              {(a.quantite || a.notes) && (
+                <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {a.quantite ? `Qté : ${a.quantite}` : ""}{a.quantite && a.notes ? " · " : ""}{a.notes || ""}
+                </div>
+              )}
+            </div>
+            <button onClick={() => onRetirerArticle(a)} title="Retirer cet article" style={{ background: "transparent", border: "none", color: textMuted, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}>
+              <Icon as={X} size={13}/>
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div style={{ padding: "10px 14px", borderTop: `1px solid ${border}`, display: "flex", gap: 8 }}>
+        <button onClick={() => onRefuser(panier)} style={{
+          display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${border}`,
+          borderRadius: RADIUS.md, padding: "8px 14px", color: textSub, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+        }}>
+          <Icon as={X} size={13}/> Refuser
+        </button>
+        <button onClick={() => onValider(panier)} style={{
+          flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+          background: acc.accent, color: "#1a1a1a", border: "none", borderRadius: RADIUS.md, padding: "8px 14px",
+          fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+        }}>
+          <Icon as={Check} size={14}/> Valider le panier
+        </button>
       </div>
     </div>
   );

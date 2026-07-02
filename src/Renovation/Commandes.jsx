@@ -7,7 +7,7 @@ import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
 import {
   Package, FileText, Plus, Pencil, Trash2, Check, X, ShoppingCart,
-  ExternalLink, AlertTriangle, Search, Bell, User, Building2,
+  ExternalLink, AlertTriangle, Search, User, Building2,
   Settings, ListChecks, Link2, LayoutList, Truck, Download, FileSpreadsheet, Printer,
 } from "lucide-react";
 
@@ -712,266 +712,6 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
   );
 }
 
-// ─── PANNEAU DEMANDES ─────────────────────────────────────────────────────────
-function PanneauDemandes({ demandes, chantiers, T, onClose, onConvertir, onSupprimer, materiaux }) {
-  const [drafts, setDrafts] = useState({});
-
-  useEffect(() => {
-    const init = {};
-    demandes.forEach(d => {
-      init[d.id] = {
-        article:       d.article      || "",
-        fournisseur:   d.fournisseur  || "",
-        quantite:      d.quantite     || "",
-        notes:         d.notes        || "",
-        priorite:      d.priorite     || "normal",
-        chantier_id:   d.chantier_id  || "",
-        materiau_id:   d.materiau_id  || null,
-      };
-    });
-    setDrafts(init);
-  }, [demandes]);
-
-  const set = (id, field, val) =>
-    setDrafts(p => ({ ...p, [id]: { ...p[id], [field]: val } }));
-
-  const handleSelectMateriau = (demId, mId) => {
-    if (!mId) { set(demId, "materiau_id", null); return; }
-    const mat = materiaux.find(m => m.id === mId);
-    if (mat) {
-      setDrafts(p => ({
-        ...p,
-        [demId]: { ...p[demId], materiau_id: mId, fournisseur: mat.fournisseur || p[demId].fournisseur },
-      }));
-    }
-  };
-
-  const inp = (highlight) => ({
-    background: P.inputBg,
-    border: `1px solid ${highlight ? "rgba(224,92,92,0.5)" : P.border}`,
-    borderRadius: 7, padding: "7px 10px", color: P.text,
-    fontFamily: "inherit", fontSize: 13, outline: "none",
-    width: "100%", boxSizing: "border-box",
-  });
-
-  return (
-    <>
-      <div onClick={onClose} style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-        backdropFilter: "blur(6px)", zIndex: 800,
-      }} />
-      <div style={{
-        position: "fixed", top: 0, right: 0, bottom: 0,
-        width: "min(520px, 100vw)", height: "100vh",
-        background: P.surface, borderLeft: `1px solid ${P.border}`,
-        zIndex: 801, display: "flex", flexDirection: "column",
-        overflow: "hidden", boxShadow: "-24px 0 80px rgba(0,0,0,0.6)",
-        animation: "slideIn .25s cubic-bezier(.22,1,.36,1)",
-      }}>
-        <div style={{
-          padding: "20px 24px", borderBottom: `1px solid ${P.border}`,
-          background: "rgba(176,96,255,0.10)", flexShrink: 0,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: 12,
-                background: "rgba(176,96,255,0.25)",
-                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-              }}>📋</div>
-              <div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: P.text }}>Demandes ouvriers</div>
-                <div style={{ fontSize: 12, color: "#b060ff", fontWeight: 600, marginTop: 2 }}>
-                  {demandes.length} demande{demandes.length > 1 ? "s" : ""} en attente
-                </div>
-              </div>
-            </div>
-            <button onClick={onClose} style={{
-              background: "transparent", border: `1px solid ${P.border}`,
-              borderRadius: 8, width: 34, height: 34, cursor: "pointer",
-              color: P.textSub, fontSize: 20, lineHeight: 1,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>×</button>
-          </div>
-        </div>
-
-        <div style={{
-          flex: 1, minHeight: 0, overflowY: "auto",
-          padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14,
-        }}>
-          {demandes.length === 0 ? (
-            <div style={{
-              flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center",
-              gap: 12, color: P.textMuted, fontSize: 14, paddingTop: 60,
-            }}>
-              <div style={{ fontSize: 40 }}>✅</div>
-              <div style={{ fontWeight: 600 }}>Aucune demande en attente</div>
-            </div>
-          ) : demandes.map(d => {
-            const ch    = chantiers.find(c => c.id === d.chantier_id);
-            const draft = drafts[d.id] || {};
-            const urgent = d.priorite === "urgent";
-            const dateD  = d.created_at
-              ? new Date(d.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" })
-              : "—";
-            const heureD = d.created_at
-              ? new Date(d.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-              : "";
-
-            return (
-              <div key={d.id} style={{
-                background: P.card,
-                border: `1px solid ${urgent ? "rgba(224,92,92,0.45)" : "rgba(176,96,255,0.3)"}`,
-                borderRadius: 14, flexShrink: 0,
-              }}>
-                <div style={{
-                  padding: "10px 14px",
-                  background: urgent ? "rgba(224,92,92,0.10)" : "rgba(176,96,255,0.09)",
-                  borderBottom: `1px solid ${P.border}`,
-                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    {ch && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 2, background: ch.couleur, display: "block" }} />
-                        <span style={{ fontSize: 12, fontWeight: 700, color: P.text }}>{ch.nom}</span>
-                      </span>
-                    )}
-                    {d.ouvrier_demandeur && (
-                      <span style={{
-                        display: "inline-flex", alignItems: "center", gap: 4,
-                        fontSize: 11, fontWeight: 700, color: "#a0b8ff",
-                        background: "rgba(160,184,255,0.14)", borderRadius: 5, padding: "2px 7px",
-                      }}><Icon as={User} size={10}/> {d.ouvrier_demandeur}</span>
-                    )}
-                    {urgent && (
-                      <span style={{
-                        fontSize: 11, fontWeight: 800, color: "#e05c5c",
-                        background: "rgba(224,92,92,0.15)", borderRadius: 5,
-                        padding: "2px 7px", border: "1px solid rgba(224,92,92,0.3)",
-                      }}>🔴 URGENT</span>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: P.textMuted, whiteSpace: "nowrap" }}>{dateD} {heureD}</span>
-                    <button onClick={() => onSupprimer(d.id)} title="Supprimer cette demande" style={{
-                      background: "rgba(224,92,92,0.12)", border: "1px solid rgba(224,92,92,0.25)",
-                      borderRadius: 6, width: 26, height: 26, cursor: "pointer", color: "#e05c5c",
-                      fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center",
-                      flexShrink: 0, transition: "all .15s",
-                    }}
-                      onMouseEnter={e => e.currentTarget.style.background = "rgba(224,92,92,0.28)"}
-                      onMouseLeave={e => e.currentTarget.style.background = "rgba(224,92,92,0.12)"}
-                    >🗑</button>
-                  </div>
-                </div>
-
-                <div style={{
-                  padding: "10px 14px", borderBottom: `1px solid ${P.border}`,
-                  background: "rgba(255,255,255,0.02)",
-                }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: P.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>Demande brute</div>
-                  <div style={{ fontSize: 13, color: "#c8b0ff", fontStyle: "italic" }}>
-                    « {d.article || "—"} »
-                    {d.quantite && <span style={{ color: P.textSub }}> · {d.quantite}</span>}
-                  </div>
-                  {d.notes && <div style={{ fontSize: 12, color: P.textMuted, marginTop: 4 }}>{d.notes}</div>}
-                  {d.photo_url && (
-                    <img src={d.photo_url} alt="" onClick={() => window.open(d.photo_url, "_blank")}
-                      style={{ marginTop: 8, width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${P.border}`, cursor: "pointer", display: "block" }} />
-                  )}
-                </div>
-
-                <div style={{ padding: "8px 14px", borderBottom: `1px solid ${P.border}`, background: "rgba(255,194,0,0.03)" }}>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: P.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
-                    <Icon as={Package} size={11}/>
-                    Lier à un article de la bibliothèque
-                  </div>
-                  <BiblioSelector
-                    value={draft.materiau_id || null}
-                    onChange={mId => handleSelectMateriau(d.id, mId)}
-                    T={{ textMuted: P.textMuted, text: P.text }}
-                    materiaux={materiaux}
-                  />
-                </div>
-
-                <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: P.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>↳ Convertir en commande</div>
-                  <div className="cmd-convert-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    <input value={draft.article || ""} onChange={e => set(d.id, "article", e.target.value)}
-                      placeholder="Article exact *" style={inp(!draft.article)} />
-                    <input value={draft.fournisseur || ""} onChange={e => set(d.id, "fournisseur", e.target.value)}
-                      placeholder="Fournisseur" style={inp(false)} />
-                    <input value={draft.quantite || ""} onChange={e => set(d.id, "quantite", e.target.value)}
-                      placeholder="Quantité" style={inp(false)} />
-                    <select value={draft.priorite || "normal"} onChange={e => set(d.id, "priorite", e.target.value)}
-                      style={{ ...inp(false), color: draft.priorite === "urgent" ? "#e05c5c" : "#c0a060", fontWeight: 700 }}>
-                      <option value="normal" style={{ background: "#1e2540" }}>🟡 Normal</option>
-                      <option value="urgent" style={{ background: "#1e2540" }}>🔴 Urgent</option>
-                    </select>
-                  </div>
-                  <input value={draft.notes || ""} onChange={e => set(d.id, "notes", e.target.value)}
-                    placeholder="Notes additionnelles" style={inp(false)} />
-                  <button onClick={() => onConvertir(d, draft)} disabled={!draft.article?.trim()} style={{
-                    marginTop: 2, padding: "9px 0",
-                    background: draft.article?.trim() ? "#b060ff" : "rgba(176,96,255,0.15)",
-                    border: `1px solid ${draft.article?.trim() ? "#b060ff" : "rgba(176,96,255,0.2)"}`,
-                    borderRadius: 8,
-                    color: draft.article?.trim() ? "#fff" : P.textMuted,
-                    fontFamily: "inherit", fontSize: 13, fontWeight: 800,
-                    cursor: draft.article?.trim() ? "pointer" : "not-allowed",
-                    transition: "all .15s", width: "100%",
-                  }}>✓ Valider comme commande</button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ─── BOUTON DEMANDES FLOTTANT ─────────────────────────────────────────────────
-function BoutonDemandes({ count, onClick, T, acc }) {
-  const hasNew = count > 0;
-  return (
-    <div style={{ position: "relative", display: "inline-flex" }}>
-      {hasNew && (
-        <span style={{
-          position: "absolute", inset: 0, borderRadius: RADIUS.md,
-          border: "2px solid #e15a5a",
-          animation: "pulseRing 1.6s ease-out infinite",
-          pointerEvents: "none",
-        }} />
-      )}
-      <button onClick={onClick} style={{
-        display: "inline-flex", alignItems: "center", gap: 6,
-        background: hasNew ? "rgba(225,90,90,0.12)" : "transparent",
-        border: `1px solid ${hasNew ? "rgba(225,90,90,0.50)" : T.border}`,
-        borderRadius: RADIUS.md, padding: "8px 14px",
-        fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 600,
-        color: hasNew ? "#e15a5a" : T.textSub,
-        cursor: "pointer",
-        transition: "border-color .12s, color .12s",
-        position: "relative",
-      }}>
-        <Icon as={Bell} size={14}/>
-        Demandes ouvriers
-        {hasNew && (
-          <span style={{
-            background: "#e15a5a", color: "#fff", borderRadius: RADIUS.pill,
-            fontSize: 11, fontWeight: 900, padding: "1px 7px",
-            minWidth: 20, textAlign: "center",
-            animation: "badgePulse 1.2s ease-in-out infinite",
-          }}>{count}</span>
-        )}
-      </button>
-    </div>
-  );
-}
-
 // ─── VUE GROUPÉE (par fournisseur ou par chantier) ────────────────────────────
 function VueGroupee({ commandes, groupBy, chantiers, materiaux, T, acc, onEditRow }) {
   // Construit les groupes
@@ -1179,14 +919,11 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const [modalePhaseId, setModalePhaseId] = useState("");
   const [modalePhaseInterne, setModalePhaseInterne] = useState("");
   const [modaleLotId, setModaleLotId] = useState("");
-  const [panneauOuvert, setPanneauOuvert] = useState(false);
   const [modaleImport, setModaleImport] = useState(false);
-  const [besoins, setBesoins] = useState([]); // demandes ouvrier (nouveau modèle)
 
-  const isDemande = (r) => r.statut === "besoin_ouvrier" || r.statut === "besoin ouvrier" || r.statut === "besoin_ouvriers";
-  // Les demandes ouvrier viennent désormais de la table `besoins` (statut en_attente).
-  const demandes = besoins;
-  const commandes = rows.filter(r => !isDemande(r));
+  // Les demandes ouvrier sont désormais gérées sur la page « À passer » (paniers).
+  // Cette page ne montre plus que les commandes issues de commande_lignes.
+  const commandes = rows;
 
   const load = async () => {
     setLoading(true);
@@ -1233,18 +970,9 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     setMateriaux(data || []);
   };
 
-  const loadBesoins = async () => {
-    const { data } = await supabase.from("besoins")
-      .select("id, chantier_id, materiau_id, article, quantite, ouvrier_demandeur, notes, priorite, photo_url, created_at")
-      .eq("statut", "en_attente")
-      .order("created_at", { ascending: false });
-    setBesoins(data || []);
-  };
-
   useEffect(() => {
     load();
     loadMateriaux();
-    loadBesoins();
     supabase.from("phasages").select("id,chantier_id,chantier_nom,plan_travaux").then(({ data }) => setPhasages(data || []));
     loadLots().then(setLots);
   }, []);
@@ -1294,42 +1022,6 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     if (!mId) { setEditDraft(p => ({ ...p, materiau_id: null })); return; }
     const mat = materiaux.find(m => m.id === mId);
     if (mat) setEditDraft(p => ({ ...p, materiau_id: mId, fournisseur: mat.fournisseur || p.fournisseur || "" }));
-  };
-
-  const supprimerDemande = async (id) => {
-    if (!confirm("Supprimer cette demande ? Elle sera définitivement supprimée.")) return;
-    await supabase.from("besoins").delete().eq("id", id);
-    setBesoins(prev => prev.filter(b => b.id !== id));
-    if (besoins.filter(b => b.id !== id).length === 0) setPanneauOuvert(false);
-  };
-
-  const convertirDemande = async (demande, draft) => {
-    // Crée un bon de commande (en-tête + 1 ligne) à partir du besoin, puis
-    // marque le besoin comme "traité".
-    const qStr = (draft.quantite ?? demande.quantite ?? "").toString();
-    const qNum = parseFloat(qStr.replace(",", ".").replace(/[^0-9.]/g, ""));
-    const { data: cmd, error } = await supabase.from("commandes").insert({
-      type_evenement:     "commande",
-      doc_type:           "bon_commande",
-      doc_numero:         null,
-      numero_en_attente:  true,
-      fournisseur_nom:    draft.fournisseur?.trim() || null,
-      source:             "manuel",
-      statut_completude:  "a_completer",
-      statut_facturation: "en_attente_facture",
-      notes:              draft.notes?.trim() || `Converti depuis un besoin de ${demande.ouvrier_demandeur || "?"}`,
-    }).select("id").single();
-    if (error || !cmd) { alert("Erreur conversion : " + (error?.message || "inconnue")); return; }
-    await supabase.from("commande_lignes").insert({
-      commande_id: cmd.id,
-      libelle:     draft.article?.trim() || demande.article || "",
-      quantite:    isNaN(qNum) ? null : qNum,
-      materiau_id: draft.materiau_id || null,
-      chantier_id: draft.chantier_id || demande.chantier_id || null,
-    });
-    await supabase.from("besoins").update({ statut: "traite" }).eq("id", demande.id);
-    setBesoins(prev => prev.filter(b => b.id !== demande.id));
-    if (besoins.length <= 1) setPanneauOuvert(false);
   };
 
   const saveRow = async (row) => {
@@ -1556,17 +1248,6 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
         />
       )}
 
-      {/* Panneau demandes */}
-      {panneauOuvert && (
-        <PanneauDemandes
-          demandes={demandes} chantiers={chantiers} T={T}
-          onClose={() => setPanneauOuvert(false)}
-          onConvertir={convertirDemande}
-          onSupprimer={supprimerDemande}
-          materiaux={materiaux}
-        />
-      )}
-
       {/* Modale passage à "Commandé" */}
       {modaleCommande && (
         <div style={{
@@ -1689,7 +1370,6 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           </div>
         </div>
         <div className="cmd-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <BoutonDemandes count={demandes.length} onClick={() => setPanneauOuvert(true)} T={T} acc={acc} />
           <button
             onClick={() => setModaleImport(true)}
             style={{

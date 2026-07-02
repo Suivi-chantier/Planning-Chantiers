@@ -92,6 +92,9 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
     if (preview) return; // aperçu admin : lecture seule
     if (panierItems.length === 0) return;
     setSubmitting(true);
+    // Toutes les lignes de ce panier partagent un même panier_id : le bureau
+    // valide ensuite le panier entier (et non article par article).
+    const panierId = crypto.randomUUID();
     const rows = panierItems.map(({ article, qty }) => ({
       chantier_id: chantierId || null,
       materiau_id: article.libre ? null : article.id,
@@ -101,6 +104,7 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
       origine: "ouvrier",
       statut: "en_attente",
       priorite: urgent ? "urgent" : "normal",
+      panier_id: panierId,
     }));
     const { error } = await supabase.from("besoins").insert(rows);
     setSubmitting(false);
