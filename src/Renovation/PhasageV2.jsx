@@ -1628,10 +1628,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 onClick={() => setKpiDetail("vendu")}/>
               <KpiCard T={T} icon={Target} iconColor="#818cf8" label="MO prév."
                 value={fmtEur(moPrevChantier)}
-                sub={`${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`}/>
+                sub={`${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`}
+                onClick={() => setKpiDetail("mo_prev")}/>
               <KpiCard T={T} icon={Boxes} iconColor="#fb923c" label="Commandes prév."
                 value={fmtEur(commandesPrevChantier)}
-                sub="Estimé · matériaux liés"/>
+                sub="Estimé · matériaux liés"
+                onClick={() => setKpiDetail("commandes_prev")}/>
               <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label="Heures totales"
                 value={`${heuresReellesChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`}
                 sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}
@@ -2391,6 +2393,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             ],
             total: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
             totalLabel: "Marge nette", totalColor: margeColor, totalIsText: true,
+          };
+        } else if (kpiDetail === "mo_prev") {
+          // Coût MO prévu par ouvrage = heures vendues × taux global.
+          const rows = ouvrages
+            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hv: heuresVenduesOuvrage(o) }))
+            .filter(r => r.hv > 0)
+            .sort((a, b) => b.hv - a.hv)
+            .map(r => ({ main: r.main, sub: `${fmtH(r.hv)}h × ${tauxMOPrevEff}€/h`, right: eur(r.hv * tauxMOPrevEff) }));
+          cfg = {
+            icon: Target, color: "#818cf8", title: "Coût MO prévisionnel",
+            subtitle: `${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`,
+            empty: "Aucune heure vendue sur les ouvrages.",
+            rows,
+            total: moPrevChantier, totalLabel: "Total MO prévisionnel", totalColor: "#818cf8",
+          };
+        } else if (kpiDetail === "commandes_prev") {
+          // Matériaux prévus par ouvrage = cout_materiaux (estimé depuis la biblio).
+          const rows = ouvrages
+            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), value: coutMatOuvrage(o) }))
+            .filter(r => r.value > 0)
+            .sort((a, b) => b.value - a.value);
+          cfg = {
+            icon: Boxes, color: "#fb923c", title: "Commandes prévisionnelles",
+            subtitle: `${rows.length} ouvrage${rows.length > 1 ? "s" : ""} avec matériaux liés`,
+            empty: "Aucun matériau lié aux ouvrages (associe une fiche biblio pour estimer les commandes).",
+            rows: rows.map(r => ({ main: r.main, sub: r.sub, right: eur(r.value) })),
+            total: commandesPrevChantier, totalLabel: "Total commandes prév.", totalColor: "#fb923c",
           };
         }
         if (!cfg) return null;
