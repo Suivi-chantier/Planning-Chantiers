@@ -1,0 +1,39 @@
+name: Encours fournisseurs (mail hebdo vendredi soir)
+
+# Envoie chaque vendredi soir le récap "Encours fournisseurs" par mail à
+# certains utilisateurs (planning_config.encours_mail_destinataires, sinon
+# repli sur les admin + comptable actifs).
+#
+# Appelle l'endpoint /api/cron-encours-fournisseurs de l'app Vercel.
+#
+# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+
+on:
+  schedule:
+    - cron: '0 17 * * 5'        # Vendredi 17h UTC → 19h Paris (été), 18h (hiver)
+  workflow_dispatch:            # Bouton "Run workflow" dans GitHub pour tester
+
+jobs:
+  encours-fournisseurs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-encours-fournisseurs
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant — l'ajouter dans Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "Appel de l'endpoint encours fournisseurs…"
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://planning-chantiers.vercel.app/api/cron-encours-fournisseurs)
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::L'endpoint encours a renvoyé un statut non-200"
+            exit 1
+          fi
