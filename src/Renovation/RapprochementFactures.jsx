@@ -112,7 +112,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose }) {
           <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10, flexShrink: 0 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.fournisseur_nom || (isFacture ? "Facture" : "Reçu")}</div>
-              <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginTop: 2 }}>{isFacture ? "Facture fournisseur" : "Reçu / ticket payé comptant"}</div>
+              <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginTop: 2 }}>{isFacture ? "Facture fournisseur" : item.mode === "facture30j" ? "Facture (paiement à 30 jours)" : "Reçu / ticket payé comptant"}</div>
             </div>
             <button onClick={onClose} aria-label="Fermer" style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: T.text, cursor: "pointer", flexShrink: 0 }}>
               <Icon as={X} size={18} />
@@ -203,15 +203,26 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // "déjà payé" sur une saisie la retire d'ici (elle repasse en attente de facture).
   const loadHistorique = useCallback(async () => {
     setLoadingHist(true);
+    // Fournisseurs en mode "30j" (facturés directement : une facture par achat,
+    // payée à 30 jours). Leurs saisies valent facture -> à afficher ici.
+    const { data: fournData } = await supabase.from("fournisseurs").select("id, mode_paiement");
+    const ids30j = (fournData || []).filter(f => f.mode_paiement === "30j").map(f => f.id);
+    const set30j = new Set(ids30j);
+
+    // Commandes à afficher comme documents de dépense : payées comptant, OU
+    // facture directe d'un fournisseur 30j. Jamais celles rattachées à une facture.
+    let cq = supabase.from("commandes")
+      .select("id, fournisseur_id, fournisseur_nom, doc_numero, doc_type, type_evenement, date_doc, montant_ht, statut_completude, statut_facturation, photo_url, notes, created_at, lignes:commande_lignes(id, libelle, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
+      .is("facture_id", null);
+    cq = ids30j.length
+      ? cq.or(`statut_facturation.eq.facture,fournisseur_id.in.(${ids30j.join(",")})`)
+      : cq.eq("statut_facturation", "facture");
+
     const [fRes, cRes] = await Promise.all([
       supabase.from("factures")
         .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, photo_url, created_at")
         .order("created_at", { ascending: false }).limit(1000),
-      supabase.from("commandes")
-        .select("id, fournisseur_nom, doc_numero, doc_type, type_evenement, date_doc, montant_ht, statut_completude, statut_facturation, photo_url, notes, created_at, lignes:commande_lignes(id, libelle, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
-        .eq("statut_facturation", "facture")
-        .is("facture_id", null)
-        .order("created_at", { ascending: false }).limit(1000),
+      cq.order("created_at", { ascending: false }).limit(1000),
     ]);
     const factures = (fRes.data || []).map(f => ({
       key: `f_${f.id}`, kind: "facture", id: f.id,
@@ -220,13 +231,18 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       dateISO: f.date_facture || (f.created_at || "").slice(0, 10),
       raw: f,
     }));
-    const recus = (cRes.data || []).map(c => ({
-      key: `c_${c.id}`, kind: "recu", id: c.id,
-      fournisseur: c.fournisseur_nom || "", numero: c.doc_numero || "",
-      montant: c.montant_ht, statut: "recu",
-      dateISO: c.date_doc || (c.created_at || "").slice(0, 10),
-      raw: c,
-    }));
+    const recus = (cRes.data || []).map(c => {
+      const is30j = set30j.has(c.fournisseur_id);
+      return {
+        key: `c_${c.id}`, kind: "recu", id: c.id,
+        fournisseur: c.fournisseur_nom || "", numero: c.doc_numero || "",
+        montant: c.montant_ht,
+        statut: is30j ? "facture30j" : "comptant",
+        paye: c.statut_facturation === "facture",
+        dateISO: c.date_doc || (c.created_at || "").slice(0, 10),
+        raw: c,
+      };
+    });
     const all = [...factures, ...recus].sort((a, b) => (b.dateISO || "").localeCompare(a.dateISO || ""));
     setHistorique(all);
     setLoadingHist(false);
@@ -483,7 +499,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     const groupesMois = [...groupesMap.values()].sort((a, b) => b.mois.localeCompare(a.mois));
     const fmtEur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
     const badgeInfo = (it) => {
-      if (it.kind === "recu") return { label: "Payé comptant", sem: SEMANTIC.success };
+      if (it.kind === "recu") {
+        if (it.statut === "facture30j") return { label: it.paye ? "Facture 30j · payée" : "Facture 30j", sem: it.paye ? SEMANTIC.success : SEMANTIC.info };
+        return { label: "Payé comptant", sem: SEMANTIC.success };
+      }
       if (it.statut === "rapprochee") return { label: "Rapprochée", sem: SEMANTIC.success };
       if (it.statut === "archivee") return { label: "Archivée", sem: SEMANTIC.info };
       return { label: "À rapprocher", sem: SEMANTIC.warning };
@@ -518,7 +537,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
               {g.items.map(it => {
                 const badge = badgeInfo(it);
                 return (
-                  <div key={it.key} onClick={() => setDetail({ kind: it.kind, row: it.raw })}
+                  <div key={it.key} onClick={() => setDetail({ kind: it.kind, row: it.raw, mode: it.statut })}
                     style={{ ...card, marginBottom: SPACING.sm, display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
                     <div style={{ width: 34, height: 34, borderRadius: RADIUS.md, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <Icon as={it.kind === "facture" ? Receipt : FileText} size={16} color={T.textSub} />
@@ -526,7 +545,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: FONT.base.size, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.fournisseur || "Fournisseur ?"}</div>
                       <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>
-                        {it.kind === "facture" ? "Facture" : "Reçu comptant"}
+                        {it.kind === "facture" ? "Facture" : it.statut === "facture30j" ? "Facture (30j)" : "Reçu comptant"}
                         {it.numero ? ` · N° ${it.numero}` : ""}
                         {it.montant != null ? ` · ${fmtEur(it.montant)} € HT` : ""}
                       </div>
