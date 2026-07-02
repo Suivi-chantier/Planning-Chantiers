@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.4.1 action libre + tâche clarifiée — fix MessageSquare
+ * CRM Prospection — V19.5 fiche prospect ergonomique et exploitable
  *
  * Objectif :
  * - CRM volontairement simple
@@ -2390,6 +2390,64 @@ function PipelineView({
   );
 }
 
+function FicheSection({ title, icon, children, T, accent, helper }) {
+  const color = accent || T.accent;
+
+  return (
+    <section
+      style={{
+        border: `1px solid ${T.border}`,
+        borderRadius: 20,
+        padding: 12,
+        marginBottom: 12,
+        background: "linear-gradient(135deg, rgba(255,255,255,.045), rgba(255,255,255,.022))",
+        boxShadow: "0 14px 35px rgba(2,6,23,.14)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <span
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 11,
+              display: "grid",
+              placeItems: "center",
+              background: `${color}18`,
+              color,
+              border: `1px solid ${color}35`,
+              flexShrink: 0,
+            }}
+          >
+            <Icon as={icon} size={14} />
+          </span>
+
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: T.text, fontSize: 13, fontWeight: 950 }}>
+              {title}
+            </div>
+            {helper && (
+              <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2, lineHeight: 1.3 }}>
+                {helper}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
 function ProspectSummaryCard({ prospect, T }) {
   const detail = transformationScoreDetail(prospect);
   const conseiller = conseillerDisplayName(prospect.responsable) || "Conseiller non renseigné";
@@ -2434,8 +2492,12 @@ function ProspectSummaryCard({ prospect, T }) {
         border: `1px solid ${T.border}`,
         borderRadius: 20,
         padding: 12,
-        margin: "10px 0 12px",
-        background: "linear-gradient(135deg, rgba(255,255,255,.055), rgba(255,255,255,.025))",
+        margin: "10px 0 14px",
+        background: "linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.025))",
+        position: "sticky",
+        top: 0,
+        zIndex: 3,
+        backdropFilter: "blur(10px)",
       }}
     >
       <div
@@ -2802,7 +2864,15 @@ function ActionRow({ action, T }) {
   );
 
   return (
-    <div style={{ padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+    <div
+      style={{
+        padding: 10,
+        marginBottom: 8,
+        border: `1px solid ${T.border}`,
+        borderRadius: 14,
+        background: "rgba(255,255,255,.03)",
+      }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ color: T.text, fontWeight: 900, fontSize: 12 }}>
@@ -3979,6 +4049,54 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         .inv-prospection-kanban::-webkit-scrollbar { height: 10px; }
         .inv-prospection-kanban::-webkit-scrollbar-thumb { background: rgba(201,163,74,.35); border-radius: 999px; }
         .inv-prospection-kanban::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 999px; }
+
+        .inv-prospect-modal {
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+
+        .inv-prospect-modal-body {
+          overflow-y: auto;
+          padding: 16px;
+        }
+
+        .inv-prospect-modal-body::-webkit-scrollbar { width: 10px; }
+        .inv-prospect-modal-body::-webkit-scrollbar-thumb { background: rgba(201,163,74,.28); border-radius: 999px; }
+        .inv-prospect-modal-body::-webkit-scrollbar-track { background: rgba(255,255,255,.035); border-radius: 999px; }
+
+        .inv-prospect-section-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.05fr) minmax(380px, .95fr);
+          gap: 12px;
+          align-items: start;
+        }
+
+        .inv-prospect-actions-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
+          gap: 12px;
+        }
+
+        .inv-prospect-footer-actions {
+          position: sticky;
+          bottom: 0;
+          z-index: 4;
+          margin: 12px 0 10px;
+          border-radius: 18px;
+          padding: 10px;
+          border: 1px solid rgba(148,163,184,.18);
+          background: rgba(15,23,42,.88);
+          backdrop-filter: blur(10px);
+          box-shadow: 0 -18px 45px rgba(2,6,23,.28);
+        }
+
+        @media (max-width: 1080px) {
+          .inv-prospect-section-grid,
+          .inv-prospect-actions-grid {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
       <div
         style={{
@@ -4257,10 +4375,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             padding: 18,
           }}
         >
-          <div className="inv-card" onMouseDown={(e) => e.stopPropagation()} style={{ padding: 0, width: "min(1180px, 96vw)", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 30px 90px rgba(0,0,0,.45)" }}>
+          <div className="inv-card inv-prospect-modal" onMouseDown={(e) => e.stopPropagation()} style={{ padding: 0, width: "min(1240px, 97vw)", height: "min(92vh, 940px)", boxShadow: "0 30px 90px rgba(0,0,0,.45)" }}>
           <div
             className="inv-card-hd blue"
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}
           >
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Icon as={selected?.id ? Pencil : UserPlus} size={13} />
@@ -4284,7 +4402,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             </div>
           </div>
 
-          <div className="inv-card-bd" style={{ padding: 16 }}>
+          <div className="inv-card-bd inv-prospect-modal-body">
             {!selected && !isCreating ? (
               <div style={{ textAlign: "center", padding: 50, color: T.textMuted }}>
                 Sélectionne un prospect ou clique sur “Nouveau prospect”.
@@ -4297,165 +4415,190 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
                 <ProspectSummaryCard prospect={currentProspect} T={T} />
 
-                {selected?.id && <ScoreTransformationCard prospect={{ ...selected, ...form }} T={T} />}
-                {selected?.id && <FluidifyDetailCard prospect={selected} T={T} />}
+                <div className="inv-prospect-section-grid">
+                  <div>
+                    <FicheSection
+                      T={T}
+                      icon={UserPlus}
+                      title="Identité & contact"
+                      helper="Les informations minimales pour retrouver, contacter et qualifier le prospect."
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                          gap: 10,
+                        }}
+                      >
+                        <Field label="Prénom">
+                          <Input value={form.prenom} onChange={(v) => setField("prenom", v)} />
+                        </Field>
 
-                <SectionTitle icon={UserPlus} title="Identité du prospect" T={T} />
+                        <Field label="Nom">
+                          <Input value={form.nom} onChange={(v) => setField("nom", v)} />
+                        </Field>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-                    gap: 10,
-                    marginBottom: 12,
-                  }}
-                >
-                  <Field label="Prénom">
-                    <Input value={form.prenom} onChange={(v) => setField("prenom", v)} />
-                  </Field>
+                        <Field label="Téléphone">
+                          <Input value={form.telephone} onChange={(v) => setField("telephone", v)} />
+                        </Field>
 
-                  <Field label="Nom">
-                    <Input value={form.nom} onChange={(v) => setField("nom", v)} />
-                  </Field>
+                        <Field label="Email">
+                          <Input value={form.email} onChange={(v) => setField("email", v)} />
+                        </Field>
 
-                  <Field label="Téléphone">
-                    <Input value={form.telephone} onChange={(v) => setField("telephone", v)} />
-                  </Field>
+                        <Field label="Source">
+                          <Select value={form.source} onChange={(v) => setField("source", v)} options={SOURCES} />
+                        </Field>
 
-                  <Field label="Email">
-                    <Input value={form.email} onChange={(v) => setField("email", v)} />
-                  </Field>
+                        <Field label="Conseiller / responsable">
+                          <Input value={form.responsable} onChange={(v) => setField("responsable", v)} placeholder="Ex : Matthieu Fumoleau" />
+                        </Field>
+                      </div>
+                    </FicheSection>
 
-                  <Field label="Source">
-                    <Select value={form.source} onChange={(v) => setField("source", v)} options={SOURCES} />
-                  </Field>
+                    <FicheSection
+                      T={T}
+                      icon={Target}
+                      title="Projet & potentiel commercial"
+                      helper="Les critères qui permettent d’évaluer l’intérêt commercial du prospect."
+                      accent="#22C55E"
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                          gap: 10,
+                        }}
+                      >
+                        <Field label="Objectif">
+                          <Select value={form.objectif} onChange={(v) => setField("objectif", v)} options={OBJECTIFS} />
+                        </Field>
 
-                  <Field label="Conseiller / responsable">
-                    <Input value={form.responsable} onChange={(v) => setField("responsable", v)} placeholder="Ex : Matthieu Fumoleau" />
-                  </Field>
+                        <Field label="Budget">
+                          <Input type="number" value={form.budget_global} onChange={(v) => setField("budget_global", v)} placeholder="Budget libre" />
+                        </Field>
 
-                  <Field label="Objectif">
-                    <Select value={form.objectif} onChange={(v) => setField("objectif", v)} options={OBJECTIFS} />
-                  </Field>
+                        <Field label="Zone">
+                          <Input value={form.zone_recherche} onChange={(v) => setField("zone_recherche", v)} placeholder="Angers, 49..." />
+                        </Field>
 
-                  <Field label="Budget">
-                    <Input type="number" value={form.budget_global} onChange={(v) => setField("budget_global", v)} placeholder="Budget libre" />
-                  </Field>
-                </div>
+                        <Field label="Honoraires HT">
+                          <Input type="number" value={form.honoraires_estimes_ht} onChange={(v) => setField("honoraires_estimes_ht", v)} />
+                        </Field>
 
-                <SectionTitle icon={Target} title="Projet et potentiel commercial" T={T} />
+                        <Field label="RDV">
+                          <Input type="date" value={form.date_rdv} onChange={(v) => setField("date_rdv", v)} />
+                        </Field>
+                      </div>
+                    </FicheSection>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-                    gap: 10,
-                    marginBottom: 12,
-                  }}
-                >
-                  <Field label="Zone">
-                    <Input value={form.zone_recherche} onChange={(v) => setField("zone_recherche", v)} placeholder="Angers, 49..." />
-                  </Field>
-
-                  <Field label="Honoraires HT">
-                    <Input type="number" value={form.honoraires_estimes_ht} onChange={(v) => setField("honoraires_estimes_ht", v)} />
-                  </Field>
-
-                  <Field label="RDV">
-                    <Input type="date" value={form.date_rdv} onChange={(v) => setField("date_rdv", v)} />
-                  </Field>
-                </div>
-
-                <SectionTitle icon={CalendarDays} title="Suivi commercial et relances" T={T} />
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(220px, 1fr) 180px minmax(220px, 300px)",
-                    gap: 10,
-                    marginBottom: 10,
-                    alignItems: "end",
-                  }}
-                >
-                  <Field label="Prochaine action à réaliser">
-                    <Input
-                      value={form.prochaine_action}
-                      onChange={(v) => setField("prochaine_action", v)}
-                      placeholder="Écris librement l’action à réaliser..."
-                    />
-                  </Field>
-
-                  <Field label="Date action">
-                    <Input type="date" value={form.date_prochaine_action} onChange={(v) => setField("date_prochaine_action", v)} />
-                  </Field>
+                    <FicheSection
+                      T={T}
+                      icon={MessageCircle}
+                      title="Note de synthèse"
+                      helper="À lire avant chaque relance : besoin, freins, décision, suite à donner."
+                      accent="#8B5CF6"
+                    >
+                      <textarea
+                        className="inv-textarea"
+                        value={form.commentaire || ""}
+                        onChange={(e) => setField("commentaire", e.target.value)}
+                        rows={4}
+                        placeholder="Résumé rapide : besoin, échange, frein, suite à donner..."
+                        style={{ width: "100%", fontSize: 13 }}
+                      />
+                    </FicheSection>
+                  </div>
 
                   <div>
-                    <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, marginBottom: 5, textTransform: "uppercase", letterSpacing: ".06em" }}>
-                      Raccourcis date
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 0)}>J</button>
-                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 2)}>J+2</button>
-                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 7)}>J+7</button>
-                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 15)}>J+15</button>
-                    </div>
+                    {selected?.id && <ScoreTransformationCard prospect={{ ...selected, ...form }} T={T} />}
+                    {selected?.id && <FluidifyDetailCard prospect={selected} T={T} />}
+
+                    <FicheSection
+                      T={T}
+                      icon={CalendarDays}
+                      title="Suivi à réaliser"
+                      helper="Ce bloc pilote l’action commerciale à faire et le prochain jalon de suivi."
+                      accent={WA}
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(220px, 1fr) 160px",
+                          gap: 10,
+                          alignItems: "end",
+                        }}
+                      >
+                        <Field label="Prochaine action à réaliser">
+                          <Input
+                            value={form.prochaine_action}
+                            onChange={(v) => setField("prochaine_action", v)}
+                            placeholder="Écris librement l’action à réaliser..."
+                          />
+                        </Field>
+
+                        <Field label="Date action">
+                          <Input type="date" value={form.date_prochaine_action} onChange={(v) => setField("date_prochaine_action", v)} />
+                        </Field>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, marginBottom: 12 }}>
+                        <span style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, alignSelf: "center", marginRight: 2 }}>
+                          Actions rapides :
+                        </span>
+                        {PROCHAINES_ACTIONS.filter(Boolean).map((action) => (
+                          <button
+                            key={action}
+                            type="button"
+                            className="inv-btn inv-btn-out inv-btn-sm"
+                            onClick={() => setField("prochaine_action", action)}
+                            style={{
+                              opacity: form.prochaine_action === action ? 1 : .82,
+                              borderColor: form.prochaine_action === action ? T.accent : T.border,
+                            }}
+                          >
+                            {action}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                        <span style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, alignSelf: "center", marginRight: 2 }}>
+                          Dates rapides :
+                        </span>
+                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 0)}>J</button>
+                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 2)}>J+2</button>
+                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 7)}>J+7</button>
+                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 15)}>J+15</button>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(220px, 1fr) 160px",
+                          gap: 10,
+                          alignItems: "end",
+                        }}
+                      >
+                        <Field label="Prochain point d’étape client / prospect">
+                          <Input value={form.prochain_point_etape} onChange={(v) => setField("prochain_point_etape", v)} placeholder="Ex : Point décision, validation budget, retour proposition..." />
+                        </Field>
+
+                        <Field label="Date point d’étape">
+                          <Input type="date" value={form.date_prochain_point_etape} onChange={(v) => setField("date_prochain_point_etape", v)} />
+                        </Field>
+                      </div>
+                    </FicheSection>
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: -2, marginBottom: 12 }}>
-                  {PROCHAINES_ACTIONS.filter(Boolean).map((action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      className="inv-btn inv-btn-out inv-btn-sm"
-                      onClick={() => setField("prochaine_action", action)}
-                      style={{
-                        opacity: form.prochaine_action === action ? 1 : .82,
-                        borderColor: form.prochaine_action === action ? T.accent : T.border,
-                      }}
-                    >
-                      {action}
-                    </button>
-                  ))}
-                </div>
-
                 <div
+                  className="inv-prospect-footer-actions"
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "minmax(260px, 1fr) 180px",
-                    gap: 10,
-                    marginBottom: 10,
-                    alignItems: "end",
-                  }}
-                >
-                  <Field label="Prochain point d’étape client / prospect">
-                    <Input value={form.prochain_point_etape} onChange={(v) => setField("prochain_point_etape", v)} placeholder="Ex : Point décision, validation budget, retour proposition..." />
-                  </Field>
-
-                  <Field label="Date point d’étape">
-                    <Input type="date" value={form.date_prochain_point_etape} onChange={(v) => setField("date_prochain_point_etape", v)} />
-                  </Field>
-                </div>
-
-                <Field label="Note simple">
-                  <textarea
-                    className="inv-textarea"
-                    value={form.commentaire || ""}
-                    onChange={(e) => setField("commentaire", e.target.value)}
-                    rows={3}
-                    placeholder="Résumé rapide : besoin, échange, frein, suite à donner..."
-                    style={{ width: "100%", fontSize: 13 }}
-                  />
-                </Field>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
                     gap: 10,
                     alignItems: "center",
-                    marginTop: 10,
-                    marginBottom: 10,
                   }}
                 >
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -4517,18 +4660,20 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
                 {selected?.id && (
                   <div
+                    className="inv-prospect-actions-grid"
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(0, 1fr) minmax(360px, 430px)",
-                      gap: 12,
                       borderTop: `1px solid ${T.border}`,
                       paddingTop: 12,
+                      marginTop: 4,
                     }}
                   >
                     <div>
                       <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
                         <Icon as={MessageSquare} size={14} />
                         Historiser un échange
+                      </div>
+                      <div style={{ color: T.textMuted, fontSize: 11, marginTop: -4, marginBottom: 8 }}>
+                        À utiliser pour garder une trace d’un appel, email, WhatsApp, RDV ou retour client.
                       </div>
 
                       <div
@@ -4583,6 +4728,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                       <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
                         <Icon as={CheckCircle2} size={14} />
                         Assigner une tâche à un collaborateur
+                      </div>
+                      <div style={{ color: T.textMuted, fontSize: 11, marginTop: -4, marginBottom: 8 }}>
+                        À utiliser lorsqu’une action doit être réalisée par un membre de l’équipe avec une date.
                       </div>
 
                       <div
@@ -4647,8 +4795,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     </div>
 
                     <div>
-                      <div style={{ color: T.text, fontSize: 13, fontWeight: 900, marginBottom: 7 }}>
-                        Dernières actions
+                      <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Icon as={ListChecks} size={14} />
+                        Historique des échanges
                       </div>
 
                       <div style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
