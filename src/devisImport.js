@@ -161,7 +161,11 @@ export async function parseDevisExcel(file, lots = [], bibliotheque = []) {
     if (colP === -1 && (
       c.includes("prix ht") || c.includes("prix h") ||
       c.includes("montant ht") || c.includes("montant h") ||
-      c.includes("total ht") || c.includes("montant") ||
+      // normalise() transforme les points en espaces : "Total H.T" → "total h t".
+      // On matche donc "total h" (et pas seulement "total ht") pour attraper
+      // les en-têtes ponctués usuels des devis (P.U.H.T / Total H.T / Total TTC).
+      c.includes("total ht") || c.includes("total h") ||
+      c.includes("total ttc") || c.includes("montant") ||
       c === "ht" || c === "total"
     )) colP = i;
   });
