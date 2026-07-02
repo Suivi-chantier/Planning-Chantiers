@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, TAUX_MO_PREV_DEFAUT } from "../constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
@@ -677,6 +677,65 @@ function OngletFournisseurs({ T, acc }) {
   };
   useEffect(() => { charger(); }, []);
 
+  // ── Normalisation rétroactive des fournisseurs sur les saisies existantes ──
+  const [normRunning, setNormRunning] = useState(false);
+  const normaliser = async () => {
+    setNormRunning(true);
+    try {
+      const [cRes, fRes] = await Promise.all([
+        supabase.from("commandes").select("id, fournisseur_nom"),
+        supabase.from("factures").select("id, fournisseur_nom"),
+      ]);
+      const rows = [...(cRes.data || []), ...(fRes.data || [])];
+      const noms = [...new Set(rows.map(r => (r.fournisseur_nom || "").trim()).filter(Boolean))];
+      if (!noms.length) { flash("ok", "Aucun fournisseur à normaliser."); setNormRunning(false); return; }
+
+      const ref = fournisseurs.map(f => ({ id: f.id, nom: f.nom }));
+      const norm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+      const firstTok = s => (norm(s).split(" ").find(w => w.length > 2) || norm(s));
+
+      // Passe 1 : match sur le référentiel existant ; sinon regroupement par marque.
+      const mapping = {};      // nom exact -> { id, nom }
+      const clusters = {};     // 1er mot -> [noms non reconnus]
+      for (const nom of noms) {
+        const { fournisseur } = matchFournisseur(nom, ref);
+        if (fournisseur) mapping[nom] = { id: fournisseur.id, nom: fournisseur.nom };
+        else { const t = firstTok(nom); (clusters[t] = clusters[t] || []).push(nom); }
+      }
+      const canoniques = Object.values(clusters).map(g => g.slice().sort((a, b) => a.length - b.length)[0]);
+      const nomEstTraite = (r) => {
+        const n = (r.fournisseur_nom || "").trim();
+        return !!mapping[n] || Object.values(clusters).some(g => g.includes(n));
+      };
+      const nbDocs = rows.filter(nomEstTraite).length;
+
+      const ok = window.confirm(
+        `Normalisation des fournisseurs :\n\n` +
+        `• ${nbDocs} document(s) seront rattachés au bon fournisseur.\n` +
+        `• ${canoniques.length} nouveau(x) fournisseur(s) créé(s) : ${canoniques.join(", ") || "—"}\n\n` +
+        `Appliquer ?`
+      );
+      if (!ok) { setNormRunning(false); return; }
+
+      // Créer un fournisseur par cluster non reconnu (nom le plus court = canonique).
+      for (const g of Object.values(clusters)) {
+        const canonique = g.slice().sort((a, b) => a.length - b.length)[0];
+        const { data: nf } = await supabase.from("fournisseurs").insert({ nom: canonique }).select("id, nom").single();
+        if (nf) g.forEach(n => { mapping[n] = { id: nf.id, nom: nf.nom }; });
+      }
+      // Appliquer : rattachement par nom exact.
+      for (const [nom, tgt] of Object.entries(mapping)) {
+        await supabase.from("commandes").update({ fournisseur_id: tgt.id, fournisseur_nom: tgt.nom }).eq("fournisseur_nom", nom);
+        await supabase.from("factures").update({ fournisseur_id: tgt.id, fournisseur_nom: tgt.nom }).eq("fournisseur_nom", nom);
+      }
+      flash("ok", `✓ Normalisation terminée : ${nbDocs} document(s) rattaché(s), ${canoniques.length} fournisseur(s) créé(s).`);
+      charger();
+    } catch (e) {
+      flash("err", "Erreur normalisation : " + (e?.message || e));
+    }
+    setNormRunning(false);
+  };
+
   const resetDraft = () => setDraft({ nom: "", email: "", mail_type: MAIL_TYPE_DEFAUT });
 
   const ouvrirForm = (f = null) => {
@@ -746,16 +805,27 @@ function OngletFournisseurs({ T, acc }) {
             Annuaire des fournisseurs et modèles d'email de commande associés. Les articles de la bibliothèque matériaux peuvent être rattachés à un fournisseur.
           </div>
         </div>
-        <button onClick={() => showForm ? fermerForm() : ouvrirForm()} style={{
-          display:"inline-flex", alignItems:"center", gap:6,
-          background: showForm ? "transparent" : acc.accent, color: showForm ? T.textSub : acc.onAccent,
-          border: showForm ? `1px solid ${T.border}` : "none",
-          borderRadius:RADIUS.md, padding:"9px 16px",
-          fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800, cursor:"pointer",
-        }}>
-          <Icon as={showForm ? X : Plus} size={13}/>
-          {showForm ? "Annuler" : "Nouveau fournisseur"}
-        </button>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          <button onClick={normaliser} disabled={normRunning} title="Rattache toutes les commandes/factures déjà saisies au bon fournisseur (et crée les manquants)" style={{
+            display:"inline-flex", alignItems:"center", gap:6,
+            background:"transparent", color:T.textSub, border:`1px solid ${T.border}`,
+            borderRadius:RADIUS.md, padding:"9px 14px",
+            fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700, cursor: normRunning ? "not-allowed" : "pointer",
+          }}>
+            <Icon as={Truck} size={13}/>
+            {normRunning ? "Normalisation…" : "Normaliser les saisies"}
+          </button>
+          <button onClick={() => showForm ? fermerForm() : ouvrirForm()} style={{
+            display:"inline-flex", alignItems:"center", gap:6,
+            background: showForm ? "transparent" : acc.accent, color: showForm ? T.textSub : acc.onAccent,
+            border: showForm ? `1px solid ${T.border}` : "none",
+            borderRadius:RADIUS.md, padding:"9px 16px",
+            fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800, cursor:"pointer",
+          }}>
+            <Icon as={showForm ? X : Plus} size={13}/>
+            {showForm ? "Annuler" : "Nouveau fournisseur"}
+          </button>
+        </div>
       </div>
 
       {/* Recherche */}
