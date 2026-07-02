@@ -384,49 +384,6 @@ function Sidebar({
         </button>
       </div>
 
-      {/* Barre d'édition de l'ordre (menu déplié uniquement) */}
-      {!collapsed && (
-        <div style={{
-          display:"flex", alignItems:"center", justifyContent:"space-between",
-          padding:"6px 12px 0", gap:6,
-        }}>
-          {editOrder ? (
-            <>
-              <span style={{ fontSize:10.5, fontWeight:700, letterSpacing:.5, textTransform:"uppercase",
-                color:acc.accent, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                Glissez pour réorganiser
-              </span>
-              {customOrder && (
-                <button onClick={resetOrder} title="Rétablir l'ordre par défaut" style={{
-                  background:"transparent", border:"none", cursor:"pointer", padding:4,
-                  color:"rgba(255,255,255,0.5)", display:"flex", borderRadius:RADIUS.md,
-                }}
-                  onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <Icon as={RotateCcw} size={14}/>
-                </button>
-              )}
-              <button onClick={() => { setEditOrder(false); setDragId(null); setOverId(null); }}
-                title="Terminer" style={{
-                  background:acc.bg10, border:"none", cursor:"pointer", padding:4,
-                  color:acc.accent, display:"flex", borderRadius:RADIUS.md,
-                }}>
-                <Icon as={Check} size={14}/>
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setEditOrder(true)} title="Modifier l'ordre des onglets" style={{
-              marginLeft:"auto", background:"transparent", border:"none", cursor:"pointer",
-              padding:4, color:"rgba(255,255,255,0.4)", display:"flex", borderRadius:RADIUS.md,
-            }}
-              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.7)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}>
-              <Icon as={Pencil} size={13}/>
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Nav items */}
       <nav style={{ flex:1, padding: collapsed ? "8px 6px" : "8px", overflowY:"auto" }}>
         {nav.map(n => {
@@ -496,9 +453,49 @@ function Sidebar({
           animation: connected && !syncing ? "pulse 2s infinite" : "none",
         }}/>
         {!collapsed && (
-          <span style={{ fontSize: FONT.xs.size + 1, color: "rgba(255,255,255,0.55)", letterSpacing: .2 }}>
-            {syncing ? "Synchronisation…" : connected ? `En ligne${lastSync ? ` · ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}` : ""}` : "Hors ligne"}
+          <span style={{ fontSize: FONT.xs.size + 1,
+            color: editOrder ? acc.accent : "rgba(255,255,255,0.55)", letterSpacing: .2,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            {editOrder
+              ? "Glissez pour réorganiser"
+              : syncing ? "Synchronisation…" : connected ? `En ligne${lastSync ? ` · ${lastSync.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}` : ""}` : "Hors ligne"}
           </span>
+        )}
+
+        {/* Modifier l'ordre des onglets */}
+        {!collapsed && (
+          <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:2 }}>
+            {editOrder ? (
+              <>
+                {customOrder && (
+                  <button onClick={resetOrder} title="Rétablir l'ordre par défaut" style={{
+                    background:"transparent", border:"none", cursor:"pointer", padding:5,
+                    color:"rgba(255,255,255,0.5)", display:"flex", borderRadius:RADIUS.md,
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.08)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <Icon as={RotateCcw} size={14}/>
+                  </button>
+                )}
+                <button onClick={() => { setEditOrder(false); setDragId(null); setOverId(null); }}
+                  title="Terminer" style={{
+                    background:acc.bg10, border:"none", cursor:"pointer", padding:5,
+                    color:acc.accent, display:"flex", borderRadius:RADIUS.md,
+                  }}>
+                  <Icon as={Check} size={14}/>
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditOrder(true)} title="Modifier l'ordre des onglets" style={{
+                background:"transparent", border:"none", cursor:"pointer", padding:5,
+                color:"rgba(255,255,255,0.4)", display:"flex", borderRadius:RADIUS.md,
+              }}
+                onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.75)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}>
+                <Icon as={Pencil} size={13}/>
+              </button>
+            )}
+          </div>
         )}
       </div>
 
