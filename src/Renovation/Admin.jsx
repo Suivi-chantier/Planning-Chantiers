@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT } from "../constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { Icon } from "../ui";
 import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
@@ -1519,7 +1519,7 @@ function OngletHistorique({ T, acc, chantiers }) {
   );
 }
 
-function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
+function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,tauxMOPrev=0,setTauxMOPrev,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
   const [adminTab,setAdminTab]=useState("vue");
   const [newOuvrier,setNewOuvrier]=useState("");
@@ -2997,9 +2997,41 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="taux"&&(
         <div className="ac">
-          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux horaires</div>
+          {/* Taux MO prévisionnel global — base du coût MO PRÉVU (heures vendues ×
+              ce taux) dans le phasage v2 et la page Chantiers. Distinct des taux
+              par ouvrier ci-dessous, qui servent au coût MO RÉEL (pointages). */}
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux MO prévisionnel</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
+            Taux horaire moyen utilisé pour estimer le <strong>coût MO prévisionnel</strong> (heures vendues × ce taux) dans le phasage et les fiches chantier. Défaut : {TAUX_MO_PREV_DEFAUT} €/h.
+          </div>
+          <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+            <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>Taux horaire moyen (prévisionnel)</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input
+                type="number" min="0" step="0.5"
+                value={tauxMOPrev||""}
+                onChange={e=>{
+                  const v=parseFloat(e.target.value)||0;
+                  setTauxMOPrev&&setTauxMOPrev(v);
+                  saveConfig("taux_mo_previsionnel",v);
+                }}
+                placeholder={String(TAUX_MO_PREV_DEFAUT)}
+                style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                  border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                  fontFamily:"inherit",fontSize:15,fontWeight:700,outline:"none"}}
+              />
+              <span style={{fontSize:13,color:T.textMuted}}>€/h</span>
+            </div>
+            {!(tauxMOPrev>0)&&(
+              <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
+                non réglé → {TAUX_MO_PREV_DEFAUT} €/h
+              </span>
+            )}
+          </div>
+
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux horaires par ouvrier</div>
           <div style={{color:T.textSub,fontSize:13,marginBottom:18}}>
-            Coût horaire de chaque ouvrier — utilisé pour calculer le coût MO dans le phasage.
+            Coût horaire de chaque ouvrier — utilisé pour calculer le coût MO <strong>réel</strong> (pointages) dans le phasage.
           </div>
           {ouvriers.map((o,i)=>(
             <div key={i} className="ar" style={{gap:12}}>

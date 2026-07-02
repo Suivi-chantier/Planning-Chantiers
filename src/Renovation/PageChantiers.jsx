@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
-import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere } from "../constants";
+import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
@@ -400,9 +400,12 @@ function NotesChantier({ chantierId, T, accent }) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
+export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
+  // Lignes de commande du chantier sélectionné — base du « Matériaux
+  // prévisionnel » (somme des commandes liées). Chargées à la sélection.
+  const [commandeLignes, setCommandeLignes] = useState([]);
   // P9 : pointages globaux (tous chantiers) pour dériver heures réelles + coût MO
   // dans calcFinances, suivi par ouvrage et totaux par tâche.
   const [pointages, setPointages]       = useState([]);
@@ -500,6 +503,19 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     supabase.from("planning_config").select("value").eq("key", "chantier_adresses").maybeSingle()
       .then(({ data }) => setChantierAdresses(data?.value || {}));
   }, []);
+
+  // ── Chargement des lignes de commande du chantier sélectionné ──
+  // Base du « Matériaux prévisionnel » = somme des commandes liées. Si la table
+  // n'existe pas (schéma sans commandes), on garde [] → prévisionnel matériaux 0.
+  useEffect(() => {
+    if (!selected) { setCommandeLignes([]); return; }
+    let cancelled = false;
+    supabase.from("commande_lignes")
+      .select("id, quantite, prix_unitaire, prix_total, chantier_id")
+      .eq("chantier_id", selected)
+      .then(({ data }) => { if (!cancelled) setCommandeLignes(data || []); });
+    return () => { cancelled = true; };
+  }, [selected]);
 
   // Resync draft quand on change de chantier
   useEffect(() => {
@@ -1582,36 +1598,19 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
         {/* ── Section 2bis : Budget prévisionnel & suivi des coûts ── */}
         {selectedPhasage && (() => {
-          const TAUX_DEFAUT = 20;
           const allTaches   = PHASES.flatMap(ph => (selectedPhasage.plan_travaux?.[ph.id] || []));
-          // Taux moyen pondéré : on tente d'abord par sous-tâche (ancien modèle
-          // qui avait heures_vendues pondérées par ratio). Sinon on retombe sur
-          // une moyenne arithmétique des taux des ouvriers assignés.
-          let sumPond = 0, sumPoids = 0;
-          allTaches.forEach(t => {
-            const hV = parseFloat(t.heures_vendues) || 0;
-            if (hV <= 0) return;
-            const pO = (t.ouvriers || [])[0] || "";
-            const taux = pO ? (parseFloat(tauxHoraires?.[pO]) || TAUX_DEFAUT) : TAUX_DEFAUT;
-            sumPond  += hV * taux;
-            sumPoids += hV;
-          });
           // Heures vendues : nouveau modèle = somme des heures_devis des ouvrages
-          // (source de vérité depuis le refactor). Fallback : somme par tâche.
+          // (source de vérité depuis le refactor). Fallback : somme des
+          // heures_vendues des tâches du planning (ancien modèle).
           const totalHVenduOuvrages = (selectedPhasage.ouvrages || []).reduce(
             (s, o) => s + (parseFloat(o.heures_devis) || 0), 0
           );
-          const totalHVendues = totalHVenduOuvrages > 0 ? totalHVenduOuvrages : sumPoids;
-          // Taux moyen : si pas de pondération par sous-tâche, moyenne
-          // arithmétique des taux des ouvriers assignés (fallback TAUX_DEFAUT).
-          let tauxMoyen = sumPoids > 0 ? sumPond / sumPoids : 0;
-          if (tauxMoyen === 0 && allTaches.length > 0) {
-            const tauxParTache = allTaches.map(t => {
-              const pO = (t.ouvriers || [])[0] || "";
-              return pO ? (parseFloat(tauxHoraires?.[pO]) || TAUX_DEFAUT) : TAUX_DEFAUT;
-            });
-            tauxMoyen = tauxParTache.reduce((a, b) => a + b, 0) / tauxParTache.length;
-          }
+          const totalHVendues = totalHVenduOuvrages > 0
+            ? totalHVenduOuvrages
+            : allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
+          // Coût MO prévisionnel = heures vendues × taux horaire global réglé
+          // dans Admin → Taux MO prévisionnel (repli sur le défaut si non réglé).
+          const tauxMoyen      = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT;
           const coutMOPrev     = totalHVendues * tauxMoyen;
           const coutMOReel     = finances?.coutMO || 0;
 
@@ -1632,7 +1631,13 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             };
           }).filter(l => l.hasMat);
 
-          const totalMatPrev = lignesPhases.reduce((s, l) => s + l.coutPrev, 0);
+          // Matériaux prévisionnel = somme des lignes de commande liées au
+          // chantier (prix_total, sinon PU × quantité). Remplace l'ancien total
+          // basé sur les matériaux saisis manuellement par phase (souvent vide
+          // après un import de devis).
+          const totalMatPrev = commandeLignes.reduce(
+            (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0
+          );
           const totalMatReel = lignesPhases.reduce((s, l) => s + l.coutReel, 0);
           const coutTotalPrev = coutMOPrev + totalMatPrev;
           const coutTotalReel = coutMOReel + totalMatReel;
@@ -1664,8 +1669,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                       <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
-                        Taux moyen pondéré
-                        <span style={{ fontSize: 10, color: textMuted, opacity: .7, marginLeft: 5, fontStyle: "italic" }}>(défaut 20 €/h)</span>
+                        Taux MO prévisionnel
+                        <span style={{ fontSize: 10, color: textMuted, opacity: .7, marginLeft: 5, fontStyle: "italic" }}>{tauxMOPrev > 0 ? "(réglages)" : `(défaut ${TAUX_MO_PREV_DEFAUT} €/h)`}</span>
                       </span>
                       <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, fontFamily: "'DM Mono',monospace" }}>{tauxMoyen.toFixed(2)} €/h</span>
                     </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase";
-import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId, LOGO_RENO_H, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { Icon } from "../ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
@@ -70,7 +70,7 @@ function getDateFromWeekAndDay(weekId, jourName) {
   return `${y}-${mo}-${da}`;
 }
 
-function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, branch = "renovation" }) {
+function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
 
   // ── État ────────────────────────────────────────────────────────────────
@@ -640,6 +640,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
   // (somme heures_reelles des tâches, gère le format tableau v1 via helper).
   const heuresVenduesChantier = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
   const heuresReellesChantier = ouvrages.reduce((s, o) => s + (o.taches || []).reduce((ss, t) => ss + tacheHeuresReelles(t), 0), 0);
+  // ── PRÉVISIONNEL ──────────────────────────────────────────────────────────
+  // Coût MO PRÉVU = heures vendues (Σ heures_devis) × taux horaire global réglé
+  // dans Admin → Taux MO prévisionnel (repli sur le défaut si non réglé).
+  // À distinguer du « Coût MO » réel (coutMOChantier) issu des pointages.
+  const tauxMOPrevEff = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT;
+  const moPrevChantier = heuresVenduesChantier * tauxMOPrevEff;
+  // Total prévisionnel des commandes = somme de toutes les lignes de commande
+  // liées au chantier (identique à coutMatChantier ; alias pour le KPI dédié).
+  const commandesPrevChantier = coutMatChantier;
   // Frais généraux = taux horaire × heures vendues (configurable dans Suivi
   // direction). On garde fg_pct en compat mais on privilégie fg_taux_horaire.
   const fgTauxHoraire = (() => {
@@ -1615,6 +1624,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, br
                 value={fmtEur(prixHTChantier)}
                 sub={`${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""}`}
                 onClick={() => setKpiDetail("vendu")}/>
+              <KpiCard T={T} icon={Target} iconColor="#818cf8" label="MO prév."
+                value={fmtEur(moPrevChantier)}
+                sub={`${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`}/>
+              <KpiCard T={T} icon={Boxes} iconColor="#fb923c" label="Commandes prév."
+                value={fmtEur(commandesPrevChantier)}
+                sub={`${commandeLignes.length} ligne${commandeLignes.length > 1 ? "s" : ""} liée${commandeLignes.length > 1 ? "s" : ""}`}
+                onClick={() => setMatKpiModal(true)}/>
               <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label="Heures totales"
                 value={`${heuresReellesChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`}
                 sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}

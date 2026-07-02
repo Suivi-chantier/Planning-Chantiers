@@ -140,6 +140,12 @@ export function calcAvancementPondere(ouvrages, allTaches) {
   return Math.round(sumPondere / sumPoids);
 }
 
+// Taux horaire de main d'œuvre PRÉVISIONNEL par défaut (€/h). Sert à estimer le
+// coût MO prévu (heures vendues × taux) dans le phasage v2 et la page Chantiers
+// quand aucun taux global n'a été réglé dans Admin → Taux horaires. La valeur
+// réglée est stockée dans planning_config sous la clé "taux_mo_previsionnel".
+export const TAUX_MO_PREV_DEFAUT = 25;
+
 export const DEFAULT_OUVRIERS=["JP","Stev","Kev","Reza","Hamed","Mady","Yann","Julien","Steven"];
 export const DEFAULT_CHANTIERS=[
   {id:"lamartine",nom:"LAMARTINE",couleur:"#c8d8f0"},
