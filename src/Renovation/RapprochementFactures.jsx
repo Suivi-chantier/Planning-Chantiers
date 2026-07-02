@@ -98,14 +98,15 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
   useEffect(() => { loadFactures(); }, [loadFactures]);
 
-  // Apparie une liste de BL aux commandes (doc_type='bl', non encore facturées)
+  // Apparie une liste de BL aux commandes NON encore facturées, par NUMÉRO,
+  // quel que soit le doc_type : une commande saisie comme "ticket" ou "bon de
+  // commande" mais portant le n° de BL doit quand même être retrouvée.
   const matchBls = useCallback(async (blsList, fournisseurFacture) => {
     const { data } = await supabase
       .from("commandes")
       .select("id, doc_numero, fournisseur_nom, montant_ht, statut_facturation")
-      .eq("doc_type", "bl")
       .neq("statut_facturation", "facture")
-      .limit(1000);
+      .limit(2000);
     const candidates = data || [];
     return blsList.map(bl => {
       const matches = candidates.filter(c => c.doc_numero && norm(c.doc_numero) === norm(bl.bl_numero));

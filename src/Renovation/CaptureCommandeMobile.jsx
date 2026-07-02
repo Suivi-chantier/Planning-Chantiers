@@ -479,10 +479,12 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   // ════════════ ÉCRAN ACCUEIL ════════════
   if (step === "home") {
     const q = recherche.trim().toLowerCase();
+    const qn = q.replace(/\s+/g, ""); // n° sans espaces
     const matchDoc = (c) => {
       if (!q) return true;
       return (c.fournisseur_nom || "").toLowerCase().includes(q)
         || (c.doc_numero || "").toLowerCase().includes(q)
+        || (c.doc_numero || "").toLowerCase().replace(/\s+/g, "").includes(qn)
         || (c.lignes || []).some(l => (l.libelle || "").toLowerCase().includes(q));
     };
     const filtres = recents.filter(matchDoc);
@@ -556,7 +558,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
 
         {/* Sélecteur de vue */}
         <div style={{ display: "flex", gap: 8, marginBottom: SPACING.sm }}>
-          {[{ id: "recentes", label: "Récentes" }, { id: "chantier", label: "Par chantier" }].map(v => {
+          {[{ id: "recentes", label: "Historique" }, { id: "chantier", label: "Par chantier" }].map(v => {
             const on = vueHome === v.id;
             return (
               <button key={v.id} onClick={() => setVueHome(v.id)} style={{
