@@ -6,7 +6,7 @@ import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
   ChevronLeft, ChevronDown, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
-  Building2, Package, ExternalLink,
+  Building2, Package, ExternalLink, Pencil,
 } from "lucide-react";
 
 const EDGE_ANALYSE_COMMANDE =
@@ -90,19 +90,53 @@ async function analyseCommande(images) {
 
 const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", lot_id: "" });
 
-// ── Modale de consultation d'un document scanné (lecture seule) ──
-function DetailModale({ commande: c, chantiers, lots, T, onClose }) {
+// ── Modale de détail d'un document — consultation ET correction ──
+function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }) {
   const nomChantier = (id) => chantiers.find(ch => String(ch.id) === String(id))?.nom || "Sans chantier";
   const couleurChantier = (id) => chantiers.find(ch => String(ch.id) === String(id))?.couleur || T.textSub;
   const lotLabel = (id) => lots.find(l => l.id === id)?.label || "";
-  const lignes = c.lignes || [];
-  const totalLignes = lignes.reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
+  const num = (v) => { if (v == null || v === "") return null; const n = parseFloat(String(v).replace(",", ".").replace(/[^0-9.]/g, "")); return isNaN(n) ? null : n; };
+
+  const [edit, setEdit] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dejaPaye, setDejaPaye] = useState(c.statut_facturation === "facture");
+  const [lignesE, setLignesE] = useState(() => (c.lignes || []).map(l => ({ ...l })));
+  const setLigne = (i, patch) => setLignesE(prev => prev.map((l, j) => j === i ? { ...l, ...patch } : l));
+
+  const lignes = edit ? lignesE : (c.lignes || []);
+  const totalLignes = lignes.reduce((s, l) => s + (num(l.prix_total) || 0), 0);
   const { label: statutLabel, sem } = statutInfo(c);
   const dateDoc = c.date_doc ? new Date(c.date_doc).toLocaleDateString("fr-FR") : "—";
   const dateScan = c.created_at ? new Date(c.created_at).toLocaleDateString("fr-FR") : "";
 
   const infoStyle = { fontSize: FONT.xs.size, color: T.textSub, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginBottom: 2 };
   const valStyle = { fontSize: FONT.base.size, color: T.text, fontWeight: 600 };
+  const inp = { width: "100%", boxSizing: "border-box", padding: "8px 10px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.sm, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none" };
+
+  const enregistrer = async () => {
+    setSaving(true);
+    await supabase.from("commandes").update({
+      statut_facturation: dejaPaye ? "facture" : "en_attente_facture",
+    }).eq("id", c.id);
+    for (const l of lignesE) {
+      await supabase.from("commande_lignes").update({
+        chantier_id: l.chantier_id || null,
+        lot_id: l.lot_id || null,
+        quantite: num(l.quantite),
+        prix_total: num(l.prix_total),
+        prix_verrouille: dejaPaye,
+      }).eq("id", l.id);
+    }
+    setSaving(false);
+    onSaved?.();
+    onClose();
+  };
+
+  const annuler = () => {
+    setEdit(false);
+    setDejaPaye(c.statut_facturation === "facture");
+    setLignesE((c.lignes || []).map(l => ({ ...l })));
+  };
 
   return (
     <>
@@ -122,7 +156,12 @@ function DetailModale({ commande: c, chantiers, lots, T, onClose }) {
                 {DOC_TYPE_LABEL[c.doc_type] || "Document"} · {TYPE_EVT_LABEL[c.type_evenement] || c.type_evenement}
               </div>
             </div>
-            <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{statutLabel}</span>
+            {!edit && <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{statutLabel}</span>}
+            {!edit && (
+              <button onClick={() => setEdit(true)} title="Corriger cette saisie" style={{ background: acc.bg10, border: `1px solid ${acc.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: acc.accent, cursor: "pointer", flexShrink: 0 }}>
+                <Icon as={Pencil} size={16} />
+              </button>
+            )}
             <button onClick={onClose} aria-label="Fermer" style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: T.text, cursor: "pointer", flexShrink: 0 }}>
               <Icon as={X} size={18} />
             </button>
@@ -144,20 +183,52 @@ function DetailModale({ commande: c, chantiers, lots, T, onClose }) {
               <div><div style={infoStyle}>Numéro</div><div style={valStyle}>{c.doc_numero || (c.numero_en_attente ? "En attente" : "—")}</div></div>
               <div><div style={infoStyle}>Date doc.</div><div style={valStyle}>{dateDoc}</div></div>
               <div><div style={infoStyle}>Montant HT</div><div style={valStyle}>{c.montant_ht != null ? `${c.montant_ht} €` : "—"}</div></div>
-              <div><div style={infoStyle}>Facturation</div><div style={valStyle}>{c.statut_facturation === "facture" ? "Payé / facturé" : "En attente facture"}</div></div>
+              {!edit && <div><div style={infoStyle}>Facturation</div><div style={valStyle}>{c.statut_facturation === "facture" ? "Payé / facturé" : "En attente facture"}</div></div>}
               {c.saisi_par && <div><div style={infoStyle}>Saisi par</div><div style={valStyle}>{c.saisi_par}</div></div>}
               {dateScan && <div><div style={infoStyle}>Scanné le</div><div style={valStyle}>{dateScan}</div></div>}
             </div>
 
-            {c.notes && (
+            {/* Correction : bascule "déjà payé" */}
+            {edit && (
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "10px 12px", marginBottom: SPACING.md }}>
+                <input type="checkbox" checked={dejaPaye} onChange={e => setDejaPaye(e.target.checked)} style={{ width: 18, height: 18, accentColor: acc.accent }} />
+                <span style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 600 }}>
+                  Déjà payé / pas de facture à venir
+                  <span style={{ display: "block", fontSize: FONT.xs.size, fontWeight: 400, color: T.textSub }}>
+                    {dejaPaye ? "Coût figé (comptant)." : "En attente : le coût sera confirmé au rapprochement de la facture."}
+                  </span>
+                </span>
+              </label>
+            )}
+
+            {c.notes && !edit && (
               <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "10px 12px", marginBottom: SPACING.md, fontSize: FONT.sm.size, color: T.text }}>{c.notes}</div>
             )}
 
             <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: T.textSub, marginBottom: 8 }}>
               Articles ({lignes.length})
             </div>
+
             {lignes.length === 0 ? (
               <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>Aucune ligne enregistrée.</div>
+            ) : edit ? (
+              lignesE.map((l, i) => (
+                <div key={l.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: FONT.base.size, fontWeight: 600, color: T.text, marginBottom: 6 }}>{l.libelle || "—"}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                    <input inputMode="decimal" value={l.quantite ?? ""} onChange={e => setLigne(i, { quantite: e.target.value })} placeholder="Qté" style={inp} />
+                    <input inputMode="decimal" value={l.prix_total ?? ""} onChange={e => setLigne(i, { prix_total: e.target.value })} placeholder="Total €" style={inp} />
+                  </div>
+                  <select value={l.chantier_id || ""} onChange={e => setLigne(i, { chantier_id: e.target.value })} style={{ ...inp, marginBottom: 8 }}>
+                    <option value="">— Chantier —</option>
+                    {chantiers.map(ch => <option key={ch.id} value={ch.id}>{ch.nom || ch.id}</option>)}
+                  </select>
+                  <select value={l.lot_id || ""} onChange={e => setLigne(i, { lot_id: e.target.value })} style={inp}>
+                    <option value="">— Lot —</option>
+                    {lots.map(lo => <option key={lo.id} value={lo.id}>{lo.label}</option>)}
+                  </select>
+                </div>
+              ))
             ) : lignes.map(l => (
               <div key={l.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -180,6 +251,17 @@ function DetailModale({ commande: c, chantiers, lots, T, onClose }) {
               </div>
             )}
           </div>
+
+          {/* Pied : actions d'édition */}
+          {edit && (
+            <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, flexShrink: 0 }}>
+              <button onClick={annuler} disabled={saving} style={{ flex: 1, padding: "12px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Annuler</button>
+              <button onClick={enregistrer} disabled={saving} style={{ flex: 2, padding: "12px", borderRadius: RADIUS.md, border: "none", background: acc.accent, color: acc.onAccent, fontFamily: "inherit", fontWeight: 800, fontSize: 15, cursor: saving ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {saving ? <Icon as={Loader2} size={18} className="spin" /> : <Icon as={Check} size={18} strokeWidth={2.5} />}
+                {saving ? "Enregistrement…" : "Enregistrer les corrections"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -641,7 +723,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           })
         )}
 
-        {detail && <DetailModale commande={detail} chantiers={chantiers} lots={lots} T={T} onClose={() => setDetail(null)} />}
+        {detail && <DetailModale commande={detail} chantiers={chantiers} lots={lots} T={T} acc={acc} onClose={() => setDetail(null)} onSaved={loadRecents} />}
         <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
       </div>
     );
