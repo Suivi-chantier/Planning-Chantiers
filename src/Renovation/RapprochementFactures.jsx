@@ -70,11 +70,122 @@ async function analyseFacture(images) {
   return JSON.parse(clean);
 }
 
+// "2026-06" -> "juin 2026"
+const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+function moisLabel(ym) {
+  if (!ym || ym.length < 7) return "Sans date";
+  const [y, m] = ym.split("-");
+  return `${MOIS_FR[parseInt(m, 10) - 1] || m} ${y}`;
+}
+
+// Modale de détail : facture (avec ses BL rapprochés) ou reçu/ticket comptant (avec ses lignes).
+function HistoDetail({ item, chantiersMap, T, acc, onClose }) {
+  const isFacture = item.kind === "facture";
+  const c = item.row;
+  const [blLignes, setBlLignes] = useState([]);
+  useEffect(() => {
+    if (isFacture) {
+      supabase.from("facture_bl").select("bl_numero, montant_ht, statut").eq("facture_id", c.id)
+        .then(({ data }) => setBlLignes(data || []));
+    }
+  }, [isFacture, c.id]);
+  const dateStr = (d) => d ? new Date(d).toLocaleDateString("fr-FR") : "—";
+  const fmtEur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const nomCh = (id) => chantiersMap[String(id)]?.nom || (id ? String(id) : "—");
+  const lignes = c.lignes || [];
+  const info = (label, val) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+      <span style={{ fontSize: FONT.sm.size, color: T.textSub }}>{label}</span>
+      <span style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 600, textAlign: "right" }}>{val}</span>
+    </div>
+  );
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000 }} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1001, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{
+          background: T.surface, width: "100%", maxWidth: 620, maxHeight: "92vh",
+          borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl,
+          display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 -8px 40px rgba(0,0,0,0.4)",
+        }}>
+          <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10, flexShrink: 0 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.fournisseur_nom || (isFacture ? "Facture" : "Reçu")}</div>
+              <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginTop: 2 }}>{isFacture ? "Facture fournisseur" : "Reçu / ticket payé comptant"}</div>
+            </div>
+            <button onClick={onClose} aria-label="Fermer" style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: T.text, cursor: "pointer", flexShrink: 0 }}>
+              <Icon as={X} size={18} />
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
+            {c.photo_url && (
+              <a href={c.photo_url} target="_blank" rel="noreferrer">
+                <img src={photoTransform(c.photo_url, { width: 560, quality: 70 })} alt="" style={{ width: "100%", borderRadius: RADIUS.md, marginBottom: SPACING.md, border: `1px solid ${T.border}` }} />
+              </a>
+            )}
+            {isFacture ? (
+              <>
+                {info("Numéro", c.numero || "—")}
+                {info("Date", dateStr(c.date_facture))}
+                {info("Période", c.periode || "—")}
+                {info("Montant HT", `${fmtEur(c.montant_ht)} €`)}
+                {info("Statut", c.statut === "rapprochee" ? "Rapprochée" : c.statut === "archivee" ? "Archivée" : "À rapprocher")}
+                <div style={{ fontSize: FONT.xs.size, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: T.textSub, margin: "14px 0 6px" }}>
+                  BL rapprochés ({blLignes.length})
+                </div>
+                {blLignes.length === 0 ? (
+                  <div style={{ fontSize: FONT.sm.size, color: T.textSub, fontStyle: "italic" }}>Aucun BL rattaché (facture archivée sans rapprochement).</div>
+                ) : blLignes.map((b, i) => {
+                  const sem = b.statut === "rapproche" ? SEMANTIC.success : b.statut === "ecart" ? SEMANTIC.warning : SEMANTIC.danger;
+                  return (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <span style={{ fontSize: FONT.sm.size, color: T.text }}>BL n° {b.bl_numero || "?"}</span>
+                      <span style={{ fontSize: FONT.sm.size, color: T.textSub }}>{b.montant_ht != null ? `${fmtEur(b.montant_ht)} €` : "—"}</span>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: sem.color }}>{b.statut}</span>
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                {info("Type", c.doc_type === "ticket" ? "Ticket" : c.doc_type === "bl" ? "Bon de livraison" : "Bon de commande")}
+                {info("Numéro", c.doc_numero || "—")}
+                {info("Date", dateStr(c.date_doc))}
+                {info("Montant HT", `${fmtEur(c.montant_ht)} €`)}
+                <div style={{ fontSize: FONT.xs.size, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: T.textSub, margin: "14px 0 6px" }}>
+                  Articles ({lignes.length})
+                </div>
+                {lignes.map(l => (
+                  <div key={l.id} style={{ padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 600 }}>{l.libelle || "—"}</span>
+                      <span style={{ fontSize: FONT.sm.size, color: T.textSub, whiteSpace: "nowrap" }}>
+                        {l.quantite != null ? `${l.quantite}${l.unite ? " " + l.unite : ""}` : ""}
+                        {l.prix_total != null ? ` · ${fmtEur(l.prix_total)} €` : ""}
+                      </span>
+                    </div>
+                    {l.chantier_id && <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 2 }}>↳ {nomCh(l.chantier_id)}</div>}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function RapprochementFactures({ T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
   const [step, setStep] = useState("home"); // home | capture | analyzing | review
-  const [factures, setFactures] = useState([]);
-  const [loadingFactures, setLoadingFactures] = useState(true);
+  const [historique, setHistorique] = useState([]); // factures + reçus/tickets comptant
+  const [loadingHist, setLoadingHist] = useState(true);
+  const [detail, setDetail] = useState(null);        // { kind, row } affiché dans la modale
+  const [recherche, setRecherche] = useState("");
+  const [chantiersMap, setChantiersMap] = useState({}); // id -> { nom, couleur }
   const [photoUrl, setPhotoUrl] = useState("");
   const [photos, setPhotos] = useState([]); // [{ file, preview, mediaType }] — facture multi-pages
   const [iaErr, setIaErr] = useState("");
@@ -85,18 +196,49 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const fileCam = useRef(null);
   const fileGal = useRef(null);
 
-  const loadFactures = useCallback(async () => {
-    setLoadingFactures(true);
-    const { data } = await supabase
-      .from("factures")
-      .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, created_at")
-      .order("created_at", { ascending: false })
-      .limit(20);
-    setFactures(data || []);
-    setLoadingFactures(false);
+  // Historique complet = factures + reçus/tickets payés comptant (commandes
+  // doc_type='ticket' ou type_evenement='comptoir'), unifiés et triés par date.
+  const loadHistorique = useCallback(async () => {
+    setLoadingHist(true);
+    const [fRes, cRes] = await Promise.all([
+      supabase.from("factures")
+        .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, photo_url, created_at")
+        .order("created_at", { ascending: false }).limit(1000),
+      supabase.from("commandes")
+        .select("id, fournisseur_nom, doc_numero, doc_type, type_evenement, date_doc, montant_ht, statut_completude, statut_facturation, photo_url, notes, created_at, lignes:commande_lignes(id, libelle, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
+        .or("doc_type.eq.ticket,type_evenement.eq.comptoir")
+        .order("created_at", { ascending: false }).limit(1000),
+    ]);
+    const factures = (fRes.data || []).map(f => ({
+      key: `f_${f.id}`, kind: "facture", id: f.id,
+      fournisseur: f.fournisseur_nom || "", numero: f.numero || "",
+      montant: f.montant_ht, statut: f.statut,
+      dateISO: f.date_facture || (f.created_at || "").slice(0, 10),
+      raw: f,
+    }));
+    const recus = (cRes.data || []).map(c => ({
+      key: `c_${c.id}`, kind: "recu", id: c.id,
+      fournisseur: c.fournisseur_nom || "", numero: c.doc_numero || "",
+      montant: c.montant_ht, statut: "recu",
+      dateISO: c.date_doc || (c.created_at || "").slice(0, 10),
+      raw: c,
+    }));
+    const all = [...factures, ...recus].sort((a, b) => (b.dateISO || "").localeCompare(a.dateISO || ""));
+    setHistorique(all);
+    setLoadingHist(false);
   }, []);
 
-  useEffect(() => { loadFactures(); }, [loadFactures]);
+  useEffect(() => { loadHistorique(); }, [loadHistorique]);
+
+  // Chantiers (pour afficher les noms dans le détail d'un reçu)
+  useEffect(() => {
+    supabase.from("planning_config").select("value").eq("key", "chantiers").maybeSingle()
+      .then(({ data }) => {
+        const map = {};
+        (Array.isArray(data?.value) ? data.value : []).forEach(c => { map[String(c.id)] = { nom: c.nom || c.id, couleur: c.couleur }; });
+        setChantiersMap(map);
+      });
+  }, []);
 
   // Apparie une liste de BL aux commandes NON encore facturées, par NUMÉRO,
   // quel que soit le doc_type : une commande saisie comme "ticket" ou "bon de
@@ -240,7 +382,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     }
     await supabase.from("factures").update({ statut: "rapprochee" }).eq("id", f.id);
     setSaving(false);
-    await loadFactures();
+    await loadHistorique();
     setStep("home");
   };
 
@@ -258,7 +400,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     }).select("id").single();
     if (error) { setSaveErr("Erreur archivage : " + error.message); setSaving(false); return; }
     setSaving(false);
-    await loadFactures();
+    await loadHistorique();
     setStep("home");
   };
 
@@ -303,36 +445,83 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
   // ════════════ ACCUEIL ════════════
   if (step === "home") {
+    const q = recherche.trim().toLowerCase();
+    const qn = q.replace(/\s+/g, "");
+    const histFiltre = historique.filter(it => {
+      if (!q) return true;
+      return (it.fournisseur || "").toLowerCase().includes(q)
+        || (it.numero || "").toLowerCase().includes(q)
+        || (it.numero || "").toLowerCase().replace(/\s+/g, "").includes(qn);
+    });
+    const groupesMap = new Map();
+    for (const it of histFiltre) {
+      const mois = (it.dateISO || "").slice(0, 7) || "____";
+      if (!groupesMap.has(mois)) groupesMap.set(mois, { mois, items: [], total: 0 });
+      const g = groupesMap.get(mois);
+      g.items.push(it);
+      g.total += Number(it.montant) || 0;
+    }
+    const groupesMois = [...groupesMap.values()].sort((a, b) => b.mois.localeCompare(a.mois));
+    const fmtEur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+    const badgeInfo = (it) => {
+      if (it.kind === "recu") return { label: "Payé comptant", sem: SEMANTIC.success };
+      if (it.statut === "rapprochee") return { label: "Rapprochée", sem: SEMANTIC.success };
+      if (it.statut === "archivee") return { label: "Archivée", sem: SEMANTIC.info };
+      return { label: "À rapprocher", sem: SEMANTIC.warning };
+    };
+
     return (
       <div style={page}>
         <Header titre="Rapprochement factures" />
-        <button onClick={nouvelleFacture} style={{ ...btnPrimary(false), marginBottom: SPACING.xl }}>
+        <button onClick={nouvelleFacture} style={{ ...btnPrimary(false), marginBottom: SPACING.md }}>
           <Icon as={Receipt} size={20} strokeWidth={2.2} /> Nouvelle facture
         </button>
 
-        <div style={labelStyle}>Factures récentes</div>
-        {loadingFactures ? (
+        {/* Recherche */}
+        <div style={{ position: "relative", marginBottom: SPACING.md }}>
+          <Icon as={Search} size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: T.textSub, pointerEvents: "none" }} />
+          <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher (fournisseur, n°…)"
+            style={{ ...inputStyle, paddingLeft: 36 }} />
+        </div>
+
+        <div style={labelStyle}>Historique ({histFiltre.length})</div>
+        {loadingHist ? (
           <div style={{ textAlign: "center", padding: 30, color: T.textSub }}><Icon as={Loader2} size={22} className="spin" /> Chargement…</div>
-        ) : factures.length === 0 ? (
-          <div style={{ ...card, textAlign: "center", color: T.textSub }}>Aucune facture rapprochée.</div>
+        ) : histFiltre.length === 0 ? (
+          <div style={{ ...card, textAlign: "center", color: T.textSub }}>{recherche ? `Aucun résultat pour « ${recherche} ».` : "Aucune facture ni reçu pour l'instant."}</div>
         ) : (
-          factures.map(f => {
-            const sem = f.statut === "rapprochee" ? SEMANTIC.success : f.statut === "archivee" ? SEMANTIC.info : SEMANTIC.warning;
-            return (
-              <div key={f.id} style={{ ...card, marginBottom: SPACING.sm, display: "flex", gap: 12, alignItems: "center" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: FONT.base.size, color: T.text }}>{f.fournisseur_nom || "Fournisseur ?"}</div>
-                  <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>
-                    {f.numero ? `N° ${f.numero}` : "Sans n°"}{f.periode ? ` · ${f.periode}` : ""}{f.montant_ht != null ? ` · ${f.montant_ht} € HT` : ""}
-                  </div>
-                </div>
-                <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>
-                  {f.statut === "rapprochee" ? "Rapprochée" : f.statut === "archivee" ? "Archivée" : "À rapprocher"}
-                </span>
+          groupesMois.map(g => (
+            <div key={g.mois} style={{ marginBottom: SPACING.md }}>
+              <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: acc.accent, margin: "10px 2px 8px" }}>
+                <span style={{ textTransform: "capitalize" }}>{moisLabel(g.mois)}</span>
+                <span style={{ color: T.textSub, fontWeight: 600 }}> · {g.items.length} doc · {fmtEur(g.total)} € HT</span>
               </div>
-            );
-          })
+              {g.items.map(it => {
+                const badge = badgeInfo(it);
+                return (
+                  <div key={it.key} onClick={() => setDetail({ kind: it.kind, row: it.raw })}
+                    style={{ ...card, marginBottom: SPACING.sm, display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
+                    <div style={{ width: 34, height: 34, borderRadius: RADIUS.md, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Icon as={it.kind === "facture" ? Receipt : FileText} size={16} color={T.textSub} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: FONT.base.size, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.fournisseur || "Fournisseur ?"}</div>
+                      <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>
+                        {it.kind === "facture" ? "Facture" : "Reçu comptant"}
+                        {it.numero ? ` · N° ${it.numero}` : ""}
+                        {it.montant != null ? ` · ${fmtEur(it.montant)} € HT` : ""}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: badge.sem.color, background: badge.sem.bg, border: `1px solid ${badge.sem.border}`, whiteSpace: "nowrap", flexShrink: 0 }}>
+                      {badge.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ))
         )}
+        {detail && <HistoDetail item={detail} chantiersMap={chantiersMap} T={T} acc={acc} onClose={() => setDetail(null)} />}
         <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
       </div>
     );
