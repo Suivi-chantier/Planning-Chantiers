@@ -6,7 +6,7 @@ import {
   ShoppingCart, Package, Calendar, Check, AlertTriangle, Building2,
   ArrowRight, Info, X, Mail, Plus, Trash2, Copy, ChevronLeft,
   ChevronRight, Send, Receipt, Boxes, CheckCircle2, CalendarClock,
-  User, Inbox,
+  User, Inbox, ExternalLink,
 } from "lucide-react";
 
 // ─── HELPERS DATES ───────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       .then(({ data }) => setFournisseurs(data || []));
     loadLots().then(setLots);
     supabase.from("materiaux_bibliotheque")
-      .select("id, nom, reference, unite, prix_unitaire, fournisseur, fournisseur_id")
+      .select("id, nom, reference, unite, prix_unitaire, fournisseur, fournisseur_id, lien_fournisseur, photo_url")
       .then(({ data }) => setMateriaux(data || []));
   }, []);
 
@@ -302,12 +302,24 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         });
       }
       const p = map.get(key);
-      p.articles.push(b);
+      // Enrichissement via la bibliothèque : image produit + lien fournisseur.
+      const mat = b.materiau_id != null ? matById[String(b.materiau_id)] : null;
+      const lien = mat?.lien_fournisseur?.trim() || null;
+      // Repli : recherche web sur le libellé si aucun lien fournisseur connu.
+      const lienFinal = lien || (b.article
+        ? "https://www.google.com/search?q=" + encodeURIComponent(b.article + (mat?.fournisseur ? " " + mat.fournisseur : ""))
+        : null);
+      p.articles.push({
+        ...b,
+        image:      mat?.photo_url || b.photo_url || null,
+        lien:       lienFinal,
+        lienDirect: !!lien, // true = lien fournisseur réel, false = recherche web
+      });
       if (b.priorite === "urgent") p.priorite = "urgent"; // urgent si au moins un article urgent
     });
     return Array.from(map.values())
       .sort((a, b) => (b.dateObj?.getTime() || 0) - (a.dateObj?.getTime() || 0));
-  }, [besoins, chantiers]);
+  }, [besoins, chantiers, matById]);
 
   // Valider tout le panier → besoins passent "traité" (ils reviendront via le scan du BL/reçu).
   const validerPanier = async (panier) => {
@@ -1514,24 +1526,49 @@ function PanierCard({ panier, onValider, onRefuser, onRetirerArticle, T, acc }) 
 
       {/* Articles */}
       <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-        {panier.articles.map(a => (
-          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md }}>
-            {a.photo_url && (
-              <img src={a.photo_url} alt="" style={{ width: 34, height: 34, borderRadius: RADIUS.sm, objectFit: "cover", flexShrink: 0 }}/>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.article || "(article)"}</div>
+        {panier.articles.map(a => {
+          const clickable = !!a.lien;
+          const infoLine = (
+            <>
+              <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
+                {a.article || "(article)"}
+                {clickable && <Icon as={ExternalLink} size={12} color={a.lienDirect ? acc.accent : textMuted} style={{ flexShrink: 0 }}/>}
+              </div>
               {(a.quantite || a.notes) && (
                 <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {a.quantite ? `Qté : ${a.quantite}` : ""}{a.quantite && a.notes ? " · " : ""}{a.notes || ""}
+                  {clickable && !a.lienDirect && <span style={{ color: textMuted }}> · rechercher</span>}
                 </div>
               )}
+            </>
+          );
+          const vignette = a.image ? (
+            <img src={a.image} alt="" style={{ width: 44, height: 44, borderRadius: RADIUS.sm, objectFit: "cover", flexShrink: 0, background: surface }}/>
+          ) : (
+            <div style={{ width: 44, height: 44, borderRadius: RADIUS.sm, flexShrink: 0, background: surface, border: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "center", color: textMuted }}>
+              <Icon as={Package} size={18}/>
             </div>
-            <button onClick={() => onRetirerArticle(a)} title="Retirer cet article" style={{ background: "transparent", border: "none", color: textMuted, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}>
-              <Icon as={X} size={13}/>
-            </button>
-          </div>
-        ))}
+          );
+          return (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md }}>
+              {clickable ? (
+                <a href={a.lien} target="_blank" rel="noreferrer" title={a.lienDirect ? "Ouvrir la fiche fournisseur" : "Rechercher cet article sur le web"}
+                  style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0, textDecoration: "none", cursor: "pointer" }}>
+                  {vignette}
+                  <div style={{ flex: 1, minWidth: 0 }}>{infoLine}</div>
+                </a>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                  {vignette}
+                  <div style={{ flex: 1, minWidth: 0 }}>{infoLine}</div>
+                </div>
+              )}
+              <button onClick={() => onRetirerArticle(a)} title="Retirer cet article" style={{ background: "transparent", border: "none", color: textMuted, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}>
+                <Icon as={X} size={13}/>
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {/* Actions */}
