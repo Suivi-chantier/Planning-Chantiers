@@ -197,8 +197,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const fileCam = useRef(null);
   const fileGal = useRef(null);
 
-  // Historique complet = factures + reçus/tickets payés comptant (commandes
-  // doc_type='ticket' ou type_evenement='comptoir'), unifiés et triés par date.
+  // Historique complet = factures + achats payés comptant. Un achat comptant =
+  // commande facturée (statut_facturation='facture') NON rattachée à une facture
+  // mensuelle (facture_id vide) : c'est son propre justificatif. Ainsi, décocher
+  // "déjà payé" sur une saisie la retire d'ici (elle repasse en attente de facture).
   const loadHistorique = useCallback(async () => {
     setLoadingHist(true);
     const [fRes, cRes] = await Promise.all([
@@ -207,7 +209,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         .order("created_at", { ascending: false }).limit(1000),
       supabase.from("commandes")
         .select("id, fournisseur_nom, doc_numero, doc_type, type_evenement, date_doc, montant_ht, statut_completude, statut_facturation, photo_url, notes, created_at, lignes:commande_lignes(id, libelle, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
-        .or("doc_type.eq.ticket,type_evenement.eq.comptoir")
+        .eq("statut_facturation", "facture")
+        .is("facture_id", null)
         .order("created_at", { ascending: false }).limit(1000),
     ]);
     const factures = (fRes.data || []).map(f => ({
