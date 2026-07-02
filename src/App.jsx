@@ -50,6 +50,7 @@ import PageNotesEtTodo        from "./Renovation/NotesEtTodo";
 import PageCommandes          from "./Renovation/Commandes";
 import PageCaptureCommandeMobile from "./Renovation/CaptureCommandeMobile";
 import PageRapprochementFactures from "./Renovation/RapprochementFactures";
+import PageEncoursFournisseurs from "./Renovation/PageEncoursFournisseurs";
 import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
 import BoutonAide             from "./Renovation/PageAide";
 import PageEquipe             from "./Renovation/Equipe";
@@ -674,6 +675,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
           {page==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiers} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}
           {page==="rapprochement"      && (canAccess(role,"rapprochement")      ? <PageRapprochementFactures T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="rapprochement"/>)}
+          {page==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
           {page==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
           {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/> : <AccesRefuse T={T} page="equipe"/>)}
           {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="validation"/>)}

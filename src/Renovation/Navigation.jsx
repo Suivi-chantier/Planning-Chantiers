@@ -3,7 +3,7 @@ import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
-  TrendingUp, Calculator, CheckCircle2, Camera, Receipt,
+  TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -25,12 +25,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","planning-commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","etats-financiers","guide-ouvrages","admin"
   ],
   conducteur: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","planning-commandes",
+    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client"
   ],
@@ -53,6 +53,7 @@ const ALL_NAV_ITEMS = [
   { id:"commandes",        icon:Package,         label:"Cmd.",       longLabel:"Commandes"           },
   { id:"capture-cmd",      icon:Camera,          label:"Saisie",     longLabel:"Saisie commande (mobile)" },
   { id:"rapprochement",    icon:Receipt,         label:"Factures",   longLabel:"Rapprochement factures" },
+  { id:"encours-fournisseurs", icon:Wallet,      label:"Encours",    longLabel:"Encours fournisseurs" },
   { id:"planning-commandes", icon:ShoppingCart,  label:"À passer",   longLabel:"Commandes à passer" },
   { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
   { id:"validation",       icon:CheckCircle2,    label:"Valid.",     longLabel:"Validation de fin de journée" },
@@ -248,6 +249,7 @@ function Sidebar({
     { id:"commandes",        icon:Package,         label:"Commandes"        },
     { id:"capture-cmd",      icon:Camera,          label:"Saisie commande"  },
     { id:"rapprochement",    icon:Receipt,         label:"Rapprochement factures" },
+    { id:"encours-fournisseurs", icon:Wallet,      label:"Encours fournisseurs" },
     { id:"planning-commandes", icon:ShoppingCart,  label:"Commandes à passer" },
     { id:"equipe",           icon:Users,           label:"Équipe"           },
     { id:"validation",       icon:CheckCircle2,    label:"Validation fin de journée" },
