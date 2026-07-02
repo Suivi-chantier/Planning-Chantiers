@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19 scoring transformation : Froid/Tiède/Chaud selon probabilité de signature + Fluidify enrichi
+ * CRM Prospection — V19.1 scoring transformation : auteur historique + prochaine action clarifiée
  *
  * Objectif :
  * - CRM volontairement simple
@@ -2623,19 +2623,59 @@ function SectionTitle({ icon, title, T }) {
 }
 
 function ActionRow({ action, T }) {
+  const author = txt(
+    action.created_by ||
+    action.auteur ||
+    action.donnees?.auteur ||
+    action.donnees?.created_by ||
+    ""
+  );
+
   return (
-    <div style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ color: T.text, fontWeight: 900, fontSize: 12 }}>
-          {action.type_action || "note"}
+    <div style={{ padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: T.text, fontWeight: 900, fontSize: 12 }}>
+            {action.type_action || "note"}
+          </div>
+
+          <div style={{ color: T.textMuted, fontSize: 10.5, marginTop: 3, display: "flex", alignItems: "center", gap: 5 }}>
+            <Icon as={Users} size={11} />
+            <span>{author || "Collaborateur non renseigné"}</span>
+          </div>
         </div>
-        <div style={{ color: T.textMuted, fontSize: 11 }}>
+
+        <div style={{ color: T.textMuted, fontSize: 11, whiteSpace: "nowrap" }}>
           {fmtDate(action.date_action)}
         </div>
       </div>
-      <div style={{ color: T.textSub, fontSize: 12, marginTop: 3, lineHeight: 1.35 }}>
+
+      <div style={{ color: T.textSub, fontSize: 12, marginTop: 6, lineHeight: 1.35 }}>
         {action.resume}
       </div>
+
+      {(action.prochaine_action || action.date_prochaine_action) && (
+        <div
+          style={{
+            marginTop: 6,
+            padding: "6px 8px",
+            borderRadius: 10,
+            border: `1px solid ${T.border}`,
+            background: "rgba(255,255,255,.03)",
+            color: T.textMuted,
+            fontSize: 10.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          <Icon as={Clock} size={10} />
+          <span>
+            Suite prévue : {action.prochaine_action || "Action à définir"}
+            {action.date_prochaine_action ? ` · ${fmtDate(action.date_prochaine_action)}` : ""}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -3270,6 +3310,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       date_prochaine_action: nextDate || null,
       donnees: {
         source: "CRM Prospection",
+        auteur: auteur(profil),
       },
     };
 
@@ -3980,10 +4021,6 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <Field label="RDV">
                     <Input type="date" value={form.date_rdv} onChange={(v) => setField("date_rdv", v)} />
                   </Field>
-
-                  <Field label="Prochaine relance">
-                    <Input type="date" value={form.date_prochaine_action} onChange={(v) => setField("date_prochaine_action", v)} />
-                  </Field>
                 </div>
 
                 <SectionTitle icon={CalendarDays} title="Suivi commercial et relances" T={T} />
@@ -3991,19 +4028,30 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) minmax(230px, 300px)",
+                    gridTemplateColumns: "minmax(220px, 1fr) 180px minmax(220px, 300px)",
                     gap: 10,
                     marginBottom: 10,
+                    alignItems: "end",
                   }}
                 >
                   <Field label="Prochaine action">
                     <Select value={form.prochaine_action} onChange={(v) => setField("prochaine_action", v)} options={PROCHAINES_ACTIONS} />
                   </Field>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, alignItems: "end" }}>
-                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 2)}>J+2</button>
-                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 7)}>J+7</button>
-                    <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp("Relancer", 15)}>J+15</button>
+                  <Field label="Date prochaine action">
+                    <Input type="date" value={form.date_prochaine_action} onChange={(v) => setField("date_prochaine_action", v)} />
+                  </Field>
+
+                  <div>
+                    <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, marginBottom: 5, textTransform: "uppercase", letterSpacing: ".06em" }}>
+                      Raccourcis date
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 0)}>J</button>
+                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 2)}>J+2</button>
+                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 7)}>J+7</button>
+                      <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 15)}>J+15</button>
+                    </div>
                   </div>
                 </div>
 
@@ -4134,37 +4182,26 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                         </button>
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 52px 52px 52px", gap: 7, marginTop: 7 }}>
-                        <select
-                          className="inv-sel"
-                          value={actionForm.prochaine_action}
-                          onChange={(e) => setActionForm((p) => ({ ...p, prochaine_action: e.target.value }))}
-                          style={{ height: 32, fontSize: 12 }}
-                        >
-                          {PROCHAINES_ACTIONS.map((o) => (
-                            <option key={o || "empty-action"} value={o}>
-                              {o || "Prochaine action"}
-                            </option>
-                          ))}
-                        </select>
-
-                        <input
-                          className="inv-inp"
-                          type="date"
-                          value={actionForm.date_prochaine_action}
-                          onChange={(e) => setActionForm((p) => ({ ...p, date_prochaine_action: e.target.value }))}
-                          style={{ height: 32, fontSize: 12 }}
-                        />
-
-                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setActionForm((p) => ({ ...p, prochaine_action: p.prochaine_action || "Relancer", date_prochaine_action: todayIso() }))}>
-                          J
-                        </button>
-                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setActionForm((p) => ({ ...p, prochaine_action: p.prochaine_action || "Relancer", date_prochaine_action: addDays(2) }))}>
-                          J+2
-                        </button>
-                        <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setActionForm((p) => ({ ...p, prochaine_action: p.prochaine_action || "Relancer", date_prochaine_action: addDays(7) }))}>
-                          J+7
-                        </button>
+                      <div
+                        style={{
+                          marginTop: 7,
+                          padding: "8px 10px",
+                          borderRadius: 12,
+                          border: `1px solid ${T.border}`,
+                          background: "rgba(255,255,255,.03)",
+                          color: T.textMuted,
+                          fontSize: 11.5,
+                          lineHeight: 1.35,
+                          display: "flex",
+                          gap: 7,
+                          alignItems: "flex-start",
+                        }}
+                      >
+                        <Icon as={Clock} size={13} />
+                        <span>
+                          La prochaine action se règle uniquement dans le bloc <strong style={{ color: T.textSub }}>Suivi commercial et relances</strong> ci-dessus.
+                          Elle sera reprise automatiquement dans l’historique lorsque tu ajoutes une action.
+                        </span>
                       </div>
                     </div>
 
