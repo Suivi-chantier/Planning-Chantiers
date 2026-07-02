@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.1 scoring transformation : auteur historique + prochaine action clarifiée
+ * CRM Prospection — V19.2 tâches collaborateurs + conseiller + suivi clarifié
  *
  * Objectif :
  * - CRM volontairement simple
@@ -126,6 +126,8 @@ const EMPTY_FORM = {
   zone_recherche: "",
   prochaine_action: "",
   date_prochaine_action: "",
+  prochain_point_etape: "",
+  date_prochain_point_etape: "",
   date_rdv: "",
   honoraires_estimes_ht: "",
   commentaire: "",
@@ -134,6 +136,9 @@ const EMPTY_FORM = {
 const EMPTY_ACTION = {
   type_action: "note",
   resume: "",
+  tache_collaborateur: "",
+  tache_email: "",
+  tache_date: "",
   prochaine_action: "",
   date_prochaine_action: "",
 };
@@ -150,6 +155,15 @@ function num(v) {
 
 function txt(v) {
   return String(v || "").trim();
+}
+
+function normalizeSearch(v) {
+  return String(v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function dateOnly(v) {
@@ -497,9 +511,12 @@ function prospectToForm(p) {
     zone_recherche: p.zone_recherche || "",
     prochaine_action: p.prochaine_action || "",
     date_prochaine_action: dateOnly(p.date_prochaine_action),
+    prochain_point_etape: p.donnees?.suivi?.prochain_point_etape || p.donnees?.prochain_point_etape || "",
+    date_prochain_point_etape: dateOnly(p.donnees?.suivi?.date_prochain_point_etape || p.donnees?.date_prochain_point_etape),
     date_rdv: dateOnly(p.date_rdv),
     honoraires_estimes_ht: p.honoraires_estimes_ht ?? p.ca_potentiel_ht ?? "",
     commentaire: p.commentaire || "",
+    donnees: p.donnees || {},
   };
 }
 
@@ -524,6 +541,14 @@ function formToPayload(form, profil, isNew = false) {
     honoraires_estimes_ht: honoraires,
     ca_potentiel_ht: honoraires,
     commentaire: txt(form.commentaire),
+    donnees: {
+      ...(form.donnees || {}),
+      suivi: {
+        ...((form.donnees || {}).suivi || {}),
+        prochain_point_etape: txt(form.prochain_point_etape),
+        date_prochain_point_etape: form.date_prochain_point_etape || null,
+      },
+    },
     updated_by: auteur(profil),
     is_deleted: false,
   };
@@ -2654,6 +2679,30 @@ function ActionRow({ action, T }) {
         {action.resume}
       </div>
 
+      {action.donnees?.tache_assignee && (
+        <div
+          style={{
+            marginTop: 6,
+            padding: "6px 8px",
+            borderRadius: 10,
+            border: `1px solid ${T.accent}35`,
+            background: `${T.accent}10`,
+            color: T.textSub,
+            fontSize: 10.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            flexWrap: "wrap",
+          }}
+        >
+          <Icon as={Users} size={10} />
+          <span>
+            Tâche assignée à {action.donnees?.collaborateur || action.donnees?.collaborateur_email || "collaborateur"}
+            {action.donnees?.date_echeance ? ` · échéance ${fmtDate(action.donnees.date_echeance)}` : ""}
+          </span>
+        </div>
+      )}
+
       {(action.prochaine_action || action.date_prochaine_action) && (
         <div
           style={{
@@ -2690,6 +2739,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
   const [query, setQuery] = useState("");
   const [quickFilter, setQuickFilter] = useState("all");
+  const [advisorFilter, setAdvisorFilter] = useState("all");
   const [viewMode, setViewMode] = useState("pipeline");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [bulkImportText, setBulkImportText] = useState("");
@@ -2814,6 +2864,53 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     return result;
   }, [notifyNewProspectByEmail, showMailNotice]);
 
+  const notifyAssignedTaskByEmail = useCallback(async ({ prospect, task }) => {
+    const email = txt(task?.email);
+
+    if (!email) {
+      return { ok: false, message: "Email collaborateur manquant." };
+    }
+
+    try {
+      const { data, error: notifyErr } = await supabase.functions.invoke("notify-new-prospect", {
+        body: {
+          to: email,
+          mode: "tâche assignée",
+          event_type: "task_assigned",
+          task,
+          prospect: {
+            id: prospect?.id || selected?.id || "",
+            nom: prospect?.nom || form.nom || "",
+            prenom: prospect?.prenom || form.prenom || "",
+            societe: prospect?.societe || form.societe || "",
+            telephone: prospect?.telephone || form.telephone || "",
+            email: prospect?.email || form.email || "",
+            source: prospect?.source || form.source || "",
+            responsable: prospect?.responsable || form.responsable || "",
+            objectif: prospect?.objectif || form.objectif || "",
+            budget_global: prospect?.budget_global || form.budget_global || null,
+            zone_recherche: prospect?.zone_recherche || form.zone_recherche || "",
+            prochaine_action: task?.title || form.prochaine_action || "",
+            date_prochaine_action: task?.date || form.date_prochaine_action || null,
+            commentaire: prospect?.commentaire || form.commentaire || "",
+          },
+        },
+      });
+
+      if (notifyErr) {
+        return { ok: false, message: notifyErr?.message || JSON.stringify(notifyErr) };
+      }
+
+      if (!data?.ok) {
+        return { ok: false, message: data?.error || data?.message || "Mail tâche non confirmé." };
+      }
+
+      return { ok: true, message: `Mail envoyé à ${email}.` };
+    } catch (err) {
+      return { ok: false, message: err?.message || String(err) };
+    }
+  }, [form, selected?.id]);
+
   useEffect(() => {
     loadProspects();
   }, [loadProspects]);
@@ -2919,11 +3016,22 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     ];
   }, [prospects]);
 
+  const conseillerOptions = useMemo(() => {
+    return Array.from(new Set(
+      prospects
+        .map((p) => txt(p.responsable))
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, "fr"));
+  }, [prospects]);
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = normalizeSearch(query);
 
     return prospects.filter((p) => {
-      const haystack = [
+      const haystack = normalizeSearch([
+        prospectName(p),
+        `${p.nom || ""} ${p.prenom || ""}`,
+        `${p.prenom || ""} ${p.nom || ""}`,
         p.nom,
         p.prenom,
         p.societe,
@@ -2933,9 +3041,13 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         p.responsable,
         p.objectif,
         p.zone_recherche,
-      ].join(" ").toLowerCase();
+        p.commentaire,
+        fluidifyData(p).icp,
+        fluidifyData(p).commentaires,
+      ].join(" "));
 
       const okQuery = !q || haystack.includes(q);
+      const okAdvisor = advisorFilter === "all" || normalizeSearch(p.responsable) === normalizeSearch(advisorFilter);
 
       let okQuick = true;
       if (quickFilter === "today") {
@@ -2951,9 +3063,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         okQuick = temperature(p).label === "Chaud" && !["perdu", "converti", "signe"].includes(p.statut);
       }
 
-      return okQuery && okQuick;
+      return okQuery && okAdvisor && okQuick;
     });
-  }, [prospects, query, quickFilter]);
+  }, [prospects, query, advisorFilter, quickFilter]);
 
   const grouped = useMemo(() => {
     return STATUTS.map((s) => ({
@@ -3296,21 +3408,39 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setError("");
     setMsg("");
 
-    const nextAction = actionForm.prochaine_action || form.prochaine_action || selected.prochaine_action || "";
-    const nextDate = actionForm.date_prochaine_action || form.date_prochaine_action || selected.date_prochaine_action || null;
+    const nextAction = form.prochaine_action || selected.prochaine_action || "";
+    const nextDate = form.date_prochaine_action || selected.date_prochaine_action || null;
+    const isAssignedTask = Boolean(actionForm.tache_collaborateur || actionForm.tache_email || actionForm.tache_date || actionForm.type_action === "tache");
+
+    if (isAssignedTask && !actionForm.tache_email) {
+      setError("Pour assigner une tâche, renseigne l'email du collaborateur.");
+      setSaving(false);
+      return;
+    }
+
+    if (isAssignedTask && !actionForm.tache_date) {
+      setError("Pour assigner une tâche, renseigne une date d'échéance.");
+      setSaving(false);
+      return;
+    }
 
     const actionPayload = {
       prospect_id: selected.id,
       created_by: auteur(profil),
       date_action: new Date().toISOString(),
-      type_action: actionForm.type_action || "note",
+      type_action: isAssignedTask ? "tache" : (actionForm.type_action || "note"),
       resume,
-      resultat: "",
+      resultat: isAssignedTask ? "Tâche assignée" : "",
       prochaine_action: nextAction,
       date_prochaine_action: nextDate || null,
       donnees: {
         source: "CRM Prospection",
         auteur: auteur(profil),
+        tache_assignee: isAssignedTask,
+        collaborateur: actionForm.tache_collaborateur || "",
+        collaborateur_email: actionForm.tache_email || "",
+        date_echeance: actionForm.tache_date || null,
+        statut_tache: isAssignedTask ? "à faire" : "",
       },
     };
 
@@ -3349,13 +3479,36 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     }
 
     setActions((prev) => [insertedAction, ...prev].filter(Boolean).slice(0, 6));
+
+    let taskMailResult = null;
+    if (isAssignedTask) {
+      taskMailResult = await notifyAssignedTaskByEmail({
+        prospect: updatedProspect || selected,
+        task: {
+          title: resume,
+          type: actionPayload.type_action,
+          collaborator: actionForm.tache_collaborateur || actionForm.tache_email,
+          email: actionForm.tache_email,
+          date: actionForm.tache_date,
+          assigned_by: auteur(profil),
+        },
+      });
+
+      showMailNotice(
+        taskMailResult.ok ? "success" : "warning",
+        taskMailResult.ok
+          ? `Tâche assignée et mail envoyé à ${actionForm.tache_email}.`
+          : `Tâche assignée, mais le mail n'a pas été confirmé. Détail : ${taskMailResult.message}`
+      );
+    }
+
     setActionForm({ ...EMPTY_ACTION });
 
     await loadActions(selected.id);
     await loadProspects();
 
     setSaving(false);
-    setMsg("Action ajoutée au prospect.");
+    setMsg(isAssignedTask ? "Tâche assignée au collaborateur." : "Action ajoutée au prospect.");
     setTimeout(() => setMsg(""), 1800);
   };
 
@@ -3756,7 +3909,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
         <div style={{ color: T.textMuted, fontSize: 11, marginBottom: 7 }}>
           Import accepté : CSV, JSON, TXT, VCF ou liste collée. Champs reconnus : prénom, nom, téléphone, email, source, responsable, objectif, budget, zone, relance, note.
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1fr) auto", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1fr) 220px auto", gap: 10, alignItems: "center" }}>
           <div style={{ position: "relative" }}>
             <Icon as={Search} size={14} style={{ position: "absolute", left: 10, top: 10, color: T.textMuted }} />
             <input
@@ -3767,6 +3920,19 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
               style={{ width: "100%", height: 34, paddingLeft: 32 }}
             />
           </div>
+
+          <select
+            className="inv-sel"
+            value={advisorFilter}
+            onChange={(e) => setAdvisorFilter(e.target.value)}
+            style={{ height: 34, fontSize: 13 }}
+            title="Filtrer par conseiller"
+          >
+            <option value="all">Tous les conseillers</option>
+            {conseillerOptions.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
 
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <QuickFilterButton
@@ -3996,7 +4162,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   </Field>
 
                   <Field label="Budget">
-                    <Select value={String(form.budget_global || "")} onChange={(v) => setField("budget_global", v)} options={BUDGETS_RAPIDES} />
+                    <Input type="number" value={form.budget_global} onChange={(v) => setField("budget_global", v)} placeholder="Budget libre" />
                   </Field>
                 </div>
 
@@ -4034,11 +4200,11 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     alignItems: "end",
                   }}
                 >
-                  <Field label="Prochaine action">
+                  <Field label="Prochaine action à réaliser">
                     <Select value={form.prochaine_action} onChange={(v) => setField("prochaine_action", v)} options={PROCHAINES_ACTIONS} />
                   </Field>
 
-                  <Field label="Date prochaine action">
+                  <Field label="Date action">
                     <Input type="date" value={form.date_prochaine_action} onChange={(v) => setField("date_prochaine_action", v)} />
                   </Field>
 
@@ -4053,6 +4219,24 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                       <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 15)}>J+15</button>
                     </div>
                   </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(260px, 1fr) 180px",
+                    gap: 10,
+                    marginBottom: 10,
+                    alignItems: "end",
+                  }}
+                >
+                  <Field label="Prochain point d’étape client / prospect">
+                    <Input value={form.prochain_point_etape} onChange={(v) => setField("prochain_point_etape", v)} placeholder="Ex : Point décision, validation budget, retour proposition..." />
+                  </Field>
+
+                  <Field label="Date point d’étape">
+                    <Input type="date" value={form.date_prochain_point_etape} onChange={(v) => setField("date_prochain_point_etape", v)} />
+                  </Field>
                 </div>
 
                 <Field label="Note simple">
@@ -4161,13 +4345,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                           <option value="whatsapp">WhatsApp</option>
                           <option value="rdv">RDV</option>
                           <option value="relance">Relance</option>
+                          <option value="tache">Tâche assignée</option>
                         </select>
 
                         <input
                           className="inv-inp"
                           value={actionForm.resume}
                           onChange={(e) => setActionForm((p) => ({ ...p, resume: e.target.value }))}
-                          placeholder="Ex : Appel effectué, prospect intéressé, relance prévue..."
+                          placeholder="Ex : Appel effectué, tâche à faire, relance prévue..."
                           style={{ height: 34 }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -4180,6 +4365,31 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                         <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={addAction} disabled={saving}>
                           Ajouter
                         </button>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 140px", gap: 7, marginTop: 7 }}>
+                        <input
+                          className="inv-inp"
+                          value={actionForm.tache_collaborateur}
+                          onChange={(e) => setActionForm((p) => ({ ...p, tache_collaborateur: e.target.value }))}
+                          placeholder="Collaborateur assigné"
+                          style={{ height: 34 }}
+                        />
+                        <input
+                          className="inv-inp"
+                          type="email"
+                          value={actionForm.tache_email}
+                          onChange={(e) => setActionForm((p) => ({ ...p, tache_email: e.target.value }))}
+                          placeholder="Email collaborateur"
+                          style={{ height: 34 }}
+                        />
+                        <input
+                          className="inv-inp"
+                          type="date"
+                          value={actionForm.tache_date}
+                          onChange={(e) => setActionForm((p) => ({ ...p, tache_date: e.target.value }))}
+                          style={{ height: 34, fontSize: 12 }}
+                        />
                       </div>
 
                       <div
@@ -4199,8 +4409,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                       >
                         <Icon as={Clock} size={13} />
                         <span>
-                          La prochaine action se règle uniquement dans le bloc <strong style={{ color: T.textSub }}>Suivi commercial et relances</strong> ci-dessus.
-                          Elle sera reprise automatiquement dans l’historique lorsque tu ajoutes une action.
+                          Pour assigner une tâche : complète le collaborateur, son email et la date. À la validation, un mail lui sera envoyé automatiquement.
                         </span>
                       </div>
                     </div>
