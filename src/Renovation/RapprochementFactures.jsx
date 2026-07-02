@@ -244,6 +244,24 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     setStep("home");
   };
 
+  // Archive la facture SANS rapprocher les BL (période de transition / fournisseur
+  // sans BL saisi). Ne crée aucune liaison et ne modifie aucune commande.
+  const archiverSansRapprocher = async () => {
+    if (saving) return;
+    if (!confirm("Archiver cette facture sans rapprocher les BL ?\n\nAucune commande ne sera modifiée. À utiliser pour les factures d'une période antérieure à la saisie des BL, ou les fournisseurs sans BL.")) return;
+    setSaving(true); setSaveErr("");
+    const { error } = await supabase.from("factures").insert({
+      fournisseur_nom: fact.fournisseur || null, numero: fact.numero || null,
+      date_facture: fact.date_facture || null, periode: fact.periode || null,
+      montant_ht: montantFacture, photo_url: photoUrl || null,
+      statut: "archivee", saisi_par: profil?.nom || profil?.email || null,
+    }).select("id").single();
+    if (error) { setSaveErr("Erreur archivage : " + error.message); setSaving(false); return; }
+    setSaving(false);
+    await loadFactures();
+    setStep("home");
+  };
+
   // ── Styles ──
   const inputStyle = {
     width: "100%", boxSizing: "border-box", padding: "10px 12px",
@@ -299,7 +317,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
           <div style={{ ...card, textAlign: "center", color: T.textSub }}>Aucune facture rapprochée.</div>
         ) : (
           factures.map(f => {
-            const sem = f.statut === "rapprochee" ? SEMANTIC.success : SEMANTIC.warning;
+            const sem = f.statut === "rapprochee" ? SEMANTIC.success : f.statut === "archivee" ? SEMANTIC.info : SEMANTIC.warning;
             return (
               <div key={f.id} style={{ ...card, marginBottom: SPACING.sm, display: "flex", gap: 12, alignItems: "center" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -309,7 +327,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
                   </div>
                 </div>
                 <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>
-                  {f.statut === "rapprochee" ? "Rapprochée" : "À rapprocher"}
+                  {f.statut === "rapprochee" ? "Rapprochée" : f.statut === "archivee" ? "Archivée" : "À rapprocher"}
                 </span>
               </div>
             );
@@ -481,6 +499,18 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         {saving ? <Icon as={Loader2} size={20} className="spin" /> : <Icon as={Check} size={20} strokeWidth={2.5} />}
         {saving ? "Rapprochement…" : "Confirmer le rapprochement"}
       </button>
+
+      <button onClick={archiverSansRapprocher} disabled={saving} style={{
+        width: "100%", marginTop: SPACING.sm, padding: "12px", borderRadius: RADIUS.md,
+        border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+        fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: saving ? "not-allowed" : "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+      }}>
+        Archiver sans rapprocher
+      </button>
+      <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, textAlign: "center" }}>
+        Pour une facture d'avant la saisie des BL, ou un fournisseur sans BL (coûts déjà saisis autrement).
+      </div>
 
       <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
     </div>
