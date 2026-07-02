@@ -11,6 +11,24 @@ const moisLabel = (ym) => {
   return `${MOIS_FR[parseInt(m, 10) - 1] || m} ${y}`;
 };
 const eur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const normNom = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
+
+// Date d'échéance de paiement selon le mode du fournisseur.
+//  comptant / inconnu -> le jour même (mois du document)
+//  30j                 -> date + 30 jours
+//  echeance (30j FDM)  -> date + 30 jours, arrondi à la fin de ce mois-là
+// Renvoie "AAAA-MM-JJ" (heure locale, pas de décalage de fuseau).
+function echeanceISO(docISO, mode) {
+  if (!docISO) return docISO || "";
+  const d = new Date(docISO + "T00:00:00");
+  if (isNaN(d.getTime())) return docISO;
+  if (mode === "30j") { d.setDate(d.getDate() + 30); }
+  else if (mode === "echeance") {
+    d.setDate(d.getDate() + 30);
+    return new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString("sv-SE");
+  } else { return docISO; }
+  return d.toLocaleDateString("sv-SE");
+}
 
 // Suivi des dépenses par fournisseur et par mois.
 // Sources (sans double comptage) :
@@ -28,26 +46,36 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [cRes, fRes] = await Promise.all([
+      const [fournRes, cRes, fRes] = await Promise.all([
+        supabase.from("fournisseurs").select("id, nom, mode_paiement"),
         supabase.from("commandes")
-          .select("fournisseur_nom, montant_ht, date_doc, created_at, statut_facturation, lignes:commande_lignes(prix_total)")
+          .select("fournisseur_id, fournisseur_nom, montant_ht, date_doc, created_at, statut_facturation, lignes:commande_lignes(prix_total)")
           .is("facture_id", null).limit(5000),
         supabase.from("factures")
-          .select("fournisseur_nom, montant_ht, date_facture, created_at, statut").limit(2000),
+          .select("fournisseur_id, fournisseur_nom, montant_ht, date_facture, created_at").limit(2000),
       ]);
+      // mode de paiement par fournisseur (par id et par nom normalisé)
+      const modeById = {}, modeByNom = {};
+      (fournRes.data || []).forEach(f => { modeById[f.id] = f.mode_paiement || ""; if (f.nom) modeByNom[normNom(f.nom)] = f.mode_paiement || ""; });
+      const modeOf = (id, nom) => modeById[id] || modeByNom[normNom(nom)] || "";
+
       const arr = [];
       (cRes.data || []).forEach(c => {
         const montant = c.montant_ht != null ? Number(c.montant_ht)
           : (c.lignes || []).reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
         if (!montant) return;
-        const dateISO = c.date_doc || (c.created_at || "").slice(0, 10);
-        arr.push({ mois: (dateISO || "").slice(0, 7), fournisseur: c.fournisseur_nom || "Sans fournisseur", montant, paye: c.statut_facturation === "facture" });
+        const docISO = c.date_doc || (c.created_at || "").slice(0, 10);
+        const paye = c.statut_facturation === "facture";
+        // payé (comptant) -> le mois du document ; sinon -> mois d'échéance selon le mode
+        const dueISO = paye ? docISO : echeanceISO(docISO, modeOf(c.fournisseur_id, c.fournisseur_nom));
+        arr.push({ mois: (dueISO || "").slice(0, 7), fournisseur: c.fournisseur_nom || "Sans fournisseur", montant, paye });
       });
       (fRes.data || []).forEach(f => {
         const montant = Number(f.montant_ht) || 0;
         if (!montant) return;
-        const dateISO = f.date_facture || (f.created_at || "").slice(0, 10);
-        arr.push({ mois: (dateISO || "").slice(0, 7), fournisseur: f.fournisseur_nom || "Sans fournisseur", montant, paye: false });
+        const docISO = f.date_facture || (f.created_at || "").slice(0, 10);
+        const dueISO = echeanceISO(docISO, modeOf(f.fournisseur_id, f.fournisseur_nom));
+        arr.push({ mois: (dueISO || "").slice(0, 7), fournisseur: f.fournisseur_nom || "Sans fournisseur", montant, paye: false });
       });
       setItems(arr);
       setLoading(false);
@@ -90,7 +118,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
         </div>
         <div>
           <h1 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, color: T.text }}>Encours fournisseurs</h1>
-          <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Dépenses par fournisseur et par mois — suivi des règlements</div>
+          <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Montants regroupés par mois d'échéance de paiement (selon le mode de chaque fournisseur)</div>
         </div>
       </div>
 
