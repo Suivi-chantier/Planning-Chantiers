@@ -9,6 +9,7 @@ import {
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
 import BoutonAide from "./PageAide";
+import { supabase } from "../supabase";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -272,7 +273,10 @@ function Sidebar({
   // ── Réorganisation des onglets (mémorisée par utilisateur) ──
   const orderKey = `nav_order_${profil?.id || profil?.email || "anon"}`;
   const [editOrder, setEditOrder] = useState(false);
+  // Source de vérité : la colonne nav_order de l'utilisateur (Supabase), qui suit
+  // l'utilisateur d'un appareil à l'autre. localStorage sert de cache instantané / hors-ligne.
   const [customOrder, setCustomOrder] = useState(() => {
+    if (Array.isArray(profil?.nav_order)) return profil.nav_order;
     try {
       const raw = localStorage.getItem(orderKey);
       return raw ? JSON.parse(raw) : null;
@@ -298,6 +302,10 @@ function Sidebar({
   const persistOrder = (ids) => {
     setCustomOrder(ids);
     try { localStorage.setItem(orderKey, JSON.stringify(ids)); } catch {}
+    if (profil?.id) {
+      supabase.from("utilisateurs").update({ nav_order: ids }).eq("id", profil.id)
+        .then(({ error }) => { if (error) console.warn("nav_order (sauvegarde) :", error.message); });
+    }
   };
 
   const handleDrop = (targetId) => {
@@ -314,6 +322,10 @@ function Sidebar({
   const resetOrder = () => {
     try { localStorage.removeItem(orderKey); } catch {}
     setCustomOrder(null);
+    if (profil?.id) {
+      supabase.from("utilisateurs").update({ nav_order: null }).eq("id", profil.id)
+        .then(({ error }) => { if (error) console.warn("nav_order (réinit.) :", error.message); });
+    }
   };
 
   const toggle = () => {
