@@ -646,9 +646,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // À distinguer du « Coût MO » réel (coutMOChantier) issu des pointages.
   const tauxMOPrevEff = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT;
   const moPrevChantier = heuresVenduesChantier * tauxMOPrevEff;
-  // Total prévisionnel des commandes = somme de toutes les lignes de commande
-  // liées au chantier (identique à coutMatChantier ; alias pour le KPI dédié).
-  const commandesPrevChantier = coutMatChantier;
+  // Total matériaux PRÉVU = somme des coûts matériaux estimés des ouvrages
+  // (cout_materiaux, calculé depuis les matériaux liés de la bibliothèque).
+  // À distinguer du KPI « Matériaux » = commandes réellement passées
+  // (coutMatChantier, somme des lignes de commande).
+  const commandesPrevChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);
   // Frais généraux = taux horaire × heures vendues (configurable dans Suivi
   // direction). On garde fg_pct en compat mais on privilégie fg_taux_horaire.
   const fgTauxHoraire = (() => {
@@ -1629,8 +1631,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 sub={`${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`}/>
               <KpiCard T={T} icon={Boxes} iconColor="#fb923c" label="Commandes prév."
                 value={fmtEur(commandesPrevChantier)}
-                sub={`${commandeLignes.length} ligne${commandeLignes.length > 1 ? "s" : ""} liée${commandeLignes.length > 1 ? "s" : ""}`}
-                onClick={() => setMatKpiModal(true)}/>
+                sub="Estimé · matériaux liés"/>
               <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label="Heures totales"
                 value={`${heuresReellesChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`}
                 sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}

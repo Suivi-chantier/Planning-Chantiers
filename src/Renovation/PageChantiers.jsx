@@ -403,9 +403,6 @@ function NotesChantier({ chantierId, T, accent }) {
 export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
-  // Lignes de commande du chantier sélectionné — base du « Matériaux
-  // prévisionnel » (somme des commandes liées). Chargées à la sélection.
-  const [commandeLignes, setCommandeLignes] = useState([]);
   // P9 : pointages globaux (tous chantiers) pour dériver heures réelles + coût MO
   // dans calcFinances, suivi par ouvrage et totaux par tâche.
   const [pointages, setPointages]       = useState([]);
@@ -503,19 +500,6 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     supabase.from("planning_config").select("value").eq("key", "chantier_adresses").maybeSingle()
       .then(({ data }) => setChantierAdresses(data?.value || {}));
   }, []);
-
-  // ── Chargement des lignes de commande du chantier sélectionné ──
-  // Base du « Matériaux prévisionnel » = somme des commandes liées. Si la table
-  // n'existe pas (schéma sans commandes), on garde [] → prévisionnel matériaux 0.
-  useEffect(() => {
-    if (!selected) { setCommandeLignes([]); return; }
-    let cancelled = false;
-    supabase.from("commande_lignes")
-      .select("id, quantite, prix_unitaire, prix_total, chantier_id")
-      .eq("chantier_id", selected)
-      .then(({ data }) => { if (!cancelled) setCommandeLignes(data || []); });
-    return () => { cancelled = true; };
-  }, [selected]);
 
   // Resync draft quand on change de chantier
   useEffect(() => {
@@ -1631,12 +1615,12 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             };
           }).filter(l => l.hasMat);
 
-          // Matériaux prévisionnel = somme des lignes de commande liées au
-          // chantier (prix_total, sinon PU × quantité). Remplace l'ancien total
-          // basé sur les matériaux saisis manuellement par phase (souvent vide
-          // après un import de devis).
-          const totalMatPrev = commandeLignes.reduce(
-            (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0
+          // Matériaux prévisionnel = somme des coûts matériaux estimés des
+          // ouvrages (cout_materiaux, calculé depuis les matériaux liés de la
+          // bibliothèque). Remplace l'ancien total basé sur les matériaux saisis
+          // manuellement par phase (vide après un import de devis).
+          const totalMatPrev = (selectedPhasage.ouvrages || []).reduce(
+            (s, o) => s + (parseFloat(o.cout_materiaux) || 0), 0
           );
           const totalMatReel = lignesPhases.reduce((s, l) => s + l.coutReel, 0);
           const coutTotalPrev = coutMOPrev + totalMatPrev;
