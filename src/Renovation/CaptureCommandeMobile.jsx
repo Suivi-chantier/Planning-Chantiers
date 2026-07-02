@@ -5,7 +5,8 @@ import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_D
 import { Icon } from "../ui";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
-  ChevronLeft, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
+  ChevronLeft, ChevronDown, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
+  Building2, Package, ExternalLink,
 } from "lucide-react";
 
 const EDGE_ANALYSE_COMMANDE =
@@ -21,6 +22,17 @@ const TYPES_EVENEMENT = [
   { id: "commande",  label: "Commande",  icon: FileText },
   { id: "livraison", label: "Livraison", icon: Truck },
 ];
+
+const DOC_TYPE_LABEL = { bl: "Bon de livraison", ticket: "Ticket", bon_commande: "Bon de commande" };
+const TYPE_EVT_LABEL = Object.fromEntries(TYPES_EVENEMENT.map(t => [t.id, t.label]));
+
+// Statut d'affichage d'un document (identique à la logique des cartes récentes).
+function statutInfo(c) {
+  const docManquant = !c.doc_numero && !c.numero_en_attente;
+  if (docManquant) return { label: "N° manquant", sem: SEMANTIC.danger };
+  if (c.statut_completude === "complete") return { label: "Complète", sem: SEMANTIC.success };
+  return { label: "À compléter", sem: SEMANTIC.warning };
+}
 
 // Parse souple : "12,5 m²" -> 12.5 ; "" / non numérique -> null
 function toNum(v) {
@@ -78,6 +90,102 @@ async function analyseCommande(images) {
 
 const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", lot_id: "" });
 
+// ── Modale de consultation d'un document scanné (lecture seule) ──
+function DetailModale({ commande: c, chantiers, lots, T, onClose }) {
+  const nomChantier = (id) => chantiers.find(ch => String(ch.id) === String(id))?.nom || "Sans chantier";
+  const couleurChantier = (id) => chantiers.find(ch => String(ch.id) === String(id))?.couleur || T.textSub;
+  const lotLabel = (id) => lots.find(l => l.id === id)?.label || "";
+  const lignes = c.lignes || [];
+  const totalLignes = lignes.reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
+  const { label: statutLabel, sem } = statutInfo(c);
+  const dateDoc = c.date_doc ? new Date(c.date_doc).toLocaleDateString("fr-FR") : "—";
+  const dateScan = c.created_at ? new Date(c.created_at).toLocaleDateString("fr-FR") : "";
+
+  const infoStyle = { fontSize: FONT.xs.size, color: T.textSub, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginBottom: 2 };
+  const valStyle = { fontSize: FONT.base.size, color: T.text, fontWeight: 600 };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000 }} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1001, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{
+          background: T.surface, width: "100%", maxWidth: 620, maxHeight: "92vh",
+          borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl,
+          display: "flex", flexDirection: "column", overflow: "hidden",
+          boxShadow: "0 -8px 40px rgba(0,0,0,0.4)",
+        }}>
+          {/* Header */}
+          <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10, flexShrink: 0 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.fournisseur_nom || "Document"}</div>
+              <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginTop: 2 }}>
+                {DOC_TYPE_LABEL[c.doc_type] || "Document"} · {TYPE_EVT_LABEL[c.type_evenement] || c.type_evenement}
+              </div>
+            </div>
+            <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{statutLabel}</span>
+            <button onClick={onClose} aria-label="Fermer" style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: T.text, cursor: "pointer", flexShrink: 0 }}>
+              <Icon as={X} size={18} />
+            </button>
+          </div>
+
+          {/* Corps défilant */}
+          <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
+            {c.photo_url && (
+              <a href={c.photo_url} target="_blank" rel="noopener noreferrer" style={{ display: "block", position: "relative", marginBottom: SPACING.md }}>
+                <img src={photoTransform(c.photo_url, { width: 900, quality: 75 })} alt="Document scanné"
+                  style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: RADIUS.md, background: T.bg, border: `1px solid ${T.border}` }} />
+                <span style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: RADIUS.md, padding: "4px 8px", fontSize: FONT.xs.size, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Icon as={ExternalLink} size={12} /> Agrandir
+                </span>
+              </a>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: SPACING.md }}>
+              <div><div style={infoStyle}>Numéro</div><div style={valStyle}>{c.doc_numero || (c.numero_en_attente ? "En attente" : "—")}</div></div>
+              <div><div style={infoStyle}>Date doc.</div><div style={valStyle}>{dateDoc}</div></div>
+              <div><div style={infoStyle}>Montant HT</div><div style={valStyle}>{c.montant_ht != null ? `${c.montant_ht} €` : "—"}</div></div>
+              <div><div style={infoStyle}>Facturation</div><div style={valStyle}>{c.statut_facturation === "facture" ? "Payé / facturé" : "En attente facture"}</div></div>
+              {c.saisi_par && <div><div style={infoStyle}>Saisi par</div><div style={valStyle}>{c.saisi_par}</div></div>}
+              {dateScan && <div><div style={infoStyle}>Scanné le</div><div style={valStyle}>{dateScan}</div></div>}
+            </div>
+
+            {c.notes && (
+              <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "10px 12px", marginBottom: SPACING.md, fontSize: FONT.sm.size, color: T.text }}>{c.notes}</div>
+            )}
+
+            <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: T.textSub, marginBottom: 8 }}>
+              Articles ({lignes.length})
+            </div>
+            {lignes.length === 0 ? (
+              <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>Aucune ligne enregistrée.</div>
+            ) : lignes.map(l => (
+              <div key={l.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ fontSize: FONT.base.size, fontWeight: 600, color: T.text }}>{l.libelle || "—"}</div>
+                  {l.prix_total != null && <div style={{ fontSize: FONT.base.size, fontWeight: 700, color: SEMANTIC.success.color, whiteSpace: "nowrap" }}>{Number(l.prix_total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €</div>}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 3, fontSize: FONT.xs.size, color: T.textSub }}>
+                  {l.reference && <span style={{ fontFamily: "monospace" }}>{l.reference}</span>}
+                  {l.quantite != null && <span>{l.quantite} {l.unite || "U"}{l.prix_unitaire != null ? ` × ${l.prix_unitaire} €` : ""}</span>}
+                  {l.chantier_id && <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><span style={{ width: 7, height: 7, borderRadius: 2, background: couleurChantier(l.chantier_id) }} />{nomChantier(l.chantier_id)}</span>}
+                  {l.lot_id && lotLabel(l.lot_id) && <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Icon as={Package} size={11} />{lotLabel(l.lot_id)}</span>}
+                </div>
+              </div>
+            ))}
+
+            {totalLignes > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, paddingTop: 10, borderTop: `2px solid ${T.border}`, fontSize: FONT.base.size, fontWeight: 800, color: T.text }}>
+                <span>Total lignes</span>
+                <span style={{ color: SEMANTIC.success.color }}>{totalLignes.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function CaptureCommandeMobile({ chantiers = [], T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
   // step / form / options persistés en localStorage (useDraft) : une saisie en
@@ -89,6 +197,14 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const [loadingRecents, setLoadingRecents] = useState(true);
   const [phasages, setPhasages] = useState([]);
   const [lots, setLots] = useState(LOTS_DEFAUT);
+
+  // Consultation de l'historique des documents scannés (écran d'accueil)
+  const [vueHome, setVueHome] = useState("recentes"); // recentes | chantier
+  const [recherche, setRecherche] = useState("");
+  const [groupesOuverts, setGroupesOuverts] = useState({}); // { [chantierKey]: true }
+  const [detail, setDetail] = useState(null); // commande affichée dans la modale
+
+  const lotLabel = useCallback((id) => lots.find(l => l.id === id)?.label || id || "", [lots]);
 
   // Brouillon de saisie
   const [chantierDefaut, setChantierDefaut] = useState(() => localStorage.getItem(LS_DERNIER_CHANTIER) || "");
@@ -125,14 +241,20 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     (id) => chantiers.find(c => String(c.id) === String(id))?.nom || id || "",
     [chantiers]
   );
+  const couleurChantier = useCallback(
+    (id) => chantiers.find(c => String(c.id) === String(id))?.couleur || null,
+    [chantiers]
+  );
 
   const loadRecents = useCallback(async () => {
     setLoadingRecents(true);
+    // On charge aussi les lignes : elles portent le chantier (regroupement) et
+    // alimentent la modale de détail. Plafonné pour éviter un payload énorme.
     const { data } = await supabase
       .from("commandes")
-      .select("id, type_evenement, doc_type, doc_numero, numero_en_attente, fournisseur_nom, montant_ht, date_doc, statut_completude, photo_url, created_at")
+      .select("id, type_evenement, doc_type, doc_numero, numero_en_attente, fournisseur_nom, montant_ht, date_doc, statut_completude, statut_facturation, notes, saisi_par, photo_url, created_at, lignes:commande_lignes(id, libelle, reference, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(300);
     setRecents(data || []);
     setLoadingRecents(false);
   }, []);
@@ -356,14 +478,110 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
 
   // ════════════ ÉCRAN ACCUEIL ════════════
   if (step === "home") {
+    const q = recherche.trim().toLowerCase();
+    const matchDoc = (c) => {
+      if (!q) return true;
+      return (c.fournisseur_nom || "").toLowerCase().includes(q)
+        || (c.doc_numero || "").toLowerCase().includes(q)
+        || (c.lignes || []).some(l => (l.libelle || "").toLowerCase().includes(q));
+    };
+    const filtres = recents.filter(matchDoc);
+
+    // Regroupement par chantier : un document réparti apparaît sous chaque
+    // chantier concerné ; les documents sans chantier vont dans « Sans chantier ».
+    const groupes = (() => {
+      const map = new Map();
+      for (const c of filtres) {
+        const chIds = [...new Set((c.lignes || []).map(l => l.chantier_id).filter(Boolean).map(String))];
+        const keys = chIds.length ? chIds : ["_sans"];
+        for (const k of keys) {
+          if (!map.has(k)) map.set(k, { key: k, docs: [], total: 0 });
+          const g = map.get(k);
+          g.docs.push(c);
+          g.total += (c.lignes || [])
+            .filter(l => (k === "_sans" ? !l.chantier_id : String(l.chantier_id) === k))
+            .reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
+        }
+      }
+      return [...map.values()].sort((a, b) => {
+        if (a.key === "_sans") return 1;
+        if (b.key === "_sans") return -1;
+        return nomChantier(a.key).localeCompare(nomChantier(b.key));
+      });
+    })();
+
+    // Carte cliquable d'un document (plain = rendu compact dans un groupe)
+    const DocRow = (c, plain = false) => {
+      const { label: statutLabel, sem } = statutInfo(c);
+      const dateTxt = c.date_doc ? new Date(c.date_doc).toLocaleDateString("fr-FR") : "";
+      const base = plain
+        ? { padding: "11px 14px", borderTop: `1px solid ${T.border}` }
+        : { ...card, marginBottom: SPACING.sm };
+      return (
+        <div key={c.id} onClick={() => setDetail(c)} style={{ ...base, display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
+          {c.photo_url
+            ? <img src={photoTransform(c.photo_url, { width: 88, height: 88, quality: 60 })} alt=""
+                style={{ width: 44, height: 44, borderRadius: RADIUS.md, objectFit: "cover", flexShrink: 0 }} />
+            : <div style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon as={FileText} size={18} color={T.textSub} />
+              </div>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: FONT.base.size, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {c.fournisseur_nom || "Fournisseur ?"}
+            </div>
+            <div style={{ fontSize: FONT.sm.size, color: T.textSub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {c.doc_numero ? `N° ${c.doc_numero}` : c.numero_en_attente ? "N° en attente" : "Sans n°"}
+              {dateTxt ? ` · ${dateTxt}` : ""}
+              {c.montant_ht != null ? ` · ${c.montant_ht} € HT` : ""}
+            </div>
+          </div>
+          <span style={{
+            fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill,
+            color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap", flexShrink: 0,
+          }}>{statutLabel}</span>
+        </div>
+      );
+    };
+
+    const emptyRecherche = (
+      <div style={{ ...card, textAlign: "center", color: T.textSub }}>Aucun document ne correspond à « {recherche} ».</div>
+    );
+
     return (
       <div style={page}>
         <Header titre="Saisie commande" />
-        <button onClick={nouvelleCommande} style={{ ...btnPrimary(false), marginBottom: SPACING.xl }}>
+        <button onClick={nouvelleCommande} style={{ ...btnPrimary(false), marginBottom: SPACING.lg }}>
           <Icon as={Camera} size={20} strokeWidth={2.2} /> Nouvelle commande
         </button>
 
-        <div style={labelStyle}>Commandes récentes</div>
+        {/* Sélecteur de vue */}
+        <div style={{ display: "flex", gap: 8, marginBottom: SPACING.sm }}>
+          {[{ id: "recentes", label: "Récentes" }, { id: "chantier", label: "Par chantier" }].map(v => {
+            const on = vueHome === v.id;
+            return (
+              <button key={v.id} onClick={() => setVueHome(v.id)} style={{
+                flex: 1, padding: "10px", borderRadius: RADIUS.md, cursor: "pointer",
+                border: `1px solid ${on ? acc.accent : T.border}`,
+                background: on ? acc.bg10 : T.bg, color: on ? acc.accent : T.textSub,
+                fontFamily: "inherit", fontWeight: on ? 700 : 500, fontSize: FONT.sm.size,
+              }}>{v.label}</button>
+            );
+          })}
+        </div>
+
+        {/* Recherche */}
+        <div style={{ position: "relative", marginBottom: SPACING.md }}>
+          <Icon as={Search} size={16} color={T.textSub} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+          <input value={recherche} onChange={e => setRecherche(e.target.value)}
+            placeholder="Rechercher (fournisseur, n°, article)…"
+            style={{ ...inputStyle, paddingLeft: 36, paddingRight: recherche ? 36 : 12 }} />
+          {recherche && (
+            <button onClick={() => setRecherche("")} aria-label="Effacer" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", color: T.textSub, cursor: "pointer", display: "flex" }}>
+              <Icon as={X} size={16} />
+            </button>
+          )}
+        </div>
+
         {loadingRecents ? (
           <div style={{ textAlign: "center", padding: 30, color: T.textSub }}>
             <Icon as={Loader2} size={22} className="spin" /> Chargement…
@@ -372,38 +590,41 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           <div style={{ ...card, textAlign: "center", color: T.textSub }}>
             Aucune commande pour l'instant.
           </div>
+        ) : vueHome === "recentes" ? (
+          filtres.length === 0 ? emptyRecherche : filtres.map(c => DocRow(c))
         ) : (
-          recents.map(c => {
-            const docManquant = !c.doc_numero && !c.numero_en_attente;
-            const sem = docManquant ? SEMANTIC.danger
-              : c.statut_completude === "complete" ? SEMANTIC.success : SEMANTIC.warning;
-            const statutLabel = docManquant ? "N° manquant"
-              : c.statut_completude === "complete" ? "Complète" : "À compléter";
+          groupes.length === 0 ? emptyRecherche : groupes.map(g => {
+            const ouvert = q ? true : !!groupesOuverts[g.key];
+            const coul = g.key === "_sans" ? null : couleurChantier(g.key);
+            const nom = g.key === "_sans" ? "Sans chantier" : nomChantier(g.key);
             return (
-              <div key={c.id} style={{ ...card, marginBottom: SPACING.sm, display: "flex", gap: 12, alignItems: "center" }}>
-                {c.photo_url
-                  ? <img src={photoTransform(c.photo_url, { width: 88, height: 88, quality: 60 })} alt=""
-                      style={{ width: 44, height: 44, borderRadius: RADIUS.md, objectFit: "cover", flexShrink: 0 }} />
-                  : <div style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <Icon as={FileText} size={18} color={T.textSub} />
-                    </div>}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: FONT.base.size, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {c.fournisseur_nom || "Fournisseur ?"}
+              <div key={g.key} style={{
+                marginBottom: SPACING.sm, borderRadius: RADIUS.lg, background: T.surface,
+                border: `1px solid ${T.border}`, borderLeft: coul ? `4px solid ${coul}` : `1px solid ${T.border}`,
+                overflow: "hidden",
+              }}>
+                <div onClick={() => setGroupesOuverts(s => ({ ...s, [g.key]: !ouvert }))} style={{
+                  padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+                }}>
+                  {coul
+                    ? <span style={{ width: 12, height: 12, borderRadius: 3, background: coul, flexShrink: 0 }} />
+                    : <Icon as={Building2} size={16} color={T.textSub} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nom}</div>
+                    <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 1 }}>
+                      {g.docs.length} document{g.docs.length > 1 ? "s" : ""}
+                      {g.total > 0 ? ` · ${g.total.toLocaleString("fr-FR", { minimumFractionDigits: 0 })} € HT` : ""}
+                    </div>
                   </div>
-                  <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>
-                    {c.doc_numero ? `N° ${c.doc_numero}` : c.numero_en_attente ? "N° en attente" : "Sans n°"}
-                    {c.montant_ht != null ? ` · ${c.montant_ht} € HT` : ""}
-                  </div>
+                  <Icon as={ChevronDown} size={18} color={T.textSub} style={{ transform: ouvert ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0 }} />
                 </div>
-                <span style={{
-                  fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill,
-                  color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap",
-                }}>{statutLabel}</span>
+                {ouvert && <div>{g.docs.map(c => DocRow(c, true))}</div>}
               </div>
             );
           })
         )}
+
+        {detail && <DetailModale commande={detail} chantiers={chantiers} lots={lots} T={T} onClose={() => setDetail(null)} />}
         <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
       </div>
     );
