@@ -109,7 +109,11 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   }
   const moisList = [...moisMap.values()].sort((a, b) => b.mois.localeCompare(a.mois));
   const totalGlobal = moisList.reduce((s, g) => s + g.aPayer, 0);
-  const payeGlobal = moisList.reduce((s, g) => s + g.paye, 0);
+  // Cartes "ce mois" : uniquement l'échéance / le paiement du mois calendaire en cours.
+  const moisCourantKey = new Date().toLocaleDateString("sv-SE").slice(0, 7);
+  const moisCourantLabel = moisLabel(moisCourantKey);
+  const aPayerMoisCourant = moisMap.get(moisCourantKey)?.aPayer || 0;
+  const payeMoisCourant = moisMap.get(moisCourantKey)?.paye || 0;
 
   const page = {
     flex: 1, minHeight: 0, overflowY: "auto", background: T.bg, color: T.text,
@@ -180,12 +184,12 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
       {/* Totaux + filtre */}
       <div style={{ display: "flex", gap: SPACING.sm, marginBottom: SPACING.md, flexWrap: "wrap" }}>
         <div style={{ ...card, flex: 1, minWidth: 140, marginBottom: 0, padding: "12px 14px", borderColor: SEMANTIC.warning.border }}>
-          <div style={labelStyle}>À payer</div>
-          <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: SEMANTIC.warning.color }}>{eur(totalGlobal)} €</div>
+          <div style={labelStyle}>À payer · {moisCourantLabel}</div>
+          <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: SEMANTIC.warning.color }}>{eur(aPayerMoisCourant)} €</div>
         </div>
         <div style={{ ...card, flex: 1, minWidth: 140, marginBottom: 0, padding: "12px 14px" }}>
-          <div style={labelStyle}>Payé (comptant)</div>
-          <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: SEMANTIC.success.color }}>{eur(payeGlobal)} €</div>
+          <div style={labelStyle}>Payé comptant · {moisCourantLabel}</div>
+          <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: SEMANTIC.success.color }}>{eur(payeMoisCourant)} €</div>
         </div>
       </div>
 
