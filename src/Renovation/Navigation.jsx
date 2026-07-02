@@ -4,6 +4,7 @@ import {
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
+  Pencil, Check, RotateCcw, GripVertical,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -266,11 +267,59 @@ function Sidebar({
   ];
 
   const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
-  const nav = allNav.filter(n => allowed.includes(n.id));
+  const allowedNav = allNav.filter(n => allowed.includes(n.id));
+
+  // ── Réorganisation des onglets (mémorisée par utilisateur) ──
+  const orderKey = `nav_order_${profil?.id || profil?.email || "anon"}`;
+  const [editOrder, setEditOrder] = useState(false);
+  const [customOrder, setCustomOrder] = useState(() => {
+    try {
+      const raw = localStorage.getItem(orderKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
+
+  // Applique l'ordre personnalisé : les ids connus d'abord dans l'ordre choisi,
+  // puis toute nouvelle page autorisée non encore classée est ajoutée à la fin.
+  const nav = (() => {
+    if (!customOrder) return allowedNav;
+    const byId = new Map(allowedNav.map(n => [n.id, n]));
+    const seen = new Set();
+    const result = [];
+    customOrder.forEach(id => {
+      if (byId.has(id) && !seen.has(id)) { result.push(byId.get(id)); seen.add(id); }
+    });
+    allowedNav.forEach(n => { if (!seen.has(n.id)) result.push(n); });
+    return result;
+  })();
+
+  const persistOrder = (ids) => {
+    setCustomOrder(ids);
+    try { localStorage.setItem(orderKey, JSON.stringify(ids)); } catch {}
+  };
+
+  const handleDrop = (targetId) => {
+    if (!dragId || dragId === targetId) { setDragId(null); setOverId(null); return; }
+    const ids = nav.map(n => n.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(targetId);
+    if (from === -1 || to === -1) { setDragId(null); setOverId(null); return; }
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    persistOrder(ids);
+    setDragId(null); setOverId(null);
+  };
+
+  const resetOrder = () => {
+    try { localStorage.removeItem(orderKey); } catch {}
+    setCustomOrder(null);
+  };
 
   const toggle = () => {
     const next = !collapsed;
     setCollapsed(next);
+    if (next) { setEditOrder(false); setDragId(null); setOverId(null); }
     localStorage.setItem("sidebar_collapsed", next ? "1" : "0");
   };
 
@@ -323,11 +372,55 @@ function Sidebar({
         </button>
       </div>
 
+      {/* Barre d'édition de l'ordre (menu déplié uniquement) */}
+      {!collapsed && (
+        <div style={{
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          padding:"6px 12px 0", gap:6,
+        }}>
+          {editOrder ? (
+            <>
+              <span style={{ fontSize:10.5, fontWeight:700, letterSpacing:.5, textTransform:"uppercase",
+                color:acc.accent, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                Glissez pour réorganiser
+              </span>
+              {customOrder && (
+                <button onClick={resetOrder} title="Rétablir l'ordre par défaut" style={{
+                  background:"transparent", border:"none", cursor:"pointer", padding:4,
+                  color:"rgba(255,255,255,0.5)", display:"flex", borderRadius:RADIUS.md,
+                }}
+                  onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <Icon as={RotateCcw} size={14}/>
+                </button>
+              )}
+              <button onClick={() => { setEditOrder(false); setDragId(null); setOverId(null); }}
+                title="Terminer" style={{
+                  background:acc.bg10, border:"none", cursor:"pointer", padding:4,
+                  color:acc.accent, display:"flex", borderRadius:RADIUS.md,
+                }}>
+                <Icon as={Check} size={14}/>
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setEditOrder(true)} title="Modifier l'ordre des onglets" style={{
+              marginLeft:"auto", background:"transparent", border:"none", cursor:"pointer",
+              padding:4, color:"rgba(255,255,255,0.4)", display:"flex", borderRadius:RADIUS.md,
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.7)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}>
+              <Icon as={Pencil} size={13}/>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Nav items */}
       <nav style={{ flex:1, padding: collapsed ? "8px 6px" : "8px", overflowY:"auto" }}>
         {nav.map(n => {
           const active = page === n.id;
-          const separateur = n.id === "info-client";
+          const separateur = n.id === "info-client" && !editOrder;
+          const isOver = editOrder && overId === n.id && dragId !== n.id;
           return (
             <React.Fragment key={n.id}>
               {separateur && (
@@ -337,26 +430,36 @@ function Sidebar({
                 }}/>
               )}
               <button
-                onClick={() => setPage(n.id)}
+                onClick={() => { if (!editOrder) setPage(n.id); }}
                 title={collapsed ? n.label : ""}
+                draggable={editOrder && !collapsed}
+                onDragStart={editOrder ? () => setDragId(n.id) : undefined}
+                onDragOver={editOrder ? (e) => { e.preventDefault(); if (overId !== n.id) setOverId(n.id); } : undefined}
+                onDrop={editOrder ? (e) => { e.preventDefault(); handleDrop(n.id); } : undefined}
+                onDragEnd={editOrder ? () => { setDragId(null); setOverId(null); } : undefined}
                 style={{
                   width:"100%", display:"flex", alignItems:"center",
                   justifyContent: collapsed ? "center" : "flex-start",
                   gap:12, padding: collapsed ? "11px 0" : "10px 12px",
-                  borderRadius:RADIUS.md, border:"none", cursor:"pointer", fontFamily:"inherit",
+                  borderRadius:RADIUS.md, border:"none",
+                  cursor: editOrder ? "grab" : "pointer", fontFamily:"inherit",
                   fontSize:13.5, fontWeight: active ? 700 : 500, letterSpacing:.1,
-                  background: active ? acc.bg10 : "transparent",
-                  color: active ? acc.accent : "rgba(255,255,255,0.55)",
+                  background: active && !editOrder ? acc.bg10 : "transparent",
+                  color: active && !editOrder ? acc.accent : "rgba(255,255,255,0.55)",
                   marginBottom:2, transition:"background .12s, color .12s", textAlign:"left",
                   whiteSpace:"nowrap",
+                  opacity: dragId === n.id ? 0.4 : 1,
+                  boxShadow: isOver ? `inset 0 2px 0 ${acc.accent}` : "none",
                 }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                onMouseEnter={e => { if (!active && !editOrder) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+                onMouseLeave={e => { if (!active && !editOrder) e.currentTarget.style.background = "transparent"; }}>
                 <Icon as={n.icon} size={18} strokeWidth={active ? 2 : 1.75}
                   style={{ flexShrink:0 }} />
                 {!collapsed && <>
                   <span style={{ flex:1 }}>{n.label}</span>
-                  {active && <span style={{ width:3, height:18, borderRadius:2, background:acc.accent, display:"block" }}/>}
+                  {editOrder
+                    ? <Icon as={GripVertical} size={16} color="rgba(255,255,255,0.35)" style={{ flexShrink:0 }}/>
+                    : active && <span style={{ width:3, height:18, borderRadius:2, background:acc.accent, display:"block" }}/>}
                 </>}
               </button>
             </React.Fragment>
