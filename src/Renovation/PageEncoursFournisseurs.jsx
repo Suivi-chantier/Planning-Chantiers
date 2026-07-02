@@ -49,7 +49,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
       const [fournRes, cRes, fRes] = await Promise.all([
         supabase.from("fournisseurs").select("id, nom, mode_paiement"),
         supabase.from("commandes")
-          .select("fournisseur_id, fournisseur_nom, montant_ht, date_doc, created_at, statut_facturation, lignes:commande_lignes(prix_total)")
+          .select("fournisseur_id, fournisseur_nom, montant_ht, date_doc, created_at, statut_facturation, source, lignes:commande_lignes(prix_total)")
           .is("facture_id", null).limit(5000),
         supabase.from("factures")
           .select("fournisseur_id, fournisseur_nom, montant_ht, date_facture, created_at").limit(2000),
@@ -61,6 +61,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
 
       const arr = [];
       (cRes.data || []).forEach(c => {
+        if (c.source === "migration") return; // anciennes saisies (avant la refonte) : non comptées
         const montant = c.montant_ht != null ? Number(c.montant_ht)
           : (c.lignes || []).reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
         if (!montant) return;
