@@ -2468,8 +2468,8 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       </div>
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
-        {/* Synthèse client + suivi des actions type fiche prospect */}
-        <div style={{display:"grid",gridTemplateColumns:"minmax(300px,.72fr) minmax(620px,1.28fr)",gap:12,maxWidth:"100%"}}>
+        {/* Synthèse client */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,maxWidth:"100%"}}>
           <div className="inv-card" style={{overflow:"hidden"}}>
             <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
               <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Synthèse client</span>
@@ -2504,7 +2504,12 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               </div>
             </div>
           </div>
+        </div>
 
+        {/* Parcours Mission en pleine largeur */}
+        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} initialStepKey={initialMissionStep} initialActionId={initialMissionActionId} />
+
+        {/* Suivi des actions CRM sous le parcours mission */}
           <div id="suivi-actions" className="inv-card" style={{overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 18px 42px rgba(15,23,42,.06)",background:"linear-gradient(135deg,#ffffff,#f8fafc)"}}>
             <div style={{padding:"14px 16px 0",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
               <div style={{display:"flex",alignItems:"flex-start",gap:9,minWidth:0}}>
@@ -2520,7 +2525,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             </div>
 
             <div className="inv-card-bd" style={{paddingTop:12}}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(220px,1fr))",gap:12,overflowX:"auto",paddingBottom:2}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(280px,1fr))",gap:12,overflowX:"auto",paddingBottom:2}}>
                 <div style={{border:"1px solid #fed7aa",borderRadius:16,padding:12,background:"linear-gradient(135deg,#fff7ed,#ffffff)",minWidth:220}}>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
                     <Icon as={Bell} size={13} color="#92400e" strokeWidth={2.3}/>
@@ -2672,10 +2677,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Parcours Mission en pleine largeur */}
-        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} initialStepKey={initialMissionStep} initialActionId={initialMissionActionId} />
 
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
           {/* Colonne gauche */}
