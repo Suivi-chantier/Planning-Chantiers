@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.7 score en haut + historique regroupé avec échanges
+ * CRM Prospection — V19.8 historique des échanges mis en avant
  *
  * Objectif :
  * - CRM volontairement simple
@@ -1847,7 +1847,7 @@ function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
             }}
           >
             <div style={{ color: late ? DA : T.textSub, fontSize: 10.5, display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-              <Icon as={Clock} size={10} />
+              <Icon as={Clock} size={12} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {p.prochaine_action || "Aucune action"}
                 {p.date_prochaine_action ? ` · ${fmtDate(p.date_prochaine_action)}` : ""}
@@ -2454,12 +2454,12 @@ function ProspectHistoryCard({ actions, T }) {
   return (
     <section
       style={{
-        border: `1px solid ${T.accent}32`,
-        borderRadius: 20,
-        padding: 12,
-        margin: "0 0 14px",
-        background: "linear-gradient(135deg, rgba(201,163,74,.105), rgba(255,255,255,.025))",
-        boxShadow: "0 16px 40px rgba(2,6,23,.16)",
+        border: `1px solid ${T.accent}55`,
+        borderRadius: 22,
+        padding: 16,
+        margin: "0 0 16px",
+        background: "linear-gradient(135deg, rgba(201,163,74,.16), rgba(255,255,255,.035))",
+        boxShadow: "0 20px 55px rgba(2,6,23,.22)",
       }}
     >
       <div
@@ -2474,9 +2474,9 @@ function ProspectHistoryCard({ actions, T }) {
         <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
           <span
             style={{
-              width: 30,
-              height: 30,
-              borderRadius: 12,
+              width: 38,
+              height: 38,
+              borderRadius: 15,
               display: "grid",
               placeItems: "center",
               background: `${T.accent}18`,
@@ -2485,14 +2485,14 @@ function ProspectHistoryCard({ actions, T }) {
               flexShrink: 0,
             }}
           >
-            <Icon as={ListChecks} size={15} />
+            <Icon as={ListChecks} size={18} />
           </span>
 
           <div style={{ minWidth: 0 }}>
-            <div style={{ color: T.text, fontSize: 14, fontWeight: 950 }}>
+            <div style={{ color: T.text, fontSize: 17, fontWeight: 950 }}>
               Historique des échanges
             </div>
-            <div style={{ color: T.textMuted, fontSize: 11.5, marginTop: 2 }}>
+            <div style={{ color: T.textSub, fontSize: 12.5, marginTop: 3, lineHeight: 1.35 }}>
               Derniers échanges, tâches assignées et suites prévues avant de reprendre contact.
             </div>
           </div>
@@ -2503,13 +2503,13 @@ function ProspectHistoryCard({ actions, T }) {
         </Badge>
       </div>
 
-      <div style={{ maxHeight: 310, overflowY: "auto", paddingRight: 4 }}>
+      <div style={{ maxHeight: 390, overflowY: "auto", paddingRight: 6 }}>
         {count === 0 ? (
           <div
             style={{
               color: T.textMuted,
-              fontSize: 12,
-              padding: 12,
+              fontSize: 13,
+              padding: 14,
               border: `1px dashed ${T.border}`,
               borderRadius: 14,
               background: "rgba(255,255,255,.025)",
@@ -3001,51 +3001,56 @@ function ActionRow({ action, T }) {
   return (
     <div
       style={{
-        padding: 10,
-        marginBottom: 8,
-        border: `1px solid ${T.border}`,
-        borderRadius: 14,
-        background: "rgba(255,255,255,.03)",
+        padding: 14,
+        marginBottom: 11,
+        border: `1px solid ${action.donnees?.tache_assignee ? T.accent + "55" : T.border}`,
+        borderLeft: `4px solid ${action.donnees?.tache_assignee ? T.accent : T.accent + "80"}`,
+        borderRadius: 16,
+        background: action.donnees?.tache_assignee
+          ? "linear-gradient(135deg, rgba(201,163,74,.13), rgba(255,255,255,.035))"
+          : "linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.025))",
+        boxShadow: "0 10px 26px rgba(2,6,23,.16)",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ color: T.text, fontWeight: 900, fontSize: 12 }}>
+          <div style={{ color: T.text, fontWeight: 950, fontSize: 14, textTransform: "capitalize" }}>
             {action.type_action || "note"}
           </div>
 
-          <div style={{ color: T.textMuted, fontSize: 10.5, marginTop: 3, display: "flex", alignItems: "center", gap: 5 }}>
-            <Icon as={Users} size={11} />
+          <div style={{ color: T.textMuted, fontSize: 11.5, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon as={Users} size={12} />
             <span>{author || "Collaborateur non renseigné"}</span>
           </div>
         </div>
 
-        <div style={{ color: T.textMuted, fontSize: 11, whiteSpace: "nowrap" }}>
+        <div style={{ color: T.textSub, fontSize: 12, fontWeight: 850, whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace" }}>
           {fmtDate(action.date_action)}
         </div>
       </div>
 
-      <div style={{ color: T.textSub, fontSize: 12, marginTop: 6, lineHeight: 1.35 }}>
+      <div style={{ color: T.text, fontSize: 14.5, marginTop: 10, lineHeight: 1.5, fontWeight: 700, whiteSpace: "pre-wrap" }}>
         {action.resume}
       </div>
 
       {action.donnees?.tache_assignee && (
         <div
           style={{
-            marginTop: 6,
-            padding: "6px 8px",
-            borderRadius: 10,
+            marginTop: 10,
+            padding: "8px 10px",
+            borderRadius: 12,
             border: `1px solid ${T.accent}35`,
             background: `${T.accent}10`,
             color: T.textSub,
-            fontSize: 10.5,
+            fontSize: 11.5,
+            fontWeight: 800,
             display: "flex",
             alignItems: "center",
             gap: 5,
             flexWrap: "wrap",
           }}
         >
-          <Icon as={Users} size={10} />
+          <Icon as={Users} size={12} />
           <span>
             Tâche assignée à {action.donnees?.collaborateur || action.donnees?.collaborateur_email || "collaborateur"}
             {action.donnees?.date_echeance ? ` · échéance ${fmtDate(action.donnees.date_echeance)}` : ""}
@@ -3056,13 +3061,14 @@ function ActionRow({ action, T }) {
       {(action.prochaine_action || action.date_prochaine_action) && (
         <div
           style={{
-            marginTop: 6,
-            padding: "6px 8px",
-            borderRadius: 10,
+            marginTop: 9,
+            padding: "8px 10px",
+            borderRadius: 12,
             border: `1px solid ${T.border}`,
-            background: "rgba(255,255,255,.03)",
-            color: T.textMuted,
-            fontSize: 10.5,
+            background: "rgba(255,255,255,.04)",
+            color: T.textSub,
+            fontSize: 11.5,
+            fontWeight: 800,
             display: "flex",
             alignItems: "center",
             gap: 5,
@@ -4812,8 +4818,16 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     <div>
                       <ProspectHistoryCard actions={actions} T={T} />
 
-                      <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
-                        <Icon as={MessageSquare} size={14} />
+                      <div
+                        style={{
+                          height: 1,
+                          background: `linear-gradient(90deg, ${T.accent}65, transparent)`,
+                          margin: "14px 0 12px",
+                        }}
+                      />
+
+                      <div style={{ color: T.text, fontSize: 14, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 7 }}>
+                        <Icon as={MessageSquare} size={15} />
                         Ajouter un échange à l’historique
                       </div>
                       <div style={{ color: T.textMuted, fontSize: 11, marginTop: -4, marginBottom: 8 }}>
