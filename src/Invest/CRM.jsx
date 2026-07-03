@@ -1318,6 +1318,8 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [actionFilter, setActionFilter] = useState("a_traiter");
+  const [responsableFilter, setResponsableFilter] = useState("");
   const missionJustificatifFileRef = useRef(null);
   const missionJustificatifActionIdRef = useRef(null);
   const missionHighlightedActionRef = useRef(null);
@@ -1374,6 +1376,25 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     return { total:list.length, done:list.filter(missionActionDone).length, pct:list.length ? Math.round(list.filter(missionActionDone).length/list.length*100) : 0 };
   };
   const actionsStep = actions.filter(a => a.step_key === selected.key);
+  const responsablesStep = [...new Set(actionsStep.map(a => a.responsable).filter(Boolean))];
+  const actionsStepTodo = actionsStep.filter(a => !missionActionDone(a));
+  const actionsStepLate = actionsStepTodo.filter(a => a.due_date && a.due_date < today);
+  const actionsStepWithoutPiece = actionsStepTodo.filter(a => a.document_drive_attendu && !a.justificatif_drive_url);
+  const actionsStepFiltered = actionsStep
+    .filter(a => {
+      if (responsableFilter && a.responsable !== responsableFilter) return false;
+      if (actionFilter === "a_traiter" && missionActionDone(a)) return false;
+      if (actionFilter === "retard" && !(a.due_date && a.due_date < today && !missionActionDone(a))) return false;
+      if (actionFilter === "pieces" && !(a.document_drive_attendu && !a.justificatif_drive_url && !missionActionDone(a))) return false;
+      if (actionFilter === "fait" && !missionActionDone(a)) return false;
+      return true;
+    })
+    .sort((a,b) => {
+      const aDone = missionActionDone(a) ? 1 : 0;
+      const bDone = missionActionDone(b) ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      return String(a.due_date || "9999-99-99").localeCompare(String(b.due_date || "9999-99-99"));
+    });
 
   const genererActions = async (stepKey = selected.key) => {
     const step = MISSION_STEPS_INVEST.find(s => s.key === stepKey);
@@ -1959,7 +1980,7 @@ Laisse vide pour créer un événement en journée entière.`,
         onChange={handleMissionJustificatifComputerFile}
       />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.12 alertes tâches + liens directs</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.14 fiche client ergonomique</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -2019,63 +2040,130 @@ Laisse vide pour créer un événement en journée entière.`,
             );
           })}
         </div>
-        <div style={{padding:"9px 11px",borderRadius:10,background:T.input,border:`1px solid ${T.border}`,marginBottom:8}}>
-          <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start"}}>
-            <div>
-              <div style={{fontSize:13,fontWeight:900,color:T.text}}>{selected.label}</div>
-              <div style={{fontSize:11,color:T.textMuted,lineHeight:1.5,marginTop:2}}>{selected.objectif}</div>
+        <div style={{display:"grid",gridTemplateColumns:"minmax(260px,.95fr) minmax(360px,1.35fr)",gap:10,marginBottom:10,alignItems:"stretch"}}>
+          <div style={{padding:"12px 13px",borderRadius:14,background:T.input,border:`1px solid ${T.border}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start",marginBottom:8}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:15,fontWeight:950,color:T.text,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                  <span>{selected.label}</span>
+                  {actionsStepLate.length > 0 && <span style={{fontSize:10,fontWeight:950,color:"#dc2626",background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:999,padding:"2px 7px"}}>{actionsStepLate.length} retard</span>}
+                </div>
+                <div style={{fontSize:11,color:T.textMuted,lineHeight:1.55,marginTop:4}}>{selected.objectif}</div>
+              </div>
+              <span style={{fontSize:11,fontWeight:950,color:actionsStepTodo.length ? "#dc2626" : "#16a34a",background:actionsStepTodo.length ? "#fff1f2" : "#dcfce7",border:`1px solid ${actionsStepTodo.length ? "#fecdd3" : "#86efac"}`,borderRadius:999,padding:"4px 9px",whiteSpace:"nowrap"}}>
+                {actionsStepTodo.length ? `${actionsStepTodo.length} à faire` : actionsStep.length ? "Étape OK" : "À générer"}
+              </span>
             </div>
-            <span style={{fontSize:11,fontWeight:900,color:T.accent,background:T.accentBg,border:`1px solid ${T.accent}33`,borderRadius:99,padding:"3px 8px",whiteSpace:"nowrap"}}>{actionsStep.filter(missionActionDone).length}/{actionsStep.length || selected.actions.length}</span>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginTop:10}}>
+              <div style={{border:`1px solid ${T.border}`,background:"#fff",borderRadius:12,padding:"8px 9px"}}>
+                <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.7}}>Fait</div>
+                <div style={{fontSize:15,fontWeight:950,color:"#16a34a",marginTop:2}}>{actionsStep.filter(missionActionDone).length}/{actionsStep.length || selected.actions.length}</div>
+              </div>
+              <div style={{border:`1px solid ${T.border}`,background:"#fff",borderRadius:12,padding:"8px 9px"}}>
+                <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.7}}>Restant</div>
+                <div style={{fontSize:15,fontWeight:950,color:actionsStepTodo.length ? "#dc2626" : "#16a34a",marginTop:2}}>{actionsStepTodo.length}</div>
+              </div>
+              <div style={{border:`1px solid ${T.border}`,background:"#fff",borderRadius:12,padding:"8px 9px"}}>
+                <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.7}}>Pièces</div>
+                <div style={{fontSize:15,fontWeight:950,color:actionsStepWithoutPiece.length ? "#f59e0b" : T.text,marginTop:2}}>{actionsStepWithoutPiece.length}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{padding:"12px 13px",borderRadius:14,background:"#f8fafc",border:"1px solid #e5e7eb",display:"flex",flexDirection:"column",gap:8,justifyContent:"center"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:950,color:T.text}}>Lecture rapide des actions</div>
+                <div style={{fontSize:10.5,color:T.textMuted,marginTop:2}}>Filtrer l'étape pour voir uniquement ce qui reste à traiter.</div>
+              </div>
+              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              {[
+                ["a_traiter", `À traiter (${actionsStepTodo.length})`],
+                ["retard", `Retard (${actionsStepLate.length})`],
+                ["pieces", `Pièces (${actionsStepWithoutPiece.length})`],
+                ["fait", `Fait (${actionsStep.filter(missionActionDone).length})`],
+                ["tous", `Tous (${actionsStep.length})`],
+              ].map(([key,label]) => (
+                <button key={key} type="button" onClick={() => setActionFilter(key)} style={{border:`1px solid ${actionFilter === key ? T.accent : T.border}`,background:actionFilter === key ? T.accentBg : "#fff",color:actionFilter === key ? T.accent : T.textSub,borderRadius:999,padding:"5px 9px",fontSize:11,fontWeight:900,cursor:"pointer"}}>{label}</button>
+              ))}
+              <select className="inv-sel" value={responsableFilter} onChange={e => setResponsableFilter(e.target.value)} style={{fontSize:11,padding:"5px 8px",marginLeft:"auto"}}>
+                <option value="">Tous responsables</option>
+                {responsablesStep.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
           </div>
         </div>
+
         {loading ? <div style={{padding:16,textAlign:"center",color:T.textMuted}}>Chargement du parcours…</div> : actionsStep.length === 0 ? (
-          <div style={{padding:14,textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:10,color:T.textMuted,fontSize:13}}>Aucune action générée pour cette étape. Clique sur “Générer étape”.</div>
+          <div style={{padding:18,textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:14,color:T.textMuted,fontSize:13,background:"#f8fafc"}}>
+            Aucune action générée pour cette étape. Clique sur “Générer étape” pour lancer le suivi.
+          </div>
+        ) : actionsStepFiltered.length === 0 ? (
+          <div style={{padding:18,textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:14,color:T.textMuted,fontSize:13,background:"#f8fafc"}}>
+            Aucune tâche ne correspond au filtre sélectionné.
+          </div>
         ) : (
-          <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:420,overflowY:"auto"}}>
-            {actionsStep.map(a => {
+          <div style={{display:"flex",flexDirection:"column",gap:9,maxHeight:560,overflowY:"auto",paddingRight:2}}>
+            {actionsStepFiltered.map(a => {
               const meta = missionStatusMeta(a.status);
-              const isLate = !missionActionDone(a) && a.due_date && a.due_date < today;
+              const isDone = missionActionDone(a);
+              const isLate = !isDone && a.due_date && a.due_date < today;
+              const needsPiece = !isDone && a.document_drive_attendu && !a.justificatif_drive_url;
               const isDeepLinkedAction = initialActionId && String(a.id) === String(initialActionId);
               return (
                 <div
                   key={a.id}
                   ref={isDeepLinkedAction ? missionHighlightedActionRef : null}
                   id={`mission-action-${a.id}`}
-                  style={{display:"grid",gridTemplateColumns:"24px minmax(270px,1.7fr) minmax(112px,.5fr) minmax(145px,.6fr) minmax(130px,.5fr) minmax(125px,.55fr) minmax(175px,.75fr)",gap:8,alignItems:"center",padding:"8px 9px",borderRadius:10,border:`1px solid ${isDeepLinkedAction ? T.accent : isLate ? "#fecdd3" : T.border}`,background:isDeepLinkedAction ? T.accentBg : isLate ? "#fff1f2" : "#fff",boxShadow:isDeepLinkedAction ? `0 0 0 3px ${T.accent}22` : "none",maxWidth:"100%",overflow:"hidden"}}
+                  style={{border:`1px solid ${isDeepLinkedAction ? T.accent : isLate ? "#fecdd3" : needsPiece ? "#fed7aa" : T.border}`,background:isDeepLinkedAction ? T.accentBg : isLate ? "#fff1f2" : "#fff",boxShadow:isDeepLinkedAction ? `0 0 0 3px ${T.accent}22` : "none",borderRadius:14,padding:"10px 11px",display:"flex",flexDirection:"column",gap:9}}
                 >
-                  <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:22,height:22,borderRadius:6,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a.status === "fait" ? "✓" : ""}</button>
-                  <div style={{minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:800,color:T.text,overflow:"visible",textOverflow:"clip",whiteSpace:"normal",lineHeight:1.35}}>{a.action_title}</div>
-                    <div style={{fontSize:10,color:T.textMuted,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
-                      {a.due_reminder_enabled !== false && !missionActionDone(a) && <span>⏱ Relance quotidienne dès échéance</span>}
-                      {a.last_reminder_sent_at && <span style={{color:"#2563eb",fontWeight:800}}>🔁 relancé le {missionFormatDateFr(a.last_reminder_sent_at)}</span>}
-                      {a.completed_at && <span style={{color:"#16a34a",fontWeight:900}}>✅ fait le {missionFormatDateFr(a.completed_at)}</span>}
-                      {a.justificatif_drive_url && <span style={{color:T.accent,fontWeight:800}}>📎 pièce : {a.justificatif_drive_name || "justificatif"}</span>}
-                      {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:800}}>✉️ {a.notification_sent_at ? `envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}` : a.notification_prepared_at ? `préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}` : ""}</span>}
-                      {a.calendar_created_at && <span style={{color:"#7c3aed",fontWeight:800}}>📅 agenda {missionFormatCalendarDateFr(a.calendar_date || a.due_date, a.calendar_time || "")}</span>}
-                      {a.calendar_status === "erreur_creation" && <span style={{color:"#dc2626",fontWeight:800}}>📅 agenda erreur</span>}
+                  <div style={{display:"flex",alignItems:"flex-start",gap:9}}>
+                    <button onClick={() => updateAction(a, { status:a.status === "fait" ? "a_faire" : "fait" })} title="Marquer fait" style={{width:24,height:24,borderRadius:8,border:`1px solid ${meta.color}55`,background:a.status === "fait" ? "#dcfce7" : "#fff",color:meta.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:950,flexShrink:0}}>{a.status === "fait" ? "✓" : ""}</button>
+                    <div style={{minWidth:0,flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                        <div style={{fontSize:13,fontWeight:950,color:isDone ? "#16a34a" : isLate ? "#dc2626" : T.text,lineHeight:1.35}}>{a.action_title}</div>
+                        <span style={{fontSize:10,fontWeight:950,color:meta.color,background:`${meta.color}14`,border:`1px solid ${meta.color}35`,borderRadius:999,padding:"2px 7px",whiteSpace:"nowrap"}}>{meta.label}</span>
+                        {isLate && <span style={{fontSize:10,fontWeight:950,color:"#dc2626",background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:999,padding:"2px 7px"}}>En retard</span>}
+                        {needsPiece && <span style={{fontSize:10,fontWeight:950,color:"#c2410c",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:999,padding:"2px 7px"}}>Pièce attendue</span>}
+                      </div>
+                      <div style={{fontSize:10.5,color:T.textMuted,marginTop:4,display:"flex",gap:8,flexWrap:"wrap",lineHeight:1.45}}>
+                        <span>👤 {a.responsable || "Responsable à définir"}</span>
+                        <span>📅 Échéance {a.due_date ? missionFormatDateFr(a.due_date) : "—"}</span>
+                        {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
+                        {a.due_reminder_enabled !== false && !isDone && <span>⏱ Relance quotidienne</span>}
+                        {a.last_reminder_sent_at && <span style={{color:"#2563eb",fontWeight:850}}>🔁 relancé le {missionFormatDateFr(a.last_reminder_sent_at)}</span>}
+                        {a.completed_at && <span style={{color:"#16a34a",fontWeight:950}}>✅ fait le {missionFormatDateFr(a.completed_at)}</span>}
+                        {a.justificatif_drive_url && <span style={{color:T.accent,fontWeight:850}}>📎 {a.justificatif_drive_name || "justificatif"}</span>}
+                        {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:850}}>✉️ {a.notification_sent_at ? `envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}` : `préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}`}</span>}
+                        {a.calendar_created_at && <span style={{color:"#7c3aed",fontWeight:850}}>📅 agenda {missionFormatCalendarDateFr(a.calendar_date || a.due_date, a.calendar_time || "")}</span>}
+                        {a.calendar_status === "erreur_creation" && <span style={{color:"#dc2626",fontWeight:850}}>📅 agenda erreur</span>}
+                      </div>
                     </div>
                   </div>
-                  <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"5px 6px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
-                  <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value, client) || null })} style={{fontSize:11,padding:"5px 6px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
-                  <input className="inv-inp" type="date" title="Date échéance de la tâche" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"5px 6px",width:"100%"}}/>
-                  {a.document_drive_attendu ? (
-                    a.justificatif_drive_url ? (
-                      <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
-                        <button className="inv-btn inv-btn-sm" onClick={() => openMissionJustificatif(a)} title="Ouvrir la pièce justificative liée" style={{fontSize:11,padding:"5px 7px",background:"#dcfce7",border:"1px solid #86efac",color:"black",justifyContent:"center",minWidth:0}}><Icon as={ExternalLink} size={12}/> Ouvrir</button>
-                        <button className="inv-btn inv-btn-sm" onClick={() => removeMissionJustificatif(a)} title="Supprimer le lien de la pièce justificative" style={{fontSize:11,padding:"5px 7px",background:"#fff1f2",border:"1px solid #fecdd3",color:"black",justifyContent:"center",minWidth:0}}><Icon as={Trash2} size={12}/> Supprimer</button>
-                      </div>
-                    ) : (
-                      <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
-                        <button className="inv-btn inv-btn-sm" onClick={() => chooseMissionJustificatifFromComputer(a)} title="Ajouter une pièce justificative depuis l’ordinateur" style={{fontSize:11,padding:"5px 7px",background:"#fff7ed",border:"1px solid #fed7aa",color:"black",justifyContent:"center",minWidth:0}}><Icon as={Upload} size={12}/> Ordinateur</button>
-                        <button className="inv-btn inv-btn-sm" onClick={() => addMissionJustificatifFromDrive(a)} title="Ajouter une pièce justificative depuis Google Drive" style={{fontSize:11,padding:"5px 7px",background:"#eff6ff",border:"1px solid #bfdbfe",color:"black",justifyContent:"center",minWidth:0}}>Drive</button>
-                      </div>
-                    )
-                  ) : <span style={{fontSize:11,color:T.textMuted,textAlign:"center"}}>—</span>}
-                  <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"center",flexWrap:"wrap",minWidth:0}}>
-                    <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Mail} size={12}/> Mail</button>
-                    <button className="inv-btn inv-btn-sm" onClick={() => addActionToAgenda(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Choisir le jour / l’heure et ajouter cette action à l’agenda Google de ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’ajouter à l’agenda : aucun email responsable"} style={{fontSize:11,padding:"5px 7px",background:a.calendar_created_at ? "#ede9fe" : a.calendar_status === "creation_en_cours" ? "#fef3c7" : "#fff",border:`1px solid ${a.calendar_created_at ? "#c4b5fd" : a.calendar_status === "creation_en_cours" ? "#fcd34d" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Calendar} size={12}/> Agenda</button>
+
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:7,alignItems:"center",paddingTop:8,borderTop:"1px solid rgba(15,23,42,.08)"}}>
+                    <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"6px 7px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
+                    <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value, client) || null })} style={{fontSize:11,padding:"6px 7px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
+                    <input className="inv-inp" type="date" title="Date échéance de la tâche" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"6px 7px",width:"100%"}}/>
+                    {a.document_drive_attendu ? (
+                      a.justificatif_drive_url ? (
+                        <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-start",flexWrap:"wrap",minWidth:0}}>
+                          <button className="inv-btn inv-btn-sm" onClick={() => openMissionJustificatif(a)} title="Ouvrir la pièce justificative liée" style={{fontSize:11,padding:"6px 8px",background:"#dcfce7",border:"1px solid #86efac",color:"black",justifyContent:"center",minWidth:0}}><Icon as={ExternalLink} size={12}/> Ouvrir</button>
+                          <button className="inv-btn inv-btn-sm" onClick={() => removeMissionJustificatif(a)} title="Supprimer le lien de la pièce justificative" style={{fontSize:11,padding:"6px 8px",background:"#fff1f2",border:"1px solid #fecdd3",color:"black",justifyContent:"center",minWidth:0}}><Icon as={Trash2} size={12}/> Supprimer</button>
+                        </div>
+                      ) : (
+                        <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-start",flexWrap:"wrap",minWidth:0}}>
+                          <button className="inv-btn inv-btn-sm" onClick={() => chooseMissionJustificatifFromComputer(a)} title="Ajouter une pièce justificative depuis l’ordinateur" style={{fontSize:11,padding:"6px 8px",background:"#fff7ed",border:"1px solid #fed7aa",color:"black",justifyContent:"center",minWidth:0}}><Icon as={Upload} size={12}/> Ordinateur</button>
+                          <button className="inv-btn inv-btn-sm" onClick={() => addMissionJustificatifFromDrive(a)} title="Ajouter une pièce justificative depuis Google Drive" style={{fontSize:11,padding:"6px 8px",background:"#eff6ff",border:"1px solid #bfdbfe",color:"black",justifyContent:"center",minWidth:0}}>Drive</button>
+                        </div>
+                      )
+                    ) : <span style={{fontSize:11,color:T.textMuted}}>Aucune pièce attendue</span>}
+                    <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-start",flexWrap:"wrap",minWidth:0}}>
+                      <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"6px 8px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Mail} size={12}/> Mail</button>
+                      <button className="inv-btn inv-btn-sm" onClick={() => addActionToAgenda(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Choisir le jour / l’heure et ajouter cette action à l’agenda Google de ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’ajouter à l’agenda : aucun email responsable"} style={{fontSize:11,padding:"6px 8px",background:a.calendar_created_at ? "#ede9fe" : a.calendar_status === "creation_en_cours" ? "#fef3c7" : "#fff",border:`1px solid ${a.calendar_created_at ? "#c4b5fd" : a.calendar_status === "creation_en_cours" ? "#fcd34d" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Calendar} size={12}/> Agenda</button>
+                    </div>
                   </div>
                 </div>
               );
@@ -2096,6 +2184,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const [simulations, setSimulations] = useState([]); // simulations liées à ce client
   const [showEdit, setShowEdit] = useState(false);
   const [newNote, setNewNote] = useState({ type:"commentaire", contenu:"" });
+  const [noteFilter, setNoteFilter] = useState("tous");
   const [savingNote, setSavingNote] = useState(false);
   const [showProp, setShowProp] = useState(false);
   const [newProp, setNewProp] = useState({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
@@ -2179,6 +2268,14 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
 
   if (!client) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
+  const ficheToday = new Date().toISOString().slice(0,10);
+  const clientFullName = `${client.prenom || ""} ${client.nom || ""}`.trim() || "Client";
+  const notesAffichees = noteFilter === "tous" ? notes : notes.filter(n => n.type === noteFilter);
+  const derniereNote = notes[0] || null;
+  const prochaineActionLate = client.date_prochaine_action && client.date_prochaine_action < ficheToday;
+  const prochaineActionToday = client.date_prochaine_action && client.date_prochaine_action === ficheToday;
+  const clientContact = [client.email, client.telephone].filter(Boolean).join(" · ") || "Coordonnées à compléter";
+
   return (
     <div style={{ padding:"24px 28px", maxWidth:1280, margin:"0 auto", width:"100%" }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24, flexWrap:"wrap" }}>
@@ -2206,23 +2303,87 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       </div>
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
-        {/* Informations en pleine largeur en haut de fiche */}
-        <div className="inv-card">
-          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Informations</span></div>
-          <div className="inv-card-bd">
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:"0 18px",maxWidth:"100%"}}>
-              {[ ["Conseiller", client.conseiller], ["Source", client.source], ["Budget", fmtBudget(client.budget)], ["Étape mission", missionStageInfo.label || missionCurrentStepLabelFromActions([], client)] ].map(([l,v])=>(
-                <div key={l} className="inv-row"><span className="inv-lbl">{l}</span><span className="inv-val calc">{v||"—"}</span></div>
-              ))}
-              <div className="inv-row" style={{alignItems:"center",gap:10}}>
-                <span className="inv-lbl">Date signature contrat</span>
-                <input
-                  className="inv-inp"
-                  type="date"
-                  value={String(client.date_signature || "").slice(0,10)}
-                  onChange={e => updateClientPatch({ date_signature:e.target.value || null })}
-                  style={{maxWidth:180,textAlign:"left",padding:"6px 8px",fontSize:12}}
-                />
+        {/* Synthèse client en pleine largeur */}
+        <div style={{display:"grid",gridTemplateColumns:"minmax(320px,1.05fr) minmax(360px,1.25fr)",gap:12,maxWidth:"100%"}}>
+          <div className="inv-card" style={{overflow:"hidden"}}>
+            <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Synthèse client</span>
+              <span style={{fontSize:10,fontWeight:900,color:T.accent,background:T.accentBg,border:`1px solid ${T.accent}33`,borderRadius:999,padding:"2px 7px"}}>{missionStageInfo.label || missionCurrentStepLabelFromActions([], client)}</span>
+            </div>
+            <div className="inv-card-bd">
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:8,marginBottom:10}}>
+                {[
+                  ["Conseiller", client.conseiller || "—"],
+                  ["Source", client.source || "—"],
+                  ["Budget", fmtBudget(client.budget)],
+                  ["Statut", client.statut || "—"],
+                ].map(([label,value]) => (
+                  <div key={label} style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px",minWidth:0}}>
+                    <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>{label}</div>
+                    <div style={{fontSize:13,color:T.text,fontWeight:900,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:"0 18px",maxWidth:"100%"}}>
+                <div className="inv-row"><span className="inv-lbl">Coordonnées</span><span className="inv-val" style={{textAlign:"right"}}>{clientContact}</span></div>
+                <div className="inv-row" style={{alignItems:"center",gap:10}}>
+                  <span className="inv-lbl">Date signature contrat</span>
+                  <input
+                    className="inv-inp"
+                    type="date"
+                    value={String(client.date_signature || "").slice(0,10)}
+                    onChange={e => updateClientPatch({ date_signature:e.target.value || null })}
+                    style={{maxWidth:180,textAlign:"left",padding:"6px 8px",fontSize:12}}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="inv-card" style={{overflow:"hidden"}}>
+            <div className="inv-card-hd orange" style={{justifyContent:"space-between"}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Bell} size={13} strokeWidth={2.2}/>Suivi immédiat</span>
+              <span style={{fontSize:10,fontWeight:900,color:prochaineActionLate ? "#dc2626" : prochaineActionToday ? "#f59e0b" : T.textMuted,background:prochaineActionLate ? "#fff1f2" : prochaineActionToday ? "#fffbeb" : "#f8fafc",border:`1px solid ${prochaineActionLate ? "#fecdd3" : prochaineActionToday ? "#fde68a" : T.border}`,borderRadius:999,padding:"2px 7px"}}>
+                {prochaineActionLate ? "En retard" : prochaineActionToday ? "Aujourd'hui" : "CRM"}
+              </span>
+            </div>
+            <div className="inv-card-bd">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 170px",gap:8,alignItems:"end"}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:900,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Prochaine action CRM</label>
+                  <input
+                    className="inv-inp"
+                    value={client.prochaine_action || ""}
+                    placeholder="Action à mener…"
+                    onChange={e => setClient(prev => prev ? { ...prev, prochaine_action:e.target.value } : prev)}
+                    onBlur={e => updateClientPatch({ prochaine_action:e.target.value || null })}
+                    style={{width:"100%",textAlign:"left",fontSize:13}}
+                  />
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:900,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Échéance</label>
+                  <input
+                    className="inv-inp"
+                    type="date"
+                    value={String(client.date_prochaine_action || "").slice(0,10)}
+                    onChange={e => updateClientPatch({ date_prochaine_action:e.target.value || null })}
+                    style={{width:"100%",fontSize:13}}
+                  />
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:11}}>
+                <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px"}}>
+                  <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>Notes</div>
+                  <div style={{fontSize:16,fontWeight:950,color:T.text,marginTop:2}}>{notes.length}</div>
+                </div>
+                <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px"}}>
+                  <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>Biens</div>
+                  <div style={{fontSize:16,fontWeight:950,color:T.accent,marginTop:2}}>{props.length}</div>
+                </div>
+                <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px"}}>
+                  <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>Dernier échange</div>
+                  <div style={{fontSize:12,fontWeight:950,color:T.text,marginTop:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{derniereNote ? fmtDate(derniereNote.date) : "—"}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -2289,44 +2450,80 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             <DocumentsSection folder={`clients/${id}`} T={T} />
 
             <div className="inv-card">
-              <div className="inv-card-hd"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique des notes ({notes.length})</span></div>
-              <div className="inv-card-bd">
-              {/* Ajouter une note */}
-              <div style={{ marginBottom:16, padding:"12px 14px", background:"#f8f9fb", borderRadius:8, border:"1px solid #eef0f5" }}>
-                <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                  <select className="inv-sel" value={newNote.type} onChange={e=>setNewNote({...newNote,type:e.target.value})} style={{ fontSize:12 }}>
-                    {TYPES_NOTE.map(t=><option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <textarea className="inv-textarea" rows={3} placeholder="Ajouter une note…" value={newNote.contenu}
-                  onChange={e=>setNewNote({...newNote,contenu:e.target.value})}/>
-                <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
-                  <button className="inv-btn inv-btn-blue inv-btn-sm" style={{color:"black"}} onClick={ajouterNote} disabled={savingNote}>
-                    {savingNote ? "…" : "＋ Ajouter"}
-                  </button>
+              <div className="inv-card-hd" style={{justifyContent:"space-between",gap:10,alignItems:"center"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique & échanges ({notes.length})</span>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  {["tous", ...TYPES_NOTE].map(t => {
+                    const active = noteFilter === t;
+                    const count = t === "tous" ? notes.length : notes.filter(n => n.type === t).length;
+                    return (
+                      <button key={t} type="button" onClick={() => setNoteFilter(t)} style={{border:`1px solid ${active ? T.accent : T.border}`,background:active ? T.accentBg : "#fff",color:active ? T.accent : T.textMuted,borderRadius:999,padding:"3px 7px",fontSize:10.5,fontWeight:900,cursor:"pointer"}}>
+                        {t === "tous" ? "Tout" : t} {count > 0 ? count : ""}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              {/* Liste notes */}
-              <div style={{ maxHeight:500, overflowY:"auto" }}>
-                {notes.length === 0 ? (
-                  <div style={{ fontSize:13, color:"#9aa0b0", fontStyle:"italic", textAlign:"center", padding:"20px 0" }}>Aucune note</div>
-                ) : notes.map(n => (
-                  <div key={n.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                      <span style={{ fontSize:16 }}>{NOTE_ICONS[n.type]||"📝"}</span>
-                      <span style={{ fontSize:11, fontWeight:700, color:T.accent, textTransform:"uppercase" }}>{n.type}</span>
-                      <span style={{ fontSize:11, color:T.textMuted, marginLeft:"auto" }}>
-                        {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
-                      </span>
+              <div className="inv-card-bd">
+                <div style={{marginBottom:14,padding:"12px 14px",background:"#f8fafc",borderRadius:14,border:"1px solid #e5e7eb"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:950,color:T.text}}>Ajouter un échange</div>
+                      <div style={{fontSize:10.5,color:T.textMuted,marginTop:1}}>Centralise les appels, relances, rendez-vous et documents au même endroit.</div>
                     </div>
-                    <div style={{ fontSize:13, color:T.text, lineHeight:1.6, paddingLeft:24 }}>{n.contenu}</div>
+                    <select className="inv-sel" value={newNote.type} onChange={e=>setNewNote({...newNote,type:e.target.value})} style={{fontSize:12,padding:"6px 8px"}}>
+                      {TYPES_NOTE.map(t=><option key={t}>{t}</option>)}
+                    </select>
                   </div>
-                ))}
+                  <textarea className="inv-textarea" rows={3} placeholder={`Note pour ${clientFullName}…`} value={newNote.contenu}
+                    onChange={e=>setNewNote({...newNote,contenu:e.target.value})}/>
+                  <div style={{marginTop:8,display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {[
+                        ["appel", "Appel"],
+                        ["relance", "Relance"],
+                        ["rendez-vous", "RDV"],
+                        ["document", "Document"],
+                      ].map(([type,label]) => (
+                        <button key={type} type="button" onClick={() => setNewNote(prev => ({...prev, type}))} style={{border:`1px solid ${newNote.type === type ? T.accent : T.border}`,background:newNote.type === type ? T.accentBg : "#fff",color:newNote.type === type ? T.accent : T.textMuted,borderRadius:999,padding:"4px 8px",fontSize:11,fontWeight:900,cursor:"pointer"}}>{label}</button>
+                      ))}
+                    </div>
+                    <button className="inv-btn inv-btn-blue inv-btn-sm" style={{color:"black"}} onClick={ajouterNote} disabled={savingNote || !newNote.contenu.trim()}>
+                      {savingNote ? "…" : "＋ Ajouter à l'historique"}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{position:"relative",maxHeight:560,overflowY:"auto",paddingLeft:6,paddingRight:2}}>
+                  {notesAffichees.length === 0 ? (
+                    <div style={{fontSize:13,color:"#9aa0b0",fontStyle:"italic",textAlign:"center",padding:"26px 0",border:`1px dashed ${T.border}`,borderRadius:14,background:"#f8fafc"}}>
+                      Aucun échange dans ce filtre.
+                    </div>
+                  ) : notesAffichees.map((n, idx) => {
+                    const noteColor = n.type === "relance" ? "#f59e0b" : n.type === "appel" ? "#2563eb" : n.type === "rendez-vous" ? "#16a34a" : n.type === "document" ? T.accent : "#64748b";
+                    return (
+                      <div key={n.id} style={{position:"relative",display:"grid",gridTemplateColumns:"34px 1fr",gap:9,paddingBottom:idx === notesAffichees.length - 1 ? 0 : 12}}>
+                        <div style={{position:"relative",display:"flex",justifyContent:"center"}}>
+                          {idx !== notesAffichees.length - 1 && <div style={{position:"absolute",top:32,bottom:-12,width:1,background:"#e5e7eb"}}/>}
+                          <div style={{width:30,height:30,borderRadius:"50%",background:`${noteColor}14`,border:`1px solid ${noteColor}35`,color:noteColor,display:"grid",placeItems:"center",fontSize:14,fontWeight:950,zIndex:1}}>{NOTE_ICONS[n.type]||"📝"}</div>
+                        </div>
+                        <div style={{border:`1px solid ${T.border}`,background:"#fff",borderRadius:14,padding:"10px 11px"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+                            <span style={{fontSize:10.5,fontWeight:950,color:noteColor,textTransform:"uppercase",letterSpacing:.7,background:`${noteColor}12`,border:`1px solid ${noteColor}28`,borderRadius:999,padding:"2px 7px"}}>{n.type}</span>
+                            <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto"}}>
+                              {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
+                            </span>
+                          </div>
+                          <div style={{fontSize:13,color:T.text,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{n.contenu}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
       </div>
 
       {showEdit && <FormulaireClient client={client} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
