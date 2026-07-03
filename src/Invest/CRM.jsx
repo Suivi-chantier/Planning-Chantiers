@@ -1980,7 +1980,7 @@ Laisse vide pour créer un événement en journée entière.`,
         onChange={handleMissionJustificatifComputerFile}
       />
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
-        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.14 fiche client ergonomique</span></span>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.15 validation action CRM + historique prospect</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
           <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
@@ -2186,6 +2186,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const [newNote, setNewNote] = useState({ type:"commentaire", contenu:"" });
   const [noteFilter, setNoteFilter] = useState("tous");
   const [savingNote, setSavingNote] = useState(false);
+  const [savingCrmAction, setSavingCrmAction] = useState(false);
   const [showProp, setShowProp] = useState(false);
   const [newProp, setNewProp] = useState({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
   const [savingProp, setSavingProp] = useState(false);
@@ -2265,6 +2266,42 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" }) : "—";
   const fmtBudget = v => v > 0 ? new Intl.NumberFormat("fr-FR").format(v)+" €" : "—";
   const NOTE_ICONS = { appel:"📞", "rendez-vous":"🤝", relance:"🔔", commentaire:"💬", document:"📄", autre:"📝" };
+  const NOTE_TONES = {
+    appel: { label:"Appel", color:"#2563eb", bg:"#eff6ff", border:"#bfdbfe", icon:"📞" },
+    "rendez-vous": { label:"Rendez-vous", color:"#16a34a", bg:"#f0fdf4", border:"#bbf7d0", icon:"🤝" },
+    relance: { label:"Relance", color:"#f59e0b", bg:"#fffbeb", border:"#fde68a", icon:"🔔" },
+    commentaire: { label:"Commentaire", color:"#64748b", bg:"#f8fafc", border:"#e2e8f0", icon:"💬" },
+    document: { label:"Document", color:T.accent, bg:T.accentBg || "#f8fafc", border:T.accentBorder || `${T.accent}33`, icon:"📄" },
+    autre: { label:"Autre", color:"#7c3aed", bg:"#f5f3ff", border:"#ddd6fe", icon:"📝" },
+  };
+  const noteTone = (type) => NOTE_TONES[type] || NOTE_TONES.autre;
+
+  const validerProchaineActionCrm = async () => {
+    const action = String(client?.prochaine_action || "").trim();
+    if (!action || savingCrmAction) return;
+    setSavingCrmAction(true);
+    const due = String(client?.date_prochaine_action || "").slice(0,10);
+    const auteur = profil?.nom || profil?.email || "Profero";
+    const contenu = [
+      `✅ Action CRM validée : ${action}`,
+      due ? `Échéance initiale : ${fmtDate(due)}` : null,
+    ].filter(Boolean).join("\n");
+
+    const [{ error: noteError }, { error: clientError }] = await Promise.all([
+      supabase.from("invest_notes").insert({ client_id:id, auteur, type:"relance", contenu }),
+      supabase.from("invest_clients").update({ prochaine_action:null, date_prochaine_action:null }).eq("id", id),
+    ]);
+
+    setSavingCrmAction(false);
+    if (noteError || clientError) {
+      alert("Impossible de valider l'action CRM : " + (noteError?.message || clientError?.message));
+      charger();
+      return;
+    }
+    setClient(prev => prev ? { ...prev, prochaine_action:null, date_prochaine_action:null } : prev);
+    setNoteFilter("tous");
+    charger();
+  };
 
   if (!client) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
@@ -2371,6 +2408,20 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
                   />
                 </div>
               </div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:10,padding:"9px 10px",borderRadius:12,background:"#f8fafc",border:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+                <div style={{fontSize:11,color:T.textMuted,lineHeight:1.45}}>
+                  Valider l'action l'ajoute automatiquement à l'historique puis libère la prochaine action CRM.
+                </div>
+                <button
+                  type="button"
+                  className="inv-btn inv-btn-blue inv-btn-sm"
+                  onClick={validerProchaineActionCrm}
+                  disabled={savingCrmAction || !String(client.prochaine_action || "").trim()}
+                  style={{color:"black",whiteSpace:"nowrap"}}
+                >
+                  <Icon as={Check} size={12} strokeWidth={2.3}/> {savingCrmAction ? "Validation…" : "Valider l'action"}
+                </button>
+              </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:11}}>
                 <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px"}}>
                   <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>Notes</div>
@@ -2449,44 +2500,47 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
           <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
             <DocumentsSection folder={`clients/${id}`} T={T} />
 
-            <div className="inv-card">
-              <div className="inv-card-hd" style={{justifyContent:"space-between",gap:10,alignItems:"center"}}>
-                <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique & échanges ({notes.length})</span>
+            <div className="inv-card" style={{overflow:"hidden",border:`1px solid ${T.border}`,boxShadow:"0 18px 45px rgba(15,23,42,.06)"}}>
+              <div className="inv-card-hd" style={{justifyContent:"space-between",gap:10,alignItems:"center",background:"linear-gradient(135deg,#ffffff,#f8fafc)",borderBottom:`1px solid ${T.border}`}}>
+                <div style={{minWidth:0}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MessageSquare} size={13} strokeWidth={2.2}/>Historique client ({notes.length})</span>
+                  <div style={{fontSize:10.5,color:T.textMuted,fontWeight:700,marginTop:2,textTransform:"none",letterSpacing:0}}>Timeline des échanges, relances et actions validées</div>
+                </div>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>
                   {["tous", ...TYPES_NOTE].map(t => {
                     const active = noteFilter === t;
+                    const tone = t === "tous" ? { label:"Tout", color:T.accent, bg:T.accentBg, border:T.accentBorder } : noteTone(t);
                     const count = t === "tous" ? notes.length : notes.filter(n => n.type === t).length;
                     return (
-                      <button key={t} type="button" onClick={() => setNoteFilter(t)} style={{border:`1px solid ${active ? T.accent : T.border}`,background:active ? T.accentBg : "#fff",color:active ? T.accent : T.textMuted,borderRadius:999,padding:"3px 7px",fontSize:10.5,fontWeight:900,cursor:"pointer"}}>
-                        {t === "tous" ? "Tout" : t} {count > 0 ? count : ""}
+                      <button key={t} type="button" onClick={() => setNoteFilter(t)} style={{border:`1px solid ${active ? tone.color : T.border}`,background:active ? tone.bg : "#fff",color:active ? tone.color : T.textMuted,borderRadius:999,padding:"4px 8px",fontSize:10.5,fontWeight:950,cursor:"pointer",boxShadow:active ? `0 8px 18px ${tone.color}12` : "none"}}>
+                        {tone.label || t} {count > 0 ? count : ""}
                       </button>
                     );
                   })}
                 </div>
               </div>
-              <div className="inv-card-bd">
-                <div style={{marginBottom:14,padding:"12px 14px",background:"#f8fafc",borderRadius:14,border:"1px solid #e5e7eb"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-                    <div>
-                      <div style={{fontSize:12,fontWeight:950,color:T.text}}>Ajouter un échange</div>
-                      <div style={{fontSize:10.5,color:T.textMuted,marginTop:1}}>Centralise les appels, relances, rendez-vous et documents au même endroit.</div>
+              <div className="inv-card-bd" style={{background:"#f8fafc"}}>
+                <div style={{marginBottom:14,padding:"13px 14px",background:"#fff",borderRadius:16,border:"1px solid #e5e7eb",boxShadow:"0 10px 24px rgba(15,23,42,.04)"}}>
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:9,flexWrap:"wrap"}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:950,color:T.text,display:"flex",alignItems:"center",gap:7}}><span style={{width:24,height:24,borderRadius:9,display:"grid",placeItems:"center",background:T.accentBg,color:T.accent}}>＋</span> Ajouter un échange</div>
+                      <div style={{fontSize:10.5,color:T.textMuted,marginTop:3}}>Même logique que la fiche prospect : une action claire, datée, rangée dans le journal.</div>
                     </div>
-                    <select className="inv-sel" value={newNote.type} onChange={e=>setNewNote({...newNote,type:e.target.value})} style={{fontSize:12,padding:"6px 8px"}}>
-                      {TYPES_NOTE.map(t=><option key={t}>{t}</option>)}
+                    <select className="inv-sel" value={newNote.type} onChange={e=>setNewNote({...newNote,type:e.target.value})} style={{fontSize:12,padding:"6px 8px",background:noteTone(newNote.type).bg,border:`1px solid ${noteTone(newNote.type).border}`,color:noteTone(newNote.type).color,fontWeight:900}}>
+                      {TYPES_NOTE.map(t=><option key={t}>{noteTone(t).label || t}</option>)}
                     </select>
                   </div>
                   <textarea className="inv-textarea" rows={3} placeholder={`Note pour ${clientFullName}…`} value={newNote.contenu}
-                    onChange={e=>setNewNote({...newNote,contenu:e.target.value})}/>
+                    onChange={e=>setNewNote({...newNote,contenu:e.target.value})} style={{background:"#fff"}}/>
                   <div style={{marginTop:8,display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                      {[
-                        ["appel", "Appel"],
-                        ["relance", "Relance"],
-                        ["rendez-vous", "RDV"],
-                        ["document", "Document"],
-                      ].map(([type,label]) => (
-                        <button key={type} type="button" onClick={() => setNewNote(prev => ({...prev, type}))} style={{border:`1px solid ${newNote.type === type ? T.accent : T.border}`,background:newNote.type === type ? T.accentBg : "#fff",color:newNote.type === type ? T.accent : T.textMuted,borderRadius:999,padding:"4px 8px",fontSize:11,fontWeight:900,cursor:"pointer"}}>{label}</button>
-                      ))}
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {["appel", "relance", "rendez-vous", "document"].map(type => {
+                        const tone = noteTone(type);
+                        const active = newNote.type === type;
+                        return (
+                          <button key={type} type="button" onClick={() => setNewNote(prev => ({...prev, type}))} style={{border:`1px solid ${active ? tone.color : tone.border}`,background:active ? tone.bg : "#fff",color:active ? tone.color : T.textMuted,borderRadius:999,padding:"5px 9px",fontSize:11,fontWeight:950,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>{tone.icon} {tone.label}</button>
+                        );
+                      })}
                     </div>
                     <button className="inv-btn inv-btn-blue inv-btn-sm" style={{color:"black"}} onClick={ajouterNote} disabled={savingNote || !newNote.contenu.trim()}>
                       {savingNote ? "…" : "＋ Ajouter à l'historique"}
@@ -2494,23 +2548,24 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
                   </div>
                 </div>
 
-                <div style={{position:"relative",maxHeight:560,overflowY:"auto",paddingLeft:6,paddingRight:2}}>
+                <div style={{position:"relative",maxHeight:560,overflowY:"auto",padding:"2px 2px 2px 0"}}>
                   {notesAffichees.length === 0 ? (
-                    <div style={{fontSize:13,color:"#9aa0b0",fontStyle:"italic",textAlign:"center",padding:"26px 0",border:`1px dashed ${T.border}`,borderRadius:14,background:"#f8fafc"}}>
+                    <div style={{fontSize:13,color:"#9aa0b0",fontStyle:"italic",textAlign:"center",padding:"28px 0",border:`1px dashed ${T.border}`,borderRadius:16,background:"#fff"}}>
                       Aucun échange dans ce filtre.
                     </div>
                   ) : notesAffichees.map((n, idx) => {
-                    const noteColor = n.type === "relance" ? "#f59e0b" : n.type === "appel" ? "#2563eb" : n.type === "rendez-vous" ? "#16a34a" : n.type === "document" ? T.accent : "#64748b";
+                    const tone = noteTone(n.type);
+                    const isCrmValidation = String(n.contenu || "").includes("Action CRM validée");
                     return (
-                      <div key={n.id} style={{position:"relative",display:"grid",gridTemplateColumns:"34px 1fr",gap:9,paddingBottom:idx === notesAffichees.length - 1 ? 0 : 12}}>
+                      <div key={n.id} style={{position:"relative",display:"grid",gridTemplateColumns:"36px 1fr",gap:10,paddingBottom:idx === notesAffichees.length - 1 ? 0 : 12}}>
                         <div style={{position:"relative",display:"flex",justifyContent:"center"}}>
-                          {idx !== notesAffichees.length - 1 && <div style={{position:"absolute",top:32,bottom:-12,width:1,background:"#e5e7eb"}}/>}
-                          <div style={{width:30,height:30,borderRadius:"50%",background:`${noteColor}14`,border:`1px solid ${noteColor}35`,color:noteColor,display:"grid",placeItems:"center",fontSize:14,fontWeight:950,zIndex:1}}>{NOTE_ICONS[n.type]||"📝"}</div>
+                          {idx !== notesAffichees.length - 1 && <div style={{position:"absolute",top:34,bottom:-12,width:2,background:"#e5e7eb",borderRadius:99}}/>}
+                          <div style={{width:32,height:32,borderRadius:12,background:tone.bg,border:`1px solid ${tone.border}`,color:tone.color,display:"grid",placeItems:"center",fontSize:15,fontWeight:950,zIndex:1,boxShadow:"0 8px 20px rgba(15,23,42,.06)"}}>{isCrmValidation ? "✅" : tone.icon}</div>
                         </div>
-                        <div style={{border:`1px solid ${T.border}`,background:"#fff",borderRadius:14,padding:"10px 11px"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
-                            <span style={{fontSize:10.5,fontWeight:950,color:noteColor,textTransform:"uppercase",letterSpacing:.7,background:`${noteColor}12`,border:`1px solid ${noteColor}28`,borderRadius:999,padding:"2px 7px"}}>{n.type}</span>
-                            <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto"}}>
+                        <div style={{border:`1px solid ${isCrmValidation ? "#bbf7d0" : T.border}`,borderLeft:`4px solid ${isCrmValidation ? "#16a34a" : tone.color}`,background:"#fff",borderRadius:16,padding:"11px 12px",boxShadow:"0 10px 24px rgba(15,23,42,.045)"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                            <span style={{fontSize:10.5,fontWeight:950,color:isCrmValidation ? "#16a34a" : tone.color,textTransform:"uppercase",letterSpacing:.7,background:isCrmValidation ? "#f0fdf4" : tone.bg,border:`1px solid ${isCrmValidation ? "#bbf7d0" : tone.border}`,borderRadius:999,padding:"2px 8px"}}>{isCrmValidation ? "Action validée" : tone.label}</span>
+                            <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontWeight:750}}>
                               {new Date(n.date).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"})} · {n.auteur||"—"}
                             </span>
                           </div>
@@ -2521,8 +2576,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
                   })}
                 </div>
               </div>
-            </div>
-          </div>
+            </div>          </div>
         </div>
       </div>
 
