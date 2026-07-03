@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.6 historique en haut de fiche
+ * CRM Prospection — V19.7 score en haut + historique regroupé avec échanges
  *
  * Objectif :
  * - CRM volontairement simple
@@ -2649,112 +2649,170 @@ function ScoreTransformationCard({ prospect, T }) {
   const detail = transformationScoreDetail(prospect);
   const maxBreakdown = 35;
 
+  const breakdownRows = [
+    ["Intention", detail.breakdown.intention, 35],
+    ["Avancement", detail.breakdown.avancement, 25],
+    ["Qualification", detail.breakdown.qualification, 25],
+    ["Suivi", detail.breakdown.suivi, 15],
+  ];
+
   return (
     <div
       style={{
-        border: `1px solid ${detail.color}40`,
-        borderRadius: 18,
-        padding: 12,
-        margin: "10px 0 12px",
-        background: `linear-gradient(135deg, ${detail.color}16, rgba(255,255,255,.035))`,
+        border: `1px solid ${detail.color}45`,
+        borderRadius: 22,
+        padding: 14,
+        margin: "0 0 12px",
+        background: `linear-gradient(135deg, ${detail.color}18, rgba(255,255,255,.035))`,
+        boxShadow: `0 18px 45px ${detail.color}14`,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
-        <div>
-          <div style={{ color: T.text, fontSize: 13, fontWeight: 950, display: "flex", alignItems: "center", gap: 7 }}>
-            <Icon as={TrendingUp} size={14} />
-            Score de transformation
-          </div>
-          <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2 }}>
-            Probabilité estimée que le prospect signe un accompagnement Profero Invest
-          </div>
-        </div>
-
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ color: detail.color, fontSize: 24, lineHeight: 1, fontWeight: 950 }}>
-            {detail.score}/100
-          </div>
-          <div style={{ color: detail.color, fontSize: 11, fontWeight: 950, marginTop: 4 }}>
-            {detail.label}
-          </div>
-        </div>
-      </div>
-
-      <div style={{ height: 10, borderRadius: 999, background: "rgba(148,163,184,.18)", overflow: "hidden", marginBottom: 10 }}>
-        <div
-          style={{
-            width: `${Math.max(3, detail.score)}%`,
-            height: "100%",
-            background: detail.color,
-            borderRadius: 999,
-          }}
-        />
-      </div>
-
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))",
-          gap: 8,
-          marginBottom: 10,
+          gridTemplateColumns: "minmax(260px, .82fr) minmax(420px, 1.25fr) minmax(260px, .9fr)",
+          gap: 14,
+          alignItems: "stretch",
         }}
       >
-        {[
-          ["Intention", detail.breakdown.intention, 35],
-          ["Avancement", detail.breakdown.avancement, 25],
-          ["Qualification", detail.breakdown.qualification, 25],
-          ["Suivi", detail.breakdown.suivi, 15],
-        ].map(([label, value, max]) => (
-          <div
-            key={label}
-            style={{
-              border: `1px solid ${T.border}`,
-              background: "rgba(255,255,255,.035)",
-              borderRadius: 14,
-              padding: "8px 10px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, color: T.textMuted, fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: ".06em" }}>
-              <span>{label}</span>
-              <span>{value}/{max}</span>
+        <div
+          style={{
+            border: `1px solid ${detail.color}30`,
+            borderRadius: 18,
+            padding: 12,
+            background: "rgba(255,255,255,.035)",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            minHeight: 126,
+          }}
+        >
+          <div>
+            <div style={{ color: T.text, fontSize: 14, fontWeight: 950, display: "flex", alignItems: "center", gap: 7 }}>
+              <Icon as={TrendingUp} size={15} />
+              Score de transformation
             </div>
-            <div style={{ height: 6, borderRadius: 999, background: "rgba(148,163,184,.18)", overflow: "hidden", marginTop: 7 }}>
-              <div
-                style={{
-                  height: "100%",
-                  width: `${Math.max(0, Math.min(100, (Number(value || 0) / Number(max || maxBreakdown)) * 100))}%`,
-                  background: detail.color,
-                  borderRadius: 999,
-                }}
-              />
+            <div style={{ color: T.textMuted, fontSize: 11.5, marginTop: 3, lineHeight: 1.35 }}>
+              Probabilité estimée que le prospect signe un accompagnement Profero Invest.
             </div>
           </div>
-        ))}
-      </div>
 
-      {(detail.reasons.length > 0 || detail.penalties.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 10, marginTop: 10 }}>
+            <div>
+              <div style={{ color: detail.color, fontSize: 34, lineHeight: 1, fontWeight: 950 }}>
+                {detail.score}/100
+              </div>
+              <div style={{ color: detail.color, fontSize: 12, fontWeight: 950, marginTop: 4 }}>
+                {detail.label}
+              </div>
+            </div>
+
+            <Badge color={detail.color} T={T}>
+              {detail.label}
+            </Badge>
+          </div>
+
+          <div style={{ height: 10, borderRadius: 999, background: "rgba(148,163,184,.18)", overflow: "hidden", marginTop: 11 }}>
+            <div
+              style={{
+                width: `${Math.max(3, detail.score)}%`,
+                height: "100%",
+                background: detail.color,
+                borderRadius: 999,
+              }}
+            />
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${T.border}`,
+            borderRadius: 18,
+            padding: 12,
+            background: "rgba(255,255,255,.026)",
+            minHeight: 126,
+          }}
+        >
+          <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 9 }}>
+            Décomposition du score
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+              gap: 8,
+            }}
+          >
+            {breakdownRows.map(([label, value, max]) => (
+              <div
+                key={label}
+                style={{
+                  border: `1px solid ${T.border}`,
+                  background: "rgba(255,255,255,.035)",
+                  borderRadius: 14,
+                  padding: "8px 10px",
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {label}
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline", marginTop: 5 }}>
+                  <span style={{ color: T.text, fontSize: 16, fontWeight: 950 }}>{value}</span>
+                  <span style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 850 }}>/{max}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 999, background: "rgba(148,163,184,.18)", overflow: "hidden", marginTop: 7 }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.max(0, Math.min(100, (Number(value || 0) / Number(max || maxBreakdown)) * 100))}%`,
+                      background: detail.color,
+                      borderRadius: 999,
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${T.border}`,
+            borderRadius: 18,
+            padding: 12,
+            background: "rgba(255,255,255,.026)",
+            minHeight: 126,
+            display: "grid",
+            gridTemplateColumns: detail.penalties.length > 0 ? "1fr 1fr" : "1fr",
+            gap: 10,
+          }}
+        >
           <div>
-            <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 5 }}>
+            <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 7 }}>
               Motifs positifs
             </div>
             <div style={{ display: "grid", gap: 4 }}>
-              {detail.reasons.slice(0, 5).map((reason) => (
-                <div key={reason} style={{ color: T.textSub, fontSize: 11.5, lineHeight: 1.35 }}>
+              {detail.reasons.slice(0, 4).map((reason) => (
+                <div key={reason} style={{ color: T.textSub, fontSize: 11.3, lineHeight: 1.35 }}>
                   • {reason}
                 </div>
               ))}
+              {detail.reasons.length === 0 && (
+                <div style={{ color: T.textMuted, fontSize: 11.3 }}>Aucun signal fort identifié.</div>
+              )}
             </div>
           </div>
 
           {detail.penalties.length > 0 && (
             <div>
-              <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 5 }}>
-                Points de vigilance
+              <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 7 }}>
+                Vigilance
               </div>
               <div style={{ display: "grid", gap: 4 }}>
-                {detail.penalties.slice(0, 5).map((penalty) => (
-                  <div key={penalty} style={{ color: WA, fontSize: 11.5, lineHeight: 1.35 }}>
+                {detail.penalties.slice(0, 4).map((penalty) => (
+                  <div key={penalty} style={{ color: WA, fontSize: 11.3, lineHeight: 1.35 }}>
                     • {penalty}
                   </div>
                 ))}
@@ -2762,7 +2820,7 @@ function ScoreTransformationCard({ prospect, T }) {
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -4174,6 +4232,12 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
             grid-template-columns: 1fr;
           }
         }
+
+        @media (max-width: 1180px) {
+          .inv-prospect-modal-body > div[style*="grid-template-columns: minmax(260px"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
       `}</style>
       <div
         style={{
@@ -4486,13 +4550,13 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
               </div>
             ) : (
               <>
+                {selected?.id && <ScoreTransformationCard prospect={{ ...selected, ...form }} T={T} />}
+
                 <div style={{ marginBottom: 12 }}>
                   <StatusPills value={form.statut} onChange={quickStatus} />
                 </div>
 
                 <ProspectSummaryCard prospect={currentProspect} T={T} />
-
-                {selected?.id && <ProspectHistoryCard actions={actions} T={T} />}
 
                 <div className="inv-prospect-section-grid">
                   <div>
@@ -4590,7 +4654,6 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   </div>
 
                   <div>
-                    {selected?.id && <ScoreTransformationCard prospect={{ ...selected, ...form }} T={T} />}
                     {selected?.id && <FluidifyDetailCard prospect={selected} T={T} />}
 
                     <FicheSection
@@ -4747,6 +4810,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     }}
                   >
                     <div>
+                      <ProspectHistoryCard actions={actions} T={T} />
+
                       <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
                         <Icon as={MessageSquare} size={14} />
                         Ajouter un échange à l’historique
