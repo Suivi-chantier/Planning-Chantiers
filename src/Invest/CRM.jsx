@@ -2187,6 +2187,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const [noteFilter, setNoteFilter] = useState("tous");
   const [savingNote, setSavingNote] = useState(false);
   const [savingCrmAction, setSavingCrmAction] = useState(false);
+  const [crmPointEtape, setCrmPointEtape] = useState({ label:"", date:"" });
+  const [collaboratorTask, setCollaboratorTask] = useState({ title:"", owner:"", email:"", due_date:"" });
+  const [assigningCollaboratorTask, setAssigningCollaboratorTask] = useState(false);
   const [showProp, setShowProp] = useState(false);
   const [newProp, setNewProp] = useState({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
   const [savingProp, setSavingProp] = useState(false);
@@ -2200,6 +2203,11 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       supabase.from("invest_biens").select("id,adresse,ville,code_postal,statut,prix_vente,prix_travaux,cout_total,montant_offre,rendement_brut,cashflow_estime,visite_data").order("adresse"),
     ]);
     setClient(c); setNotes(n||[]); setProps(p||[]); setBiens(b||[]);
+    const strat = clientStrategy(c || {});
+    setCrmPointEtape({
+      label: strat.crm_next_stage_label || strat.crm_next_stage || "",
+      date: strat.crm_next_stage_date || "",
+    });
 
     // Charge les simulations liées à ce client. Tente avec client_id ; si la
     // colonne n'existe pas (42703), on désactive la section silencieusement.
@@ -2219,6 +2227,126 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
     setClient(prev => prev ? { ...prev, ...patch } : prev);
     const { error } = await supabase.from("invest_clients").update(patch).eq("id", id);
     if (error) { alert("Impossible d'enregistrer : " + error.message); charger(); }
+  };
+
+  const saveCrmPointEtape = async (patch = {}) => {
+    const nextPoint = { ...crmPointEtape, ...patch };
+    setCrmPointEtape(nextPoint);
+    const nextData = {
+      ...clientStrategy(client),
+      crm_next_stage_label: String(nextPoint.label || "").trim(),
+      crm_next_stage_date: nextPoint.date || null,
+    };
+    setClient(prev => prev ? { ...prev, strategie_data:nextData } : prev);
+    const { error } = await supabase.from("invest_clients").update({ strategie_data:nextData }).eq("id", id);
+    if (error) { alert("Impossible d'enregistrer le point d'étape : " + error.message); charger(); }
+  };
+
+  const setCrmActionQuick = async (label, days = 2) => {
+    const due = missionAddDaysIso(days);
+    await updateClientPatch({ prochaine_action:label, date_prochaine_action:due });
+  };
+
+  const setCrmActionDueQuick = async (days = 0) => {
+    await updateClientPatch({ date_prochaine_action:missionAddDaysIso(days) });
+  };
+
+  const assignerTacheCollaborateur = async () => {
+    const title = String(collaboratorTask.title || "").trim();
+    const owner = String(collaboratorTask.owner || "").trim();
+    const email = String(collaboratorTask.email || "").trim();
+    const due = String(collaboratorTask.due_date || "").trim();
+    if (!title) { alert("Indique l'objet de la tâche collaborateur."); return; }
+    if (!email || !missionLooksLikeEmail(email)) { alert("Indique un email collaborateur valide."); return; }
+    setAssigningCollaboratorTask(true);
+    const auteur = profil?.nom || profil?.email || "Profero";
+    const clientUrl = (() => {
+      try {
+        if (typeof window === "undefined") return "";
+        const url = new URL(window.location.href);
+        url.searchParams.set("page", "crm");
+        url.searchParams.set("crm_client", String(id));
+        url.searchParams.set("crm_focus", "suivi_actions");
+        url.hash = "suivi-actions";
+        return url.toString();
+      } catch { return ""; }
+    })();
+    const subject = `[Profero Invest] Tâche client — ${title}`;
+    const body = [
+      `Bonjour ${owner || ""},`,
+      "",
+      "Une tâche client t'est assignée depuis la fiche CRM Profero Invest.",
+      "",
+      `Client : ${clientFullName}`,
+      `Tâche : ${title}`,
+      due ? `Échéance : ${fmtDate(due)}` : null,
+      clientUrl ? `Ouvrir la fiche client : ${clientUrl}` : null,
+      "",
+      "Merci de traiter cette tâche ou de faire un retour dans l'application.",
+      "",
+      "Profero Invest",
+    ].filter(Boolean).join("\n");
+    const htmlBody = `
+      <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+          <div style="background:#111827;color:#ffffff;padding:18px 22px;">
+            <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#c9a34a;font-weight:700;">Profero Invest</div>
+            <div style="font-size:20px;font-weight:800;margin-top:4px;">Tâche client assignée</div>
+          </div>
+          <div style="padding:22px;">
+            <p style="margin:0 0 14px;">Bonjour ${missionEscapeHtml(owner || "")},</p>
+            <p style="margin:0 0 18px;">Une tâche client t'est assignée depuis la fiche CRM Profero Invest.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:18px;">
+              <tr><td style="padding:8px 0;color:#64748b;width:135px;">Client</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(clientFullName)}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b;">Tâche</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(title)}</td></tr>
+              ${due ? `<tr><td style="padding:8px 0;color:#64748b;">Échéance</td><td style="padding:8px 0;font-weight:700;color:#dc2626;">${missionEscapeHtml(fmtDate(due))}</td></tr>` : ""}
+            </table>
+            ${clientUrl ? `<a href="${missionEscapeHtml(clientUrl)}" style="display:inline-block;background:#c9a34a;color:#111827;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 18px;">Ouvrir la fiche client</a>` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+
+    const { data, error } = await supabase.functions.invoke("send-mission-email", {
+      body: {
+        clientId:id,
+        to:email,
+        subject,
+        body,
+        htmlBody,
+        actionUrl:clientUrl,
+        responsable:owner,
+        clientName:clientFullName,
+        senderEmail:MISSION_AUTOMATION_ACCOUNT_EMAIL,
+        fromEmail:MISSION_AUTOMATION_ACCOUNT_EMAIL,
+        notificationType:"crm_collaborator_task",
+      },
+    });
+
+    if (error || data?.error) {
+      setAssigningCollaboratorTask(false);
+      alert("Impossible d'envoyer le mail collaborateur : " + (data?.error || error?.message || "erreur inconnue"));
+      return;
+    }
+
+    await supabase.from("invest_notes").insert({
+      client_id:id,
+      auteur,
+      type:"relance",
+      contenu:[
+        `📌 Tâche collaborateur assignée : ${title}`,
+        owner ? `Collaborateur : ${owner}` : null,
+        `Email : ${email}`,
+        due ? `Échéance : ${fmtDate(due)}` : null,
+        "Mail automatique envoyé au collaborateur.",
+      ].filter(Boolean).join("\n"),
+    });
+
+    if (owner) missionRememberOwnerEmail(owner, email);
+    setAssigningCollaboratorTask(false);
+    setCollaboratorTask({ title:"", owner:"", email:"", due_date:"" });
+    setNoteFilter("tous");
+    charger();
   };
 
   const ajouterNote = async () => {
@@ -2340,8 +2468,8 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       </div>
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
-        {/* Synthèse client en pleine largeur */}
-        <div style={{display:"grid",gridTemplateColumns:"minmax(320px,1.05fr) minmax(360px,1.25fr)",gap:12,maxWidth:"100%"}}>
+        {/* Synthèse client + suivi des actions type fiche prospect */}
+        <div style={{display:"grid",gridTemplateColumns:"minmax(300px,.72fr) minmax(620px,1.28fr)",gap:12,maxWidth:"100%"}}>
           <div className="inv-card" style={{overflow:"hidden"}}>
             <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
               <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Synthèse client</span>
@@ -2377,63 +2505,169 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             </div>
           </div>
 
-          <div className="inv-card" style={{overflow:"hidden"}}>
-            <div className="inv-card-hd orange" style={{justifyContent:"space-between"}}>
-              <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Bell} size={13} strokeWidth={2.2}/>Suivi immédiat</span>
-              <span style={{fontSize:10,fontWeight:900,color:prochaineActionLate ? "#dc2626" : prochaineActionToday ? "#f59e0b" : T.textMuted,background:prochaineActionLate ? "#fff1f2" : prochaineActionToday ? "#fffbeb" : "#f8fafc",border:`1px solid ${prochaineActionLate ? "#fecdd3" : prochaineActionToday ? "#fde68a" : T.border}`,borderRadius:999,padding:"2px 7px"}}>
-                {prochaineActionLate ? "En retard" : prochaineActionToday ? "Aujourd'hui" : "CRM"}
+          <div id="suivi-actions" className="inv-card" style={{overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 18px 42px rgba(15,23,42,.06)",background:"linear-gradient(135deg,#ffffff,#f8fafc)"}}>
+            <div style={{padding:"14px 16px 0",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:9,minWidth:0}}>
+                <span style={{width:28,height:28,borderRadius:12,display:"grid",placeItems:"center",background:"#fff7ed",color:"#d97706",border:"1px solid #fed7aa",flexShrink:0}}><Icon as={Bell} size={14} strokeWidth={2.2}/></span>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:950,color:T.text,lineHeight:1.1}}>Suivi des actions</div>
+                  <div style={{fontSize:10.5,color:T.textMuted,fontWeight:700,marginTop:3}}>Lecture horizontale : action commerciale, point d'étape et tâche collaborateur au même endroit.</div>
+                </div>
+              </div>
+              <span style={{fontSize:10,fontWeight:950,color:prochaineActionLate ? "#dc2626" : prochaineActionToday ? "#d97706" : T.textMuted,background:prochaineActionLate ? "#fff1f2" : prochaineActionToday ? "#fffbeb" : "#f8fafc",border:`1px solid ${prochaineActionLate ? "#fecdd3" : prochaineActionToday ? "#fde68a" : T.border}`,borderRadius:999,padding:"3px 8px"}}>
+                {prochaineActionLate ? "Action CRM en retard" : prochaineActionToday ? "Action CRM aujourd'hui" : "Suivi CRM"}
               </span>
             </div>
-            <div className="inv-card-bd">
-              <div style={{display:"grid",gridTemplateColumns:"1fr 170px",gap:8,alignItems:"end"}}>
-                <div>
-                  <label style={{fontSize:10,fontWeight:900,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Prochaine action CRM</label>
-                  <input
-                    className="inv-inp"
-                    value={client.prochaine_action || ""}
-                    placeholder="Action à mener…"
-                    onChange={e => setClient(prev => prev ? { ...prev, prochaine_action:e.target.value } : prev)}
-                    onBlur={e => updateClientPatch({ prochaine_action:e.target.value || null })}
-                    style={{width:"100%",textAlign:"left",fontSize:13}}
-                  />
+
+            <div className="inv-card-bd" style={{paddingTop:12}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(220px,1fr))",gap:12,overflowX:"auto",paddingBottom:2}}>
+                <div style={{border:"1px solid #fed7aa",borderRadius:16,padding:12,background:"linear-gradient(135deg,#fff7ed,#ffffff)",minWidth:220}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+                    <Icon as={Bell} size={13} color="#92400e" strokeWidth={2.3}/>
+                    <div style={{fontSize:13,fontWeight:950,color:T.text}}>Prochaine action</div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 132px",gap:8,alignItems:"end"}}>
+                    <div>
+                      <label style={{fontSize:9.5,fontWeight:950,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Action à réaliser</label>
+                      <input
+                        className="inv-inp"
+                        value={client.prochaine_action || ""}
+                        placeholder="Écris librement l'action…"
+                        onChange={e => setClient(prev => prev ? { ...prev, prochaine_action:e.target.value } : prev)}
+                        onBlur={e => updateClientPatch({ prochaine_action:e.target.value || null })}
+                        style={{width:"100%",textAlign:"left",fontSize:12.5,background:"#fff"}}
+                      />
+                    </div>
+                    <div>
+                      <label style={{fontSize:9.5,fontWeight:950,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Date</label>
+                      <input
+                        className="inv-inp"
+                        type="date"
+                        value={String(client.date_prochaine_action || "").slice(0,10)}
+                        onChange={e => updateClientPatch({ date_prochaine_action:e.target.value || null })}
+                        style={{width:"100%",fontSize:12,background:"#fff"}}
+                      />
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:9}}>
+                    {[
+                      ["Appeler", "Appeler le client", 0],
+                      ["Envoyer un message", "Envoyer un message au client", 0],
+                      ["Programmer un RDV", "Programmer un rendez-vous client", 2],
+                      ["Envoyer une proposition", "Envoyer une proposition au client", 2],
+                      ["Relancer la proposition", "Relancer la proposition envoyée", 2],
+                    ].map(([label, value, days]) => (
+                      <button key={label} type="button" onClick={() => setCrmActionQuick(value, days)} style={{border:"1px solid #e5e7eb",background:"#fff",color:T.textSub,borderRadius:8,padding:"6px 8px",fontSize:10.5,fontWeight:950,cursor:"pointer"}}>{label}</button>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:9,flexWrap:"wrap"}}>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {[["J",0],["J+2",2],["J+7",7],["J+15",15]].map(([label, days]) => (
+                        <button key={label} type="button" onClick={() => setCrmActionDueQuick(days)} style={{border:"1px solid #d1d5db",background:"#fff",color:T.textSub,borderRadius:8,padding:"6px 9px",fontSize:10.5,fontWeight:950,cursor:"pointer"}}>{label}</button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="inv-btn inv-btn-blue inv-btn-sm"
+                      onClick={validerProchaineActionCrm}
+                      disabled={savingCrmAction || !String(client.prochaine_action || "").trim()}
+                      style={{color:"black",whiteSpace:"nowrap",padding:"6px 10px"}}
+                    >
+                      <Icon as={Check} size={12} strokeWidth={2.3}/> {savingCrmAction ? "Validation…" : "Valider"}
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label style={{fontSize:10,fontWeight:900,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Échéance</label>
-                  <input
-                    className="inv-inp"
-                    type="date"
-                    value={String(client.date_prochaine_action || "").slice(0,10)}
-                    onChange={e => updateClientPatch({ date_prochaine_action:e.target.value || null })}
-                    style={{width:"100%",fontSize:13}}
-                  />
+
+                <div style={{border:"1px solid #c4b5fd",borderRadius:16,padding:12,background:"linear-gradient(135deg,#f5f3ff,#ffffff)",minWidth:220}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+                    <Icon as={Calendar} size={13} color="#7c3aed" strokeWidth={2.3}/>
+                    <div style={{fontSize:13,fontWeight:950,color:T.text}}>Prochain point d'étape</div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 132px",gap:8,alignItems:"end"}}>
+                    <div>
+                      <label style={{fontSize:9.5,fontWeight:950,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Point d'étape client / prospect</label>
+                      <input
+                        className="inv-inp"
+                        value={crmPointEtape.label || ""}
+                        placeholder="Ex : décision, validation, offre…"
+                        onChange={e => setCrmPointEtape(prev => ({...prev,label:e.target.value}))}
+                        onBlur={e => saveCrmPointEtape({ label:e.target.value })}
+                        style={{width:"100%",textAlign:"left",fontSize:12.5,background:"#fff"}}
+                      />
+                    </div>
+                    <div>
+                      <label style={{fontSize:9.5,fontWeight:950,color:T.textMuted,textTransform:"uppercase",letterSpacing:.8,display:"block",marginBottom:5}}>Date</label>
+                      <input
+                        className="inv-inp"
+                        type="date"
+                        value={crmPointEtape.date || ""}
+                        onChange={e => saveCrmPointEtape({ date:e.target.value || "" })}
+                        style={{width:"100%",fontSize:12,background:"#fff"}}
+                      />
+                    </div>
+                  </div>
+                  <div style={{fontSize:10.5,color:T.textMuted,lineHeight:1.45,marginTop:9}}>Sert à identifier le prochain vrai jalon de suivi, différent de la simple action à réaliser.</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+                    {[
+                      ["Décision client", 2],
+                      ["Validation stratégie", 2],
+                      ["Offre à faire", 3],
+                      ["Financement", 7],
+                      ["Signature", 15],
+                    ].map(([label, days]) => (
+                      <button key={label} type="button" onClick={() => saveCrmPointEtape({ label, date:missionAddDaysIso(days) })} style={{border:"1px solid #ddd6fe",background:"#fff",color:"#6d28d9",borderRadius:8,padding:"6px 8px",fontSize:10.5,fontWeight:950,cursor:"pointer"}}>{label}</button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:10,padding:"9px 10px",borderRadius:12,background:"#f8fafc",border:`1px solid ${T.border}`,flexWrap:"wrap"}}>
-                <div style={{fontSize:11,color:T.textMuted,lineHeight:1.45}}>
-                  Valider l'action l'ajoute automatiquement à l'historique puis libère la prochaine action CRM.
-                </div>
-                <button
-                  type="button"
-                  className="inv-btn inv-btn-blue inv-btn-sm"
-                  onClick={validerProchaineActionCrm}
-                  disabled={savingCrmAction || !String(client.prochaine_action || "").trim()}
-                  style={{color:"black",whiteSpace:"nowrap"}}
-                >
-                  <Icon as={Check} size={12} strokeWidth={2.3}/> {savingCrmAction ? "Validation…" : "Valider l'action"}
-                </button>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:11}}>
-                <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px"}}>
-                  <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>Notes</div>
-                  <div style={{fontSize:16,fontWeight:950,color:T.text,marginTop:2}}>{notes.length}</div>
-                </div>
-                <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px"}}>
-                  <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>Biens</div>
-                  <div style={{fontSize:16,fontWeight:950,color:T.accent,marginTop:2}}>{props.length}</div>
-                </div>
-                <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px"}}>
-                  <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>Dernier échange</div>
-                  <div style={{fontSize:12,fontWeight:950,color:T.text,marginTop:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{derniereNote ? fmtDate(derniereNote.date) : "—"}</div>
+
+                <div style={{border:"1px solid #bfdbfe",borderRadius:16,padding:12,background:"linear-gradient(135deg,#eff6ff,#ffffff)",minWidth:220}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+                    <Icon as={Send} size={13} color="#2563eb" strokeWidth={2.3}/>
+                    <div style={{fontSize:13,fontWeight:950,color:T.text}}>Tâche collaborateur</div>
+                  </div>
+                  <div style={{display:"grid",gap:8}}>
+                    <input
+                      className="inv-inp"
+                      value={collaboratorTask.title || ""}
+                      placeholder="Objet de la tâche : ex : préparer les plans"
+                      onChange={e => setCollaboratorTask(prev => ({...prev,title:e.target.value}))}
+                      style={{width:"100%",textAlign:"left",fontSize:12.5,background:"#fff"}}
+                    />
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <select
+                        className="inv-sel"
+                        value={collaboratorTask.owner || ""}
+                        onChange={e => {
+                          const owner = e.target.value;
+                          setCollaboratorTask(prev => ({...prev,owner,email:missionEmailForOwner(owner, client) || prev.email || ""}));
+                        }}
+                        style={{width:"100%",fontSize:12,background:"#fff"}}
+                      >
+                        <option value="">Collaborateur</option>
+                        {MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}
+                      </select>
+                      <input
+                        className="inv-inp"
+                        value={collaboratorTask.email || ""}
+                        placeholder="Email"
+                        onChange={e => setCollaboratorTask(prev => ({...prev,email:e.target.value}))}
+                        style={{width:"100%",textAlign:"left",fontSize:12,background:"#fff"}}
+                      />
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+                      <input
+                        className="inv-inp"
+                        type="date"
+                        value={collaboratorTask.due_date || ""}
+                        onChange={e => setCollaboratorTask(prev => ({...prev,due_date:e.target.value}))}
+                        style={{width:"100%",fontSize:12,background:"#fff"}}
+                      />
+                      <button className="inv-btn inv-btn-blue inv-btn-sm" type="button" onClick={assignerTacheCollaborateur} disabled={assigningCollaboratorTask} style={{color:"black",padding:"7px 11px"}}>
+                        {assigningCollaboratorTask ? "Envoi…" : "Assigner"}
+                      </button>
+                    </div>
+                    <div style={{fontSize:10.5,color:T.textMuted,lineHeight:1.45}}>Mail envoyé au collaborateur à la validation, puis ajout automatique dans l'historique.</div>
+                  </div>
                 </div>
               </div>
             </div>
