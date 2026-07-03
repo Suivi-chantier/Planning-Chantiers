@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.9 tâche dans suivi + note avant historique
+ * CRM Prospection — V19.10 suivi horizontal + ajout échange au-dessus historique
  *
  * Objectif :
  * - CRM volontairement simple
@@ -4644,22 +4644,41 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                   <div>
                     {selected?.id && <FluidifyDetailCard prospect={selected} T={T} />}
 
-                    <FicheSection
-                      T={T}
-                      icon={CalendarDays}
-                      title="Suivi à réaliser"
-                      helper="Ce bloc pilote l’action commerciale à faire et le prochain jalon de suivi."
-                      accent={WA}
+                    
+                  </div>
+                </div>
+
+
+                <FicheSection
+                  T={T}
+                  icon={CalendarDays}
+                  title="Suivi des actions"
+                  helper="Lecture horizontale : action commerciale, point d’étape et tâche collaborateur au même endroit."
+                  accent={WA}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+                      gap: 12,
+                      alignItems: "stretch",
+                    }}
+                  >
+                    <div
+                      style={{
+                        border: `1px solid ${WA}35`,
+                        background: `linear-gradient(135deg, ${WA}12, rgba(255,255,255,.025))`,
+                        borderRadius: 18,
+                        padding: 12,
+                      }}
                     >
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "minmax(220px, 1fr) 160px",
-                          gap: 10,
-                          alignItems: "end",
-                        }}
-                      >
-                        <Field label="Prochaine action à réaliser">
+                      <div style={{ color: T.text, fontSize: 13.5, fontWeight: 950, marginBottom: 8, display: "flex", alignItems: "center", gap: 7 }}>
+                        <Icon as={Clock} size={14} />
+                        Prochaine action
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 150px", gap: 8, alignItems: "end" }}>
+                        <Field label="Action à réaliser">
                           <Input
                             value={form.prochaine_action}
                             onChange={(v) => setField("prochaine_action", v)}
@@ -4667,15 +4686,12 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                           />
                         </Field>
 
-                        <Field label="Date action">
+                        <Field label="Date">
                           <Input type="date" value={form.date_prochaine_action} onChange={(v) => setField("date_prochaine_action", v)} />
                         </Field>
                       </div>
 
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, marginBottom: 12 }}>
-                        <span style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, alignSelf: "center", marginRight: 2 }}>
-                          Actions rapides :
-                        </span>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                         {PROCHAINES_ACTIONS.filter(Boolean).map((action) => (
                           <button
                             key={action}
@@ -4692,118 +4708,109 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                         ))}
                       </div>
 
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-                        <span style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 900, alignSelf: "center", marginRight: 2 }}>
-                          Dates rapides :
-                        </span>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                         <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 0)}>J</button>
                         <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 2)}>J+2</button>
                         <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 7)}>J+7</button>
                         <button className="inv-btn inv-btn-out inv-btn-sm" type="button" onClick={() => setQuickFollowUp(form.prochaine_action || "Relancer", 15)}>J+15</button>
                       </div>
+                    </div>
 
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "minmax(220px, 1fr) 160px",
-                          gap: 10,
-                          alignItems: "end",
-                        }}
-                      >
-                        <Field label="Prochain point d’étape client / prospect">
-                          <Input value={form.prochain_point_etape} onChange={(v) => setField("prochain_point_etape", v)} placeholder="Ex : Point décision, validation budget, retour proposition..." />
+                    <div
+                      style={{
+                        border: `1px solid #8B5CF635`,
+                        background: "linear-gradient(135deg, rgba(139,92,246,.12), rgba(255,255,255,.025))",
+                        borderRadius: 18,
+                        padding: 12,
+                      }}
+                    >
+                      <div style={{ color: T.text, fontSize: 13.5, fontWeight: 950, marginBottom: 8, display: "flex", alignItems: "center", gap: 7 }}>
+                        <Icon as={CalendarDays} size={14} />
+                        Prochain point d’étape
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 150px", gap: 8, alignItems: "end" }}>
+                        <Field label="Point d’étape client / prospect">
+                          <Input
+                            value={form.prochain_point_etape}
+                            onChange={(v) => setField("prochain_point_etape", v)}
+                            placeholder="Ex : décision, validation budget, retour proposition..."
+                          />
                         </Field>
 
-                        <Field label="Date point d’étape">
+                        <Field label="Date">
                           <Input type="date" value={form.date_prochain_point_etape} onChange={(v) => setField("date_prochain_point_etape", v)} />
                         </Field>
                       </div>
 
+                      <div style={{ color: T.textMuted, fontSize: 11.5, lineHeight: 1.35, marginTop: 9 }}>
+                        Sert à identifier le prochain vrai jalon de suivi, différent de la simple action à réaliser.
+                      </div>
+                    </div>
 
-                      <div
-                        style={{
-                          height: 1,
-                          background: `linear-gradient(90deg, ${T.accent}55, transparent)`,
-                          margin: "16px 0 12px",
-                        }}
+                    <div
+                      style={{
+                        border: `1px solid ${T.accent}40`,
+                        background: "linear-gradient(135deg, rgba(201,163,74,.13), rgba(255,255,255,.025))",
+                        borderRadius: 18,
+                        padding: 12,
+                      }}
+                    >
+                      <div style={{ color: T.text, fontSize: 13.5, fontWeight: 950, marginBottom: 8, display: "flex", alignItems: "center", gap: 7 }}>
+                        <Icon as={CheckCircle2} size={14} />
+                        Tâche collaborateur
+                      </div>
+
+                      <input
+                        className="inv-inp"
+                        value={actionForm.tache_resume}
+                        onChange={(e) => setActionForm((p) => ({ ...p, tache_resume: e.target.value }))}
+                        placeholder="Objet de la tâche : ex. Rappeler le prospect..."
+                        style={{ height: 34, marginBottom: 7 }}
                       />
 
-                      <div style={{ color: T.textMuted, fontSize: 10.5, fontWeight: 950, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
-                        Tâche interne liée au suivi
-                      </div>
-
-                      <div style={{ color: T.text, fontSize: 14, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
-                        <Icon as={CheckCircle2} size={14} />
-                        Assigner une tâche à un collaborateur
-                      </div>
-                      <div style={{ color: T.textMuted, fontSize: 11, marginTop: -4, marginBottom: 8 }}>
-                        À utiliser lorsqu’une action doit être réalisée par un membre de l’équipe avec une date.
-                      </div>
-
-                      <div
-                        style={{
-                          border: `1px solid ${T.accent}30`,
-                          background: "linear-gradient(135deg, rgba(201,163,74,.09), rgba(255,255,255,.025))",
-                          borderRadius: 16,
-                          padding: 10,
-                        }}
-                      >
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 7 }}>
                         <input
                           className="inv-inp"
-                          value={actionForm.tache_resume}
-                          onChange={(e) => setActionForm((p) => ({ ...p, tache_resume: e.target.value }))}
-                          placeholder="Objet de la tâche : ex. Rappeler le prospect, préparer la proposition..."
-                          style={{ height: 34, marginBottom: 7 }}
+                          value={actionForm.tache_collaborateur}
+                          onChange={(e) => setActionForm((p) => ({ ...p, tache_collaborateur: e.target.value }))}
+                          placeholder="Collaborateur"
+                          style={{ height: 34 }}
                         />
-
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 7 }}>
-                          <input
-                            className="inv-inp"
-                            value={actionForm.tache_collaborateur}
-                            onChange={(e) => setActionForm((p) => ({ ...p, tache_collaborateur: e.target.value }))}
-                            placeholder="Collaborateur assigné"
-                            style={{ height: 34 }}
-                          />
-                          <input
-                            className="inv-inp"
-                            type="email"
-                            value={actionForm.tache_email}
-                            onChange={(e) => setActionForm((p) => ({ ...p, tache_email: e.target.value }))}
-                            placeholder="Email collaborateur"
-                            style={{ height: 34 }}
-                          />
-                          <input
-                            className="inv-inp"
-                            type="date"
-                            value={actionForm.tache_date}
-                            onChange={(e) => setActionForm((p) => ({ ...p, tache_date: e.target.value }))}
-                            style={{ height: 34, fontSize: 12 }}
-                          />
-                        </div>
-
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", marginTop: 8 }}>
-                          <div style={{ color: T.textMuted, fontSize: 11.2, lineHeight: 1.35, display: "flex", gap: 7, alignItems: "flex-start" }}>
-                            <Icon as={Clock} size={13} />
-                            <span>
-                              À la validation, la tâche est ajoutée à l’historique et un mail est envoyé au collaborateur.
-                            </span>
-                          </div>
-
-                          <button
-                            className="inv-btn inv-btn-gold inv-btn-sm"
-                            type="button"
-                            onClick={() => addAction({ type_action: "tache" })}
-                            disabled={saving || !selected?.id}
-                          >
-                            Assigner
-                          </button>
-                        </div>
+                        <input
+                          className="inv-inp"
+                          type="email"
+                          value={actionForm.tache_email}
+                          onChange={(e) => setActionForm((p) => ({ ...p, tache_email: e.target.value }))}
+                          placeholder="Email"
+                          style={{ height: 34 }}
+                        />
+                        <input
+                          className="inv-inp"
+                          type="date"
+                          value={actionForm.tache_date}
+                          onChange={(e) => setActionForm((p) => ({ ...p, tache_date: e.target.value }))}
+                          style={{ height: 34, fontSize: 12 }}
+                        />
                       </div>
 
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", marginTop: 8 }}>
+                        <div style={{ color: T.textMuted, fontSize: 11.2, lineHeight: 1.35 }}>
+                          Mail envoyé au collaborateur à la validation.
+                        </div>
 
-                    </FicheSection>
+                        <button
+                          className="inv-btn inv-btn-gold inv-btn-sm"
+                          type="button"
+                          onClick={() => addAction({ type_action: "tache" })}
+                          disabled={saving || !selected?.id}
+                        >
+                          Assigner
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </FicheSection>
 
                 <div
                   className="inv-prospect-footer-actions"
@@ -4900,16 +4907,6 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     }}
                   >
                     <div>
-                      <ProspectHistoryCard actions={actions} T={T} />
-
-                      <div
-                        style={{
-                          height: 1,
-                          background: `linear-gradient(90deg, ${T.accent}65, transparent)`,
-                          margin: "14px 0 12px",
-                        }}
-                      />
-
                       <div style={{ color: T.text, fontSize: 14, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 7 }}>
                         <Icon as={MessageSquare} size={15} />
                         Ajouter un échange à l’historique
@@ -4920,11 +4917,11 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
                       <div
                         style={{
-                          border: `1px solid ${T.border}`,
-                          background: "rgba(255,255,255,.025)",
+                          border: `1px solid ${T.accent}35`,
+                          background: "linear-gradient(135deg, rgba(201,163,74,.09), rgba(255,255,255,.025))",
                           borderRadius: 16,
                           padding: 10,
-                          marginBottom: 10,
+                          marginBottom: 14,
                         }}
                       >
                         <div style={{ display: "grid", gridTemplateColumns: "130px 1fr 118px", gap: 7 }}>
@@ -4957,7 +4954,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                           />
 
                           <button
-                            className="inv-btn inv-btn-out inv-btn-sm"
+                            className="inv-btn inv-btn-gold inv-btn-sm"
                             type="button"
                             onClick={() => addAction({ type_action: actionForm.type_action === "tache" ? "note" : actionForm.type_action })}
                             disabled={saving}
@@ -4965,7 +4962,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                             Ajouter
                           </button>
                         </div>
-                      </div>                    </div>
+                      </div>
+
+                      <ProspectHistoryCard actions={actions} T={T} />
+                    </div>
 
                   </div>
                 )}
