@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.5 fiche prospect ergonomique et exploitable
+ * CRM Prospection — V19.6 historique en haut de fiche
  *
  * Objectif :
  * - CRM volontairement simple
@@ -2448,6 +2448,83 @@ function FicheSection({ title, icon, children, T, accent, helper }) {
   );
 }
 
+function ProspectHistoryCard({ actions, T }) {
+  const count = actions?.length || 0;
+
+  return (
+    <section
+      style={{
+        border: `1px solid ${T.accent}32`,
+        borderRadius: 20,
+        padding: 12,
+        margin: "0 0 14px",
+        background: "linear-gradient(135deg, rgba(201,163,74,.105), rgba(255,255,255,.025))",
+        boxShadow: "0 16px 40px rgba(2,6,23,.16)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 10,
+          marginBottom: 9,
+        }}
+      >
+        <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
+          <span
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 12,
+              display: "grid",
+              placeItems: "center",
+              background: `${T.accent}18`,
+              color: T.accent,
+              border: `1px solid ${T.accent}35`,
+              flexShrink: 0,
+            }}
+          >
+            <Icon as={ListChecks} size={15} />
+          </span>
+
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: T.text, fontSize: 14, fontWeight: 950 }}>
+              Historique des échanges
+            </div>
+            <div style={{ color: T.textMuted, fontSize: 11.5, marginTop: 2 }}>
+              Derniers échanges, tâches assignées et suites prévues avant de reprendre contact.
+            </div>
+          </div>
+        </div>
+
+        <Badge color={T.accent} T={T}>
+          {count} action{count > 1 ? "s" : ""}
+        </Badge>
+      </div>
+
+      <div style={{ maxHeight: 310, overflowY: "auto", paddingRight: 4 }}>
+        {count === 0 ? (
+          <div
+            style={{
+              color: T.textMuted,
+              fontSize: 12,
+              padding: 12,
+              border: `1px dashed ${T.border}`,
+              borderRadius: 14,
+              background: "rgba(255,255,255,.025)",
+            }}
+          >
+            Aucun échange historisé pour le moment.
+          </div>
+        ) : (
+          actions.map((a) => <ActionRow key={a.id} action={a} T={T} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ProspectSummaryCard({ prospect, T }) {
   const detail = transformationScoreDetail(prospect);
   const conseiller = conseillerDisplayName(prospect.responsable) || "Conseiller non renseigné";
@@ -4074,7 +4151,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
         .inv-prospect-actions-grid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
+          grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
           gap: 12px;
         }
 
@@ -4415,6 +4492,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
                 <ProspectSummaryCard prospect={currentProspect} T={T} />
 
+                {selected?.id && <ProspectHistoryCard actions={actions} T={T} />}
+
                 <div className="inv-prospect-section-grid">
                   <div>
                     <FicheSection
@@ -4664,13 +4743,13 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                     style={{
                       borderTop: `1px solid ${T.border}`,
                       paddingTop: 12,
-                      marginTop: 4,
+                      marginTop: 8,
                     }}
                   >
                     <div>
                       <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
                         <Icon as={MessageSquare} size={14} />
-                        Historiser un échange
+                        Ajouter un échange à l’historique
                       </div>
                       <div style={{ color: T.textMuted, fontSize: 11, marginTop: -4, marginBottom: 8 }}>
                         À utiliser pour garder une trace d’un appel, email, WhatsApp, RDV ou retour client.
@@ -4794,22 +4873,6 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
                       </div>
                     </div>
 
-                    <div>
-                      <div style={{ color: T.text, fontSize: 13, fontWeight: 950, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
-                        <Icon as={ListChecks} size={14} />
-                        Historique des échanges
-                      </div>
-
-                      <div style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
-                        {actions.length === 0 ? (
-                          <div style={{ color: T.textMuted, fontSize: 12, padding: 10, border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
-                            Aucune action.
-                          </div>
-                        ) : (
-                          actions.map((a) => <ActionRow key={a.id} action={a} T={T} />)
-                        )}
-                      </div>
-                    </div>
                   </div>
                 )}
               </>
