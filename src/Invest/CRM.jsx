@@ -2182,7 +2182,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const [props, setProps]     = useState([]);
   const [biens, setBiens]     = useState([]); // liste des biens du stock pour la modale "Proposer un bien"
   const [simulations, setSimulations] = useState([]); // simulations liées à ce client
-  const [showEdit, setShowEdit] = useState(false);
   const [newNote, setNewNote] = useState({ type:"commentaire", contenu:"" });
   const [noteFilter, setNoteFilter] = useState("tous");
   const [savingNote, setSavingNote] = useState(false);
@@ -2227,6 +2226,16 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
     setClient(prev => prev ? { ...prev, ...patch } : prev);
     const { error } = await supabase.from("invest_clients").update(patch).eq("id", id);
     if (error) { alert("Impossible d'enregistrer : " + error.message); charger(); }
+  };
+
+  const updateClientTextField = async (key, value, options = {}) => {
+    const clean = String(value || "").trim();
+    if (options.required && !clean) {
+      alert("Ce champ est obligatoire.");
+      charger();
+      return;
+    }
+    await updateClientPatch({ [key]: clean || null });
   };
 
   const saveCrmPointEtape = async (patch = {}) => {
@@ -2440,6 +2449,17 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const prochaineActionLate = client.date_prochaine_action && client.date_prochaine_action < ficheToday;
   const prochaineActionToday = client.date_prochaine_action && client.date_prochaine_action === ficheToday;
   const clientContact = [client.email, client.telephone].filter(Boolean).join(" · ") || "Coordonnées à compléter";
+  const clientSourceOptions = Array.from(new Set([...SOURCES_CLIENT, client.source].filter(Boolean)));
+  const clientConseillerOptions = Array.from(new Set([profil?.nom, client.conseiller, ...MISSION_COLLABORATEURS].filter(Boolean)));
+  const inlineInputStyle = { width:"100%", textAlign:"left", fontSize:12.5, padding:"7px 8px", background:"#fff" };
+  const inlineSelectStyle = { width:"100%", fontSize:12.5, padding:"7px 8px", background:"#fff" };
+  const InlineClientField = ({ label, helper, children, span = false }) => (
+    <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:14,padding:"9px 10px",minWidth:0,gridColumn:span ? "1 / -1" : undefined}}>
+      <div style={{fontSize:9.5,color:T.textMuted,fontWeight:950,textTransform:"uppercase",letterSpacing:.8,marginBottom:5}}>{label}</div>
+      {children}
+      {helper && <div style={{fontSize:10.5,color:T.textMuted,marginTop:5,lineHeight:1.35}}>{helper}</div>}
+    </div>
+  );
 
   return (
     <div style={{ padding:"24px 28px", maxWidth:1280, margin:"0 auto", width:"100%" }}>
@@ -2450,9 +2470,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
           <div style={{ fontSize:13, color:T.textSub, marginTop:2 }}>{client.email} {client.telephone ? `· ${client.telephone}` : ""}</div>
         </div>
         <span style={{ background:`${STATUT_COLORS[client.statut]}18`, color:STATUT_COLORS[client.statut], border:`1px solid ${STATUT_COLORS[client.statut]}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{client.statut}</span>
-        <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
-          <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
-        </button>
         {onOpenStructuration && (
           <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOpenStructuration(client.id)}>
             <Icon as={Briefcase} size={12} strokeWidth={2.2}/> Structuration
@@ -2476,31 +2493,137 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
               <span style={{fontSize:10,fontWeight:900,color:T.accent,background:T.accentBg,border:`1px solid ${T.accent}33`,borderRadius:999,padding:"2px 7px"}}>{missionStageInfo.label || missionCurrentStepLabelFromActions([], client)}</span>
             </div>
             <div className="inv-card-bd">
-              <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:8,marginBottom:10}}>
-                {[
-                  ["Conseiller", client.conseiller || "—"],
-                  ["Source", client.source || "—"],
-                  ["Budget", fmtBudget(client.budget)],
-                  ["Statut", client.statut || "—"],
-                ].map(([label,value]) => (
-                  <div key={label} style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:12,padding:"9px 10px",minWidth:0}}>
-                    <div style={{fontSize:9.5,color:T.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:.8}}>{label}</div>
-                    <div style={{fontSize:13,color:T.text,fontWeight:900,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:"0 18px",maxWidth:"100%"}}>
-                <div className="inv-row"><span className="inv-lbl">Coordonnées</span><span className="inv-val" style={{textAlign:"right"}}>{clientContact}</span></div>
-                <div className="inv-row" style={{alignItems:"center",gap:10}}>
-                  <span className="inv-lbl">Date signature contrat</span>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10,maxWidth:"100%"}}>
+                <InlineClientField label="Nom *">
+                  <input
+                    className="inv-inp"
+                    value={client.nom || ""}
+                    onChange={e => setClient(prev => prev ? { ...prev, nom:e.target.value } : prev)}
+                    onBlur={e => updateClientTextField("nom", e.target.value, { required:true })}
+                    style={inlineInputStyle}
+                  />
+                </InlineClientField>
+
+                <InlineClientField label="Prénom">
+                  <input
+                    className="inv-inp"
+                    value={client.prenom || ""}
+                    onChange={e => setClient(prev => prev ? { ...prev, prenom:e.target.value } : prev)}
+                    onBlur={e => updateClientTextField("prenom", e.target.value)}
+                    style={inlineInputStyle}
+                  />
+                </InlineClientField>
+
+                <InlineClientField label="Email">
+                  <input
+                    className="inv-inp"
+                    type="email"
+                    value={client.email || ""}
+                    onChange={e => setClient(prev => prev ? { ...prev, email:e.target.value } : prev)}
+                    onBlur={e => updateClientTextField("email", e.target.value)}
+                    style={inlineInputStyle}
+                  />
+                </InlineClientField>
+
+                <InlineClientField label="Téléphone">
+                  <input
+                    className="inv-inp"
+                    value={client.telephone || ""}
+                    onChange={e => setClient(prev => prev ? { ...prev, telephone:e.target.value } : prev)}
+                    onBlur={e => updateClientTextField("telephone", e.target.value)}
+                    style={inlineInputStyle}
+                  />
+                </InlineClientField>
+
+                <InlineClientField label="Conseiller">
+                  <select
+                    className="inv-sel"
+                    value={client.conseiller || ""}
+                    onChange={e => updateClientPatch({ conseiller:e.target.value || null })}
+                    style={inlineSelectStyle}
+                  >
+                    <option value="">Non affecté</option>
+                    {clientConseillerOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </InlineClientField>
+
+                <InlineClientField label="Source">
+                  <select
+                    className="inv-sel"
+                    value={client.source || ""}
+                    onChange={e => updateClientPatch({ source:e.target.value || null })}
+                    style={inlineSelectStyle}
+                  >
+                    <option value="">Non renseignée</option>
+                    {clientSourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </InlineClientField>
+
+                <InlineClientField label="Budget">
+                  <input
+                    className="inv-inp"
+                    type="number"
+                    value={client.budget ?? ""}
+                    onChange={e => setClient(prev => prev ? { ...prev, budget:e.target.value } : prev)}
+                    onBlur={e => updateClientPatch({ budget:parseFloat(e.target.value) || 0 })}
+                    style={{...inlineInputStyle,textAlign:"right"}}
+                  />
+                </InlineClientField>
+
+                <InlineClientField label="Statut Kanban" helper="Met à jour la colonne du pipeline CRM.">
+                  <select
+                    className="inv-sel"
+                    value={client.statut || "Prospect"}
+                    onChange={e => updateClientPatch({ statut:e.target.value || "Prospect" })}
+                    style={inlineSelectStyle}
+                  >
+                    {STATUTS_CLIENT.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </InlineClientField>
+
+                <InlineClientField label="Étape en cours" helper="Cette étape est reprise dans la liste, les filtres et le suivi Kanban.">
+                  <select
+                    className="inv-sel"
+                    value={client.etape || ""}
+                    onChange={e => updateClientPatch({ etape:e.target.value || null })}
+                    style={inlineSelectStyle}
+                  >
+                    <option value="">Sélectionner une étape…</option>
+                    {ETAPES_CLIENT.map(e => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                </InlineClientField>
+
+                <InlineClientField label="Date signature contrat">
                   <input
                     className="inv-inp"
                     type="date"
                     value={String(client.date_signature || "").slice(0,10)}
                     onChange={e => updateClientPatch({ date_signature:e.target.value || null })}
-                    style={{maxWidth:180,textAlign:"left",padding:"6px 8px",fontSize:12}}
+                    style={inlineInputStyle}
                   />
-                </div>
+                </InlineClientField>
+
+                <InlineClientField label="Date avant contact">
+                  <input
+                    className="inv-inp"
+                    type="date"
+                    value={String(client.date_premier_contact || "").slice(0,10)}
+                    onChange={e => updateClientPatch({ date_premier_contact:e.target.value || null })}
+                    style={inlineInputStyle}
+                  />
+                </InlineClientField>
+
+                <InlineClientField label="Notes rapides" span>
+                  <textarea
+                    className="inv-textarea"
+                    rows={2}
+                    value={client.notes_rapides || ""}
+                    onChange={e => setClient(prev => prev ? { ...prev, notes_rapides:e.target.value } : prev)}
+                    onBlur={e => updateClientTextField("notes_rapides", e.target.value)}
+                    placeholder="Notes internes rapides sur le client…"
+                    style={{background:"#fff"}}
+                  />
+                </InlineClientField>
               </div>
             </div>
           </div>
@@ -2814,8 +2937,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             </div>          </div>
         </div>
       </div>
-
-      {showEdit && <FormulaireClient client={client} profil={profil} T={T} onSave={() => { setShowEdit(false); charger(); }} onClose={() => setShowEdit(false)} />}
 
       {showProp && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
