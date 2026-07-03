@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 
 /**
- * CRM Prospection — V19.10 suivi horizontal + ajout échange au-dessus historique
+ * CRM Prospection — V19.11 historique automatique complet
  *
  * Objectif :
  * - CRM volontairement simple
@@ -2493,7 +2493,7 @@ function ProspectHistoryCard({ actions, T }) {
               Historique des échanges
             </div>
             <div style={{ color: T.textSub, fontSize: 12.5, marginTop: 3, lineHeight: 1.35 }}>
-              Derniers échanges, tâches assignées et suites prévues avant de reprendre contact.
+              Tous les échanges, tâches assignées, changements de statut et mises à jour de suivi sont tracés ici.
             </div>
           </div>
         </div>
@@ -3015,7 +3015,7 @@ function ActionRow({ action, T }) {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ color: T.text, fontWeight: 950, fontSize: 14, textTransform: "capitalize" }}>
-            {action.type_action || "note"}
+            {action.donnees?.tache_assignee || action.type_action === "tache" ? "Tâche assignée" : (action.type_action || "note")}
           </div>
 
           <div style={{ color: T.textMuted, fontSize: 11.5, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
@@ -3149,7 +3149,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       .select("*")
       .eq("prospect_id", id)
       .order("date_action", { ascending: false })
-      .limit(6);
+      .limit(50);
 
     setActions(data || []);
   }, []);
@@ -3638,9 +3638,79 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       return;
     }
 
+    const historyEntries = [];
+
+    if (isNew) {
+      historyEntries.push({
+        prospectId: res.data.id,
+        type_action: "création",
+        resume: "Prospect créé dans le CRM Prospection.",
+        resultat: "Création prospect",
+        prochaine_action: res.data.prochaine_action || "",
+        date_prochaine_action: res.data.date_prochaine_action || null,
+        donnees: { creation_prospect: true },
+      });
+    } else {
+      const before = prospectToForm(selected);
+      const after = prospectToForm(res.data);
+
+      const beforeNextAction = txt(before.prochaine_action);
+      const afterNextAction = txt(after.prochaine_action);
+      const beforeNextDate = dateOnly(before.date_prochaine_action);
+      const afterNextDate = dateOnly(after.date_prochaine_action);
+
+      if (beforeNextAction !== afterNextAction || beforeNextDate !== afterNextDate) {
+        historyEntries.push({
+          prospectId: res.data.id,
+          type_action: "suivi",
+          resume: `Prochaine action mise à jour : ${afterNextAction || "Action non renseignée"}${afterNextDate ? ` · ${fmtDate(afterNextDate)}` : " · date non renseignée"}`,
+          resultat: "Suivi commercial mis à jour",
+          prochaine_action: afterNextAction,
+          date_prochaine_action: afterNextDate || null,
+          donnees: {
+            suivi_modifie: true,
+            champ: "prochaine_action",
+            ancienne_action: beforeNextAction,
+            ancienne_date: beforeNextDate || null,
+            nouvelle_action: afterNextAction,
+            nouvelle_date: afterNextDate || null,
+          },
+        });
+      }
+
+      const beforeStep = txt(before.prochain_point_etape);
+      const afterStep = txt(after.prochain_point_etape);
+      const beforeStepDate = dateOnly(before.date_prochain_point_etape);
+      const afterStepDate = dateOnly(after.date_prochain_point_etape);
+
+      if (beforeStep !== afterStep || beforeStepDate !== afterStepDate) {
+        historyEntries.push({
+          prospectId: res.data.id,
+          type_action: "point étape",
+          resume: `Point d’étape mis à jour : ${afterStep || "Point d’étape non renseigné"}${afterStepDate ? ` · ${fmtDate(afterStepDate)}` : " · date non renseignée"}`,
+          resultat: "Point d’étape mis à jour",
+          prochaine_action: res.data.prochaine_action || "",
+          date_prochaine_action: res.data.date_prochaine_action || null,
+          donnees: {
+            suivi_modifie: true,
+            champ: "point_etape",
+            ancien_point_etape: beforeStep,
+            ancienne_date_point_etape: beforeStepDate || null,
+            nouveau_point_etape: afterStep,
+            nouvelle_date_point_etape: afterStepDate || null,
+          },
+        });
+      }
+    }
+
+    for (const entry of historyEntries) {
+      await addHistoryEntry(entry);
+    }
+
     setIsCreating(false);
     setSelected(res.data);
     setForm(prospectToForm(res.data));
+    await loadActions(res.data.id);
     await loadProspects();
 
     if (isNew) {
@@ -3702,6 +3772,24 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       setForm(prospectToForm(data));
     }
 
+    await addHistoryEntry({
+      prospectId,
+      type_action: "changement statut",
+      resume: `Statut mis à jour : ${statusOf(prospect.statut).label} → ${statusOf(newStatus).label}`,
+      resultat: "Statut modifié",
+      prochaine_action: data.prochaine_action || "",
+      date_prochaine_action: data.date_prochaine_action || null,
+      donnees: {
+        changement_statut: true,
+        ancien_statut: prospect.statut,
+        nouveau_statut: newStatus,
+      },
+    });
+
+    if (selected?.id === prospectId) {
+      await loadActions(prospectId);
+    }
+
     if (!isSignedStatus(prospect.statut) && isSignedStatus(newStatus)) {
       await notifySignedProspectByEmail(data, newStatus === "converti" ? "conversion client" : "passage en signé");
     }
@@ -3754,6 +3842,48 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const setQuickFollowUp = (label, days) => {
     setField("prochaine_action", label);
     setField("date_prochaine_action", addDays(days));
+  };
+
+  const addHistoryEntry = async ({
+    prospectId,
+    type_action = "note",
+    resume = "",
+    resultat = "",
+    prochaine_action = "",
+    date_prochaine_action = null,
+    donnees = {},
+  }) => {
+    if (!prospectId || !String(resume || "").trim()) return null;
+
+    const payload = {
+      prospect_id: prospectId,
+      created_by: auteur(profil),
+      date_action: new Date().toISOString(),
+      type_action,
+      resume: String(resume || "").trim(),
+      resultat,
+      prochaine_action: prochaine_action || null,
+      date_prochaine_action: date_prochaine_action || null,
+      donnees: {
+        source: "CRM Prospection",
+        auteur: auteur(profil),
+        historique_automatique: true,
+        ...donnees,
+      },
+    };
+
+    const { data, error: err } = await supabase
+      .from("invest_prospect_actions")
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (err) {
+      console.warn("Historique non ajouté", err);
+      return null;
+    }
+
+    return data;
   };
 
   const addAction = async (override = {}) => {
@@ -3864,7 +3994,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       setForm(prospectToForm(updatedProspect));
     }
 
-    setActions((prev) => [insertedAction, ...prev].filter(Boolean).slice(0, 6));
+    setActions((prev) => [insertedAction, ...prev].filter(Boolean).slice(0, 50));
 
     let taskMailResult = null;
     if (isAssignedTask) {
