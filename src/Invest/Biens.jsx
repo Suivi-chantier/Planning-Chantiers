@@ -3306,6 +3306,329 @@ function openFicheClientInvestisseurPDFAvecMap(data = {}) {
 }
 
 
+function dossierEscapeHtml(value) {
+  return String(value ?? "").replace(/[&<>\"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '\"':"&quot;", "'":"&#39;"
+  }[c]));
+}
+
+function dossierFmtEur(value) {
+  const n = getNumberLoose(value);
+  if (!Number.isFinite(n) || n === 0) return "—";
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(n) + " €";
+}
+
+function dossierFmtPct(value) {
+  const n = getNumberLoose(value);
+  if (!Number.isFinite(n) || n === 0) return "—";
+  return n.toFixed(1).replace(".", ",") + " %";
+}
+
+function getDossierLotsFromBien(bien = {}, selectedSimulationId = "") {
+  const v = bien.visite_data || {};
+  const active = getActiveSimulationEntry(bien, selectedSimulationId);
+  const simLots = Array.isArray(active?.donnees?.lots) ? active.donnees.lots : (Array.isArray(v.simulateur?.lots) ? v.simulateur.lots : []);
+  const visiteLots = Array.isArray(v.configuration?.lots) ? v.configuration.lots : [];
+  return (simLots.length ? simLots : visiteLots)
+    .filter(l => l && (l.type || l.typologie || l.surface || l.m2 || l.loyer) && (l.type || "") !== "Sélectionner")
+    .map((l, index) => ({
+      numero: l.numero || String(index + 1),
+      type: l.type || l.typologie || l.type_lot || "Lot",
+      surface: getNumberLoose(l.m2 || l.surface),
+      loyer: getNumberLoose(l.loyer || l.loyer_cible),
+      niveau: l.niveau || "—",
+      commentaire: l.comment || l.commentaire || "",
+    }));
+}
+
+function buildDossierPresentationDefaults(bien = {}, selectedSimulationId = "") {
+  const v = bien.visite_data || {};
+  const gen = v.general || {};
+  const marche = v.marche || {};
+  const concl = v.conclusion || {};
+  const terrain = v.mode_visite_terrain || {};
+  const metrics = getSimulationMetricsFromBien(bien, selectedSimulationId);
+  const lots = getDossierLotsFromBien(bien, selectedSimulationId);
+  const adresse = [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(" ");
+  const lotsLabel = lots.length ? `${lots.length} logement${lots.length > 1 ? "s" : ""}` : (gen.lots_cibles ? `${gen.lots_cibles} logement(s)` : "plusieurs logements");
+  const rb = metrics.rendement ? dossierFmtPct(metrics.rendement) : (bien.rendement_brut ? dossierFmtPct(bien.rendement_brut) : "à confirmer");
+
+  return {
+    titre: bien.reference_interne ? `Dossier investisseur — ${bien.reference_interne}` : "Dossier de présentation investisseur",
+    sous_titre: adresse || "Projet immobilier analysé par Profero Invest",
+    photo_url: v.dossier_presentation?.photo_url || v.photo_principale_url || bien.photo_url || "",
+    accroche: `Projet de transformation en ${lotsLabel}, avec une rentabilité brute estimée à ${rb} selon les hypothèses renseignées.`,
+    analyse_secteur: marche.points_forts || terrain.points_forts || "Secteur à présenter : proximité des commodités, transports, bassins d’emploi, écoles, commerces et demande locative locale.",
+    demande_locative: marche.tension_locative || marche.profil_locataires ? `Tension locative : ${marche.tension_locative || "à préciser"}. Profil cible : ${marche.profil_locataires || "à préciser"}.` : "Demande locative à qualifier selon le profil des locataires visés et les loyers de marché.",
+    projet_global: concl.strategie_locative ? `Projet orienté ${concl.strategie_locative}, avec une configuration cible adaptée à la demande locative locale.` : `Projet de division / optimisation locative permettant de repositionner le bien en ${lotsLabel} après travaux et validation technique.`,
+    programme_travaux: v.dpe?.travaux_energetiques || terrain.points_blocants || "Programme travaux à détailler après chiffrage : rénovation intérieure, remise aux normes, optimisation des surfaces, ameublement éventuel et amélioration énergétique.",
+    strategie_locative: concl.strategie_locative || marche.profil_locataires || "Stratégie locative à préciser selon l’étude du secteur et les objectifs de l’investisseur.",
+    points_forts: marche.points_forts || terrain.points_forts || "Emplacement, potentiel de division, création de valeur par travaux, optimisation des loyers et mutualisation des coûts.",
+    points_vigilance: marche.points_faibles || terrain.points_blocants || "Points à vérifier : urbanisme, DPE, budget travaux, stationnement, diagnostics et faisabilité technique définitive.",
+    conclusion: concl.commentaire_conseiller || concl.recommandation || "Opportunité à présenter sous réserve de validation des hypothèses financières, techniques et réglementaires.",
+    conditions: "Document de travail non contractuel, établi à partir des informations disponibles à date. Les chiffres sont à confirmer par devis, diagnostics, financement et validation réglementaire.",
+    responsable: bien.conseiller_profero || v.identification?.conseiller_profero || "Profero Invest",
+    date_edition: new Date().toISOString().slice(0,10),
+  };
+}
+
+function mergeDossierPresentationData(bien = {}, selectedSimulationId = "") {
+  const defaults = buildDossierPresentationDefaults(bien, selectedSimulationId);
+  const saved = bien.visite_data?.dossier_presentation || {};
+  return { ...defaults, ...saved };
+}
+
+function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selectedSimulationId = "" }) {
+  const metrics = getSimulationMetricsFromBien(bien, selectedSimulationId);
+  const lots = getDossierLotsFromBien(bien, selectedSimulationId);
+  const adresse = [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(" ");
+  const mapEmbed = googleMapsEmbedUrlForBien(bien);
+  const mapLink = googleMapsSearchUrl(getBienMapQuery(bien) || adresse);
+  const logo = LOGO_INVEST_H || LOGO_INVEST_V || "";
+  const photoUrl = String(dossier.photo_url || "").trim();
+  const dateEdition = dossier.date_edition ? new Date(dossier.date_edition).toLocaleDateString("fr-FR") : new Date().toLocaleDateString("fr-FR");
+  const totalLoyers = lots.reduce((s,l)=>s+(Number(l.loyer)||0),0) || metrics.loyerMensuel || 0;
+  const lotRows = lots.map(l => `
+    <tr>
+      <td>${dossierEscapeHtml(l.numero)}</td>
+      <td><strong>${dossierEscapeHtml(l.type)}</strong><br><span>${dossierEscapeHtml(l.niveau || "—")}</span></td>
+      <td>${l.surface ? dossierEscapeHtml(l.surface) + " m²" : "—"}</td>
+      <td>${dossierFmtEur(l.loyer)}/mois</td>
+      <td>${dossierEscapeHtml(l.commentaire || "")}</td>
+    </tr>
+  `).join("");
+
+  const photoBlock = photoUrl
+    ? `<img class="hero-photo" src="${dossierEscapeHtml(photoUrl)}" alt="Photo du bien" />`
+    : `<div class="photo-placeholder"><div>Photo principale du bien</div><span>Ajoutez une URL d’image dans la préparation du dossier</span></div>`;
+
+  const win = window.open("", "_blank", "width=1100,height=820");
+  if (!win) {
+    alert("Autorisez les pop-ups pour générer le dossier investisseur.");
+    return;
+  }
+
+  win.document.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${dossierEscapeHtml(dossier.titre || "Dossier investisseur")}</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#edf1f7;color:#172033;font-family:Arial,Helvetica,sans-serif;line-height:1.45}
+  .print-btn{position:fixed;right:20px;top:20px;z-index:20;background:#c9a34a;color:#111827;border:0;border-radius:999px;padding:12px 18px;font-weight:900;box-shadow:0 12px 32px rgba(0,0,0,.18);cursor:pointer}
+  .doc{width:1040px;margin:0 auto;background:white;min-height:100vh;box-shadow:0 24px 80px rgba(15,23,42,.18)}
+  .cover{background:linear-gradient(135deg,#111827 0%,#182743 58%,#263a60 100%);color:white;padding:34px 42px 30px;position:relative;overflow:hidden}
+  .cover:after{content:"";position:absolute;right:-90px;top:-120px;width:330px;height:330px;border-radius:50%;background:rgba(201,163,74,.16)}
+  .brand{display:flex;justify-content:space-between;align-items:center;gap:20px;position:relative;z-index:1;margin-bottom:26px}
+  .brand img{max-height:46px;max-width:260px;object-fit:contain;filter:brightness(0) invert(1)}
+  .brand .meta{text-align:right;color:rgba(255,255,255,.7);font-size:11px;text-transform:uppercase;letter-spacing:1.8px;font-weight:800}
+  h1{font-size:38px;line-height:1.02;margin:0 0 10px;font-weight:900;letter-spacing:-.7px;max-width:720px;position:relative;z-index:1}
+  .subtitle{font-size:16px;color:rgba(255,255,255,.78);max-width:760px;position:relative;z-index:1}
+  .badge{display:inline-block;margin-top:18px;border:1px solid rgba(201,163,74,.7);background:rgba(201,163,74,.12);color:#f4d58a;border-radius:999px;padding:8px 13px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1.1px;position:relative;z-index:1}
+  .photo-wrap{padding:22px 42px 0;background:#fff}.hero-photo{width:100%;height:315px;object-fit:cover;border-radius:20px;display:block;box-shadow:0 18px 42px rgba(15,23,42,.16)}
+  .photo-placeholder{height:240px;border-radius:20px;background:linear-gradient(135deg,#f4f6fb,#e8edf6);border:1px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#64748b;font-weight:900;text-transform:uppercase;letter-spacing:1px}.photo-placeholder span{font-weight:600;text-transform:none;letter-spacing:0;margin-top:8px;font-size:12px;color:#94a3b8}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:20px 42px 12px;background:#fff}.kpi{background:#f8fafc;border:1px solid #e5eaf2;border-radius:16px;padding:14px 13px;border-left:4px solid #c9a34a}.kpi .v{font-size:20px;font-weight:900;color:#14213d;line-height:1.08}.kpi .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin-top:6px;font-weight:900}
+  .section{padding:23px 42px;border-top:1px solid #e8edf5}.section h2{margin:0 0 12px;font-size:15px;color:#14213d;text-transform:uppercase;letter-spacing:1.6px;font-weight:900;display:flex;align-items:center;gap:10px}.section h2:before{content:"";display:block;width:26px;height:3px;background:#c9a34a;border-radius:999px}.lead{font-size:18px;color:#172033;font-weight:800;margin:0;line-height:1.45}.text{font-size:14px;color:#334155;white-space:pre-line}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{background:#f8fafc;border:1px solid #e5eaf2;border-radius:16px;padding:15px}.box h3{margin:0 0 8px;color:#14213d;font-size:13px;text-transform:uppercase;letter-spacing:.9px}.box p{margin:0;color:#334155;font-size:13.5px;white-space:pre-line}
+  .project{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:stretch}.map{width:100%;height:260px;border:0;border-radius:16px;display:block;background:#f8fafc}.map-link{font-size:12px;color:#2563eb;text-decoration:none;font-weight:800;display:inline-block;margin-top:8px}
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;overflow:hidden;border:1px solid #e5eaf2;border-radius:16px}th{background:#14213d;color:#fff;text-align:left;padding:11px;font-size:11px;text-transform:uppercase;letter-spacing:.9px}td{padding:11px;border-bottom:1px solid #e5eaf2;color:#334155;vertical-align:top}td span{color:#64748b;font-size:12px}tr:last-child td{border-bottom:0}.footer{padding:18px 42px 28px;color:#64748b;font-size:11px;background:#f8fafc;border-top:1px solid #e5eaf2;display:flex;justify-content:space-between;gap:18px}.reco{background:linear-gradient(135deg,#fff7dd,#f8fafc);border:1px solid #f0d58a;border-radius:18px;padding:17px;color:#172033;font-weight:800;white-space:pre-line}
+  @media print{body{background:#fff}.print-btn{display:none}.doc{width:100%;box-shadow:none}.section{break-inside:avoid}.photo-wrap{break-inside:avoid}.cover{break-inside:avoid}}
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">Imprimer / PDF</button>
+<div class="doc">
+  <div class="cover">
+    <div class="brand">
+      ${logo ? `<img src="${dossierEscapeHtml(logo)}" alt="Profero Invest"/>` : `<div style="font-weight:900;font-size:20px;letter-spacing:1px">PROFERO INVEST</div>`}
+      <div class="meta">Dossier investisseur<br>${dossierEscapeHtml(dateEdition)}</div>
+    </div>
+    <h1>${dossierEscapeHtml(dossier.titre || "Dossier de présentation")}</h1>
+    <div class="subtitle">${dossierEscapeHtml(dossier.sous_titre || adresse || "Projet immobilier")}</div>
+    <div class="badge">Analyse préparée pour investisseur</div>
+  </div>
+  <div class="photo-wrap">${photoBlock}</div>
+  <div class="kpis">
+    <div class="kpi"><div class="v">${dossierFmtEur(metrics.prix || bien.montant_offre || bien.prix_vente)}</div><div class="l">Prix cible</div></div>
+    <div class="kpi"><div class="v">${dossierFmtEur(metrics.travaux || bien.prix_travaux)}</div><div class="l">Travaux</div></div>
+    <div class="kpi"><div class="v">${dossierFmtEur(metrics.coutTotal || bien.cout_total)}</div><div class="l">Coût total</div></div>
+    <div class="kpi"><div class="v">${dossierFmtPct(metrics.rendement || bien.rendement_brut)}</div><div class="l">Rendement brut</div></div>
+    <div class="kpi"><div class="v">${dossierFmtEur(metrics.cashflow || bien.cashflow_estime)}</div><div class="l">Cash-flow mensuel</div></div>
+  </div>
+  <div class="section"><h2>Résumé de l’opportunité</h2><p class="lead">${dossierEscapeHtml(dossier.accroche || "")}</p></div>
+  <div class="section project">
+    <div>
+      <h2>Localisation du bien</h2>
+      <div class="text"><strong>${dossierEscapeHtml(adresse || "Adresse à compléter")}</strong></div>
+      ${mapEmbed ? `<iframe class="map" src="${dossierEscapeHtml(mapEmbed)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="map-link" href="${dossierEscapeHtml(mapLink)}" target="_blank">Ouvrir dans Google Maps →</a>` : `<div class="box"><p>Adresse à compléter pour afficher la carte.</p></div>`}
+    </div>
+    <div>
+      <h2>Analyse du secteur</h2>
+      <div class="box"><h3>Vie locale et attractivité</h3><p>${dossierEscapeHtml(dossier.analyse_secteur || "")}</p></div>
+      <div class="box" style="margin-top:12px"><h3>Demande locative</h3><p>${dossierEscapeHtml(dossier.demande_locative || "")}</p></div>
+    </div>
+  </div>
+  <div class="section"><h2>Présentation du projet global</h2><div class="grid2"><div class="box"><h3>Projet envisagé</h3><p>${dossierEscapeHtml(dossier.projet_global || "")}</p></div><div class="box"><h3>Programme travaux</h3><p>${dossierEscapeHtml(dossier.programme_travaux || "")}</p></div></div></div>
+  <div class="section"><h2>Configuration locative cible</h2><table><thead><tr><th>Lot</th><th>Typologie</th><th>Surface</th><th>Loyer cible</th><th>Commentaire</th></tr></thead><tbody>${lotRows || `<tr><td colspan="5">Configuration des lots à compléter dans la fiche bien ou le simulateur.</td></tr>`}</tbody></table><div style="font-size:13px;color:#64748b;margin-top:10px;font-weight:800">Loyers mensuels cibles : ${dossierFmtEur(totalLoyers)}/mois</div></div>
+  <div class="section"><h2>Stratégie d’investissement</h2><div class="grid2"><div class="box"><h3>Stratégie locative</h3><p>${dossierEscapeHtml(dossier.strategie_locative || "")}</p></div><div class="box"><h3>Points forts</h3><p>${dossierEscapeHtml(dossier.points_forts || "")}</p></div></div></div>
+  <div class="section"><h2>Points de vigilance</h2><div class="box"><p>${dossierEscapeHtml(dossier.points_vigilance || "")}</p></div></div>
+  <div class="section"><h2>Conclusion Profero Invest</h2><div class="reco">${dossierEscapeHtml(dossier.conclusion || "")}</div></div>
+  <div class="footer"><div>${dossierEscapeHtml(dossier.conditions || "")}</div><div><strong>Responsable dossier :</strong><br>${dossierEscapeHtml(dossier.responsable || "Profero Invest")}</div></div>
+</div>
+</body>
+</html>`);
+  win.document.close();
+}
+
+function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSaved, selectedSimulationId = "" }) {
+  const [data, setData] = useState(() => mergeDossierPresentationData(bien, selectedSimulationId));
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    setData(mergeDossierPresentationData(bien, selectedSimulationId));
+  }, [bien?.id, selectedSimulationId]);
+
+  const upd = (key, value) => setData(prev => ({ ...prev, [key]: value }));
+  const metrics = getSimulationMetricsFromBien(bien, selectedSimulationId);
+  const lots = getDossierLotsFromBien(bien, selectedSimulationId);
+
+  const save = async () => {
+    setSaving(true);
+    setMsg("");
+    const visite_data = {
+      ...(bien.visite_data || {}),
+      dossier_presentation: {
+        ...data,
+        updated_at: new Date().toISOString(),
+        updated_by: "Profero Invest",
+      },
+    };
+    const { error } = await supabase.from("invest_biens").update({ visite_data }).eq("id", bien.id);
+    setSaving(false);
+    if (error) {
+      setMsg(`Erreur : ${error.message}`);
+      return;
+    }
+    setMsg("Dossier sauvegardé");
+    onSaved?.();
+    setTimeout(() => setMsg(""), 2200);
+  };
+
+  const resetFromBien = () => {
+    if (!window.confirm("Remplacer les textes du dossier par une proposition générée depuis les données actuelles du bien ?")) return;
+    setData(buildDossierPresentationDefaults(bien, selectedSimulationId));
+  };
+
+  const generate = () => openDossierPresentationInvestisseurPDF({ bien, dossier:data, selectedSimulationId });
+
+  const field = (label, key, { textarea = false, rows = 3, placeholder = "" } = {}) => (
+    <div style={{marginBottom:12}}>
+      <label className="inv-kpi-lbl">{label}</label>
+      {textarea ? (
+        <textarea className="inv-textarea" rows={rows} value={data[key] || ""} onChange={e=>upd(key, e.target.value)} placeholder={placeholder}/>
+      ) : (
+        <input className="inv-inp" value={data[key] || ""} onChange={e=>upd(key, e.target.value)} placeholder={placeholder} style={{width:"100%",textAlign:"left"}}/>
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{display:"grid", gridTemplateColumns:"minmax(0,1fr) 390px", gap:16, alignItems:"start"}}>
+      <div className="inv-card">
+        <div className="inv-card-hd gold" style={{justifyContent:"space-between"}}>
+          <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13}/>Dossier de présentation investisseurs</span>
+          <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,fontWeight:800}}>Modifiable avant édition</span>
+        </div>
+        <div className="inv-card-bd">
+          {msg && <div style={{marginBottom:12,fontSize:FONT.sm.size,color:msg.startsWith("Erreur")?DA:SU,fontWeight:900}}>{msg}</div>}
+          <div style={{padding:"10px 12px",borderRadius:RADIUS.md,background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.textSub,fontSize:FONT.sm.size+1,lineHeight:1.5,marginBottom:14}}>
+            Préparez ici un dossier présentable à un investisseur. Les chiffres viennent du bien et de la simulation active ; les textes restent modifiables pour adapter le discours au projet.
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+            {field("Titre du dossier", "titre")}
+            {field("Sous-titre", "sous_titre")}
+            {field("Photo principale du bien — URL image", "photo_url", { placeholder:"https://…" })}
+            {field("Responsable dossier", "responsable")}
+          </div>
+
+          {field("Accroche investisseur", "accroche", { textarea:true, rows:2, placeholder:"Résumé court de l’opportunité…" })}
+          {field("Analyse du secteur", "analyse_secteur", { textarea:true, rows:4 })}
+          {field("Demande locative", "demande_locative", { textarea:true, rows:3 })}
+          {field("Présentation du projet global", "projet_global", { textarea:true, rows:4 })}
+          {field("Programme travaux", "programme_travaux", { textarea:true, rows:4 })}
+          {field("Stratégie locative", "strategie_locative", { textarea:true, rows:3 })}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {field("Points forts", "points_forts", { textarea:true, rows:4 })}
+            {field("Points de vigilance", "points_vigilance", { textarea:true, rows:4 })}
+          </div>
+          {field("Conclusion Profero Invest", "conclusion", { textarea:true, rows:4 })}
+          {field("Mention / conditions", "conditions", { textarea:true, rows:2 })}
+
+          <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginTop:14,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+            <button className="inv-btn inv-btn-out" onClick={resetFromBien}><Icon as={RefreshCw} size={13}/> Reprendre les données du bien</button>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button className="inv-btn inv-btn-blue" onClick={save} disabled={saving}><Icon as={Save} size={13}/> {saving ? "Sauvegarde…" : "Sauvegarder"}</button>
+              <button className="inv-btn inv-btn-gold" onClick={generate}><Icon as={FileText} size={13}/> Générer le dossier PDF</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:16,position:"sticky",top:14}}>
+        <div className="inv-card">
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Eye} size={13}/>Aperçu rapide</span></div>
+          <div className="inv-card-bd">
+            {data.photo_url ? (
+              <img src={data.photo_url} alt="Photo du bien" style={{width:"100%",height:170,objectFit:"cover",borderRadius:RADIUS.lg,border:`1px solid ${T.border}`,marginBottom:12}} onError={e=>{e.currentTarget.style.display="none";}}/>
+            ) : (
+              <div style={{height:145,borderRadius:RADIUS.lg,border:`1px dashed ${T.border}`,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,fontWeight:800,marginBottom:12}}>
+                Photo principale à ajouter
+              </div>
+            )}
+            <div style={{fontSize:FONT.md.size,fontWeight:900,color:T.text,lineHeight:1.2}}>{data.titre}</div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,marginTop:5,lineHeight:1.45}}>{data.sous_titre}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
+              {[ 
+                ["Prix cible", dossierFmtEur(metrics.prix || bien.montant_offre || bien.prix_vente)],
+                ["Travaux", dossierFmtEur(metrics.travaux || bien.prix_travaux)],
+                ["Rendement", dossierFmtPct(metrics.rendement || bien.rendement_brut)],
+                ["Cash-flow", `${dossierFmtEur(metrics.cashflow || bien.cashflow_estime)}/mois`],
+                ["Lots", lots.length || "—"],
+                ["Surface", metrics.surface ? `${metrics.surface} m²` : "—"],
+              ].map(([label,value])=>(
+                <div key={label} style={{padding:"8px 9px",borderRadius:RADIUS.md,background:T.input,border:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,textTransform:"uppercase",fontWeight:900,letterSpacing:.7}}>{label}</div>
+                  <div style={{fontFamily:"'DM Mono',monospace",fontSize:FONT.sm.size,fontWeight:900,color:T.text,marginTop:3}}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="inv-card">
+          <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13}/>Configuration présentée</span></div>
+          <div className="inv-card-bd">
+            {lots.length === 0 ? (
+              <div style={{fontSize:FONT.sm.size,color:T.textMuted,fontStyle:"italic"}}>Aucun lot renseigné dans la simulation ou la visite terrain.</div>
+            ) : lots.slice(0,6).map((lot,idx)=>(
+              <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
+                <div>
+                  <div style={{fontSize:FONT.sm.size+1,fontWeight:900,color:T.text}}>Lot {lot.numero} · {lot.type}</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2}}>{lot.surface ? `${lot.surface} m²` : "Surface à compléter"}</div>
+                </div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontWeight:900,color:SU,fontSize:FONT.sm.size}}>{dossierFmtEur(lot.loyer)}</div>
+              </div>
+            ))}
+            {lots.length > 6 && <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:8}}>+ {lots.length - 6} autre(s) lot(s)</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [bien, setBien]       = useState(null);
   const [props, setProps]     = useState([]);
@@ -3739,8 +4062,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           </div>
         </div>
         <span style={{ background:`${couleur}18`, color:couleur, border:`1px solid ${couleur}33`, borderRadius:20, padding:"4px 14px", fontSize:12, fontWeight:700 }}>{bien.statut}</span>
-        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={genererPresentationClientPDF} title="Générer la fiche client investisseur">
-          <Icon as={Sparkles} size={12} strokeWidth={2.2}/> Fiche client
+        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setFicheTab("dossier")} title="Préparer le dossier investisseur">
+          <Icon as={Briefcase} size={12} strokeWidth={2.2}/> Dossier investisseur
         </button>
         <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setShowEdit(true)}>
           <Icon as={Pencil} size={12} strokeWidth={2.2}/> Modifier
@@ -3779,6 +4102,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           ["fiche", "Fiche bien", FileText],
           ["terrain", "Visite terrain", PhoneIcon],
           ["simulateur", "Simulateur", BarChart3],
+          ["dossier", "Dossier investisseur", Briefcase],
         ].map(([key,label,IconComp]) => (
           <button key={key}
             onClick={() => changerOngletFiche(key)}
@@ -3877,6 +4201,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         </>
       ) : ficheTab === "terrain" ? (
         <ModeVisiteTerrainOnglet bien={bien} profil={profil} T={T} onSaved={charger} />
+      ) : ficheTab === "dossier" ? (
+        <DossierPresentationInvestisseurCard bien={bien} T={T} onSaved={charger} selectedSimulationId={activeSimulationId} />
       ) : (
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 360px", gap:16, alignItems:"start" }}>
           <div className="inv-grid-safe" style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
@@ -3944,7 +4270,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
               <div className="inv-card-bd" style={{display:"grid",gridTemplateColumns:"1fr",gap:8}}>
                 <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setFicheTab("terrain")} style={{width:"100%",justifyContent:"center"}}><Icon as={PhoneIcon} size={12}/> Remplir la visite terrain</button>
                 <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setFicheTab("simulateur")} style={{width:"100%",justifyContent:"center"}}><Icon as={BarChart3} size={12}/> Ouvrir le simulateur</button>
-                <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={genererPresentationClientPDF} style={{width:"100%",justifyContent:"center"}}><Icon as={FileText} size={12}/> Générer la fiche client</button>
+                <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setFicheTab("dossier")} style={{width:"100%",justifyContent:"center"}}><Icon as={Briefcase} size={12}/> Préparer le dossier investisseur</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={genererPresentationClientPDF} style={{width:"100%",justifyContent:"center"}}><Icon as={FileText} size={12}/> Ancienne fiche client</button>
                 <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setShowEdit(true)} style={{width:"100%",justifyContent:"center"}}><Icon as={Pencil} size={12}/> Modifier les infos principales</button>
               </div>
             </div>
