@@ -3348,12 +3348,84 @@ function cleanDossierMediaList(list = []) {
       url: String(item?.url || "").trim(),
       titre: item?.titre || "",
       legende: item?.legende || "",
+      source: item?.source || (String(item?.url || "").startsWith("data:") ? "upload" : "url"),
+      filename: item?.filename || "",
+      size_bytes: item?.size_bytes || null,
+      uploaded_at: item?.uploaded_at || null,
     }))
     .filter(item => item.url || item.titre || item.legende);
 }
 
 function emptyDossierMediaItem(prefix = "media") {
-  return { id:`${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`, url:"", titre:"", legende:"" };
+  return { id:`${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`, url:"", titre:"", legende:"", source:"url", filename:"", size_bytes:null, uploaded_at:null };
+}
+
+function dossierFileNameToTitle(filename = "") {
+  return String(filename || "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+}
+
+function dossierFormatFileSize(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
+  return `${(n / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;
+}
+
+function readDossierFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadDossierImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Image impossible à charger."));
+    img.src = dataUrl;
+  });
+}
+
+async function compressDossierImageFile(file, { maxWidth = 1800, maxHeight = 1800, quality = 0.84 } = {}) {
+  if (!file) throw new Error("Aucun fichier sélectionné.");
+  if (!String(file.type || "").startsWith("image/")) throw new Error("Seules les images sont acceptées pour le dossier investisseur.");
+
+  const originalDataUrl = await readDossierFileAsDataUrl(file);
+  const img = await loadDossierImage(originalDataUrl);
+  const ratio = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+  const width = Math.max(1, Math.round(img.width * ratio));
+  const height = Math.max(1, Math.round(img.height * ratio));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return originalDataUrl;
+  ctx.drawImage(img, 0, 0, width, height);
+
+  // JPEG volontairement utilisé pour garder les dossiers légers dans visite_data.
+  // Les PNG transparents restent acceptés, mais seront convertis en image optimisée.
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+async function buildDossierMediaItemFromFile(file, prefix = "photo") {
+  const url = await compressDossierImageFile(file);
+  return {
+    id: `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
+    url,
+    titre: dossierFileNameToTitle(file.name),
+    legende: "",
+    source: "upload",
+    filename: file.name || "image",
+    size_bytes: file.size || null,
+    uploaded_at: new Date().toISOString(),
+  };
 }
 
 function buildDossierPresentationDefaults(bien = {}, selectedSimulationId = "") {
@@ -3676,37 +3748,99 @@ function DossierToggle({ label, checked, onChange, T=THEMES_INV.dark }) {
   );
 }
 
-function DossierMediaEditor({ title, icon, items = [], onChange, T=THEMES_INV.dark, addLabel="Ajouter" }) {
-  const list = Array.isArray(items) && items.length ? items : [emptyDossierMediaItem(title.toLowerCase())];
+function DossierMediaEditor({ title, icon, items = [], onChange, T=THEMES_INV.dark, addLabel="Ajouter", mediaType="photo", onMessage }) {
+  const list = Array.isArray(items) && items.length ? items : [emptyDossierMediaItem(mediaType)];
+  const [uploading, setUploading] = useState(false);
+
   const update = (idx, patch) => {
     const next = list.map((item, i) => i === idx ? { ...item, ...patch } : item);
     onChange(next);
   };
-  const add = () => onChange([...list, emptyDossierMediaItem(title.toLowerCase())]);
+  const add = () => onChange([...list, emptyDossierMediaItem(mediaType)]);
   const remove = (idx) => {
     const next = list.filter((_, i) => i !== idx);
-    onChange(next.length ? next : [emptyDossierMediaItem(title.toLowerCase())]);
+    onChange(next.length ? next : [emptyDossierMediaItem(mediaType)]);
+  };
+  const move = (idx, dir) => {
+    const next = [...list];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  };
+
+  const importFiles = async (files, targetIndex = null) => {
+    const selected = Array.from(files || []).filter(Boolean);
+    if (!selected.length) return;
+    setUploading(true);
+    try {
+      const uploaded = [];
+      for (const file of selected) {
+        uploaded.push(await buildDossierMediaItemFromFile(file, mediaType));
+      }
+      if (targetIndex !== null && targetIndex !== undefined) {
+        const first = uploaded[0];
+        const rest = uploaded.slice(1);
+        const next = list.map((item, i) => i === targetIndex ? { ...item, ...first } : item);
+        onChange(rest.length ? [...next, ...rest] : next);
+      } else {
+        const existing = list.filter(item => item.url || item.titre || item.legende);
+        onChange([...existing, ...uploaded]);
+      }
+      onMessage?.(`${uploaded.length} image${uploaded.length > 1 ? "s" : ""} ajoutée${uploaded.length > 1 ? "s" : ""}`);
+    } catch (e) {
+      const message = e?.message || "Import image impossible.";
+      onMessage?.(`Erreur : ${message}`);
+      alert(message);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
     <div className="inv-card" style={{marginBottom:12}}>
-      <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={icon} size={13}/>{title}</span></div>
+      <div className="inv-card-hd mid" style={{justifyContent:"space-between"}}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={icon} size={13}/>{title}</span>
+        <label className="inv-btn inv-btn-blue inv-btn-sm" style={{cursor:"pointer",textTransform:"none",letterSpacing:0}}>
+          <Icon as={Upload} size={12}/>{uploading ? "Import…" : "Importer images"}
+          <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{importFiles(e.target.files); e.target.value="";}} disabled={uploading}/>
+        </label>
+      </div>
       <div className="inv-card-bd" style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.45,background:T.input,border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"8px 10px"}}>
+          Vous pouvez importer directement des images depuis l’ordinateur. Elles sont optimisées automatiquement et sauvegardées dans le dossier investisseur. L’URL reste disponible si vous préférez utiliser un lien public.
+        </div>
         {list.map((item, idx) => (
-          <div key={item.id || idx} style={{display:"grid",gridTemplateColumns:"120px 1fr 34px",gap:10,alignItems:"start",padding:10,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,background:T.input}}>
+          <div key={item.id || idx} style={{display:"grid",gridTemplateColumns:"128px 1fr 72px",gap:10,alignItems:"start",padding:10,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,background:T.input}}>
             {item.url ? (
-              <img src={item.url} alt="" style={{width:120,height:86,objectFit:"cover",borderRadius:RADIUS.md,border:`1px solid ${T.border}`}} onError={e=>{e.currentTarget.style.display="none";}}/>
+              <img src={item.url} alt="" style={{width:128,height:92,objectFit:"cover",borderRadius:RADIUS.md,border:`1px solid ${T.border}`}} onError={e=>{e.currentTarget.style.display="none";}}/>
             ) : (
-              <div style={{width:120,height:86,borderRadius:RADIUS.md,border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,fontSize:FONT.xs.size,fontWeight:800,textAlign:"center"}}>Visuel</div>
+              <label style={{width:128,height:92,borderRadius:RADIUS.md,border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,fontSize:FONT.xs.size,fontWeight:800,textAlign:"center",cursor:"pointer",background:T.card}}>
+                <span><Icon as={Upload} size={15}/><br/>Ajouter<br/>une image</span>
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{importFiles(e.target.files, idx); e.target.value="";}} disabled={uploading}/>
+              </label>
             )}
             <div>
-              <input className="inv-inp" value={item.url || ""} onChange={e=>update(idx,{url:e.target.value})} placeholder="URL image / lien public" style={{width:"100%",textAlign:"left",marginBottom:6}}/>
+              <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}>
+                <label className="inv-btn inv-btn-out inv-btn-sm" style={{cursor:"pointer",textTransform:"none",letterSpacing:0}}>
+                  <Icon as={Upload} size={11}/> Remplacer par fichier
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{importFiles(e.target.files, idx); e.target.value="";}} disabled={uploading}/>
+                </label>
+                {item.source === "upload" && (
+                  <span style={{fontSize:FONT.xs.size,color:SU,fontWeight:800}}>Image importée {item.size_bytes ? `· ${dossierFormatFileSize(item.size_bytes)}` : ""}</span>
+                )}
+              </div>
+              <input className="inv-inp" value={item.url || ""} onChange={e=>update(idx,{url:e.target.value,source:e.target.value?.startsWith("data:")?"upload":"url"})} placeholder="URL image / lien public ou image importée" style={{width:"100%",textAlign:"left",marginBottom:6}}/>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1.3fr",gap:6}}>
                 <input className="inv-inp" value={item.titre || ""} onChange={e=>update(idx,{titre:e.target.value})} placeholder="Titre" style={{width:"100%",textAlign:"left"}}/>
                 <input className="inv-inp" value={item.legende || ""} onChange={e=>update(idx,{legende:e.target.value})} placeholder="Légende courte" style={{width:"100%",textAlign:"left"}}/>
               </div>
             </div>
-            <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={()=>remove(idx)} title="Retirer" style={{padding:"7px 8px",justifyContent:"center"}}><Icon as={Trash2} size={12}/></button>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>move(idx,-1)} disabled={idx===0} title="Monter" style={{padding:"7px 8px",justifyContent:"center"}}><Icon as={ChevronUp} size={12}/></button>
+              <button className="inv-btn inv-btn-out inv-btn-sm" onClick={()=>move(idx,1)} disabled={idx===list.length-1} title="Descendre" style={{padding:"7px 8px",justifyContent:"center"}}><Icon as={ChevronDown} size={12}/></button>
+              <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={()=>remove(idx)} title="Retirer" style={{padding:"7px 8px",justifyContent:"center"}}><Icon as={Trash2} size={12}/></button>
+            </div>
           </div>
         ))}
         <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={add} style={{alignSelf:"flex-start"}}><Icon as={Plus} size={12}/>{addLabel}</button>
@@ -3729,6 +3863,27 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
   const metrics = getSimulationMetricsFromBien(bien, selectedSimulationId);
   const lots = getDossierLotsFromBien(bien, selectedSimulationId);
   const update = (key, value) => setData(prev => ({ ...prev, [key]: value }));
+
+  const importCoverPhoto = async (file) => {
+    if (!file) return;
+    setMsg("");
+    try {
+      const media = await buildDossierMediaItemFromFile(file, "cover");
+      setData(prev => ({
+        ...prev,
+        photo_url: media.url,
+        photo_filename: media.filename,
+        photo_source: "upload",
+        photo_uploaded_at: media.uploaded_at,
+      }));
+      setMsg("Photo principale ajoutée");
+      setTimeout(()=>setMsg(""), 2200);
+    } catch (e) {
+      const message = e?.message || "Import de la photo impossible.";
+      setMsg(`Erreur : ${message}`);
+      alert(message);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -3779,14 +3934,35 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
     if (section === "visuels") return (
       <>
         <div className="inv-card" style={{marginBottom:12}}>
-          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={ImageIcon} size={13}/>Photo principale de couverture</span></div>
+          <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={ImageIcon} size={13}/>Photo principale de couverture</span>
+            <label className="inv-btn inv-btn-blue inv-btn-sm" style={{cursor:"pointer",textTransform:"none",letterSpacing:0}}>
+              <Icon as={Upload} size={12}/> Importer une photo
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{importCoverPhoto(e.target.files?.[0]); e.target.value="";}} />
+            </label>
+          </div>
           <div className="inv-card-bd">
-            <DossierField label="URL photo principale" value={data.photo_url} onChange={v=>update("photo_url",v)} placeholder="URL de la photo utilisée en couverture" T={T}/>
-            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.45}}>Utiliser de préférence une image horizontale de bonne qualité. Elle servira de visuel principal en couverture.</div>
+            <div style={{display:"grid",gridTemplateColumns:"190px 1fr",gap:12,alignItems:"start"}}>
+              {data.photo_url ? (
+                <img src={data.photo_url} alt="Photo principale" style={{width:190,height:122,objectFit:"cover",borderRadius:RADIUS.lg,border:`1px solid ${T.border}`}} onError={e=>{e.currentTarget.style.display="none";}}/>
+              ) : (
+                <label style={{width:190,height:122,borderRadius:RADIUS.lg,border:`1px dashed ${T.border}`,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,fontWeight:800,textAlign:"center",cursor:"pointer"}}>
+                  <span><Icon as={Upload} size={18}/><br/>Ajouter la photo<br/>de couverture</span>
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{importCoverPhoto(e.target.files?.[0]); e.target.value="";}} />
+                </label>
+              )}
+              <div>
+                <DossierField label="URL photo principale ou image importée" value={data.photo_url} onChange={v=>update("photo_url",v)} placeholder="Collez une URL ou importez directement une image depuis l’ordinateur" T={T}/>
+                {data.photo_source === "upload" && data.photo_filename && (
+                  <div style={{fontSize:FONT.xs.size+1,color:SU,fontWeight:800,marginTop:-4,marginBottom:8}}>Image importée : {data.photo_filename}</div>
+                )}
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.45}}>Utiliser de préférence une image horizontale de bonne qualité. L’image importée est compressée automatiquement pour rester exploitable dans le dossier.</div>
+              </div>
+            </div>
           </div>
         </div>
-        <DossierMediaEditor title="Galerie photos du bien" icon={ImageIcon} items={data.photos} onChange={v=>update("photos",v)} T={T} addLabel="Ajouter une photo"/>
-        <DossierMediaEditor title="Plans du projet" icon={FileText} items={data.plans} onChange={v=>update("plans",v)} T={T} addLabel="Ajouter un plan"/>
+        <DossierMediaEditor title="Galerie photos du bien" icon={ImageIcon} items={data.photos} onChange={v=>update("photos",v)} T={T} addLabel="Ajouter une photo" mediaType="photo" onMessage={(m)=>{setMsg(m); setTimeout(()=>setMsg(""), 2200);}}/>
+        <DossierMediaEditor title="Plans du projet" icon={FileText} items={data.plans} onChange={v=>update("plans",v)} T={T} addLabel="Ajouter un plan" mediaType="plan" onMessage={(m)=>{setMsg(m); setTimeout(()=>setMsg(""), 2200);}}/>
       </>
     );
 
