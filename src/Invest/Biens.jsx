@@ -1323,6 +1323,7 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
   const [showForm, setShowForm] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [filtreVille, setFiltreVille]   = useState("");
+  const [filtreAgentImmobilier, setFiltreAgentImmobilier] = useState("");
   const [specialFilter, setSpecialFilter] = useState("");
   const [search, setSearch]     = useState("");
   const [compareIds, setCompareIds] = useState([]);
@@ -1339,7 +1340,7 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
 
   useEffect(() => {
     if (!initialFilter) return;
-    setFiltreStatut(""); setFiltreVille(""); setSpecialFilter(""); setSearch("");
+    setFiltreStatut(""); setFiltreVille(""); setFiltreAgentImmobilier(""); setSpecialFilter(""); setSearch("");
     if (initialFilter.type === "open_bien" && initialFilter.bien_id) { setFicheId(initialFilter.bien_id); return; }
     if (initialFilter.type === "statut") setFiltreStatut(initialFilter.value || "");
     if (initialFilter.type === "a_relancer") { setSpecialFilter("a_relancer"); setSortConfig({ key:"date_relance", direction:"asc" }); }
@@ -1348,17 +1349,28 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
 
   const today = new Date().toISOString().slice(0,10);
   const villes = [...new Set(biens.map(b => b.ville).filter(Boolean))];
+  const getAgentImmobilierLabel = (b = {}) => [
+    b.interlocuteur,
+    b.agence,
+    b.visite_data?.general?.agence_vendeur,
+  ].filter(Boolean).join(" ").trim();
   const handleSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
 
   let filtered = biens.filter(b => {
     if (filtreStatut && b.statut !== filtreStatut) return false;
     if (filtreVille && b.ville !== filtreVille) return false;
+    if (filtreAgentImmobilier && !normTxt(getAgentImmobilierLabel(b)).includes(normTxt(filtreAgentImmobilier))) return false;
     if (specialFilter === "a_relancer" && !(b.date_relance && b.date_relance <= today)) return false;
     if (search && !normTxt(`${b.adresse||""} ${b.ville||""} ${b.code_postal||""} ${b.agence||""} ${b.interlocuteur||""} ${b.statut||""}`).includes(normTxt(search))) return false;
     return true;
   });
 
-  filtered = [...filtered].sort((a,b) => compareValues(a[sortConfig.key], b[sortConfig.key], sortConfig.direction));
+  filtered = [...filtered].sort((a,b) => {
+    if (sortConfig.key === "agent_immobilier") {
+      return compareValues(getAgentImmobilierLabel(a), getAgentImmobilierLabel(b), sortConfig.direction);
+    }
+    return compareValues(a[sortConfig.key], b[sortConfig.key], sortConfig.direction);
+  });
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}) : "—";
   const fmtEur  = v => v > 0 ? new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(v)+" €" : "—";
@@ -1442,18 +1454,31 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
           <option value="">Toutes villes</option>
           {villes.map(v=><option key={v}>{v}</option>)}
         </select>
+        <div style={{position:"relative", width:220}}>
+          <Icon as={Users} size={13} color={T.textMuted}
+            style={{position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none"}}/>
+          <input
+            className="inv-inp"
+            placeholder="Agent immobilier…"
+            value={filtreAgentImmobilier}
+            onChange={e=>setFiltreAgentImmobilier(e.target.value)}
+            style={{ width:"100%", textAlign:"left", paddingLeft:30, fontSize:FONT.sm.size+1 }}
+          />
+        </div>
         <select className="inv-sel" value={`${sortConfig.key}:${sortConfig.direction}`} onChange={e=>{ const [key,direction]=e.target.value.split(":"); setSortConfig({key,direction}); }}>
           <option value="created_at:desc">Date entrée ↓</option>
           <option value="rendement_brut:desc">Rendement brut ↓</option>
           <option value="cashflow_estime:desc">Cash-flow ↓</option>
           <option value="cout_total:desc">Coût total ↓</option>
           <option value="date_relance:asc">Date relance ↑</option>
+          <option value="agent_immobilier:asc">Agent immobilier A-Z</option>
+          <option value="agent_immobilier:desc">Agent immobilier Z-A</option>
         </select>
         <button className="inv-btn inv-btn-danger inv-btn-sm"
           onClick={() => { setSpecialFilter("a_relancer"); setSortConfig({key:"date_relance", direction:"asc"}); }}>
           <Icon as={Bell} size={12} strokeWidth={2.2}/> Voir à relancer
         </button>
-        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => { setFiltreStatut(""); setFiltreVille(""); setSpecialFilter(""); setSearch(""); setSortConfig({key:"created_at", direction:"desc"}); }}>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => { setFiltreStatut(""); setFiltreVille(""); setFiltreAgentImmobilier(""); setSpecialFilter(""); setSearch(""); setSortConfig({key:"created_at", direction:"desc"}); }}>
           <Icon as={X} size={12} strokeWidth={2.2}/> Réinitialiser
         </button>
         {compareIds.length > 0 && (
@@ -1530,6 +1555,7 @@ function StockBiens({ profil, T=THEMES_INV.dark, initialFilter }) {
                       <div style={{ fontSize:FONT.xs.size, color:T.textMuted, display:"inline-flex", alignItems:"center", gap:4 }}>
                         {b.ville && <><Icon as={MapPin} size={10}/> {b.ville}</>}
                         {b.agence && <span> · {b.agence}</span>}
+                        {b.interlocuteur && <span> · Agent : {b.interlocuteur}</span>}
                       </div>
                     </div>
                   </div>
