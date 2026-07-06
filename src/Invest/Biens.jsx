@@ -3341,41 +3341,107 @@ function getDossierLotsFromBien(bien = {}, selectedSimulationId = "") {
     }));
 }
 
+function cleanDossierMediaList(list = []) {
+  return (Array.isArray(list) ? list : [])
+    .map((item, index) => ({
+      id: item?.id || `media_${Date.now()}_${index}`,
+      url: String(item?.url || "").trim(),
+      titre: item?.titre || "",
+      legende: item?.legende || "",
+    }))
+    .filter(item => item.url || item.titre || item.legende);
+}
+
+function emptyDossierMediaItem(prefix = "media") {
+  return { id:`${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`, url:"", titre:"", legende:"" };
+}
+
 function buildDossierPresentationDefaults(bien = {}, selectedSimulationId = "") {
   const v = bien.visite_data || {};
   const gen = v.general || {};
   const marche = v.marche || {};
   const concl = v.conclusion || {};
   const terrain = v.mode_visite_terrain || {};
+  const dossierSaved = v.dossier_presentation || {};
   const metrics = getSimulationMetricsFromBien(bien, selectedSimulationId);
   const lots = getDossierLotsFromBien(bien, selectedSimulationId);
   const adresse = [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(" ");
+  const ville = bien.ville || gen.ville || "la ville ciblée";
   const lotsLabel = lots.length ? `${lots.length} logement${lots.length > 1 ? "s" : ""}` : (gen.lots_cibles ? `${gen.lots_cibles} logement(s)` : "plusieurs logements");
   const rb = metrics.rendement ? dossierFmtPct(metrics.rendement) : (bien.rendement_brut ? dossierFmtPct(bien.rendement_brut) : "à confirmer");
+  const prixCible = metrics.prix || bien.montant_offre || bien.prix_vente || 0;
+  const travaux = metrics.travaux || bien.prix_travaux || 0;
+  const coutTotal = metrics.coutTotal || bien.cout_total || (prixCible + travaux) || 0;
+
+  const photoPrincipale = dossierSaved.photo_url || v.photo_principale_url || bien.photo_url || "";
+  const galeriePhotos = cleanDossierMediaList(dossierSaved.photos || []);
+  const plansProjet = cleanDossierMediaList(dossierSaved.plans || []);
 
   return {
-    titre: bien.reference_interne ? `Dossier investisseur — ${bien.reference_interne}` : "Dossier de présentation investisseur",
-    sous_titre: adresse || "Projet immobilier analysé par Profero Invest",
-    photo_url: v.dossier_presentation?.photo_url || v.photo_principale_url || bien.photo_url || "",
-    accroche: `Projet de transformation en ${lotsLabel}, avec une rentabilité brute estimée à ${rb} selon les hypothèses renseignées.`,
-    analyse_secteur: marche.points_forts || terrain.points_forts || "Secteur à présenter : proximité des commodités, transports, bassins d’emploi, écoles, commerces et demande locative locale.",
-    demande_locative: marche.tension_locative || marche.profil_locataires ? `Tension locative : ${marche.tension_locative || "à préciser"}. Profil cible : ${marche.profil_locataires || "à préciser"}.` : "Demande locative à qualifier selon le profil des locataires visés et les loyers de marché.",
-    projet_global: concl.strategie_locative ? `Projet orienté ${concl.strategie_locative}, avec une configuration cible adaptée à la demande locative locale.` : `Projet de division / optimisation locative permettant de repositionner le bien en ${lotsLabel} après travaux et validation technique.`,
-    programme_travaux: v.dpe?.travaux_energetiques || terrain.points_blocants || "Programme travaux à détailler après chiffrage : rénovation intérieure, remise aux normes, optimisation des surfaces, ameublement éventuel et amélioration énergétique.",
-    strategie_locative: concl.strategie_locative || marche.profil_locataires || "Stratégie locative à préciser selon l’étude du secteur et les objectifs de l’investisseur.",
-    points_forts: marche.points_forts || terrain.points_forts || "Emplacement, potentiel de division, création de valeur par travaux, optimisation des loyers et mutualisation des coûts.",
-    points_vigilance: marche.points_faibles || terrain.points_blocants || "Points à vérifier : urbanisme, DPE, budget travaux, stationnement, diagnostics et faisabilité technique définitive.",
+    titre: bien.reference_interne ? `Dossier investisseur — ${bien.reference_interne}` : "Dossier investisseur premium",
+    sous_titre: adresse || "Projet immobilier analysé et structuré par Profero Invest",
+    photo_url: photoPrincipale,
+    photos: galeriePhotos.length ? galeriePhotos : [emptyDossierMediaItem("photo")],
+    plans: plansProjet.length ? plansProjet : [emptyDossierMediaItem("plan")],
+    accroche: `Un projet immobilier structuré pour transformer un actif existant en ${lotsLabel}, avec une rentabilité brute estimée à ${rb} selon les hypothèses actuellement renseignées.`,
+    phrase_couverture: "Une opportunité pensée pour créer de la valeur par l’analyse, la structuration et la réalisation des travaux.",
+    synthese_executive: `Ce dossier présente une opportunité d’investissement située à ${ville}. L’objectif est de valider la pertinence patrimoniale, locative et financière du projet avant engagement : emplacement, potentiel de transformation, budget global, loyers cibles et points de vigilance.`,
+    analyse_ville_titre: `Analyse de ${ville}`,
+    analyse_ville: marche.points_forts || `La ville de ${ville} doit être présentée sous l’angle de son attractivité résidentielle et locative : bassin d’emploi, accessibilité, services, écoles, commerces, évolution de la demande et profondeur du marché locatif.`,
+    dynamique_economique: "À compléter : principaux bassins d’emploi, zones d’activité, établissements d’enseignement, pôles de santé, infrastructures et moteurs économiques locaux.",
+    population_cible: marche.profil_locataires || "À compléter : étudiants, jeunes actifs, familles, salariés en mobilité, profils professionnels ou demande mixte selon le secteur.",
+    analyse_quartier: terrain.points_forts || "À compléter : qualité du quartier, proximité transports, commerces, stationnement, écoles, services, perception terrain et facilité de relocation.",
+    demande_locative: marche.tension_locative || marche.profil_locataires ? `Tension locative : ${marche.tension_locative || "à préciser"}. Profil cible : ${marche.profil_locataires || "à préciser"}.` : "À compléter : niveau de demande, typologie recherchée, loyers observés, vacance estimée et concurrence directe.",
+    projet_global: concl.strategie_locative ? `Le projet est orienté ${concl.strategie_locative}, avec une configuration cible adaptée à la demande locative locale et aux objectifs patrimoniaux de l’investisseur.` : `Le projet consiste à repositionner le bien en ${lotsLabel}, après validation technique, financière et réglementaire. L’objectif est de créer une offre locative plus lisible, mieux valorisée et adaptée au marché local.`,
+    vision_avant_apres: "Avant : un bien sous-exploité ou insuffisamment optimisé. Après : un actif restructuré, lisible, mieux positionné et générateur de revenus locatifs récurrents.",
+    programme_travaux: v.dpe?.travaux_energetiques || terrain.points_blocants || "À détailler : rénovation intérieure, remise aux normes, redistribution, création ou optimisation des lots, amélioration énergétique, mobilier éventuel et finitions locatives.",
+    strategie_locative: concl.strategie_locative || marche.profil_locataires || "À préciser : location meublée, location nue, colocation, mixte ou stratégie patrimoniale selon profil investisseur.",
+    analyse_financiere_commentaire: `Les hypothèses financières sont construites à partir des éléments disponibles : prix cible ${dossierFmtEur(prixCible)}, travaux ${dossierFmtEur(travaux)}, coût global ${dossierFmtEur(coutTotal)} et loyers projetés issus de la configuration cible.`,
+    arguments_investisseurs: "1. Création de valeur par la transformation du bien.\n2. Potentiel de revenus locatifs récurrents.\n3. Projet structuré avec analyse technique, locative et financière.\n4. Accompagnement Profero Invest et coordination possible avec les équipes travaux.",
+    points_forts: marche.points_forts || terrain.points_forts || "Emplacement, potentiel de division, création de valeur par travaux, optimisation des loyers, mutualisation des coûts et projet clé en main.",
+    points_vigilance: marche.points_faibles || terrain.points_blocants || "À vérifier : urbanisme, DPE, budget travaux, stationnement, diagnostics, copropriété le cas échéant et faisabilité technique définitive.",
+    reponse_aux_risques: "Les points de vigilance sont intégrés à l’analyse afin d’éviter une décision uniquement basée sur la rentabilité théorique. Chaque risque doit être validé par document, devis, échange mairie, diagnostic ou contre-visite si nécessaire.",
+    accompagnement_profero: "Profero Invest accompagne l’investisseur dans l’analyse, la structuration du projet, la mise en relation avec les bons interlocuteurs, le suivi des hypothèses et la préparation de la décision. Lorsque cela est pertinent, le projet peut être coordonné avec les compétences travaux du groupe.",
     conclusion: concl.commentaire_conseiller || concl.recommandation || "Opportunité à présenter sous réserve de validation des hypothèses financières, techniques et réglementaires.",
-    conditions: "Document de travail non contractuel, établi à partir des informations disponibles à date. Les chiffres sont à confirmer par devis, diagnostics, financement et validation réglementaire.",
+    profil_investisseur: "Investisseur recherchant un projet immobilier structuré, avec création de valeur, vision locative claire et accompagnement opérationnel.",
+    prochaine_etape: concl.prochaine_etape || terrain.prochaine_action || "Valider les documents, affiner le chiffrage travaux, confirmer les loyers de marché et arbitrer le prix d’offre.",
+    conditions: "Document de travail non contractuel, établi à partir des informations disponibles à date. Les chiffres sont à confirmer par devis, diagnostics, financement, documents juridiques et validation réglementaire.",
     responsable: bien.conseiller_profero || v.identification?.conseiller_profero || "Profero Invest",
     date_edition: new Date().toISOString().slice(0,10),
+    afficher_page_ville: true,
+    afficher_page_photos: true,
+    afficher_page_plans: true,
+    afficher_page_risques: true,
+    afficher_page_accompagnement: true,
   };
 }
 
 function mergeDossierPresentationData(bien = {}, selectedSimulationId = "") {
   const defaults = buildDossierPresentationDefaults(bien, selectedSimulationId);
   const saved = bien.visite_data?.dossier_presentation || {};
-  return { ...defaults, ...saved };
+  return {
+    ...defaults,
+    ...saved,
+    photos: cleanDossierMediaList(saved.photos || defaults.photos),
+    plans: cleanDossierMediaList(saved.plans || defaults.plans),
+  };
+}
+
+function renderDossierHtmlParagraph(value = "") {
+  return dossierEscapeHtml(value || "").replace(/\n/g, "<br>");
+}
+
+function renderDossierMediaGrid(items = [], fallbackLabel = "Visuel à ajouter") {
+  const clean = cleanDossierMediaList(items).filter(x => x.url);
+  if (!clean.length) {
+    return `<div class="visual-empty"><strong>${dossierEscapeHtml(fallbackLabel)}</strong><span>Ajoutez une URL d’image, un lien Drive public ou une image hébergée depuis la fiche bien.</span></div>`;
+  }
+  return `<div class="media-grid">${clean.map((item, idx) => `
+    <figure>
+      <img src="${dossierEscapeHtml(item.url)}" alt="${dossierEscapeHtml(item.titre || fallbackLabel)} ${idx + 1}" />
+      <figcaption><strong>${dossierEscapeHtml(item.titre || `Visuel ${idx + 1}`)}</strong>${item.legende ? `<br>${dossierEscapeHtml(item.legende)}` : ""}</figcaption>
+    </figure>
+  `).join("")}</div>`;
 }
 
 function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selectedSimulationId = "" }) {
@@ -3388,6 +3454,15 @@ function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selec
   const photoUrl = String(dossier.photo_url || "").trim();
   const dateEdition = dossier.date_edition ? new Date(dossier.date_edition).toLocaleDateString("fr-FR") : new Date().toLocaleDateString("fr-FR");
   const totalLoyers = lots.reduce((s,l)=>s+(Number(l.loyer)||0),0) || metrics.loyerMensuel || 0;
+  const prixCible = metrics.prix || bien.montant_offre || bien.prix_vente || 0;
+  const travaux = metrics.travaux || bien.prix_travaux || 0;
+  const coutTotal = metrics.coutTotal || bien.cout_total || 0;
+  const rendement = metrics.rendement || bien.rendement_brut || 0;
+  const cashflow = metrics.cashflow || bien.cashflow_estime || 0;
+  const surface = metrics.surface || bien.surface_totale || bien.visite_data?.general?.surface_totale || 0;
+  const photoGallery = cleanDossierMediaList(dossier.photos || []);
+  const planGallery = cleanDossierMediaList(dossier.plans || []);
+
   const lotRows = lots.map(l => `
     <tr>
       <td>${dossierEscapeHtml(l.numero)}</td>
@@ -3399,10 +3474,10 @@ function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selec
   `).join("");
 
   const photoBlock = photoUrl
-    ? `<img class="hero-photo" src="${dossierEscapeHtml(photoUrl)}" alt="Photo du bien" />`
+    ? `<img class="hero-photo" src="${dossierEscapeHtml(photoUrl)}" alt="Photo principale du bien" />`
     : `<div class="photo-placeholder"><div>Photo principale du bien</div><span>Ajoutez une URL d’image dans la préparation du dossier</span></div>`;
 
-  const win = window.open("", "_blank", "width=1100,height=820");
+  const win = window.open("", "_blank", "width=1120,height=840");
   if (!win) {
     alert("Autorisez les pop-ups pour générer le dossier investisseur.");
     return;
@@ -3415,182 +3490,463 @@ function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selec
 <title>${dossierEscapeHtml(dossier.titre || "Dossier investisseur")}</title>
 <style>
   *{box-sizing:border-box}
-  body{margin:0;background:#edf1f7;color:#172033;font-family:Arial,Helvetica,sans-serif;line-height:1.45}
+  body{margin:0;background:#e9edf5;color:#172033;font-family:Arial,Helvetica,sans-serif;line-height:1.45}
   .print-btn{position:fixed;right:20px;top:20px;z-index:20;background:#c9a34a;color:#111827;border:0;border-radius:999px;padding:12px 18px;font-weight:900;box-shadow:0 12px 32px rgba(0,0,0,.18);cursor:pointer}
-  .doc{width:1040px;margin:0 auto;background:white;min-height:100vh;box-shadow:0 24px 80px rgba(15,23,42,.18)}
-  .cover{background:linear-gradient(135deg,#111827 0%,#182743 58%,#263a60 100%);color:white;padding:34px 42px 30px;position:relative;overflow:hidden}
-  .cover:after{content:"";position:absolute;right:-90px;top:-120px;width:330px;height:330px;border-radius:50%;background:rgba(201,163,74,.16)}
-  .brand{display:flex;justify-content:space-between;align-items:center;gap:20px;position:relative;z-index:1;margin-bottom:26px}
-  .brand img{max-height:46px;max-width:260px;object-fit:contain;filter:brightness(0) invert(1)}
-  .brand .meta{text-align:right;color:rgba(255,255,255,.7);font-size:11px;text-transform:uppercase;letter-spacing:1.8px;font-weight:800}
-  h1{font-size:38px;line-height:1.02;margin:0 0 10px;font-weight:900;letter-spacing:-.7px;max-width:720px;position:relative;z-index:1}
-  .subtitle{font-size:16px;color:rgba(255,255,255,.78);max-width:760px;position:relative;z-index:1}
-  .badge{display:inline-block;margin-top:18px;border:1px solid rgba(201,163,74,.7);background:rgba(201,163,74,.12);color:#f4d58a;border-radius:999px;padding:8px 13px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1.1px;position:relative;z-index:1}
-  .photo-wrap{padding:22px 42px 0;background:#fff}.hero-photo{width:100%;height:315px;object-fit:cover;border-radius:20px;display:block;box-shadow:0 18px 42px rgba(15,23,42,.16)}
-  .photo-placeholder{height:240px;border-radius:20px;background:linear-gradient(135deg,#f4f6fb,#e8edf6);border:1px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#64748b;font-weight:900;text-transform:uppercase;letter-spacing:1px}.photo-placeholder span{font-weight:600;text-transform:none;letter-spacing:0;margin-top:8px;font-size:12px;color:#94a3b8}
-  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:20px 42px 12px;background:#fff}.kpi{background:#f8fafc;border:1px solid #e5eaf2;border-radius:16px;padding:14px 13px;border-left:4px solid #c9a34a}.kpi .v{font-size:20px;font-weight:900;color:#14213d;line-height:1.08}.kpi .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin-top:6px;font-weight:900}
-  .section{padding:23px 42px;border-top:1px solid #e8edf5}.section h2{margin:0 0 12px;font-size:15px;color:#14213d;text-transform:uppercase;letter-spacing:1.6px;font-weight:900;display:flex;align-items:center;gap:10px}.section h2:before{content:"";display:block;width:26px;height:3px;background:#c9a34a;border-radius:999px}.lead{font-size:18px;color:#172033;font-weight:800;margin:0;line-height:1.45}.text{font-size:14px;color:#334155;white-space:pre-line}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{background:#f8fafc;border:1px solid #e5eaf2;border-radius:16px;padding:15px}.box h3{margin:0 0 8px;color:#14213d;font-size:13px;text-transform:uppercase;letter-spacing:.9px}.box p{margin:0;color:#334155;font-size:13.5px;white-space:pre-line}
-  .project{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:stretch}.map{width:100%;height:260px;border:0;border-radius:16px;display:block;background:#f8fafc}.map-link{font-size:12px;color:#2563eb;text-decoration:none;font-weight:800;display:inline-block;margin-top:8px}
-  table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;overflow:hidden;border:1px solid #e5eaf2;border-radius:16px}th{background:#14213d;color:#fff;text-align:left;padding:11px;font-size:11px;text-transform:uppercase;letter-spacing:.9px}td{padding:11px;border-bottom:1px solid #e5eaf2;color:#334155;vertical-align:top}td span{color:#64748b;font-size:12px}tr:last-child td{border-bottom:0}.footer{padding:18px 42px 28px;color:#64748b;font-size:11px;background:#f8fafc;border-top:1px solid #e5eaf2;display:flex;justify-content:space-between;gap:18px}.reco{background:linear-gradient(135deg,#fff7dd,#f8fafc);border:1px solid #f0d58a;border-radius:18px;padding:17px;color:#172033;font-weight:800;white-space:pre-line}
-  @media print{body{background:#fff}.print-btn{display:none}.doc{width:100%;box-shadow:none}.section{break-inside:avoid}.photo-wrap{break-inside:avoid}.cover{break-inside:avoid}}
+  .doc{width:1060px;margin:0 auto;background:white;min-height:100vh;box-shadow:0 24px 90px rgba(15,23,42,.2)}
+  .page{padding:34px 44px;border-top:1px solid #e8edf5;page-break-inside:avoid}.page.break{page-break-before:always}.tight{padding-top:22px;padding-bottom:22px}
+  .cover{min-height:610px;background:linear-gradient(135deg,#111827 0%,#182743 58%,#263a60 100%);color:white;padding:36px 44px 34px;position:relative;overflow:hidden;page-break-after:always}.cover:after{content:"";position:absolute;right:-120px;top:-140px;width:410px;height:410px;border-radius:50%;background:rgba(201,163,74,.16)}.cover:before{content:"";position:absolute;left:-160px;bottom:-190px;width:430px;height:430px;border-radius:50%;background:rgba(255,255,255,.045)}
+  .brand{display:flex;justify-content:space-between;align-items:center;gap:20px;position:relative;z-index:1;margin-bottom:28px}.brand img{max-height:48px;max-width:270px;object-fit:contain;filter:brightness(0) invert(1)}.brand .meta{text-align:right;color:rgba(255,255,255,.7);font-size:11px;text-transform:uppercase;letter-spacing:1.8px;font-weight:800}
+  h1{font-size:43px;line-height:1.01;margin:0 0 12px;font-weight:900;letter-spacing:-.9px;max-width:780px;position:relative;z-index:1}.subtitle{font-size:17px;color:rgba(255,255,255,.8);max-width:790px;position:relative;z-index:1}.cover-claim{margin-top:20px;font-size:22px;font-weight:900;max-width:780px;line-height:1.28;color:#f8fafc;position:relative;z-index:1}.badge{display:inline-block;margin-top:18px;border:1px solid rgba(201,163,74,.7);background:rgba(201,163,74,.12);color:#f4d58a;border-radius:999px;padding:8px 13px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1.1px;position:relative;z-index:1}
+  .cover-photo{margin-top:28px;position:relative;z-index:1}.hero-photo{width:100%;height:315px;object-fit:cover;border-radius:24px;display:block;box-shadow:0 18px 52px rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.18)}.photo-placeholder{height:300px;border-radius:24px;background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.34);display:flex;align-items:center;justify-content:center;flex-direction:column;color:rgba(255,255,255,.82);font-weight:900;text-transform:uppercase;letter-spacing:1px}.photo-placeholder span{font-weight:600;text-transform:none;letter-spacing:0;margin-top:8px;font-size:12px;color:rgba(255,255,255,.58)}
+  .section-title{margin:0 0 16px;font-size:16px;color:#14213d;text-transform:uppercase;letter-spacing:1.7px;font-weight:900;display:flex;align-items:center;gap:11px}.section-title:before{content:"";display:block;width:30px;height:3px;background:#c9a34a;border-radius:999px}.lead{font-size:20px;color:#172033;font-weight:900;margin:0 0 14px;line-height:1.38}.text{font-size:14px;color:#334155;white-space:pre-line}.muted{color:#64748b}.gold{color:#b98d22}.dark{color:#14213d}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-top:18px}.kpi{background:#f8fafc;border:1px solid #e5eaf2;border-radius:17px;padding:15px 13px;border-left:4px solid #c9a34a}.kpi .v{font-size:20px;font-weight:900;color:#14213d;line-height:1.08}.kpi .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin-top:6px;font-weight:900}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.box{background:#f8fafc;border:1px solid #e5eaf2;border-radius:18px;padding:16px}.box.darkbox{background:#14213d;color:white;border:0}.box h3{margin:0 0 8px;color:#14213d;font-size:13px;text-transform:uppercase;letter-spacing:.9px}.box.darkbox h3{color:#f4d58a}.box p{margin:0;color:#334155;font-size:13.7px;white-space:pre-line}.box.darkbox p{color:rgba(255,255,255,.82)}
+  .media-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.media-grid figure{margin:0;background:#f8fafc;border:1px solid #e5eaf2;border-radius:18px;overflow:hidden}.media-grid img{width:100%;height:235px;object-fit:cover;display:block}.media-grid figcaption{padding:11px 13px;color:#475569;font-size:12.5px;line-height:1.35}.media-grid figcaption strong{color:#14213d}.visual-empty{height:210px;border-radius:18px;background:#f8fafc;border:1px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#64748b;text-align:center;padding:24px}.visual-empty span{font-size:12px;margin-top:6px;color:#94a3b8;font-weight:600}
+  .project{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:stretch}.project-card{background:linear-gradient(135deg,#14213d,#233c65);color:white;border-radius:20px;padding:22px}.project-card h3{margin:0 0 10px;color:#f4d58a;font-size:13px;text-transform:uppercase;letter-spacing:1.1px}.project-card p{margin:0;font-size:15px;color:rgba(255,255,255,.86);white-space:pre-line}.timeline{display:grid;gap:10px}.step{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start}.step b{width:30px;height:30px;border-radius:50%;background:#c9a34a;color:#111827;display:flex;align-items:center;justify-content:center;font-size:12px}.step span{font-size:13px;color:#334155;padding-top:5px}
+  table{width:100%;border-collapse:collapse;border:1px solid #e5eaf2;border-radius:16px;overflow:hidden}th{background:#14213d;color:white;font-size:10px;text-transform:uppercase;letter-spacing:.9px;text-align:left;padding:10px}td{border-top:1px solid #e5eaf2;padding:10px;font-size:13px;color:#334155;vertical-align:top}td strong{color:#14213d}td span{color:#64748b;font-size:11px}
+  .risk{background:#fff8ec;border:1px solid #f2d5a2;border-radius:18px;padding:16px}.risk strong{color:#b45309}.success{background:#eefaf3;border:1px solid #bde7cc;border-radius:18px;padding:16px}.success strong{color:#157347}.footer{background:#111827;color:rgba(255,255,255,.72);padding:24px 44px;font-size:12px}.footer strong{color:#f4d58a}
+  @media print{body{background:white}.print-btn{display:none}.doc{width:100%;box-shadow:none}.cover{min-height:100vh}.page.break{page-break-before:always}.media-grid img{height:210px}}
 </style>
 </head>
 <body>
 <button class="print-btn" onclick="window.print()">Imprimer / PDF</button>
 <div class="doc">
-  <div class="cover">
+  <section class="cover">
     <div class="brand">
-      ${logo ? `<img src="${dossierEscapeHtml(logo)}" alt="Profero Invest"/>` : `<div style="font-weight:900;font-size:20px;letter-spacing:1px">PROFERO INVEST</div>`}
+      ${logo ? `<img src="${logo}" alt="Profero Invest" />` : `<div style="font-weight:900;font-size:22px;letter-spacing:1px">PROFERO INVEST</div>`}
       <div class="meta">Dossier investisseur<br>${dossierEscapeHtml(dateEdition)}</div>
     </div>
-    <h1>${dossierEscapeHtml(dossier.titre || "Dossier de présentation")}</h1>
+    <h1>${dossierEscapeHtml(dossier.titre || "Dossier investisseur")}</h1>
     <div class="subtitle">${dossierEscapeHtml(dossier.sous_titre || adresse || "Projet immobilier")}</div>
-    <div class="badge">Analyse préparée pour investisseur</div>
-  </div>
-  <div class="photo-wrap">${photoBlock}</div>
-  <div class="kpis">
-    <div class="kpi"><div class="v">${dossierFmtEur(metrics.prix || bien.montant_offre || bien.prix_vente)}</div><div class="l">Prix cible</div></div>
-    <div class="kpi"><div class="v">${dossierFmtEur(metrics.travaux || bien.prix_travaux)}</div><div class="l">Travaux</div></div>
-    <div class="kpi"><div class="v">${dossierFmtEur(metrics.coutTotal || bien.cout_total)}</div><div class="l">Coût total</div></div>
-    <div class="kpi"><div class="v">${dossierFmtPct(metrics.rendement || bien.rendement_brut)}</div><div class="l">Rendement brut</div></div>
-    <div class="kpi"><div class="v">${dossierFmtEur(metrics.cashflow || bien.cashflow_estime)}</div><div class="l">Cash-flow mensuel</div></div>
-  </div>
-  <div class="section"><h2>Résumé de l’opportunité</h2><p class="lead">${dossierEscapeHtml(dossier.accroche || "")}</p></div>
-  <div class="section project">
-    <div>
-      <h2>Localisation du bien</h2>
-      <div class="text"><strong>${dossierEscapeHtml(adresse || "Adresse à compléter")}</strong></div>
-      ${mapEmbed ? `<iframe class="map" src="${dossierEscapeHtml(mapEmbed)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="map-link" href="${dossierEscapeHtml(mapLink)}" target="_blank">Ouvrir dans Google Maps →</a>` : `<div class="box"><p>Adresse à compléter pour afficher la carte.</p></div>`}
+    <div class="cover-claim">${dossierEscapeHtml(dossier.phrase_couverture || "Projet immobilier structuré pour investisseurs")}</div>
+    <div class="badge">Analyse · Projet · Rentabilité · Accompagnement</div>
+    <div class="cover-photo">${photoBlock}</div>
+  </section>
+
+  <section class="page tight">
+    <h2 class="section-title">Synthèse investisseur</h2>
+    <p class="lead">${dossierEscapeHtml(dossier.accroche || "Synthèse du projet")}</p>
+    <div class="kpis">
+      <div class="kpi"><div class="v">${dossierFmtEur(prixCible)}</div><div class="l">Prix cible</div></div>
+      <div class="kpi"><div class="v">${dossierFmtEur(travaux)}</div><div class="l">Travaux</div></div>
+      <div class="kpi"><div class="v">${dossierFmtEur(coutTotal)}</div><div class="l">Coût global</div></div>
+      <div class="kpi"><div class="v">${dossierFmtEur(totalLoyers)}</div><div class="l">Loyers mensuels</div></div>
+      <div class="kpi"><div class="v">${dossierFmtPct(rendement)}</div><div class="l">Rendement brut</div></div>
+      <div class="kpi"><div class="v">${dossierFmtEur(cashflow)}</div><div class="l">Cash-flow / mois</div></div>
+      <div class="kpi"><div class="v">${lots.length || "—"}</div><div class="l">Lots cibles</div></div>
+      <div class="kpi"><div class="v">${surface ? `${dossierEscapeHtml(surface)} m²` : "—"}</div><div class="l">Surface</div></div>
+      <div class="kpi"><div class="v">${dossierEscapeHtml(bien.statut || "À analyser")}</div><div class="l">Statut</div></div>
+      <div class="kpi"><div class="v">${dossierEscapeHtml(dossier.responsable || "Profero")}</div><div class="l">Suivi par</div></div>
     </div>
-    <div>
-      <h2>Analyse du secteur</h2>
-      <div class="box"><h3>Vie locale et attractivité</h3><p>${dossierEscapeHtml(dossier.analyse_secteur || "")}</p></div>
-      <div class="box" style="margin-top:12px"><h3>Demande locative</h3><p>${dossierEscapeHtml(dossier.demande_locative || "")}</p></div>
+  </section>
+
+  <section class="page">
+    <h2 class="section-title">Résumé exécutif</h2>
+    <div class="grid2">
+      <div class="box darkbox"><h3>Vision du projet</h3><p>${renderDossierHtmlParagraph(dossier.synthese_executive)}</p></div>
+      <div class="box"><h3>Profil investisseur</h3><p>${renderDossierHtmlParagraph(dossier.profil_investisseur)}</p></div>
     </div>
+  </section>
+
+  ${dossier.afficher_page_ville !== false ? `
+  <section class="page break">
+    <h2 class="section-title">Analyse de la ville et du secteur</h2>
+    <div class="grid2">
+      <div class="box"><h3>${dossierEscapeHtml(dossier.analyse_ville_titre || "Analyse de la ville")}</h3><p>${renderDossierHtmlParagraph(dossier.analyse_ville)}</p></div>
+      <div class="box"><h3>Dynamique économique</h3><p>${renderDossierHtmlParagraph(dossier.dynamique_economique)}</p></div>
+      <div class="box"><h3>Quartier et micro-localisation</h3><p>${renderDossierHtmlParagraph(dossier.analyse_quartier)}</p></div>
+      <div class="box"><h3>Demande locative</h3><p>${renderDossierHtmlParagraph(dossier.demande_locative)}<br><br>${renderDossierHtmlParagraph(dossier.population_cible)}</p></div>
+    </div>
+    ${mapEmbed ? `<div style="margin-top:18px;border-radius:18px;overflow:hidden;border:1px solid #e5eaf2"><iframe src="${mapEmbed}" style="width:100%;height:260px;border:0" loading="lazy"></iframe></div><div style="font-size:11px;margin-top:8px"><a href="${mapLink}" target="_blank" style="color:#b98d22;font-weight:800;text-decoration:none">Ouvrir la localisation dans Google Maps →</a></div>` : ""}
+  </section>` : ""}
+
+  ${dossier.afficher_page_photos !== false ? `
+  <section class="page break">
+    <h2 class="section-title">Photos du bien</h2>
+    ${renderDossierMediaGrid(photoGallery, "Photos du bien")}
+  </section>` : ""}
+
+  <section class="page break">
+    <h2 class="section-title">Présentation du projet global</h2>
+    <div class="project">
+      <div class="project-card"><h3>Projet proposé</h3><p>${renderDossierHtmlParagraph(dossier.projet_global)}</p></div>
+      <div class="box"><h3>Avant / Après</h3><p>${renderDossierHtmlParagraph(dossier.vision_avant_apres)}</p></div>
+    </div>
+    <div class="grid2" style="margin-top:18px">
+      <div class="box"><h3>Programme travaux</h3><p>${renderDossierHtmlParagraph(dossier.programme_travaux)}</p></div>
+      <div class="box"><h3>Stratégie locative</h3><p>${renderDossierHtmlParagraph(dossier.strategie_locative)}</p></div>
+    </div>
+  </section>
+
+  ${dossier.afficher_page_plans !== false ? `
+  <section class="page break">
+    <h2 class="section-title">Plans du projet</h2>
+    ${renderDossierMediaGrid(planGallery, "Plans du projet")}
+  </section>` : ""}
+
+  <section class="page">
+    <h2 class="section-title">Configuration locative cible</h2>
+    <table>
+      <thead><tr><th>Lot</th><th>Typologie</th><th>Surface</th><th>Loyer cible</th><th>Commentaire</th></tr></thead>
+      <tbody>${lotRows || `<tr><td colspan="5">Aucun lot renseigné</td></tr>`}</tbody>
+    </table>
+  </section>
+
+  <section class="page break">
+    <h2 class="section-title">Analyse financière</h2>
+    <p class="lead">${renderDossierHtmlParagraph(dossier.analyse_financiere_commentaire)}</p>
+    <div class="grid3" style="margin-top:18px">
+      <div class="box"><h3>Coût d’acquisition</h3><p><strong>${dossierFmtEur(prixCible)}</strong><br>Prix cible / offre envisagée</p></div>
+      <div class="box"><h3>Budget travaux</h3><p><strong>${dossierFmtEur(travaux)}</strong><br>Enveloppe à confirmer par devis</p></div>
+      <div class="box"><h3>Coût global</h3><p><strong>${dossierFmtEur(coutTotal)}</strong><br>Base de calcul rentabilité</p></div>
+      <div class="box"><h3>Loyers mensuels</h3><p><strong>${dossierFmtEur(totalLoyers)}</strong><br>Hypothèse locative cible</p></div>
+      <div class="box"><h3>Rendement brut</h3><p><strong>${dossierFmtPct(rendement)}</strong><br>Avant fiscalité et charges détaillées</p></div>
+      <div class="box"><h3>Cash-flow</h3><p><strong>${dossierFmtEur(cashflow)}/mois</strong><br>Selon hypothèses de financement</p></div>
+    </div>
+  </section>
+
+  <section class="page">
+    <h2 class="section-title">Pourquoi ce projet peut intéresser un investisseur</h2>
+    <div class="grid2">
+      <div class="success"><strong>Arguments investisseurs</strong><br><br>${renderDossierHtmlParagraph(dossier.arguments_investisseurs)}</div>
+      <div class="box"><h3>Points forts identifiés</h3><p>${renderDossierHtmlParagraph(dossier.points_forts)}</p></div>
+    </div>
+  </section>
+
+  ${dossier.afficher_page_risques !== false ? `
+  <section class="page break">
+    <h2 class="section-title">Points de vigilance et maîtrise des risques</h2>
+    <div class="grid2">
+      <div class="risk"><strong>Points à vérifier</strong><br><br>${renderDossierHtmlParagraph(dossier.points_vigilance)}</div>
+      <div class="box"><h3>Réponse Profero</h3><p>${renderDossierHtmlParagraph(dossier.reponse_aux_risques)}</p></div>
+    </div>
+  </section>` : ""}
+
+  ${dossier.afficher_page_accompagnement !== false ? `
+  <section class="page break">
+    <h2 class="section-title">Accompagnement Profero Invest</h2>
+    <div class="project">
+      <div class="project-card"><h3>Notre rôle</h3><p>${renderDossierHtmlParagraph(dossier.accompagnement_profero)}</p></div>
+      <div class="timeline">
+        <div class="step"><b>1</b><span>Analyse du bien, du secteur et des hypothèses d’investissement.</span></div>
+        <div class="step"><b>2</b><span>Structuration du projet : lots, travaux, stratégie locative et chiffrage.</span></div>
+        <div class="step"><b>3</b><span>Aide à la décision : risques, offre, prochaines étapes et arbitrages.</span></div>
+        <div class="step"><b>4</b><span>Coordination opérationnelle possible selon le projet et les intervenants retenus.</span></div>
+      </div>
+    </div>
+  </section>` : ""}
+
+  <section class="page break">
+    <h2 class="section-title">Conclusion et prochaines étapes</h2>
+    <div class="grid2">
+      <div class="box darkbox"><h3>Conclusion Profero Invest</h3><p>${renderDossierHtmlParagraph(dossier.conclusion)}</p></div>
+      <div class="box"><h3>Prochaine étape</h3><p>${renderDossierHtmlParagraph(dossier.prochaine_etape)}</p></div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <strong>Profero Invest</strong><br>
+    ${renderDossierHtmlParagraph(dossier.conditions)}
   </div>
-  <div class="section"><h2>Présentation du projet global</h2><div class="grid2"><div class="box"><h3>Projet envisagé</h3><p>${dossierEscapeHtml(dossier.projet_global || "")}</p></div><div class="box"><h3>Programme travaux</h3><p>${dossierEscapeHtml(dossier.programme_travaux || "")}</p></div></div></div>
-  <div class="section"><h2>Configuration locative cible</h2><table><thead><tr><th>Lot</th><th>Typologie</th><th>Surface</th><th>Loyer cible</th><th>Commentaire</th></tr></thead><tbody>${lotRows || `<tr><td colspan="5">Configuration des lots à compléter dans la fiche bien ou le simulateur.</td></tr>`}</tbody></table><div style="font-size:13px;color:#64748b;margin-top:10px;font-weight:800">Loyers mensuels cibles : ${dossierFmtEur(totalLoyers)}/mois</div></div>
-  <div class="section"><h2>Stratégie d’investissement</h2><div class="grid2"><div class="box"><h3>Stratégie locative</h3><p>${dossierEscapeHtml(dossier.strategie_locative || "")}</p></div><div class="box"><h3>Points forts</h3><p>${dossierEscapeHtml(dossier.points_forts || "")}</p></div></div></div>
-  <div class="section"><h2>Points de vigilance</h2><div class="box"><p>${dossierEscapeHtml(dossier.points_vigilance || "")}</p></div></div>
-  <div class="section"><h2>Conclusion Profero Invest</h2><div class="reco">${dossierEscapeHtml(dossier.conclusion || "")}</div></div>
-  <div class="footer"><div>${dossierEscapeHtml(dossier.conditions || "")}</div><div><strong>Responsable dossier :</strong><br>${dossierEscapeHtml(dossier.responsable || "Profero Invest")}</div></div>
 </div>
 </body>
 </html>`);
   win.document.close();
 }
 
+function DossierField({ label, value, onChange, textarea=false, rows=3, placeholder="", T=THEMES_INV.dark }) {
+  return (
+    <div style={{marginBottom:10}}>
+      <label className="inv-kpi-lbl">{label}</label>
+      {textarea ? (
+        <textarea className="inv-textarea" rows={rows} value={value || ""} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>
+      ) : (
+        <input className="inv-inp" value={value || ""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",textAlign:"left"}}/>
+      )}
+    </div>
+  );
+}
+
+function DossierToggle({ label, checked, onChange, T=THEMES_INV.dark }) {
+  return (
+    <label style={{display:"flex",alignItems:"center",gap:8,padding:"8px 9px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,background:T.input,color:T.textSub,fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer"}}>
+      <input type="checkbox" checked={checked !== false} onChange={e=>onChange(e.target.checked)}/>
+      {label}
+    </label>
+  );
+}
+
+function DossierMediaEditor({ title, icon, items = [], onChange, T=THEMES_INV.dark, addLabel="Ajouter" }) {
+  const list = Array.isArray(items) && items.length ? items : [emptyDossierMediaItem(title.toLowerCase())];
+  const update = (idx, patch) => {
+    const next = list.map((item, i) => i === idx ? { ...item, ...patch } : item);
+    onChange(next);
+  };
+  const add = () => onChange([...list, emptyDossierMediaItem(title.toLowerCase())]);
+  const remove = (idx) => {
+    const next = list.filter((_, i) => i !== idx);
+    onChange(next.length ? next : [emptyDossierMediaItem(title.toLowerCase())]);
+  };
+
+  return (
+    <div className="inv-card" style={{marginBottom:12}}>
+      <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={icon} size={13}/>{title}</span></div>
+      <div className="inv-card-bd" style={{display:"flex",flexDirection:"column",gap:10}}>
+        {list.map((item, idx) => (
+          <div key={item.id || idx} style={{display:"grid",gridTemplateColumns:"120px 1fr 34px",gap:10,alignItems:"start",padding:10,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,background:T.input}}>
+            {item.url ? (
+              <img src={item.url} alt="" style={{width:120,height:86,objectFit:"cover",borderRadius:RADIUS.md,border:`1px solid ${T.border}`}} onError={e=>{e.currentTarget.style.display="none";}}/>
+            ) : (
+              <div style={{width:120,height:86,borderRadius:RADIUS.md,border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,fontSize:FONT.xs.size,fontWeight:800,textAlign:"center"}}>Visuel</div>
+            )}
+            <div>
+              <input className="inv-inp" value={item.url || ""} onChange={e=>update(idx,{url:e.target.value})} placeholder="URL image / lien public" style={{width:"100%",textAlign:"left",marginBottom:6}}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1.3fr",gap:6}}>
+                <input className="inv-inp" value={item.titre || ""} onChange={e=>update(idx,{titre:e.target.value})} placeholder="Titre" style={{width:"100%",textAlign:"left"}}/>
+                <input className="inv-inp" value={item.legende || ""} onChange={e=>update(idx,{legende:e.target.value})} placeholder="Légende courte" style={{width:"100%",textAlign:"left"}}/>
+              </div>
+            </div>
+            <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={()=>remove(idx)} title="Retirer" style={{padding:"7px 8px",justifyContent:"center"}}><Icon as={Trash2} size={12}/></button>
+          </div>
+        ))}
+        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={add} style={{alignSelf:"flex-start"}}><Icon as={Plus} size={12}/>{addLabel}</button>
+      </div>
+    </div>
+  );
+}
+
 function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSaved, selectedSimulationId = "" }) {
   const [data, setData] = useState(() => mergeDossierPresentationData(bien, selectedSimulationId));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [section, setSection] = useState("identite");
 
   useEffect(() => {
     setData(mergeDossierPresentationData(bien, selectedSimulationId));
+    setSection("identite");
   }, [bien?.id, selectedSimulationId]);
 
-  const upd = (key, value) => setData(prev => ({ ...prev, [key]: value }));
   const metrics = getSimulationMetricsFromBien(bien, selectedSimulationId);
   const lots = getDossierLotsFromBien(bien, selectedSimulationId);
+  const update = (key, value) => setData(prev => ({ ...prev, [key]: value }));
 
   const save = async () => {
     setSaving(true);
     setMsg("");
-    const visite_data = {
-      ...(bien.visite_data || {}),
-      dossier_presentation: {
-        ...data,
-        updated_at: new Date().toISOString(),
-        updated_by: "Profero Invest",
-      },
+    const dossier_presentation = {
+      ...data,
+      photos: cleanDossierMediaList(data.photos),
+      plans: cleanDossierMediaList(data.plans),
+      updated_at: new Date().toISOString(),
     };
+    const visite_data = { ...(bien.visite_data || {}), dossier_presentation };
     const { error } = await supabase.from("invest_biens").update({ visite_data }).eq("id", bien.id);
     setSaving(false);
     if (error) {
       setMsg(`Erreur : ${error.message}`);
       return;
     }
-    setMsg("Dossier sauvegardé");
+    setData(dossier_presentation);
+    setMsg("Dossier investisseur sauvegardé");
     onSaved?.();
-    setTimeout(() => setMsg(""), 2200);
+    setTimeout(()=>setMsg(""),2500);
   };
 
-  const resetFromBien = () => {
-    if (!window.confirm("Remplacer les textes du dossier par une proposition générée depuis les données actuelles du bien ?")) return;
+  const resetDefaults = () => {
+    if (!window.confirm("Reprendre les textes automatiques depuis la fiche bien ? Les textes personnalisés du dossier seront remplacés.")) return;
     setData(buildDossierPresentationDefaults(bien, selectedSimulationId));
   };
 
   const generate = () => openDossierPresentationInvestisseurPDF({ bien, dossier:data, selectedSimulationId });
 
-  const field = (label, key, { textarea = false, rows = 3, placeholder = "" } = {}) => (
-    <div style={{marginBottom:12}}>
-      <label className="inv-kpi-lbl">{label}</label>
-      {textarea ? (
-        <textarea className="inv-textarea" rows={rows} value={data[key] || ""} onChange={e=>upd(key, e.target.value)} placeholder={placeholder}/>
-      ) : (
-        <input className="inv-inp" value={data[key] || ""} onChange={e=>upd(key, e.target.value)} placeholder={placeholder} style={{width:"100%",textAlign:"left"}}/>
-      )}
-    </div>
-  );
+  const sections = [
+    ["identite", "Identité", Briefcase],
+    ["visuels", "Photos & plans", ImageIcon],
+    ["ville", "Ville & secteur", MapPin],
+    ["projet", "Projet", Home],
+    ["finance", "Financier", Wallet],
+    ["vente", "Argumentaire", TrendingUp],
+    ["risques", "Risques", AlertTriangle],
+    ["final", "Finalisation", Check],
+  ];
 
-  return (
-    <div style={{display:"grid", gridTemplateColumns:"minmax(0,1fr) 390px", gap:16, alignItems:"start"}}>
-      <div className="inv-card">
-        <div className="inv-card-hd gold" style={{justifyContent:"space-between"}}>
-          <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13}/>Dossier de présentation investisseurs</span>
-          <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,fontWeight:800}}>Modifiable avant édition</span>
+  const mediaCount = cleanDossierMediaList(data.photos).filter(x=>x.url).length;
+  const planCount = cleanDossierMediaList(data.plans).filter(x=>x.url).length;
+  const requiredScoreItems = [data.titre, data.photo_url, data.accroche, data.analyse_ville, data.analyse_quartier, data.projet_global, data.programme_travaux, data.arguments_investisseurs, data.conclusion];
+  const completion = Math.round((requiredScoreItems.filter(x=>String(x||"").trim()).length / requiredScoreItems.length) * 100);
+
+  const renderForm = () => {
+    if (section === "visuels") return (
+      <>
+        <div className="inv-card" style={{marginBottom:12}}>
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={ImageIcon} size={13}/>Photo principale de couverture</span></div>
+          <div className="inv-card-bd">
+            <DossierField label="URL photo principale" value={data.photo_url} onChange={v=>update("photo_url",v)} placeholder="URL de la photo utilisée en couverture" T={T}/>
+            <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.45}}>Utiliser de préférence une image horizontale de bonne qualité. Elle servira de visuel principal en couverture.</div>
+          </div>
         </div>
+        <DossierMediaEditor title="Galerie photos du bien" icon={ImageIcon} items={data.photos} onChange={v=>update("photos",v)} T={T} addLabel="Ajouter une photo"/>
+        <DossierMediaEditor title="Plans du projet" icon={FileText} items={data.plans} onChange={v=>update("plans",v)} T={T} addLabel="Ajouter un plan"/>
+      </>
+    );
+
+    if (section === "ville") return (
+      <div className="inv-card">
+        <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={MapPin} size={13}/>Analyse ville, quartier et demande locative</span></div>
         <div className="inv-card-bd">
-          {msg && <div style={{marginBottom:12,fontSize:FONT.sm.size,color:msg.startsWith("Erreur")?DA:SU,fontWeight:900}}>{msg}</div>}
-          <div style={{padding:"10px 12px",borderRadius:RADIUS.md,background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.textSub,fontSize:FONT.sm.size+1,lineHeight:1.5,marginBottom:14}}>
-            Préparez ici un dossier présentable à un investisseur. Les chiffres viennent du bien et de la simulation active ; les textes restent modifiables pour adapter le discours au projet.
-          </div>
+          <DossierField label="Titre analyse ville" value={data.analyse_ville_titre} onChange={v=>update("analyse_ville_titre",v)} T={T}/>
+          <DossierField label="Analyse de la ville" textarea rows={5} value={data.analyse_ville} onChange={v=>update("analyse_ville",v)} placeholder="Attractivité, population, économie, accessibilité, patrimoine, perspectives…" T={T}/>
+          <DossierField label="Dynamique économique" textarea rows={4} value={data.dynamique_economique} onChange={v=>update("dynamique_economique",v)} placeholder="Bassins d’emploi, zones d’activités, écoles, santé, universités…" T={T}/>
+          <DossierField label="Analyse du quartier / micro-localisation" textarea rows={4} value={data.analyse_quartier} onChange={v=>update("analyse_quartier",v)} placeholder="Transports, commerces, stationnement, ambiance, sécurité, services…" T={T}/>
+          <DossierField label="Demande locative" textarea rows={4} value={data.demande_locative} onChange={v=>update("demande_locative",v)} placeholder="Tension locative, loyers observés, concurrence, vacance…" T={T}/>
+          <DossierField label="Population cible" textarea rows={3} value={data.population_cible} onChange={v=>update("population_cible",v)} placeholder="Étudiants, jeunes actifs, familles, mobilité professionnelle…" T={T}/>
+        </div>
+      </div>
+    );
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-            {field("Titre du dossier", "titre")}
-            {field("Sous-titre", "sous_titre")}
-            {field("Photo principale du bien — URL image", "photo_url", { placeholder:"https://…" })}
-            {field("Responsable dossier", "responsable")}
-          </div>
+    if (section === "projet") return (
+      <div className="inv-card">
+        <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13}/>Projet global et transformation</span></div>
+        <div className="inv-card-bd">
+          <DossierField label="Présentation du projet global" textarea rows={5} value={data.projet_global} onChange={v=>update("projet_global",v)} T={T}/>
+          <DossierField label="Vision avant / après" textarea rows={4} value={data.vision_avant_apres} onChange={v=>update("vision_avant_apres",v)} T={T}/>
+          <DossierField label="Programme travaux" textarea rows={5} value={data.programme_travaux} onChange={v=>update("programme_travaux",v)} T={T}/>
+          <DossierField label="Stratégie locative" textarea rows={4} value={data.strategie_locative} onChange={v=>update("strategie_locative",v)} T={T}/>
+        </div>
+      </div>
+    );
 
-          {field("Accroche investisseur", "accroche", { textarea:true, rows:2, placeholder:"Résumé court de l’opportunité…" })}
-          {field("Analyse du secteur", "analyse_secteur", { textarea:true, rows:4 })}
-          {field("Demande locative", "demande_locative", { textarea:true, rows:3 })}
-          {field("Présentation du projet global", "projet_global", { textarea:true, rows:4 })}
-          {field("Programme travaux", "programme_travaux", { textarea:true, rows:4 })}
-          {field("Stratégie locative", "strategie_locative", { textarea:true, rows:3 })}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            {field("Points forts", "points_forts", { textarea:true, rows:4 })}
-            {field("Points de vigilance", "points_vigilance", { textarea:true, rows:4 })}
+    if (section === "finance") return (
+      <div className="inv-card">
+        <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Wallet} size={13}/>Analyse financière</span></div>
+        <div className="inv-card-bd">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:8,marginBottom:12}}>
+            {[
+              ["Prix cible", dossierFmtEur(metrics.prix || bien.montant_offre || bien.prix_vente)],
+              ["Travaux", dossierFmtEur(metrics.travaux || bien.prix_travaux)],
+              ["Coût global", dossierFmtEur(metrics.coutTotal || bien.cout_total)],
+              ["Loyers", `${dossierFmtEur(metrics.loyerMensuel)}/mois`],
+              ["Rendement", dossierFmtPct(metrics.rendement || bien.rendement_brut)],
+              ["Cash-flow", `${dossierFmtEur(metrics.cashflow || bien.cashflow_estime)}/mois`],
+            ].map(([label,value]) => (
+              <div key={label} style={{padding:"9px 10px",borderRadius:RADIUS.md,background:T.input,border:`1px solid ${T.border}`}}>
+                <div style={{fontSize:FONT.xs.size,color:T.textMuted,textTransform:"uppercase",fontWeight:900,letterSpacing:.7}}>{label}</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:FONT.sm.size,fontWeight:900,color:T.text,marginTop:3}}>{value}</div>
+              </div>
+            ))}
           </div>
-          {field("Conclusion Profero Invest", "conclusion", { textarea:true, rows:4 })}
-          {field("Mention / conditions", "conditions", { textarea:true, rows:2 })}
+          <DossierField label="Commentaire d’analyse financière" textarea rows={5} value={data.analyse_financiere_commentaire} onChange={v=>update("analyse_financiere_commentaire",v)} T={T}/>
+        </div>
+      </div>
+    );
 
-          <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginTop:14,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
-            <button className="inv-btn inv-btn-out" onClick={resetFromBien}><Icon as={RefreshCw} size={13}/> Reprendre les données du bien</button>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <button className="inv-btn inv-btn-blue" onClick={save} disabled={saving}><Icon as={Save} size={13}/> {saving ? "Sauvegarde…" : "Sauvegarder"}</button>
-              <button className="inv-btn inv-btn-gold" onClick={generate}><Icon as={FileText} size={13}/> Générer le dossier PDF</button>
-            </div>
+    if (section === "vente") return (
+      <div className="inv-card">
+        <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={TrendingUp} size={13}/>Argumentaire investisseur</span></div>
+        <div className="inv-card-bd">
+          <DossierField label="Arguments investisseurs" textarea rows={6} value={data.arguments_investisseurs} onChange={v=>update("arguments_investisseurs",v)} T={T}/>
+          <DossierField label="Points forts identifiés" textarea rows={5} value={data.points_forts} onChange={v=>update("points_forts",v)} T={T}/>
+          <DossierField label="Profil d’investisseur cible" textarea rows={3} value={data.profil_investisseur} onChange={v=>update("profil_investisseur",v)} T={T}/>
+        </div>
+      </div>
+    );
+
+    if (section === "risques") return (
+      <div className="inv-card">
+        <div className="inv-card-hd danger"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={AlertTriangle} size={13}/>Crédibilité, risques et réponses</span></div>
+        <div className="inv-card-bd">
+          <DossierField label="Points de vigilance" textarea rows={5} value={data.points_vigilance} onChange={v=>update("points_vigilance",v)} T={T}/>
+          <DossierField label="Réponse / méthode Profero" textarea rows={5} value={data.reponse_aux_risques} onChange={v=>update("reponse_aux_risques",v)} T={T}/>
+        </div>
+      </div>
+    );
+
+    if (section === "final") return (
+      <div className="inv-card">
+        <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Check} size={13}/>Conclusion et génération</span></div>
+        <div className="inv-card-bd">
+          <DossierField label="Conclusion Profero Invest" textarea rows={5} value={data.conclusion} onChange={v=>update("conclusion",v)} T={T}/>
+          <DossierField label="Prochaine étape" textarea rows={3} value={data.prochaine_etape} onChange={v=>update("prochaine_etape",v)} T={T}/>
+          <DossierField label="Accompagnement Profero" textarea rows={5} value={data.accompagnement_profero} onChange={v=>update("accompagnement_profero",v)} T={T}/>
+          <DossierField label="Mentions / conditions" textarea rows={3} value={data.conditions} onChange={v=>update("conditions",v)} T={T}/>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:8,marginTop:8}}>
+            <DossierToggle label="Page ville" checked={data.afficher_page_ville} onChange={v=>update("afficher_page_ville",v)} T={T}/>
+            <DossierToggle label="Page photos" checked={data.afficher_page_photos} onChange={v=>update("afficher_page_photos",v)} T={T}/>
+            <DossierToggle label="Page plans" checked={data.afficher_page_plans} onChange={v=>update("afficher_page_plans",v)} T={T}/>
+            <DossierToggle label="Page risques" checked={data.afficher_page_risques} onChange={v=>update("afficher_page_risques",v)} T={T}/>
+            <DossierToggle label="Page accompagnement" checked={data.afficher_page_accompagnement} onChange={v=>update("afficher_page_accompagnement",v)} T={T}/>
           </div>
         </div>
       </div>
+    );
 
-      <div style={{display:"flex",flexDirection:"column",gap:16,position:"sticky",top:14}}>
+    return (
+      <div className="inv-card">
+        <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13}/>Identité du dossier</span></div>
+        <div className="inv-card-bd">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <DossierField label="Titre du dossier" value={data.titre} onChange={v=>update("titre",v)} T={T}/>
+            <DossierField label="Sous-titre / adresse" value={data.sous_titre} onChange={v=>update("sous_titre",v)} T={T}/>
+            <DossierField label="Responsable" value={data.responsable} onChange={v=>update("responsable",v)} T={T}/>
+            <DossierField label="Date d’édition" value={data.date_edition} onChange={v=>update("date_edition",v)} T={T}/>
+          </div>
+          <DossierField label="Phrase de couverture" textarea rows={3} value={data.phrase_couverture} onChange={v=>update("phrase_couverture",v)} T={T}/>
+          <DossierField label="Accroche investisseur" textarea rows={4} value={data.accroche} onChange={v=>update("accroche",v)} T={T}/>
+          <DossierField label="Résumé exécutif" textarea rows={5} value={data.synthese_executive} onChange={v=>update("synthese_executive",v)} T={T}/>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"260px 1fr 320px",gap:16,alignItems:"start"}}>
+      <div style={{position:"sticky",top:14,display:"flex",flexDirection:"column",gap:10}}>
         <div className="inv-card">
-          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Eye} size={13}/>Aperçu rapide</span></div>
+          <div className="inv-card-hd blue"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13}/>Dossier premium</span></div>
+          <div className="inv-card-bd">
+            {msg && <div style={{fontSize:FONT.xs.size+1,color:msg.startsWith("Erreur")?DA:SU,fontWeight:800,marginBottom:8}}>{msg}</div>}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:8}}>
+              <div>
+                <div className="inv-kpi-lbl">Complétion dossier</div>
+                <div style={{fontSize:FONT.h2.size,fontWeight:900,color:T.text,lineHeight:1}}>{completion}%</div>
+              </div>
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted,textAlign:"right"}}>{mediaCount} photo{mediaCount>1?"s":""}<br/>{planCount} plan{planCount>1?"s":""}</div>
+            </div>
+            <div style={{height:8,borderRadius:RADIUS.pill,background:T.input,overflow:"hidden",border:`1px solid ${T.border}`,marginBottom:12}}>
+              <div style={{height:"100%",width:`${completion}%`,background:completion>=80?SU:completion>=45?WA:DA,transition:"width .2s"}}/>
+            </div>
+            <button className="inv-btn inv-btn-gold" onClick={generate} style={{width:"100%",justifyContent:"center",marginBottom:8}}><Icon as={Download} size={13}/> Générer le dossier</button>
+            <button className="inv-btn inv-btn-blue" onClick={save} disabled={saving} style={{width:"100%",justifyContent:"center",marginBottom:8}}><Icon as={saving ? RefreshCw : Save} size={13} style={saving ? {animation:"spin 1s linear infinite"} : undefined}/> {saving?"Sauvegarde…":"Sauvegarder"}</button>
+            <button className="inv-btn inv-btn-out inv-btn-sm" onClick={resetDefaults} style={{width:"100%",justifyContent:"center"}}>Reprendre textes auto</button>
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {sections.map(([key,label,IconComp]) => {
+            const active = section === key;
+            return (
+              <button key={key} onClick={()=>setSection(key)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:`1px solid ${active?T.accentBorder:T.border}`,background:active?T.accentBg:T.card,color:active?T.accent:T.textSub,borderRadius:RADIUS.lg,padding:"9px 10px",cursor:"pointer",fontFamily:"inherit",fontWeight:900,fontSize:FONT.sm.size}}>
+                <Icon as={IconComp} size={14}/>{label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>{renderForm()}</div>
+
+      <div style={{position:"sticky",top:14,display:"flex",flexDirection:"column",gap:12}}>
+        <div className="inv-card">
+          <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Eye} size={13}/>Aperçu investisseur</span></div>
           <div className="inv-card-bd">
             {data.photo_url ? (
               <img src={data.photo_url} alt="Photo du bien" style={{width:"100%",height:170,objectFit:"cover",borderRadius:RADIUS.lg,border:`1px solid ${T.border}`,marginBottom:12}} onError={e=>{e.currentTarget.style.display="none";}}/>
             ) : (
-              <div style={{height:145,borderRadius:RADIUS.lg,border:`1px dashed ${T.border}`,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,fontWeight:800,marginBottom:12}}>
-                Photo principale à ajouter
-              </div>
+              <div style={{height:145,borderRadius:RADIUS.lg,border:`1px dashed ${T.border}`,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMuted,fontWeight:800,marginBottom:12}}>Photo de couverture à ajouter</div>
             )}
             <div style={{fontSize:FONT.md.size,fontWeight:900,color:T.text,lineHeight:1.2}}>{data.titre}</div>
             <div style={{fontSize:FONT.sm.size,color:T.textSub,marginTop:5,lineHeight:1.45}}>{data.sous_titre}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
-              {[ 
+              {[
                 ["Prix cible", dossierFmtEur(metrics.prix || bien.montant_offre || bien.prix_vente)],
                 ["Travaux", dossierFmtEur(metrics.travaux || bien.prix_travaux)],
                 ["Rendement", dossierFmtPct(metrics.rendement || bien.rendement_brut)],
@@ -3608,7 +3964,7 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
         </div>
 
         <div className="inv-card">
-          <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13}/>Configuration présentée</span></div>
+          <div className="inv-card-hd mid"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Home} size={13}/>Configuration cible</span></div>
           <div className="inv-card-bd">
             {lots.length === 0 ? (
               <div style={{fontSize:FONT.sm.size,color:T.textMuted,fontStyle:"italic"}}>Aucun lot renseigné dans la simulation ou la visite terrain.</div>
@@ -3628,6 +3984,7 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
     </div>
   );
 }
+
 
 function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [bien, setBien]       = useState(null);
