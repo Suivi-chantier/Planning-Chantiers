@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC } from "../constants";
 import { Icon } from "../ui";
 import {
-  LayoutDashboard, Users, Building2, BarChart3, RefreshCw, Download,
+  LayoutDashboard, LayoutGrid, Users, Building2, BarChart3, RefreshCw, Download,
   X, Check, Phone, Calendar, MessageSquare, FileText, Home, Euro, Filter,
   AlertTriangle, Eye, Sparkles, Send, Handshake, Bell, Briefcase,
   ExternalLink, Clock, UserCheck, ClipboardCheck, ListChecks, ShieldCheck,
