@@ -428,19 +428,24 @@ function crmTimelineStepFromFreeText(value = "") {
 
 function computeCRMClientTimeline(client = {}, missionActions = [], propositions = [], today = new Date().toISOString().slice(0,10)) {
   const reasons = [];
+  const autoReasons = [];
   const declaredStepNumber = crmTimelineStepFromText(client.etape);
-  let n = declaredStepNumber;
-  if (n) reasons.push(`Étape CRM : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || client.etape}`);
+
+  // Règle métier V20.3 : l'étape renseignée dans la fiche client est prioritaire.
+  // Si un compromis n'aboutit pas et que l'on rétrograde manuellement le client,
+  // la frise doit suivre cette décision humaine et ne pas le replacer automatiquement
+  // plus loin à cause d'anciennes propositions, tâches mission ou notes.
+  let detectedStepNumber = 0;
 
   if (client.date_signature || client.statut === "Actif" || client.statut === "Terminé") {
-    if (n < 1) reasons.push("Contrat / client actif détecté");
-    n = Math.max(n, 1);
+    detectedStepNumber = Math.max(detectedStepNumber, 1);
+    autoReasons.push("Contrat / client actif détecté");
   }
 
   const textStage = crmTimelineStepFromFreeText(`${client.etape || ""} ${client.prochaine_action || ""} ${client.notes_rapides || ""}`);
-  if (textStage > n) {
-    n = textStage;
-    reasons.push("Avancement déduit des informations CRM");
+  if (textStage > detectedStepNumber) {
+    detectedStepNumber = textStage;
+    autoReasons.push("Indice CRM détecté");
   }
 
   const actionStage = (missionActions || []).reduce((max, a) => {
@@ -448,29 +453,41 @@ function computeCRMClientTimeline(client = {}, missionActions = [], propositions
     const fromText = Math.max(crmTimelineStepFromText(a.step_label), crmTimelineStepFromFreeText(`${a.step_label || ""} ${a.action_title || ""}`));
     return Math.max(max, fromKey, fromText);
   }, 0);
-  if (actionStage > n) {
-    n = actionStage;
-    reasons.push("Parcours mission déjà avancé");
+  if (actionStage > detectedStepNumber) {
+    detectedStepNumber = actionStage;
+    autoReasons.push("Parcours mission déjà avancé");
   }
 
-  if ((propositions || []).length > 0 && n < 5) {
-    n = 5;
-    reasons.push("Bien / projet déjà proposé");
+  if ((propositions || []).length > 0 && detectedStepNumber < 5) {
+    detectedStepNumber = 5;
+    autoReasons.push("Bien / projet déjà proposé");
   }
   const propText = (propositions || []).map(p => `${p.statut || ""} ${p.commentaire || ""}`).join(" ");
   const propStage = crmTimelineStepFromFreeText(propText);
-  if (propStage > n) {
-    n = propStage;
-    reasons.push("Avancement déduit des propositions");
+  if (propStage > detectedStepNumber) {
+    detectedStepNumber = propStage;
+    autoReasons.push("Indice proposition détecté");
   }
 
   if (client.statut === "Terminé") {
-    n = Math.max(n, 13);
-    reasons.push("Dossier terminé");
+    detectedStepNumber = Math.max(detectedStepNumber, 13);
+    autoReasons.push("Dossier terminé");
   }
 
-  n = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, n || 1));
+  detectedStepNumber = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, detectedStepNumber || 1));
+
+  let n = declaredStepNumber || detectedStepNumber || 1;
+  if (client.statut === "Terminé") n = CRM_CLIENT_TIMELINE_STEPS.length;
+  n = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, n));
+
+  if (declaredStepNumber) {
+    reasons.push(`Étape CRM manuelle : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || client.etape}`);
+  } else {
+    reasons.push(`Étape déduite : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || "Signature"}`);
+  }
+
   const step = CRM_CLIENT_TIMELINE_STEPS[n - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
+  const detectedStep = CRM_CLIENT_TIMELINE_STEPS[detectedStepNumber - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
   const isLate = !!(client.date_prochaine_action && client.date_prochaine_action < today && client.statut !== "Terminé");
   const dueToday = !!(client.date_prochaine_action && client.date_prochaine_action === today && client.statut !== "Terminé");
   const hasAction = !!(client.prochaine_action || client.date_prochaine_action);
@@ -480,16 +497,25 @@ function computeCRMClientTimeline(client = {}, missionActions = [], propositions
   const daysSinceStageReference = referenceDate ? daysBetween(referenceDate) : null;
   const noAction = client.statut !== "Terminé" && !hasAction && n < CRM_CLIENT_TIMELINE_STEPS.length;
   const isStuck = client.statut !== "Terminé" && n < CRM_CLIENT_TIMELINE_STEPS.length && daysSinceStageReference !== null && daysSinceStageReference >= 21 && !isLate && !dueToday;
-  const inferredAhead = !!declaredStepNumber && n > declaredStepNumber;
+
+  // Conservé uniquement comme information discrète : cela ne positionne plus le client
+  // et n'entre plus dans les priorités. Une rétrogradation manuelle reste volontaire.
+  const historicalAhead = !!declaredStepNumber && detectedStepNumber > declaredStepNumber;
+  const inferredAhead = false;
 
   return {
     stepNumber: n,
     declaredStepNumber,
+    detectedStepNumber,
+    detectedStepLabel: detectedStep.label,
+    detectedStepShort: detectedStep.short,
+    manualStepLocked: !!declaredStepNumber,
+    historicalAhead,
     stepLabel: step.label,
     stepShort: step.short,
     progressPct: Math.round((n / CRM_CLIENT_TIMELINE_STEPS.length) * 100),
     remainingSteps: Math.max(0, CRM_CLIENT_TIMELINE_STEPS.length - n),
-    reasons,
+    reasons:[...reasons, ...autoReasons.slice(0,2)],
     isLate,
     dueToday,
     hasAction,
@@ -796,8 +822,8 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
       .map(client => ({ client, info:getClientTimelineInfo(client) }))
       .filter(({ info }) => info.stepNumber === step.n)
       .sort((a,b) => {
-        const scoreA = (a.info.isLate || a.info.lateMissionActions > 0 ? 40 : 0) + (a.info.dueToday ? 20 : 0) + (a.info.noAction ? 12 : 0) + (a.info.isStuck ? 8 : 0) + (a.info.inferredAhead ? 4 : 0);
-        const scoreB = (b.info.isLate || b.info.lateMissionActions > 0 ? 40 : 0) + (b.info.dueToday ? 20 : 0) + (b.info.noAction ? 12 : 0) + (b.info.isStuck ? 8 : 0) + (b.info.inferredAhead ? 4 : 0);
+        const scoreA = (a.info.isLate || a.info.lateMissionActions > 0 ? 40 : 0) + (a.info.dueToday ? 20 : 0) + (a.info.noAction ? 12 : 0) + (a.info.isStuck ? 8 : 0);
+        const scoreB = (b.info.isLate || b.info.lateMissionActions > 0 ? 40 : 0) + (b.info.dueToday ? 20 : 0) + (b.info.noAction ? 12 : 0) + (b.info.isStuck ? 8 : 0);
         if (scoreA !== scoreB) return scoreB - scoreA;
         return String(a.client.date_prochaine_action || "9999-99-99").localeCompare(String(b.client.date_prochaine_action || "9999-99-99"));
       });
@@ -806,9 +832,10 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     const dueToday = positioned.filter(({ info }) => info.dueToday).length;
     const noAction = positioned.filter(({ info }) => info.noAction).length;
     const stuck = positioned.filter(({ info }) => info.isStuck).length;
-    const inferred = positioned.filter(({ info }) => info.inferredAhead).length;
-    const attention = late + dueToday + noAction + stuck + inferred;
-    return { ...step, clients:positioned, count:positioned.length, budget, late, dueToday, noAction, stuck, inferred, attention };
+    const inferred = 0;
+    const historical = positioned.filter(({ info }) => info.historicalAhead).length;
+    const attention = late + dueToday + noAction + stuck;
+    return { ...step, clients:positioned, count:positioned.length, budget, late, dueToday, noAction, stuck, inferred, historical, attention };
   });
 
   const renderCrmTimeline = () => {
@@ -843,10 +870,10 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
 
     const criticalClients = timelineBaseClients
       .map(client => ({ client, info:getClientTimelineInfo(client) }))
-      .filter(({ info }) => info.isLate || info.dueToday || info.lateMissionActions > 0 || info.noAction || info.isStuck || info.inferredAhead)
+      .filter(({ info }) => info.isLate || info.dueToday || info.lateMissionActions > 0 || info.noAction || info.isStuck)
       .sort((a,b) => {
-        const scoreA = (a.info.isLate || a.info.lateMissionActions > 0 ? 50 : 0) + (a.info.dueToday ? 25 : 0) + (a.info.noAction ? 15 : 0) + (a.info.isStuck ? 10 : 0) + (a.info.inferredAhead ? 6 : 0);
-        const scoreB = (b.info.isLate || b.info.lateMissionActions > 0 ? 50 : 0) + (b.info.dueToday ? 25 : 0) + (b.info.noAction ? 15 : 0) + (b.info.isStuck ? 10 : 0) + (b.info.inferredAhead ? 6 : 0);
+        const scoreA = (a.info.isLate || a.info.lateMissionActions > 0 ? 50 : 0) + (a.info.dueToday ? 25 : 0) + (a.info.noAction ? 15 : 0) + (a.info.isStuck ? 10 : 0);
+        const scoreB = (b.info.isLate || b.info.lateMissionActions > 0 ? 50 : 0) + (b.info.dueToday ? 25 : 0) + (b.info.noAction ? 15 : 0) + (b.info.isStuck ? 10 : 0);
         if (scoreA !== scoreB) return scoreB - scoreA;
         return String(a.client.date_prochaine_action || "9999-99-99").localeCompare(String(b.client.date_prochaine_action || "9999-99-99"));
       })
@@ -857,7 +884,6 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
       if (info.dueToday) return { label:"Aujourd'hui", color:WA };
       if (info.noAction) return { label:"Sans action", color:DA };
       if (info.isStuck) return { label:`Stagne ${info.daysSinceStageReference || ""}j`, color:WA };
-      if (info.inferredAhead) return { label:"Étape à aligner", color:"#8B5CF6" };
       return { label:"Suivi OK", color:SU };
     };
 
@@ -901,9 +927,9 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
             <div style={{fontSize:10.5,color:info.isLate || info.lateMissionActions > 0 || info.noAction ? DA : T.textMuted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:info.isLate || info.lateMissionActions > 0 || info.noAction ? 850 : 500}}>
               {info.isLate || info.lateMissionActions > 0 || info.noAction ? "⚠ " : info.dueToday ? "● " : ""}{actionText}{client.date_prochaine_action ? ` · ${fmtDate(client.date_prochaine_action)}` : ""}
             </div>
-            {info.inferredAhead && (
-              <div style={{marginTop:5,fontSize:10.5,color:"#8B5CF6",fontWeight:850}}>
-                Étape déclarée probablement en retard. Avancement détecté : {info.stepNumber} {info.stepShort}.
+            {info.historicalAhead && (
+              <div style={{marginTop:5,fontSize:10.5,color:T.textMuted,fontWeight:750}}>
+                Indice historique plus avancé détecté : étape {info.detectedStepNumber} {info.detectedStepShort}. Position conservée sur l'étape CRM manuelle.
               </div>
             )}
 
@@ -953,8 +979,8 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               <Icon as={TrendingUp} size={16} strokeWidth={2.2}/>
             </span>
             <div style={{minWidth:0}}>
-              <div style={{fontSize:14, fontWeight:950, color:T.text}}>Frise d'avancement — pilotage quotidien</div>
-              <div style={{fontSize:11, color:T.textMuted, marginTop:2}}>Vision par phases, étapes restantes, blocages et actions rapides</div>
+              <div style={{fontSize:14, fontWeight:950, color:T.text}}>Frise d'avancement — pilotage quotidien V20.3</div>
+              <div style={{fontSize:11, color:T.textMuted, marginTop:2}}>Étape CRM prioritaire : les rétrogradations manuelles sont respectées</div>
             </div>
           </div>
           <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
@@ -1084,7 +1110,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               <span style={{color:selectedRow?.dueToday ? WA : T.textMuted, fontWeight:900}}>{selectedRow?.dueToday || 0} aujourd'hui</span>
               <span style={{color:selectedRow?.noAction ? DA : T.textMuted, fontWeight:900}}>{selectedRow?.noAction || 0} sans action</span>
               <span style={{color:selectedRow?.stuck ? WA : T.textMuted, fontWeight:900}}>{selectedRow?.stuck || 0} stagne</span>
-              <span style={{color:selectedRow?.inferred ? "#8B5CF6" : T.textMuted, fontWeight:900}}>{selectedRow?.inferred || 0} à aligner</span>
+              <span style={{color:selectedRow?.historical ? T.textMuted : T.textMuted, fontWeight:900}}>{selectedRow?.historical || 0} indice historique</span>
             </div>
             <div style={{padding:12, display:"grid", gap:8, maxHeight:430, overflowY:"auto"}}>
               {!selectedRow?.clients?.length ? (
