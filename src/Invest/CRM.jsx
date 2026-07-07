@@ -548,6 +548,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   const [timelineSelectedStep, setTimelineSelectedStep] = useState("");
   const [timelineDrafts, setTimelineDrafts] = useState({});
   const [pilotageFilter, setPilotageFilter] = useState("auto");
+  const [crmSaveError, setCrmSaveError] = useState("");
 
   const charger = async () => {
     setLoading(true);
@@ -751,19 +752,66 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     ...(timelineDrafts[client.id] || {}),
   });
 
-  const updateClientFromTimeline = async (client = {}, patch = {}, noteContent = "") => {
-    if (!client?.id) return;
+  const crmSleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const crmIsFetchFailure = (error) => {
+    const msg = String(error?.message || error || "").toLowerCase();
+    return msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("network error") || msg.includes("load failed");
+  };
+  const crmErrorMessage = (error) => {
+    const raw = String(error?.message || error || "Erreur inconnue");
+    if (crmIsFetchFailure(error)) {
+      return "La connexion à Supabase a échoué pendant l'enregistrement. Vérifie la connexion, l'URL Supabase / CORS, puis réessaie. Détail technique : " + raw;
+    }
+    return raw;
+  };
+  const crmSafeUpdateClient = async (clientId, patch = {}) => {
+    if (!clientId) return { error:new Error("Client introuvable") };
     const cleanPatch = { ...patch };
     Object.keys(cleanPatch).forEach(k => {
-      if (cleanPatch[k] === "") cleanPatch[k] = null;
+      if (cleanPatch[k] === undefined) delete cleanPatch[k];
+      else if (cleanPatch[k] === "") cleanPatch[k] = null;
     });
-    setClients(prev => prev.map(c => c.id === client.id ? { ...c, ...cleanPatch, updated_at:new Date().toISOString() } : c));
-    const { error } = await supabase.from("invest_clients").update(cleanPatch).eq("id", client.id);
-    if (error) {
-      alert("Impossible de mettre à jour le client : " + error.message);
-      charger();
-      return;
+    if (!Object.keys(cleanPatch).length) return { error:null, patch:cleanPatch };
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const { error } = await supabase.from("invest_clients").update(cleanPatch).eq("id", clientId);
+        if (!error) return { error:null, patch:cleanPatch };
+        lastError = error;
+      } catch (err) {
+        lastError = err;
+      }
+
+      if (!crmIsFetchFailure(lastError) || attempt === 3) break;
+      await crmSleep(450 * attempt);
     }
+    return { error:lastError || new Error("Erreur inconnue pendant l'enregistrement du client") };
+  };
+
+  const updateClientFromTimeline = async (client = {}, patch = {}, noteContent = "") => {
+    if (!client?.id) return false;
+    setCrmSaveError("");
+    const nowIso = new Date().toISOString();
+    const cleanPatch = { ...patch };
+    Object.keys(cleanPatch).forEach(k => {
+      if (cleanPatch[k] === undefined) delete cleanPatch[k];
+      else if (cleanPatch[k] === "") cleanPatch[k] = null;
+    });
+
+    const previousClients = clients;
+    setClients(prev => prev.map(c => c.id === client.id ? { ...c, ...cleanPatch, updated_at:nowIso } : c));
+
+    const { error } = await crmSafeUpdateClient(client.id, cleanPatch);
+    if (error) {
+      const msg = crmErrorMessage(error);
+      setClients(previousClients);
+      setCrmSaveError(msg);
+      alert("Impossible de mettre à jour le client : " + msg);
+      charger();
+      return false;
+    }
+
     if (noteContent) {
       try {
         await supabase.from("invest_notes").insert({
@@ -772,8 +820,11 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
           type: "relance",
           contenu: noteContent,
         });
-      } catch {}
+      } catch (noteError) {
+        console.warn("Note historique non ajoutée après mise à jour client:", noteError);
+      }
     }
+    return true;
   };
 
   const saveTimelineDraft = async (client = {}) => {
@@ -783,11 +834,12 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
       prochaine_action: String(draft.prochaine_action || "").trim() || null,
       date_prochaine_action: draft.date_prochaine_action || null,
     };
-    await updateClientFromTimeline(
+    const ok = await updateClientFromTimeline(
       client,
       patch,
       `Mise à jour depuis la frise CRM : étape "${patch.etape || "—"}" · action "${patch.prochaine_action || "—"}"${patch.date_prochaine_action ? ` · échéance ${missionFormatDateFr(patch.date_prochaine_action)}` : ""}.`,
     );
+    if (!ok) return;
     setTimelineDrafts(prev => {
       const next = { ...prev };
       delete next[client.id];
@@ -799,11 +851,12 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     const info = getClientTimelineInfo(client);
     const nextStep = CRM_CLIENT_TIMELINE_STEPS[Math.min(CRM_CLIENT_TIMELINE_STEPS.length - 1, info.stepNumber)] || CRM_CLIENT_TIMELINE_STEPS[CRM_CLIENT_TIMELINE_STEPS.length - 1];
     const currentStep = CRM_CLIENT_TIMELINE_STEPS[info.stepNumber - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
-    await updateClientFromTimeline(
+    const ok = await updateClientFromTimeline(
       client,
       { etape: crmTimelineStepOptionValue(nextStep) },
       `Étape validée depuis la frise CRM : ${info.stepNumber} ${currentStep.label}. Passage à l'étape ${nextStep.n} ${nextStep.label}.`,
     );
+    if (!ok) return;
     setTimelineSelectedStep(String(nextStep.n));
   };
 
@@ -811,11 +864,12 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     const info = getClientTimelineInfo(client);
     const step = CRM_CLIENT_TIMELINE_STEPS[info.stepNumber - 1];
     if (!step) return;
-    await updateClientFromTimeline(
+    const ok = await updateClientFromTimeline(
       client,
       { etape: crmTimelineStepOptionValue(step) },
       `Étape CRM alignée avec l'avancement réel détecté : ${step.n} ${step.label}.`,
     );
+    if (!ok) return;
     setTimelineSelectedStep(String(step.n));
   };
 
@@ -1005,10 +1059,10 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
 
             {compact ? (
               <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginTop:8}}>
-                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => openClient(client.id)} style={{fontSize:11,padding:"5px 7px"}}>Ouvrir</button>
-                <button className="inv-btn inv-btn-sm" onClick={() => validateClientActionFromTimeline(client)} disabled={!canValidate} title="Valider l'action CRM et l'ajouter à l'historique" style={{fontSize:11,padding:"5px 7px",background:canValidate ? "#dcfce7" : "rgba(255,255,255,.06)",border:`1px solid ${canValidate ? "#86efac" : T.border}`,color:canValidate ? "#166534" : T.textMuted}}><Icon as={Check} size={12}/> Valider</button>
-                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => replanClientActionFromTimeline(client, 2)} title="Replanifier à J+2" style={{fontSize:11,padding:"5px 7px"}}>J+2</button>
-                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => addQuickActionFromTimeline(client)} title="Ajouter ou modifier rapidement la prochaine action" style={{fontSize:11,padding:"5px 7px"}}>Action</button>
+                <button type="button" className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => openClient(client.id)} style={{fontSize:11,padding:"5px 7px"}}>Ouvrir</button>
+                <button type="button" className="inv-btn inv-btn-sm" onClick={() => validateClientActionFromTimeline(client)} disabled={!canValidate} title="Valider l'action CRM et l'ajouter à l'historique" style={{fontSize:11,padding:"5px 7px",background:canValidate ? "#dcfce7" : "rgba(255,255,255,.06)",border:`1px solid ${canValidate ? "#86efac" : T.border}`,color:canValidate ? "#166534" : T.textMuted}}><Icon as={Check} size={12}/> Valider</button>
+                <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => replanClientActionFromTimeline(client, 2)} title="Replanifier à J+2" style={{fontSize:11,padding:"5px 7px"}}>J+2</button>
+                <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => addQuickActionFromTimeline(client)} title="Ajouter ou modifier rapidement la prochaine action" style={{fontSize:11,padding:"5px 7px"}}>Action</button>
               </div>
             ) : (
               <div style={{marginTop:9,display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(180px,1.15fr) 135px auto",gap:7,alignItems:"center"}}>
@@ -1036,9 +1090,9 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
                   style={{fontSize:11,padding:"6px 7px",width:"100%",textAlign:"left"}}
                 />
                 <div style={{display:"flex",gap:5,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                  <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => saveTimelineDraft(client)} title="Enregistrer l'étape et la prochaine action" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Save} size={12}/> Maj</button>
+                  <button type="button" className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => saveTimelineDraft(client)} title="Enregistrer l'étape et la prochaine action" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Save} size={12}/> Maj</button>
                   {canValidate && <button className="inv-btn inv-btn-sm" onClick={() => validateClientActionFromTimeline(client)} title="Valider l'action CRM et l'ajouter à l'historique" style={{fontSize:11,padding:"6px 8px",background:"#dcfce7",border:"1px solid #86efac",color:"#166534"}}><Icon as={Check} size={12}/> Valider action</button>}
-                  {info.stepNumber < CRM_CLIENT_TIMELINE_STEPS.length && <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => advanceClientTimelineStep(client)} title="Valider l'étape actuelle et passer à la suivante" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Check} size={12}/> Valider étape</button>}
+                  {info.stepNumber < CRM_CLIENT_TIMELINE_STEPS.length && <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => advanceClientTimelineStep(client)} title="Valider l'étape actuelle et passer à la suivante" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Check} size={12}/> Valider étape</button>}
                 </div>
               </div>
             )}
@@ -1521,6 +1575,13 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
       </div>
 
       {renderCrmTimeline()}
+
+      {crmSaveError && (
+        <div style={{marginBottom:12,padding:"10px 12px",borderRadius:14,background:"#fff1f2",border:"1px solid #fecdd3",color:"#be123c",fontSize:12,fontWeight:750,display:"flex",alignItems:"flex-start",gap:8}}>
+          <Icon as={AlertTriangle} size={14} style={{flexShrink:0,marginTop:1}}/>
+          <span>{crmSaveError}</span>
+        </div>
+      )}
 
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(210px, 1fr))", gap:8, marginBottom:12}}>
         <CRMViewButton active={viewMode === "pipeline"} icon={LayoutDashboard} title="Pipeline" helper="Clients par statut" onClick={() => setViewMode("pipeline")} T={T}/>
