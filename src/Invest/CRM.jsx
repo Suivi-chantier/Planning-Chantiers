@@ -499,6 +499,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   const [crmMissionActions, setCrmMissionActions] = useState([]);
   const [crmPropositions, setCrmPropositions] = useState([]);
   const [timelineStepFilter, setTimelineStepFilter] = useState("");
+  const [timelineSelectedStep, setTimelineSelectedStep] = useState("");
 
   const charger = async () => {
     setLoading(true);
@@ -518,7 +519,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
 
   useEffect(() => {
     if (!initialFilter) return;
-    setFiltreStatut(""); setFiltreConseiller(""); setFiltreSource(""); setSpecialFilter(""); setColumnFilters({}); setSearch(""); setTimelineStepFilter("");
+    setFiltreStatut(""); setFiltreConseiller(""); setFiltreSource(""); setSpecialFilter(""); setColumnFilters({}); setSearch(""); setTimelineStepFilter(""); setTimelineSelectedStep("");
     if (initialFilter.type === "statut") setFiltreStatut(initialFilter.value || "");
     if (initialFilter.type === "etape") setColumnFilters({ etape: initialFilter.value || "" });
     if (["sans_action", "actions_week_or_late", "signes", "with_propositions"].includes(initialFilter.type)) setSpecialFilter(initialFilter.type);
@@ -681,6 +682,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     setSearch("");
     setColumnFilters({});
     setTimelineStepFilter("");
+    setTimelineSelectedStep("");
   };
 
   const openClient = (id) => setFicheId(id);
@@ -702,7 +704,73 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   });
 
   const renderCrmTimeline = () => {
+    const selectedStepNumber = String(
+      timelineSelectedStep ||
+      timelineStepFilter ||
+      timelineRows.find(r => r.late > 0)?.n ||
+      timelineRows.find(r => r.dueToday > 0)?.n ||
+      timelineRows.find(r => r.count > 0)?.n ||
+      1
+    );
+    const selectedRow = timelineRows.find(row => String(row.n) === selectedStepNumber) || timelineRows[0];
     const selectedLabel = timelineStepFilter ? CRM_CLIENT_TIMELINE_STEPS.find(s => String(s.n) === String(timelineStepFilter))?.label : "";
+    const totalLate = timelineRows.reduce((s, r) => s + r.late, 0);
+    const totalDueToday = timelineRows.reduce((s, r) => s + r.dueToday, 0);
+    const totalBudget = timelineRows.reduce((s, r) => s + r.budget, 0);
+    const criticalClients = timelineBaseClients
+      .map(client => ({ client, info:getClientTimelineInfo(client) }))
+      .filter(({ info }) => info.isLate || info.dueToday || info.lateMissionActions > 0)
+      .sort((a,b) => {
+        const scoreA = (a.info.isLate || a.info.lateMissionActions > 0 ? 2 : 0) + (a.info.dueToday ? 1 : 0);
+        const scoreB = (b.info.isLate || b.info.lateMissionActions > 0 ? 2 : 0) + (b.info.dueToday ? 1 : 0);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        return String(a.client.date_prochaine_action || "9999-99-99").localeCompare(String(b.client.date_prochaine_action || "9999-99-99"));
+      })
+      .slice(0, 6);
+
+    const clientLine = ({ client, info }, compact = false) => {
+      const fullName = `${client.prenom || ""} ${client.nom || ""}`.trim() || "Client";
+      const initials = `${client.prenom?.[0] || ""}${client.nom?.[0] || ""}`.toUpperCase() || "C";
+      const alertColor = info.isLate || info.lateMissionActions > 0 ? DA : info.dueToday ? WA : T.accent;
+      const actionText = client.prochaine_action || (info.waitingMissionActions ? `${info.waitingMissionActions} tâche(s) mission en attente` : "Aucune action CRM");
+      return (
+        <button
+          key={client.id}
+          type="button"
+          onClick={() => openClient(client.id)}
+          style={{
+            width:"100%",
+            border:`1px solid ${alertColor}26`,
+            borderLeft:`4px solid ${alertColor}`,
+            background:"rgba(255,255,255,.07)",
+            borderRadius:14,
+            padding:compact ? "8px 9px" : "10px 11px",
+            textAlign:"left",
+            cursor:"pointer",
+            display:"grid",
+            gridTemplateColumns: compact ? "32px minmax(0,1fr)" : "34px minmax(0,1fr) auto",
+            gap:9,
+            alignItems:"center",
+          }}
+        >
+          <span style={{width:compact?30:32,height:compact?30:32,borderRadius:"50%",display:"grid",placeItems:"center",background:`${alertColor}18`,color:alertColor,border:`1px solid ${alertColor}35`,fontSize:11,fontWeight:950,flexShrink:0}}>{initials}</span>
+          <span style={{minWidth:0}}>
+            <span style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <span style={{fontSize:compact?12:13,fontWeight:950,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fullName}</span>
+              {compact && <Icon as={ChevronRight} size={12} color={T.textMuted} style={{flexShrink:0}}/>}
+            </span>
+            <span style={{display:"block",fontSize:10.5,color:T.textMuted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {client.conseiller || "Non affecté"} · {client.budget ? fmtBudget(client.budget) : "budget —"}
+            </span>
+            <span style={{display:"block",fontSize:10.5,color:info.isLate || info.lateMissionActions > 0 ? DA : T.textMuted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:info.isLate || info.lateMissionActions > 0 ? 850 : 500}}>
+              {info.isLate || info.lateMissionActions > 0 ? "⚠ " : info.dueToday ? "● " : ""}{actionText}{client.date_prochaine_action ? ` · ${fmtDate(client.date_prochaine_action)}` : ""}
+            </span>
+          </span>
+          {!compact && <Icon as={ChevronRight} size={14} color={T.textMuted} style={{flexShrink:0}}/>}
+        </button>
+      );
+    };
+
     return (
       <div className="inv-card" style={{padding:0, marginBottom:12, overflow:"hidden", background:"linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.025))"}}>
         <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"12px 14px", borderBottom:`1px solid ${T.border}`, flexWrap:"wrap"}}>
@@ -712,108 +780,118 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
             </span>
             <div style={{minWidth:0}}>
               <div style={{fontSize:14, fontWeight:950, color:T.text}}>Frise d'avancement des clients</div>
-              <div style={{fontSize:11, color:T.textMuted, marginTop:2}}>Positionnement selon l'étape CRM, les propositions et le parcours mission</div>
+              <div style={{fontSize:11, color:T.textMuted, marginTop:2}}>Lecture simple : une ligne de parcours, puis le détail de l'étape sélectionnée</div>
             </div>
           </div>
           <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
-            <span style={{fontSize:11, fontWeight:900, color:T.textSub, background:T.input, border:`1px solid ${T.border}`, borderRadius:999, padding:"5px 9px"}}>{timelineBaseClients.length} client(s) positionné(s)</span>
-            {timelineStepFilter && (
-              <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setTimelineStepFilter("")} title="Retirer le filtre de la frise">
-                <Icon as={X} size={12}/> Étape {timelineStepFilter} · effacer
-              </button>
-            )}
+            <span style={{fontSize:11, fontWeight:900, color:T.textSub, background:T.input, border:`1px solid ${T.border}`, borderRadius:999, padding:"5px 9px"}}>{timelineBaseClients.length} client(s)</span>
+            <span style={{fontSize:11, fontWeight:900, color:totalLate > 0 ? DA : T.textSub, background:totalLate > 0 ? `${DA}10` : T.input, border:`1px solid ${totalLate > 0 ? `${DA}30` : T.border}`, borderRadius:999, padding:"5px 9px"}}>{totalLate} retard</span>
+            <span style={{fontSize:11, fontWeight:900, color:totalDueToday > 0 ? WA : T.textSub, background:totalDueToday > 0 ? `${WA}10` : T.input, border:`1px solid ${totalDueToday > 0 ? `${WA}30` : T.border}`, borderRadius:999, padding:"5px 9px"}}>{totalDueToday} aujourd'hui</span>
+            <span style={{fontSize:11, fontWeight:900, color:T.textSub, background:T.input, border:`1px solid ${T.border}`, borderRadius:999, padding:"5px 9px"}}>{fmtBudget(totalBudget)}</span>
           </div>
         </div>
 
         {selectedLabel && (
-          <div style={{padding:"8px 14px", borderBottom:`1px solid ${T.border}`, background:`${T.accent}0F`, color:T.textSub, fontSize:12, display:"flex", alignItems:"center", gap:7, flexWrap:"wrap"}}>
-            <Icon as={Filter} size={13} color={T.accent}/>
-            <span>Filtre frise actif : <strong style={{color:T.text}}>Étape {timelineStepFilter} — {selectedLabel}</strong></span>
+          <div style={{padding:"8px 14px", borderBottom:`1px solid ${T.border}`, background:`${T.accent}0F`, color:T.textSub, fontSize:12, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, flexWrap:"wrap"}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:7}}>
+              <Icon as={Filter} size={13} color={T.accent}/>
+              <span>Filtre CRM actif : <strong style={{color:T.text}}>Étape {timelineStepFilter} — {selectedLabel}</strong></span>
+            </span>
+            <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setTimelineStepFilter("")}>
+              <Icon as={X} size={12}/> Retirer le filtre
+            </button>
           </div>
         )}
 
-        <div className="inv-crm-timeline-scroll" style={{overflowX:"auto", padding:"12px 12px 14px"}}>
-          <div style={{display:"flex", gap:10, minWidth:CRM_CLIENT_TIMELINE_STEPS.length * 218}}>
-            {timelineRows.map(row => {
-              const active = String(timelineStepFilter) === String(row.n);
-              const mainColor = row.late > 0 ? DA : row.dueToday > 0 ? WA : row.count > 0 ? T.accent : "#94A3B8";
-              const pct = Math.round((row.n / CRM_CLIENT_TIMELINE_STEPS.length) * 100);
-              return (
-                <div
-                  key={row.n}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setTimelineStepFilter(active ? "" : String(row.n))}
-                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setTimelineStepFilter(active ? "" : String(row.n)); }}
-                  style={{
-                    width:208,
-                    flex:"0 0 208px",
-                    minHeight:230,
-                    borderRadius:18,
-                    border:`1px solid ${active ? T.accent : row.late > 0 ? "#fecdd3" : T.border}`,
-                    background:active ? `linear-gradient(135deg, ${T.accentBg}, rgba(255,255,255,.04))` : "rgba(255,255,255,.045)",
-                    boxShadow:active ? `0 18px 40px ${T.accent}14` : "none",
-                    padding:10,
-                    cursor:"pointer",
-                    display:"flex",
-                    flexDirection:"column",
-                    gap:8,
-                  }}
-                >
-                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8}}>
-                    <div style={{minWidth:0}}>
-                      <div style={{fontSize:10, fontWeight:950, color:mainColor, letterSpacing:.6, textTransform:"uppercase"}}>Étape {row.n}</div>
-                      <div style={{fontSize:12.5, fontWeight:950, color:T.text, lineHeight:1.18, marginTop:2, minHeight:31}}>{row.short}</div>
-                    </div>
-                    <span style={{width:28, height:28, borderRadius:11, display:"grid", placeItems:"center", background:`${mainColor}17`, color:mainColor, border:`1px solid ${mainColor}30`, fontWeight:950, fontSize:13, flexShrink:0}}>{row.count}</span>
-                  </div>
+        <div className="inv-crm-timeline-scroll" style={{overflowX:"auto", padding:"14px 14px 8px"}}>
+          <div style={{position:"relative", minWidth:1180, padding:"4px 2px 2px"}}>
+            <div style={{position:"absolute", left:34, right:34, top:25, height:2, background:"rgba(255,255,255,.12)", borderRadius:999}} />
+            <div style={{display:"grid", gridTemplateColumns:`repeat(${CRM_CLIENT_TIMELINE_STEPS.length}, minmax(78px, 1fr))`, gap:6, position:"relative"}}>
+              {timelineRows.map(row => {
+                const selected = String(selectedStepNumber) === String(row.n);
+                const filteredActive = String(timelineStepFilter) === String(row.n);
+                const mainColor = row.late > 0 ? DA : row.dueToday > 0 ? WA : row.count > 0 ? T.accent : "#94A3B8";
+                return (
+                  <button
+                    key={row.n}
+                    type="button"
+                    onClick={() => setTimelineSelectedStep(String(row.n))}
+                    title={`Étape ${row.n} — ${row.label}`}
+                    style={{
+                      border:0,
+                      background:"transparent",
+                      padding:0,
+                      cursor:"pointer",
+                      minWidth:0,
+                      textAlign:"center",
+                    }}
+                  >
+                    <span style={{
+                      width:selected ? 43 : 38,
+                      height:selected ? 43 : 38,
+                      borderRadius:"50%",
+                      display:"grid",
+                      placeItems:"center",
+                      margin:"0 auto 7px",
+                      background:selected ? `linear-gradient(135deg, ${mainColor}22, rgba(255,255,255,.08))` : "rgba(255,255,255,.08)",
+                      color:mainColor,
+                      border:`2px solid ${selected || filteredActive ? mainColor : `${mainColor}55`}`,
+                      boxShadow:selected ? `0 12px 30px ${mainColor}1C` : "none",
+                      fontSize:12,
+                      fontWeight:950,
+                      position:"relative",
+                    }}>
+                      {row.n}
+                      {row.count > 0 && <span style={{position:"absolute", right:-7, top:-7, minWidth:19, height:19, borderRadius:999, background:mainColor, color:"white", display:"grid", placeItems:"center", fontSize:10, fontWeight:950, border:"2px solid rgba(15,23,42,.85)"}}>{row.count}</span>}
+                    </span>
+                    <span style={{display:"block", fontSize:10.2, lineHeight:1.12, color:selected ? T.text : T.textMuted, fontWeight:selected ? 950 : 800, whiteSpace:"normal"}}>{row.short}</span>
+                    {row.late > 0 ? <span style={{display:"block", marginTop:3, color:DA, fontSize:9.5, fontWeight:950}}>{row.late} retard</span> : row.dueToday > 0 ? <span style={{display:"block", marginTop:3, color:WA, fontSize:9.5, fontWeight:950}}>aujourd'hui</span> : <span style={{display:"block", marginTop:3, color:T.textMuted, fontSize:9.5}}>{row.count ? "en cours" : "—"}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
-                  <div style={{height:6, borderRadius:999, background:"rgba(255,255,255,.08)", overflow:"hidden"}}>
-                    <div style={{height:"100%", width:`${pct}%`, borderRadius:999, background:mainColor}}/>
-                  </div>
+        <div style={{padding:"10px 14px 14px", display:"grid", gridTemplateColumns:"minmax(0,1.25fr) minmax(310px,.75fr)", gap:12}}>
+          <div style={{border:`1px solid ${selectedRow?.late > 0 ? `${DA}35` : T.border}`, borderRadius:18, background:"rgba(255,255,255,.045)", overflow:"hidden"}}>
+            <div style={{padding:"12px 13px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, flexWrap:"wrap"}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:10.5, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.8}}>Étape sélectionnée</div>
+                <div style={{fontSize:15, color:T.text, fontWeight:950, marginTop:3}}>#{selectedRow?.n} — {selectedRow?.label}</div>
+                <div style={{fontSize:11, color:T.textMuted, marginTop:3}}>{selectedRow?.count || 0} client(s) · {fmtBudget(selectedRow?.budget || 0)} · {CRM_CLIENT_TIMELINE_STEPS.length - (selectedRow?.n || 1)} étape(s) restantes</div>
+              </div>
+              <div style={{display:"flex", gap:7, alignItems:"center", flexWrap:"wrap"}}>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setTimelineStepFilter(String(selectedRow?.n || ""))} disabled={!selectedRow?.n}>
+                  <Icon as={Filter} size={12}/> Filtrer cette étape
+                </button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => { setTimelineStepFilter(""); setTimelineSelectedStep(""); }}>
+                  Voir tout
+                </button>
+              </div>
+            </div>
+            <div style={{padding:12, display:"grid", gap:8, maxHeight:360, overflowY:"auto"}}>
+              {!selectedRow?.clients?.length ? (
+                <div style={{padding:"24px 10px", border:`1px dashed ${T.border}`, borderRadius:14, color:T.textMuted, fontSize:12, textAlign:"center", fontStyle:"italic"}}>Aucun client actuellement positionné sur cette étape.</div>
+              ) : selectedRow.clients.map(item => clientLine(item))}
+            </div>
+          </div>
 
-                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontSize:10.5, color:T.textMuted}}>
-                    <span>{fmtBudget(row.budget)}</span>
-                    {row.late > 0 ? <span style={{color:DA, fontWeight:900}}>{row.late} retard</span> : row.dueToday > 0 ? <span style={{color:WA, fontWeight:900}}>{row.dueToday} aujourd'hui</span> : <span>{CRM_CLIENT_TIMELINE_STEPS.length - row.n} étape(s) restantes</span>}
-                  </div>
-
-                  <div style={{display:"flex", flexDirection:"column", gap:6, marginTop:2, flex:1, minHeight:0}}>
-                    {row.clients.length === 0 ? (
-                      <div style={{border:`1px dashed ${T.border}`, borderRadius:13, padding:"16px 8px", textAlign:"center", color:T.textMuted, fontSize:11, fontStyle:"italic", marginTop:4}}>Aucun client</div>
-                    ) : row.clients.slice(0,4).map(({ client, info }) => {
-                      const alertColor = info.isLate || info.lateMissionActions > 0 ? DA : info.dueToday ? WA : T.accent;
-                      return (
-                        <button
-                          key={client.id}
-                          type="button"
-                          onClick={e => { e.stopPropagation(); openClient(client.id); }}
-                          style={{
-                            border:`1px solid ${alertColor}25`,
-                            borderLeft:`3px solid ${alertColor}`,
-                            background:"rgba(255,255,255,.075)",
-                            borderRadius:12,
-                            padding:"7px 7px",
-                            textAlign:"left",
-                            cursor:"pointer",
-                            minWidth:0,
-                          }}
-                          title={`${client.prenom || ""} ${client.nom || ""} — ${info.stepLabel}`}
-                        >
-                          <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:6}}>
-                            <span style={{fontSize:11.5, fontWeight:950, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0}}>{`${client.prenom || ""} ${client.nom || ""}`.trim() || "Client"}</span>
-                            <Icon as={ChevronRight} size={11} color={T.textMuted} style={{flexShrink:0}}/>
-                          </div>
-                          <div style={{fontSize:10, color:T.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                            {client.conseiller || "Non affecté"} · {client.date_prochaine_action ? fmtDate(client.date_prochaine_action) : "action —"}
-                          </div>
-                        </button>
-                      );
-                    })}
-                    {row.clients.length > 4 && <div style={{fontSize:10.5, color:T.textMuted, fontWeight:850, textAlign:"center", paddingTop:2}}>+{row.clients.length - 4} autre(s)</div>}
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{border:`1px solid ${criticalClients.length ? `${WA}35` : T.border}`, borderRadius:18, background:"rgba(255,255,255,.045)", overflow:"hidden"}}>
+            <div style={{padding:"12px 13px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8}}>
+              <div>
+                <div style={{fontSize:10.5, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.8}}>À traiter en priorité</div>
+                <div style={{fontSize:13.5, color:T.text, fontWeight:950, marginTop:3}}>Retards et actions du jour</div>
+              </div>
+              <span style={{width:30, height:30, borderRadius:12, display:"grid", placeItems:"center", background:criticalClients.length ? `${WA}16` : "rgba(255,255,255,.06)", color:criticalClients.length ? WA : T.textMuted, border:`1px solid ${criticalClients.length ? `${WA}35` : T.border}`}}>
+                <Icon as={AlertTriangle} size={14} strokeWidth={2.2}/>
+              </span>
+            </div>
+            <div style={{padding:12, display:"grid", gap:8, maxHeight:360, overflowY:"auto"}}>
+              {criticalClients.length === 0 ? (
+                <div style={{padding:"22px 10px", border:`1px dashed ${T.border}`, borderRadius:14, color:SU, fontSize:12, textAlign:"center", fontWeight:850}}>Aucun retard prioritaire détecté sur les clients affichés.</div>
+              ) : criticalClients.map(item => clientLine(item, true))}
+            </div>
           </div>
         </div>
       </div>
