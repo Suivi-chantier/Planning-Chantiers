@@ -547,6 +547,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   const [timelineStepFilter, setTimelineStepFilter] = useState("");
   const [timelineSelectedStep, setTimelineSelectedStep] = useState("");
   const [timelineDrafts, setTimelineDrafts] = useState({});
+  const [pilotageFilter, setPilotageFilter] = useState("auto");
 
   const charger = async () => {
     setLoading(true);
@@ -730,6 +731,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     setColumnFilters({});
     setTimelineStepFilter("");
     setTimelineSelectedStep("");
+    setPilotageFilter("auto");
   };
 
   const openClient = (id) => setFicheId(id);
@@ -855,6 +857,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     const totalDueToday = timelineRows.reduce((s, r) => s + r.dueToday, 0);
     const totalNoAction = timelineRows.reduce((s, r) => s + r.noAction, 0);
     const totalStuck = timelineRows.reduce((s, r) => s + r.stuck, 0);
+    const totalHistorical = timelineRows.reduce((s, r) => s + r.historical, 0);
     const totalBudget = timelineRows.reduce((s, r) => s + r.budget, 0);
 
     const phaseRows = CRM_CLIENT_TIMELINE_PHASES.map(phase => {
@@ -868,23 +871,89 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
       return { ...phase, rows, count, attention, late, budget, firstActive, isSelected };
     });
 
-    const criticalClients = timelineBaseClients
+    const scorePilotage = (info = {}) =>
+      (info.isLate || info.lateMissionActions > 0 ? 100 : 0) +
+      (info.dueToday ? 70 : 0) +
+      (info.noAction ? 45 : 0) +
+      (info.isStuck ? 30 : 0) +
+      (info.historicalAhead ? 8 : 0);
+
+    const pilotageItems = timelineBaseClients
       .map(client => ({ client, info:getClientTimelineInfo(client) }))
-      .filter(({ info }) => info.isLate || info.dueToday || info.lateMissionActions > 0 || info.noAction || info.isStuck)
+      .filter(({ info }) => scorePilotage(info) > 0)
       .sort((a,b) => {
-        const scoreA = (a.info.isLate || a.info.lateMissionActions > 0 ? 50 : 0) + (a.info.dueToday ? 25 : 0) + (a.info.noAction ? 15 : 0) + (a.info.isStuck ? 10 : 0);
-        const scoreB = (b.info.isLate || b.info.lateMissionActions > 0 ? 50 : 0) + (b.info.dueToday ? 25 : 0) + (b.info.noAction ? 15 : 0) + (b.info.isStuck ? 10 : 0);
+        const scoreA = scorePilotage(a.info);
+        const scoreB = scorePilotage(b.info);
         if (scoreA !== scoreB) return scoreB - scoreA;
         return String(a.client.date_prochaine_action || "9999-99-99").localeCompare(String(b.client.date_prochaine_action || "9999-99-99"));
+      });
+
+    const selectedPilotageFilter = pilotageFilter || "auto";
+    const pilotageCategories = [
+      { key:"auto", label:"Priorité du jour", helper:"tri intelligent", color:T.accent, count:pilotageItems.length, icon:Bell },
+      { key:"late", label:"En retard", helper:"à traiter maintenant", color:DA, count:pilotageItems.filter(({ info }) => info.isLate || info.lateMissionActions > 0).length, icon:AlertTriangle },
+      { key:"today", label:"Aujourd'hui", helper:"échéance du jour", color:WA, count:pilotageItems.filter(({ info }) => info.dueToday).length, icon:Calendar },
+      { key:"none", label:"Sans action", helper:"suivi à cadrer", color:DA, count:pilotageItems.filter(({ info }) => info.noAction).length, icon:Filter },
+      { key:"stuck", label:"Stagnation", helper:"dossier qui dort", color:WA, count:pilotageItems.filter(({ info }) => info.isStuck).length, icon:RefreshCw },
+      { key:"history", label:"À vérifier", helper:"indice historique", color:"#94A3B8", count:pilotageItems.filter(({ info }) => info.historicalAhead).length, icon:Eye },
+    ];
+
+    const selectedPilotageCategory = pilotageCategories.find(c => c.key === selectedPilotageFilter) || pilotageCategories[0];
+    const pilotageVisible = pilotageItems
+      .filter(({ info }) => {
+        if (selectedPilotageFilter === "late") return info.isLate || info.lateMissionActions > 0;
+        if (selectedPilotageFilter === "today") return info.dueToday;
+        if (selectedPilotageFilter === "none") return info.noAction;
+        if (selectedPilotageFilter === "stuck") return info.isStuck;
+        if (selectedPilotageFilter === "history") return info.historicalAhead;
+        return true;
       })
       .slice(0, 8);
 
     const attentionLabel = (info = {}) => {
-      if (info.isLate || info.lateMissionActions > 0) return { label:"En retard", color:DA };
-      if (info.dueToday) return { label:"Aujourd'hui", color:WA };
-      if (info.noAction) return { label:"Sans action", color:DA };
-      if (info.isStuck) return { label:`Stagne ${info.daysSinceStageReference || ""}j`, color:WA };
-      return { label:"Suivi OK", color:SU };
+      if (info.isLate || info.lateMissionActions > 0) return { label:"En retard", color:DA, tone:"à traiter maintenant" };
+      if (info.dueToday) return { label:"Aujourd'hui", color:WA, tone:"à faire aujourd'hui" };
+      if (info.noAction) return { label:"Sans action", color:DA, tone:"à replanifier" };
+      if (info.isStuck) return { label:`Stagne ${info.daysSinceStageReference || ""}j`, color:WA, tone:"dossier à relancer" };
+      if (info.historicalAhead) return { label:"À vérifier", color:"#94A3B8", tone:"historique plus avancé" };
+      return { label:"Suivi OK", color:SU, tone:"aucune alerte" };
+    };
+
+    const validateClientActionFromTimeline = async (client = {}) => {
+      const action = String(client.prochaine_action || "").trim();
+      if (!client?.id || !action) return;
+      const due = String(client.date_prochaine_action || "").slice(0,10);
+      await updateClientFromTimeline(
+        client,
+        { prochaine_action:null, date_prochaine_action:null },
+        `Action CRM validée depuis le pilotage immédiat : ${action}${due ? ` · échéance initiale ${missionFormatDateFr(due)}` : ""}.`,
+      );
+    };
+
+    const replanClientActionFromTimeline = async (client = {}, days = 2) => {
+      if (!client?.id) return;
+      const nextDate = missionAddDaysIso(days);
+      await updateClientFromTimeline(
+        client,
+        { date_prochaine_action:nextDate },
+        `Action CRM replanifiée depuis le pilotage immédiat au ${missionFormatDateFr(nextDate)}${client.prochaine_action ? ` : ${client.prochaine_action}` : ""}.`,
+      );
+    };
+
+    const addQuickActionFromTimeline = async (client = {}) => {
+      if (!client?.id) return;
+      const fullName = `${client.prenom || ""} ${client.nom || ""}`.trim() || "ce client";
+      const action = window.prompt(`Prochaine action CRM pour ${fullName} :`, client.prochaine_action || "Relancer le client");
+      if (action === null) return;
+      const cleanAction = String(action || "").trim();
+      if (!cleanAction) return;
+      const date = window.prompt("Date d'échéance au format AAAA-MM-JJ :", String(client.date_prochaine_action || missionAddDaysIso(2)).slice(0,10));
+      if (date === null) return;
+      await updateClientFromTimeline(
+        client,
+        { prochaine_action:cleanAction, date_prochaine_action:String(date || "").trim() || null },
+        `Action CRM ajoutée depuis le pilotage immédiat : ${cleanAction}${date ? ` · échéance ${missionFormatDateFr(date)}` : ""}.`,
+      );
     };
 
     const clientLine = ({ client, info }, compact = false) => {
@@ -895,6 +964,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
       const actionText = client.prochaine_action || (info.waitingMissionActions ? `${info.waitingMissionActions} tâche(s) mission en attente` : "Aucune action CRM");
       const currentStepValue = crmTimelineStepOptionValue(CRM_CLIENT_TIMELINE_STEPS[info.stepNumber - 1]);
       const currentDraftKnown = !draft.etape || CRM_CLIENT_TIMELINE_STEPS.some(step => crmTimelineStepOptionValue(step) === draft.etape);
+      const canValidate = !!String(client.prochaine_action || "").trim();
 
       return (
         <div
@@ -905,9 +975,9 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
             borderLeft:`4px solid ${status.color}`,
             background:"rgba(255,255,255,.07)",
             borderRadius:16,
-            padding:compact ? "9px 10px" : "11px 12px",
+            padding:compact ? "10px 11px" : "11px 12px",
             display:"grid",
-            gridTemplateColumns: compact ? "32px minmax(0,1fr) auto" : "34px minmax(0,1fr)",
+            gridTemplateColumns: compact ? "32px minmax(0,1fr)" : "34px minmax(0,1fr)",
             gap:9,
             alignItems:"start",
           }}
@@ -922,7 +992,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               <span style={{fontSize:10,fontWeight:950,color:status.color,background:`${status.color}12`,border:`1px solid ${status.color}28`,borderRadius:999,padding:"3px 7px",whiteSpace:"nowrap"}}>{status.label}</span>
             </div>
             <div style={{fontSize:10.5,color:T.textMuted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {client.conseiller || "Non affecté"} · {client.budget ? fmtBudget(client.budget) : "budget —"} · étape {info.stepNumber}/13
+              {client.conseiller || "Non affecté"} · {client.budget ? fmtBudget(client.budget) : "budget —"} · étape {info.stepNumber}/13 · {status.tone}
             </div>
             <div style={{fontSize:10.5,color:info.isLate || info.lateMissionActions > 0 || info.noAction ? DA : T.textMuted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:info.isLate || info.lateMissionActions > 0 || info.noAction ? 850 : 500}}>
               {info.isLate || info.lateMissionActions > 0 || info.noAction ? "⚠ " : info.dueToday ? "● " : ""}{actionText}{client.date_prochaine_action ? ` · ${fmtDate(client.date_prochaine_action)}` : ""}
@@ -933,7 +1003,14 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               </div>
             )}
 
-            {!compact && (
+            {compact ? (
+              <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginTop:8}}>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => openClient(client.id)} style={{fontSize:11,padding:"5px 7px"}}>Ouvrir</button>
+                <button className="inv-btn inv-btn-sm" onClick={() => validateClientActionFromTimeline(client)} disabled={!canValidate} title="Valider l'action CRM et l'ajouter à l'historique" style={{fontSize:11,padding:"5px 7px",background:canValidate ? "#dcfce7" : "rgba(255,255,255,.06)",border:`1px solid ${canValidate ? "#86efac" : T.border}`,color:canValidate ? "#166534" : T.textMuted}}><Icon as={Check} size={12}/> Valider</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => replanClientActionFromTimeline(client, 2)} title="Replanifier à J+2" style={{fontSize:11,padding:"5px 7px"}}>J+2</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => addQuickActionFromTimeline(client)} title="Ajouter ou modifier rapidement la prochaine action" style={{fontSize:11,padding:"5px 7px"}}>Action</button>
+              </div>
+            ) : (
               <div style={{marginTop:9,display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(180px,1.15fr) 135px auto",gap:7,alignItems:"center"}}>
                 <select
                   className="inv-sel"
@@ -960,14 +1037,47 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
                 />
                 <div style={{display:"flex",gap:5,justifyContent:"flex-end",flexWrap:"wrap"}}>
                   <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => saveTimelineDraft(client)} title="Enregistrer l'étape et la prochaine action" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Save} size={12}/> Maj</button>
-                  {info.inferredAhead && <button className="inv-btn inv-btn-sm" onClick={() => applyInferredTimelineStep(client)} title="Aligner l'étape déclarée sur l'avancement réel" style={{fontSize:11,padding:"6px 8px",background:"#f3e8ff",border:"1px solid #d8b4fe",color:"#6d28d9"}}>Aligner</button>}
+                  {canValidate && <button className="inv-btn inv-btn-sm" onClick={() => validateClientActionFromTimeline(client)} title="Valider l'action CRM et l'ajouter à l'historique" style={{fontSize:11,padding:"6px 8px",background:"#dcfce7",border:"1px solid #86efac",color:"#166534"}}><Icon as={Check} size={12}/> Valider action</button>}
                   {info.stepNumber < CRM_CLIENT_TIMELINE_STEPS.length && <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => advanceClientTimelineStep(client)} title="Valider l'étape actuelle et passer à la suivante" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Check} size={12}/> Valider étape</button>}
                 </div>
               </div>
             )}
           </div>
-          {compact && <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => openClient(client.id)} style={{fontSize:11,padding:"5px 7px"}}>Ouvrir</button>}
         </div>
+      );
+    };
+
+    const PilotageCounter = ({ item }) => {
+      const I = item.icon || Bell;
+      const active = selectedPilotageFilter === item.key;
+      return (
+        <button
+          type="button"
+          onClick={() => setPilotageFilter(item.key)}
+          style={{
+            border:`1px solid ${active ? item.color : T.border}`,
+            background:active ? `linear-gradient(135deg, ${item.color}16, rgba(255,255,255,.045))` : "rgba(255,255,255,.045)",
+            borderRadius:16,
+            padding:"10px 11px",
+            textAlign:"left",
+            cursor:"pointer",
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"space-between",
+            gap:9,
+            minWidth:0,
+            boxShadow:active ? `0 12px 30px ${item.color}12` : "none",
+          }}
+        >
+          <span style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
+            <span style={{width:30,height:30,borderRadius:12,display:"grid",placeItems:"center",background:`${item.color}14`,color:item.color,border:`1px solid ${item.color}30`,flexShrink:0}}><Icon as={I} size={14} strokeWidth={2.2}/></span>
+            <span style={{minWidth:0}}>
+              <span style={{display:"block",fontSize:11.5,fontWeight:950,color:active ? T.text : T.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.label}</span>
+              <span style={{display:"block",fontSize:10,color:T.textMuted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.helper}</span>
+            </span>
+          </span>
+          <span style={{fontSize:17,fontWeight:950,color:item.count > 0 ? item.color : T.textMuted,flexShrink:0}}>{item.count}</span>
+        </button>
       );
     };
 
@@ -979,8 +1089,8 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               <Icon as={TrendingUp} size={16} strokeWidth={2.2}/>
             </span>
             <div style={{minWidth:0}}>
-              <div style={{fontSize:14, fontWeight:950, color:T.text}}>Frise d'avancement — pilotage quotidien V20.3</div>
-              <div style={{fontSize:11, color:T.textMuted, marginTop:2}}>Étape CRM prioritaire : les rétrogradations manuelles sont respectées</div>
+              <div style={{fontSize:14, fontWeight:950, color:T.text}}>Frise d'avancement — pilotage quotidien V20.4</div>
+              <div style={{fontSize:11, color:T.textMuted, marginTop:2}}>La frise situe les clients ; le pilotage immédiat indique quoi traiter maintenant</div>
             </div>
           </div>
           <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
@@ -1052,30 +1162,9 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
                     type="button"
                     onClick={() => setTimelineSelectedStep(String(row.n))}
                     title={`Étape ${row.n} — ${row.label}`}
-                    style={{
-                      border:0,
-                      background:"transparent",
-                      padding:0,
-                      cursor:"pointer",
-                      minWidth:0,
-                      textAlign:"center",
-                    }}
+                    style={{border:0,background:"transparent",padding:0,cursor:"pointer",minWidth:0,textAlign:"center"}}
                   >
-                    <span style={{
-                      width:selected ? 43 : 38,
-                      height:selected ? 43 : 38,
-                      borderRadius:"50%",
-                      display:"grid",
-                      placeItems:"center",
-                      margin:"0 auto 7px",
-                      background:selected ? `linear-gradient(135deg, ${mainColor}22, rgba(255,255,255,.08))` : "rgba(255,255,255,.08)",
-                      color:mainColor,
-                      border:`2px solid ${selected || filteredActive ? mainColor : `${mainColor}55`}`,
-                      boxShadow:selected ? `0 12px 30px ${mainColor}1C` : "none",
-                      fontSize:12,
-                      fontWeight:950,
-                      position:"relative",
-                    }}>
+                    <span style={{width:selected ? 43 : 38,height:selected ? 43 : 38,borderRadius:"50%",display:"grid",placeItems:"center",margin:"0 auto 7px",background:selected ? `linear-gradient(135deg, ${mainColor}22, rgba(255,255,255,.08))` : "rgba(255,255,255,.08)",color:mainColor,border:`2px solid ${selected || filteredActive ? mainColor : `${mainColor}55`}`,boxShadow:selected ? `0 12px 30px ${mainColor}1C` : "none",fontSize:12,fontWeight:950,position:"relative"}}>
                       {row.n}
                       {row.count > 0 && <span style={{position:"absolute", right:-7, top:-7, minWidth:19, height:19, borderRadius:999, background:mainColor, color:"white", display:"grid", placeItems:"center", fontSize:10, fontWeight:950, border:"2px solid rgba(15,23,42,.85)"}}>{row.count}</span>}
                     </span>
@@ -1088,7 +1177,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
           </div>
         </div>
 
-        <div style={{padding:"10px 14px 14px", display:"grid", gridTemplateColumns:"minmax(0,1.25fr) minmax(330px,.75fr)", gap:12}}>
+        <div style={{padding:"10px 14px 14px", display:"grid", gridTemplateColumns:"minmax(0,1.15fr) minmax(380px,.85fr)", gap:12}}>
           <div style={{border:`1px solid ${selectedRow?.attention > 0 ? `${WA}35` : T.border}`, borderRadius:18, background:"rgba(255,255,255,.045)", overflow:"hidden"}}>
             <div style={{padding:"12px 13px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, flexWrap:"wrap"}}>
               <div style={{minWidth:0}}>
@@ -1112,27 +1201,36 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               <span style={{color:selectedRow?.stuck ? WA : T.textMuted, fontWeight:900}}>{selectedRow?.stuck || 0} stagne</span>
               <span style={{color:selectedRow?.historical ? T.textMuted : T.textMuted, fontWeight:900}}>{selectedRow?.historical || 0} indice historique</span>
             </div>
-            <div style={{padding:12, display:"grid", gap:8, maxHeight:430, overflowY:"auto"}}>
+            <div style={{padding:12, display:"grid", gap:8, maxHeight:460, overflowY:"auto"}}>
               {!selectedRow?.clients?.length ? (
                 <div style={{padding:"24px 10px", border:`1px dashed ${T.border}`, borderRadius:14, color:T.textMuted, fontSize:12, textAlign:"center", fontStyle:"italic"}}>Aucun client actuellement positionné sur cette étape.</div>
               ) : selectedRow.clients.map(item => clientLine(item))}
             </div>
           </div>
 
-          <div style={{border:`1px solid ${criticalClients.length ? `${WA}35` : T.border}`, borderRadius:18, background:"rgba(255,255,255,.045)", overflow:"hidden"}}>
-            <div style={{padding:"12px 13px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8}}>
-              <div>
-                <div style={{fontSize:10.5, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.8}}>À traiter en priorité</div>
-                <div style={{fontSize:13.5, color:T.text, fontWeight:950, marginTop:3}}>Retards, sans action et dossiers qui stagnent</div>
+          <div style={{border:`1px solid ${selectedPilotageCategory.count ? `${selectedPilotageCategory.color}35` : T.border}`, borderRadius:18, background:"rgba(255,255,255,.045)", overflow:"hidden"}}>
+            <div style={{padding:"12px 13px", borderBottom:`1px solid ${T.border}`}}>
+              <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:8}}>
+                <div>
+                  <div style={{fontSize:10.5, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.8}}>Pilotage immédiat</div>
+                  <div style={{fontSize:13.5, color:T.text, fontWeight:950, marginTop:3}}>Quoi traiter maintenant, sans mélanger la frise</div>
+                </div>
+                <span style={{width:30, height:30, borderRadius:12, display:"grid", placeItems:"center", background:selectedPilotageCategory.count ? `${selectedPilotageCategory.color}16` : "rgba(255,255,255,.06)", color:selectedPilotageCategory.count ? selectedPilotageCategory.color : T.textMuted, border:`1px solid ${selectedPilotageCategory.count ? `${selectedPilotageCategory.color}35` : T.border}`}}>
+                  <Icon as={Bell} size={14} strokeWidth={2.2}/>
+                </span>
               </div>
-              <span style={{width:30, height:30, borderRadius:12, display:"grid", placeItems:"center", background:criticalClients.length ? `${WA}16` : "rgba(255,255,255,.06)", color:criticalClients.length ? WA : T.textMuted, border:`1px solid ${criticalClients.length ? `${WA}35` : T.border}`}}>
-                <Icon as={AlertTriangle} size={14} strokeWidth={2.2}/>
-              </span>
+              <div style={{display:"grid", gridTemplateColumns:"repeat(2, minmax(0,1fr))", gap:7, marginTop:11}}>
+                {pilotageCategories.map(cat => <PilotageCounter key={cat.key} item={cat}/>) }
+              </div>
             </div>
-            <div style={{padding:12, display:"grid", gap:8, maxHeight:430, overflowY:"auto"}}>
-              {criticalClients.length === 0 ? (
-                <div style={{padding:"22px 10px", border:`1px dashed ${T.border}`, borderRadius:14, color:SU, fontSize:12, textAlign:"center", fontWeight:850}}>Aucun blocage prioritaire détecté sur les clients affichés.</div>
-              ) : criticalClients.map(item => clientLine(item, true))}
+            <div style={{padding:"10px 12px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, flexWrap:"wrap"}}>
+              <div style={{fontSize:12, fontWeight:950, color:selectedPilotageCategory.count ? selectedPilotageCategory.color : T.textMuted}}>{selectedPilotageCategory.label}</div>
+              <div style={{fontSize:10.5, color:T.textMuted}}>{selectedPilotageCategory.count} dossier(s) · {totalHistorical} indice(s) historique(s)</div>
+            </div>
+            <div style={{padding:12, display:"grid", gap:8, maxHeight:460, overflowY:"auto"}}>
+              {pilotageVisible.length === 0 ? (
+                <div style={{padding:"22px 10px", border:`1px dashed ${T.border}`, borderRadius:14, color:SU, fontSize:12, textAlign:"center", fontWeight:850}}>Aucune action prioritaire dans cette catégorie.</div>
+              ) : pilotageVisible.map(item => clientLine(item, true))}
             </div>
           </div>
         </div>
