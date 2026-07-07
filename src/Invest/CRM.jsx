@@ -352,6 +352,136 @@ function clientStatutMeta(statut) {
   return CRM_STATUT_META[statut] || { label:statut || "—", color:"#94A3B8", icon:Users, tone:"Suivi client" };
 }
 
+
+const CRM_CLIENT_TIMELINE_STEPS = [
+  { n:1, label:"Signature contrat", short:"Signature", hints:["signature contrat", "signature"] },
+  { n:2, label:"Envoi des documents d'analyse", short:"Documents", hints:["envoi des documents", "documents d'analyse", "document analyse", "pièces client"] },
+  { n:3, label:"Définition de la stratégie d'investissement", short:"Stratégie", hints:["définition de la stratégie", "strategie", "stratégie", "cahier des charges"] },
+  { n:4, label:"Recherche du projet (visites et analyse)", short:"Recherche", hints:["recherche", "visites", "analyse"] },
+  { n:5, label:"Présentation des projets", short:"Présentation", hints:["présentation", "presentation", "projets", "bien présenté"] },
+  { n:6, label:"Offre d'achat", short:"Offre", hints:["offre d'achat", "offre"] },
+  { n:7, label:"Réalisation des devis précis", short:"Devis", hints:["devis précis", "devis"] },
+  { n:8, label:"Signature du compromis", short:"Compromis", hints:["signature du compromis", "compromis"] },
+  { n:9, label:"Réalisation du dossier bancaire", short:"Dossier bancaire", hints:["dossier bancaire", "banque", "bancaire"] },
+  { n:10, label:"Obtention du financement", short:"Financement", hints:["obtention du financement", "financement obtenu", "accord financement", "prêt obtenu"] },
+  { n:11, label:"Réalisation des dossiers d'urbanismes", short:"Urbanisme", hints:["urbanisme", "dossiers d'urbanismes", "dossier urbanisme", "dp", "déclaration préalable"] },
+  { n:12, label:"Validation des conditions suspensives d'achat", short:"Conditions", hints:["conditions suspensives", "validation conditions", "conditions d'achat"] },
+  { n:13, label:"Signature Notaire", short:"Notaire", hints:["signature notaire", "notaire", "signature définitive", "acte authentique"] },
+];
+
+const CRM_MISSION_STEP_TO_TIMELINE = {
+  signature: 1,
+  lancement: 3,
+  recherche: 4,
+  presentation_bien: 5,
+  acquisition: 8,
+  financement: 9,
+  urbanisme: 11,
+  enedis: 11,
+  signature_definitive: 13,
+  travaux: 13,
+  apres_travaux: 13,
+};
+
+function crmTimelineStepFromText(value = "") {
+  const clean = normTxt(value);
+  if (!clean) return 0;
+  const directNumber = clean.match(/^\s*(\d{1,2})\b/);
+  if (directNumber) {
+    const n = Number(directNumber[1]);
+    if (n >= 1 && n <= CRM_CLIENT_TIMELINE_STEPS.length) return n;
+  }
+  const found = CRM_CLIENT_TIMELINE_STEPS.find(step => {
+    const label = normTxt(step.label);
+    return clean.includes(label) || (step.hints || []).some(h => clean.includes(normTxt(h)));
+  });
+  return found?.n || 0;
+}
+
+function crmTimelineStepFromFreeText(value = "") {
+  const t = normTxt(value);
+  if (!t) return 0;
+  if (t.includes("signature notaire") || t.includes("acte authentique") || t.includes("signature definitive") || t.includes("signature définitive")) return 13;
+  if (t.includes("conditions suspensives")) return 12;
+  if (t.includes("urbanisme") || t.includes("declaration prealable") || t.includes("déclaration préalable") || t.includes(" dp ")) return 11;
+  if ((t.includes("financement") || t.includes("pret") || t.includes("prêt")) && (t.includes("obten") || t.includes("accord"))) return 10;
+  if (t.includes("dossier bancaire") || t.includes("banque") || t.includes("bancaire")) return 9;
+  if (t.includes("compromis")) return 8;
+  if (t.includes("devis")) return 7;
+  if (t.includes("offre")) return 6;
+  if (t.includes("presentation") || t.includes("présentation") || t.includes("dossier de presentation") || t.includes("dossier de présentation")) return 5;
+  if (t.includes("recherche") || t.includes("visite") || t.includes("analyse")) return 4;
+  if (t.includes("strategie") || t.includes("stratégie") || t.includes("cahier des charges")) return 3;
+  if (t.includes("document")) return 2;
+  if (t.includes("signature") || t.includes("contrat")) return 1;
+  return 0;
+}
+
+function computeCRMClientTimeline(client = {}, missionActions = [], propositions = [], today = new Date().toISOString().slice(0,10)) {
+  const reasons = [];
+  let n = crmTimelineStepFromText(client.etape);
+  if (n) reasons.push(`Étape CRM : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || client.etape}`);
+
+  if (client.date_signature || client.statut === "Actif" || client.statut === "Terminé") {
+    if (n < 1) reasons.push("Contrat / client actif détecté");
+    n = Math.max(n, 1);
+  }
+
+  const textStage = crmTimelineStepFromFreeText(`${client.etape || ""} ${client.prochaine_action || ""} ${client.notes_rapides || ""}`);
+  if (textStage > n) {
+    n = textStage;
+    reasons.push("Avancement déduit des informations CRM");
+  }
+
+  const actionStage = (missionActions || []).reduce((max, a) => {
+    const fromKey = CRM_MISSION_STEP_TO_TIMELINE[a.step_key] || 0;
+    const fromText = Math.max(crmTimelineStepFromText(a.step_label), crmTimelineStepFromFreeText(`${a.step_label || ""} ${a.action_title || ""}`));
+    return Math.max(max, fromKey, fromText);
+  }, 0);
+  if (actionStage > n) {
+    n = actionStage;
+    reasons.push("Parcours mission déjà avancé");
+  }
+
+  if ((propositions || []).length > 0 && n < 5) {
+    n = 5;
+    reasons.push("Bien / projet déjà proposé");
+  }
+  const propText = (propositions || []).map(p => `${p.statut || ""} ${p.commentaire || ""}`).join(" ");
+  const propStage = crmTimelineStepFromFreeText(propText);
+  if (propStage > n) {
+    n = propStage;
+    reasons.push("Avancement déduit des propositions");
+  }
+
+  if (client.statut === "Terminé") {
+    n = Math.max(n, 13);
+    reasons.push("Dossier terminé");
+  }
+
+  n = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, n || 1));
+  const step = CRM_CLIENT_TIMELINE_STEPS[n - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
+  const isLate = !!(client.date_prochaine_action && client.date_prochaine_action < today && client.statut !== "Terminé");
+  const dueToday = !!(client.date_prochaine_action && client.date_prochaine_action === today && client.statut !== "Terminé");
+  const hasAction = !!(client.prochaine_action || client.date_prochaine_action);
+  const waitingActions = (missionActions || []).filter(a => !["fait", "non_concerne"].includes(a?.status));
+  const lateMissionActions = waitingActions.filter(a => a.due_date && a.due_date < today).length;
+
+  return {
+    stepNumber: n,
+    stepLabel: step.label,
+    stepShort: step.short,
+    progressPct: Math.round((n / CRM_CLIENT_TIMELINE_STEPS.length) * 100),
+    remainingSteps: Math.max(0, CRM_CLIENT_TIMELINE_STEPS.length - n),
+    reasons,
+    isLate,
+    dueToday,
+    hasAction,
+    waitingMissionActions: waitingActions.length,
+    lateMissionActions,
+  };
+}
+
 function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien, initialFilter }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -366,18 +496,29 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   const [columnFilters, setColumnFilters] = useState({});
   const [sortConfig, setSortConfig] = useState({ key:"created_at", direction:"desc" });
   const [missionDeepLink, setMissionDeepLink] = useState({ clientId:"", actionId:"", stepKey:"" });
+  const [crmMissionActions, setCrmMissionActions] = useState([]);
+  const [crmPropositions, setCrmPropositions] = useState([]);
+  const [timelineStepFilter, setTimelineStepFilter] = useState("");
 
   const charger = async () => {
     setLoading(true);
-    const { data } = await supabase.from("invest_clients").select("*").order("created_at", { ascending: false });
-    setClients(data || []);
+    const [clientsRes, actionsRes, propsRes] = await Promise.all([
+      supabase.from("invest_clients").select("*").order("created_at", { ascending: false }),
+      supabase.from("invest_mission_actions").select("id,client_id,step_key,step_label,action_title,status,due_date,completed_at,updated_at").limit(4000),
+      supabase.from("invest_propositions").select("id,client_id,bien_id,statut,commentaire,date_proposition,created_at").limit(4000),
+    ]);
+    setClients(clientsRes.data || []);
+    setCrmMissionActions(actionsRes.error ? [] : (actionsRes.data || []));
+    setCrmPropositions(propsRes.error ? [] : (propsRes.data || []));
+    if (actionsRes.error && actionsRes.error.code !== "42P01") console.warn("Frise CRM / actions mission:", actionsRes.error);
+    if (propsRes.error && propsRes.error.code !== "42P01") console.warn("Frise CRM / propositions:", propsRes.error);
     setLoading(false);
   };
   useEffect(() => { charger(); }, []);
 
   useEffect(() => {
     if (!initialFilter) return;
-    setFiltreStatut(""); setFiltreConseiller(""); setFiltreSource(""); setSpecialFilter(""); setColumnFilters({}); setSearch("");
+    setFiltreStatut(""); setFiltreConseiller(""); setFiltreSource(""); setSpecialFilter(""); setColumnFilters({}); setSearch(""); setTimelineStepFilter("");
     if (initialFilter.type === "statut") setFiltreStatut(initialFilter.value || "");
     if (initialFilter.type === "etape") setColumnFilters({ etape: initialFilter.value || "" });
     if (["sans_action", "actions_week_or_late", "signes", "with_propositions"].includes(initialFilter.type)) setSpecialFilter(initialFilter.type);
@@ -403,6 +544,35 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     return d.toISOString().slice(0,10);
   };
 
+  const crmMissionActionsByClient = useMemo(() => {
+    const map = new Map();
+    (crmMissionActions || []).forEach(a => {
+      if (!a?.client_id) return;
+      const list = map.get(a.client_id) || [];
+      list.push(a);
+      map.set(a.client_id, list);
+    });
+    return map;
+  }, [crmMissionActions]);
+
+  const crmPropositionsByClient = useMemo(() => {
+    const map = new Map();
+    (crmPropositions || []).forEach(p => {
+      if (!p?.client_id) return;
+      const list = map.get(p.client_id) || [];
+      list.push(p);
+      map.set(p.client_id, list);
+    });
+    return map;
+  }, [crmPropositions]);
+
+  const getClientTimelineInfo = useCallback((client = {}) => computeCRMClientTimeline(
+    client,
+    crmMissionActionsByClient.get(client.id) || [],
+    crmPropositionsByClient.get(client.id) || [],
+    today,
+  ), [crmMissionActionsByClient, crmPropositionsByClient, today]);
+
   const updateColumnFilter = (key, value) => setColumnFilters(prev => ({ ...prev, [key]: value }));
   const handleSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
 
@@ -412,7 +582,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     return c[key];
   };
 
-  let filtered = clients.filter(c => {
+  const clientMatchesCRMFilters = (c, { includeTimeline = false } = {}) => {
     if (filtreStatut && c.statut !== filtreStatut) return false;
     if (filtreConseiller && c.conseiller !== filtreConseiller) return false;
     if (filtreSource && c.source !== filtreSource) return false;
@@ -420,11 +590,20 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     if (specialFilter === "actions_week_or_late" && !isActionLateOrThisWeek(c)) return false;
     if (specialFilter === "signes" && !c.date_signature) return false;
     if (search && !normTxt(`${c.nom} ${c.prenom} ${c.email} ${c.telephone} ${c.conseiller} ${c.source} ${c.etape} ${c.prochaine_action}`).includes(normTxt(search))) return false;
-    return Object.entries(columnFilters).every(([key, value]) => {
+    const columnOk = Object.entries(columnFilters).every(([key, value]) => {
       if (!value) return true;
       return normTxt(valueForColumn(c, key)).includes(normTxt(value));
     });
-  });
+    if (!columnOk) return false;
+    if (includeTimeline && timelineStepFilter) {
+      const info = getClientTimelineInfo(c);
+      if (String(info.stepNumber) !== String(timelineStepFilter)) return false;
+    }
+    return true;
+  };
+
+  const timelineBaseClients = clients.filter(c => clientMatchesCRMFilters(c, { includeTimeline:false }));
+  let filtered = clients.filter(c => clientMatchesCRMFilters(c, { includeTimeline:true }));
 
   filtered = [...filtered].sort((a,b) => compareValues(valueForColumn(a, sortConfig.key), valueForColumn(b, sortConfig.key), sortConfig.direction));
 
@@ -501,9 +680,145 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
     setSpecialFilter("");
     setSearch("");
     setColumnFilters({});
+    setTimelineStepFilter("");
   };
 
   const openClient = (id) => setFicheId(id);
+
+  const timelineRows = CRM_CLIENT_TIMELINE_STEPS.map(step => {
+    const positioned = timelineBaseClients
+      .map(client => ({ client, info:getClientTimelineInfo(client) }))
+      .filter(({ info }) => info.stepNumber === step.n)
+      .sort((a,b) => {
+        const lateA = a.info.isLate || a.info.lateMissionActions > 0 ? 1 : 0;
+        const lateB = b.info.isLate || b.info.lateMissionActions > 0 ? 1 : 0;
+        if (lateA !== lateB) return lateB - lateA;
+        return String(a.client.date_prochaine_action || "9999-99-99").localeCompare(String(b.client.date_prochaine_action || "9999-99-99"));
+      });
+    const budget = positioned.reduce((sum, { client }) => sum + (Number(client.budget || 0) || 0), 0);
+    const late = positioned.filter(({ info }) => info.isLate || info.lateMissionActions > 0).length;
+    const dueToday = positioned.filter(({ info }) => info.dueToday).length;
+    return { ...step, clients:positioned, count:positioned.length, budget, late, dueToday };
+  });
+
+  const renderCrmTimeline = () => {
+    const selectedLabel = timelineStepFilter ? CRM_CLIENT_TIMELINE_STEPS.find(s => String(s.n) === String(timelineStepFilter))?.label : "";
+    return (
+      <div className="inv-card" style={{padding:0, marginBottom:12, overflow:"hidden", background:"linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.025))"}}>
+        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"12px 14px", borderBottom:`1px solid ${T.border}`, flexWrap:"wrap"}}>
+          <div style={{display:"flex", alignItems:"center", gap:9, minWidth:0}}>
+            <span style={{width:34, height:34, borderRadius:13, display:"grid", placeItems:"center", background:T.accentBg, color:T.accent, border:`1px solid ${T.accent}30`, flexShrink:0}}>
+              <Icon as={TrendingUp} size={16} strokeWidth={2.2}/>
+            </span>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:14, fontWeight:950, color:T.text}}>Frise d'avancement des clients</div>
+              <div style={{fontSize:11, color:T.textMuted, marginTop:2}}>Positionnement selon l'étape CRM, les propositions et le parcours mission</div>
+            </div>
+          </div>
+          <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+            <span style={{fontSize:11, fontWeight:900, color:T.textSub, background:T.input, border:`1px solid ${T.border}`, borderRadius:999, padding:"5px 9px"}}>{timelineBaseClients.length} client(s) positionné(s)</span>
+            {timelineStepFilter && (
+              <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setTimelineStepFilter("")} title="Retirer le filtre de la frise">
+                <Icon as={X} size={12}/> Étape {timelineStepFilter} · effacer
+              </button>
+            )}
+          </div>
+        </div>
+
+        {selectedLabel && (
+          <div style={{padding:"8px 14px", borderBottom:`1px solid ${T.border}`, background:`${T.accent}0F`, color:T.textSub, fontSize:12, display:"flex", alignItems:"center", gap:7, flexWrap:"wrap"}}>
+            <Icon as={Filter} size={13} color={T.accent}/>
+            <span>Filtre frise actif : <strong style={{color:T.text}}>Étape {timelineStepFilter} — {selectedLabel}</strong></span>
+          </div>
+        )}
+
+        <div className="inv-crm-timeline-scroll" style={{overflowX:"auto", padding:"12px 12px 14px"}}>
+          <div style={{display:"flex", gap:10, minWidth:CRM_CLIENT_TIMELINE_STEPS.length * 218}}>
+            {timelineRows.map(row => {
+              const active = String(timelineStepFilter) === String(row.n);
+              const mainColor = row.late > 0 ? DA : row.dueToday > 0 ? WA : row.count > 0 ? T.accent : "#94A3B8";
+              const pct = Math.round((row.n / CRM_CLIENT_TIMELINE_STEPS.length) * 100);
+              return (
+                <div
+                  key={row.n}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setTimelineStepFilter(active ? "" : String(row.n))}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setTimelineStepFilter(active ? "" : String(row.n)); }}
+                  style={{
+                    width:208,
+                    flex:"0 0 208px",
+                    minHeight:230,
+                    borderRadius:18,
+                    border:`1px solid ${active ? T.accent : row.late > 0 ? "#fecdd3" : T.border}`,
+                    background:active ? `linear-gradient(135deg, ${T.accentBg}, rgba(255,255,255,.04))` : "rgba(255,255,255,.045)",
+                    boxShadow:active ? `0 18px 40px ${T.accent}14` : "none",
+                    padding:10,
+                    cursor:"pointer",
+                    display:"flex",
+                    flexDirection:"column",
+                    gap:8,
+                  }}
+                >
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:10, fontWeight:950, color:mainColor, letterSpacing:.6, textTransform:"uppercase"}}>Étape {row.n}</div>
+                      <div style={{fontSize:12.5, fontWeight:950, color:T.text, lineHeight:1.18, marginTop:2, minHeight:31}}>{row.short}</div>
+                    </div>
+                    <span style={{width:28, height:28, borderRadius:11, display:"grid", placeItems:"center", background:`${mainColor}17`, color:mainColor, border:`1px solid ${mainColor}30`, fontWeight:950, fontSize:13, flexShrink:0}}>{row.count}</span>
+                  </div>
+
+                  <div style={{height:6, borderRadius:999, background:"rgba(255,255,255,.08)", overflow:"hidden"}}>
+                    <div style={{height:"100%", width:`${pct}%`, borderRadius:999, background:mainColor}}/>
+                  </div>
+
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontSize:10.5, color:T.textMuted}}>
+                    <span>{fmtBudget(row.budget)}</span>
+                    {row.late > 0 ? <span style={{color:DA, fontWeight:900}}>{row.late} retard</span> : row.dueToday > 0 ? <span style={{color:WA, fontWeight:900}}>{row.dueToday} aujourd'hui</span> : <span>{CRM_CLIENT_TIMELINE_STEPS.length - row.n} étape(s) restantes</span>}
+                  </div>
+
+                  <div style={{display:"flex", flexDirection:"column", gap:6, marginTop:2, flex:1, minHeight:0}}>
+                    {row.clients.length === 0 ? (
+                      <div style={{border:`1px dashed ${T.border}`, borderRadius:13, padding:"16px 8px", textAlign:"center", color:T.textMuted, fontSize:11, fontStyle:"italic", marginTop:4}}>Aucun client</div>
+                    ) : row.clients.slice(0,4).map(({ client, info }) => {
+                      const alertColor = info.isLate || info.lateMissionActions > 0 ? DA : info.dueToday ? WA : T.accent;
+                      return (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={e => { e.stopPropagation(); openClient(client.id); }}
+                          style={{
+                            border:`1px solid ${alertColor}25`,
+                            borderLeft:`3px solid ${alertColor}`,
+                            background:"rgba(255,255,255,.075)",
+                            borderRadius:12,
+                            padding:"7px 7px",
+                            textAlign:"left",
+                            cursor:"pointer",
+                            minWidth:0,
+                          }}
+                          title={`${client.prenom || ""} ${client.nom || ""} — ${info.stepLabel}`}
+                        >
+                          <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:6}}>
+                            <span style={{fontSize:11.5, fontWeight:950, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0}}>{`${client.prenom || ""} ${client.nom || ""}`.trim() || "Client"}</span>
+                            <Icon as={ChevronRight} size={11} color={T.textMuted} style={{flexShrink:0}}/>
+                          </div>
+                          <div style={{fontSize:10, color:T.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                            {client.conseiller || "Non affecté"} · {client.date_prochaine_action ? fmtDate(client.date_prochaine_action) : "action —"}
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {row.clients.length > 4 && <div style={{fontSize:10.5, color:T.textMuted, fontWeight:850, textAlign:"center", paddingTop:2}}>+{row.clients.length - 4} autre(s)</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderListe = () => (
     loading ? (
@@ -730,9 +1045,9 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl+4}px`, maxWidth:1680, margin:"0 auto" }}>
       <style>{`
-        .inv-crm-kanban::-webkit-scrollbar { height: 10px; }
-        .inv-crm-kanban::-webkit-scrollbar-thumb { background: rgba(201,163,74,.35); border-radius: 999px; }
-        .inv-crm-kanban::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 999px; }
+        .inv-crm-kanban::-webkit-scrollbar, .inv-crm-timeline-scroll::-webkit-scrollbar { height: 10px; }
+        .inv-crm-kanban::-webkit-scrollbar-thumb, .inv-crm-timeline-scroll::-webkit-scrollbar-thumb { background: rgba(201,163,74,.35); border-radius: 999px; }
+        .inv-crm-kanban::-webkit-scrollbar-track, .inv-crm-timeline-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 999px; }
       `}</style>
 
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, flexWrap:"wrap", gap:SPACING.sm+2 }}>
@@ -786,6 +1101,8 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
           {specialFilter && <span style={{fontSize:FONT.sm.size, color:T.accent, fontWeight:800, display:"inline-flex", alignItems:"center"}}>Filtre dashboard actif</span>}
         </div>
       </div>
+
+      {renderCrmTimeline()}
 
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(210px, 1fr))", gap:8, marginBottom:12}}>
         <CRMViewButton active={viewMode === "pipeline"} icon={LayoutGrid} title="Pipeline" helper="Clients par statut" onClick={() => setViewMode("pipeline")} T={T}/>
