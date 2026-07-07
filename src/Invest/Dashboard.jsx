@@ -3,346 +3,54 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC } from "../constants";
 import { Icon } from "../ui";
 import {
-  LayoutDashboard, Users, Building2, BarChart3, Plus, Trash2,
-  Search, RefreshCw, Save, Download, X, Check, Phone, Calendar,
-  MessageSquare, FileText, Home, TrendingUp, Wallet, Euro, Filter,
-  Lock, AlertTriangle, ChevronDown, ChevronUp, Eye, Sparkles, Sun,
-  LayoutGrid, Send, Handshake, Bell, Briefcase, Copy, Pencil, ExternalLink,
+  LayoutDashboard, Users, Building2, BarChart3, RefreshCw, Download,
+  X, Check, Phone, Calendar, MessageSquare, FileText, Home, Euro, Filter,
+  AlertTriangle, Eye, Sparkles, Send, Handshake, Bell, Briefcase,
+  ExternalLink, Clock, UserCheck, ClipboardCheck, ListChecks, ShieldCheck,
 } from "lucide-react";
 
 import {
-  THEMES_INV, SU, WA, DA, ETAPES_CLIENT,
-  isoDate, getWeekRange, normTxt, KPICard,
+  THEMES_INV, SU, WA, DA,
+  isoDate, normTxt, KPICard,
   fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween,
-  getClientName, getBienLabel, getBienScore, isBienFicheComplete,
-  hasSimulateurBien, isGeolocBien, DashboardPanel, DashboardAlertList,
-  HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT,
+  getClientName, getBienLabel, getBienScore,
+  HONORAIRE_BASE_CONTRAT_HT,
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V8 — Dashboard de Décision Quotidienne Profero Invest
-// Objectif : suivi strict des urgences, prospects, clients et stock de biens.
-// Version calibrée selon les réponses métier Matthieu : uniquement les éléments
-// qui nécessitent une décision, clients sous contrôle visibles séparément,
-// score prospect, relances automatiques J+1/J+3/J+7/J+14/J+30, actions créées.
-// Rappel mail volontairement exclu de cette version.
-// V8 : pilotage par file de décision unique — bandeau 10 secondes, décisions à prendre maintenant, fiche latérale, onglets métier secondaires et notifications collaborateurs liées aux actions créées.
+// TABLEAU DE BORD V9 — Pilotage par dossier consolidé
+// Objectif : pilotage quotidien à distance sans doublons.
+// Principe : 1 prospect / 1 client / 1 bien = 1 carte consolidée.
+// Les alertes sont agrégées dans la même carte, puis classées en :
+// À décider maintenant / À surveiller / Délégué / Traité aujourd'hui.
 // ─────────────────────────────────────────────────────────────
 
-const V6_TABS = [
-  { key:"dashboard", label:"Décisions", icon:AlertTriangle },
-  { key:"suivi", label:"Vue métier", icon:LayoutGrid },
-  { key:"plan", label:"Plan d’action", icon:Send },
-  { key:"historique", label:"Historique", icon:FileText },
-  { key:"mensuel", label:"Vue mensuelle", icon:BarChart3 },
+const V9_RESPONSABLES = ["Matthieu", "Tom", "Benjamin", "Camille", "Autre"];
+const V9_ENTITY_FILTERS = [
+  { key:"all", label:"Tous", icon:LayoutDashboard },
+  { key:"prospect", label:"Prospects", icon:Phone },
+  { key:"client", label:"Clients", icon:Briefcase },
+  { key:"bien", label:"Biens", icon:Home },
+  { key:"team", label:"Équipe", icon:Users },
 ];
-
-const V6_STEPS = [
-  { key:"decisions", label:"File de décision", icon:AlertTriangle, help:"Toutes les décisions à prendre maintenant, triées par urgence." },
-  { key:"prospects", label:"Prospects", icon:Phone, help:"Prospects actifs à décider puis lecture seule." },
-  { key:"clients", label:"Clients", icon:Briefcase, help:"Clients actifs en alerte puis dossiers sous contrôle." },
-  { key:"biens", label:"Stock de biens", icon:Home, help:"Biens avec tâche, relance, offre ou décision à prendre." },
-  { key:"collaborateurs", label:"Équipe", icon:Users, help:"Consignes et actions assignées à Matthieu, Tom, Benjamin, Camille ou autres." },
-  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Priorités définies après la file de décision." },
-  { key:"synthese", label:"Synthèse", icon:Send, help:"Plan d’action PDF par responsable avec commentaires détaillés." },
-  { key:"validation", label:"Validation finale", icon:Check, help:"Finalisation stricte ou validation forcée avec motif." },
+const V9_COLUMNS = [
+  { key:"decision", label:"À décider maintenant", icon:AlertTriangle, color:DA, help:"Dossiers qui demandent ton arbitrage aujourd'hui." },
+  { key:"watch", label:"À surveiller", icon:Eye, color:WA, help:"Dossiers suivis avec une échéance future ou une vigilance." },
+  { key:"delegated", label:"Délégué / en attente", icon:UserCheck, color:"#4db8ff", help:"Actions confiées à l'équipe ou en attente de retour." },
+  { key:"done", label:"Traité aujourd'hui", icon:ShieldCheck, color:SU, help:"Dossiers validés dans le dashboard du jour." },
 ];
-
-const V6_BASE_COLLABORATORS = ["Tom", "Benjamin", "Camille", "Matthieu"];
-const V6_RESPONSABLES = ["Matthieu", "Tom", "Benjamin", "Camille", "Autre"];
-const V6_URGENCIES = ["Faible", "Normal", "Élevé"];
-const V6_RELANCE_SEQUENCE = [1, 3, 7, 14, 30];
-const V6_CLIENT_STEPS = ["Contrat signé", "Documents reçus", "Stratégie définie", "Recherche de biens", "Visites", "Présentation opportunité", "Offre d’achat", "Offre acceptée", "Financement", "Compromis", "Travaux", "Mise en location", "Terminé"];
-const V6_BIEN_STATUTS = ["Nouveau", "À trier", "À analyser", "Analyse en cours", "À visiter", "Visite programmée", "Visité", "À matcher", "Proposé à client", "Offre à faire", "Offre envoyée", "Offre acceptée", "Refusé", "Archivé", "En travaux", "Terminé"];
-
-const V6_DECISIONS = {
-  urgence:["Traiter moi-même", "Assigner", "Reporter", "Bloquer", "Arbitrage Matthieu", "Clôturer / ne plus suivre"],
-  collaborateur:["Rien à signaler", "Demander retour", "Donner consigne", "Réassigner", "Bloquer pour arbitrage", "Créer tâche"],
+const V9_DECISIONS = {
   prospect:["Appeler", "Envoyer WhatsApp", "Envoyer mail", "Programmer RDV", "Créer tâche", "Assigner", "Reporter", "Passer froid", "Passer perdu", "Archiver"],
-  client:["Faire avancer", "Relancer client", "Relancer banque", "Relancer notaire", "Relancer assurance", "Demander document", "Assigner à Tom", "Assigner à Benjamin", "Assigner à Camille", "Arbitrage Matthieu", "Mettre en pause", "Clôturer"],
-  bien:["Analyser", "Demander visite terrain", "Proposer à un client", "Matcher avec client", "Relancer agent / vendeur", "Faire offre", "Revoir le prix", "Archiver", "Mettre en attente", "Créer tâche travaux", "Créer tâche analyse"],
+  client:["Faire avancer", "Relancer client", "Relancer banque", "Relancer notaire", "Relancer assurance", "Demander document", "Assigner", "Arbitrage Matthieu", "Mettre en pause", "Clôturer"],
+  bien:["Analyser", "Demander visite terrain", "Proposer à un client", "Matcher avec client", "Relancer agent / vendeur", "Faire offre", "Revoir le prix", "Archiver", "Mettre en attente"],
+  team:["Valider retour", "Demander retour", "Réassigner", "Bloquer", "Clôturer"],
 };
+const V9_PROSPECT_LOST = ["perdu", "perdue", "archive", "archivé", "archivée", "supprime", "supprimé", "supprimée", "corbeille", "trash", "deleted", "removed", "inactif", "termine", "terminé", "client"];
+const V9_BIEN_INACTIVE = ["archivé", "archive", "refusé", "refuse", "terminé", "termine", "vendu", "perdu"];
+const V9_CLIENT_INACTIVE = ["prospect", "inactif", "terminé", "termine", "perdu", "archivé", "archive", "supprimé", "supprime"];
 
-const V6_CHECKLISTS = {
-  urgences:[
-    { id:"late_tasks", label:"Tâches en retard vérifiées", required:true },
-    { id:"red_alerts", label:"Chaque urgence rouge a une décision", required:true },
-    { id:"owner_set", label:"Responsable défini sur chaque urgence", required:true },
-    { id:"comments_done", label:"Commentaires saisis pour chaque décision", required:true },
-  ],
-  priorites:[
-    { id:"p1", label:"Priorité n°1 remplie", required:true },
-    { id:"p2", label:"Priorité n°2 remplie", required:true },
-    { id:"p3", label:"Priorité n°3 remplie", required:true },
-  ],
-  collaborateurs:[
-    { id:"assigned", label:"Les actions assignées à l’équipe sont contrôlées", required:false },
-    { id:"clear", label:"Les consignes importantes sont présentes dans le plan d’action", required:false },
-  ],
-  prospects:[
-    { id:"classified", label:"Prospects classés par niveau", required:true },
-    { id:"critical", label:"Prospects critiques traités individuellement", required:true },
-    { id:"next_action", label:"Prochaine action + date + responsable + commentaire", required:true },
-  ],
-  clients:[
-    { id:"stages", label:"Étapes clients vérifiées", required:true },
-    { id:"blocked", label:"Documents manquants / étapes non renseignées traités", required:true },
-    { id:"owner", label:"Responsable et action future définis", required:true },
-  ],
-  biens:[
-    { id:"decisions", label:"Chaque bien a une décision", required:true },
-    { id:"score", label:"Score Profero vérifié", required:false },
-    { id:"owner", label:"Responsable + action à prévoir définis", required:true },
-  ],
-  synthese:[
-    { id:"summary", label:"Plan d’action court vérifié", required:true },
-    { id:"owners", label:"Actions regroupées par responsable", required:true },
-  ],
-  validation:[
-    { id:"final", label:"Routine validée ou forcée avec motif", required:true },
-  ],
-};
-
-function todayIso() {
-  return isoDate(new Date());
-}
-
-function isFutureDate(value) {
-  const d = toDate(value);
-  const t = toDate(new Date());
-  if (!d || !t) return false;
-  return d > t;
-}
-
-function isDueTodayOrPast(value) {
-  const d = toDate(value);
-  const t = toDate(new Date());
-  if (!d || !t) return false;
-  return d <= t;
-}
-
-function readOnlyReasonFromDate(value) {
-  return isFutureDate(value) ? `Échéance à venir le ${safeDate(value)} — lecture seule aujourd’hui` : "";
-}
-
-function safeArr(v) {
-  return Array.isArray(v) ? v : [];
-}
-
-
-function firstFilled(obj={}, keys=[]) {
-  for (const key of keys) {
-    if (!key) continue;
-    const value = obj?.[key];
-    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
-  }
-  return "";
-}
-
-function numberFromAny(value) {
-  if (value === undefined || value === null || value === "") return 0;
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  const cleaned = String(value).replace(/[^0-9,.-]/g, "").replace(",", ".");
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function joinNonEmpty(parts=[], separator=" · ") {
-  return parts.map(v => String(v || "").trim()).filter(Boolean).join(separator);
-}
-
-function prospectOwner(c={}) {
-  return firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to", "commercial", "collaborateur"]) || "Matthieu";
-}
-
-function prospectSource(c={}) {
-  return firstFilled(c, ["source_lead", "source", "origine", "canal", "provenance", "lead_source"]);
-}
-
-function prospectStage(c={}) {
-  return firstFilled(c, ["statut_crm", "pipeline_stage", "phase", "etape", "statut_pipeline", "classe", "categorie_prospect"]);
-}
-
-function prospectPriority(c={}) {
-  return firstFilled(c, ["priorite", "priorité", "niveau_priorite", "niveau_urgence", "urgence"]);
-}
-
-function prospectLastContact(c={}) {
-  return firstFilled(c, ["date_dernier_contact", "dernier_contact", "last_contact_at", "last_contact", "date_contact", "updated_at", "date_premier_contact", "created_at"]);
-}
-
-function prospectNextAction(c={}) {
-  return firstFilled(c, ["prochaine_action", "next_action", "action_prevue", "action_a_mener", "action"]);
-}
-
-function prospectNextActionDate(c={}) {
-  return firstFilled(c, ["date_prochaine_action", "relance_date", "date_relance", "next_action_date", "due_date", "echeance", "échéance"]);
-}
-
-function prospectEmail(c={}) {
-  return firstFilled(c, ["email", "mail", "adresse_mail"]);
-}
-
-function prospectPhone(c={}) {
-  return firstFilled(c, ["telephone", "téléphone", "tel", "mobile", "phone", "whatsapp"]);
-}
-
-function prospectLocation(c={}) {
-  return joinNonEmpty([firstFilled(c, ["ville", "city"]), firstFilled(c, ["pays", "country"])]);
-}
-
-function prospectZone(c={}) {
-  return firstFilled(c, ["zone_ciblee", "zone_ciblée", "zone", "secteur", "ville_cible", "localisation_recherche"]);
-}
-
-function prospectGoal(c={}) {
-  return firstFilled(c, ["objectif", "objectif_investissement", "strategie", "stratégie", "type_projet", "projet", "besoin"]);
-}
-
-function prospectHorizon(c={}) {
-  return firstFilled(c, ["horizon", "horizon_projet", "delai_projet", "délai_projet", "delai", "délai", "urgence"]);
-}
-
-function prospectBudget(c={}) {
-  return numberFromAny(firstFilled(c, ["budget_cible", "budget", "budget_max", "montant_projet", "enveloppe"]));
-}
-
-function prospectApport(c={}) {
-  return numberFromAny(firstFilled(c, ["apport", "apport_disponible", "fonds_propres"]));
-}
-
-function prospectCapacity(c={}) {
-  return numberFromAny(firstFilled(c, ["capacite_emprunt", "capacité_emprunt", "capacite", "capacité", "financement_possible", "enveloppe_financement"]));
-}
-
-function prospectMotivation(c={}) {
-  return firstFilled(c, ["motivation", "niveau_motivation", "interet", "intérêt", "temperature", "température"]);
-}
-
-function prospectComment(c={}) {
-  return firstFilled(c, ["commentaire", "commentaires", "notes", "note", "historique", "dernier_commentaire"]);
-}
-
-function contactTypeValue(c={}) {
-  return normTxt(firstFilled(c, ["contact_type", "type_contact", "type", "categorie_contact", "catégorie_contact", "nature_contact", "nature"]));
-}
-
-function contactStatusValue(c={}) {
-  return normTxt(firstFilled(c, ["statut", "status", "statut_crm", "pipeline_stage", "phase", "statut_pipeline", "classe", "categorie_prospect", "catégorie_prospect", "categorie"]));
-}
-
-function contactStepValue(c={}) {
-  return normTxt(firstFilled(c, ["etape", "étape", "step", "parcours", "phase_client", "etape_client"]));
-}
-
-const PROSPECT_STATUS_KEYWORDS = [
-  "prospect", "lead", "nouveau", "a qualifier", "à qualifier", "qualifie", "qualifié",
-  "rdv a fixer", "rdv à fixer", "rdv fixe", "rdv fixé", "rdv fait",
-  "proposition envoy", "relance", "a relancer", "à relancer", "chaud", "tiede", "tiède", "froid", "perdu"
-];
-
-const CLIENT_STATUS_KEYWORDS = [
-  "client", "actif", "inactif", "signe", "signé", "contrat", "documents", "strategie", "stratégie",
-  "recherche", "presentation", "présentation", "offre d'achat", "offre achat", "offre acceptee", "offre acceptée",
-  "financement", "compromis", "travaux", "location", "termine", "terminé"
-];
-
-function booleanLikeTrue(value) {
-  if (value === true) return true;
-  if (value === false || value === undefined || value === null || value === "") return false;
-  const txt = normTxt(value);
-  return ["true", "1", "oui", "yes", "supprime", "supprimé", "deleted", "archive", "archivé"].includes(txt);
-}
-
-function isDeletedRecord(c={}) {
-  const deletedFlags = [
-    "deleted", "is_deleted", "isDeleted", "supprime", "supprimé", "is_supprime", "is_supprimé",
-    "removed", "is_removed", "trashed", "is_trashed", "in_trash", "corbeille"
-  ];
-  if (deletedFlags.some(key => booleanLikeTrue(c?.[key]))) return true;
-  if (firstFilled(c, ["deleted_at", "deletedAt", "removed_at", "trashed_at", "supprime_at", "supprimé_at"])) return true;
-  const txt = normTxt(joinNonEmpty([
-    firstFilled(c, ["statut", "status", "statut_crm", "pipeline_stage", "phase", "statut_pipeline", "classe", "categorie", "catégorie"]),
-    firstFilled(c, ["archive_status", "deletion_status", "etat", "état"])
-  ], " "));
-  return txt.includes("supprime") || txt.includes("supprimé") || txt.includes("deleted") || txt.includes("corbeille") || txt.includes("trash") || txt.includes("efface") || txt.includes("effacé");
-}
-
-function isInactiveProspectRecord(c={}) {
-  if (isDeletedRecord(c)) return true;
-  const status = contactStatusValue(c);
-  const step = contactStepValue(c);
-  const type = contactTypeValue(c);
-  const txt = `${status} ${step} ${type}`;
-  return txt.includes("archive") || txt.includes("archivé") || txt.includes("inactif") || txt.includes("perdu") || txt.includes("termine") || txt.includes("terminé") || txt.includes("clos") || txt.includes("closed") || txt.includes("annule") || txt.includes("annulé");
-}
-
-function isTerminatedContact(c={}) {
-  if (isDeletedRecord(c)) return true;
-  const status = contactStatusValue(c);
-  const step = contactStepValue(c);
-  return status.includes("termine") || status.includes("terminé") || step.includes("termine") || step.includes("terminé") || status.includes("archive") || status.includes("archivé") || status.includes("supprime") || status.includes("supprimé") || status.includes("deleted");
-}
-
-function isExplicitProspect(c={}) {
-  const type = contactTypeValue(c);
-  const status = contactStatusValue(c);
-  const step = contactStepValue(c);
-  const rawStatut = normTxt(c?.statut || "");
-  if (c?._dashboard_record_type === "prospect") return true;
-  if (type.includes("prospect") || type.includes("lead") || type.includes("prospection")) return true;
-  if (rawStatut === "prospect") return true;
-  return PROSPECT_STATUS_KEYWORDS.some(k => status.includes(normTxt(k)) || step.includes(normTxt(k)));
-}
-
-function isExplicitClient(c={}) {
-  const type = contactTypeValue(c);
-  const status = contactStatusValue(c);
-  const step = contactStepValue(c);
-  const rawStatut = normTxt(c?.statut || "");
-  if (type.includes("client")) return true;
-  if (["actif", "inactif", "terminé", "termine"].includes(rawStatut)) return true;
-  if (c?.date_signature) return true;
-  if (CLIENT_STATUS_KEYWORDS.some(k => status.includes(normTxt(k)) || step.includes(normTxt(k)))) return true;
-  return false;
-}
-
-function isProspectRecord(c={}) {
-  if (isInactiveProspectRecord(c)) return false;
-  if (isTerminatedContact(c) && !isExplicitProspect(c)) return false;
-  if (isExplicitProspect(c) && !isExplicitClient(c)) return true;
-  if (isExplicitProspect(c) && !c?.date_signature && !normTxt(c?.statut || "").includes("actif")) return true;
-  return false;
-}
-
-function isActiveProspectRecord(c={}) {
-  return isProspectRecord(c) && !isInactiveProspectRecord(c);
-}
-
-function isClientRecord(c={}) {
-  if (isTerminatedContact(c)) return false;
-  if (isProspectRecord(c)) return false;
-  return isExplicitClient(c);
-}
-
-function withSourceTable(rows=[], table="") {
-  return safeArr(rows).map(r => ({ ...r, _source_table:table, _dashboard_record_type:"prospect" }));
-}
-
-function uniqueBySourceAndId(rows=[]) {
-  const seen = new Set();
-  const out = [];
-  safeArr(rows).forEach((row, index) => {
-    const source = row?._source_table || "invest_clients";
-    const id = row?.id || row?.uuid || row?.client_id || row?.prospect_id || `${source}-${index}`;
-    const key = `${source}:${id}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({ ...row, id });
-  });
-  return out;
-}
-
+function todayIso() { return isoDate(new Date()); }
+function safeArr(v) { return Array.isArray(v) ? v : []; }
 function toDate(value) {
   if (!value) return null;
   const d = value instanceof Date ? new Date(value) : new Date(value);
@@ -350,1630 +58,509 @@ function toDate(value) {
   d.setHours(0, 0, 0, 0);
   return d;
 }
-
+function isDueTodayOrPast(value) {
+  const d = toDate(value); const t = toDate(new Date());
+  return Boolean(d && t && d <= t);
+}
+function isFuture(value) {
+  const d = toDate(value); const t = toDate(new Date());
+  return Boolean(d && t && d > t);
+}
+function isWithinNextDays(value, days=7) {
+  const d = toDate(value); const t = toDate(new Date());
+  if (!d || !t) return false;
+  const end = new Date(t); end.setDate(end.getDate() + days);
+  return d >= t && d <= end;
+}
 function daysSince(value) {
-  const d = toDate(value);
-  if (!d) return null;
-  const t = toDate(new Date());
+  const d = toDate(value); const t = toDate(new Date());
+  if (!d || !t) return null;
   return Math.floor((t.getTime() - d.getTime()) / 86400000);
 }
-
-function isWithin(value, start, end) {
-  const d = toDate(value);
-  const s = toDate(start);
-  const e = toDate(end);
-  if (!d || !s || !e) return false;
-  return d >= s && d <= e;
-}
-
-function monthKey(value) {
-  const d = toDate(value);
-  if (!d) return "";
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthLabel(value) {
-  const d = toDate(value);
-  if (!d) return "—";
-  return d.toLocaleDateString("fr-FR", { month:"short" }).replace(".", "");
-}
-
-function lastClientActivity(c={}) {
-  return c.updated_at || c.date_prochaine_action || c.date_signature || c.date_premier_contact || c.created_at || null;
-}
-
-function actionTitle(a={}) {
-  return String(a.action_title || a.title || a.titre || a.nom || "Action").trim();
-}
-
-function actionOwner(a={}) {
-  return String(a.responsable || a.owner || a.assignee || a.assigned_to || "").trim();
-}
-
-function isOpenAction(a={}) {
-  const s = normTxt(a.status || a.statut || "");
-  return !s || ["a_faire", "en_cours", "bloque", "bloqué", "a_valider", "todo", "open", "pending"].includes(s);
-}
-
-function isDoneAction(a={}) {
-  const s = normTxt(a.status || a.statut || "");
-  return ["termine", "terminé", "fait", "done", "completed", "valide", "validé"].includes(s);
-}
-
-function isBlockedAction(a={}) {
-  const s = normTxt(a.status || a.statut || "");
-  return s.includes("bloque") || s.includes("bloqué");
-}
-
-function isPartnerAction(a={}) {
-  const txt = normTxt(`${actionTitle(a)} ${a.step_label || ""}`);
-  return txt.includes("banque") || txt.includes("notaire") || txt.includes("assurance") || txt.includes("courtier") || txt.includes("partenaire");
-}
-
-function isDocumentAction(a={}) {
-  const txt = normTxt(`${actionTitle(a)} ${a.step_label || ""}`);
-  return txt.includes("document") || txt.includes("piece") || txt.includes("pièce") || txt.includes("justificatif") || txt.includes("dossier manquant");
-}
-
-function prospectScore(c={}) {
-  // Score CRM Prospection sur 100, aligné sur tes critères : délai, capacité, motivation, qualité, source.
-  const stage = normTxt(prospectStage(c));
-  const horizon = normTxt(prospectHorizon(c));
-  const motivation = normTxt(`${prospectMotivation(c)} ${prospectComment(c)} ${prospectGoal(c)}`);
-  const source = normTxt(prospectSource(c));
-  const priority = normTxt(prospectPriority(c));
-  const budget = prospectBudget(c);
-  const apport = prospectApport(c);
-  const capacity = prospectCapacity(c);
-
-  let score = 0;
-
-  // 1. Délai / urgence du projet — 20 pts
-  if (priority.includes("urgent") || horizon.includes("urgent") || horizon.includes("rapid") || horizon.includes("court terme") || horizon.includes("1 mois") || horizon.includes("3 mois")) score += 20;
-  else if (horizon.includes("6 mois") || horizon.includes("moyen terme")) score += 14;
-  else if (horizon) score += 9;
-  else score += 5;
-
-  // 2. Capacité financière — 20 pts
-  const financial = Math.max(budget, capacity);
-  if (financial >= 200000 || apport >= 50000) score += 20;
-  else if (financial >= 150000 || apport >= 30000) score += 16;
-  else if (financial >= 100000 || apport >= 15000) score += 11;
-  else if (financial > 0 || apport > 0) score += 7;
-  else score += 3;
-
-  // 3. Motivation claire — 20 pts
-  if (motivation.includes("très motiv") || motivation.includes("tres motiv") || motivation.includes("motivé") || motivation.includes("motive") || motivation.includes("prêt") || motivation.includes("pret") || motivation.includes("validé") || motivation.includes("valide")) score += 20;
-  else if (motivation.includes("intéress") || motivation.includes("interess") || motivation.includes("objectif") || motivation.includes("projet clair") || motivation.includes("locatif")) score += 14;
-  else if (motivation) score += 8;
-  else score += 4;
-
-  // 4. Qualité / maturité commerciale — 20 pts
-  if (stage.includes("proposition envoy") || stage.includes("rdv fait") || stage.includes("qualifié") || stage.includes("qualifie") || stage.includes("étude") || stage.includes("etude")) score += 20;
-  else if (stage.includes("rdv fixé") || stage.includes("rdv fixe") || stage.includes("premier échange") || stage.includes("premier echange") || stage.includes("qualification")) score += 14;
-  else if (stage.includes("lead") || stage.includes("nouveau")) score += 7;
-  else score += 5;
-
-  // 5. Source — 20 pts
-  if (source.includes("recommand") || source.includes("parrain") || source.includes("réseau") || source.includes("reseau") || source.includes("client") || source.includes("notaire")) score += 20;
-  else if (source.includes("upi") || source.includes("congr") || source.includes("partenaire") || source.includes("linkedin")) score += 15;
-  else if (source.includes("site") || source.includes("formulaire") || source.includes("meta") || source.includes("facebook") || source.includes("google")) score += 11;
-  else if (source) score += 8;
-  else score += 4;
-
-  return Math.max(0, Math.min(100, score));
-}
-
-function nextRelanceDateFromCount(count=0) {
-  const idx = Math.min(Math.max(Number(count) || 0, 0), V6_RELANCE_SEQUENCE.length - 1);
-  const d = new Date();
-  d.setDate(d.getDate() + V6_RELANCE_SEQUENCE[idx]);
-  return isoDate(d);
-}
-
-function prospectClass(c={}) {
-  const nextAction = prospectNextAction(c);
-  const nextDate = prospectNextActionDate(c);
-  const owner = prospectOwner(c);
-  const stage = normTxt(prospectStage(c));
-  const last = daysSince(prospectLastContact(c));
-  const score = prospectScore(c);
-  const hasNoAction = !nextAction || !nextDate;
-  const hasNoOwner = !owner;
-  const hasFutureAction = Boolean(nextDate && isFutureDate(nextDate));
-  const badges = [];
-
-  if (score >= 70) badges.push({ label:"Chaud", level:"success" });
-  if (stage.includes("rdv à fixer") || stage.includes("rdv a fixer")) badges.push({ label:"RDV à fixer", level:"warning" });
-  if (stage.includes("proposition envoy")) badges.push({ label:"Proposition envoyée", level:"warning" });
-  if (nextDate === todayIso()) badges.push({ label:"Relance du jour", level:"warning" });
-  if (hasFutureAction) badges.push({ label:"Échéance à venir", level:"info" });
-  if (!hasFutureAction && last !== null && last >= 10) badges.push({ label:"Rouge +10j", level:"danger" });
-  else if (!hasFutureAction && last !== null && last >= 7) badges.push({ label:"Orange +7j", level:"warning" });
-  if (hasNoAction) badges.push({ label:"Sans action", level:"danger" });
-  if (hasNoOwner) badges.push({ label:"Sans responsable", level:"danger" });
-
-  const hasBlockingAlert = hasNoAction || hasNoOwner || (!hasFutureAction && last !== null && last >= 7) || nextDate === todayIso() || stage.includes("proposition envoy") || stage.includes("rdv à fixer") || stage.includes("rdv a fixer");
-  const scheduledReadOnly = hasFutureAction && !hasNoAction && !hasNoOwner && !hasBlockingAlert;
-
-  if (scheduledReadOnly) {
-    return {
-      label:score >= 70 ? "Chaud programmé" : "Échéance à venir",
-      level:"info",
-      reason:`${readOnlyReasonFromDate(nextDate)}${score >= 70 ? ` · Prospect chaud — score ${score}/100` : ""}`,
-      score,
-      badges,
-      readOnly:true,
-      scheduledFuture:true,
-    };
+function firstFilled(obj={}, keys=[]) {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
   }
-
-  const main = badges.find(b => b.level === "danger") || badges.find(b => b.level === "warning") || badges.find(b => b.level === "success") || { label:"Suivi", level:"info" };
-  const reason = hasNoAction ? "Prospect sans prochaine action datée" : hasNoOwner ? "Prospect sans responsable" : last !== null && last >= 10 ? `Sans contact depuis ${last} jours` : last !== null && last >= 7 ? `Sans contact depuis ${last} jours` : score >= 70 ? `Prospect chaud — score ${score}/100` : "Prospect à maintenir actif";
-  return { label:main.label, level:main.level, reason, score, badges, readOnly:false, scheduledFuture:false };
+  return "";
 }
-
-function bienClass(b={}) {
-  const statutRaw = b.statut || "";
-  const statut = normTxt(statutRaw);
-  const score = getBienScore(b);
-  const hasNoStatus = !String(statutRaw || "").trim();
-  const hasFutureRelance = Boolean(b.date_relance && isFutureDate(b.date_relance));
-  const hasNoAction = !b.date_relance && !statut.includes("termine") && !statut.includes("archiv") && !statut.includes("refus");
-  const isOffer = statut.includes("offre envoy") || statut.includes("offre à faire") || statut.includes("offre a faire") || statut.includes("offre accept");
-
-  if (hasFutureRelance) {
-    return {
-      label:"Échéance à venir",
-      level:"info",
-      reason:readOnlyReasonFromDate(b.date_relance),
-      score,
-      readOnly:true,
-      scheduledFuture:true,
-    };
-  }
-
-  if (hasNoStatus) return { label:"Sans statut", level:"danger", reason:"Bien sans statut", score, readOnly:false, scheduledFuture:false };
-  if (b.date_relance && isDueTodayOrPast(b.date_relance)) return { label:"Relance arrivée", level:"danger", reason:`Relance prévue le ${safeDate(b.date_relance)}`, score, readOnly:false, scheduledFuture:false };
-  if (hasNoAction && !statut.includes("termine") && !statut.includes("archiv")) return { label:"Sans action", level:"danger", reason:"Bien sans prochaine action / relance", score, readOnly:false, scheduledFuture:false };
-  if (isOffer) return { label:"Offre en cours", level:"warning", reason:"Offre à suivre", score, readOnly:false, scheduledFuture:false };
-  if (statut.includes("nouveau") || statut.includes("trier")) return { label:"Nouvelle annonce", level:"warning", reason:"Annonce à classer", score, readOnly:false, scheduledFuture:false };
-  if (statut.includes("analyse") || statut.includes("analyser")) return { label:"À analyser", level:"warning", reason:"Analyse à finaliser", score, readOnly:false, scheduledFuture:false };
-  if (statut.includes("visite") || statut.includes("matcher") || statut.includes("proposé")) return { label:"Tâche à effectuer", level:"warning", reason:"Action à effectuer sur le bien", score, readOnly:false, scheduledFuture:false };
-  if (!isBienFicheComplete(b)) return { label:"Fiche incomplète", level:"warning", reason:"Fiche bien incomplète", score, readOnly:false, scheduledFuture:false };
-  if (score >= 70) return { label:"Prioritaire", level:"success", reason:"Score Profero prioritaire", score, readOnly:false, scheduledFuture:false };
-  return { label:"Sous contrôle", level:"info", reason:"Bien sans décision urgente", score, readOnly:true, scheduledFuture:false };
+function numberFromAny(value) {
+  if (value === undefined || value === null || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const n = Number(String(value).replace(/[^0-9,.-]/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
 }
+function joinNonEmpty(parts=[], sep=" · ") { return parts.map(v => String(v || "").trim()).filter(Boolean).join(sep); }
+function levelRank(level) { return ({ danger:0, warning:1, info:2, success:3 }[level] ?? 4); }
+function levelColor(level, T) { return level === "danger" ? DA : level === "warning" ? WA : level === "success" ? SU : T.accent; }
+function levelLabel(level) { return level === "danger" ? "Urgent" : level === "warning" ? "Attention" : level === "success" ? "OK" : "Info"; }
 
-function levelColor(level, T) {
-  if (level === "danger") return DA;
-  if (level === "warning") return WA;
-  if (level === "success") return SU;
-  return T.accent;
+function isDeletedLike(row={}) {
+  const deletedFlags = [row.deleted_at, row.removed_at, row.archived_at].some(Boolean);
+  const boolFlags = [row.is_deleted, row.deleted, row.supprime, row.supprimé, row.removed, row.trashed, row.corbeille].some(v => v === true || String(v).toLowerCase() === "true");
+  const txt = normTxt(`${row.statut || ""} ${row.status || ""} ${row.etat || ""} ${row.state || ""}`);
+  return deletedFlags || boolFlags || ["supprime", "supprim", "deleted", "removed", "trash", "corbeille"].some(k => txt.includes(k));
 }
-
-function emptyRoutineState() {
-  return {
-    status:"not_started",
-    started_at:null,
-    completed_at:null,
-    force_completed:false,
-    force_reason:"",
-    priorities:[0,1,2].map(() => ({ title:"", responsable:"Matthieu", due_date:todayIso(), comment:"", urgency:"Élevé" })),
-    collaborators:{},
-    extraCollaborators:[],
-    checklist:{},
-    decisions:{},
-    resolvedUrgencies:{},
-    stepNotes:{},
-    savedRoutineId:null,
-  };
+function prospectStatusText(c={}) { return normTxt(`${c.statut || ""} ${c.status || ""} ${c.etape || ""} ${c.pipeline_stage || ""} ${c.categorie || ""} ${c.type || ""}`); }
+function isActiveProspectRecord(c={}) {
+  if (!c || !c.id || isDeletedLike(c)) return false;
+  const txt = prospectStatusText(c);
+  if (V9_PROSPECT_LOST.some(k => txt.includes(k))) return false;
+  if (txt.includes("actif") || txt.includes("client") || c.date_signature) return false;
+  const explicit = firstFilled(c, ["contact_type", "type_contact", "type", "categorie", "pipeline", "module"]);
+  if (normTxt(explicit).includes("prospect")) return true;
+  const prospectWords = ["prospect", "nouveau", "qualifie", "qualifié", "rdv", "proposition", "relance", "chaud", "tiede", "tiède", "froid", "a qualifier", "à qualifier"];
+  return prospectWords.some(k => txt.includes(k)) || (!txt || txt === "nouveau");
 }
-
-function storageKeyFor(date=todayIso()) {
-  return `profero_invest_dashboard_v8_${date}`;
+function isClientRecord(c={}) {
+  if (!c || !c.id || isDeletedLike(c)) return false;
+  const txt = normTxt(`${c.statut || ""} ${c.status || ""} ${c.etape || ""}`);
+  if (V9_CLIENT_INACTIVE.some(k => txt.includes(k))) return false;
+  return c.date_signature || txt.includes("actif") || txt.includes("contrat") || txt.includes("financement") || txt.includes("compromis") || txt.includes("travaux") || txt.includes("location") || Boolean(c.etape);
 }
-
-function decisionKey(item) {
-  return `${item.type}:${item.id}`;
+function isActiveBien(b={}) {
+  if (!b || !b.id || isDeletedLike(b)) return false;
+  const txt = normTxt(`${b.statut || ""} ${b.status || ""}`);
+  return !V9_BIEN_INACTIVE.some(k => txt.includes(k));
 }
-
-function routineEntityKey(item) {
-  if (!item) return "";
-  const type = item.originalType || item.type || "item";
-  const id = item.raw?.id || item.sourceId || item.id || item.label || "unknown";
-  return `${type}:${id}`;
-}
-
-function isResolvedToday(routine, item) {
-  const resolved = routine?.resolvedUrgencies || {};
-  return Boolean(resolved[decisionKey(item)] || resolved[routineEntityKey(item)]);
-}
-
-function uniqueItemsByDecisionKey(items=[]) {
+function withSourceTable(rows=[], table) { return safeArr(rows).map(r => ({ ...r, _source_table:table })); }
+function uniqueRows(rows=[]) {
   const map = new Map();
-  safeArr(items).forEach(item => {
-    const key = decisionKey(item);
-    if (!map.has(key)) map.set(key, item);
+  safeArr(rows).forEach(r => {
+    const key = `${r._source_table || "invest_clients"}:${r.id}`;
+    if (!map.has(key)) map.set(key, r);
   });
   return Array.from(map.values());
 }
 
-function defaultDecision(item) {
+function prospectOwner(c={}) { return firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to", "commercial", "collaborateur"]) || "Matthieu"; }
+function prospectEmail(c={}) { return firstFilled(c, ["email", "mail", "adresse_email"]); }
+function prospectPhone(c={}) { return firstFilled(c, ["telephone", "téléphone", "phone", "mobile", "whatsapp"]); }
+function prospectSource(c={}) { return firstFilled(c, ["source_lead", "source", "origine", "canal", "provenance", "lead_source"]); }
+function prospectStage(c={}) { return firstFilled(c, ["etape", "étape", "pipeline_stage", "stage", "statut", "status"]); }
+function prospectBudget(c={}) { return numberFromAny(firstFilled(c, ["budget", "budget_cible", "budget_max", "montant_projet"])); }
+function prospectCapacity(c={}) { return numberFromAny(firstFilled(c, ["capacite_emprunt", "capacité_emprunt", "capacite", "capacité", "financement", "budget_financement"])); }
+function prospectApport(c={}) { return numberFromAny(firstFilled(c, ["apport", "apport_personnel", "cash", "epargne", "épargne"])); }
+function prospectMotivation(c={}) { return firstFilled(c, ["motivation", "niveau_motivation", "qualification", "temperature", "priorite", "priorité"]); }
+function prospectHorizon(c={}) { return firstFilled(c, ["horizon", "delai", "délai", "deadline", "date_projet", "urgence"]); }
+function prospectZone(c={}) { return firstFilled(c, ["zone_ciblee", "zone_ciblée", "zone", "secteur", "ville_recherche", "ville"]); }
+function prospectGoal(c={}) { return firstFilled(c, ["objectif", "objectif_investissement", "strategie", "stratégie", "projet"]); }
+function prospectComment(c={}) { return firstFilled(c, ["commentaire", "commentaires", "note", "notes", "description", "message"]); }
+function prospectLastContact(c={}) { return firstFilled(c, ["date_dernier_contact", "dernier_contact", "last_contact_at", "last_contact", "updated_at", "date_premier_contact", "created_at"]); }
+function prospectNextAction(c={}) { return firstFilled(c, ["prochaine_action", "next_action", "action_suivante", "relance_action"]); }
+function prospectNextDate(c={}) { return firstFilled(c, ["date_prochaine_action", "relance_date", "date_relance", "next_action_date", "due_date"]); }
+function relanceCount(c={}) { return numberFromAny(firstFilled(c, ["relance_count", "nb_relances", "nombre_relances", "relances_count"])); }
+function nextRelanceDateFromCount(count=0) {
+  const seq = [1, 3, 7, 14, 30];
+  const days = seq[Math.min(Math.max(0, Number(count) || 0), seq.length - 1)];
+  const d = new Date(); d.setDate(d.getDate() + days);
+  return isoDate(d);
+}
+function computeProspectScore(c={}) {
+  let score = 0;
+  const horizon = normTxt(prospectHorizon(c));
+  if (horizon.match(/urgent|immédiat|immediat|maintenant|1 mois|30 jours|court/)) score += 24;
+  else if (horizon.match(/3 mois|90 jours|trimestre/)) score += 18;
+  else if (horizon) score += 10;
+  const capacity = prospectCapacity(c) || prospectBudget(c);
+  if (capacity >= 180000) score += 22;
+  else if (capacity >= 100000) score += 15;
+  else if (capacity > 0) score += 8;
+  const motivation = normTxt(prospectMotivation(c));
+  if (motivation.match(/chaud|élevé|eleve|fort|urgent|très|tres|motiv/)) score += 24;
+  else if (motivation.match(/normal|moyen|tiede|tiède/)) score += 14;
+  else if (motivation) score += 7;
+  if (prospectEmail(c) && prospectPhone(c)) score += 12;
+  else if (prospectEmail(c) || prospectPhone(c)) score += 6;
+  const source = normTxt(prospectSource(c));
+  if (source.match(/recommand|parrain|client|reseau|réseau|direct/)) score += 10;
+  else if (source) score += 5;
+  if (prospectGoal(c)) score += 8;
+  return Math.max(0, Math.min(100, score));
+}
+
+function actionOwner(a={}) { return firstFilled(a, ["responsable", "owner", "assigned_to", "assignee", "collaborateur"]) || "Matthieu"; }
+function actionTitle(a={}) { return firstFilled(a, ["action_title", "title", "titre", "nom", "label"]) || "Action"; }
+function isOpenAction(a={}) {
+  const s = normTxt(firstFilled(a, ["status", "statut", "etat"]));
+  if (!s) return true;
+  return ["a_faire", "à faire", "faire", "en_cours", "cours", "bloque", "bloqué", "open", "todo", "pending", "attente"].some(k => s.includes(k));
+}
+function isDoneAction(a={}) {
+  const s = normTxt(firstFilled(a, ["status", "statut", "etat"]));
+  return ["termine", "terminé", "fait", "done", "completed", "validé", "valide"].some(k => s.includes(k));
+}
+function isBlockedAction(a={}) {
+  const s = normTxt(`${a.status || ""} ${a.statut || ""} ${a.commentaire || ""} ${a.comment || ""}`);
+  return s.includes("bloque") || s.includes("bloqué") || s.includes("compliqué") || s.includes("complique");
+}
+function isPartnerSensitive(a={}) {
+  const txt = normTxt(`${actionTitle(a)} ${a.step_label || ""} ${a.commentaire || ""}`);
+  return txt.match(/notaire|financement|banque|assurance|compromis/);
+}
+function isDocumentSensitive(a={}) {
+  const txt = normTxt(`${actionTitle(a)} ${a.step_label || ""} ${a.commentaire || ""}`);
+  return txt.match(/document|pièce|piece|justificatif|contrat|patrimoine/);
+}
+function linkedEntityType(a={}) { return firstFilled(a, ["linked_entity_type", "item_type", "entity_type", "type_lien"]); }
+function linkedEntityId(a={}) { return firstFilled(a, ["linked_entity_id", "item_id", "entity_id", "source_id"]); }
+function clientLastActivity(c={}) { return firstFilled(c, ["date_derniere_action", "date_dernier_contact", "updated_at", "date_prochaine_action", "date_signature", "created_at"]); }
+
+function makeAlert({ code, label, level="warning", due_date="", source="" }) { return { code, label, level, due_date, source }; }
+function worstLevel(alerts=[]) {
+  if (alerts.some(a => a.level === "danger")) return "danger";
+  if (alerts.some(a => a.level === "warning")) return "warning";
+  if (alerts.some(a => a.level === "info")) return "info";
+  return "success";
+}
+function entityKey(type, id) { return `${type}_${String(id || "unknown")}`; }
+function storageKeyFor() { return `profero_dashboard_v9_${todayIso()}`; }
+function emptyRoutine() { return { date:todayIso(), decisions:{}, resolved:{}, priorities:[{},{},{}], status:"in_progress", started_at:new Date().toISOString() }; }
+function decisionKey(item) { return item?.key || entityKey(item?.type, item?.id); }
+function isResolvedToday(routine, item) { return Boolean(routine?.resolved?.[decisionKey(item)]); }
+function defaultDecision(item={}) {
+  const suggestedDue = item.due_date && isFuture(item.due_date) ? item.due_date : todayIso();
+  return { decision:"", responsable:item.responsable || "Matthieu", next_action:item.next_action || item.primaryAlert || "", due_date:suggestedDue, comment:"", create_task:true, force_reason:"" };
+}
+function missingDecisionFields(item, d={}) {
+  const miss = [];
+  if (!String(d.decision || "").trim()) miss.push("décision");
+  if (!String(d.responsable || "").trim()) miss.push("responsable");
+  if (!String(d.next_action || "").trim()) miss.push("action future");
+  if (!String(d.due_date || "").trim()) miss.push("échéance");
+  if (!String(d.comment || "").trim()) miss.push("commentaire");
+  if (d.force_validated && !String(d.force_reason || "").trim()) miss.push("motif de forçage");
+  if ((normTxt(d.decision).includes("proposer") || normTxt(d.decision).includes("matcher")) && item?.type === "bien" && !String(d.client_id || "").trim()) miss.push("client à matcher");
+  if (normTxt(d.decision).includes("offre") && item?.type === "bien" && !String(d.offer_amount || "").trim()) miss.push("montant offre");
+  return miss;
+}
+function isDecisionComplete(item, d={}) { return missingDecisionFields(item, d).length === 0; }
+function priorityComplete(p={}) { return String(p.title || "").trim() && String(p.responsable || "").trim() && String(p.due_date || "").trim() && String(p.comment || "").trim(); }
+
+function buildProspectDossier(c) {
+  const alerts = [];
+  const score = computeProspectScore(c);
+  const nextAction = prospectNextAction(c);
+  const nextDate = prospectNextDate(c);
+  const owner = prospectOwner(c);
+  const lastDays = daysSince(prospectLastContact(c));
+  if (!nextAction) alerts.push(makeAlert({ code:"no_next_action", label:"Sans prochaine action", level:"danger" }));
+  if (!nextDate) alerts.push(makeAlert({ code:"no_next_date", label:"Sans date de relance", level:"danger" }));
+  if (!owner) alerts.push(makeAlert({ code:"no_owner", label:"Sans responsable", level:"danger" }));
+  if (nextDate && isDueTodayOrPast(nextDate)) alerts.push(makeAlert({ code:"late_relaunch", label:`Relance à traiter (${safeDate(nextDate)})`, level:"danger", due_date:nextDate }));
+  if (nextDate && isFuture(nextDate) && isWithinNextDays(nextDate, 7)) alerts.push(makeAlert({ code:"future_relaunch", label:`Relance à venir ${safeDate(nextDate)}`, level:"warning", due_date:nextDate }));
+  if (lastDays !== null && lastDays >= 10) alerts.push(makeAlert({ code:"stale_red", label:`Sans contact depuis ${lastDays} jours`, level:"danger" }));
+  else if (lastDays !== null && lastDays >= 7) alerts.push(makeAlert({ code:"stale_orange", label:`Sans contact depuis ${lastDays} jours`, level:"warning" }));
+  if (score >= 70) alerts.push(makeAlert({ code:"hot", label:`Prospect chaud ${score}/100`, level:nextAction && nextDate && isFuture(nextDate) ? "warning" : "danger" }));
+  const level = worstLevel(alerts);
+  const due = nextDate || nextRelanceDateFromCount(relanceCount(c));
   return {
-    decision:"",
-    comment:"",
-    responsable:item.responsable || "Matthieu",
-    next_action:item.defaultAction || "",
-    due_date:item.requiresDate ? (item.suggestedDueDate || todayIso()) : "",
-    force_validated:false,
-    force_reason:"",
-    create_task:true,
+    key:entityKey("prospect", c.id), type:"prospect", id:c.id, sourceTable:c._source_table || "invest_clients",
+    label:getClientName(c), subtitle:joinNonEmpty([prospectStage(c), prospectSource(c), prospectZone(c)]),
+    level, alerts, primaryAlert:alerts[0]?.label || "Sous contrôle", responsable:owner || "Matthieu",
+    next_action:nextAction || "Définir la prochaine action prospect", due_date:due,
+    readOnly:level !== "danger" && isFuture(due), score, raw:c,
+    meta:{ score, budget:prospectBudget(c), capacity:prospectCapacity(c), phone:prospectPhone(c), email:prospectEmail(c), source:prospectSource(c), goal:prospectGoal(c), lastContact:prospectLastContact(c) },
   };
 }
-
-function isDecisionComplete(item, decision) {
-  if (!item) return true;
-  const d = decision || defaultDecision(item);
-  if (d.force_validated) return Boolean(String(d.force_reason || "").trim());
-  if (!String(d.decision || "").trim()) return false;
-  if (!String(d.comment || "").trim()) return false;
-  if (!String(d.responsable || "").trim()) return false;
-  if (item.requiresNextAction && !String(d.next_action || "").trim()) return false;
-  if (item.requiresDate && !String(d.due_date || "").trim()) return false;
-  return true;
+function buildClientDossier(c, actions=[]) {
+  const alerts = [];
+  const nextAction = c.prochaine_action;
+  const nextDate = c.date_prochaine_action;
+  const owner = firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to"]);
+  const lastDays = daysSince(clientLastActivity(c));
+  const relatedActions = safeArr(actions).filter(a => String(a.client_id || linkedEntityId(a) || "") === String(c.id));
+  const blocked = relatedActions.filter(isBlockedAction);
+  const late = relatedActions.filter(a => isOpenAction(a) && a.due_date && isDueTodayOrPast(a.due_date));
+  const docs = relatedActions.filter(isDocumentSensitive);
+  const partner = relatedActions.filter(isPartnerSensitive);
+  if (!c.etape) alerts.push(makeAlert({ code:"no_stage", label:"Étape client non renseignée", level:"danger" }));
+  if (!owner) alerts.push(makeAlert({ code:"no_owner", label:"Responsable non renseigné", level:"danger" }));
+  if (!nextAction) alerts.push(makeAlert({ code:"no_next_action", label:"Sans prochaine action", level:"danger" }));
+  if (!nextDate) alerts.push(makeAlert({ code:"no_next_date", label:"Sans date de prochaine action", level:"danger" }));
+  if (nextDate && isDueTodayOrPast(nextDate)) alerts.push(makeAlert({ code:"late_action", label:`Action à traiter (${safeDate(nextDate)})`, level:"danger", due_date:nextDate }));
+  if (nextDate && isFuture(nextDate) && isWithinNextDays(nextDate, 7)) alerts.push(makeAlert({ code:"future_action", label:`Échéance sous 7 jours (${safeDate(nextDate)})`, level:"warning", due_date:nextDate }));
+  if (lastDays !== null && lastDays >= 10) alerts.push(makeAlert({ code:"stale_red", label:`Aucune avancée depuis ${lastDays} jours`, level:"danger" }));
+  else if (lastDays !== null && lastDays >= 7) alerts.push(makeAlert({ code:"stale_orange", label:`À vérifier : ${lastDays} jours sans avancée`, level:"warning" }));
+  blocked.forEach(a => alerts.push(makeAlert({ code:`blocked_${a.id}`, label:`Action bloquée : ${actionTitle(a)}`, level:"danger", due_date:a.due_date })));
+  late.forEach(a => alerts.push(makeAlert({ code:`late_${a.id}`, label:`Tâche en retard : ${actionTitle(a)}`, level:"danger", due_date:a.due_date })));
+  docs.forEach(a => alerts.push(makeAlert({ code:`doc_${a.id}`, label:`Document à suivre : ${actionTitle(a)}`, level:isDueTodayOrPast(a.due_date) ? "danger" : "warning", due_date:a.due_date })));
+  partner.forEach(a => alerts.push(makeAlert({ code:`partner_${a.id}`, label:`Partenaire à suivre : ${actionTitle(a)}`, level:isDueTodayOrPast(a.due_date) ? "danger" : "warning", due_date:a.due_date })));
+  const level = worstLevel(alerts);
+  return {
+    key:entityKey("client", c.id), type:"client", id:c.id, sourceTable:"invest_clients", label:getClientName(c), subtitle:joinNonEmpty([c.etape, c.statut, fmtDashboardEur(c.budget)]),
+    level, alerts, primaryAlert:alerts[0]?.label || "Sous contrôle", responsable:owner || "Matthieu",
+    next_action:nextAction || "Définir la prochaine action client", due_date:nextDate || todayIso(), readOnly:level !== "danger" && nextDate && isFuture(nextDate), raw:c,
+    meta:{ step:c.etape, status:c.statut, budget:c.budget, lastActivity:clientLastActivity(c), relatedActions },
+  };
 }
-
-
-function missingDecisionFields(item, d = {}) {
-  const missing = [];
-  if (!String(d.decision || "").trim()) missing.push("décision");
-  if (!String(d.comment || "").trim()) missing.push("commentaire");
-  if (!String(d.responsable || "").trim()) missing.push("responsable");
-  if (item.requiresNextAction && !String(d.next_action || "").trim()) missing.push("action future");
-  if (item.requiresDate && !String(d.due_date || "").trim()) missing.push("échéance");
-  if (d.force_validated && !String(d.force_reason || "").trim()) missing.push("motif de validation forcée");
-  return missing;
+function buildBienDossier(b, actions=[], propositions=[]) {
+  const alerts = [];
+  const statut = b.statut || "Statut non renseigné";
+  const txt = normTxt(statut);
+  const score = getBienScore(b);
+  const due = firstFilled(b, ["date_relance", "date_prochaine_action", "due_date"]);
+  const owner = firstFilled(b, ["conseiller_profero", "responsable", "owner", "assigned_to"]) || "Benjamin";
+  const relatedActions = safeArr(actions).filter(a => (linkedEntityType(a) === "bien" && String(linkedEntityId(a)) === String(b.id)) || String(a.bien_id || "") === String(b.id));
+  if (!statut || txt.includes("non renseign")) alerts.push(makeAlert({ code:"no_status", label:"Statut bien non renseigné", level:"danger" }));
+  if (due && isDueTodayOrPast(due)) alerts.push(makeAlert({ code:"late_relaunch", label:`Relance dépassée (${safeDate(due)})`, level:"danger", due_date:due }));
+  if (due && isFuture(due) && isWithinNextDays(due, 7)) alerts.push(makeAlert({ code:"future_relaunch", label:`Relance sous 7 jours (${safeDate(due)})`, level:"warning", due_date:due }));
+  if (!due && ["nouveau", "a trier", "à trier", "a analyser", "à analyser", "analyse", "offre", "matcher"].some(k => txt.includes(normTxt(k)))) alerts.push(makeAlert({ code:"no_due", label:"Action à prévoir sur le bien", level:"danger" }));
+  if (["offre envoyee", "offre envoyée", "offre acceptee", "offre acceptée", "offre a faire", "offre à faire"].some(k => txt.includes(normTxt(k)))) alerts.push(makeAlert({ code:"offer", label:`Offre en cours : ${statut}`, level:due && isFuture(due) ? "warning" : "danger", due_date:due }));
+  if (score >= 70 && !due) alerts.push(makeAlert({ code:"high_score", label:"Opportunité forte sans échéance", level:"warning" }));
+  if (!b.adresse && !b.ville) alerts.push(makeAlert({ code:"incomplete", label:"Fiche bien incomplète", level:"warning" }));
+  relatedActions.filter(isBlockedAction).forEach(a => alerts.push(makeAlert({ code:`blocked_${a.id}`, label:`Action bloquée : ${actionTitle(a)}`, level:"danger", due_date:a.due_date })));
+  relatedActions.filter(a => isOpenAction(a) && a.due_date && isDueTodayOrPast(a.due_date)).forEach(a => alerts.push(makeAlert({ code:`late_${a.id}`, label:`Tâche en retard : ${actionTitle(a)}`, level:"danger", due_date:a.due_date })));
+  const level = worstLevel(alerts);
+  return {
+    key:entityKey("bien", b.id), type:"bien", id:b.id, sourceTable:"invest_biens", label:getBienLabel(b), subtitle:joinNonEmpty([statut, b.ville, fmtDashboardEur(b.prix_vente)]),
+    level, alerts, primaryAlert:alerts[0]?.label || "Sous contrôle", responsable:owner,
+    next_action:"Prévoir l’action suivante sur le bien", due_date:due || todayIso(), readOnly:level !== "danger" && due && isFuture(due), score, raw:b,
+    meta:{ statut, prix:b.prix_vente, travaux:b.prix_travaux, cout:b.cout_total, rendement:b.rendement_brut, cashflow:b.cashflow_estime, score, propositions:safeArr(propositions).filter(p => String(p.bien_id || "") === String(b.id)) },
+  };
 }
-
-function isPriorityComplete(p) {
-  return Boolean(String(p?.title || "").trim() && String(p?.responsable || "").trim() && String(p?.comment || "").trim() && String(p?.urgency || "").trim());
-}
-
-function isCollaboratorComplete(c) {
-  return Boolean(String(c?.mission || "").trim() && String(c?.objectif || "").trim() && String(c?.consigne || "").trim() && String(c?.decision || "").trim() && String(c?.urgency || "").trim());
-}
-
-function AlertBadge({ level="info", children, icon=null, T=THEMES_INV.dark }) {
-  const color = levelColor(level, T);
-  const bg = level === "danger" ? SEMANTIC?.danger?.bg : level === "warning" ? SEMANTIC?.warning?.bg : level === "success" ? SEMANTIC?.success?.bg : T.accentBg;
-  const border = level === "danger" ? SEMANTIC?.danger?.border : level === "warning" ? SEMANTIC?.warning?.border : level === "success" ? SEMANTIC?.success?.border : T.accentBorder;
-  const IconComp = icon || (level === "danger" || level === "warning" ? AlertTriangle : Check);
-  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"4px 8px", borderRadius:RADIUS.pill, border:`1px solid ${border || color + "33"}`, background:bg || color + "12", color, fontSize:FONT.xs.size, fontWeight:900, whiteSpace:"nowrap" }}><Icon as={IconComp} size={11}/>{children}</span>;
-}
-
-function TextInput({ label, value, onChange, placeholder="", required=false, type="text", T=THEMES_INV.dark }) {
-  return (
-    <label style={{ display:"flex", flexDirection:"column", gap:5, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800 }}>
-      <span>{label}{required && <span style={{ color:DA }}> *</span>}</span>
-      <input type={type} value={value || ""} placeholder={placeholder} onChange={e => onChange(e.target.value)} className="inv-inp" style={{ width:"100%", textAlign:"left" }}/>
-    </label>
-  );
-}
-
-function TextArea({ label, value, onChange, placeholder="", required=false, T=THEMES_INV.dark }) {
-  return (
-    <label style={{ display:"flex", flexDirection:"column", gap:5, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800 }}>
-      <span>{label}{required && <span style={{ color:DA }}> *</span>}</span>
-      <textarea value={value || ""} placeholder={placeholder} onChange={e => onChange(e.target.value)} className="inv-inp" rows={3} style={{ width:"100%", textAlign:"left", resize:"vertical", minHeight:74 }}/>
-    </label>
-  );
-}
-
-function SelectInput({ label, value, onChange, options=[], required=false, T=THEMES_INV.dark }) {
-  return (
-    <label style={{ display:"flex", flexDirection:"column", gap:5, fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800 }}>
-      <span>{label}{required && <span style={{ color:DA }}> *</span>}</span>
-      <select value={value || ""} onChange={e => onChange(e.target.value)} className="inv-sel" style={{ width:"100%" }}>
-        <option value="">Sélectionner</option>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function SectionCard({ title, icon, subtitle, children, T=THEMES_INV.dark, action=null }) {
-  return (
-    <div className="inv-card" style={{ marginBottom:SPACING.md }}>
-      <div className="inv-card-hd blue" style={{ justifyContent:"space-between", alignItems:"center" }}>
-        <span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={icon || LayoutDashboard} size={13}/>{title}</span>
-        {action || (subtitle && <span style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"none", letterSpacing:0, fontWeight:700 }}>{subtitle}</span>)}
-      </div>
-      <div className="inv-card-bd">{children}</div>
-    </div>
-  );
-}
-
-
-function StepOverview({ title, subtitle, total=0, decisions=0, readOnly=0, resolved=0, icon, T=THEMES_INV.dark }) {
-  const IconComp = icon || LayoutDashboard;
-  const healthColor = decisions > 0 ? DA : SU;
-  return (
-    <div style={{
-      display:"grid",
-      gridTemplateColumns:"minmax(240px,1.4fr) repeat(3,minmax(120px,.45fr))",
-      gap:SPACING.sm,
-      alignItems:"stretch",
-      marginBottom:SPACING.md,
-    }} className="inv-v74-step-overview">
-      <div style={{ border:`1px solid ${T.border}`, background:T.card, borderRadius:RADIUS.lg, padding:SPACING.md, display:"flex", alignItems:"center", gap:SPACING.md }}>
-        <div style={{ width:38, height:38, borderRadius:RADIUS.md, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Icon as={IconComp} size={18}/></div>
-        <div style={{ minWidth:0 }}>
-          <div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text }}>{title}</div>
-          {subtitle && <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:3, lineHeight:1.35 }}>{subtitle}</div>}
-        </div>
-      </div>
-      {[
-        ["À décider", decisions, healthColor, AlertTriangle],
-        ["Lecture", readOnly, T.accent, Eye],
-        ["Validés", resolved, SU, Check],
-      ].map(([label,value,color,IconComp]) => (
-        <div key={label} style={{ border:`1px solid ${color}33`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-            <span style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.7 }}>{label}</span>
-            <Icon as={IconComp} size={13} color={color}/>
-          </div>
-          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color, marginTop:5 }}>{value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RoutineDecisionCard({ item, decision, onChange, onResolve=null, onOpen=null, T=THEMES_INV.dark, compact=false, readOnly=false }) {
-  const d = decision || defaultDecision(item);
-  const type = item.type || "urgence";
-  const options = V6_DECISIONS[type] || V6_DECISIONS.urgence;
-  const color = levelColor(item.level, T);
-  const complete = isDecisionComplete(item, d);
-  const detailGrid = compact ? "1fr" : "repeat(auto-fit,minmax(190px,1fr))";
-  const patch = (changes) => onChange({ ...d, ...changes });
-  return (
-    <div style={{ border:`1px solid ${complete ? T.border : color}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, boxShadow:T.shadowSm }}>
-      <div style={{ display:"flex", justifyContent:"space-between", gap:12, alignItems:"flex-start", marginBottom:SPACING.sm }}>
-        <div style={{ minWidth:0 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap", marginBottom:4 }}>
-            {safeArr(item.badges).length ? safeArr(item.badges).map((b, idx) => <AlertBadge key={`${b.label}-${idx}`} level={b.level} T={T}>{b.label}</AlertBadge>) : <AlertBadge level={item.level} T={T}>{item.badge || item.category || item.type}</AlertBadge>}
-            {item.meta && <span style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:700 }}>{item.meta}</span>}
-          </div>
-          <div style={{ fontSize:FONT.lg.size - 1, fontWeight:900, color:T.text, lineHeight:1.25 }}>{item.label}</div>
-          <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:3 }}>{item.reason}</div>
-          {item.details && !compact && <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:6 }}>{item.details}</div>}
-        </div>
-        <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
-          {onOpen && (
-            <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onOpen(item)} title="Ouvrir la fiche liée">
-              <Icon as={ExternalLink} size={12}/> Fiche
-            </button>
-          )}
-          {readOnly || item.readOnly ? <AlertBadge level="info" T={T}>Lecture seule</AlertBadge> : complete ? <AlertBadge level="success" T={T}>Complet</AlertBadge> : <AlertBadge level="danger" T={T}>À compléter</AlertBadge>}
-        </div>
-      </div>
-
-      {(readOnly || item.readOnly) && (
-        <div style={{ marginTop:SPACING.sm, padding:SPACING.md, borderRadius:RADIUS.md, border:`1px solid ${T.border}`, background:T.card, color:T.textSub, fontSize:FONT.sm.size, fontWeight:800 }}>
-          Échéance non passée : cette ligne reste visible pour information, sans décision obligatoire aujourd’hui.
-        </div>
-      )}
-
-      {!(readOnly || item.readOnly) && <>
-      <div style={{ display:"grid", gridTemplateColumns:detailGrid, gap:SPACING.sm, marginTop:SPACING.sm }}>
-        <SelectInput label="Décision" required value={d.decision} onChange={v => patch({ decision:v })} options={options} T={T}/>
-        <SelectInput label="Responsable" required value={d.responsable} onChange={v => patch({ responsable:v })} options={V6_RESPONSABLES} T={T}/>
-        <TextInput label="Action future" required={item.requiresNextAction} value={d.next_action} onChange={v => patch({ next_action:v })} placeholder="Ex : appeler, relancer, analyser…" T={T}/>
-        <TextInput label="Échéance" required={item.requiresDate} type="date" value={d.due_date} onChange={v => patch({ due_date:v })} T={T}/>
-      </div>
-
-      <div style={{ marginTop:SPACING.sm }}>
-        <TextArea label="Commentaire de suivi" required value={d.comment} onChange={v => patch({ comment:v })} placeholder="Pourquoi cette décision ? Que faut-il retenir ?" T={T}/>
-      </div>
-
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm, marginTop:SPACING.sm, flexWrap:"wrap" }}>
-        <label style={{ display:"inline-flex", alignItems:"center", gap:7, fontSize:FONT.sm.size, color:T.textSub, fontWeight:800 }}>
-          <input type="checkbox" checked={Boolean(d.create_task)} onChange={e => patch({ create_task:e.target.checked })}/>
-          Créer / mettre à jour l’action liée
-        </label>
-        <label style={{ display:"inline-flex", alignItems:"center", gap:7, fontSize:FONT.sm.size, color:DA, fontWeight:800 }}>
-          <input type="checkbox" checked={Boolean(d.force_validated)} onChange={e => patch({ force_validated:e.target.checked })}/>
-          Forcer la validation
-        </label>
-      </div>
-      {d.force_validated && <div style={{ marginTop:SPACING.sm }}><TextArea label="Motif de validation forcée" required value={d.force_reason} onChange={v => patch({ force_reason:v })} placeholder="Motif obligatoire si tu forces la validation." T={T}/></div>}
-      </>}
-
-      {onResolve && !(readOnly || item.readOnly) && (() => {
-        const missing = missingDecisionFields(item, d);
-        const canResolve = missing.length === 0;
-        const disabledTitle = canResolve ? "Valider cette urgence pour aujourd’hui" : `Compléter avant validation : ${missing.join(", ")}`;
-        const disabledStyle = canResolve ? {} : { opacity:.45, cursor:"not-allowed", filter:"grayscale(.35)" };
-        const safeResolve = (label) => {
-          if (!canResolve) return;
-          onResolve(item, label);
-        };
-        return (
-          <div style={{ marginTop:SPACING.sm, paddingTop:SPACING.sm, borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:SPACING.sm, flexWrap:"wrap" }}>
-            <div style={{ fontSize:FONT.xs.size + 1, color:canResolve ? T.textMuted : DA, fontWeight:800 }}>
-              {canResolve
-                ? "Validation autorisée : l’urgence disparaîtra de la routine du jour sans supprimer le dossier."
-                : `Validation bloquée : complète ${missing.join(", ")}.`}
-            </div>
-            <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-              <button type="button" className="inv-btn inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={{ background:canResolve ? SU : T.textMuted, color:"white", ...disabledStyle }} onClick={() => safeResolve("Traiter moi-même")}><Icon as={Check} size={12}/> Traité</button>
-              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={disabledStyle} onClick={() => safeResolve("Reporter")}><Icon as={Calendar} size={12}/> Reporter</button>
-              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={disabledStyle} onClick={() => safeResolve("Assigner")}><Icon as={Users} size={12}/> Assigner</button>
-              <button type="button" className="inv-btn inv-btn-sm" disabled={!canResolve} title={disabledTitle} style={{ background:canResolve ? DA : T.textMuted, color:"white", ...disabledStyle }} onClick={() => safeResolve("Bloquer")}><Icon as={AlertTriangle} size={12}/> Bloquer</button>
-            </div>
-          </div>
-        );
-      })()}
-    </div>
-  );
-}
-
-function PriorityEditor({ priorities, onChange, T=THEMES_INV.dark }) {
-  const update = (idx, patch) => onChange(priorities.map((p, i) => i === idx ? { ...p, ...patch } : p));
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>
-      {priorities.map((p, idx) => {
-        const complete = isPriorityComplete(p);
-        return (
-          <div key={idx} style={{ border:`1px solid ${complete ? T.border : DA}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:SPACING.sm }}>
-              <div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text }}>Priorité n°{idx + 1}</div>
-              <AlertBadge level={complete ? "success" : "danger"} T={T}>{complete ? "OK" : "Obligatoire"}</AlertBadge>
-            </div>
-            <div style={{ display:"grid", gap:SPACING.sm }}>
-              <TextInput label="Titre de la priorité" required value={p.title} onChange={v => update(idx, { title:v })} placeholder="Ex : relancer les prospects rouges" T={T}/>
-              <SelectInput label="Responsable" required value={p.responsable} onChange={v => update(idx, { responsable:v })} options={V6_RESPONSABLES} T={T}/>
-              <SelectInput label="Niveau d’urgence" required value={p.urgency} onChange={v => update(idx, { urgency:v })} options={V6_URGENCIES} T={T}/>
-              <TextInput label="Échéance" type="date" value={p.due_date} onChange={v => update(idx, { due_date:v })} T={T}/>
-              <TextArea label="Commentaire / résultat attendu" required value={p.comment} onChange={v => update(idx, { comment:v })} T={T}/>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function CollaboratorEditor({ names, values, onChange, onAdd, T=THEMES_INV.dark, statsByName={} }) {
-  const update = (name, patch) => onChange({ ...values, [name]:{ ...(values[name] || {}), ...patch } });
-  const [newName, setNewName] = useState("");
-  return (
-    <div style={{ display:"grid", gap:SPACING.md }}>
-      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-        <input className="inv-inp" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Ajouter un collaborateur" style={{ width:240, textAlign:"left" }}/>
-        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => { if (newName.trim()) { onAdd(newName.trim()); setNewName(""); } }}><Icon as={Plus} size={12}/>Ajouter</button>
-      </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))", gap:SPACING.md }}>
-        {names.map(name => {
-          const v = values[name] || {};
-          const s = statsByName[name] || {};
-          const complete = isCollaboratorComplete(v);
-          const risk = Number(s.late || 0) > 0 || Number(s.open || 0) === 0 || Number(s.blocked || 0) > 0;
-          return (
-            <div key={name} style={{ border:`1px solid ${complete ? (risk ? WA : T.border) : DA}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
-              <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start", marginBottom:SPACING.sm }}>
-                <div><div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text }}>{name}</div><div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:5 }}><AlertBadge level={risk ? "warning" : "success"} T={T}>{risk ? "À risque" : "OK"}</AlertBadge><AlertBadge level={s.late ? "danger" : "info"} T={T}>{s.late || 0} retard</AlertBadge><AlertBadge level="info" T={T}>{s.open || 0} ouvertes</AlertBadge></div></div>
-                <AlertBadge level={complete ? "success" : "danger"} T={T}>{complete ? "Complet" : "À remplir"}</AlertBadge>
-              </div>
-              <div style={{ display:"grid", gap:SPACING.sm }}>
-                <TextInput label="Mission prioritaire du jour" required value={v.mission} onChange={val => update(name, { mission:val })} T={T}/>
-                <TextInput label="Objectif du jour" required value={v.objectif} onChange={val => update(name, { objectif:val })} T={T}/>
-                <TextInput label="Blocage éventuel" value={v.blocage} onChange={val => update(name, { blocage:val })} T={T}/>
-                <TextArea label="Message / consigne à envoyer" required value={v.consigne} onChange={val => update(name, { consigne:val })} T={T}/>
-                <SelectInput label="Décision" required value={v.decision} onChange={val => update(name, { decision:val })} options={V6_DECISIONS.collaborateur} T={T}/>
-                <SelectInput label="Niveau d’urgence" required value={v.urgency} onChange={val => update(name, { urgency:val })} options={V6_URGENCIES} T={T}/>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ConsignesCollaborateursView({ plan=[], T=THEMES_INV.dark }) {
-  const names = ["Matthieu", "Tom", "Benjamin", "Camille"];
-  const assigned = plan.filter(p => p.responsable && p.responsable !== "Matthieu");
-  if (!assigned.length) {
-    return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>Aucune consigne collaborateur pour le moment. Les consignes apparaîtront ici dès qu’une décision sera assignée à Tom, Benjamin, Camille ou un autre responsable.</div>;
-  }
-  const responsables = Array.from(new Set([...names, ...assigned.map(p => p.responsable)])).filter(r => assigned.some(p => p.responsable === r));
-  return <div style={{ display:"grid", gap:SPACING.md }}>{responsables.map(r => <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}><div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text }}>{r}</div><AlertBadge level="info" T={T}>{assigned.filter(p => p.responsable === r).length} consigne(s)</AlertBadge></div>{assigned.filter(p => p.responsable === r).map((p, i) => <div key={i} style={{ padding:"8px 0", borderTop:i ? `1px solid ${T.border}` : "none" }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text }}>{p.title}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2 }}>Échéance : {safeDate(p.due_date)} · Source : {p.source || "—"}</div>{p.comment && <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:4 }}>{p.comment}</div>}</div>)}</div>)}</div>;
-}
-
-function RoutineInfoList({ items=[], empty="Aucun dossier sous contrôle", T=THEMES_INV.dark, onOpen=null }) {
-  if (!items.length) return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
-  return (
-    <div style={{ display:"grid", gap:8 }}>
-      {items.map(item => (
-        <div key={decisionKey(item)} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}>
-          <div style={{ minWidth:0 }}>
-            <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.label}</div>
-            <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>{item.reason} · {item.meta}</div>
-          </div>
-          <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
-            {item.scheduledFuture && <AlertBadge level="info" T={T}>Échéance à venir</AlertBadge>}
-            <AlertBadge level={item.level || "info"} T={T}>{item.category || "Info"}</AlertBadge>
-            {onOpen && <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onOpen(item)}><Icon as={ExternalLink} size={12}/> Fiche</button>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ResolvedUrgenciesView({ routine, data, onUndo, onOpen=null, T=THEMES_INV.dark }) {
-  const resolved = routine?.resolvedUrgencies || {};
-  const allItems = uniqueItemsByDecisionKey([...data.urgencyItems, ...data.prospectItems, ...data.clientItems, ...data.bienItems]);
-  const seen = new Set();
-  const rows = Object.entries(resolved).map(([key, info]) => {
-    const item = allItems.find(i => decisionKey(i) === key || routineEntityKey(i) === key);
-    return { key, info, item };
-  }).filter(row => {
-    if (!row.info) return false;
-    const uniq = row.info.entity_key || row.key;
-    if (seen.has(uniq)) return false;
-    seen.add(uniq);
-    return true;
+function buildTeamDossiers(actions=[]) {
+  return safeArr(actions).filter(a => isOpenAction(a) && !linkedEntityId(a)).map(a => {
+    const due = a.due_date;
+    const alerts = [];
+    if (isBlockedAction(a)) alerts.push(makeAlert({ code:"blocked", label:"Action bloquée / compliquée", level:"danger", due_date:due }));
+    if (due && isDueTodayOrPast(due)) alerts.push(makeAlert({ code:"late", label:`Échéance ${safeDate(due)}`, level:"danger", due_date:due }));
+    if (due && isFuture(due) && isWithinNextDays(due, 7)) alerts.push(makeAlert({ code:"future", label:`À suivre sous 7 jours (${safeDate(due)})`, level:"warning", due_date:due }));
+    const level = worstLevel(alerts);
+    return { key:entityKey("team", a.id), type:"team", id:a.id, label:actionTitle(a), subtitle:joinNonEmpty([actionOwner(a), a.step_label, a.status || a.statut]), level, alerts, primaryAlert:alerts[0]?.label || "Action sous contrôle", responsable:actionOwner(a), next_action:actionTitle(a), due_date:due || todayIso(), readOnly:level !== "danger" && due && isFuture(due), raw:a, meta:{ status:a.status || a.statut } };
   });
-  if (!rows.length) return null;
-  return (
-    <SectionCard title="Urgences validées aujourd’hui" icon={Check} subtitle="Elles ne sont plus affichées dans la routine du jour" T={T}>
-      <div style={{ display:"grid", gap:8 }}>
-        {rows.map(({ key, info, item }) => (
-          <div key={key} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
-            <div style={{ minWidth:0 }}>
-              <div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                {info.label || item?.label || key}
-              </div>
-              <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>
-                {info.decision || "Validé"} · {info.resolved_at ? new Date(info.resolved_at).toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" }) : "aujourd’hui"}
-              </div>
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-              {onOpen && item && <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onOpen(item)}><Icon as={ExternalLink} size={12}/> Fiche</button>}
-              <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onUndo?.(key)}><Icon as={X} size={12}/> Réafficher</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </SectionCard>
-  );
 }
-
-
-function linkedRecordType(item={}) {
-  const itemType = String(item?.originalType || item?.type || "").toLowerCase();
-  const source = String(item?.source || item?.raw?._source_table || "").toLowerCase();
-  if (itemType === "bien" || source.includes("bien")) return "bien";
-  if (itemType === "prospect" || source.includes("prospect") || source.includes("prospection")) return "prospect";
-  if (itemType === "client" || source.includes("client")) return "client";
-  if (source.includes("mission_actions") || itemType === "action" || itemType === "urgence") return "action";
-  return itemType || "dossier";
-}
-
-function navigateToLinkedRecord(item, onNavigate) {
-  if (!item || !onNavigate) return;
-  const raw = item.raw || {};
-  const type = linkedRecordType(item);
-  const id = raw.id || item.sourceId || item.id;
-
-  if (type === "prospect") {
-    onNavigate("prospection", {
-      type:"open_prospect",
-      id,
-      prospect_id:id,
-      prospectId:id,
-      source:"dashboard_pilotage",
-      source_table:raw._source_table || item.source || "invest_clients",
-    });
-    return;
-  }
-
-  if (type === "client") {
-    onNavigate("crm", {
-      type:"open_client",
-      id,
-      client_id:id,
-      clientId:id,
-      statut:raw.statut,
-      source:"dashboard_pilotage",
-    });
-    return;
-  }
-
-  if (type === "bien") {
-    onNavigate("biens", {
-      type:"open_bien",
-      id,
-      bien_id:id,
-      bienId:id,
-      source:"dashboard_pilotage",
-    });
-    return;
-  }
-
-  if ((raw.client_id || raw.linked_entity_id) && (raw.linked_entity_type === "client" || raw.client_id)) {
-    const clientId = raw.client_id || raw.linked_entity_id;
-    onNavigate("crm", { type:"open_client", id:clientId, client_id:clientId, clientId:clientId, source:"dashboard_action" });
-    return;
-  }
-
-  if (raw.linked_entity_type === "prospect" && raw.linked_entity_id) {
-    onNavigate("prospection", { type:"open_prospect", id:raw.linked_entity_id, prospect_id:raw.linked_entity_id, prospectId:raw.linked_entity_id, source:"dashboard_action" });
-    return;
-  }
-
-  if (raw.linked_entity_type === "bien" && raw.linked_entity_id) {
-    onNavigate("biens", { type:"open_bien", id:raw.linked_entity_id, bien_id:raw.linked_entity_id, bienId:raw.linked_entity_id, source:"dashboard_action" });
-    return;
-  }
-
-  onNavigate("crm", { type:"actions_week_or_late", source:"dashboard_pilotage" });
-}
-
-function DetailField({ label, value, T=THEMES_INV.dark, mono=false }) {
-  const display = value === undefined || value === null || value === "" ? "—" : value;
-  return (
-    <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", minWidth:0 }}>
-      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.6, marginBottom:4 }}>{label}</div>
-      <div style={{ fontSize:FONT.sm.size + 1, color:T.text, fontWeight:800, fontFamily:mono ? "'DM Mono',monospace" : "inherit", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{display}</div>
-    </div>
-  );
-}
-
-function LinkedRecordDrawer({ item, onClose, onOpenPage, T=THEMES_INV.dark }) {
-  if (!item) return null;
-  const raw = item.raw || {};
-  const type = linkedRecordType(item);
-  const isProspect = type === "prospect";
-  const isClient = type === "client";
-  const isBien = type === "bien";
-  const IconComp = isBien ? Home : isProspect ? Phone : isClient ? Briefcase : Bell;
-  const title = item.label || getClientName(raw) || getBienLabel(raw) || actionTitle(raw) || "Fiche liée";
-  const badgeLabel = isProspect ? "Prospect" : isClient ? "Client" : isBien ? "Bien" : "Action";
-
-  const fieldGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:8 };
-
-  return (
-    <div style={{ position:"fixed", inset:0, zIndex:80, pointerEvents:"none" }}>
-      <div onClick={onClose} style={{ position:"absolute", inset:0, background:"rgba(15,23,42,.24)", pointerEvents:"auto" }}/>
-      <aside style={{ position:"absolute", top:0, right:0, width:"min(560px, 96vw)", height:"100%", background:T.card, borderLeft:`1px solid ${T.border}`, boxShadow:"-18px 0 45px rgba(15,23,42,.20)", padding:SPACING.lg, overflowY:"auto", pointerEvents:"auto" }}>
-        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:SPACING.md, marginBottom:SPACING.lg }}>
-          <div style={{ display:"flex", gap:SPACING.md, minWidth:0 }}>
-            <div style={{ width:42, height:42, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Icon as={IconComp} size={20}/></div>
-            <div style={{ minWidth:0 }}>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:6 }}>
-                <AlertBadge level={item.level || "info"} T={T}>{badgeLabel}</AlertBadge>
-                {item.category && <AlertBadge level="info" T={T}>{item.category}</AlertBadge>}
-                {item.readOnly && <AlertBadge level="info" T={T}>Lecture seule</AlertBadge>}
-              </div>
-              <div style={{ fontSize:FONT.xl.size, fontWeight:950, color:T.text, lineHeight:1.15 }}>{title}</div>
-              <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:5 }}>{item.reason || "Fiche consultable depuis le dashboard."}</div>
-            </div>
-          </div>
-          <button type="button" onClick={onClose} className="inv-btn inv-btn-out inv-btn-sm"><Icon as={X} size={13}/> Fermer</button>
-        </div>
-
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.lg }}>
-          <button type="button" className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => onOpenPage?.(item)}><Icon as={ExternalLink} size={12}/> Ouvrir la page complète</button>
-          <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={onClose}><Icon as={Check} size={12}/> Revenir au pilotage</button>
-        </div>
-
-        <div style={{ display:"grid", gap:SPACING.md }}>
-          <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.sectionHd || T.input, padding:SPACING.md }}>
-            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Informations de pilotage</div>
-            <div style={fieldGrid}>
-              <DetailField label="Responsable" value={item.responsable || raw.conseiller || raw.responsable || actionOwner(raw)} T={T}/>
-              <DetailField label="Décision attendue" value={item.defaultAction || item.reason} T={T}/>
-              <DetailField label="Échéance" value={safeDate(prospectNextActionDate(raw) || raw.date_prochaine_action || raw.date_relance || raw.due_date)} T={T}/>
-              <DetailField label="Source" value={raw._source_table || item.source || "—"} T={T}/>
-            </div>
-          </section>
-
-          {isProspect && (
-            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
-              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Fiche prospect</div>
-              <div style={fieldGrid}>
-                <DetailField label="Score" value={`${prospectScore(raw)}/100`} T={T} mono/>
-                <DetailField label="Étape" value={prospectStage(raw)} T={T}/>
-                <DetailField label="Téléphone" value={prospectPhone(raw)} T={T}/>
-                <DetailField label="Email" value={prospectEmail(raw)} T={T}/>
-                <DetailField label="Source" value={prospectSource(raw)} T={T}/>
-                <DetailField label="Localisation" value={prospectLocation(raw)} T={T}/>
-                <DetailField label="Zone ciblée" value={prospectZone(raw)} T={T}/>
-                <DetailField label="Objectif" value={prospectGoal(raw)} T={T}/>
-                <DetailField label="Horizon" value={prospectHorizon(raw)} T={T}/>
-                <DetailField label="Budget" value={fmtDashboardEur(prospectBudget(raw))} T={T}/>
-                <DetailField label="Apport" value={fmtDashboardEur(prospectApport(raw))} T={T}/>
-                <DetailField label="Capacité" value={fmtDashboardEur(prospectCapacity(raw))} T={T}/>
-                <DetailField label="Dernier contact" value={safeDate(prospectLastContact(raw))} T={T}/>
-                <DetailField label="Prochaine action" value={prospectNextAction(raw)} T={T}/>
-              </div>
-              <div style={{ marginTop:SPACING.sm, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:SPACING.md, background:T.input }}>
-                <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.6, marginBottom:5 }}>Note prospect</div>
-                <div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, lineHeight:1.45 }}>{prospectComment(raw) || "Aucune note renseignée."}</div>
-              </div>
-            </section>
-          )}
-
-          {isClient && (
-            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
-              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Fiche client</div>
-              <div style={fieldGrid}>
-                <DetailField label="Statut" value={raw.statut} T={T}/>
-                <DetailField label="Étape" value={raw.etape} T={T}/>
-                <DetailField label="Budget" value={fmtDashboardEur(raw.budget)} T={T}/>
-                <DetailField label="Responsable" value={raw.conseiller || raw.responsable} T={T}/>
-                <DetailField label="Date signature" value={safeDate(raw.date_signature)} T={T}/>
-                <DetailField label="Dernière action" value={safeDate(lastClientActivity(raw))} T={T}/>
-                <DetailField label="Prochaine action" value={raw.prochaine_action} T={T}/>
-                <DetailField label="Date prochaine action" value={safeDate(raw.date_prochaine_action)} T={T}/>
-              </div>
-            </section>
-          )}
-
-          {isBien && (
-            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
-              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Fiche stock de biens</div>
-              <div style={fieldGrid}>
-                <DetailField label="Adresse" value={getBienLabel(raw)} T={T}/>
-                <DetailField label="Statut" value={raw.statut} T={T}/>
-                <DetailField label="Prix" value={fmtDashboardEur(raw.prix_vente)} T={T}/>
-                <DetailField label="Travaux" value={fmtDashboardEur(raw.prix_travaux)} T={T}/>
-                <DetailField label="Coût total" value={fmtDashboardEur(raw.cout_total)} T={T}/>
-                <DetailField label="Rendement" value={raw.rendement_brut ? fmtDashboardPct(raw.rendement_brut) : "—"} T={T}/>
-                <DetailField label="Cash-flow" value={fmtDashboardEur(raw.cashflow_estime)} T={T}/>
-                <DetailField label="Score Profero" value={getBienScore(raw)} T={T} mono/>
-                <DetailField label="Date relance" value={safeDate(raw.date_relance)} T={T}/>
-                <DetailField label="Responsable" value={raw.conseiller_profero || raw.responsable} T={T}/>
-              </div>
-            </section>
-          )}
-
-          {!isProspect && !isClient && !isBien && (
-            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
-              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Action liée</div>
-              <div style={fieldGrid}>
-                <DetailField label="Titre" value={actionTitle(raw) || item.label} T={T}/>
-                <DetailField label="Statut" value={raw.status || raw.statut} T={T}/>
-                <DetailField label="Responsable" value={actionOwner(raw)} T={T}/>
-                <DetailField label="Échéance" value={safeDate(raw.due_date)} T={T}/>
-              </div>
-            </section>
-          )}
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-function MiniMonthlyChart({ data=[], T=THEMES_INV.dark }) {
-  const max = Math.max(1, ...data.flatMap(m => [m.prospects || 0, m.rdv || 0, m.signatures || 0]));
-  return (
-    <div style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.input, padding:SPACING.md, overflowX:"auto" }}>
-      <div style={{ display:"grid", gridTemplateColumns:`repeat(${data.length}, minmax(54px,1fr))`, alignItems:"end", gap:9, minHeight:160 }}>
-        {data.map(m => <div key={m.key} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
-          <div style={{ height:120, display:"flex", alignItems:"end", gap:3 }}>
-            <div title={`Prospects ${m.prospects}`} style={{ width:9, height:Math.max(4, (m.prospects / max) * 115), background:"#4db8ff", borderRadius:"6px 6px 0 0" }}/>
-            <div title={`RDV ${m.rdv}`} style={{ width:9, height:Math.max(4, (m.rdv / max) * 115), background:"#FFC200", borderRadius:"6px 6px 0 0" }}/>
-            <div title={`Signatures ${m.signatures}`} style={{ width:9, height:Math.max(4, (m.signatures / max) * 115), background:SU, borderRadius:"6px 6px 0 0" }}/>
-          </div>
-          <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:800 }}>{m.label}</div>
-        </div>)}
-      </div>
-    </div>
-  );
-}
-
-function buildV6Data({ clients=[], crmProspects=[], biens=[], propositions=[], planning=[], actions=[] }) {
-  const today = todayIso();
-  const { startWeek, endWeek } = getWeekRange();
-  const prospects = uniqueBySourceAndId([
-    ...safeArr(clients).filter(isActiveProspectRecord),
-    ...safeArr(crmProspects).filter(isActiveProspectRecord),
-  ]);
+function consolidateData({ clients=[], crmProspects=[], biens=[], propositions=[], planning=[], actions=[] }) {
+  const prospects = uniqueRows([...safeArr(clients).filter(isActiveProspectRecord), ...safeArr(crmProspects).filter(isActiveProspectRecord)]);
   const clientsMetier = safeArr(clients).filter(isClientRecord);
-  const openActions = actions.filter(isOpenAction);
-  const doneActions = actions.filter(isDoneAction);
-  const lateActions = openActions.filter(a => a.due_date && isDueTodayOrPast(a.due_date));
-  const blockedActions = openActions.filter(isBlockedAction);
-  const partnerActions = openActions.filter(isPartnerAction);
-  const docActions = openActions.filter(isDocumentAction);
-
-  const collaboratorNames = V6_BASE_COLLABORATORS;
-  const collaboratorStats = collaboratorNames.reduce((acc, name) => {
-    const list = actions.filter(a => normTxt(actionOwner(a)).includes(normTxt(name)));
-    acc[name] = { open:list.filter(isOpenAction).length, late:list.filter(a => isOpenAction(a) && a.due_date && isDueTodayOrPast(a.due_date)).length, blocked:list.filter(isBlockedAction).length, doneToday:list.filter(a => isDoneAction(a) && isWithin(a.updated_at || a.completed_at || a.done_at, today, today)).length };
-    return acc;
-  }, {});
-
-  const prospectItems = prospects.map(c => {
-    const pc = prospectClass(c);
-    const relanceCount = Number(firstFilled(c, ["relance_count", "nb_relances", "nombre_relances", "relances_count"])) || 0;
-    const nextDate = prospectNextActionDate(c);
-    const nextAction = prospectNextAction(c);
-    const budget = prospectBudget(c);
-    const apport = prospectApport(c);
-    const capacity = prospectCapacity(c);
-    return {
-      type:"prospect", id:c.id, source:"invest_clients", label:getClientName(c), category:pc.label, level:pc.level,
-      badges:pc.badges, reason:pc.reason, responsable:prospectOwner(c), defaultAction:nextAction || "Définir la prochaine action prospect",
-      requiresNextAction:true, requiresDate:true, readOnly:Boolean(pc.readOnly), scheduledFuture:Boolean(pc.scheduledFuture), critical:!pc.readOnly && (pc.level !== "info" || pc.score >= 70),
-      suggestedDueDate:nextRelanceDateFromCount(relanceCount), score:pc.score,
-      meta:joinNonEmpty([`Score ${pc.score}/100`, `Budget ${fmtDashboardEur(budget)}`, prospectStage(c) || "Étape non renseignée", prospectPriority(c) ? `Priorité ${prospectPriority(c)}` : ""]),
-      details:joinNonEmpty([
-        prospectEmail(c) ? `Email : ${prospectEmail(c)}` : "",
-        prospectPhone(c) ? `Téléphone : ${prospectPhone(c)}` : "",
-        prospectSource(c) ? `Source : ${prospectSource(c)}` : "Source : —",
-        prospectLocation(c) ? `Localisation : ${prospectLocation(c)}` : "",
-        prospectZone(c) ? `Zone ciblée : ${prospectZone(c)}` : "",
-        prospectGoal(c) ? `Objectif : ${prospectGoal(c)}` : "",
-        prospectHorizon(c) ? `Horizon : ${prospectHorizon(c)}` : "",
-        apport ? `Apport : ${fmtDashboardEur(apport)}` : "",
-        capacity ? `Capacité : ${fmtDashboardEur(capacity)}` : "",
-        prospectLastContact(c) ? `Dernier contact : ${safeDate(prospectLastContact(c))}` : "Dernier contact : —",
-        `Prochaine action : ${nextAction || "—"}`,
-        `Relance : ${safeDate(nextDate)}`,
-        `Relance proposée : ${safeDate(nextRelanceDateFromCount(relanceCount))}`,
-        prospectComment(c) ? `Note : ${prospectComment(c)}` : "",
-      ]),
-      raw:c,
-    };
-  }).sort((a,b) => ({ danger:0, warning:1, success:2, info:3 }[a.level] - { danger:0, warning:1, success:2, info:3 }[b.level] || (b.score || 0) - (a.score || 0)));
-
-  const clientItems = clientsMetier.map(c => {
-    const noStage = !c.etape;
-    const noOwner = !c.conseiller;
-    const noNextAction = !c.prochaine_action || !c.date_prochaine_action;
-    const last = daysSince(lastClientActivity(c));
-    const hasDoc = docActions.some(a => a.client_id === c.id);
-    const hasFutureAction = Boolean(c.date_prochaine_action && isFutureDate(c.date_prochaine_action));
-    const blockedAction = blockedActions.some(a => a.client_id === c.id);
-    const blocked = noStage || noOwner || noNextAction || hasDoc || blockedAction;
-    const scheduledReadOnly = hasFutureAction && !noStage && !noOwner && !noNextAction && !hasDoc && !blockedAction;
-    const level = scheduledReadOnly ? "info" : noStage || noOwner || noNextAction || (last !== null && last >= 10) ? "danger" : hasDoc || (last !== null && last >= 7) ? "warning" : "info";
-    const reason = scheduledReadOnly ? readOnlyReasonFromDate(c.date_prochaine_action) : noStage ? "Étape non renseignée" : noOwner ? "Client sans responsable" : noNextAction ? "Client sans prochaine action datée" : last !== null && last >= 10 ? `Sans avancée depuis ${last} jours` : hasDoc ? "Document manquant / à contrôler" : last !== null && last >= 7 ? `Sans avancée depuis ${last} jours` : "Sous contrôle";
-    return {
-      type:"client", id:c.id, source:"invest_clients", label:getClientName(c), category:c.etape || "Étape non renseignée", level,
-      reason, responsable:c.conseiller || "Matthieu", defaultAction:c.prochaine_action || "Définir l’action future du dossier",
-      requiresNextAction:true, requiresDate:true, readOnly:Boolean(scheduledReadOnly), scheduledFuture:Boolean(scheduledReadOnly), critical:!scheduledReadOnly && (blocked || level !== "info"),
-      meta:`Statut ${c.statut || "—"} · Budget ${fmtDashboardEur(c.budget)}`,
-      details:`Étape : ${c.etape || "—"} · Prochaine action : ${c.prochaine_action || "—"} · Date : ${safeDate(c.date_prochaine_action)} · Responsable : ${c.conseiller || "—"}`,
-      raw:c,
-    };
-  }).sort((a,b) => ({ danger:0, warning:1, info:2, success:3 }[a.level] - { danger:0, warning:1, info:2, success:3 }[b.level]));
-
-  const biensActifs = biens.filter(b => !["archivé", "archive", "terminé", "termine", "refusé", "refuse"].some(s => normTxt(b.statut || "").includes(s)));
-  const bienItems = biensActifs.map(b => {
-    const bc = bienClass(b);
-    return {
-      type:"bien", id:b.id, source:"invest_biens", label:getBienLabel(b), category:bc.label, level:bc.level,
-      reason:bc.reason, responsable:b.conseiller_profero || "Benjamin", defaultAction:"Prévoir l’action suivante sur le bien",
-      requiresNextAction:true, requiresDate:true, readOnly:Boolean(bc.readOnly), scheduledFuture:Boolean(bc.scheduledFuture), critical:!bc.readOnly && bc.level !== "info",
-      meta:`${b.statut || "Statut non renseigné"}`,
-      details:`Prix ${fmtDashboardEur(b.prix_vente)} · Travaux ${fmtDashboardEur(b.prix_travaux)} · Coût total ${fmtDashboardEur(b.cout_total)} · Rendement ${b.rendement_brut ? fmtDashboardPct(b.rendement_brut) : "—"} · Cash-flow ${fmtDashboardEur(b.cashflow_estime)} · Score ${bc.score}`,
-      raw:b,
-    };
-  }).sort((a,b) => ({ danger:0, warning:1, success:2, info:3 }[a.level] - { danger:0, warning:1, success:2, info:3 }[b.level]));
-
-  const urgencyItems = [
-    ...lateActions.map(a => ({ type:"urgence", id:`action-${a.id}`, source:"invest_mission_actions", sourceId:a.id, label:actionTitle(a), category:(a.due_date === today ? "Tâche du jour" : "Tâche en retard"), level:"danger", reason:`Échéance ${safeDate(a.due_date)} · ${a.client ? getClientName(a.client) : ""}`, responsable:actionOwner(a) || "Matthieu", defaultAction:actionTitle(a), requiresNextAction:true, requiresDate:true, critical:true, raw:a })),
-    ...prospectItems.filter(i => i.level === "danger").slice(0, 20).map(i => ({ ...i, type:"urgence", id:`prospect-${i.id}`, originalType:"prospect" })),
-    ...clientItems.filter(i => i.level === "danger").slice(0, 20).map(i => ({ ...i, type:"urgence", id:`client-${i.id}`, originalType:"client" })),
-    ...bienItems.filter(i => i.level === "danger").slice(0, 20).map(i => ({ ...i, type:"urgence", id:`bien-${i.id}`, originalType:"bien" })),
-  ];
-
-  const monthSeries = Array.from({ length:12 }, (_, idx) => {
-    const d = toDate(new Date());
-    d.setDate(1); d.setMonth(d.getMonth() - (11 - idx));
-    const key = monthKey(d);
-    return { key, label:monthLabel(d), prospects:prospects.filter(c => monthKey(c.created_at) === key).length, rdv:planning.filter(p => monthKey(p.date_rdv) === key).length, signatures:clients.filter(c => monthKey(c.date_signature) === key).length };
+  const biensActifs = safeArr(biens).filter(isActiveBien);
+  const prospectDossiers = prospects.map(buildProspectDossier);
+  const clientDossiers = clientsMetier.map(c => buildClientDossier(c, actions));
+  const bienDossiers = biensActifs.map(b => buildBienDossier(b, actions, propositions));
+  const teamDossiers = buildTeamDossiers(actions);
+  const allDossiers = [...prospectDossiers, ...clientDossiers, ...bienDossiers, ...teamDossiers];
+  allDossiers.forEach(d => {
+    d.category = d.level === "danger" && !d.readOnly ? "decision" : (d.responsable && d.responsable !== "Matthieu" && d.type !== "team" ? "delegated" : "watch");
+    if (d.type === "team") d.category = d.level === "danger" ? "decision" : "delegated";
   });
-
-  const signedThisMonth = clients.filter(c => monthKey(c.date_signature) === monthKey(new Date())).length;
-  const rdvThisMonth = planning.filter(p => monthKey(p.date_rdv) === monthKey(new Date())).length;
-  const prospectsThisMonth = prospects.filter(p => monthKey(p.created_at) === monthKey(new Date())).length;
-
-  return {
-    today, startWeek, endWeek, prospects, clientsMetier, biens:biensActifs, propositions, planning, actions,
-    prospectItems, clientItems, bienItems, urgencyItems, collaboratorStats,
-    stats:{
-      lateActions:lateActions.length, blockedActions:blockedActions.length, prospectsRed:prospectItems.filter(i => i.level === "danger").length, prospectsOrange:prospectItems.filter(i => i.level === "warning").length,
-      clientsBlocked:clientItems.filter(i => i.level === "danger").length, biensToAct: bienItems.filter(i => i.critical).length, actionsCreated:0,
-      prospects:prospects.length, clients:clientsMetier.length, biens:biens.length, rdvToday:planning.filter(p => p.date_rdv === today).length,
-      caBaseMonth:signedThisMonth * HONORAIRE_BASE_CONTRAT_HT, rdvThisMonth, prospectsThisMonth, signedThisMonth,
-    },
-    monthSeries,
-    partnerActions, docActions, openActions, doneActions,
-  };
+  return { prospects, clientsMetier, biensActifs, prospectDossiers, clientDossiers, bienDossiers, teamDossiers, allDossiers, planning, actions, propositions,
+    stats:{ prospects:prospects.length, clients:clientsMetier.length, biens:biensActifs.length, decision:allDossiers.filter(d => d.category === "decision").length, watch:allDossiers.filter(d => d.category === "watch").length, delegated:allDossiers.filter(d => d.category === "delegated").length, blocked:allDossiers.filter(d => d.alerts.some(a => a.code.includes("blocked") || normTxt(a.label).includes("bloqu"))).length, relancesLate:allDossiers.filter(d => d.alerts.some(a => a.level === "danger" && normTxt(a.label).match(/relance|échéance|echeance|retard|action/))).length, echeances7:allDossiers.filter(d => d.alerts.some(a => a.due_date && isWithinNextDays(a.due_date, 7))).length } };
 }
-
-function actionPlanFromRoutine(routine, data) {
+function filterDossiers(dossiers=[], filter="all") {
+  return filter === "all" ? dossiers : safeArr(dossiers).filter(d => d.type === filter || (filter === "team" && d.type === "team"));
+}
+function sortDossiers(list=[]) {
+  return [...safeArr(list)].sort((a,b) => levelRank(a.level) - levelRank(b.level) || String(a.due_date || "9999").localeCompare(String(b.due_date || "9999")) || String(a.label || "").localeCompare(String(b.label || ""), "fr", { sensitivity:"base" }));
+}
+function planFromRoutine(routine, dossiers) {
   const lines = [];
-  safeArr(routine.priorities).forEach((p, idx) => {
-    if (isPriorityComplete(p)) lines.push({ responsable:p.responsable, title:`Priorité ${idx + 1} — ${p.title}`, due_date:p.due_date, comment:p.comment, source:"Priorité" });
-  });
-  Object.entries(routine.collaborators || {}).forEach(([name, c]) => {
-    if (isCollaboratorComplete(c)) lines.push({ responsable:name, title:c.mission, due_date:todayIso(), comment:c.consigne, source:"Collaborateur" });
-  });
-  const allItems = [...data.urgencyItems, ...data.prospectItems, ...data.clientItems, ...data.bienItems];
-  Object.entries(routine.decisions || {}).forEach(([key, d]) => {
+  safeArr(routine.priorities).forEach((p, idx) => { if (priorityComplete(p)) lines.push({ responsable:p.responsable, title:`Priorité ${idx + 1} — ${p.title}`, due_date:p.due_date, comment:p.comment, source:"Priorité" }); });
+  Object.entries(routine.decisions || {}).forEach(([key,d]) => {
     if (!d || !String(d.next_action || "").trim()) return;
-    const item = allItems.find(i => decisionKey(i) === key);
-    lines.push({ responsable:d.responsable || "Matthieu", title:d.next_action, due_date:d.due_date || "", comment:d.comment || "", source:item?.label || key, decision:d.decision || "" });
+    const item = dossiers.find(x => decisionKey(x) === key);
+    lines.push({ responsable:d.responsable || "Matthieu", title:d.next_action, due_date:d.due_date, comment:d.comment, source:item?.label || key, type:item?.type || "", decision:d.decision || "" });
   });
   return lines;
 }
 
-function printActionPlanPDF(routine, data) {
-  const lines = actionPlanFromRoutine(routine, data);
-  const grouped = V6_RESPONSABLES.reduce((acc, r) => ({ ...acc, [r]:lines.filter(l => (l.responsable || "") === r) }), {});
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Plan d'action ${todayIso()}</title><style>body{font-family:Arial,sans-serif;color:#0D2E5C;margin:32px}h1{font-size:24px;margin:0 0 6px}h2{margin-top:24px;border-bottom:1px solid #ddd;padding-bottom:6px}.muted{color:#667085}.item{margin:10px 0;padding:10px;border:1px solid #e5e7eb;border-radius:8px}.title{font-weight:700}.meta{font-size:12px;color:#667085;margin-top:4px}</style></head><body><h1>Plan d'action du jour — Profero Invest</h1><div class="muted">Routine du ${todayIso()}</div>${Object.entries(grouped).map(([r,list]) => list.length ? `<h2>${r}</h2>${list.map(l => `<div class="item"><div class="title">${l.title || "Action"}</div><div class="meta">Échéance : ${l.due_date || "—"} · Source : ${l.source || "—"} · Décision : ${l.decision || "—"}</div><div>${l.comment || ""}</div></div>`).join("")}` : "").join("")}<h2>Points bloquants</h2>${Object.entries(routine.decisions || {}).filter(([,d]) => normTxt(d.decision || "").includes("bloquer") || normTxt(d.decision || "").includes("arbitrage")).map(([k,d]) => `<div class="item"><div class="title">${k}</div><div>${d.comment || d.force_reason || ""}</div></div>`).join("") || "<div class='muted'>Aucun point bloquant saisi.</div>"}</body></html>`;
-  const w = window.open("", "_blank");
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 300);
+function AlertBadge({ level="info", children, T=THEMES_INV.dark, icon=null }) {
+  const color = levelColor(level, T);
+  const IconComp = icon || (level === "danger" ? AlertTriangle : level === "success" ? Check : Bell);
+  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"4px 8px", borderRadius:RADIUS.pill, background:`${color}14`, border:`1px solid ${color}38`, color, fontSize:FONT.xs.size, fontWeight:900, whiteSpace:"nowrap" }}><Icon as={IconComp} size={11}/>{children}</span>;
 }
-
-
-function isDueWithinDays(value, days=7) {
-  const d = toDate(value);
-  const t = toDate(new Date());
-  if (!d || !t) return false;
-  const end = new Date(t);
-  end.setDate(end.getDate() + days);
-  return d >= t && d <= end;
+function SectionCard({ title, icon, subtitle, children, T=THEMES_INV.dark, action=null }) {
+  return <section className="inv-card" style={{ marginBottom:SPACING.md }}><div className="inv-card-hd blue" style={{ alignItems:"center", justifyContent:"space-between" }}><span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={icon || LayoutDashboard} size={14}/>{title}</span>{action || (subtitle && <span style={{ color:T.textMuted, fontSize:FONT.xs.size, letterSpacing:0, textTransform:"none" }}>{subtitle}</span>)}</div><div className="inv-card-bd">{children}</div></section>;
 }
-
-function getLooseAmount(row={}) {
-  const keys = ["montant_attente", "montant_restant", "reste_a_payer", "montant_ttc", "ttc", "montant_ht", "ht", "amount", "montant", "total_ttc", "total", "honoraire", "honoraires", "value"];
-  for (const key of keys) {
-    const raw = row?.[key];
-    const n = typeof raw === "number" ? raw : Number(String(raw || "").replace(/[^0-9,.-]/g, "").replace(",", "."));
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  return 0;
-}
-
-function isPaidLike(row={}) {
-  const txt = normTxt(`${row.statut || ""} ${row.status || ""} ${row.paiement_statut || ""} ${row.reglement || ""} ${row.regle || ""} ${row.paid || ""} ${row.encaisse || ""} ${row.encaissement || ""}`);
-  return txt.includes("regle") || txt.includes("régl") || txt.includes("paye") || txt.includes("payé") || txt.includes("paid") || txt.includes("encaiss");
-}
-
-function isIncomeLike(row={}) {
-  const txt = normTxt(`${row.type || ""} ${row.categorie || ""} ${row.category || ""} ${row.libelle || ""} ${row.label || ""} ${row.description || ""} ${row.source || ""}`);
-  return txt.includes("encaisse") || txt.includes("honoraire") || txt.includes("forfait") || txt.includes("client") || txt.includes("vente") || txt.includes("facture") || txt.includes("commission");
-}
-
-function computeCoverageEncaissement(financeRows=[], fallbackAmount=0) {
-  const rows = safeArr(financeRows);
-  const total = rows.reduce((sum, row) => {
-    if (isPaidLike(row)) return sum;
-    if (!isIncomeLike(row) && !getLooseAmount(row)) return sum;
-    return sum + getLooseAmount(row);
-  }, 0);
-  return total > 0 ? total : fallbackAmount;
-}
-
-function coverageCount(v) { return safeArr(v).length; }
-
-function computeCriticalBarStats(data, clients=[], biens=[], actions=[]) {
-  const relancesProspects = safeArr(data.prospectItems).filter(i => i.level === "danger" && !i.readOnly).length;
-  const relancesClients = safeArr(data.clientItems).filter(i => i.level === "danger" && !i.readOnly).length;
-  const relancesBiens = safeArr(data.bienItems).filter(i => i.level === "danger" && !i.readOnly).length;
-  const relancesRetard = relancesProspects + relancesClients + relancesBiens;
-
-  const tachesBloquees = safeArr(actions).filter(a => isBlockedAction(a) || (isOpenAction(a) && a.due_date && isDueTodayOrPast(a.due_date))).length;
-
-  const echeances7J = [
-    ...safeArr(actions).filter(a => isPartnerAction(a) && isDueWithinDays(a.due_date, 7)),
-    ...safeArr(clients).filter(c => isDueWithinDays(c.date_prochaine_action, 7) && normTxt(`${c.prochaine_action || ""} ${c.etape || ""}`).match(/notaire|financement|banque|compromis|document/)),
-    ...safeArr(biens).filter(b => isDueWithinDays(b.date_relance, 7) && normTxt(b.statut || "").includes("offre")),
-  ].length;
-
-  const encaissementAttente = safeArr(clients).filter(c => {
-    const signed = Boolean(c.date_signature) || normTxt(c.statut || "").includes("actif");
-    const paiementTxt = normTxt(`${c.statut_paiement || ""} ${c.paiement_statut || ""} ${c.honoraire_regle || ""} ${c.reglement || ""} ${c.paid || ""}`);
-    const paid = paiementTxt.includes("regle") || paiementTxt.includes("régl") || paiementTxt.includes("pay") || paiementTxt.includes("encaiss");
-    return signed && !paid;
-  }).length * HONORAIRE_BASE_CONTRAT_HT;
-
-  return { relancesRetard, tachesBloquees, echeances7J, encaissementAttente };
-}
-
-
-function decisionQueueRank(item={}) {
-  const levelRank = { danger:0, warning:1, success:2, info:3 }[item.level] ?? 4;
-  const due = toDate(prospectNextActionDate(item.raw || {}) || item.raw?.date_prochaine_action || item.raw?.date_relance || item.raw?.due_date || item.suggestedDueDate);
-  const dueRank = due ? due.getTime() : Number.MAX_SAFE_INTEGER;
-  const typeRank = { urgence:0, client:1, prospect:2, bien:3 }[item.originalType || item.type] ?? 4;
-  return [levelRank, dueRank, typeRank, String(item.label || '')];
-}
-
-function sortDecisionQueue(items=[]) {
-  return uniqueItemsByDecisionKey(items).sort((a,b) => {
-    const ra = decisionQueueRank(a);
-    const rb = decisionQueueRank(b);
-    for (let i=0; i<ra.length; i++) {
-      if (ra[i] < rb[i]) return -1;
-      if (ra[i] > rb[i]) return 1;
-    }
-    return 0;
-  });
-}
-
-function QueueSummary({ queue=[], plan=[], T=THEMES_INV.dark }) {
-  const counters = [
-    { label:'Rouges', value:queue.filter(i => i.level === 'danger').length, color:DA, icon:AlertTriangle },
-    { label:'Orange', value:queue.filter(i => i.level === 'warning').length, color:WA, icon:Bell },
-    { label:'Prospects', value:queue.filter(i => (i.originalType || i.type) === 'prospect').length, color:'#4db8ff', icon:Phone },
-    { label:'Clients', value:queue.filter(i => (i.originalType || i.type) === 'client').length, color:T.accent, icon:Briefcase },
-    { label:'Biens', value:queue.filter(i => (i.originalType || i.type) === 'bien').length, color:'#c084fc', icon:Home },
-    { label:'Actions au plan', value:plan.length, color:SU, icon:Send },
-  ];
-  return (
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:SPACING.sm, marginBottom:SPACING.md }}>
-      {counters.map(c => (
-        <div key={c.label} style={{ border:`1px solid ${c.color}33`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
-            <span style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:'uppercase', letterSpacing:.7 }}>{c.label}</span>
-            <Icon as={c.icon} size={13} color={c.color}/>
-          </div>
-          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color:c.color, marginTop:5 }}>{c.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CriticalBar({ stats, T=THEMES_INV.dark, onSelect }) {
+function StateBar({ data, doneCount=0, T=THEMES_INV.dark, onSelect }) {
   const cards = [
-    { key:"decisions", label:"À arbitrer aujourd’hui", value:stats.decisionsAArbitrer || 0, icon:AlertTriangle, color:(stats.decisionsAArbitrer || 0) ? DA : SU, hint:"File de décision" },
-    { key:"relances", label:"Relances en retard", value:stats.relancesRetard, icon:Phone, color:stats.relancesRetard ? DA : SU, hint:"Prospects + clients + biens" },
-    { key:"equipe", label:"Tâches bloquées", value:stats.tachesBloquees, icon:Users, color:stats.tachesBloquees ? DA : SU, hint:"Équipe / actions" },
-    { key:"echeances", label:"Échéances < 7 jours", value:stats.echeances7J, icon:Calendar, color:stats.echeances7J ? WA : SU, hint:"Notaire / financement / offres" },
-    { key:"encaissements", label:"Encaissements attente", value:fmtDashboardEur(stats.encaissementAttente), icon:Euro, color:stats.encaissementAttente ? WA : SU, hint:"Forfaits signés non payés" },
+    { key:"decision", label:"À décider", value:data.stats.decision, icon:AlertTriangle, color:data.stats.decision ? DA : SU, hint:"Dossiers à arbitrer aujourd'hui" },
+    { key:"blocked", label:"Bloqués", value:data.stats.blocked, icon:ShieldCheck, color:data.stats.blocked ? DA : SU, hint:"Points compliqués / bloquants" },
+    { key:"relances", label:"Relances retard", value:data.stats.relancesLate, icon:Bell, color:data.stats.relancesLate ? DA : SU, hint:"Prospects, clients, biens" },
+    { key:"delegated", label:"Délégué", value:data.stats.delegated, icon:UserCheck, color:data.stats.delegated ? "#4db8ff" : SU, hint:"Actions à suivre à distance" },
+    { key:"done", label:"Traité aujourd'hui", value:doneCount, icon:Check, color:SU, hint:"Dossiers sortis du flux" },
   ];
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:SPACING.md, marginBottom:SPACING.xl }}>
-      {cards.map(c => <button key={c.key} type="button" onClick={() => onSelect?.(c.key)} style={{ border:`1px solid ${c.color}55`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, textAlign:"left", cursor:"pointer", fontFamily:"inherit", boxShadow:T.shadowSm }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-          <span style={{ width:34, height:34, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", color:c.color, background:`${c.color}14` }}><Icon as={c.icon} size={17}/></span>
-          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color:c.color }}>{c.value}</span>
-        </div>
-        <div style={{ fontSize:FONT.sm.size+1, fontWeight:900, color:T.text, marginTop:9 }}>{c.label}</div>
-        <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3 }}>{c.hint}</div>
-      </button>)}
-    </div>
-  );
+  return <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md, marginBottom:SPACING.xl }}>{cards.map(c => <button key={c.key} type="button" onClick={() => onSelect?.(c.key)} style={{ border:`1px solid ${c.color}55`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, textAlign:"left", cursor:"pointer", fontFamily:"inherit", boxShadow:T.shadowSm }}><div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}><span style={{ width:34, height:34, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", color:c.color, background:`${c.color}14` }}><Icon as={c.icon} size={17}/></span><span style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color:c.color }}>{c.value}</span></div><div style={{ fontSize:FONT.sm.size+1, fontWeight:900, color:T.text, marginTop:9 }}>{c.label}</div><div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3 }}>{c.hint}</div></button>)}</div>;
 }
-
-function NotificationsCollaborateurs({ notifications=[], T=THEMES_INV.dark, onOpen }) {
-  const unread = safeArr(notifications).filter(n => !n.read_at && n.status !== "read");
-  return (
-    <SectionCard title="Notifications collaborateurs" icon={Bell} subtitle="Actions créées depuis le dashboard et retours équipe" T={T}>
-      {unread.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucune notification collaborateur à traiter.</div> : <div style={{ display:"grid", gap:8 }}>
-        {unread.slice(0,12).map(n => <button key={n.id} type="button" onClick={() => onOpen?.({ type:n.linked_entity_type || n.item_type, id:n.linked_entity_id || n.item_id, source:n.source_module })} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:SPACING.md, textAlign:"left", cursor:"pointer", fontFamily:"inherit" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ fontWeight:900, color:T.text }}>{n.title || "Notification action"}</div><AlertBadge level={n.priority === "high" ? "danger" : "info"} T={T}>{n.recipient || "Équipe"}</AlertBadge></div>
-          <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:4 }}>{n.message || n.comment || "Action liée au dashboard quotidien"}</div>
-          <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:4 }}>Lien : {n.linked_entity_type || "—"} · {n.linked_entity_id || "—"}</div>
-        </button>)}
-      </div>}
-    </SectionCard>
-  );
+function DossierCard({ item, T=THEMES_INV.dark, onOpen, onDecide, compact=false }) {
+  const color = levelColor(item.level, T);
+  return <article style={{ border:`1px solid ${color}40`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, boxShadow:T.shadowSm }}>
+    <div style={{ display:"flex", justifyContent:"space-between", gap:10, alignItems:"flex-start" }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:7 }}><AlertBadge level={item.level} T={T}>{levelLabel(item.level)}</AlertBadge><AlertBadge level="info" T={T}>{item.type === "bien" ? "Bien" : item.type === "client" ? "Client" : item.type === "prospect" ? "Prospect" : "Équipe"}</AlertBadge>{item.readOnly && <AlertBadge level="warning" T={T} icon={Clock}>Lecture seule</AlertBadge>}</div>
+        <div style={{ fontSize:FONT.lg.size, color:T.text, fontWeight:900, lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis" }}>{item.label}</div>
+        <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:4 }}>{item.subtitle || "—"}</div>
+      </div>
+      <div style={{ display:"flex", gap:6, flexShrink:0 }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => onOpen?.(item)}><Icon as={Eye} size={12}/>Fiche</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => onDecide?.(item)} disabled={item.readOnly}><Icon as={ClipboardCheck} size={12}/>Décider</button></div>
+    </div>
+    <div style={{ display:"grid", gap:6, marginTop:SPACING.sm }}>{safeArr(item.alerts).slice(0, compact ? 2 : 4).map(a => <div key={a.code} style={{ display:"flex", justifyContent:"space-between", gap:8, border:`1px solid ${levelColor(a.level, T)}30`, background:T.card, borderRadius:RADIUS.md, padding:"7px 8px" }}><span style={{ fontSize:FONT.xs.size + 1, color:T.textSub, fontWeight:800 }}>{a.label}</span>{a.due_date && <span style={{ color:levelColor(a.level, T), fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size }}>{safeDate(a.due_date)}</span>}</div>)}</div>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:SPACING.sm, fontSize:FONT.xs.size + 1, color:T.textMuted }}><div><strong style={{ color:T.textSub }}>Resp.</strong> {item.responsable || "—"}</div><div><strong style={{ color:T.textSub }}>Échéance</strong> {safeDate(item.due_date)}</div><div style={{ gridColumn:"1 / -1" }}><strong style={{ color:T.textSub }}>Action</strong> {item.next_action || "—"}</div></div>
+  </article>;
+}
+function BoardColumn({ column, items=[], T=THEMES_INV.dark, onOpen, onDecide }) {
+  return <section style={{ minWidth:0, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, overflow:"hidden" }}><div style={{ padding:SPACING.md, borderBottom:`1px solid ${T.border}`, background:T.sectionHd }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ display:"inline-flex", alignItems:"center", gap:7, fontWeight:900, color:column.color }}><Icon as={column.icon} size={15}/>{column.label}</div><span style={{ fontFamily:"'DM Mono',monospace", color:column.color, fontWeight:900 }}>{items.length}</span></div><div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:4 }}>{column.help}</div></div><div style={{ padding:SPACING.md, display:"grid", gap:SPACING.md }}>{items.length ? items.map(item => <DossierCard key={item.key} item={item} T={T} onOpen={onOpen} onDecide={onDecide} compact />) : <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted, fontSize:FONT.sm.size }}>Aucun dossier dans cette colonne.</div>}</div></section>;
+}
+function PrioritiesPanel({ routine, setRoutine, T=THEMES_INV.dark }) {
+  const update = (idx, patch) => setRoutine(prev => { const list = [...safeArr(prev.priorities)]; list[idx] = { ...(list[idx] || {}), ...patch }; return { ...prev, priorities:list }; });
+  return <SectionCard title="3 priorités du jour" icon={Sparkles} subtitle="À définir après lecture des dossiers à piloter" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{[0,1,2].map(idx => { const p = routine.priorities?.[idx] || {}; return <div key={idx} style={{ border:`1px solid ${priorityComplete(p) ? SU : WA}44`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Priorité n°{idx + 1}</div><input className="inv-inp" placeholder="Titre de la priorité" value={p.title || ""} onChange={e => update(idx, { title:e.target.value })} style={{ width:"100%", textAlign:"left", marginBottom:8 }}/><select className="inv-sel" value={p.responsable || ""} onChange={e => update(idx, { responsable:e.target.value })} style={{ width:"100%", marginBottom:8 }}><option value="">Responsable</option>{V9_RESPONSABLES.map(r => <option key={r}>{r}</option>)}</select><input className="inv-inp" type="date" value={p.due_date || ""} onChange={e => update(idx, { due_date:e.target.value })} style={{ width:"100%", marginBottom:8 }}/><textarea className="inv-inp" placeholder="Commentaire / objectif précis" value={p.comment || ""} onChange={e => update(idx, { comment:e.target.value })} style={{ width:"100%", minHeight:70, textAlign:"left" }}/></div> })}</div></SectionCard>;
+}
+function ActionPlanPDF({ plan=[], T=THEMES_INV.dark, onPrint }) {
+  const owners = Array.from(new Set(plan.map(p => p.responsable || "À définir")));
+  return <SectionCard title="Plan d’action du jour" icon={Send} subtitle="Généré à partir des décisions validées" T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={onPrint}><Icon as={Download} size={12}/>PDF</button>}>
+    {plan.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>Aucune action validée pour le moment.</div> : <div style={{ display:"grid", gap:SPACING.md }}>{owners.map(owner => <div key={owner} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text, marginBottom:8 }}>{owner}</div>{plan.filter(p => (p.responsable || "À définir") === owner).map((p,i) => <div key={i} style={{ padding:"8px 0", borderTop:i ? `1px solid ${T.border}` : "none" }}><div style={{ fontWeight:900, color:T.text }}>{p.title}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>Échéance : {safeDate(p.due_date)} · Source : {p.source || "—"} · {p.type || ""}</div>{p.comment && <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:3 }}>{p.comment}</div>}</div>)}</div>)}</div>}
+  </SectionCard>;
+}
+function DetailField({ label, value, T=THEMES_INV.dark, mono=false }) {
+  return <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"8px 9px" }}><div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.5 }}>{label}</div><div style={{ fontSize:FONT.sm.size + 1, color:T.text, fontWeight:800, marginTop:3, fontFamily:mono ? "'DM Mono',monospace" : "inherit" }}>{value || "—"}</div></div>;
+}
+function DecisionDrawer({ item, decision, setDecision, T=THEMES_INV.dark, onClose, onSave, onOpenFull, saving=false }) {
+  if (!item) return null;
+  const d = decision || defaultDecision(item);
+  const missing = missingDecisionFields(item, d);
+  const set = patch => setDecision?.({ ...d, ...patch });
+  const decisions = V9_DECISIONS[item.type] || V9_DECISIONS.team;
+  const fieldGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:8 };
+  const isBien = item.type === "bien";
+  return <div style={{ position:"fixed", inset:0, zIndex:80, background:"rgba(15,23,42,.32)", display:"flex", justifyContent:"flex-end" }} onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}><aside style={{ width:"min(560px,100%)", height:"100%", background:T.card, borderLeft:`1px solid ${T.border}`, boxShadow:"-12px 0 30px rgba(15,23,42,.18)", display:"flex", flexDirection:"column" }}><div style={{ padding:SPACING.lg, borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:12 }}><div><div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:7 }}><AlertBadge level={item.level} T={T}>{levelLabel(item.level)}</AlertBadge><AlertBadge level="info" T={T}>{item.type}</AlertBadge></div><div style={{ fontSize:FONT.xl.size, fontWeight:900, color:T.text }}>{item.label}</div><div style={{ fontSize:FONT.sm.size, color:T.textMuted, marginTop:3 }}>{item.subtitle}</div></div><button className="inv-btn inv-btn-out inv-btn-sm" onClick={onClose}><Icon as={X} size={13}/>Fermer</button></div><div style={{ padding:SPACING.lg, overflowY:"auto", display:"grid", gap:SPACING.md }}><section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Alertes consolidées</div><div style={{ display:"grid", gap:6 }}>{safeArr(item.alerts).length ? item.alerts.map(a => <div key={a.code} style={{ display:"flex", justifyContent:"space-between", gap:8, border:`1px solid ${levelColor(a.level, T)}35`, background:T.input, borderRadius:RADIUS.md, padding:"7px 8px" }}><span style={{ color:T.textSub, fontWeight:800 }}>{a.label}</span>{a.due_date && <span style={{ fontFamily:"'DM Mono',monospace", color:levelColor(a.level, T) }}>{safeDate(a.due_date)}</span>}</div>) : <div style={{ color:T.textMuted }}>Aucune alerte.</div>}</div></section><section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Lecture rapide</div><div style={fieldGrid}>{item.type === "prospect" && <><DetailField label="Score" value={`${item.score || 0}/100`} T={T} mono/><DetailField label="Budget" value={fmtDashboardEur(item.meta?.budget)} T={T}/><DetailField label="Capacité" value={fmtDashboardEur(item.meta?.capacity)} T={T}/><DetailField label="Téléphone" value={item.meta?.phone} T={T}/><DetailField label="Email" value={item.meta?.email} T={T}/><DetailField label="Source" value={item.meta?.source} T={T}/><DetailField label="Objectif" value={item.meta?.goal} T={T}/><DetailField label="Dernier contact" value={safeDate(item.meta?.lastContact)} T={T}/></>}{item.type === "client" && <><DetailField label="Étape" value={item.meta?.step} T={T}/><DetailField label="Statut" value={item.meta?.status} T={T}/><DetailField label="Budget" value={fmtDashboardEur(item.meta?.budget)} T={T}/><DetailField label="Dernière activité" value={safeDate(item.meta?.lastActivity)} T={T}/></>}{item.type === "bien" && <><DetailField label="Statut" value={item.meta?.statut} T={T}/><DetailField label="Prix" value={fmtDashboardEur(item.meta?.prix)} T={T}/><DetailField label="Travaux" value={fmtDashboardEur(item.meta?.travaux)} T={T}/><DetailField label="Rendement" value={item.meta?.rendement ? fmtDashboardPct(item.meta.rendement) : "—"} T={T}/><DetailField label="Cash-flow" value={fmtDashboardEur(item.meta?.cashflow)} T={T}/><DetailField label="Score" value={item.meta?.score} T={T} mono/></>}{item.type === "team" && <><DetailField label="Responsable" value={item.responsable} T={T}/><DetailField label="Statut" value={item.meta?.status} T={T}/><DetailField label="Échéance" value={safeDate(item.due_date)} T={T}/></>}</div><button className="inv-btn inv-btn-out inv-btn-sm" style={{ marginTop:SPACING.sm }} onClick={() => onOpenFull?.(item)}><Icon as={ExternalLink} size={12}/>Ouvrir la fiche complète</button></section><section style={{ border:`1px solid ${missing.length ? WA : SU}55`, borderRadius:RADIUS.lg, background:T.input, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:SPACING.sm }}><div style={{ fontWeight:900, color:T.text }}>Décision du jour</div>{missing.length ? <AlertBadge level="warning" T={T}>{missing.length} champ(s) manquant(s)</AlertBadge> : <AlertBadge level="success" T={T}>Complet</AlertBadge>}</div><div style={{ display:"grid", gap:8 }}><select className="inv-sel" value={d.decision || ""} onChange={e => set({ decision:e.target.value })}><option value="">Décision</option>{decisions.map(x => <option key={x}>{x}</option>)}</select><select className="inv-sel" value={d.responsable || ""} onChange={e => set({ responsable:e.target.value })}><option value="">Responsable</option>{V9_RESPONSABLES.map(r => <option key={r}>{r}</option>)}</select><input className="inv-inp" value={d.next_action || ""} onChange={e => set({ next_action:e.target.value })} placeholder="Action future" style={{ width:"100%", textAlign:"left" }}/><input className="inv-inp" type="date" value={d.due_date || ""} onChange={e => set({ due_date:e.target.value })} style={{ width:"100%" }}/>{isBien && (normTxt(d.decision).includes("proposer") || normTxt(d.decision).includes("matcher")) && <input className="inv-inp" value={d.client_id || ""} onChange={e => set({ client_id:e.target.value })} placeholder="Client à matcher / proposer" style={{ width:"100%", textAlign:"left" }}/>} {isBien && normTxt(d.decision).includes("offre") && <input className="inv-inp" value={d.offer_amount || ""} onChange={e => set({ offer_amount:e.target.value })} placeholder="Montant de l’offre" style={{ width:"100%", textAlign:"left" }}/>}<textarea className="inv-inp" value={d.comment || ""} onChange={e => set({ comment:e.target.value })} placeholder="Commentaire obligatoire" style={{ minHeight:92, width:"100%", textAlign:"left" }}/><label style={{ display:"flex", alignItems:"center", gap:7, fontSize:FONT.sm.size, color:T.textSub }}><input type="checkbox" checked={Boolean(d.force_validated)} onChange={e => set({ force_validated:e.target.checked })}/> Validation forcée</label>{d.force_validated && <textarea className="inv-inp" value={d.force_reason || ""} onChange={e => set({ force_reason:e.target.value })} placeholder="Motif obligatoire du forçage" style={{ minHeight:70, width:"100%", textAlign:"left" }}/>}<button className="inv-btn inv-btn-gold" disabled={saving || missing.length > 0} onClick={() => onSave?.(item, d)}><Icon as={Check} size={14}/>{saving ? "Validation…" : "Valider le suivi du jour"}</button>{missing.length > 0 && <div style={{ color:WA, fontSize:FONT.xs.size + 1 }}>Complète : {missing.join(", ")}</div>}</div></section></div></aside></div>;
+}
+function printPlan(plan=[]) {
+  const owners = Array.from(new Set(plan.map(p => p.responsable || "À définir")));
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Plan d'action ${todayIso()}</title><style>body{font-family:Arial,sans-serif;color:#0D2E5C;margin:32px}h1{font-size:24px;margin:0 0 6px}h2{margin-top:24px;border-bottom:1px solid #ddd;padding-bottom:6px}.muted{color:#667085}.item{margin:10px 0;padding:10px;border:1px solid #e5e7eb;border-radius:8px}.title{font-weight:700}.meta{font-size:12px;color:#667085;margin-top:4px}</style></head><body><h1>Plan d'action du jour — Profero Invest</h1><div class="muted">Dashboard V9 — ${todayIso()}</div>${owners.map(o => `<h2>${o}</h2>${plan.filter(p => (p.responsable || "À définir") === o).map(p => `<div class="item"><div class="title">${p.title || "Action"}</div><div class="meta">Échéance : ${safeDate(p.due_date)} · Source : ${p.source || "—"} · Décision : ${p.decision || "—"}</div><div>${p.comment || ""}</div></div>`).join("")}`).join("")}</body></html>`;
+  const w = window.open("", "_blank"); if (!w) return; w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
 }
 
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [activeStep, setActiveStep] = useState("decisions");
-  const [selectedLinkedItem, setSelectedLinkedItem] = useState(null);
-  const [quickMode, setQuickMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [optionalErrors, setOptionalErrors] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [activeView, setActiveView] = useState("pilotage");
+  const [selected, setSelected] = useState(null);
+  const [decisionItem, setDecisionItem] = useState(null);
   const [clients, setClients] = useState([]);
   const [crmProspects, setCrmProspects] = useState([]);
   const [biens, setBiens] = useState([]);
   const [propositions, setPropositions] = useState([]);
   const [planning, setPlanning] = useState([]);
   const [actions, setActions] = useState([]);
-  const [history, setHistory] = useState([]);
   const [notifications, setNotifications] = useState([]);
-  const [coverageData, setCoverageData] = useState({
-    documents:[], finance:[], structuration:[], routineItems:[], recurrences:[], actionLinks:[], notifications:[], planning:[], propositions:[]
-  });
-  const [routine, setRoutine] = useState(() => {
-    try {
-      const saved = window.localStorage.getItem(storageKeyFor());
-      return saved ? { ...emptyRoutineState(), ...JSON.parse(saved) } : emptyRoutineState();
-    } catch { return emptyRoutineState(); }
-  });
+  const [finance, setFinance] = useState([]);
+  const [routine, setRoutine] = useState(() => { try { const saved = window.localStorage.getItem(storageKeyFor()); return saved ? { ...emptyRoutine(), ...JSON.parse(saved) } : emptyRoutine(); } catch { return emptyRoutine(); } });
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true); setError(""); setOptionalErrors([]);
-
-    // Les tables principales doivent être disponibles.
-    // Les tables secondaires restent silencieuses si elles ne sont pas encore installées
-    // afin de ne pas afficher un bandeau d'alerte inutile dans la routine.
-    const safeQuery = async (label, query, options = {}) => {
-      const { required = false, silent = false } = options;
-      try {
-        const { data, error } = await query;
-        if (error) {
-          console.warn(`[Dashboard V8] ${label} non disponible :`, error);
-          if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
-          else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
-          return [];
-        }
-        return data || [];
-      } catch (e) {
-        console.warn(`[Dashboard V8] ${label} non disponible :`, e);
-        if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
-        else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
-        return [];
-      }
-    };
-
-    const [
-      c,b,p,pl,a,h,n,
-      docsMain, docsClients, docsBiens, driveLinks,
-      financeMain, financeAlt, suiviFinancier,
-      structuration, routineItems, recurrences, actionLinks
-    ] = await Promise.all([
-      safeQuery("les clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false }), { required:true }),
-      safeQuery("les biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false }), { required:true }),
-      safeQuery("Propositions", supabase.from("invest_propositions").select("id,client_id,bien_id,statut,created_at,date_proposition,bien:invest_biens(id,montant_offre,prix_vente,statut)"), { silent:true }),
-      safeQuery("Planning", supabase.from("invest_planning").select("id,titre,type,date_rdv,heure_debut,heure_fin,client_id,bien_id,lieu,commentaire,created_at,updated_at").order("date_rdv", { ascending:false }).limit(300), { silent:true }),
-      safeQuery("Actions", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(500), { silent:true }),
-      safeQuery("Historique routines", supabase.from("invest_morning_routines").select("*").order("routine_date", { ascending:false }).limit(30), { silent:true }),
-      safeQuery("Notifications actions", supabase.from("invest_action_notifications").select("*").order("created_at", { ascending:false }).limit(80), { silent:true }),
-
-      // Couverture des autres onglets/modules : ces tables restent optionnelles.
-      // Si une table n'existe pas encore, la routine continue sans bandeau d'erreur.
-      safeQuery("Documents", supabase.from("invest_documents").select("*").limit(500), { silent:true }),
-      safeQuery("Documents clients", supabase.from("invest_client_documents").select("*").limit(500), { silent:true }),
-      safeQuery("Documents biens", supabase.from("invest_bien_documents").select("*").limit(500), { silent:true }),
-      safeQuery("Liens Google Drive", supabase.from("invest_google_drive_links").select("*").limit(500), { silent:true }),
-      safeQuery("Suivi financier", supabase.from("invest_suivi_financier").select("*").limit(700), { silent:true }),
-      safeQuery("Finance", supabase.from("invest_finance").select("*").limit(700), { silent:true }),
-      safeQuery("Encaissements", supabase.from("invest_encaissements").select("*").limit(700), { silent:true }),
-      safeQuery("Structuration patrimoniale", supabase.from("invest_structuration_patrimoniale").select("*").limit(300), { silent:true }),
-      safeQuery("Décisions routines", supabase.from("invest_morning_routine_items").select("*").order("created_at", { ascending:false }).limit(300), { silent:true }),
-      safeQuery("Reports récurrents", supabase.from("invest_morning_routine_recurrences").select("*").order("updated_at", { ascending:false }).limit(300), { silent:true }),
-      safeQuery("Liens actions dashboard", supabase.from("invest_dashboard_action_links").select("*").order("created_at", { ascending:false }).limit(300), { silent:true }),
-    ]);
-
-    // Support des éventuelles tables dédiées au CRM Prospection.
-    // Si elles n'existent pas, elles sont simplement ignorées.
-    const prospectTables = [
-      "invest_prospects",
-      "invest_prospection",
-      "invest_crm_prospects",
-      "invest_crm_prospection",
-      "invest_prospection_contacts",
-      "crm_prospection",
-      "crm_prospects",
-      "prospects"
-    ];
-    const prospectTableResults = await Promise.all(
-      prospectTables.map(table => safeQuery(`CRM Prospection ${table}`, supabase.from(table).select("*").order("created_at", { ascending:false }).limit(1000), { silent:true }))
-    );
-    const crmProspectionRows = prospectTableResults.flatMap((rows, index) => withSourceTable(rows, prospectTables[index]));
-    const documents = [...safeArr(docsMain), ...safeArr(docsClients), ...safeArr(docsBiens), ...safeArr(driveLinks)];
-    const finance = [...safeArr(financeMain), ...safeArr(financeAlt), ...safeArr(suiviFinancier)];
-    setClients(c); setCrmProspects(crmProspectionRows); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setHistory(h); setNotifications(n);
-    setCoverageData({ documents, finance, structuration, routineItems, recurrences, actionLinks, notifications:n, planning:pl, propositions:p });
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { loadDashboard(); }, [loadDashboard]);
   useEffect(() => { try { window.localStorage.setItem(storageKeyFor(), JSON.stringify(routine)); } catch {} }, [routine]);
 
-  const data = useMemo(() => buildV6Data({ clients, crmProspects, biens, propositions, planning, actions }), [clients, crmProspects, biens, propositions, planning, actions]);
-  const collaborators = useMemo(() => ["Matthieu", "Tom", "Benjamin", "Camille"], []);
-  const unresolvedUrgencyItems = useMemo(() => data.urgencyItems.filter(item => !isResolvedToday(routine, item)), [data.urgencyItems, routine]);
-  const visibleProspects = (quickMode ? data.prospectItems.filter(i => !i.readOnly && (i.level === "danger" || i.score >= 70)) : data.prospectItems.filter(i => i.critical || i.readOnly)).filter(item => !isResolvedToday(routine, item));
-  const visibleClients = (quickMode ? data.clientItems.filter(i => i.level === "danger") : data.clientItems).filter(item => !isResolvedToday(routine, item));
-  const visibleBiens = (quickMode ? data.bienItems.filter(i => !i.readOnly && (i.level === "danger" || normTxt(i.category).includes("offre"))) : data.bienItems.filter(i => i.critical || i.readOnly)).filter(item => !isResolvedToday(routine, item));
-  const clientDecisionItems = data.clientItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i));
-  const decisionQueue = useMemo(() => sortDecisionQueue([
-    ...unresolvedUrgencyItems,
-    ...data.prospectItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
-    ...clientDecisionItems.filter(i => !i.readOnly),
-    ...data.bienItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
-  ]), [unresolvedUrgencyItems, data, routine, clientDecisionItems]);
-  const allRequiredItems = useMemo(() => uniqueItemsByDecisionKey([
-    ...data.prospectItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
-    ...clientDecisionItems.filter(i => !i.readOnly),
-    ...data.bienItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
-  ]), [data, routine, clientDecisionItems]);
-  const allItemsForSave = useMemo(() => uniqueItemsByDecisionKey([...data.prospectItems, ...data.clientItems, ...data.bienItems]), [data]);
-  const incompleteItems = allRequiredItems.filter(item => !isDecisionComplete(item, routine.decisions[decisionKey(item)]));
-  const incompleteCollaborators = [];
-  const prioritiesOk = safeArr(routine.priorities).every(isPriorityComplete);
-  const finalOk = prioritiesOk && incompleteCollaborators.length === 0 && incompleteItems.length === 0;
-  const plan = useMemo(() => actionPlanFromRoutine(routine, data), [routine, data]);
-  const criticalBarStats = useMemo(() => {
-    const base = computeCriticalBarStats(data, clients, biens, actions);
-    return { ...base, decisionsAArbitrer:decisionQueue.length, encaissementAttente:computeCoverageEncaissement(coverageData.finance, base.encaissementAttente) };
-  }, [data, clients, biens, actions, coverageData.finance, decisionQueue]);
+  const safeQuery = useCallback(async (label, query, required=false) => {
+    try { const { data, error } = await query; if (error) { console.warn(`[Dashboard V9] ${label}`, error); if (required) setError(`Impossible de charger ${label}. Vérifie Supabase / RLS.`); return []; } return data || []; } catch(e) { console.warn(`[Dashboard V9] ${label}`, e); if (required) setError(`Impossible de charger ${label}.`); return []; }
+  }, []);
+  const loadDashboard = useCallback(async () => {
+    setLoading(true); setError("");
+    const [c,b,p,pl,a,n,fin] = await Promise.all([
+      safeQuery("clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false }), true),
+      safeQuery("biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false }), true),
+      safeQuery("propositions", supabase.from("invest_propositions").select("*").limit(500)),
+      safeQuery("planning", supabase.from("invest_planning").select("*").order("date_rdv", { ascending:false }).limit(500)),
+      safeQuery("actions équipe", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(700)),
+      safeQuery("notifications", supabase.from("invest_action_notifications").select("*").order("created_at", { ascending:false }).limit(100)),
+      safeQuery("finance", supabase.from("invest_suivi_financier").select("*").limit(800)),
+    ]);
+    const prospectTables = ["invest_prospects", "invest_prospection", "invest_crm_prospects", "invest_crm_prospection", "invest_prospection_contacts", "crm_prospection", "crm_prospects", "prospects"];
+    const prospectRows = (await Promise.all(prospectTables.map(t => safeQuery(`prospection ${t}`, supabase.from(t).select("*").order("created_at", { ascending:false }).limit(1000))))).flatMap((rows, idx) => withSourceTable(rows, prospectTables[idx]));
+    setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setNotifications(n); setFinance(fin); setCrmProspects(prospectRows); setLoading(false);
+  }, [safeQuery]);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
-  const updateDecision = (item, value) => setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(item)]:value } }));
-
-  const resolveUrgencyForToday = (item, decisionLabel="Traiter moi-même") => {
-    ensureStarted();
-    const key = decisionKey(item);
-    const currentBeforeResolve = routine.decisions?.[key] || defaultDecision(item);
-    if (!isDecisionComplete(item, currentBeforeResolve)) {
-      setError(`Validation impossible : complète d’abord ${missingDecisionFields(item, currentBeforeResolve).join(", ")}.`);
-      return;
-    }
-    const entityKey = routineEntityKey(item);
-    setRoutine(prev => {
-      const current = prev.decisions?.[key] || defaultDecision(item);
-      const nextDecision = {
-        ...current,
-        decision:current.decision || decisionLabel,
-        comment:current.comment || `Urgence validée dans la morning routine du ${todayIso()}.`,
-        responsable:current.responsable || item.responsable || "Matthieu",
-        next_action:current.next_action || item.defaultAction || `Suivi ${item.label}`,
-        due_date:current.due_date || todayIso(),
-        create_task:decisionLabel === "Traiter moi-même" ? false : true,
-        resolved_at:new Date().toISOString(),
-      };
-      const info = {
-        resolved_at:new Date().toISOString(),
-        decision:nextDecision.decision,
-        label:item.label,
-        entity_key:entityKey,
-      };
-      return {
-        ...prev,
-        decisions:{ ...prev.decisions, [key]:nextDecision },
-        resolvedUrgencies:{ ...(prev.resolvedUrgencies || {}), [key]:info, [entityKey]:info },
-      };
-    });
-  };
-
-  const undoResolvedUrgency = (resolvedKey) => {
-    setRoutine(prev => {
-      const next = { ...(prev.resolvedUrgencies || {}) };
-      const info = next[resolvedKey];
-      delete next[resolvedKey];
-      if (info?.entity_key) delete next[info.entity_key];
-      Object.entries(next).forEach(([k, v]) => {
-        if (v?.entity_key === resolvedKey || v?.entity_key === info?.entity_key) delete next[k];
-      });
-      return { ...prev, resolvedUrgencies:next };
-    });
-  };
-
-  const updateChecklist = (step, id, checked) => setRoutine(prev => ({ ...prev, checklist:{ ...prev.checklist, [step]:{ ...(prev.checklist[step] || {}), [id]:checked } } }));
-  const updateStepNote = (step, value) => setRoutine(prev => ({ ...prev, stepNotes:{ ...prev.stepNotes, [step]:value } }));
-
-  const ensureStarted = () => setRoutine(prev => prev.status === "not_started" ? { ...prev, status:"in_progress", started_at:new Date().toISOString() } : prev);
-
-  const createActionNotification = async ({ actionId, responsable, title, message, linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
-    if (!responsable || responsable === "Matthieu") return;
-    try {
-      await supabase.from("invest_action_notifications").insert({
-        action_id:actionId || null,
-        recipient:responsable,
-        title:title || "Nouvelle action assignée",
-        message:message || "Action créée depuis le Dashboard Pilotage Quotidien.",
-        linked_entity_type:linked_entity_type || null,
-        linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
-        priority,
-        status:"unread",
-        source_module:"dashboard_v8",
-        created_by:profil?.email || profil?.nom || "Matthieu",
-      });
-    } catch (e) {
-      console.warn("Notification collaborateur non bloquante", e);
-    }
-  };
-
-  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V8", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
-    if (!responsable || !title) return null;
-    const basePayload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
-    const linkedPayload = {
-      ...basePayload,
-      linked_entity_type:linked_entity_type || null,
-      linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
-      source_module:"dashboard_v8",
-      source_context:{ comment, created_from:"dashboard_pilotage_quotidien", routine_date:todayIso() },
+  const data = useMemo(() => consolidateData({ clients, crmProspects, biens, propositions, planning, actions }), [clients, crmProspects, biens, propositions, planning, actions]);
+  const doneItems = useMemo(() => safeArr(data.allDossiers).filter(d => isResolvedToday(routine, d)), [data.allDossiers, routine]);
+  const openItems = useMemo(() => safeArr(data.allDossiers).filter(d => !isResolvedToday(routine, d)), [data.allDossiers, routine]);
+  const byColumn = useMemo(() => {
+    const filtered = filterDossiers(openItems, filter);
+    return {
+      decision:sortDossiers(filtered.filter(d => d.category === "decision")),
+      watch:sortDossiers(filtered.filter(d => d.category === "watch")),
+      delegated:sortDossiers(filtered.filter(d => d.category === "delegated")),
+      done:sortDossiers(filterDossiers(doneItems, filter)),
     };
+  }, [openItems, doneItems, filter]);
+  const plan = useMemo(() => planFromRoutine(routine, data.allDossiers), [routine, data.allDossiers]);
+  const currentDecision = decisionItem ? (routine.decisions?.[decisionKey(decisionItem)] || defaultDecision(decisionItem)) : null;
+  const openDetail = item => setSelected(item);
+  const openDecision = item => { setDecisionItem(item); setSelected(null); };
+  const updateDecision = value => { if (!decisionItem) return; setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(decisionItem)]:value } })); };
+
+  const openFullRecord = item => {
+    if (!item) return;
+    if (item.type === "prospect") onNavigate?.("prospection", { type:"fiche", id:item.id, sourceTable:item.sourceTable });
+    else if (item.type === "client") onNavigate?.("crm", { type:"fiche", id:item.id });
+    else if (item.type === "bien") onNavigate?.("biens", { type:"fiche", id:item.id });
+    else onNavigate?.("crm", { type:"actions", id:item.id });
+  };
+  const createNotification = async ({ actionId, responsable, title, message, item }) => {
+    if (!responsable || responsable === "Matthieu") return;
+    try { await supabase.from("invest_action_notifications").insert({ action_id:actionId || null, recipient:responsable, title:title || "Nouvelle action assignée", message:message || "Action créée depuis le Dashboard V9.", linked_entity_type:item?.type || null, linked_entity_id:item?.id ? String(item.id) : null, priority:item?.level === "danger" ? "high" : "normal", status:"unread", source_module:"dashboard_v9", created_by:profil?.email || profil?.nom || "Matthieu" }); } catch(e) { console.warn("Notification non bloquante", e); }
+  };
+  const createMissionAction = async (item, d) => {
+    if (!d?.create_task || !d?.responsable || !d?.next_action) return null;
+    if (d.responsable === "Matthieu") return null;
+    const base = { responsable:d.responsable, action_title:d.next_action, due_date:d.due_date || null, status:"a_faire", step_label:`Dashboard V9 — ${item.type}`, client_id:item.type === "client" || (item.type === "prospect" && item.sourceTable === "invest_clients") ? item.id : null };
+    const linked = { ...base, linked_entity_type:item.type, linked_entity_id:String(item.id), source_module:"dashboard_v9", source_context:{ comment:d.comment, decision:d.decision, routine_date:todayIso() } };
     let created = null;
-    let insertError = null;
-    const first = await supabase.from("invest_mission_actions").insert(linkedPayload).select("id").single();
+    const first = await supabase.from("invest_mission_actions").insert(linked).select("id").single();
     if (first.error) {
-      insertError = first.error;
-      const fallback = await supabase.from("invest_mission_actions").insert(basePayload).select("id").single();
-      if (fallback.error) throw fallback.error;
-      created = fallback.data;
-    } else {
-      created = first.data;
-    }
-    const actionId = created?.id || null;
-    await createActionNotification({ actionId, responsable, title, message:comment, linked_entity_type, linked_entity_id, priority });
-    if (insertError) console.warn("Action créée sans colonnes de liaison V7. Exécute la migration V7 pour activer les relations complètes.", insertError);
-    return actionId;
+      const fallback = await supabase.from("invest_mission_actions").insert(base).select("id").single();
+      if (!fallback.error) created = fallback.data;
+    } else created = first.data;
+    await createNotification({ actionId:created?.id, responsable:d.responsable, title:d.next_action, message:d.comment, item });
+    return created?.id || null;
   };
-
-  const applyDecision = async (item, d) => {
-    if (!item || !d || !d.create_task) return null;
-    const baseTitle = d.next_action || `${d.decision} — ${item.label}`;
-    let createdTaskId = null;
-    if (item.originalType === "prospect" || item.type === "prospect") {
-      const sourceTable = item.raw?._source_table || "invest_clients";
-      const updatePayload = { prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || null, conseiller:d.responsable || null };
-      if (normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver")) updatePayload.statut = "Inactif";
-      else if (item.raw?.statut) updatePayload.statut = item.raw.statut;
-      await supabase.from(sourceTable).update(updatePayload).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:sourceTable === "invest_clients" ? (item.raw?.id || item.id) : null, step_label:"Dashboard V8 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
-    } else if (item.originalType === "client" || item.type === "client") {
-      await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || item.raw?.date_prochaine_action || null, conseiller:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V8 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
-    } else if (item.originalType === "bien" || item.type === "bien") {
-      const decisionNorm = normTxt(d.decision);
-      const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
-      await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V8 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
-    } else {
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V8 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
+  const applyEntityUpdate = async (item, d) => {
+    if (item.type === "prospect") {
+      const table = item.sourceTable || "invest_clients";
+      const payload = { prochaine_action:d.next_action, date_prochaine_action:d.due_date };
+      if (table === "invest_clients") payload.conseiller = d.responsable;
+      if (normTxt(d.decision).includes("perdu")) payload.statut = "Perdu";
+      if (normTxt(d.decision).includes("archiver")) payload.statut = "Archivé";
+      await supabase.from(table).update(payload).eq("id", item.id);
+    } else if (item.type === "client") {
+      await supabase.from("invest_clients").update({ prochaine_action:d.next_action, date_prochaine_action:d.due_date, conseiller:d.responsable }).eq("id", item.id);
+    } else if (item.type === "bien") {
+      const dn = normTxt(d.decision);
+      const statut = dn.includes("archiver") ? "Archivé" : dn.includes("visite") ? "À visiter" : dn.includes("proposer") ? "Proposé à client" : dn.includes("matcher") ? "À matcher" : dn.includes("offre") ? "Offre à faire" : dn.includes("attente") ? "À trier" : dn.includes("analyser") ? "À analyser" : item.raw?.statut;
+      await supabase.from("invest_biens").update({ statut, date_relance:d.due_date, conseiller_profero:d.responsable }).eq("id", item.id);
     }
-    return createdTaskId;
   };
-
-  const saveRoutine = async ({ complete=false, forced=false }={}) => {
+  const saveDecision = async (item, d) => {
+    const miss = missingDecisionFields(item, d);
+    if (miss.length) { setError(`Validation impossible : complète ${miss.join(", ")}.`); return; }
     setSaving(true); setError("");
     try {
-      const routinePayload = { routine_date:todayIso(), status:complete ? "completed" : "in_progress", started_at:routine.started_at || new Date().toISOString(), completed_at:complete ? new Date().toISOString() : null, created_by:profil?.email || profil?.nom || "Matthieu", completion_forced:forced, force_reason:routine.force_reason || null, priorite_1:routine.priorities?.[0]?.title || null, priorite_2:routine.priorities?.[1]?.title || null, priorite_3:routine.priorities?.[2]?.title || null, summary:JSON.stringify({ plan, collaborators:routine.collaborators, stepNotes:routine.stepNotes, resolvedUrgencies:routine.resolvedUrgencies || {} }) };
-      let routineId = routine.savedRoutineId;
-      if (!routineId) {
-        const { data:created, error:insertError } = await supabase.from("invest_morning_routines").insert(routinePayload).select("id").single();
-        if (insertError) throw insertError;
-        routineId = created?.id;
-      } else {
-        const { error:updateError } = await supabase.from("invest_morning_routines").update(routinePayload).eq("id", routineId);
-        if (updateError) throw updateError;
-      }
-      const itemRows = [];
-      for (const item of allItemsForSave) {
-        const d = routine.decisions[decisionKey(item)] || defaultDecision(item);
-        if (!String(d.decision || "").trim() && !d.force_validated) continue;
-        let createdTaskId = null;
-        try { createdTaskId = await applyDecision(item, d); } catch (e) { console.warn("Application décision non bloquante", e); }
-        itemRows.push({ routine_id:routineId, routine_date:todayIso(), step_key:item.type, item_type:item.originalType || item.type, item_id:String(item.raw?.id || item.sourceId || item.id || ""), item_label:item.label, alert_level:item.level, decision:d.decision || null, comment:d.comment || null, responsable:d.responsable || null, next_action:d.next_action || null, due_date:d.due_date || null, force_validated:Boolean(d.force_validated), force_reason:d.force_reason || null, status:isDecisionComplete(item,d) ? "validated" : "draft", created_task_id:createdTaskId } );
-      }
-      if (itemRows.length) await supabase.from("invest_morning_routine_items").insert(itemRows);
-      setRoutine(prev => ({ ...prev, savedRoutineId:routineId, status:complete ? "completed" : "in_progress", completed_at:complete ? new Date().toISOString() : prev.completed_at, force_completed:forced }));
-      await loadDashboard();
-    } catch (e) {
-      setError(e?.message || "Impossible d’enregistrer la routine. Vérifie la migration Supabase V7.");
-    } finally { setSaving(false); }
+      await applyEntityUpdate(item, d);
+      const taskId = await createMissionAction(item, d);
+      try { await supabase.from("invest_morning_routine_items").insert({ routine_date:todayIso(), step_key:"pilotage_dossier", item_type:item.type, item_id:String(item.id), item_label:item.label, alert_level:item.level, decision:d.decision, comment:d.comment, responsable:d.responsable, next_action:d.next_action, due_date:d.due_date || null, status:"validated", created_task_id:taskId ? String(taskId) : null }); } catch(e) { console.warn("Historique routine non bloquant", e); }
+      setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(item)]:{ ...d, created_task_id:taskId || null, resolved_at:new Date().toISOString() } }, resolved:{ ...prev.resolved, [decisionKey(item)]:{ resolved_at:new Date().toISOString(), label:item.label, type:item.type } } }));
+      setDecisionItem(null); await loadDashboard();
+    } catch(e) { console.error(e); setError(e.message || "Impossible de valider le dossier."); }
+    setSaving(false);
   };
+  const printPdf = () => printPlan(plan);
 
-  const forceCompleteAllowed = Boolean(String(routine.force_reason || "").trim());
+  const renderPilotage = () => <>
+    <StateBar data={data} doneCount={doneItems.length} T={T} onSelect={(k) => { if (k === "done") setActiveView("plan"); }} />
+    <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"space-between", alignItems:"center", marginBottom:SPACING.md }}><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{V9_ENTITY_FILTERS.map(f => { const active = filter === f.key; return <button key={f.key} className={`inv-btn ${active ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setFilter(f.key)}><Icon as={f.icon} size={12}/>{f.label}</button> })}</div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={printPdf}><Icon as={Download} size={12}/>Plan PDF</button></div></div>
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:SPACING.md, alignItems:"start" }} className="v9-board-grid"><BoardColumn column={V9_COLUMNS[0]} items={byColumn.decision} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[1]} items={byColumn.watch} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[2]} items={byColumn.delegated} T={T} onOpen={openDetail} onDecide={openDecision}/></div>
+    <SectionCard title="Traité aujourd’hui" icon={Check} subtitle="Dossiers consolidés validés dans la journée" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{byColumn.done.length ? byColumn.done.map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact/>) : <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucun dossier traité aujourd'hui.</div>}</div></SectionCard>
+    <PrioritiesPanel routine={routine} setRoutine={setRoutine} T={T}/>
+    <ActionPlanPDF plan={plan} T={T} onPrint={printPdf}/>
+  </>;
+  const renderMetier = () => <div style={{ display:"grid", gap:SPACING.md }}><SectionCard title="Prospects actifs" icon={Phone} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(filterDossiers(data.prospectDossiers, "all")).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Clients actifs" icon={Briefcase} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.clientDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Stock de biens" icon={Home} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.bienDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard></div>;
+  const renderEquipe = () => <SectionCard title="Pilotage équipe à distance" icon={Users} subtitle="Actions déléguées et notifications collaborateurs" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{V9_RESPONSABLES.map(r => { const list = data.allDossiers.filter(d => d.responsable === r && (d.category === "delegated" || d.type === "team")); return <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:8 }}><strong style={{ color:T.text }}>{r}</strong><AlertBadge level={list.some(x => x.level === "danger") ? "danger" : "info"} T={T}>{list.length}</AlertBadge></div>{list.slice(0,8).map(item => <button key={item.key} onClick={() => openDetail(item)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", padding:"7px 0", borderTop:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}><div style={{ color:T.text, fontWeight:800, fontSize:FONT.sm.size }}>{item.next_action || item.label}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{item.label} · {safeDate(item.due_date)}</div></button>)}</div> })}</div>{notifications.length > 0 && <div style={{ marginTop:SPACING.md, color:T.textMuted, fontSize:FONT.sm.size }}>{notifications.filter(n => !n.read_at && n.status !== "read").length} notification(s) collaborateur non lue(s).</div>}</SectionCard>;
 
-  const openLinkedRecord = (item) => {
-    setSelectedLinkedItem(item || null);
-  };
-
-  const openFullLinkedRecord = (item = selectedLinkedItem) => {
-    navigateToLinkedRecord(item, onNavigate);
-  };
-
-  const renderChecklist = (stepKey) => {
-    const list = V6_CHECKLISTS[stepKey] || [];
-    return <div style={{ display:"grid", gap:6 }}>{list.map(ch => <label key={ch.id} style={{ display:"flex", alignItems:"center", gap:8, color:T.textSub, fontSize:FONT.sm.size, fontWeight:800 }}><input type="checkbox" checked={Boolean(routine.checklist?.[stepKey]?.[ch.id])} onChange={e => updateChecklist(stepKey, ch.id, e.target.checked)}/>{ch.label}{ch.required && <span style={{ color:DA }}>*</span>}</label>)}<TextArea label="Note libre de l’étape" value={routine.stepNotes?.[stepKey] || ""} onChange={v => updateStepNote(stepKey, v)} T={T}/></div>;
-  };
-
-  const renderItems = (items, empty, compact=false, allowResolve=false, readOnly=false) => {
-    if (!items.length) return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>{empty}</div>;
-    return (
-      <div style={{ display:"grid", gap:SPACING.md }}>
-        {items.map(item => (
-          <RoutineDecisionCard
-            key={decisionKey(item)}
-            item={item}
-            decision={routine.decisions[decisionKey(item)] || defaultDecision(item)}
-            onChange={v => updateDecision(item, v)}
-            onResolve={allowResolve ? resolveUrgencyForToday : null}
-            T={T}
-            compact={compact}
-            readOnly={readOnly || item.readOnly}
-            onOpen={openLinkedRecord}
-          />
-        ))}
-      </div>
-    );
-  };
-
-  const renderStep = () => {
-    if (activeStep === "decisions") return (
-      <>
-        <SectionCard title="File de décision — à traiter maintenant" icon={AlertTriangle} subtitle="Une seule liste : prospects, clients, biens et actions équipe triés par urgence." T={T}>
-          <QueueSummary queue={decisionQueue} plan={plan} T={T}/>
-          {renderItems(decisionQueue, "Aucune décision obligatoire aujourd’hui. Les dossiers restent disponibles dans les vues métier.", quickMode, true)}
-        </SectionCard>
-        <ResolvedUrgenciesView routine={routine} data={data} onUndo={undoResolvedUrgency} onOpen={openLinkedRecord} T={T}/>
-        <SectionCard title="Mode de pilotage" icon={Eye} T={T}>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))", gap:SPACING.md }}>
-            <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><strong style={{ color:T.text }}>Lecture</strong><div style={{ color:T.textMuted, fontSize:FONT.sm.size, marginTop:5 }}>Les informations saines restent dans les vues métier sans bloquer la routine.</div></div>
-            <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><strong style={{ color:T.text }}>Décision</strong><div style={{ color:T.textMuted, fontSize:FONT.sm.size, marginTop:5 }}>Une ligne disparaît uniquement si décision, responsable, action, échéance et commentaire sont complétés.</div></div>
-            <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><strong style={{ color:T.text }}>Délégation</strong><div style={{ color:T.textMuted, fontSize:FONT.sm.size, marginTop:5 }}>Les actions assignées gardent leur lien prospect, client ou bien pour les notifications collaborateurs.</div></div>
-          </div>
-        </SectionCard>
-      </>
-    );
-    if (activeStep === "urgences") return (
-      <>
-        <SectionCard title="Urgences à traiter" icon={AlertTriangle} subtitle="Valide chaque urgence pour la faire disparaître de la routine du jour" T={T}>
-          {renderItems(unresolvedUrgencyItems, "Aucune urgence critique détectée", quickMode, true)}
-        </SectionCard>
-        <ResolvedUrgenciesView routine={routine} data={data} onUndo={undoResolvedUrgency} onOpen={openLinkedRecord} T={T}/>
-        <SectionCard title="Checklist Urgences" icon={Check} T={T}>{renderChecklist("urgences")}</SectionCard>
-      </>
-    );
-    if (activeStep === "priorites") return <><SectionCard title="3 priorités obligatoires du jour" icon={Sparkles} subtitle="Impossible de terminer la routine sans ces 3 priorités" T={T}><PriorityEditor priorities={routine.priorities} onChange={priorities => setRoutine(prev => ({ ...prev, priorities }))} T={T}/></SectionCard><SectionCard title="Checklist Priorités" icon={Check} T={T}>{renderChecklist("priorites")}</SectionCard></>;
-    if (activeStep === "collaborateurs") return <><NotificationsCollaborateurs notifications={notifications} T={T} onOpen={(payload) => { if (!onNavigate) return; if (payload?.type === "bien") onNavigate("biens", { type:"open_bien", id:payload.id, bien_id:payload.id, source:"notification_collaborateur" }); else onNavigate("crm", { type:"open_client", id:payload.id, client_id:payload.id, source:"notification_collaborateur" }); }}/><SectionCard title="Consignes collaborateurs" icon={Users} subtitle="Générées automatiquement à partir des décisions assignées" T={T}><ConsignesCollaborateursView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Consignes" icon={Check} T={T}>{renderChecklist("collaborateurs")}</SectionCard></>;
-    if (activeStep === "prospects") {
-      const prospectsDecision = visibleProspects.filter(i => !i.readOnly);
-      const prospectsInfo = quickMode ? [] : data.prospectItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
-      return <>
-        <StepOverview title="Prospection active" subtitle="Uniquement les prospects actifs. Les prospects supprimés, archivés, inactifs ou perdus sont exclus du pilotage quotidien." total={data.stats.prospects} decisions={prospectsDecision.length} readOnly={prospectsInfo.length} resolved={Object.values(routine.resolvedUrgencies || {}).filter(r => String(r?.entity_key || "").startsWith("prospect:")).length} icon={Phone} T={T}/>
-        <SectionCard title="Prospects à décider" icon={Phone} subtitle={quickMode ? "Mode rapide : prospects rouges / chauds arrivés à échéance" : "Tri automatique : rouge, orange, chaud, puis lecture seule"} T={T}>{renderItems(prospectsDecision, "Aucun prospect actif à traiter aujourd’hui", quickMode, true)}</SectionCard>
-        {!quickMode && <SectionCard title="Prospects actifs — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={prospectsInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
-        <SectionCard title="Checklist Prospects" icon={Check} T={T}>{renderChecklist("prospects")}</SectionCard>
-      </>;
-    }
-    if (activeStep === "clients") {
-      const clientsAlertes = visibleClients.filter(i => i.critical && !i.readOnly);
-      const clientsOk = quickMode ? [] : visibleClients.filter(i => !i.critical || i.readOnly);
-      return <>
-        <StepOverview title="Clients actifs" subtitle="Tous les clients actifs restent visibles, mais seuls les dossiers en alerte exigent une décision." total={data.stats.clients} decisions={clientsAlertes.length} readOnly={clientsOk.length} resolved={Object.values(routine.resolvedUrgencies || {}).filter(r => String(r?.entity_key || "").startsWith("client:")).length} icon={Briefcase} T={T}/>
-        <SectionCard title="Clients à décider" icon={Briefcase} subtitle={quickMode ? "Mode rapide : clients rouges arrivés à échéance" : "Alertes en premier : sans action, sans étape, sans responsable ou sans avancée"} T={T}>{renderItems(clientsAlertes, "Aucun client à traiter aujourd’hui", quickMode, true)}</SectionCard>
-        {!quickMode && <SectionCard title="Clients sous contrôle / lecture seule" icon={Check} subtitle="Échéance non passée ou dossier sous contrôle : visible sans décision obligatoire" T={T}><RoutineInfoList items={clientsOk} T={T} onOpen={openLinkedRecord}/></SectionCard>}
-        <SectionCard title="Checklist Clients" icon={Check} T={T}>{renderChecklist("clients")}</SectionCard>
-      </>;
-    }
-    if (activeStep === "biens") {
-      const biensDecision = visibleBiens.filter(i => !i.readOnly);
-      const biensInfo = quickMode ? [] : data.bienItems.filter(i => i.readOnly && !isResolvedToday(routine, i));
-      return <>
-        <StepOverview title="Stock de biens" subtitle="Les biens sont triés par tâche à faire, relance dépassée, offre en cours, puis lecture seule." total={data.stats.biens} decisions={biensDecision.length} readOnly={biensInfo.length} resolved={Object.values(routine.resolvedUrgencies || {}).filter(r => String(r?.entity_key || "").startsWith("bien:")).length} icon={Home} T={T}/>
-        <SectionCard title="Stock de biens à décider" icon={Home} subtitle={quickMode ? "Mode rapide : biens rouges / offres arrivées à échéance" : "Biens nécessitant une tâche, une relance ou une décision"} T={T}>{renderItems(biensDecision, "Aucun bien à traiter aujourd’hui", quickMode, true)}</SectionCard>
-        {!quickMode && <SectionCard title="Stock de biens — lecture seule" icon={Eye} subtitle="Échéance non passée : information visible sans décision obligatoire" T={T}><RoutineInfoList items={biensInfo} T={T} onOpen={openLinkedRecord}/></SectionCard>}
-        <SectionCard title="Checklist Biens" icon={Check} T={T}>{renderChecklist("biens")}</SectionCard>
-      </>;
-    }
-    if (activeStep === "synthese") return <><SectionCard title="Plan d’action court" icon={Send} subtitle="Regroupé par responsable" T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard><SectionCard title="Checklist Synthèse" icon={Check} T={T}>{renderChecklist("synthese")}</SectionCard></>;
-    return <SectionCard title="Validation finale" icon={Check} T={T}><div style={{ display:"grid", gap:SPACING.md }}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:SPACING.md }}><KPICard icon={Sparkles} label="Priorités complètes" value={prioritiesOk ? "Oui" : "Non"} color={prioritiesOk ? SU : DA}/><KPICard icon={Users} label="Consignes équipe" value={plan.filter(p => p.responsable && p.responsable !== "Matthieu").length} color={T.accent}/><KPICard icon={AlertTriangle} label="Décisions manquantes" value={incompleteItems.length} color={incompleteItems.length ? DA : SU}/><KPICard icon={Send} label="Actions au plan" value={plan.length} color="#FFC200"/></div>{!finalOk && <div style={{ padding:SPACING.md, borderRadius:RADIUS.md, background:SEMANTIC?.danger?.bg || "#fff1f2", border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, color:DA, fontWeight:800 }}>Routine non finalisable : {incompleteItems.length} décision(s) manquante(s), priorités {prioritiesOk ? "OK" : "incomplètes"}.</div>}<TextArea label="Motif de validation forcée" value={routine.force_reason} onChange={v => setRoutine(prev => ({ ...prev, force_reason:v }))} placeholder="Obligatoire si tu veux terminer malgré des éléments incomplets." T={T}/><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" disabled={saving} onClick={() => saveRoutine({ complete:false })}><Icon as={Save} size={12}/>Enregistrer brouillon</button><button className="inv-btn inv-btn-gold inv-btn-sm" disabled={saving || !finalOk} onClick={() => saveRoutine({ complete:true, forced:false })}><Icon as={Check} size={12}/>Terminer la routine</button><button className="inv-btn inv-btn-sm" style={{ background:DA, color:"white" }} disabled={saving || finalOk || !forceCompleteAllowed} onClick={() => saveRoutine({ complete:true, forced:true })}><Icon as={AlertTriangle} size={12}/>Forcer avec motif</button></div></div></SectionCard>;
-  };
-
-  const renderTab = () => {
-    if (activeTab === "dashboard") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Décision quotidienne</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "decisions" ? decisionQueue.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
-    if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
-    if (activeTab === "suivi") return <SuiviDossiers data={data} coverageData={coverageData} T={T} onNavigate={onNavigate}/>;
-    if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
-    return <VueMensuelle data={data} T={T}/>;
-  };
-
-  return (
-    <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
-      <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard de Décision Quotidienne Profero Invest V8</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, file de décision unique, fiche latérale et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
-      </div>
-
-      {!loading && <CriticalBar stats={criticalBarStats} T={T} onSelect={(key) => { if (key === "decisions") { setActiveTab("dashboard"); setActiveStep("decisions"); } else if (key === "relances") { setActiveTab("dashboard"); setActiveStep("decisions"); } else if (key === "equipe") { setActiveTab("dashboard"); setActiveStep("collaborateurs"); } else if (key === "echeances") { setActiveTab("dashboard"); setActiveStep("clients"); } else if (key === "encaissements") { setActiveTab("mensuel"); } }} />}
-
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.xl }}>{V6_TABS.map(tab => { const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.pill, padding:"9px 13px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"inherit", fontWeight:900 }}><Icon as={tab.icon} size={14}/>{tab.label}</button> })}</div>
-      {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
-      {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement…</div> : renderTab()}
-      <LinkedRecordDrawer item={selectedLinkedItem} T={T} onClose={() => setSelectedLinkedItem(null)} onOpenPage={openFullLinkedRecord}/>
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:980px){.inv-v6-routine-layout{grid-template-columns:1fr!important}.inv-card[style*="sticky"]{position:relative!important;top:auto!important}.inv-v74-step-overview{grid-template-columns:1fr!important}}`}</style>
-    </div>
-  );
-}
-
-function ActionPlanView({ plan=[], T=THEMES_INV.dark }) {
-  if (!plan.length) return <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>Aucune action générée pour le moment. Complète la routine pour construire le plan d’action.</div>;
-  const responsables = Array.from(new Set(plan.map(p => p.responsable || "À définir")));
-  return <div style={{ display:"grid", gap:SPACING.md }}>{responsables.map(r => <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontSize:FONT.lg.size, fontWeight:900, color:T.text, marginBottom:8 }}>{r}</div>{plan.filter(p => (p.responsable || "À définir") === r).map((p, i) => <div key={i} style={{ padding:"8px 0", borderTop:i ? `1px solid ${T.border}` : "none" }}><div style={{ fontSize:FONT.sm.size + 1, fontWeight:900, color:T.text }}>{p.title}</div><div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:2 }}>Échéance : {safeDate(p.due_date)} · Source : {p.source || "—"}</div>{p.comment && <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:4 }}>{p.comment}</div>}</div>)}</div>)}</div>;
-}
-
-function DataCoveragePanel({ data, coverageData={}, T=THEMES_INV.dark }) {
-  const biens = safeArr(data?.biens);
-  const modules = [
-    { label:"CRM prospects actifs", value:data?.stats?.prospects || 0, detail:"Prospects actifs uniquement : score, source, objectif, horizon, capacité, relances, responsable, prochaine action", level:(data?.stats?.prospectsRed || 0) ? "danger" : "success", icon:Phone },
-    { label:"CRM clients", value:data?.stats?.clients || 0, detail:"Étapes, prochaine action, documents, responsables", level:(data?.stats?.clientsBlocked || 0) ? "danger" : "success", icon:Briefcase },
-    { label:"Stock de biens", value:data?.stats?.biens || 0, detail:"Statuts, relances, offres, analyse, visite terrain", level:(data?.stats?.biensToAct || 0) ? "warning" : "success", icon:Home },
-    { label:"Propositions / matching", value:coverageCount(coverageData.propositions), detail:"Biens proposés aux clients et offres actives", level:coverageCount(coverageData.propositions) ? "info" : "warning", icon:Handshake },
-    { label:"Planning / échéances", value:coverageCount(coverageData.planning), detail:"RDV, visites, notaire, financement, relances", level:coverageCount(coverageData.planning) ? "info" : "warning", icon:Calendar },
-    { label:"Actions équipe", value:coverageCount(data?.openActions), detail:"Actions assignées, bloquées, en retard, notifications", level:(data?.stats?.blockedActions || 0) ? "danger" : "success", icon:Users },
-    { label:"Documents / Drive", value:coverageCount(coverageData.documents), detail:"Contrats, fiches patrimoine, pièces, documents biens", level:coverageCount(coverageData.documents) ? "success" : "warning", icon:FileText },
-    { label:"Simulateur / analyse", value:biens.filter(hasSimulateurBien).length, detail:"Rentabilité, cash-flow, travaux, lots, analyse financière du bien", level:biens.filter(hasSimulateurBien).length ? "success" : "warning", icon:BarChart3 },
-    { label:"Visite terrain", value:biens.filter(b => Boolean(b.visite_data)).length, detail:"Données de visite terrain rattachées au bien", level:biens.filter(b => Boolean(b.visite_data)).length ? "success" : "warning", icon:Eye },
-    { label:"Encaissements / financier", value:coverageCount(coverageData.finance), detail:"Forfaits signés non payés, honoraires, suivi financier", level:coverageCount(coverageData.finance) ? "success" : "warning", icon:Euro },
-    { label:"Structuration patrimoniale", value:coverageCount(coverageData.structuration), detail:"Profils, collecte, stratégie et documents patrimoniaux", level:coverageCount(coverageData.structuration) ? "success" : "warning", icon:Wallet },
-    { label:"Historique routine", value:coverageCount(coverageData.routineItems) + coverageCount(coverageData.recurrences), detail:"Décisions, reports, alertes récurrentes", level:coverageCount(coverageData.routineItems) ? "success" : "warning", icon:FileText },
-  ];
-  return (
-    <SectionCard title="Couverture des données par onglet" icon={LayoutGrid} subtitle="Contrôle que le dashboard exploite bien les données utiles de l’application" T={T}>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))", gap:SPACING.md }}>
-        {modules.map(m => {
-          const color = levelColor(m.level, T);
-          return (
-            <div key={m.label} style={{ border:`1px solid ${color}44`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
-              <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}>
-                <span style={{ display:"inline-flex", alignItems:"center", gap:7, fontWeight:900, color:T.text }}><Icon as={m.icon} size={15}/>{m.label}</span>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:900, color }}>{m.value}</span>
-              </div>
-              <div style={{ fontSize:FONT.xs.size + 1, color:T.textMuted, marginTop:6, lineHeight:1.35 }}>{m.detail}</div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ marginTop:SPACING.md, padding:SPACING.md, border:`1px solid ${T.border}`, background:T.card, borderRadius:RADIUS.md, fontSize:FONT.sm.size, color:T.textSub }}>
-        Les modules en orange ne bloquent pas le dashboard : cela signifie simplement que la table dédiée n’est pas encore présente ou pas encore alimentée. Le dashboard utilise alors les données principales existantes, notamment clients, biens, actions et planning.
-      </div>
-    </SectionCard>
-  );
-}
-
-function SuiviDossiers({ data, coverageData={}, T=THEMES_INV.dark, onNavigate }) {
-  return <div style={{ display:"grid", gap:SPACING.md }}>
-    <DataCoveragePanel data={data} coverageData={coverageData} T={T}/>
-    <SectionCard title="Prospects" icon={Phone} T={T}>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}>
-        <KPICard icon={Phone} label="Total prospects" value={data.stats.prospects} color="#4db8ff"/>
-        <KPICard icon={AlertTriangle} label="Rouges" value={data.stats.prospectsRed} color={DA}/>
-        <KPICard icon={Bell} label="Orange" value={data.stats.prospectsOrange} color={WA}/>
-      </div>
-    </SectionCard>
-    <SectionCard title="Clients" icon={Briefcase} T={T}>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}>
-        <KPICard icon={Users} label="Clients suivis" value={data.stats.clients} color="#4db8ff"/>
-        <KPICard icon={AlertTriangle} label="Bloqués" value={data.stats.clientsBlocked} color={DA}/>
-        <KPICard icon={FileText} label="Documents / partenaires" value={data.docActions.length + data.partnerActions.length + coverageCount(coverageData.documents)} color={WA}/>
-      </div>
-    </SectionCard>
-    <SectionCard title="Biens" icon={Home} T={T}>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}>
-        <KPICard icon={Home} label="Biens en stock" value={data.stats.biens} color="#4db8ff"/>
-        <KPICard icon={Sparkles} label="À traiter" value={data.stats.biensToAct} color={WA}/>
-        <KPICard icon={BarChart3} label="Simulateurs" value={safeArr(data.biens).filter(hasSimulateurBien).length} color="#c084fc"/>
-        <KPICard icon={Eye} label="Visites terrain" value={safeArr(data.biens).filter(b => Boolean(b.visite_data)).length} color="#FFC200"/>
-      </div>
-    </SectionCard>
+  return <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1500, margin:"0 auto" }}>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:SPACING.md, flexWrap:"wrap", marginBottom:SPACING.xl }}><div style={{ display:"flex", gap:SPACING.md, alignItems:"center" }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard pilotage quotidien</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub }}>V9 — 1 dossier = 1 carte consolidée. Pilotable à distance, sans doublons.</div></div></div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className={`inv-btn ${activeView === "pilotage" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("pilotage")}><Icon as={LayoutGrid} size={12}/>Pilotage</button><button className={`inv-btn ${activeView === "metier" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("metier")}><Icon as={ListChecks} size={12}/>Vue métier</button><button className={`inv-btn ${activeView === "equipe" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("equipe")}><Icon as={Users} size={12}/>Équipe</button></div></div>
+    {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
+    {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement du pilotage consolidé…</div> : activeView === "pilotage" ? renderPilotage() : activeView === "metier" ? renderMetier() : renderEquipe()}
+    <DecisionDrawer item={decisionItem || selected} decision={decisionItem ? currentDecision : null} setDecision={decisionItem ? updateDecision : null} T={T} onClose={() => { setDecisionItem(null); setSelected(null); }} onSave={decisionItem ? saveDecision : null} onOpenFull={openFullRecord} saving={saving}/>
+    <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:1180px){.v9-board-grid{grid-template-columns:1fr!important}}`}</style>
   </div>;
 }
 
-function HistoriqueRoutines({ history=[], T=THEMES_INV.dark }) {
-  return <SectionCard title="Historique des routines" icon={FileText} subtitle="Après migration Supabase V7" T={T}>{history.length === 0 ? <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucune routine enregistrée pour le moment.</div> : <div style={{ display:"grid", gap:8 }}>{history.map(r => <div key={r.id} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:SPACING.md, display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div><div style={{ fontWeight:900, color:T.text }}>{safeDate(r.routine_date)}</div><div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{r.status} · {r.completion_forced ? "forcée" : "standard"}</div></div><AlertBadge level={r.status === "completed" ? "success" : "warning"} T={T}>{r.status}</AlertBadge></div>)}</div>}</SectionCard>;
-}
-
-function VueMensuelle({ data, T=THEMES_INV.dark }) {
-  return <div style={{ display:"grid", gap:SPACING.md }}><SectionCard title="Vue mensuelle" icon={BarChart3} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}><KPICard icon={Users} label="Prospects entrants" value={data.stats.prospectsThisMonth} color="#4db8ff"/><KPICard icon={Calendar} label="RDV réalisés" value={data.stats.rdvThisMonth} color="#FFC200"/><KPICard icon={Handshake} label="Signatures" value={data.stats.signedThisMonth} color={SU}/><KPICard icon={Euro} label="CA base signé" value={fmtDashboardEur(data.stats.caBaseMonth)} color="#c084fc"/></div></SectionCard><SectionCard title="12 derniers mois" icon={TrendingUp} T={T}><MiniMonthlyChart data={data.monthSeries} T={T}/></SectionCard></div>;
-}
-
 export default TableauBord;
-export { TableauBord, AlertBadge, RoutineDecisionCard, PriorityEditor, CollaboratorEditor, ActionPlanView, StepOverview };
+export { TableauBord };
