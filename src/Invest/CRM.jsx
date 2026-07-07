@@ -3063,19 +3063,68 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
     const due = String(collaboratorTask.due_date || "").trim();
     if (!title) { alert("Indique l'objet de la tâche collaborateur."); return; }
     if (!email || !missionLooksLikeEmail(email)) { alert("Indique un email collaborateur valide."); return; }
+
     setAssigningCollaboratorTask(true);
     const auteur = profil?.nom || profil?.email || "Profero";
-    const clientUrl = (() => {
+    const assignedStepKey = missionStageInfo?.key || missionDetectStepKey(client);
+    const assignedStep = MISSION_STEPS_INVEST.find(s => s.key === assignedStepKey) || MISSION_STEPS_INVEST[0];
+    const nowIso = new Date().toISOString();
+
+    const buildFallbackClientUrl = (actionId = "") => {
       try {
         if (typeof window === "undefined") return "";
         const url = new URL(window.location.href);
         url.searchParams.set("page", "crm");
         url.searchParams.set("crm_client", String(id));
-        url.searchParams.set("crm_focus", "suivi_actions");
-        url.hash = "suivi-actions";
+        url.searchParams.set("crm_focus", "mission");
+        if (actionId) url.searchParams.set("mission_action", String(actionId));
+        if (assignedStep?.key) url.searchParams.set("mission_step", String(assignedStep.key));
+        url.hash = actionId ? `mission-action-${actionId}` : "mission-parcours";
         return url.toString();
       } catch { return ""; }
-    })();
+    };
+
+    let createdAction = null;
+    try {
+      const { data: insertedAction, error: insertError } = await supabase
+        .from("invest_mission_actions")
+        .insert({
+          client_id: id,
+          step_key: assignedStep.key,
+          step_label: assignedStep.label,
+          step_index: missionStepIndex(assignedStep.key) + 1,
+          sort_order: 999,
+          action_title: title,
+          responsable: owner || null,
+          responsable_email: email,
+          status: "a_faire",
+          due_date: due || null,
+          relance_rule: "Tâche collaborateur assignée depuis le suivi des actions",
+          document_drive_attendu: false,
+          due_reminder_enabled: true,
+          drive_folder: `clients/${id}`,
+          created_by: auteur,
+          metadata: {
+            source: "crm_suivi_actions_collaborateur",
+            assigned_from: "fiche_client",
+            assigned_at: nowIso,
+          },
+        })
+        .select("*")
+        .single();
+
+      if (insertError) {
+        throw new Error(insertError.message || "Impossible de créer la tâche collaborateur dans le parcours mission.");
+      }
+      createdAction = insertedAction;
+    } catch (err) {
+      setAssigningCollaboratorTask(false);
+      alert("Impossible de créer la tâche collaborateur : " + (err?.message || "erreur inconnue"));
+      return;
+    }
+
+    const actionUrl = missionBuildActionUrl(id, createdAction?.id, assignedStep?.key) || buildFallbackClientUrl(createdAction?.id);
+    const emailContent = missionBuildNotificationEmail({ ...createdAction, responsable:owner, responsable_email:email, step_label:assignedStep.label, step_key:assignedStep.key, action_title:title, due_date:due || createdAction?.due_date, id:createdAction?.id }, client);
     const subject = `[Profero Invest] Tâche client — ${title}`;
     const body = [
       `Bonjour ${owner || ""},`,
@@ -3083,14 +3132,16 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       "Une tâche client t'est assignée depuis la fiche CRM Profero Invest.",
       "",
       `Client : ${clientFullName}`,
+      `Étape : ${assignedStep.label}`,
       `Tâche : ${title}`,
       due ? `Échéance : ${fmtDate(due)}` : null,
-      clientUrl ? `Ouvrir la fiche client : ${clientUrl}` : null,
+      actionUrl ? `Ouvrir directement la tâche : ${actionUrl}` : null,
       "",
       "Merci de traiter cette tâche ou de faire un retour dans l'application.",
       "",
       "Profero Invest",
     ].filter(Boolean).join("\n");
+
     const htmlBody = `
       <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
         <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
@@ -3103,36 +3154,86 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
             <p style="margin:0 0 18px;">Une tâche client t'est assignée depuis la fiche CRM Profero Invest.</p>
             <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:18px;">
               <tr><td style="padding:8px 0;color:#64748b;width:135px;">Client</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(clientFullName)}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b;">Étape</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(assignedStep.label)}</td></tr>
               <tr><td style="padding:8px 0;color:#64748b;">Tâche</td><td style="padding:8px 0;font-weight:700;">${missionEscapeHtml(title)}</td></tr>
               ${due ? `<tr><td style="padding:8px 0;color:#64748b;">Échéance</td><td style="padding:8px 0;font-weight:700;color:#dc2626;">${missionEscapeHtml(fmtDate(due))}</td></tr>` : ""}
             </table>
-            ${clientUrl ? `<a href="${missionEscapeHtml(clientUrl)}" style="display:inline-block;background:#c9a34a;color:#111827;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 18px;">Ouvrir la fiche client</a>` : ""}
+            ${actionUrl ? `<a href="${missionEscapeHtml(actionUrl)}" style="display:inline-block;background:#c9a34a;color:#111827;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 18px;">Ouvrir la tâche</a>` : ""}
+            <p style="margin:22px 0 0;color:#64748b;font-size:13px;">Si le bouton ne fonctionne pas, copie le lien présent dans la version texte de l'email.</p>
           </div>
         </div>
       </div>
     `;
 
-    const { data, error } = await supabase.functions.invoke("send-mission-email", {
-      body: {
-        clientId:id,
-        to:email,
-        subject,
-        body,
-        htmlBody,
-        actionUrl:clientUrl,
-        responsable:owner,
-        clientName:clientFullName,
-        senderEmail:MISSION_AUTOMATION_ACCOUNT_EMAIL,
-        fromEmail:MISSION_AUTOMATION_ACCOUNT_EMAIL,
-        notificationType:"crm_collaborator_task",
-      },
-    });
+    let data = null;
+    let error = null;
+    try {
+      const res = await supabase.functions.invoke("send-mission-email", {
+        body: {
+          actionId: createdAction.id,
+          clientId: id,
+          to: email,
+          subject,
+          body,
+          responsable: owner || "",
+          clientName: clientFullName,
+          senderEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
+          fromEmail: MISSION_AUTOMATION_ACCOUNT_EMAIL,
+          htmlBody: htmlBody || emailContent.htmlBody,
+          actionUrl,
+        },
+      });
+      data = res.data;
+      error = res.error;
+    } catch (err) {
+      error = err;
+    }
+
+    let edgeDetail = "";
+    if (error?.context) {
+      try {
+        const txt = await error.context.text();
+        if (txt) {
+          try {
+            const parsed = JSON.parse(txt);
+            edgeDetail = parsed?.error || parsed?.message || parsed?.hint || txt;
+          } catch {
+            edgeDetail = txt;
+          }
+        }
+      } catch {}
+    }
 
     if (error || data?.error) {
+      const msg = data?.error || edgeDetail || error?.message || "Erreur inconnue lors de l'envoi Gmail";
+      try {
+        await supabase.from("invest_mission_actions").update({
+          notification_status: "erreur_envoi",
+          notification_error: msg,
+          notification_subject: subject,
+          notification_body: body,
+          notification_prepared_at: nowIso,
+          updated_at: new Date().toISOString(),
+        }).eq("id", createdAction.id);
+      } catch {}
       setAssigningCollaboratorTask(false);
-      alert("Impossible d'envoyer le mail collaborateur : " + (data?.error || error?.message || "erreur inconnue"));
+      alert("Tâche créée, mais impossible d'envoyer le mail collaborateur : " + msg);
+      charger();
       return;
     }
+
+    try {
+      await supabase.from("invest_mission_actions").update({
+        notification_status: "envoyee",
+        notification_error: null,
+        notification_subject: subject,
+        notification_body: body,
+        notification_prepared_at: nowIso,
+        notification_sent_at: data?.sentAt || new Date().toISOString(),
+        gmail_message_id: data?.gmailMessageId || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", createdAction.id);
+    } catch {}
 
     await supabase.from("invest_notes").insert({
       client_id:id,
@@ -3140,6 +3241,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       type:"relance",
       contenu:[
         `📌 Tâche collaborateur assignée : ${title}`,
+        `Étape : ${assignedStep.label}`,
         owner ? `Collaborateur : ${owner}` : null,
         `Email : ${email}`,
         due ? `Échéance : ${fmtDate(due)}` : null,
