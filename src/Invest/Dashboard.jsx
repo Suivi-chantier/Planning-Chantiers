@@ -20,29 +20,30 @@ import {
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
-// TABLEAU DE BORD V7.4 — Dashboard Pilotage Quotidien Profero Invest
+// TABLEAU DE BORD V8 — Dashboard de Décision Quotidienne Profero Invest
 // Objectif : suivi strict des urgences, prospects, clients et stock de biens.
 // Version calibrée selon les réponses métier Matthieu : uniquement les éléments
 // qui nécessitent une décision, clients sous contrôle visibles séparément,
 // score prospect, relances automatiques J+1/J+3/J+7/J+14/J+30, actions créées.
 // Rappel mail volontairement exclu de cette version.
-// V7 : cockpit à 3 niveaux — bandeau critique 10 secondes, onglets métier prospects/clients/biens/équipe, fiche liée au clic et notifications collaborateurs liées aux actions créées.
+// V8 : pilotage par file de décision unique — bandeau 10 secondes, décisions à prendre maintenant, fiche latérale, onglets métier secondaires et notifications collaborateurs liées aux actions créées.
 // ─────────────────────────────────────────────────────────────
 
 const V6_TABS = [
-  { key:"dashboard", label:"Pilotage quotidien", icon:LayoutDashboard },
+  { key:"dashboard", label:"Décisions", icon:AlertTriangle },
+  { key:"suivi", label:"Vue métier", icon:LayoutGrid },
   { key:"plan", label:"Plan d’action", icon:Send },
-  { key:"suivi", label:"Suivi dossiers", icon:LayoutGrid },
   { key:"historique", label:"Historique", icon:FileText },
   { key:"mensuel", label:"Vue mensuelle", icon:BarChart3 },
 ];
 
 const V6_STEPS = [
-  { key:"prospects", label:"Prospects", icon:Phone, help:"Prospects rouges, orange, chauds, relances et échéances." },
-  { key:"clients", label:"Clients", icon:Briefcase, help:"Clients actifs classés par étape, alertes en haut et dossiers sous contrôle en lecture." },
-  { key:"biens", label:"Stock de biens", icon:Home, help:"Tout le cycle du bien, avec tâches et relances en haut." },
+  { key:"decisions", label:"File de décision", icon:AlertTriangle, help:"Toutes les décisions à prendre maintenant, triées par urgence." },
+  { key:"prospects", label:"Prospects", icon:Phone, help:"Prospects actifs à décider puis lecture seule." },
+  { key:"clients", label:"Clients", icon:Briefcase, help:"Clients actifs en alerte puis dossiers sous contrôle." },
+  { key:"biens", label:"Stock de biens", icon:Home, help:"Biens avec tâche, relance, offre ou décision à prendre." },
   { key:"collaborateurs", label:"Équipe", icon:Users, help:"Consignes et actions assignées à Matthieu, Tom, Benjamin, Camille ou autres." },
-  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Priorités définies après la revue métier." },
+  { key:"priorites", label:"3 priorités du jour", icon:Sparkles, help:"Priorités définies après la file de décision." },
   { key:"synthese", label:"Synthèse", icon:Send, help:"Plan d’action PDF par responsable avec commentaires détaillés." },
   { key:"validation", label:"Validation finale", icon:Check, help:"Finalisation stricte ou validation forcée avec motif." },
 ];
@@ -570,7 +571,7 @@ function emptyRoutineState() {
 }
 
 function storageKeyFor(date=todayIso()) {
-  return `profero_invest_dashboard_v7_1_${date}`;
+  return `profero_invest_dashboard_v8_${date}`;
 }
 
 function decisionKey(item) {
@@ -952,6 +953,213 @@ function ResolvedUrgenciesView({ routine, data, onUndo, onOpen=null, T=THEMES_IN
   );
 }
 
+
+function linkedRecordType(item={}) {
+  const itemType = String(item?.originalType || item?.type || "").toLowerCase();
+  const source = String(item?.source || item?.raw?._source_table || "").toLowerCase();
+  if (itemType === "bien" || source.includes("bien")) return "bien";
+  if (itemType === "prospect" || source.includes("prospect") || source.includes("prospection")) return "prospect";
+  if (itemType === "client" || source.includes("client")) return "client";
+  if (source.includes("mission_actions") || itemType === "action" || itemType === "urgence") return "action";
+  return itemType || "dossier";
+}
+
+function navigateToLinkedRecord(item, onNavigate) {
+  if (!item || !onNavigate) return;
+  const raw = item.raw || {};
+  const type = linkedRecordType(item);
+  const id = raw.id || item.sourceId || item.id;
+
+  if (type === "prospect") {
+    onNavigate("prospection", {
+      type:"open_prospect",
+      id,
+      prospect_id:id,
+      prospectId:id,
+      source:"dashboard_pilotage",
+      source_table:raw._source_table || item.source || "invest_clients",
+    });
+    return;
+  }
+
+  if (type === "client") {
+    onNavigate("crm", {
+      type:"open_client",
+      id,
+      client_id:id,
+      clientId:id,
+      statut:raw.statut,
+      source:"dashboard_pilotage",
+    });
+    return;
+  }
+
+  if (type === "bien") {
+    onNavigate("biens", {
+      type:"open_bien",
+      id,
+      bien_id:id,
+      bienId:id,
+      source:"dashboard_pilotage",
+    });
+    return;
+  }
+
+  if ((raw.client_id || raw.linked_entity_id) && (raw.linked_entity_type === "client" || raw.client_id)) {
+    const clientId = raw.client_id || raw.linked_entity_id;
+    onNavigate("crm", { type:"open_client", id:clientId, client_id:clientId, clientId:clientId, source:"dashboard_action" });
+    return;
+  }
+
+  if (raw.linked_entity_type === "prospect" && raw.linked_entity_id) {
+    onNavigate("prospection", { type:"open_prospect", id:raw.linked_entity_id, prospect_id:raw.linked_entity_id, prospectId:raw.linked_entity_id, source:"dashboard_action" });
+    return;
+  }
+
+  if (raw.linked_entity_type === "bien" && raw.linked_entity_id) {
+    onNavigate("biens", { type:"open_bien", id:raw.linked_entity_id, bien_id:raw.linked_entity_id, bienId:raw.linked_entity_id, source:"dashboard_action" });
+    return;
+  }
+
+  onNavigate("crm", { type:"actions_week_or_late", source:"dashboard_pilotage" });
+}
+
+function DetailField({ label, value, T=THEMES_INV.dark, mono=false }) {
+  const display = value === undefined || value === null || value === "" ? "—" : value;
+  return (
+    <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"9px 10px", minWidth:0 }}>
+      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.6, marginBottom:4 }}>{label}</div>
+      <div style={{ fontSize:FONT.sm.size + 1, color:T.text, fontWeight:800, fontFamily:mono ? "'DM Mono',monospace" : "inherit", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{display}</div>
+    </div>
+  );
+}
+
+function LinkedRecordDrawer({ item, onClose, onOpenPage, T=THEMES_INV.dark }) {
+  if (!item) return null;
+  const raw = item.raw || {};
+  const type = linkedRecordType(item);
+  const isProspect = type === "prospect";
+  const isClient = type === "client";
+  const isBien = type === "bien";
+  const IconComp = isBien ? Home : isProspect ? Phone : isClient ? Briefcase : Bell;
+  const title = item.label || getClientName(raw) || getBienLabel(raw) || actionTitle(raw) || "Fiche liée";
+  const badgeLabel = isProspect ? "Prospect" : isClient ? "Client" : isBien ? "Bien" : "Action";
+
+  const fieldGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:8 };
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:80, pointerEvents:"none" }}>
+      <div onClick={onClose} style={{ position:"absolute", inset:0, background:"rgba(15,23,42,.24)", pointerEvents:"auto" }}/>
+      <aside style={{ position:"absolute", top:0, right:0, width:"min(560px, 96vw)", height:"100%", background:T.card, borderLeft:`1px solid ${T.border}`, boxShadow:"-18px 0 45px rgba(15,23,42,.20)", padding:SPACING.lg, overflowY:"auto", pointerEvents:"auto" }}>
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:SPACING.md, marginBottom:SPACING.lg }}>
+          <div style={{ display:"flex", gap:SPACING.md, minWidth:0 }}>
+            <div style={{ width:42, height:42, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Icon as={IconComp} size={20}/></div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:6 }}>
+                <AlertBadge level={item.level || "info"} T={T}>{badgeLabel}</AlertBadge>
+                {item.category && <AlertBadge level="info" T={T}>{item.category}</AlertBadge>}
+                {item.readOnly && <AlertBadge level="info" T={T}>Lecture seule</AlertBadge>}
+              </div>
+              <div style={{ fontSize:FONT.xl.size, fontWeight:950, color:T.text, lineHeight:1.15 }}>{title}</div>
+              <div style={{ fontSize:FONT.sm.size, color:T.textSub, marginTop:5 }}>{item.reason || "Fiche consultable depuis le dashboard."}</div>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="inv-btn inv-btn-out inv-btn-sm"><Icon as={X} size={13}/> Fermer</button>
+        </div>
+
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.lg }}>
+          <button type="button" className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => onOpenPage?.(item)}><Icon as={ExternalLink} size={12}/> Ouvrir la page complète</button>
+          <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={onClose}><Icon as={Check} size={12}/> Revenir au pilotage</button>
+        </div>
+
+        <div style={{ display:"grid", gap:SPACING.md }}>
+          <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.sectionHd || T.input, padding:SPACING.md }}>
+            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Informations de pilotage</div>
+            <div style={fieldGrid}>
+              <DetailField label="Responsable" value={item.responsable || raw.conseiller || raw.responsable || actionOwner(raw)} T={T}/>
+              <DetailField label="Décision attendue" value={item.defaultAction || item.reason} T={T}/>
+              <DetailField label="Échéance" value={safeDate(prospectNextActionDate(raw) || raw.date_prochaine_action || raw.date_relance || raw.due_date)} T={T}/>
+              <DetailField label="Source" value={raw._source_table || item.source || "—"} T={T}/>
+            </div>
+          </section>
+
+          {isProspect && (
+            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
+              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Fiche prospect</div>
+              <div style={fieldGrid}>
+                <DetailField label="Score" value={`${prospectScore(raw)}/100`} T={T} mono/>
+                <DetailField label="Étape" value={prospectStage(raw)} T={T}/>
+                <DetailField label="Téléphone" value={prospectPhone(raw)} T={T}/>
+                <DetailField label="Email" value={prospectEmail(raw)} T={T}/>
+                <DetailField label="Source" value={prospectSource(raw)} T={T}/>
+                <DetailField label="Localisation" value={prospectLocation(raw)} T={T}/>
+                <DetailField label="Zone ciblée" value={prospectZone(raw)} T={T}/>
+                <DetailField label="Objectif" value={prospectGoal(raw)} T={T}/>
+                <DetailField label="Horizon" value={prospectHorizon(raw)} T={T}/>
+                <DetailField label="Budget" value={fmtDashboardEur(prospectBudget(raw))} T={T}/>
+                <DetailField label="Apport" value={fmtDashboardEur(prospectApport(raw))} T={T}/>
+                <DetailField label="Capacité" value={fmtDashboardEur(prospectCapacity(raw))} T={T}/>
+                <DetailField label="Dernier contact" value={safeDate(prospectLastContact(raw))} T={T}/>
+                <DetailField label="Prochaine action" value={prospectNextAction(raw)} T={T}/>
+              </div>
+              <div style={{ marginTop:SPACING.sm, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:SPACING.md, background:T.input }}>
+                <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.6, marginBottom:5 }}>Note prospect</div>
+                <div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, lineHeight:1.45 }}>{prospectComment(raw) || "Aucune note renseignée."}</div>
+              </div>
+            </section>
+          )}
+
+          {isClient && (
+            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
+              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Fiche client</div>
+              <div style={fieldGrid}>
+                <DetailField label="Statut" value={raw.statut} T={T}/>
+                <DetailField label="Étape" value={raw.etape} T={T}/>
+                <DetailField label="Budget" value={fmtDashboardEur(raw.budget)} T={T}/>
+                <DetailField label="Responsable" value={raw.conseiller || raw.responsable} T={T}/>
+                <DetailField label="Date signature" value={safeDate(raw.date_signature)} T={T}/>
+                <DetailField label="Dernière action" value={safeDate(lastClientActivity(raw))} T={T}/>
+                <DetailField label="Prochaine action" value={raw.prochaine_action} T={T}/>
+                <DetailField label="Date prochaine action" value={safeDate(raw.date_prochaine_action)} T={T}/>
+              </div>
+            </section>
+          )}
+
+          {isBien && (
+            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
+              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Fiche stock de biens</div>
+              <div style={fieldGrid}>
+                <DetailField label="Adresse" value={getBienLabel(raw)} T={T}/>
+                <DetailField label="Statut" value={raw.statut} T={T}/>
+                <DetailField label="Prix" value={fmtDashboardEur(raw.prix_vente)} T={T}/>
+                <DetailField label="Travaux" value={fmtDashboardEur(raw.prix_travaux)} T={T}/>
+                <DetailField label="Coût total" value={fmtDashboardEur(raw.cout_total)} T={T}/>
+                <DetailField label="Rendement" value={raw.rendement_brut ? fmtDashboardPct(raw.rendement_brut) : "—"} T={T}/>
+                <DetailField label="Cash-flow" value={fmtDashboardEur(raw.cashflow_estime)} T={T}/>
+                <DetailField label="Score Profero" value={getBienScore(raw)} T={T} mono/>
+                <DetailField label="Date relance" value={safeDate(raw.date_relance)} T={T}/>
+                <DetailField label="Responsable" value={raw.conseiller_profero || raw.responsable} T={T}/>
+              </div>
+            </section>
+          )}
+
+          {!isProspect && !isClient && !isBien && (
+            <section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}>
+              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:1.1, marginBottom:SPACING.sm }}>Action liée</div>
+              <div style={fieldGrid}>
+                <DetailField label="Titre" value={actionTitle(raw) || item.label} T={T}/>
+                <DetailField label="Statut" value={raw.status || raw.statut} T={T}/>
+                <DetailField label="Responsable" value={actionOwner(raw)} T={T}/>
+                <DetailField label="Échéance" value={safeDate(raw.due_date)} T={T}/>
+              </div>
+            </section>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 function MiniMonthlyChart({ data=[], T=THEMES_INV.dark }) {
   const max = Math.max(1, ...data.flatMap(m => [m.prospects || 0, m.rdv || 0, m.signatures || 0]));
   return (
@@ -1188,10 +1396,56 @@ function computeCriticalBarStats(data, clients=[], biens=[], actions=[]) {
   return { relancesRetard, tachesBloquees, echeances7J, encaissementAttente };
 }
 
+
+function decisionQueueRank(item={}) {
+  const levelRank = { danger:0, warning:1, success:2, info:3 }[item.level] ?? 4;
+  const due = toDate(prospectNextActionDate(item.raw || {}) || item.raw?.date_prochaine_action || item.raw?.date_relance || item.raw?.due_date || item.suggestedDueDate);
+  const dueRank = due ? due.getTime() : Number.MAX_SAFE_INTEGER;
+  const typeRank = { urgence:0, client:1, prospect:2, bien:3 }[item.originalType || item.type] ?? 4;
+  return [levelRank, dueRank, typeRank, String(item.label || '')];
+}
+
+function sortDecisionQueue(items=[]) {
+  return uniqueItemsByDecisionKey(items).sort((a,b) => {
+    const ra = decisionQueueRank(a);
+    const rb = decisionQueueRank(b);
+    for (let i=0; i<ra.length; i++) {
+      if (ra[i] < rb[i]) return -1;
+      if (ra[i] > rb[i]) return 1;
+    }
+    return 0;
+  });
+}
+
+function QueueSummary({ queue=[], plan=[], T=THEMES_INV.dark }) {
+  const counters = [
+    { label:'Rouges', value:queue.filter(i => i.level === 'danger').length, color:DA, icon:AlertTriangle },
+    { label:'Orange', value:queue.filter(i => i.level === 'warning').length, color:WA, icon:Bell },
+    { label:'Prospects', value:queue.filter(i => (i.originalType || i.type) === 'prospect').length, color:'#4db8ff', icon:Phone },
+    { label:'Clients', value:queue.filter(i => (i.originalType || i.type) === 'client').length, color:T.accent, icon:Briefcase },
+    { label:'Biens', value:queue.filter(i => (i.originalType || i.type) === 'bien').length, color:'#c084fc', icon:Home },
+    { label:'Actions au plan', value:plan.length, color:SU, icon:Send },
+  ];
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:SPACING.sm, marginBottom:SPACING.md }}>
+      {counters.map(c => (
+        <div key={c.label} style={{ border:`1px solid ${c.color}33`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:'uppercase', letterSpacing:.7 }}>{c.label}</span>
+            <Icon as={c.icon} size={13} color={c.color}/>
+          </div>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color:c.color, marginTop:5 }}>{c.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CriticalBar({ stats, T=THEMES_INV.dark, onSelect }) {
   const cards = [
+    { key:"decisions", label:"À arbitrer aujourd’hui", value:stats.decisionsAArbitrer || 0, icon:AlertTriangle, color:(stats.decisionsAArbitrer || 0) ? DA : SU, hint:"File de décision" },
     { key:"relances", label:"Relances en retard", value:stats.relancesRetard, icon:Phone, color:stats.relancesRetard ? DA : SU, hint:"Prospects + clients + biens" },
-    { key:"equipe", label:"Tâches bloquées", value:stats.tachesBloquees, icon:AlertTriangle, color:stats.tachesBloquees ? DA : SU, hint:"Équipe / actions" },
+    { key:"equipe", label:"Tâches bloquées", value:stats.tachesBloquees, icon:Users, color:stats.tachesBloquees ? DA : SU, hint:"Équipe / actions" },
     { key:"echeances", label:"Échéances < 7 jours", value:stats.echeances7J, icon:Calendar, color:stats.echeances7J ? WA : SU, hint:"Notaire / financement / offres" },
     { key:"encaissements", label:"Encaissements attente", value:fmtDashboardEur(stats.encaissementAttente), icon:Euro, color:stats.encaissementAttente ? WA : SU, hint:"Forfaits signés non payés" },
   ];
@@ -1226,7 +1480,8 @@ function NotificationsCollaborateurs({ notifications=[], T=THEMES_INV.dark, onOp
 
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [activeStep, setActiveStep] = useState("prospects");
+  const [activeStep, setActiveStep] = useState("decisions");
+  const [selectedLinkedItem, setSelectedLinkedItem] = useState(null);
   const [quickMode, setQuickMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1261,14 +1516,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       try {
         const { data, error } = await query;
         if (error) {
-          console.warn(`[Dashboard V7.4] ${label} non disponible :`, error);
+          console.warn(`[Dashboard V8] ${label} non disponible :`, error);
           if (required) setError(`Impossible de charger ${label}. Vérifie la table Supabase ou les droits RLS.`);
           else if (!silent) setOptionalErrors(prev => [...prev, `${label} : ${error.message || "non disponible"}`]);
           return [];
         }
         return data || [];
       } catch (e) {
-        console.warn(`[Dashboard V7.4] ${label} non disponible :`, e);
+        console.warn(`[Dashboard V8] ${label} non disponible :`, e);
         if (required) setError(`Impossible de charger ${label}. Vérifie la connexion Supabase.`);
         else if (!silent) setOptionalErrors(prev => [...prev, `${label} : non disponible`]);
         return [];
@@ -1337,6 +1592,12 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const visibleClients = (quickMode ? data.clientItems.filter(i => i.level === "danger") : data.clientItems).filter(item => !isResolvedToday(routine, item));
   const visibleBiens = (quickMode ? data.bienItems.filter(i => !i.readOnly && (i.level === "danger" || normTxt(i.category).includes("offre"))) : data.bienItems.filter(i => i.critical || i.readOnly)).filter(item => !isResolvedToday(routine, item));
   const clientDecisionItems = data.clientItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i));
+  const decisionQueue = useMemo(() => sortDecisionQueue([
+    ...unresolvedUrgencyItems,
+    ...data.prospectItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
+    ...clientDecisionItems.filter(i => !i.readOnly),
+    ...data.bienItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
+  ]), [unresolvedUrgencyItems, data, routine, clientDecisionItems]);
   const allRequiredItems = useMemo(() => uniqueItemsByDecisionKey([
     ...data.prospectItems.filter(i => i.critical && !i.readOnly && !isResolvedToday(routine, i)),
     ...clientDecisionItems.filter(i => !i.readOnly),
@@ -1350,8 +1611,8 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const plan = useMemo(() => actionPlanFromRoutine(routine, data), [routine, data]);
   const criticalBarStats = useMemo(() => {
     const base = computeCriticalBarStats(data, clients, biens, actions);
-    return { ...base, encaissementAttente:computeCoverageEncaissement(coverageData.finance, base.encaissementAttente) };
-  }, [data, clients, biens, actions, coverageData.finance]);
+    return { ...base, decisionsAArbitrer:decisionQueue.length, encaissementAttente:computeCoverageEncaissement(coverageData.finance, base.encaissementAttente) };
+  }, [data, clients, biens, actions, coverageData.finance, decisionQueue]);
 
   const updateDecision = (item, value) => setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(item)]:value } }));
 
@@ -1420,7 +1681,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
         linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
         priority,
         status:"unread",
-        source_module:"dashboard_v7_4",
+        source_module:"dashboard_v8",
         created_by:profil?.email || profil?.nom || "Matthieu",
       });
     } catch (e) {
@@ -1428,14 +1689,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     }
   };
 
-  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V7.4", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
+  const createMissionAction = async ({ responsable, title, due_date, client_id=null, step_label="Dashboard V8", comment="", linked_entity_type=null, linked_entity_id=null, priority="normal" }) => {
     if (!responsable || !title) return null;
     const basePayload = { responsable, action_title:title, due_date:due_date || null, status:"a_faire", step_label, client_id };
     const linkedPayload = {
       ...basePayload,
       linked_entity_type:linked_entity_type || null,
       linked_entity_id:linked_entity_id ? String(linked_entity_id) : null,
-      source_module:"dashboard_v7_4",
+      source_module:"dashboard_v8",
       source_context:{ comment, created_from:"dashboard_pilotage_quotidien", routine_date:todayIso() },
     };
     let created = null;
@@ -1465,17 +1726,17 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       if (normTxt(d.decision).includes("perdu") || normTxt(d.decision).includes("archiver")) updatePayload.statut = "Inactif";
       else if (item.raw?.statut) updatePayload.statut = item.raw.statut;
       await supabase.from(sourceTable).update(updatePayload).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:sourceTable === "invest_clients" ? (item.raw?.id || item.id) : null, step_label:"Dashboard V7.4 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date, client_id:sourceTable === "invest_clients" ? (item.raw?.id || item.id) : null, step_label:"Dashboard V8 — Prospect", comment:d.comment, linked_entity_type:"prospect", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "client" || item.type === "client") {
       await supabase.from("invest_clients").update({ prochaine_action:d.next_action || null, date_prochaine_action:d.due_date || item.raw?.date_prochaine_action || null, conseiller:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V7.4 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || null, client_id:item.raw?.id || item.id, step_label:"Dashboard V8 — Client", comment:d.comment, linked_entity_type:"client", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else if (item.originalType === "bien" || item.type === "bien") {
       const decisionNorm = normTxt(d.decision);
       const nextStatut = decisionNorm.includes("archiver") ? "Archivé" : decisionNorm.includes("visite") ? "À visiter" : decisionNorm.includes("proposer") ? "Proposé à client" : decisionNorm.includes("matcher") ? "À matcher" : decisionNorm.includes("offre") ? "Offre à faire" : decisionNorm.includes("relancer") ? "À relancer" : decisionNorm.includes("prix") ? "Analyse en cours" : decisionNorm.includes("travaux") ? "En travaux" : decisionNorm.includes("attente") ? "À trier" : decisionNorm.includes("analyser") ? "À analyser" : item.raw?.statut;
       await supabase.from("invest_biens").update({ statut:nextStatut, date_relance:d.due_date || item.raw?.date_relance || null, conseiller_profero:d.responsable || null }).eq("id", item.raw?.id || item.id);
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V7.4 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:`${baseTitle} — ${item.label}`, due_date:d.due_date || null, step_label:"Dashboard V8 — Bien", comment:d.comment, linked_entity_type:"bien", linked_entity_id:item.raw?.id || item.id, priority:item.level === "danger" ? "high" : "normal" });
     } else {
-      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V7.4 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
+      createdTaskId = await createMissionAction({ responsable:d.responsable, title:baseTitle, due_date:d.due_date || todayIso(), step_label:"Dashboard V8 — Urgence", comment:d.comment, linked_entity_type:item.originalType || item.type || "action", linked_entity_id:item.raw?.id || item.sourceId || item.id, priority:item.level === "danger" ? "high" : "normal" });
     }
     return createdTaskId;
   };
@@ -1512,27 +1773,11 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const forceCompleteAllowed = Boolean(String(routine.force_reason || "").trim());
 
   const openLinkedRecord = (item) => {
-    const itemType = item?.originalType || item?.type || "";
-    const raw = item?.raw || {};
-    const id = raw.id || item?.sourceId || item?.id;
-    if (!onNavigate) return;
+    setSelectedLinkedItem(item || null);
+  };
 
-    if (itemType === "bien" || item?.source === "invest_biens") {
-      onNavigate("biens", { type:"open_bien", id, bien_id:id, bienId:id, source:"morning_routine" });
-      return;
-    }
-
-    if (itemType === "prospect" || itemType === "client" || item?.source === "invest_clients") {
-      onNavigate("crm", { type:"open_client", id, client_id:id, clientId:id, statut:raw.statut, source:"morning_routine" });
-      return;
-    }
-
-    if (item?.source === "invest_mission_actions" && raw.client_id) {
-      onNavigate("crm", { type:"open_client", id:raw.client_id, client_id:raw.client_id, clientId:raw.client_id, source:"morning_routine_action" });
-      return;
-    }
-
-    onNavigate("crm", { type:"actions_week_or_late", source:"morning_routine" });
+  const openFullLinkedRecord = (item = selectedLinkedItem) => {
+    navigateToLinkedRecord(item, onNavigate);
   };
 
   const renderChecklist = (stepKey) => {
@@ -1562,6 +1807,22 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   };
 
   const renderStep = () => {
+    if (activeStep === "decisions") return (
+      <>
+        <SectionCard title="File de décision — à traiter maintenant" icon={AlertTriangle} subtitle="Une seule liste : prospects, clients, biens et actions équipe triés par urgence." T={T}>
+          <QueueSummary queue={decisionQueue} plan={plan} T={T}/>
+          {renderItems(decisionQueue, "Aucune décision obligatoire aujourd’hui. Les dossiers restent disponibles dans les vues métier.", quickMode, true)}
+        </SectionCard>
+        <ResolvedUrgenciesView routine={routine} data={data} onUndo={undoResolvedUrgency} onOpen={openLinkedRecord} T={T}/>
+        <SectionCard title="Mode de pilotage" icon={Eye} T={T}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))", gap:SPACING.md }}>
+            <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><strong style={{ color:T.text }}>Lecture</strong><div style={{ color:T.textMuted, fontSize:FONT.sm.size, marginTop:5 }}>Les informations saines restent dans les vues métier sans bloquer la routine.</div></div>
+            <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><strong style={{ color:T.text }}>Décision</strong><div style={{ color:T.textMuted, fontSize:FONT.sm.size, marginTop:5 }}>Une ligne disparaît uniquement si décision, responsable, action, échéance et commentaire sont complétés.</div></div>
+            <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><strong style={{ color:T.text }}>Délégation</strong><div style={{ color:T.textMuted, fontSize:FONT.sm.size, marginTop:5 }}>Les actions assignées gardent leur lien prospect, client ou bien pour les notifications collaborateurs.</div></div>
+          </div>
+        </SectionCard>
+      </>
+    );
     if (activeStep === "urgences") return (
       <>
         <SectionCard title="Urgences à traiter" icon={AlertTriangle} subtitle="Valide chaque urgence pour la faire disparaître de la routine du jour" T={T}>
@@ -1608,7 +1869,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   };
 
   const renderTab = () => {
-    if (activeTab === "dashboard") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Routine — revue métier</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
+    if (activeTab === "dashboard") return <div style={{ display:"grid", gridTemplateColumns:"290px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }} className="inv-v6-routine-layout"><div className="inv-card" style={{ position:"sticky", top:12 }}><div className="inv-card-hd blue">Décision quotidienne</div><div className="inv-card-bd" style={{ display:"grid", gap:7 }}>{V6_STEPS.map(step => { const IconComp = step.icon; const active = activeStep === step.key; const missing = step.key === "decisions" ? decisionQueue.filter(i => !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "priorites" ? (prioritiesOk ? 0 : 1) : step.key === "collaborateurs" ? incompleteCollaborators.length : step.key === "prospects" ? visibleProspects.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "clients" ? visibleClients.filter(i => i.critical && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : step.key === "biens" ? visibleBiens.filter(i => !i.readOnly && (i.critical || !quickMode) && !isDecisionComplete(i, routine.decisions[decisionKey(i)])).length : 0; return <button key={step.key} onClick={() => { ensureStarted(); setActiveStep(step.key); }} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.md, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:"inherit", display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:900 }}><Icon as={IconComp} size={14}/>{step.label}</span>{missing > 0 ? <AlertBadge level="danger" T={T}>{missing}</AlertBadge> : <AlertBadge level="success" T={T}>OK</AlertBadge>}</button> })}</div></div><div>{renderStep()}</div></div>;
     if (activeTab === "plan") return <SectionCard title="Plan d’action du jour" icon={Send} T={T} action={<button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>PDF</button>}><ActionPlanView plan={plan} T={T}/></SectionCard>;
     if (activeTab === "suivi") return <SuiviDossiers data={data} coverageData={coverageData} T={T} onNavigate={onNavigate}/>;
     if (activeTab === "historique") return <HistoriqueRoutines history={history} T={T}/>;
@@ -1618,15 +1879,16 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   return (
     <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1460, margin:"0 auto" }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:SPACING.md, alignItems:"flex-start", flexWrap:"wrap", marginBottom:SPACING.xl }}>
-        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard Pilotage Quotidien Profero Invest V7.4</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, onglets métier, fiche liée au clic et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:SPACING.md }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard de Décision Quotidienne Profero Invest V8</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>Vue 10 secondes, file de décision unique, fiche latérale et notifications collaborateurs liées aux actions.</div><div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:8 }}><AlertBadge level={incompleteItems.length ? "danger" : "success"} T={T}>{incompleteItems.length} décision(s) manquante(s)</AlertBadge><AlertBadge level="info" T={T}>{quickMode ? "Mode rapide" : "Mode strict"}</AlertBadge><AlertBadge level="info" T={T}>{plan.length} action(s) au plan</AlertBadge></div></div></div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setQuickMode(v => !v)}><Icon as={Filter} size={12}/>{quickMode ? "Mode strict" : "Mode rapide"}</button><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => printActionPlanPDF(routine, data)}><Icon as={Download} size={12}/>Plan d’action PDF</button></div>
       </div>
 
-      {!loading && <CriticalBar stats={criticalBarStats} T={T} onSelect={(key) => { if (key === "relances") { setActiveTab("dashboard"); setActiveStep("prospects"); } else if (key === "equipe") { setActiveTab("dashboard"); setActiveStep("collaborateurs"); } else if (key === "echeances") { setActiveTab("dashboard"); setActiveStep("clients"); } else if (key === "encaissements") { setActiveTab("mensuel"); } }} />}
+      {!loading && <CriticalBar stats={criticalBarStats} T={T} onSelect={(key) => { if (key === "decisions") { setActiveTab("dashboard"); setActiveStep("decisions"); } else if (key === "relances") { setActiveTab("dashboard"); setActiveStep("decisions"); } else if (key === "equipe") { setActiveTab("dashboard"); setActiveStep("collaborateurs"); } else if (key === "echeances") { setActiveTab("dashboard"); setActiveStep("clients"); } else if (key === "encaissements") { setActiveTab("mensuel"); } }} />}
 
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.xl }}>{V6_TABS.map(tab => { const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : T.input, color:active ? T.accent : T.textSub, borderRadius:RADIUS.pill, padding:"9px 13px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"inherit", fontWeight:900 }}><Icon as={tab.icon} size={14}/>{tab.label}</button> })}</div>
       {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
       {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement…</div> : renderTab()}
+      <LinkedRecordDrawer item={selectedLinkedItem} T={T} onClose={() => setSelectedLinkedItem(null)} onOpenPage={openFullLinkedRecord}/>
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:980px){.inv-v6-routine-layout{grid-template-columns:1fr!important}.inv-card[style*="sticky"]{position:relative!important;top:auto!important}.inv-v74-step-overview{grid-template-columns:1fr!important}}`}</style>
     </div>
   );
