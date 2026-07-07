@@ -10,7 +10,7 @@ import {
   X, Check, Phone, Calendar, MessageSquare, FileText, Mail, Home,
   TrendingUp, Wallet, Euro, MapPin, ExternalLink, Filter, ArrowLeft,
   Lock, AlertTriangle, ChevronDown, ChevronUp, Eye, Image as ImageIcon,
-  Upload, Copy, Sparkles, Sun, Moon, LogOut, LayoutGrid, Send, Phone as PhoneIcon,
+  Upload, Copy, Sparkles, Sun, Moon, LogOut, Send, Phone as PhoneIcon,
   Handshake, Bell, Briefcase, Hammer,
 } from "lucide-react";
 
@@ -1523,7 +1523,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
       {renderCrmTimeline()}
 
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(210px, 1fr))", gap:8, marginBottom:12}}>
-        <CRMViewButton active={viewMode === "pipeline"} icon={LayoutGrid} title="Pipeline" helper="Clients par statut" onClick={() => setViewMode("pipeline")} T={T}/>
+        <CRMViewButton active={viewMode === "pipeline"} icon={LayoutDashboard} title="Pipeline" helper="Clients par statut" onClick={() => setViewMode("pipeline")} T={T}/>
         <CRMViewButton active={viewMode === "liste"} icon={Users} title="Liste" helper="Vue complète filtrable" onClick={() => setViewMode("liste")} T={T}/>
         <CRMViewButton active={viewMode === "planning"} icon={Calendar} title="Planning" helper="Actions et relances" onClick={() => setViewMode("planning")} T={T}/>
         <CRMViewButton active={viewMode === "analyse"} icon={BarChart3} title="Analyse" helper="Sources, conseillers, alertes" onClick={() => setViewMode("analyse")} T={T}/>
