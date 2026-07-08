@@ -70,6 +70,214 @@ function getDateFromWeekAndDay(weekId, jourName) {
   return `${y}-${mo}-${da}`;
 }
 
+// ─── PRÉVISIONNEL CLIENT ──────────────────────────────────────────────────────
+// Structure d'un calendrier prévisionnel à communiquer au client (vue
+// "Prévisionnel" du phasage). Stocké dans phasage.plan_travaux.meta.previsionnel.
+//   • sous_titre       : ligne sous le nom du chantier (ex: "Rénovation — appts 1 à 5")
+//   • livraison_mois   : mois de livraison estimée (ex: "Oct.")
+//   • livraison_annee  : année de livraison (ex: "2026")
+//   • note_bas         : mention légale de bas de page
+//   • blocs            : séquence ordonnée de blocs, chacun étant soit
+//        { id, type:"mois", titre, lignes:[…] }  → un mois avec ses puces
+//        { id, type:"encadre", titre, texte }    → un encadré (étape conditionnelle)
+const NOTE_BAS_DEFAUT = "Dates communiquées à titre prévisionnel, susceptibles d'évoluer selon l'avancement du chantier et les interventions des tiers.";
+function defaultPrevisionnel() {
+  return { sous_titre: "", livraison_mois: "", livraison_annee: "", note_bas: NOTE_BAS_DEFAUT, blocs: [] };
+}
+function normalizePrevisionnel(p) {
+  const d = defaultPrevisionnel();
+  if (!p || typeof p !== "object") return d;
+  return {
+    sous_titre: p.sous_titre || "",
+    livraison_mois: p.livraison_mois || "",
+    livraison_annee: p.livraison_annee || "",
+    note_bas: p.note_bas != null ? p.note_bas : NOTE_BAS_DEFAUT,
+    blocs: Array.isArray(p.blocs) ? p.blocs.map(b => b.type === "encadre"
+      ? { id: b.id || rid(), type: "encadre", titre: b.titre || "", texte: b.texte || "" }
+      : { id: b.id || rid(), type: "mois", titre: b.titre || "", lignes: Array.isArray(b.lignes) ? b.lignes : [] }
+    ) : [],
+  };
+}
+
+// ─── ÉDITEUR PRÉVISIONNEL CLIENT ──────────────────────────────────────────────
+// Formulaire d'édition du calendrier prévisionnel (sous-titre, livraison,
+// blocs mois/encadrés). Les modifications remontent via updatePrev (debounce +
+// persistance dans meta.previsionnel). Le rendu final se voit dans l'export PDF.
+function PrevisionnelEditor({ prev, updatePrev, chantier, T, acc }) {
+  const p = prev || defaultPrevisionnel();
+
+  const setField = (field, val) => updatePrev(cur => ({ ...cur, [field]: val }));
+  const setBlocs = (fn) => updatePrev(cur => ({ ...cur, blocs: fn(cur.blocs || []) }));
+  const addMois = () => setBlocs(bs => [...bs, { id: rid(), type: "mois", titre: "", lignes: [""] }]);
+  const addEncadre = () => setBlocs(bs => [...bs, { id: rid(), type: "encadre", titre: "Étape conditionnelle", texte: "" }]);
+  const updateBloc = (id, patch) => setBlocs(bs => bs.map(b => b.id === id ? { ...b, ...patch } : b));
+  const removeBloc = (id) => setBlocs(bs => bs.filter(b => b.id !== id));
+  const moveBloc = (id, dir) => setBlocs(bs => {
+    const i = bs.findIndex(b => b.id === id); const j = i + dir;
+    if (i < 0 || j < 0 || j >= bs.length) return bs;
+    const next = [...bs]; [next[i], next[j]] = [next[j], next[i]]; return next;
+  });
+  const addLigne = (blocId) => setBlocs(bs => bs.map(b => b.id === blocId ? { ...b, lignes: [...(b.lignes || []), ""] } : b));
+  const updateLigne = (blocId, idx, val) => setBlocs(bs => bs.map(b => b.id === blocId ? { ...b, lignes: (b.lignes || []).map((l, i) => i === idx ? val : l) } : b));
+  const removeLigne = (blocId, idx) => setBlocs(bs => bs.map(b => b.id === blocId ? { ...b, lignes: (b.lignes || []).filter((_, i) => i !== idx) } : b));
+
+  const inputStyle = {
+    width: "100%", padding: "8px 10px", borderRadius: RADIUS.md,
+    border: `1px solid ${T.border}`, background: T.inputBg, color: T.text,
+    fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+  };
+  const labelStyle = {
+    display: "block", fontSize: 9, fontWeight: 700, letterSpacing: .6,
+    textTransform: "uppercase", color: T.textMuted, marginBottom: 5,
+  };
+  const cardStyle = {
+    background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: 16,
+  };
+  const iconBtn = (title, onClick, opts = {}) => (
+    <button onClick={onClick} title={title} disabled={opts.disabled} style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: 26, height: 26, borderRadius: RADIUS.sm, flexShrink: 0,
+      border: `1px solid ${T.border}`, background: "transparent",
+      color: opts.danger ? "#e15a5a" : T.textSub,
+      cursor: opts.disabled ? "default" : "pointer", opacity: opts.disabled ? .35 : 1,
+      fontSize: 13, fontWeight: 700, lineHeight: 1,
+    }}>{opts.children}</button>
+  );
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "20px 22px", background: T.bg || T.surface }}>
+      <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+
+        {/* En-tête d'aide */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", background: acc.bg10, border: `1px solid ${acc.border}`, borderRadius: RADIUS.lg }}>
+          <Icon as={Calendar} size={16} color={acc.accent} style={{ marginTop: 2, flexShrink: 0 }} />
+          <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.55 }}>
+            Prépare un <strong style={{ color: T.text }}>calendrier prévisionnel à communiquer au client</strong>. Renseigne les étapes par mois, ajoute des encadrés pour les conditions particulières, puis exporte en PDF via le bouton <strong style={{ color: T.text }}>PDF Prévisionnel</strong>.
+          </div>
+        </div>
+
+        {/* Bloc identité : sous-titre + livraison */}
+        <div style={cardStyle}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>Sous-titre du chantier</label>
+            <input style={inputStyle} value={p.sous_titre} placeholder="ex : Rénovation — appartements 1 à 5"
+              onChange={e => setField("sous_titre", e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 140px" }}>
+              <label style={labelStyle}>Livraison — mois</label>
+              <input style={inputStyle} value={p.livraison_mois} placeholder="ex : Oct."
+                onChange={e => setField("livraison_mois", e.target.value)} />
+            </div>
+            <div style={{ flex: "1 1 140px" }}>
+              <label style={labelStyle}>Livraison — année</label>
+              <input style={inputStyle} value={p.livraison_annee} placeholder="ex : 2026"
+                onChange={e => setField("livraison_annee", e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {/* Blocs */}
+        {(p.blocs || []).length === 0 && (
+          <div style={{ textAlign: "center", padding: "26px 16px", color: T.textMuted, fontSize: FONT.sm.size, border: `1px dashed ${T.border}`, borderRadius: RADIUS.lg }}>
+            Aucune étape. Ajoute un mois pour commencer.
+          </div>
+        )}
+
+        {(p.blocs || []).map((b, idx) => (
+          <div key={b.id} style={{
+            ...cardStyle,
+            borderLeft: `4px solid ${b.type === "encadre" ? "#f5c400" : acc.accent}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Icon as={b.type === "encadre" ? AlertTriangle : Calendar} size={14} color={b.type === "encadre" ? "#d4a017" : acc.accent} />
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", color: T.textMuted }}>
+                {b.type === "encadre" ? "Encadré conditionnel" : "Mois"}
+              </span>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                {iconBtn("Monter", () => moveBloc(b.id, -1), { disabled: idx === 0, children: "↑" })}
+                {iconBtn("Descendre", () => moveBloc(b.id, +1), { disabled: idx === (p.blocs.length - 1), children: "↓" })}
+                {iconBtn("Supprimer", () => removeBloc(b.id), { danger: true, children: <Icon as={Trash2} size={13} /> })}
+              </div>
+            </div>
+
+            {b.type === "encadre" ? (
+              <>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={labelStyle}>Titre de l'encadré</label>
+                  <input style={inputStyle} value={b.titre} placeholder="ex : Étape conditionnelle"
+                    onChange={e => updateBloc(b.id, { titre: e.target.value })} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Texte</label>
+                  <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical", lineHeight: 1.5 }}
+                    value={b.texte} placeholder="ex : la réalisation des sols est subordonnée à l'intervention d'Enedis…"
+                    onChange={e => updateBloc(b.id, { texte: e.target.value })} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>Titre du mois</label>
+                  <input style={inputStyle} value={b.titre} placeholder="ex : Fin juillet 2026"
+                    onChange={e => updateBloc(b.id, { titre: e.target.value })} />
+                </div>
+                <label style={labelStyle}>Étapes prévues</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {(b.lignes || []).map((ligne, li) => (
+                    <div key={li} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f5c400", flexShrink: 0 }} />
+                      <input style={{ ...inputStyle, flex: 1 }} value={ligne} placeholder="ex : Pose de la baie vitrée — appartement 2"
+                        onChange={e => updateLigne(b.id, li, e.target.value)} />
+                      {iconBtn("Retirer la ligne", () => removeLigne(b.id, li), { danger: true, children: <Icon as={X} size={13} /> })}
+                    </div>
+                  ))}
+                  <button onClick={() => addLigne(b.id)} style={{
+                    alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 5,
+                    padding: "5px 10px", borderRadius: RADIUS.sm, marginTop: 2,
+                    border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+                    fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer",
+                  }}>
+                    <Icon as={Plus} size={12} /> Ajouter une étape
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+
+        {/* Boutons d'ajout de blocs */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={addMois} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 16px", borderRadius: RADIUS.md,
+            border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+          }}>
+            <Icon as={Plus} size={14} /> Ajouter un mois
+          </button>
+          <button onClick={addEncadre} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 16px", borderRadius: RADIUS.md,
+            border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+          }}>
+            <Icon as={AlertTriangle} size={14} /> Ajouter un encadré conditionnel
+          </button>
+        </div>
+
+        {/* Mention de bas de page */}
+        <div style={cardStyle}>
+          <label style={labelStyle}>Mention de bas de page</label>
+          <textarea style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.5 }}
+            value={p.note_bas} onChange={e => setField("note_bas", e.target.value)} />
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
 
@@ -113,7 +321,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Modale suivi direction (marge cible, seuil prime, prime chantier)
   const [showSuiviDirection, setShowSuiviDirection] = useState(false);
   // Mode d'affichage : "list" (3 colonnes Lots/Ouvrages/Tâches) | "gantt" (timeline)
+  //                     | "previsionnel" (calendrier client + export PDF)
   const [viewMode, setViewMode] = useState("list");
+  // Prévisionnel client : édité localement puis persisté (debounce) dans
+  // plan_travaux.meta.previsionnel. Chargé une fois par chantier.
+  const [prev, setPrev] = useState(null);
+  const prevLoadedRef = useRef(null);
+  const prevSaveTimerRef = useRef(null);
   // Form planification (envoyer une tâche dans planning_cells)
   const initialSemaine = (() => { const { year, week } = getCurrentWeek(); return getWeekId(year, week); })();
   const [planifSemaine, setPlanifSemaine] = useState(initialSemaine);
@@ -693,6 +907,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (error) console.warn("saveMeta:", error.message);
   };
 
+  // ─── PRÉVISIONNEL : chargement (1×/chantier) + sauvegarde debounced ──────
+  // On charge depuis meta.previsionnel une seule fois par chantier (une fois
+  // le phasage résolu), pour ne pas écraser une édition en cours quand
+  // saveMeta re-set le state phasage.
+  useEffect(() => {
+    if (!chantierId) { setPrev(null); prevLoadedRef.current = null; return; }
+    if (loadingPhasage) return;
+    if (prevLoadedRef.current === chantierId) return;
+    setPrev(normalizePrevisionnel(phasage?.plan_travaux?.meta?.previsionnel));
+    prevLoadedRef.current = chantierId;
+  }, [chantierId, loadingPhasage, phasage]);
+
+  const updatePrev = (updater) => {
+    setPrev(cur => {
+      const base = cur || defaultPrevisionnel();
+      const next = typeof updater === "function" ? updater(base) : updater;
+      setAutoSaveStatus("pending");
+      if (prevSaveTimerRef.current) clearTimeout(prevSaveTimerRef.current);
+      prevSaveTimerRef.current = setTimeout(async () => {
+        setAutoSaveStatus("saving");
+        try { await saveMeta({ previsionnel: next }); setAutoSaveStatus("saved"); }
+        catch (e) { setAutoSaveStatus("error"); console.warn("save previsionnel:", e?.message || e); }
+      }, 800);
+      return next;
+    });
+  };
+
   const updateTache = (ouvrageId, tacheId, patch) => {
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: (o.taches || []).map(t => t.id === tacheId ? { ...t, ...patch } : t) }
@@ -1149,6 +1390,121 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     }
   };
 
+  // ─── EXPORT PDF DU PRÉVISIONNEL CLIENT ──────────────────────────────────
+  // Reproduit le document "Planning Prévisionnel" PROFERO : en-tête noir,
+  // carte chantier + pastille livraison, sections par mois, encadrés
+  // conditionnels, mention légale et pied de page.
+  const buildPrevisionnelHTML = () => {
+    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+    const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
+    const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
+    const dateLongue = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const dateCourte = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const titre = chantier?.nom || chantierId;
+    const p = normalizePrevisionnel(prev);
+    const OR = "#f5c400"; // jaune Profero
+
+    const blocsHTML = (p.blocs || []).map(b => {
+      if (b.type === "encadre") {
+        if (!b.titre && !b.texte) return "";
+        return `
+        <div style="margin:14pt 0;padding:11pt 14pt;background:#fdf6df;border-left:4pt solid ${OR};border-radius:0 5pt 5pt 0;break-inside:avoid;page-break-inside:avoid;">
+          ${b.titre ? `<span style="font-weight:800;color:#8a6d00;">${esc(b.titre)} :</span> ` : ""}<span style="color:#4a4a4a;">${nl2br(b.texte)}</span>
+        </div>`;
+      }
+      const lignes = (b.lignes || []).filter(l => (l || "").trim());
+      if (!b.titre && lignes.length === 0) return "";
+      return `
+        <div style="margin:0 0 6pt;break-inside:avoid;page-break-inside:avoid;">
+          <div style="font-size:11pt;font-weight:800;color:#1a1f2e;margin:14pt 0 6pt;">${esc(b.titre)}</div>
+          ${lignes.length === 0 ? "" : `<ul style="margin:0;padding:0;list-style:none;">
+            ${lignes.map(l => `<li style="display:flex;align-items:flex-start;gap:8pt;font-size:9.5pt;color:#333;padding:3pt 0;">
+              <span style="width:5pt;height:5pt;border-radius:50%;background:${OR};margin-top:4.5pt;flex:0 0 auto;"></span>
+              <span>${nl2br(l)}</span>
+            </li>`).join("")}
+          </ul>`}
+        </div>`;
+    }).join("");
+
+    const livraisonBox = (p.livraison_mois || p.livraison_annee) ? `
+      <td style="width:150pt;vertical-align:middle;padding-left:14pt;">
+        <div style="background:#0a0a0a;border-radius:8pt;padding:14pt 10pt;text-align:center;">
+          <div style="color:rgba(255,255,255,.55);font-size:8pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">Livraison</div>
+          <div style="color:${OR};font-size:22pt;font-weight:800;line-height:1.05;margin-top:6pt;">${esc(p.livraison_mois)}</div>
+          <div style="color:${OR};font-size:22pt;font-weight:800;line-height:1.05;">${esc(p.livraison_annee)}</div>
+        </div>
+      </td>` : "";
+
+    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Prévisionnel ${esc(titre)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.45;}
+  .page{max-width:720pt;margin:0 auto;}
+  ul,li,section{break-inside:avoid;page-break-inside:avoid;}
+  @page{margin:14mm 12mm 14mm;size:A4;}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body><div class="page">
+  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:10pt;overflow:hidden;margin:0 0 16pt;">
+    <tr>
+      <td style="padding:14pt 16pt;vertical-align:middle;width:150pt;">
+        <img src="${logoUrl}" alt="Profero" style="height:34pt;object-fit:contain;display:block;"/>
+      </td>
+      <td style="padding:14pt 8pt;vertical-align:middle;text-align:center;">
+        <div style="color:#cfcfcf;font-size:15pt;font-weight:800;">Planning Prévisionnel</div>
+      </td>
+      <td style="padding:14pt 16pt;vertical-align:middle;text-align:right;white-space:nowrap;">
+        <div style="color:#fff;font-size:11pt;font-weight:800;">Chantier de ${esc(titre)}</div>
+        <div style="color:rgba(255,255,255,.55);font-size:8.5pt;margin-top:2pt;text-transform:capitalize;">${dateLongue}</div>
+      </td>
+    </tr>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin:0 0 18pt;">
+    <tr>
+      <td style="vertical-align:middle;">
+        <div style="background:#f3f4f6;border-radius:8pt;padding:14pt 18pt;">
+          <div style="color:#8a8f98;font-size:8pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">Chantier</div>
+          <div style="color:#1a1f2e;font-size:15pt;font-weight:800;margin-top:4pt;">${esc(titre)}</div>
+          ${p.sous_titre ? `<div style="color:#555;font-size:10pt;margin-top:3pt;">${esc(p.sous_titre)}</div>` : ""}
+        </div>
+      </td>
+      ${livraisonBox}
+    </tr>
+  </table>
+
+  <div style="display:flex;align-items:center;gap:8pt;border-bottom:1pt solid #e5e7eb;padding-bottom:6pt;margin:0 0 12pt;">
+    <span style="width:4pt;height:14pt;background:${OR};border-radius:2pt;display:inline-block;"></span>
+    <span style="font-size:10pt;font-weight:800;letter-spacing:1.5pt;text-transform:uppercase;color:#3a3f4a;">Calendrier prévisionnel</span>
+  </div>
+
+  ${blocsHTML || `<div style="text-align:center;padding:30pt;color:#999;">Aucune étape renseignée. Ajoute des mois dans la vue Prévisionnel.</div>`}
+
+  ${p.note_bas ? `<div style="margin-top:16pt;font-size:8.5pt;font-style:italic;color:#9a9a9a;">${nl2br(p.note_bas)}</div>` : ""}
+
+  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:8pt;overflow:hidden;margin-top:16pt;">
+    <tr>
+      <td style="padding:8pt 14pt;color:rgba(255,255,255,.7);font-size:8pt;">PROFERO — Document confidentiel</td>
+      <td style="padding:8pt 14pt;text-align:right;color:rgba(255,255,255,.7);font-size:8pt;">${dateCourte}</td>
+    </tr>
+  </table>
+</div></body></html>`;
+  };
+
+  const exportPrevisionnelPDF = () => {
+    try {
+      const html = buildPrevisionnelHTML();
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `Previsionnel-${chantier?.nom || chantierId}`;
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+    } catch (e) {
+      alert("Erreur génération PDF : " + (e.message || e));
+    }
+  };
+
   // ─── EXPORT PDF DE LA VUE GANTT ─────────────────────────────────────────
   // Landscape A4 avec table : 1 colonne label + 1fr × N jours. Pour chaque
   // tâche, on colore les cellules de date_prevue jusqu'à +durée jours
@@ -1520,8 +1876,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               border: `1px solid ${T.border}`, background: T.card, overflow: "hidden",
             }}>
               {[
-                { id: "list",  icon: LayoutGrid,         label: "Liste" },
-                { id: "gantt", icon: GanttChartSquare,   label: "Gantt" },
+                { id: "list",         icon: LayoutGrid,        label: "Liste" },
+                { id: "gantt",        icon: GanttChartSquare,  label: "Gantt" },
+                { id: "previsionnel", icon: Calendar,          label: "Prévisionnel" },
               ].map(opt => {
                 const active = viewMode === opt.id;
                 return (
@@ -1541,8 +1898,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 );
               })}
             </div>
-            <button onClick={viewMode === "gantt" ? exportGanttPDF : exportRapportPDF}
-              title={viewMode === "gantt" ? "Exporter le Gantt en PDF (paysage)" : "Exporter le phasage en PDF"}
+            <button onClick={viewMode === "gantt" ? exportGanttPDF : viewMode === "previsionnel" ? exportPrevisionnelPDF : exportRapportPDF}
+              title={viewMode === "gantt" ? "Exporter le Gantt en PDF (paysage)" : viewMode === "previsionnel" ? "Exporter le prévisionnel client en PDF" : "Exporter le phasage en PDF"}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 6,
                 padding: "8px 14px", borderRadius: RADIUS.md,
@@ -1553,7 +1910,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               onMouseEnter={e => { e.currentTarget.style.color = acc.accent; e.currentTarget.style.borderColor = acc.border; }}
               onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.borderColor = T.border; }}>
               <Icon as={FileDown} size={14}/>
-              PDF {viewMode === "gantt" ? "Gantt" : ""}
+              PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : ""}
             </button>
             <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
               style={{
@@ -1730,6 +2087,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: FONT.sm.size }}>
           Chargement du phasage…
         </div>
+      ) : viewMode === "previsionnel" ? (
+        <PrevisionnelEditor prev={prev} updatePrev={updatePrev} chantier={chantier} T={T} acc={acc} />
       ) : viewMode === "gantt" ? (
         <GanttV2
           ouvrages={ouvrages} lots={lots} acc={acc} T={T}
