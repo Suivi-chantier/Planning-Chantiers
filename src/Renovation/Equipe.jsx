@@ -295,6 +295,55 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     (s, p) => s + (p?.deltaEuros && p.deltaEuros > 0 ? p.deltaEuros : 0), 0
   );
 
+  // ── Compléments de bilan saisis par le conducteur (Supabase bilans_hebdo) ────
+  // Deux listes libres, par semaine et par chantier : les blocages/arbitrages
+  // et le point "semaine suivante". Stockés dans une ligne par week_id.
+  // En base, le champ JSON utilise "semaine_suivante" (snake) ; en state on
+  // garde "semaineSuivante" (camel) — on mappe au chargement et à l'upsert.
+  const [bilanExtras, setBilanExtras] = useState({ blocages: [], semaineSuivante: [] });
+
+  useEffect(() => {
+    if (!weekId) return;
+    let cancelled = false;
+    supabase.from("bilans_hebdo").select("data").eq("week_id", weekId).maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) { console.warn("Bilan extras : load", error.message); return; }
+        const d = data?.data || {};
+        setBilanExtras({
+          blocages:        Array.isArray(d.blocages)         ? d.blocages         : [],
+          semaineSuivante: Array.isArray(d.semaine_suivante) ? d.semaine_suivante : [],
+        });
+      });
+    return () => { cancelled = true; };
+  }, [weekId]);
+
+  // Upsert débounçé (~800 ms). On persiste depuis updateExtras uniquement, pas
+  // au chargement, pour ne pas réécrire la ligne inutilement à l'ouverture.
+  const extrasSaveTimer = useRef(null);
+  const persistExtras = useCallback((next) => {
+    if (!weekId) return;
+    if (extrasSaveTimer.current) clearTimeout(extrasSaveTimer.current);
+    extrasSaveTimer.current = setTimeout(async () => {
+      const { error } = await supabase.from("bilans_hebdo").upsert({
+        week_id:    weekId,
+        data:       { blocages: next.blocages, semaine_suivante: next.semaineSuivante },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "week_id" });
+      if (error) console.warn("Bilan extras : save", error.message);
+    }, 800);
+  }, [weekId]);
+
+  // Mutateur unique utilisé par l'UI de saisie (étapes 3-4) : met à jour le
+  // state ET déclenche la sauvegarde débounçée.
+  const updateExtras = useCallback((updater) => {
+    setBilanExtras(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      persistExtras(next);
+      return next;
+    });
+  }, [persistExtras]);
+
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
   const [generatingDoc, setGeneratingDoc] = useState(false);
   const [showNotes, setShowNotes]         = useState(false);
