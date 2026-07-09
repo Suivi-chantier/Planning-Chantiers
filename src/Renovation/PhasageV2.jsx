@@ -7,7 +7,7 @@ import {
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
-  FileText, User, Calendar,
+  FileText, User, Calendar, Link2,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
 import { confirmPerteMassive } from "../guards";
@@ -2583,6 +2583,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <ImportDevisModal
           state={importState}
           lots={lots}
+          bibliotheque={bibliotheque}
           T={T} accent={acc.accent} accentBorder={acc.border} accentBg10={acc.bg10}
           onUpdateItem={updateImportItem}
           onToggleAll={toggleAllImport}
@@ -3855,7 +3856,7 @@ function ItemEditModal({ title, color, T, accent, onClose, onDelete, children })
 }
 
 // ─── Modale d'import devis ────────────────────────────────────────────────────
-function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, onUpdateItem, onToggleAll, onClose, onConfirm }) {
+function ImportDevisModal({ state, lots, bibliotheque = [], T, accent, accentBorder, accentBg10, onUpdateItem, onToggleAll, onClose, onConfirm }) {
   const { items, unknownLotHeaders, parsing, error } = state;
   // Groupe les items par lot pour l'affichage
   const groups = (() => {
@@ -3870,6 +3871,21 @@ function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, on
   const nbSel       = items.filter(i => i.selectionne).length;
   const nbMatchCode = items.filter(i => i.matchBy === "code").length;
   const nbMatchLbl  = items.filter(i => i.matchBy === "libelle").length;
+  const nbMatchMan  = items.filter(i => i.matchBy === "manuel").length;
+
+  // Bibliothèque triée par libellé pour le sélecteur de liaison manuelle
+  const biblioSorted = [...bibliotheque].sort((a, b) =>
+    (a.libelle || "").localeCompare(b.libelle || "", "fr"));
+
+  // Lie (ou délie) manuellement un ouvrage importé à une fiche biblio.
+  // Tout le reste (tâches, matériaux, cadence) est recalculé depuis it.match
+  // au moment de la confirmation → il suffit de mettre à jour match/unite.
+  const linkBiblio = (key, bid, prevUnite) => {
+    if (!bid) { onUpdateItem(key, { match: null, matchBy: null, score: 0 }); return; }
+    const b = biblioSorted.find(x => String(x.id) === String(bid));
+    if (!b) return;
+    onUpdateItem(key, { match: b, matchBy: "manuel", score: 1, unite: b.unite || prevUnite || "U" });
+  };
 
   const lotLabel = (id) => id === "_orphans" ? "Sans lot" : (lots.find(l => l.id === id)?.label || id);
   const lotCouleur = (id) => id === "_orphans" ? T.textMuted : (lots.find(l => l.id === id)?.couleur || T.textMuted);
@@ -3901,7 +3917,7 @@ function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, on
             <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>
               {parsing ? "Analyse en cours…"
                 : error ? "Erreur"
-                : `${items.length} ouvrage${items.length > 1 ? "s" : ""} détecté${items.length > 1 ? "s" : ""} · ${nbMatchCode} par code · ${nbMatchLbl} par similarité · ${nbSel} sélectionné${nbSel > 1 ? "s" : ""}`}
+                : `${items.length} ouvrage${items.length > 1 ? "s" : ""} détecté${items.length > 1 ? "s" : ""} · ${nbMatchCode} par code · ${nbMatchLbl} par similarité${nbMatchMan > 0 ? ` · ${nbMatchMan} manuel${nbMatchMan > 1 ? "s" : ""}` : ""} · ${nbSel} sélectionné${nbSel > 1 ? "s" : ""}`}
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{
@@ -3980,14 +3996,17 @@ function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, on
                         <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {it.libelle}
                         </div>
-                        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                           {it.match ? (
                             <>
-                              <Icon as={Check} size={10} color={it.matchBy === "code" ? "#22c55e" : "#5b8af5"}/>
+                              <Icon as={it.matchBy === "manuel" ? Link2 : Check} size={10}
+                                color={it.matchBy === "code" ? "#22c55e" : it.matchBy === "manuel" ? accent : "#5b8af5"}/>
                               <span>
                                 {it.matchBy === "code"
                                   ? <>Match par <strong>code</strong> ({it.code})</>
-                                  : <>Match par similarité ({Math.round(it.score * 100)}%)</>}
+                                  : it.matchBy === "manuel"
+                                    ? <>Lié <strong>manuellement</strong></>
+                                    : <>Match par similarité ({Math.round(it.score * 100)}%)</>}
                                 {" · "}{(it.match.sous_taches || []).length} sous-tâche{(it.match.sous_taches || []).length > 1 ? "s" : ""}
                               </span>
                             </>
@@ -3996,6 +4015,23 @@ function ImportDevisModal({ state, lots, T, accent, accentBorder, accentBg10, on
                               {it.code ? `Code ${it.code} inconnu en biblio — créé sans tâches` : "Pas de match biblio — créé sans tâches"}
                             </span>
                           )}
+                          {/* Liaison manuelle à une fiche de la bibliothèque */}
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <Icon as={Link2} size={10} color={T.textMuted}/>
+                            <select value={it.match?.id ?? ""}
+                              onChange={e => linkBiblio(it._key, e.target.value, it.unite)}
+                              title="Lier manuellement cet ouvrage à une fiche de la bibliothèque"
+                              style={{
+                                ...inp, padding: "2px 4px", fontSize: FONT.xs.size,
+                                cursor: "pointer", maxWidth: 220,
+                                borderColor: it.matchBy === "manuel" ? accent : T.border,
+                              }}>
+                              <option value="">{it.match ? "— Délier —" : "Lier à la biblio…"}</option>
+                              {biblioSorted.map(b => (
+                                <option key={b.id} value={b.id}>{b.libelle}</option>
+                              ))}
+                            </select>
+                          </span>
                         </div>
                       </div>
                       <input type="number" step="0.5" value={it.heures ?? ""}
