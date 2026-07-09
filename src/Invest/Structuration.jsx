@@ -207,17 +207,19 @@ const STRUCT_REGIMES = ["Foncier réel","Micro-foncier","LMNP réel","Micro-BIC"
 function StructField({ T=THEMES_INV.dark, label, value, onChange, type="text", placeholder="", options=null, wide=false, compact=false }) {
   const controlStyle = {
     width:"100%",
-    minHeight: compact ? 34 : undefined,
-    padding: compact ? "7px 9px" : undefined,
-    background:T.input || "rgba(255,255,255,0.06)",
+    minHeight: compact ? 38 : 42,
+    padding: compact ? "9px 10px" : "10px 12px",
+    background:T.input || "rgba(255,255,255,0.08)",
     color:T.text || "#f5f0e8",
-    border:`1px solid ${T.border || "rgba(255,255,255,0.16)"}`,
+    border:`1px solid ${T.border || "rgba(255,255,255,0.18)"}`,
     borderRadius:RADIUS.md,
-    fontSize: compact ? FONT.xs.size + 1 : FONT.sm.size,
+    fontSize: compact ? FONT.sm.size : FONT.sm.size + 1,
+    fontWeight:600,
+    lineHeight:1.35,
   };
   return (
     <div style={{ gridColumn: wide ? "1 / -1" : "auto", minWidth:0 }}>
-      <label style={{ fontSize:FONT.xs.size, color:T.textSub || T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:900, display:"block", marginBottom:4 }}>{label}</label>
+      <label style={{ fontSize:compact ? FONT.xs.size + 2 : FONT.sm.size, color:T.textSub || T.text, textTransform:"none", letterSpacing:.15, fontWeight:900, display:"block", marginBottom:6, lineHeight:1.25 }}>{label}</label>
       {options ? (
         <select className="inv-sel" value={value || ""} onChange={e=>onChange(e.target.value)} style={controlStyle}>
           <option value="">—</option>{options.map(o=><option key={o} value={o}>{o}</option>)}
@@ -244,6 +246,17 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [newClientId, setNewClientId] = useState(initialClientId || "");
+  const [showClientCreator, setShowClientCreator] = useState(false);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({
+    prenom:"",
+    nom:"",
+    email:"",
+    telephone:"",
+    conseiller:profil?.nom || "",
+    source:"Structuration patrimoniale",
+    statut:"Prospect",
+  });
   const saveTimerRef = useRef(null);
   const initialHandledRef = useRef(false);
   const loadedDossierIdRef = useRef(null);
@@ -260,6 +273,19 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const fmtPct = v => Number.isFinite(Number(v)) ? `${Math.round(Number(v) * 100)} %` : "—";
   const toN = (v) => Number(String(v ?? "").replace(/\s/g, "").replace(",", ".")) || 0;
   const clientFullName = (c) => [c?.prenom, c?.nom].filter(Boolean).join(" ") || c?.email || "Client";
+  const sortClientsByName = (list=[]) => [...list].sort((a,b) => clientFullName(a).localeCompare(clientFullName(b), "fr", { sensitivity:"base" }));
+  const openClientCreator = () => {
+    setNewClientForm(prev => ({
+      prenom:"",
+      nom:"",
+      email:"",
+      telephone:"",
+      conseiller:prev.conseiller || profil?.nom || dossierRef.current?.conseiller || "",
+      source:"Structuration patrimoniale",
+      statut:"Prospect",
+    }));
+    setShowClientCreator(true);
+  };
   const currentClient = clients.find(c => c.id === dossier?.client_id) || dossier?.client || null;
 
   const calc = useCallback((d = data) => {
@@ -340,7 +366,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       setDossiers(list);
       if (!selectedId && list.length) setSelectedId(list[0].id);
     }
-    setClients(clientsRes.data || []);
+    setClients(sortClientsByName(clientsRes.data || []));
     setLoading(false);
   }, [selectedId]);
 
@@ -476,11 +502,11 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     });
   }, [clients, newClientId, mutateData]);
 
-  const creerDossier = async (clientId = newClientId) => {
+  const creerDossier = async (clientId = newClientId, clientOverride = null) => {
     if (!clientId) { alert("Sélectionnez un client avant de créer un dossier."); return; }
     const existing = dossiers.find(d => d.client_id === clientId);
     if (existing && window.confirm("Un dossier existe déjà pour ce client. L’ouvrir ?")) { setSelectedId(existing.id); return; }
-    const c = clients.find(x => x.id === clientId);
+    const c = clientOverride || clients.find(x => x.id === clientId);
     const base = buildStructDefault(c);
     const payload = {
       client_id: clientId,
@@ -499,6 +525,67 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     loadedDossierIdRef.current = null;
     setSelectedId(created.id);
     setTab("audit");
+  };
+
+  const creerClientEtDossier = async () => {
+    const form = {
+      prenom:String(newClientForm.prenom || "").trim(),
+      nom:String(newClientForm.nom || "").trim(),
+      email:String(newClientForm.email || "").trim(),
+      telephone:String(newClientForm.telephone || "").trim(),
+      conseiller:String(newClientForm.conseiller || profil?.nom || "").trim(),
+      source:String(newClientForm.source || "Structuration patrimoniale").trim(),
+      statut:String(newClientForm.statut || "Prospect").trim(),
+    };
+    if (!form.prenom && !form.nom && !form.email) {
+      alert("Renseignez au minimum un prénom, un nom ou un email pour créer le client.");
+      return;
+    }
+    setCreatingClient(true);
+    setError("");
+
+    const now = new Date().toISOString();
+    const payloads = [
+      { ...form, etape:"1 Signature contrat", notes_rapides:"Client créé depuis l'onglet Structuration patrimoniale", updated_at:now },
+      { prenom:form.prenom, nom:form.nom, email:form.email, telephone:form.telephone, conseiller:form.conseiller, source:form.source, statut:form.statut, updated_at:now },
+      { prenom:form.prenom, nom:form.nom, email:form.email, telephone:form.telephone, conseiller:form.conseiller },
+      { prenom:form.prenom, nom:form.nom, email:form.email },
+    ];
+
+    let created = null;
+    let lastError = null;
+    for (const payload of payloads) {
+      const cleaned = Object.fromEntries(Object.entries(payload).filter(([,v]) => v !== undefined && v !== null && v !== ""));
+      const { data: inserted, error: insertError } = await supabase.from("invest_clients").insert(cleaned).select("*").single();
+      if (!insertError && inserted) {
+        created = inserted;
+        break;
+      }
+      lastError = insertError;
+      const msg = String(insertError?.message || "");
+      const canRetryWithSmallerPayload = /column|schema cache|Could not find|PGRST204|violates not-null constraint/i.test(msg);
+      if (!canRetryWithSmallerPayload) break;
+    }
+
+    setCreatingClient(false);
+    if (!created) {
+      setError("Impossible de créer le client : " + (lastError?.message || "erreur inconnue"));
+      return;
+    }
+
+    setClients(prev => sortClientsByName([created, ...prev.filter(x => x.id !== created.id)]));
+    setNewClientId(created.id);
+    setShowClientCreator(false);
+    setNewClientForm({
+      prenom:"",
+      nom:"",
+      email:"",
+      telephone:"",
+      conseiller:profil?.nom || "",
+      source:"Structuration patrimoniale",
+      statut:"Prospect",
+    });
+    await creerDossier(created.id, created);
   };
 
   const supprimerDossier = async (id) => {
@@ -555,10 +642,39 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   };
   const chipStyle = (status) => ({ fontSize:FONT.xs.size, fontWeight:800, padding:"3px 8px", borderRadius:999, background:statusColors[status]?.bg || T.input, color:statusColors[status]?.color || T.textSub, border:`1px solid ${statusColors[status]?.border || T.border}`, display:"inline-flex", alignItems:"center", gap:4 });
   const cardStyle = { background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, boxShadow:T.shadow, overflow:"hidden" };
-  const cardHd = (label, tone="") => <div style={{ padding:"12px 14px", borderBottom:`1px solid ${T.border}`, color:tone === "gold" ? T.accent : T.text, fontWeight:900, letterSpacing:.8, textTransform:"uppercase", fontSize:FONT.xs.size }}>{label}</div>;
-  const kpi = (label, value, sub, tone="") => <div style={{ ...cardStyle, padding:"14px 16px", borderLeft:`4px solid ${tone === "gold" ? T.accent : tone === "red" ? DA : tone === "green" ? SU : T.accentBorder}` }}><div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.h2.size, fontWeight:800, color:T.text }}>{value}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size, textTransform:"uppercase", letterSpacing:.8, fontWeight:800 }}>{label}</div>{sub && <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, marginTop:4 }}>{sub}</div>}</div>;
+  const cardHd = (label, tone="") => <div style={{ padding:"14px 16px", borderBottom:`1px solid ${T.border}`, background:tone === "gold" ? T.accentBg : "rgba(255,255,255,0.025)", color:tone === "gold" ? T.accent : T.text, fontWeight:950, letterSpacing:.15, textTransform:"none", fontSize:FONT.md.size, lineHeight:1.25 }}>{label}</div>;
+  const kpi = (label, value, sub, tone="") => <div style={{ ...cardStyle, padding:"15px 16px", borderLeft:`4px solid ${tone === "gold" ? T.accent : tone === "red" ? DA : tone === "green" ? SU : T.accentBorder}` }}><div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.h2.size, fontWeight:850, color:T.text, lineHeight:1.05 }}>{value}</div><div style={{ color:T.textSub || T.textMuted, fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:.2, fontWeight:900, marginTop:4 }}>{label}</div>{sub && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2, marginTop:5, lineHeight:1.35 }}>{sub}</div>}</div>;
 
   const renderProgress = (pct, height=5) => <div style={{ width:"100%", height, background:T.input, borderRadius:999, overflow:"hidden" }}><div style={{ width:`${Math.max(0, Math.min(100, pct || 0))}%`, height:"100%", background:T.accent, borderRadius:999 }}/></div>;
+
+  const renderClientCreator = () => !showClientCreator ? null : (
+    <div style={{ position:"fixed", inset:0, zIndex:9999, background:"rgba(0,0,0,0.58)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ ...cardStyle, width:"min(720px, 96vw)", background:T.card, boxShadow:"0 24px 80px rgba(0,0,0,0.45)" }}>
+        <div style={{ padding:"18px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:16, alignItems:"flex-start", background:T.sidebar }}>
+          <div>
+            <div style={{ color:T.text, fontSize:FONT.xl.size, fontWeight:950, lineHeight:1.15 }}>Créer un nouveau client</div>
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size, marginTop:4 }}>Le client sera ajouté au CRM puis un dossier de structuration sera ouvert automatiquement.</div>
+          </div>
+          <button className="inv-btn inv-btn-sm" onClick={()=>setShowClientCreator(false)} style={{ background:"rgba(255,255,255,0.06)", color:T.textSub, border:`1px solid ${T.border}` }}><Icon as={X} size={14}/></button>
+        </div>
+        <div style={{ padding:20, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:14 }}>
+          <StructField T={T} label="Prénom" value={newClientForm.prenom} onChange={v=>setNewClientForm(prev=>({...prev, prenom:v}))} />
+          <StructField T={T} label="Nom" value={newClientForm.nom} onChange={v=>setNewClientForm(prev=>({...prev, nom:v}))} />
+          <StructField T={T} label="Email" type="email" value={newClientForm.email} onChange={v=>setNewClientForm(prev=>({...prev, email:v}))} />
+          <StructField T={T} label="Téléphone" value={newClientForm.telephone} onChange={v=>setNewClientForm(prev=>({...prev, telephone:v}))} />
+          <StructField T={T} label="Conseiller référent" value={newClientForm.conseiller} onChange={v=>setNewClientForm(prev=>({...prev, conseiller:v}))} />
+          <StructField T={T} label="Source" value={newClientForm.source} onChange={v=>setNewClientForm(prev=>({...prev, source:v}))} options={["Structuration patrimoniale","Recommandation","Réseau personnel","Site web","Événement","Partenaire","Autre"]} />
+          <StructField T={T} label="Statut CRM" value={newClientForm.statut} onChange={v=>setNewClientForm(prev=>({...prev, statut:v}))} options={["Prospect","Client","À recontacter","En cours","Perdu"]} />
+          <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"flex-end", gap:10 }}>
+            <button className="inv-btn" onClick={()=>setShowClientCreator(false)} style={{ background:T.input, color:T.textSub, border:`1px solid ${T.border}` }}>Annuler</button>
+            <button className="inv-btn inv-btn-gold" onClick={creerClientEtDossier} disabled={creatingClient}>
+              {creatingClient ? <><Icon as={RefreshCw} size={13} style={{animation:"spin 1s linear infinite"}}/> Création…</> : <><Icon as={Plus} size={14}/> Créer client + dossier</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   const renderSidebarDossiers = () => (
     <div style={{ background:T.sidebar, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.sidebarBorder}`, height:"100%", minHeight:0, display:"flex", flexDirection:"column" }}>
@@ -567,13 +683,14 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
         <div style={{ fontSize:FONT.xs.size, letterSpacing:2.4, textTransform:"uppercase", color:T.accent, marginTop:2 }}>Gestion des dossiers</div>
       </div>
       <div style={{ padding:14, borderBottom:`1px solid ${T.sidebarBorder}` }}>
-        <div style={{ display:"flex", gap:7 }}>
-          <select className="inv-sel" value={newClientId} onChange={e=>setNewClientId(e.target.value)} style={{ flex:1, minWidth:0 }}>
-            <option value="">Nouveau dossier client…</option>
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 38px", gap:7 }}>
+          <select className="inv-sel" value={newClientId} onChange={e=>setNewClientId(e.target.value)} style={{ minWidth:0 }}>
+            <option value="">Créer un dossier depuis un client CRM…</option>
             {clients.map(c=><option key={c.id} value={c.id}>{clientFullName(c)}</option>)}
           </select>
-          <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={()=>creerDossier()} title="Créer"><Icon as={Plus} size={13}/></button>
+          <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={()=>creerDossier()} title="Créer le dossier"><Icon as={Plus} size={13}/></button>
         </div>
+        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={openClientCreator} style={{ width:"100%", marginTop:8, justifyContent:"center" }}><Icon as={Users} size={13}/> Nouveau client</button>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:5, marginTop:10 }}>
           {["Tous","Collecte","Analyse","Phase 2"].map(f => <button key={f} onClick={()=>setFilter(f)} style={{ border:`1px solid ${filter === f ? T.accentBorder : T.sidebarBorder}`, background:filter === f ? T.accentBg : "rgba(255,255,255,0.03)", color:filter === f ? T.accent : T.textMuted, borderRadius:RADIUS.sm+2, fontSize:FONT.xs.size, padding:"6px 2px", cursor:"pointer", fontWeight:800 }}>{f}</button>)}
         </div>
@@ -608,7 +725,10 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
           <div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Tableau de bord structuration</div>
           <div style={{ color:T.textSub, fontSize:FONT.sm.size }}>Pilotage des missions de collecte, analyse, restitution et suivi patrimonial</div>
         </div>
-        <button className="inv-btn inv-btn-gold" onClick={()=>newClientId ? creerDossier() : alert("Sélectionnez un client dans la colonne de gauche.")}><Icon as={Plus} size={14}/> Nouveau dossier</button>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
+          <button className="inv-btn inv-btn-blue" onClick={openClientCreator}><Icon as={Users} size={14}/> Nouveau client</button>
+          <button className="inv-btn inv-btn-gold" onClick={()=>newClientId ? creerDossier() : alert("Sélectionnez un client dans la colonne de gauche ou créez un nouveau client.")}><Icon as={Plus} size={14}/> Nouveau dossier</button>
+        </div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:SPACING.md }}>
         {kpi("Dossiers total", dossiers.length, "Portefeuille structuration")}
@@ -1005,8 +1125,40 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   };
 
   return <div style={{ padding:`${SPACING.md}px ${SPACING.xl}px`, maxWidth:1800, margin:"0 auto", height:"calc(100vh - 24px)", overflow:"hidden" }}>
-    <style>{`.structuration-compact .inv-inp,.structuration-compact .inv-sel,.structuration-compact .inv-textarea{color:${T.text}!important;background:${T.input}!important}.structuration-compact option{color:#0D1B2A;background:#fff}.structuration-compact ::placeholder{color:${T.textMuted}!important;opacity:.85}`}</style>
-    <div className="structuration-compact" style={{ display:"grid", gridTemplateColumns:"300px minmax(0,1fr)", gap:SPACING.md, alignItems:"start", height:"100%", minHeight:0 }}>
+    <style>{`
+      .structuration-compact{font-size:14px;line-height:1.45}
+      .structuration-compact .inv-inp,
+      .structuration-compact .inv-sel,
+      .structuration-compact .inv-textarea{
+        color:${T.text}!important;
+        background:${T.input}!important;
+        font-size:14px!important;
+        line-height:1.35!important;
+        min-height:38px;
+        font-weight:600;
+      }
+      .structuration-compact .inv-textarea{min-height:74px}
+      .structuration-compact .inv-inp:focus,
+      .structuration-compact .inv-sel:focus,
+      .structuration-compact .inv-textarea:focus{
+        outline:2px solid ${T.accentBorder};
+        border-color:${T.accent}!important;
+      }
+      .structuration-compact .inv-table th{
+        font-size:12px!important;
+        letter-spacing:.25px!important;
+        text-transform:none!important;
+        white-space:nowrap;
+      }
+      .structuration-compact .inv-table td{
+        font-size:13px!important;
+        line-height:1.35!important;
+      }
+      .structuration-compact option{color:#0D1B2A;background:#fff}
+      .structuration-compact ::placeholder{color:${T.textMuted}!important;opacity:.9}
+    `}</style>
+    {renderClientCreator()}
+    <div className="structuration-compact" style={{ display:"grid", gridTemplateColumns:"320px minmax(0,1fr)", gap:SPACING.md, alignItems:"start", height:"100%", minHeight:0 }}>
       <div style={{ height:"100%", minHeight:0 }}>{renderSidebarDossiers()}</div>
       <div style={{ minWidth:0, height:"100%", minHeight:0, overflow:"hidden" }}>
         {error && <div style={{ marginBottom:SPACING.sm, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
