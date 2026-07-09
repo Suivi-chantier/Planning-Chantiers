@@ -1195,7 +1195,35 @@ const SUIVI_FIN_DEFAULT = {
   }
 };
 
-const cloneSuiviFinancier = () => JSON.parse(JSON.stringify(SUIVI_FIN_DEFAULT));
+const FIN_LEGACY_ROW_IDS_TO_REMOVE = new Set(["r14", "r23", "r32", "r41"]);
+const finNormalizeName = (v) => String(v || "")
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/[^a-z0-9]+/g, " ")
+  .trim();
+
+const finPruneLegacyRows = (payload = {}) => {
+  const next = JSON.parse(JSON.stringify(payload || {}));
+
+  // Ces anciennes lignes étaient présentes dans les données par défaut.
+  // Elles ne doivent plus réapparaître après suppression.
+  if (Array.isArray(next.commercial?.forfaits)) {
+    next.commercial.forfaits = next.commercial.forfaits.filter(
+      r => !FIN_LEGACY_ROW_IDS_TO_REMOVE.has(String(r?.id || ""))
+    );
+  }
+
+  if (Array.isArray(next.commercial?.negociation)) {
+    next.commercial.negociation = next.commercial.negociation.filter(
+      r => !FIN_LEGACY_ROW_IDS_TO_REMOVE.has(String(r?.id || ""))
+    );
+  }
+
+  return next;
+};
+
+const cloneSuiviFinancier = () => finPruneLegacyRows(SUIVI_FIN_DEFAULT);
 const finEvalExpression = (value) => {
   const raw = String(value ?? "").trim();
   if (!raw) return 0;
@@ -1233,13 +1261,23 @@ const finMergeSignedClients = (source, clients = []) => {
   next.commercial.forfaits = next.commercial.forfaits || [];
   const forfait = finNum(next.params?.forfaitFixeHT ?? 1583.33);
   const signedClients = (clients || []).filter(c => !!c.date_signature);
+
+  next.deletedRowKeys = next.deletedRowKeys || {};
+  next.deletedAutoClientIds = Array.isArray(next.deletedAutoClientIds) ? next.deletedAutoClientIds : [];
+
   const existingByClientId = new Set(next.commercial.forfaits.map(r => r.auto_client_id).filter(Boolean));
-  const normalizeName = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
-  const existingNames = new Set(next.commercial.forfaits.map(r => normalizeName(r.label)).filter(Boolean));
+  const deletedAutoClientIds = new Set(next.deletedAutoClientIds.filter(Boolean));
+  const deletedForfaitLabels = new Set(next.deletedRowKeys["commercial.forfaits"] || []);
+  const existingNames = new Set(next.commercial.forfaits.map(r => finNormalizeName(r.label)).filter(Boolean));
   signedClients.forEach(c => {
     const clientLabel = finClientName(c);
-    const clientKey = normalizeName(clientLabel);
-    if (existingByClientId.has(c.id) || existingNames.has(clientKey)) return;
+    const clientKey = finNormalizeName(clientLabel);
+    if (
+      existingByClientId.has(c.id) ||
+      existingNames.has(clientKey) ||
+      deletedAutoClientIds.has(c.id) ||
+      deletedForfaitLabels.has(clientKey)
+    ) return;
     const mi = finMonthIndexFromDate(c.date_signature);
     if (mi < 0) return;
     const values = finEmptyVec();
@@ -1394,6 +1432,26 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
   const removeRow = (idx) => {
     const next = JSON.parse(JSON.stringify(data));
     const [a,b] = sectionPath.split(".");
+    const fullPath = `${a}.${b}`;
+    const removedRow = next?.[a]?.[b]?.[idx];
+
+    next.deletedRowKeys = next.deletedRowKeys || {};
+    const removedKey = finNormalizeName(removedRow?.label);
+
+    if (removedKey) {
+      next.deletedRowKeys[fullPath] = Array.from(new Set([
+        ...(next.deletedRowKeys[fullPath] || []),
+        removedKey
+      ]));
+    }
+
+    if (fullPath === "commercial.forfaits" && removedRow?.auto_client_id) {
+      next.deletedAutoClientIds = Array.from(new Set([
+        ...(next.deletedAutoClientIds || []),
+        removedRow.auto_client_id
+      ]));
+    }
+
     next[a][b].splice(idx, 1);
     setData(next); scheduleSave(next);
   };
@@ -1513,9 +1571,10 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
       console.warn("Suivi financier non chargé:", error);
       setError("La table invest_suivi_financier n'est pas encore disponible. Lance la migration SQL fournie, puis recharge la page.");
     }
-    const base = row?.data
+    const baseRaw = row?.data
       ? { ...cloneSuiviFinancier(), ...row.data, params: { ...cloneSuiviFinancier().params, ...(row.data.params || {}) } }
       : cloneSuiviFinancier();
+    const base = finPruneLegacyRows(baseRaw);
     const merged = finMergeSignedClients(base, clientsRes.data || []);
     setData(merged);
     if (JSON.stringify(merged) !== JSON.stringify(base)) {
