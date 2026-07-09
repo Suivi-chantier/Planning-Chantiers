@@ -253,6 +253,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const [dossier, setDossier] = useState(null);
   const [data, setData] = useState(buildStructDefault(null));
   const [tab, setTab] = useState("audit");
+  const [activeCollecteSection, setActiveCollecteSection] = useState("cadrage");
   const [filter, setFilter] = useState("Tous");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -967,7 +968,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   );
 
   const tabItems = [
-    { id:"audit", label:"Audit · Collecte de données" },
+    { id:"audit", label:"Collecte guidée" },
     { id:"profil", label:"Profil patrimonial" },
     { id:"patrimoine", label:"Patrimoine & financement" },
     { id:"documents", label:"Documents" },
@@ -979,153 +980,168 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     const fieldProps = { T, compact:true };
     const criticalDocs = docs.filter(doc => doc.required).slice(0, 10);
     const guideSections = [
-      { id:"fiscal", label:"1. Statut fiscal", score:sectionScore([sf.date_installation_france, sf.resident_fiscal_depuis, sf.statut_pays_precedents, sf.futur_contrat_signe, sf.date_depart_prevue, sf.expert_comptable_specialise]) },
-      { id:"revenus", label:"2. Revenus", score:sectionScore([p.revenus_nets_mois, q.revenus_previsionnels, q.devise_versement, pf.liquidites, q.charges_fixes_mois, q.commission_agent]) },
-      { id:"patrimoine", label:"3. Patrimoine", score:sectionScore([pat.immobilier_existant || lots?.some(l=>toN(l.valeur)), c.patrimoineFinancier || pf.liquidites, c.crdTotal || fin.mensualites_total, fin.epargne_precaution, pat.compte_bancaire_francais_actif]) },
-      { id:"famille", label:"4. Famille", score:sectionScore([fam.statut_couple || p.situation_familiale, fam.enfants_reconnus, fam.droits_sociaux_conjoint, fam.assurance_vie_clause_beneficiaire, fam.conscience_risque_succession, fam.testament_donation]) },
-      { id:"prevoyance", label:"5. Prévoyance", score:sectionScore([prevoyance.assurance_invalidite, prevoyance.couverture_sante_rapatriement, prevoyance.prevoyance_deces, prevoyance.gav]) },
-      { id:"objectifs", label:"6. Objectifs", score:sectionScore([obj.objectif_principal, obj.revenu_cible_mensuel, obj.delegation || q.niveau_implication, q.type_bien_vise, obj.zones, fin.apport_disponible]) },
-      { id:"banque", label:"7. Banque", score:sectionScore([fb.historique_bancaire_suffisant, fb.contrats_traduits_legalises, fb.langue_duree_futur_contrat, fb.refus_anterieur, fin.banque_principale]) },
-      { id:"synthese", label:"8. Synthèse", score:sectionScore([data.analyse?.contexte_client, data.analyse?.points_forts, data.analyse?.points_attention, data.analyse?.strategie_recommandee]) },
+      { id:"cadrage", number:"01", title:"Cadrage fiscal", subtitle:"Résidence fiscale, calendrier France / étranger", score:sectionScore([sf.date_installation_france, sf.resident_fiscal_depuis, sf.statut_pays_precedents, sf.futur_contrat_signe, sf.date_depart_prevue, sf.expert_comptable_specialise]), priority:"Fenêtre bancaire" },
+      { id:"revenus", number:"02", title:"Revenus atypiques", subtitle:"Stabilité, devise, primes, commissions", score:sectionScore([p.revenus_nets_mois, q.revenus_previsionnels, q.devise_versement, q.modalites_versement, pf.liquidites, q.charges_fixes_mois, q.commission_agent]), priority:"Lisibilité bancaire" },
+      { id:"patrimoine", number:"03", title:"Point de départ", subtitle:"Actifs, dettes, liquidités, banque française", score:sectionScore([pat.immobilier_existant || lots?.some(l=>toN(l.valeur)), c.patrimoineFinancier || pf.liquidites, c.crdTotal || fin.mensualites_total, fin.epargne_precaution, pat.compte_bancaire_francais_actif]), priority:"Base patrimoniale" },
+      { id:"famille", number:"04", title:"Protection familiale", subtitle:"Couple, enfants, transmission, clause bénéficiaire", score:sectionScore([fam.statut_couple || p.situation_familiale, fam.enfants_reconnus, fam.droits_sociaux_conjoint, fam.assurance_vie_clause_beneficiaire, fam.conscience_risque_succession, fam.testament_donation]), priority:"Obligatoire" },
+      { id:"prevoyance", number:"05", title:"Prévoyance", subtitle:"Invalidité, perte de licence, décès, rapatriement", score:sectionScore([prevoyance.assurance_invalidite, prevoyance.perte_licence, prevoyance.couverture_sante_rapatriement, prevoyance.prevoyance_deces, prevoyance.gav]), priority:"Sécurité" },
+      { id:"objectifs", number:"06", title:"Objectifs & horizon", subtitle:"Finalité, revenu cible, délégation, zones", score:sectionScore([obj.objectif_principal, obj.revenu_cible_mensuel, obj.delegation || q.niveau_implication, q.type_bien_vise, obj.zones, fin.apport_disponible, obj.horizon]), priority:"Stratégie" },
+      { id:"banque", number:"07", title:"Financement", subtitle:"Historique, contrats, traduction, refus éventuel", score:sectionScore([fb.historique_bancaire_suffisant, fb.contrats_traduits_legalises, fb.langue_duree_futur_contrat, fb.refus_anterieur, fin.banque_principale, q.situation_bancaire]), priority:"Dossier banque" },
+      { id:"synthese", number:"08", title:"Synthèse conseiller", subtitle:"Points forts, vigilances, JSON CRM", score:sectionScore([data.analyse?.contexte_client, data.analyse?.points_forts, data.analyse?.points_attention, data.analyse?.strategie_recommandee, rdv.prochaine_action]), priority:"Restitution" },
     ];
     const familyStarted = isFilledStruct(fam.statut_couple || p.situation_familiale) || isFilledStruct(fam.assurance_vie_clause_beneficiaire) || isFilledStruct(prevoyance.prevoyance_deces);
     const familyScore = guideSections.find(s => s.id === "famille")?.score || { pct:0, done:0, total:1 };
+    const activeSection = guideSections.find(s => s.id === activeCollecteSection) || guideSections[0];
     const globalGuidePct = Math.round(guideSections.reduce((s,x)=>s+x.score.pct,0)/guideSections.length);
-    const sectionBadge = (score) => <span style={{ fontSize:FONT.xs.size+1, fontWeight:950, color:score.pct >= 70 ? SU : score.pct >= 35 ? T.accent : WA, whiteSpace:"nowrap" }}>{score.done}/{score.total}</span>;
-    const sectionNoteStyle = { color:T.textSub, fontSize:FONT.xs.size+2, lineHeight:1.55, padding:"0 14px 12px" };
-    const StepCard = ({ title, score, children, note, urgent=false }) => <div style={{ ...cardStyle, border:urgent ? `1px solid ${SEMANTIC.warning.border}` : cardStyle.border }}>
-      <div style={{ padding:"15px 17px", borderBottom:`1px solid ${T.border}`, borderLeft:`5px solid ${urgent ? WA : T.accent}`, background:urgent ? SEMANTIC.warning.bg : (T.sidebar || "#0D1B2A"), display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
-        <div style={{ color:T.text || "#fff", fontSize:FONT.md.size+2, fontWeight:950, lineHeight:1.18 }}>{title}</div>
-        {sectionBadge(score)}
-      </div>
-      {note && <div style={sectionNoteStyle}>{note}</div>}
-      <div style={{ padding:14, display:"grid", gap:10 }}>{children}</div>
+    const synthAuto = getQualificationSynthesis();
+    const statusLabel = (pct) => pct >= 80 ? "Solide" : pct >= 45 ? "À compléter" : "À ouvrir";
+    const scoreColor = (pct) => pct >= 80 ? SU : pct >= 45 ? T.accent : WA;
+    const advisorCard = { background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, boxShadow:T.shadow, overflow:"hidden" };
+    const miniMetric = (label, value, sub, tone="") => <div style={{ ...advisorCard, padding:"13px 14px", borderLeft:`4px solid ${tone === "red" ? DA : tone === "green" ? SU : tone === "blue" ? "#4F8FD8" : T.accent}` }}>
+      <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, textTransform:"uppercase", letterSpacing:1.1, fontWeight:950 }}>{label}</div>
+      <div style={{ color:T.text, fontSize:FONT.lg.size, fontWeight:950, marginTop:4, lineHeight:1.1 }}>{value}</div>
+      {sub && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2, marginTop:4, lineHeight:1.35 }}>{sub}</div>}
     </div>;
-    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
-      <div style={{ ...cardStyle, padding:18, background:`linear-gradient(135deg, ${T.sidebar || "#0D1B2A"}, rgba(201,168,76,0.14))`, border:`1px solid ${T.accentBorder}` }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:18, flexWrap:"wrap" }}>
-          <div style={{ minWidth:280, flex:1 }}>
-            <div style={{ color:T.accent, fontSize:FONT.xs.size+2, fontWeight:950, textTransform:"uppercase", letterSpacing:1.7 }}>Agent de qualification client</div>
-            <div style={{ color:T.text, fontSize:FONT.h2.size, fontWeight:950, lineHeight:1.05, marginTop:4 }}>Profil atypique, revenus irréguliers ou départ à l’étranger</div>
-            <div style={{ color:T.textSub, fontSize:FONT.sm.size+1, lineHeight:1.55, marginTop:8, maxWidth:980 }}>Ce parcours sert uniquement à qualifier le dossier avant analyse conseiller. Il ne remplace pas un conseil fiscal, juridique ou financier définitif.</div>
-          </div>
-          <div style={{ width:260, padding:14, borderRadius:RADIUS.lg, background:"rgba(0,0,0,0.18)", border:`1px solid ${T.border}` }}>
-            <div style={{ display:"flex", justifyContent:"space-between", color:T.textSub, fontSize:FONT.xs.size+1, fontWeight:900, marginBottom:6 }}><span>Parcours couvert</span><span>{globalGuidePct} %</span></div>
-            {renderProgress(globalGuidePct, 7)}
-            {!familyStarted && <div style={{ marginTop:10, color:WA, fontSize:FONT.xs.size+1, lineHeight:1.4, fontWeight:800 }}>La situation familiale doit être abordée avant de conclure l’entretien.</div>}
-          </div>
-        </div>
+    const formGrid = (children, cols="repeat(2,minmax(0,1fr))") => <div style={{ display:"grid", gridTemplateColumns:cols, gap:12 }}>{children}</div>;
+    const formPanel = (title, children, note="") => <div style={{ border:`1px solid ${T.border}`, background:"rgba(255,255,255,0.025)", borderRadius:RADIUS.lg, overflow:"hidden" }}>
+      <div style={{ padding:"11px 13px", borderBottom:`1px solid ${T.border}`, background:T.input }}>
+        <div style={{ color:T.text, fontSize:FONT.sm.size+2, fontWeight:950, letterSpacing:.2 }}>{title}</div>
+        {note && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2, marginTop:3, lineHeight:1.45 }}>{note}</div>}
       </div>
+      <div style={{ padding:13 }}>{children}</div>
+    </div>;
+    const advisorQuestion = (text) => <div style={{ padding:"12px 14px", borderRadius:RADIUS.lg, background:T.accentBg, border:`1px solid ${T.accentBorder}`, color:T.text, fontSize:FONT.sm.size+1, lineHeight:1.5 }}>
+      <b style={{ color:T.accent }}>Question d’ouverture conseiller&nbsp;: </b>{text}
+    </div>;
+    const EmptyHint = ({ children }) => <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, lineHeight:1.5, padding:"8px 0" }}>{children}</div>;
 
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10 }}>
-        {guideSections.map(s => <div key={s.id} style={{ padding:11, borderRadius:RADIUS.lg, border:`1px solid ${s.id === "famille" && !familyStarted ? SEMANTIC.warning.border : T.border}`, background:s.id === "famille" && !familyStarted ? SEMANTIC.warning.bg : T.input }}>
-          <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}>
-            <div style={{ color:T.text, fontSize:FONT.xs.size+2, fontWeight:950, lineHeight:1.2 }}>{s.label}</div>
-            {sectionBadge(s.score)}
-          </div>
-          <div style={{ marginTop:7 }}>{renderProgress(s.score.pct, 4)}</div>
-        </div>)}
-      </div>
-
-      <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }}>
-        <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
-          <StepCard title="01 — Statut fiscal & fenêtre de financement" score={guideSections[0].score} note="Question de départ : depuis quand la personne est-elle revenue ou installée en France, et jusqu’à quand peut-on constituer un dossier bancaire français ?">
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
-              <StructField {...fieldProps} label="Date d’entretien" type="date" value={q.date_r1} onChange={v=>updateSection("qualification","date_r1",v)} />
+    const renderActiveCollecteSection = () => {
+      switch (activeSection.id) {
+        case "cadrage":
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            {advisorQuestion("Avant d’étudier un investissement, j’ai besoin de comprendre précisément votre calendrier France / étranger pour savoir quelle fenêtre de financement est réaliste.")}
+            {formPanel("Résidence fiscale & historique international", formGrid(<>
               <StructField {...fieldProps} label="Profil atypique" value={q.profil_atypique} onChange={v=>updateSection("qualification","profil_atypique",v)} options={profilAtypiqueOptions} />
-              <StructField {...fieldProps} label="Date installation / retour en France" type="date" value={sf.date_installation_france} onChange={v=>updateSection("statut_fiscal","date_installation_france",v)} />
+              <StructField {...fieldProps} label="Date d’entretien" type="date" value={q.date_r1} onChange={v=>updateSection("qualification","date_r1",v)} />
+              <StructField {...fieldProps} label="Date installation / retour France" type="date" value={sf.date_installation_france} onChange={v=>updateSection("statut_fiscal","date_installation_france",v)} />
               <StructField {...fieldProps} label="Résident fiscal français depuis" value={sf.resident_fiscal_depuis} onChange={v=>updateSection("statut_fiscal","resident_fiscal_depuis",v)} placeholder="Ex : 01/01/2026 ou à vérifier" />
-              <StructField {...fieldProps} label="Statut dans les pays précédents" type="textarea" value={sf.statut_pays_precedents} onChange={v=>updateSection("statut_fiscal","statut_pays_precedents",v)} placeholder="Pays, résident/non-résident, convention fiscale à vérifier" wide />
+              <StructField {...fieldProps} label="Pays précédents / statut fiscal" type="textarea" value={sf.statut_pays_precedents} onChange={v=>updateSection("statut_fiscal","statut_pays_precedents",v)} placeholder="Pays, résident/non-résident, convention fiscale à vérifier" wide />
               <StructField {...fieldProps} label="Revenus déjà déclarés en France" value={sf.revenus_declares_france} onChange={v=>updateSection("statut_fiscal","revenus_declares_france",v)} options={boolOptions} />
+              <StructField {...fieldProps} label="Expert-comptable / fiscaliste" value={sf.expert_comptable_specialise} onChange={v=>updateSection("statut_fiscal","expert_comptable_specialise",v)} options={boolOptions} />
+            </>), "repeat(2,minmax(0,1fr))")}
+            {formPanel("Nouveau départ à l’étranger", formGrid(<>
               <StructField {...fieldProps} label="Futur contrat étranger signé" value={sf.futur_contrat_signe} onChange={v=>updateSection("statut_fiscal","futur_contrat_signe",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Date de départ prévue" type="date" value={sf.date_depart_prevue} onChange={v=>updateSection("statut_fiscal","date_depart_prevue",v)} />
-              <StructField {...fieldProps} label="Expert-comptable / fiscaliste spécialisé" value={sf.expert_comptable_specialise} onChange={v=>updateSection("statut_fiscal","expert_comptable_specialise",v)} options={boolOptions} />
-            </div>
-          </StepCard>
-
-          <StepCard title="02 — Revenus & capacité financière" score={guideSections[1].score} note="Objectif : rendre les revenus lisibles pour un futur financement, surtout s’ils sont variables, étrangers ou versés en devise.">
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+              <StructField {...fieldProps} label="Pays / employeur / club futur" value={sf.pays_futur_contrat} onChange={v=>updateSection("statut_fiscal","pays_futur_contrat",v)} placeholder="Pays, club, société, mission..." />
+              <StructField {...fieldProps} label="Fenêtre de financement estimée" value={sf.fenetre_financement} onChange={v=>updateSection("statut_fiscal","fenetre_financement",v)} placeholder="Ex : 3 mois avant départ" />
+            </>), "repeat(2,minmax(0,1fr))")}
+          </div>;
+        case "revenus":
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            {advisorQuestion("Pour un profil à revenus variables ou étrangers, l’enjeu n’est pas seulement le montant gagné, mais la manière dont il peut être justifié et retenu par une banque.")}
+            {formPanel("Revenus actuels et futurs", formGrid(<>
+              <StructField {...fieldProps} label="Profession / activité" value={p.profession} onChange={v=>updateSection("profil","profession",v)} />
+              <StructField {...fieldProps} label="Statut professionnel" value={p.statut_pro} onChange={v=>updateSection("profil","statut_pro",v)} options={["Salarié CDI","Salarié CDD","Sportif professionnel","TNS / Indépendant","Chef d'entreprise","Profession libérale","Contrat étranger","Autre"]} />
               <StructField {...fieldProps} label="Revenu net actuel / mois" type="number" value={p.revenus_nets_mois} onChange={v=>updateSection("profil","revenus_nets_mois",v)} />
               <StructField {...fieldProps} label="Revenu futur contrat" type="number" value={q.revenus_previsionnels} onChange={v=>updateSection("qualification","revenus_previsionnels",v)} />
               <StructField {...fieldProps} label="Devise de versement" value={q.devise_versement} onChange={v=>updateSection("qualification","devise_versement",v)} options={["EUR","CHF","MAD","USD","GBP","Autre"]} />
-              <StructField {...fieldProps} label="Modalités / régularité de versement" value={q.modalites_versement} onChange={v=>updateSection("qualification","modalites_versement",v)} placeholder="Mensuel, primes, compte français/étranger..." />
-              <StructField {...fieldProps} label="Épargne constituée" type="number" value={pf.liquidites} onChange={v=>updateSection("patrimoine_financier","liquidites",v)} />
-              <StructField {...fieldProps} label="Charges fixes mensuelles" type="number" value={q.charges_fixes_mois} onChange={v=>updateSection("qualification","charges_fixes_mois",v)} />
-              <StructField {...fieldProps} label="Commission agent / manager" type="number" value={q.commission_agent} onChange={v=>updateSection("qualification","commission_agent",v)} placeholder="Montant ou % à préciser" />
+              <StructField {...fieldProps} label="Régularité / modalités" value={q.modalites_versement} onChange={v=>updateSection("qualification","modalites_versement",v)} placeholder="Mensuel, primes, compte français/étranger..." />
+              <StructField {...fieldProps} label="Commission agent / manager" value={q.commission_agent} onChange={v=>updateSection("qualification","commission_agent",v)} placeholder="Montant ou % à préciser" />
               <StructField {...fieldProps} label="Primes / indemnités mobilisables" type="number" value={q.primes_indemnites_apport} onChange={v=>updateSection("qualification","primes_indemnites_apport",v)} />
-            </div>
-          </StepCard>
-
-          <StepCard title="03 — Patrimoine existant & point de départ" score={guideSections[2].score} note="Objectif : établir la photographie réelle avant stratégie : actifs, dettes, épargne de précaution et historique bancaire français.">
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+            </>), "repeat(2,minmax(0,1fr))")}
+            {formPanel("Charges et effort d’épargne", formGrid(<>
+              <StructField {...fieldProps} label="Charges fixes mensuelles" type="number" value={q.charges_fixes_mois} onChange={v=>updateSection("qualification","charges_fixes_mois",v)} />
+              <StructField {...fieldProps} label="Crédits conso / pensions" type="number" value={q.credits_conso_mois} onChange={v=>updateSection("qualification","credits_conso_mois",v)} />
+              <StructField {...fieldProps} label="Épargne constituée" type="number" value={pf.liquidites} onChange={v=>updateSection("patrimoine_financier","liquidites",v)} />
+              <StructField {...fieldProps} label="Apport disponible" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)} />
+            </>), "repeat(2,minmax(0,1fr))")}
+          </div>;
+        case "patrimoine":
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            {advisorQuestion("L’objectif ici est de poser le point de départ réel : ce que le client détient, ce qu’il doit encore, et ce qui peut être mobilisé rapidement.")}
+            {formPanel("Situation patrimoniale synthétique", formGrid(<>
               <StructField {...fieldProps} label="Immobilier existant" value={pat.immobilier_existant} onChange={v=>updateSection("patrimoine","immobilier_existant",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Compte bancaire français actif" value={pat.compte_bancaire_francais_actif} onChange={v=>updateSection("patrimoine","compte_bancaire_francais_actif",v)} options={boolOptions} />
-              <StructField {...fieldProps} label="Dettes en cours / mensualités" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)} />
               <StructField {...fieldProps} label="Épargne de précaution" type="number" value={fin.epargne_precaution} onChange={v=>updateSection("financement","epargne_precaution",v)} />
-              <StructField {...fieldProps} label="Assurance-vie" type="number" value={pf.assurance_vie} onChange={v=>updateSection("patrimoine_financier","assurance_vie",v)} />
-              <StructField {...fieldProps} label="PEA / CTO / placements" type="number" value={pf.pea_cto} onChange={v=>updateSection("patrimoine_financier","pea_cto",v)} />
+              <StructField {...fieldProps} label="Mensualités crédits en cours" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)} />
+              <StructField {...fieldProps} label="Résidence principale" value={pat.residence_principale_statut} onChange={v=>updateSection("patrimoine","residence_principale_statut",v)} options={["Propriétaire — crédit en cours","Propriétaire — crédit soldé","Locataire","Hébergé(e)"]} />
+              <StructField {...fieldProps} label="Valeur RP" type="number" value={pat.rp_valeur} onChange={v=>updateSection("patrimoine","rp_valeur",v)} />
+            </>), "repeat(2,minmax(0,1fr))")}
+            {formPanel("Lecture rapide", <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
+              {miniMetric("Patrimoine brut", fmtEur(c.patrimoineBrut), "Déclaratif")}
+              {miniMetric("Patrimoine net", fmtEur(c.patrimoineNet), `CRD ${fmtEur(c.crdTotal)}`, "green")}
+              {miniMetric("Liquidités", fmtEur(c.patrimoineFinancier || pf.liquidites), "Placements & épargne")}
+            </div>)}
+            <EmptyHint>Le détail actif par actif reste disponible dans l’onglet “Patrimoine & financement”. Cette collecte sert à savoir si l’analyse peut commencer.</EmptyHint>
+          </div>;
+        case "famille":
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            <div style={{ padding:"12px 14px", borderRadius:RADIUS.lg, background:familyStarted ? SEMANTIC.success.bg : SEMANTIC.warning.bg, border:`1px solid ${familyStarted ? SEMANTIC.success.border : SEMANTIC.warning.border}`, color:familyStarted ? SU : WA, fontSize:FONT.sm.size+1, fontWeight:900 }}>
+              Section prioritaire : elle doit être abordée avant la conclusion, sans recommander automatiquement mariage, PACS ou donation. Le conseiller décidera ensuite des préconisations.
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:8, color:T.textSub, fontSize:FONT.xs.size+1, fontWeight:800 }}>
-              <span>Patrimoine brut : <b style={{color:T.text}}>{fmtEur(c.patrimoineBrut)}</b></span>
-              <span>Patrimoine financier : <b style={{color:T.text}}>{fmtEur(c.patrimoineFinancier)}</b></span>
-              <span>CRD / dettes : <b style={{color:T.text}}>{fmtEur(c.crdTotal)}</b></span>
-              <span>LTV : <b style={{color:T.text}}>{fmtPct(c.ltv)}</b></span>
-            </div>
-          </StepCard>
-
-          <StepCard title="04 — Situation familiale & protection" score={familyScore} urgent={!familyStarted} note="Section prioritaire à traiter avec délicatesse. L’objectif est d’identifier les sujets de protection du conjoint et des enfants, sans formuler de conseil définitif.">
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+            {advisorQuestion("Je vais vous poser quelques questions de protection familiale. Ce n’est pas pour juger votre organisation, c’est pour éviter de bâtir une stratégie immobilière sans voir les risques pour votre conjoint ou vos enfants.")}
+            {formPanel("Couple, enfants et droits", formGrid(<>
               <StructField {...fieldProps} label="Situation du couple" value={fam.statut_couple || p.situation_familiale} onChange={v=>{ updateSection("situation_familiale_detail","statut_couple",v); updateSection("profil","situation_familiale",v); }} options={["Marié(e)","Pacsé(e)","Concubinage","Célibataire","Divorcé(e)","Veuf/veuve","À préciser"]} />
-              <StructField {...fieldProps} label="Raison du choix actuel si pertinent" value={fam.raison_choix_statut} onChange={v=>updateSection("situation_familiale_detail","raison_choix_statut",v)} />
-              <StructField {...fieldProps} label="Nombre d’enfants" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)} />
+              <StructField {...fieldProps} label="Raison du choix actuel" value={fam.raison_choix_statut} onChange={v=>updateSection("situation_familiale_detail","raison_choix_statut",v)} placeholder="Seulement si le client souhaite préciser" />
+              <StructField {...fieldProps} label="Enfants à charge" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)} />
               <StructField {...fieldProps} label="Enfants reconnus par les deux parents" value={fam.enfants_reconnus} onChange={v=>updateSection("situation_familiale_detail","enfants_reconnus",v)} options={boolOptions} />
-              <StructField {...fieldProps} label="Détail enfants / autorité parentale" type="textarea" value={p.enfants_details} onChange={v=>updateSection("profil","enfants_details",v)} wide />
               <StructField {...fieldProps} label="Droits sociaux conjoint à jour" value={fam.droits_sociaux_conjoint} onChange={v=>updateSection("situation_familiale_detail","droits_sociaux_conjoint",v)} options={boolOptions} />
+              <StructField {...fieldProps} label="Détail enfants / autorité parentale" type="textarea" value={p.enfants_details} onChange={v=>updateSection("profil","enfants_details",v)} wide />
+            </>), "repeat(2,minmax(0,1fr))")}
+            {formPanel("Transmission et protection patrimoniale", formGrid(<>
               <StructField {...fieldProps} label="Assurance-vie avec clause bénéficiaire" value={fam.assurance_vie_clause_beneficiaire} onChange={v=>updateSection("situation_familiale_detail","assurance_vie_clause_beneficiaire",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Risque succession connu" value={fam.conscience_risque_succession} onChange={v=>updateSection("situation_familiale_detail","conscience_risque_succession",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Testament / donation envisagé" value={fam.testament_donation} onChange={v=>updateSection("situation_familiale_detail","testament_donation",v)} options={boolOptions} />
-            </div>
-          </StepCard>
-        </div>
-
-        <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
-          <StepCard title="05 — Prévoyance & assurance" score={guideSections[4].score} note="Objectif : vérifier la solidité du dossier si l’activité s’interrompt, surtout pour les sportifs, expatriés et indépendants.">
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+              <StructField {...fieldProps} label="Protection famille à traiter" type="textarea" value={fam.notes_protection} onChange={v=>updateSection("situation_familiale_detail","notes_protection",v)} placeholder="Noter sans orienter vers une solution définitive" wide />
+            </>), "repeat(2,minmax(0,1fr))")}
+          </div>;
+        case "prevoyance":
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            {advisorQuestion("Pour les revenus irréguliers, les sportifs ou les expatriés, la prévoyance fait partie du dossier patrimonial : que se passe-t-il si l’activité s’arrête brutalement ?")}
+            {formPanel("Couvertures personnelles et professionnelles", formGrid(<>
               <StructField {...fieldProps} label="Assurance invalidité / incapacité" value={prevoyance.assurance_invalidite} onChange={v=>updateSection("prevoyance","assurance_invalidite",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Garantie perte de licence / activité" value={prevoyance.perte_licence} onChange={v=>updateSection("prevoyance","perte_licence",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Couverture santé / rapatriement" value={prevoyance.couverture_sante_rapatriement} onChange={v=>updateSection("prevoyance","couverture_sante_rapatriement",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Prévoyance décès famille" value={prevoyance.prevoyance_deces} onChange={v=>updateSection("prevoyance","prevoyance_deces",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Garantie accidents de la vie" value={prevoyance.gav} onChange={v=>updateSection("prevoyance","gav",v)} options={boolOptions} />
-            </div>
-          </StepCard>
-
-          <StepCard title="06 — Horizon & objectifs d’investissement" score={guideSections[5].score} note="Objectif : clarifier la finalité patrimoniale et la capacité à avancer même si le client repart à l’étranger.">
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+              <StructField {...fieldProps} label="Contrats / assureurs à collecter" type="textarea" value={prevoyance.notes_contrats} onChange={v=>updateSection("prevoyance","notes_contrats",v)} wide />
+            </>), "repeat(2,minmax(0,1fr))")}
+          </div>;
+        case "objectifs":
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            {advisorQuestion("Une bonne structuration commence par la finalité : remplacer un revenu, capitaliser, préparer la retraite, acheter une résidence principale ou transmettre.")}
+            {formPanel("Finalité patrimoniale", formGrid(<>
               <StructField {...fieldProps} label="Finalité prioritaire" value={obj.objectif_principal} onChange={v=>updateSection("objectifs","objectif_principal",v)} options={["Revenu de remplacement","Résidence principale","Plus-value à la revente","Retraite","Transmission","Constitution patrimoine","Mix"]} />
               <StructField {...fieldProps} label="Revenu cible après activité" type="number" value={obj.revenu_cible_mensuel} onChange={v=>updateSection("objectifs","revenu_cible_mensuel",v)} />
-              <StructField {...fieldProps} label="Investir à distance / délégation" value={obj.delegation} onChange={v=>updateSection("objectifs","delegation",v)} options={boolOptions} />
-              <StructField {...fieldProps} label="Bien important ou plusieurs petits" value={q.type_bien_vise} onChange={v=>updateSection("qualification","type_bien_vise",v)} options={["Un bien important","Plusieurs petits biens","Immeuble de rapport","SCPI","À définir"]} />
-              <StructField {...fieldProps} label="Zone géographique visée" value={obj.zones} onChange={v=>updateSection("objectifs","zones",v)} />
-              <StructField {...fieldProps} label="Apport disponible court terme" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)} />
               <StructField {...fieldProps} label="Horizon d’investissement" value={obj.horizon} onChange={v=>updateSection("objectifs","horizon",v)} options={["Court terme < 5 ans","Moyen terme 5-15 ans","Long terme > 15 ans","À définir"]} />
+              <StructField {...fieldProps} label="Investir à distance / délégation" value={obj.delegation} onChange={v=>updateSection("objectifs","delegation",v)} options={boolOptions} />
+              <StructField {...fieldProps} label="Type de bien préféré" value={q.type_bien_vise} onChange={v=>updateSection("qualification","type_bien_vise",v)} options={["Un bien important","Plusieurs petits biens","Immeuble de rapport","SCPI","À définir"]} />
+              <StructField {...fieldProps} label="Zone géographique visée" value={obj.zones} onChange={v=>updateSection("objectifs","zones",v)} />
               <StructField {...fieldProps} label="Niveau d’implication" value={q.niveau_implication} onChange={v=>updateSection("qualification","niveau_implication",v)} options={["Autonome","Accompagné","Clé-en-main"]} />
-            </div>
-          </StepCard>
-
-          <StepCard title="07 — Financement bancaire" score={guideSections[6].score} note="Objectif : anticiper les blocages avant dépôt bancaire : historique, contrats étrangers, traduction et refus éventuels.">
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+              <StructField {...fieldProps} label="Apport court terme" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)} />
+            </>), "repeat(2,minmax(0,1fr))")}
+          </div>;
+        case "banque":
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            {advisorQuestion("Ici, on prépare le terrain bancaire : la banque doit pouvoir comprendre les revenus, vérifier l’historique et documenter les contrats étrangers.")}
+            {formPanel("Lisibilité bancaire", formGrid(<>
               <StructField {...fieldProps} label="Banque principale" value={fin.banque_principale} onChange={v=>updateSection("financement","banque_principale",v)} />
               <StructField {...fieldProps} label="Historique bancaire suffisant" value={fb.historique_bancaire_suffisant} onChange={v=>updateSection("financement_bancaire","historique_bancaire_suffisant",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Contrats traduits / légalisés" value={fb.contrats_traduits_legalises} onChange={v=>updateSection("financement_bancaire","contrats_traduits_legalises",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Langue et durée futur contrat" value={fb.langue_duree_futur_contrat} onChange={v=>updateSection("financement_bancaire","langue_duree_futur_contrat",v)} placeholder="Ex : anglais, 24 mois, club/employeur..." />
               <StructField {...fieldProps} label="Refus antérieur ou contact bancaire" value={fb.refus_anterieur} onChange={v=>updateSection("financement_bancaire","refus_anterieur",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Situation bancaire / conformité" value={q.situation_bancaire} onChange={v=>updateSection("qualification","situation_bancaire",v)} options={["RAS","Incident récent","FICP","Surendettement","À vérifier"]} />
-              <StructField {...fieldProps} label="Documents prioritaires pour banque" type="textarea" value={rdv.documents_prioritaires} onChange={v=>updateSection("rdv","documents_prioritaires",v)} wide />
-            </div>
-          </StepCard>
-
-          <StepCard title="08 — Synthèse & JSON CRM" score={guideSections[7].score} note="À utiliser en fin d’entretien seulement lorsque la situation familiale a bien été abordée. Les champs inconnus restent à null dans le JSON.">
-            <div style={{ display:"grid", gap:10 }}>
+              <StructField {...fieldProps} label="Documents prioritaires banque" type="textarea" value={rdv.documents_prioritaires} onChange={v=>updateSection("rdv","documents_prioritaires",v)} wide />
+            </>), "repeat(2,minmax(0,1fr))")}
+            {formPanel("Pièces prioritaires à obtenir", <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+              {criticalDocs.map((doc)=><div key={doc.id} style={{ display:"grid", gridTemplateColumns:"1fr 130px", gap:8, alignItems:"center", padding:"8px 9px", background:T.input, borderRadius:RADIUS.md }}><div style={{ color:T.text, fontSize:FONT.xs.size+2, fontWeight:850 }}>{doc.label}</div><select className="inv-sel" value={doc.statut || "À demander"} onChange={e=>updateDoc(docs.findIndex(x=>x.id===doc.id),"statut",e.target.value)} style={{ fontSize:FONT.xs.size+1 }}>{STRUCT_DOC_STATUTS.map(x=><option key={x}>{x}</option>)}</select></div>)}
+            </div>)}
+          </div>;
+        case "synthese":
+        default:
+          return <div style={{ display:"grid", gap:SPACING.md }}>
+            {advisorQuestion("À ce stade, l’objectif est de laisser au conseiller une lecture courte : profil, forces, vigilances prioritaires et prochaine étape.")}
+            {formPanel("Synthèse de qualification", <div style={{ display:"grid", gap:12 }}>
               <StructField {...fieldProps} label="Incohérences ou contradictions relevées" type="textarea" value={q.incoherences} onChange={v=>updateSection("qualification","incoherences",v)} placeholder="Ex : aucun crédit annoncé puis crédit conso mentionné ensuite..." wide />
               <StructField {...fieldProps} label="Points d’alerte détectés" type="textarea" value={q.alertes} onChange={v=>updateSection("qualification","alertes",v)} placeholder="Protection familiale, prévoyance, revenus, banque, fiscalité..." wide />
               <StructField {...fieldProps} label="Prochaine action" value={rdv.prochaine_action} onChange={v=>updateSection("rdv","prochaine_action",v)} wide />
@@ -1133,17 +1149,104 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
                 <button className="inv-btn inv-btn-blue" onClick={genererSyntheseQualification}><Icon as={Sparkles} size={13}/> Générer synthèse Analyse</button>
                 <button className="inv-btn inv-btn-gold" onClick={copyQualificationCRMJson}><Icon as={Copy} size={13}/> Copier JSON CRM</button>
               </div>
-              <div style={{ padding:12, borderRadius:RADIUS.md, background:T.input, border:`1px solid ${T.border}` }}>
-                <div style={{ color:T.text, fontWeight:950, marginBottom:6 }}>Lecture automatique</div>
-                <div style={{ color:T.textSub, fontSize:FONT.xs.size+2, lineHeight:1.55 }}>{getQualificationSynthesis().resume}</div>
-                <div style={{ marginTop:8, color:familyStarted ? SU : WA, fontSize:FONT.xs.size+1, fontWeight:900 }}>Situation familiale : {familyStarted ? "abordée" : "à aborder avant conclusion"} · complétude famille {familyScore.pct} %</div>
+            </div>)}
+            {formPanel("Lecture automatique conseiller", <div style={{ display:"grid", gap:12 }}>
+              <div style={{ color:T.textSub, fontSize:FONT.sm.size, lineHeight:1.65 }}>{synthAuto.resume}</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div><div style={{ color:SU, fontWeight:950, marginBottom:7 }}>Points forts</div>{synthAuto.pointsForts.length ? synthAuto.pointsForts.map((x,i)=><div key={i} style={{ color:T.textSub, fontSize:FONT.xs.size+2, padding:"5px 0", borderBottom:`1px solid ${T.border}` }}>• {x}</div>) : <EmptyHint>Aucun point fort automatique identifié pour le moment.</EmptyHint>}</div>
+                <div><div style={{ color:WA, fontWeight:950, marginBottom:7 }}>Vigilances prioritaires</div>{synthAuto.pointsVigilance.length ? synthAuto.pointsVigilance.map((x,i)=><div key={i} style={{ color:T.textSub, fontSize:FONT.xs.size+2, padding:"5px 0", borderBottom:`1px solid ${T.border}` }}>• {x}</div>) : <EmptyHint>Aucune vigilance automatique majeure identifiée.</EmptyHint>}</div>
+              </div>
+              <div style={{ padding:12, borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}`, color:T.textSub, fontSize:FONT.xs.size+2, lineHeight:1.6 }}><b style={{ color:T.accent }}>Première étape proposée : </b>{synthAuto.reco}</div>
+              <div style={{ color:familyStarted ? SU : WA, fontSize:FONT.xs.size+1, fontWeight:950 }}>Situation familiale : {familyStarted ? "abordée" : "à aborder avant conclusion"} · complétude famille {familyScore.pct} %</div>
+            </div>)}
+          </div>;
+      }
+    };
+
+    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
+      <div style={{ ...advisorCard, background:`linear-gradient(135deg, ${T.sidebar} 0%, ${T.card} 62%, ${T.accentBg} 100%)`, border:`1px solid ${T.accentBorder}` }}>
+        <div style={{ padding:"18px 20px", display:"grid", gridTemplateColumns:"minmax(0,1fr) auto", gap:16, alignItems:"center" }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ color:T.accent, fontSize:FONT.xs.size+2, fontWeight:950, textTransform:"uppercase", letterSpacing:2 }}>Collecte patrimoniale guidée</div>
+            <div style={{ color:T.text, fontFamily:"'Playfair Display',serif", fontSize:30, lineHeight:1.05, marginTop:5 }}>Qualifier avant de structurer</div>
+            <div style={{ color:T.textSub, fontSize:FONT.sm.size, lineHeight:1.55, marginTop:7, maxWidth:920 }}>Parcours conçu pour les profils à revenus irréguliers ou internationaux : on sécurise le calendrier fiscal, la lisibilité bancaire, la protection familiale et la prévoyance avant toute stratégie immobilière.</div>
+          </div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
+            <button className="inv-btn inv-btn-blue" onClick={genererSyntheseQualification}><Icon as={Sparkles} size={13}/> Préparer synthèse</button>
+            <button className="inv-btn inv-btn-gold" onClick={copyQualificationCRMJson}><Icon as={Copy} size={13}/> JSON CRM</button>
+          </div>
+        </div>
+        <div style={{ padding:"0 20px 18px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", color:T.textMuted, fontSize:FONT.xs.size+1, fontWeight:900, marginBottom:7 }}><span>Avancement de la collecte conseiller</span><span>{globalGuidePct} %</span></div>
+          {renderProgress(globalGuidePct, 7)}
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:SPACING.md }}>
+        {miniMetric("Fenêtre financement", sf.date_depart_prevue ? `Départ ${new Date(sf.date_depart_prevue).toLocaleDateString("fr-FR")}` : "À dater", sf.date_installation_france ? `Retour / installation ${new Date(sf.date_installation_france).toLocaleDateString("fr-FR")}` : "Date d’installation à préciser", sf.date_depart_prevue ? "blue" : "red")}
+        {miniMetric("Lisibilité bancaire", statusLabel(guideSections.find(x=>x.id === "banque")?.score?.pct || 0), `${fb.historique_bancaire_suffisant || "Historique à vérifier"}`, (guideSections.find(x=>x.id === "banque")?.score?.pct || 0) >= 60 ? "green" : "red")}
+        {miniMetric("Protection familiale", familyStarted ? `${familyScore.pct} % complété` : "Non abordée", "Section obligatoire avant conclusion", familyStarted ? "green" : "red")}
+        {miniMetric("Apport / liquidités", fmtEur(fin.apport_disponible || pf.liquidites), "Base court terme à justifier", "green")}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"340px minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }}>
+        <div style={{ ...advisorCard, padding:12, position:"sticky", top:0 }}>
+          <div style={{ padding:"4px 6px 12px" }}>
+            <div style={{ color:T.text, fontWeight:950, fontSize:FONT.md.size }}>Parcours d’entretien</div>
+            <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, marginTop:3 }}>Un clic par bloc. Le conseiller peut suivre l’entretien sans perdre le fil.</div>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+            {guideSections.map(section => {
+              const active = activeSection.id === section.id;
+              const color = scoreColor(section.score.pct);
+              return <button key={section.id} onClick={()=>setActiveCollecteSection(section.id)} style={{ width:"100%", textAlign:"left", border:`1px solid ${active ? T.accentBorder : T.border}`, background:active ? T.accentBg : "rgba(255,255,255,0.025)", borderRadius:RADIUS.lg, padding:"11px 12px", cursor:"pointer", fontFamily:"inherit", boxShadow:active ? "0 10px 24px rgba(0,0,0,.18)" : "none" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"34px minmax(0,1fr) auto", gap:9, alignItems:"center" }}>
+                  <div style={{ width:30, height:30, borderRadius:999, display:"flex", alignItems:"center", justifyContent:"center", background:active ? T.accent : T.input, color:active ? "#0D1B2A" : T.accent, fontWeight:950, fontSize:FONT.xs.size+1 }}>{section.number}</div>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ color:T.text, fontSize:FONT.sm.size+1, fontWeight:950, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{section.title}</div>
+                    <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginTop:2 }}>{section.subtitle}</div>
+                  </div>
+                  <div style={{ color, fontWeight:950, fontSize:FONT.xs.size+1 }}>{section.score.pct}%</div>
+                </div>
+                <div style={{ marginTop:8 }}>{renderProgress(section.score.pct, 4)}</div>
+                <div style={{ marginTop:6, display:"flex", justifyContent:"space-between", gap:8, color:T.textMuted, fontSize:FONT.xs.size }}><span>{section.priority}</span><span>{section.score.done}/{section.score.total}</span></div>
+              </button>;
+            })}
+          </div>
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md, minWidth:0 }}>
+          <div style={{ ...advisorCard, overflow:"hidden" }}>
+            <div style={{ padding:"15px 17px", background:T.sidebar, borderBottom:`1px solid ${T.sidebarBorder}`, display:"flex", justifyContent:"space-between", gap:12, alignItems:"center" }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ color:T.accent, fontSize:FONT.xs.size+1, fontWeight:950, letterSpacing:1.5, textTransform:"uppercase" }}>Section {activeSection.number}</div>
+                <div style={{ color:T.text, fontSize:FONT.xl.size, fontWeight:950, marginTop:2 }}>{activeSection.title}</div>
+                <div style={{ color:T.textSub, fontSize:FONT.sm.size, marginTop:2 }}>{activeSection.subtitle}</div>
+              </div>
+              <div style={{ minWidth:92, textAlign:"right" }}>
+                <div style={{ color:scoreColor(activeSection.score.pct), fontWeight:950, fontSize:FONT.xl.size }}>{activeSection.score.pct}%</div>
+                <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, fontWeight:900 }}>{statusLabel(activeSection.score.pct)}</div>
               </div>
             </div>
-          </StepCard>
+            <div style={{ padding:16 }}>{renderActiveCollecteSection()}</div>
+          </div>
 
-          <div style={cardStyle}>{cardHd("Pièces prioritaires avant analyse", "gold")}<div style={{ padding:14, display:"flex", flexDirection:"column", gap:6 }}>
-            {criticalDocs.map((doc)=><div key={doc.id} style={{ display:"grid", gridTemplateColumns:"1fr 125px", gap:8, alignItems:"center", padding:"7px 8px", background:T.input, borderRadius:RADIUS.md }}><div style={{ color:T.text, fontSize:FONT.xs.size+2, fontWeight:850 }}>{doc.label}</div><select className="inv-sel" value={doc.statut || "À demander"} onChange={e=>updateDoc(docs.findIndex(x=>x.id===doc.id),"statut",e.target.value)} style={{ fontSize:FONT.xs.size+1 }}>{STRUCT_DOC_STATUTS.map(x=><option key={x}>{x}</option>)}</select></div>)}
-          </div></div>
+          <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:SPACING.md }}>
+            <div style={{ ...advisorCard, padding:14 }}>
+              <div style={{ color:T.text, fontWeight:950, fontSize:FONT.md.size, marginBottom:8 }}>Lecture conseiller instantanée</div>
+              <div style={{ color:T.textSub, fontSize:FONT.sm.size, lineHeight:1.55 }}>{synthAuto.resume}</div>
+            </div>
+            <div style={{ ...advisorCard, padding:14, borderLeft:`4px solid ${familyStarted ? SU : WA}` }}>
+              <div style={{ color:T.text, fontWeight:950, fontSize:FONT.md.size, marginBottom:8 }}>Priorités avant analyse</div>
+              <div style={{ display:"grid", gap:6 }}>
+                {(!familyStarted) && <div style={{ color:WA, fontSize:FONT.xs.size+2, fontWeight:850 }}>• Aborder la protection familiale avant conclusion.</div>}
+                {prevoyance.prevoyance_deces !== "Oui" && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2 }}>• Vérifier la prévoyance décès / famille.</div>}
+                {!sf.date_depart_prevue && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2 }}>• Dater le prochain départ étranger.</div>}
+                {fb.historique_bancaire_suffisant !== "Oui" && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2 }}>• Confirmer l’historique bancaire français.</div>}
+                {familyStarted && prevoyance.prevoyance_deces === "Oui" && sf.date_depart_prevue && fb.historique_bancaire_suffisant === "Oui" && <div style={{ color:SU, fontSize:FONT.xs.size+2, fontWeight:850 }}>• Les priorités critiques sont couvertes.</div>}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>;
