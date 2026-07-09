@@ -24,7 +24,7 @@ Tu dois enrichir, reformuler ou compléter les données pour le compte rendu sel
 Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas d'explication) : un tableau de chantiers avec la même structure que l'entrée.
 
 Structure d'entrée de chaque chantier :
-{ nom, heures, presences[], faites[], enCours[], nonFaites[], remarques[] }
+{ nom, heures, presences[], faites[], enCours[], remarques[] }
 Chaque tâche : { texte, remarque, ouvrier }
 Chaque remarque : { ouvrier, texte }
 
@@ -71,7 +71,7 @@ Règles :
 
   // ── Génération du .docx ───────────────────────────────────────────────────────
   const GOLD = "E6AE00", DARK = "1A1F2E", GREY = "5B6A8A";
-  const GREEN = "1A6B3A", ORANGE = "B05A10", RED = "B03030";
+  const GREEN = "1A6B3A", ORANGE = "B05A10";
 
   const sp = (n) => new Paragraph({ children: [], spacing: { before: n, after: 0 } });
   const children = [];
@@ -159,7 +159,8 @@ Règles :
 
     addSection("Travaux réalisés", GREEN,  ch.faites);
     addSection("En cours",         ORANGE, ch.enCours);
-    addSection("Non réalisé",      RED,    ch.nonFaites);
+    // Les tâches "non faites" ne sont plus affichées (cohérent avec le PDF) :
+    // le bilan présente uniquement ce qui a avancé cette semaine.
     addSection("Remarques",        GREY,   ch.remarques);
   });
 

@@ -356,7 +356,6 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         });
         const rawFaites    = taches.filter(t=>t.statut==="faite")    .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
         const rawEnCours   = taches.filter(t=>t.statut==="en_cours") .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
-        const rawNonFaites = taches.filter(t=>t.statut==="non_faite").map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
         const rawRemarques = grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque }));
         const prog = progressions[cId] || null;
         return {
@@ -365,7 +364,6 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
           presences,
           faites:    dedupe(rawFaites),
           enCours:   dedupe(rawEnCours),
-          nonFaites: dedupe(rawNonFaites),
           remarques: dedupeRemarques(rawRemarques),
           // Progression hebdo : avancement avant/après et delta (peut être null
           // si pas de snapshot antérieur à cette semaine)
@@ -424,7 +422,8 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       const taches    = filtrerStatutDominant(tachesRaw);
       const faites    = fusionnerTachesBilan(taches.filter(t => t.statut === "faite"));
       const enCours   = fusionnerTachesBilan(taches.filter(t => t.statut === "en_cours"));
-      const nonFaites = fusionnerTachesBilan(taches.filter(t => t.statut === "non_faite"));
+      // Les tâches "non faites" ne sont plus affichées dans le bilan : le
+      // document présente uniquement ce qui a avancé cette semaine.
       const remarques = grp.rapports.filter(r => r.remarque?.trim());
       const presences = [];
       Object.keys(HEURES_PAR_JOUR).forEach(jour => {
@@ -474,7 +473,6 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
               </div>` : ""}
             ${faites.length > 0 ? `<div class="taches-section">${titreSection("✓ Réalisé", "#22c55e")}${listeTaches(faites, "#22c55e", "✓")}</div>` : ""}
             ${enCours.length > 0 ? `<div class="taches-section">${titreSection("↻ En cours", "#f5a623")}${listeTaches(enCours, "#f5a623", "↻")}</div>` : ""}
-            ${nonFaites.length > 0 ? `<div class="taches-section">${titreSection("✗ Non faites", "#e15a5a")}${listeTaches(nonFaites, "#e15a5a", "✗")}</div>` : ""}
             ${remarques.length > 0 ? `
               <div class="taches-section">
                 ${titreSection("Remarques", "#888")}
