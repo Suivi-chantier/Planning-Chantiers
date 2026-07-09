@@ -640,9 +640,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     "Phase 2": { bg:"rgba(80,200,120,0.10)", color:SU, border:"rgba(80,200,120,0.25)" },
     "Terminé": { bg:T.input, color:T.textMuted, border:T.border },
   };
-  const chipStyle = (status) => ({ fontSize:FONT.xs.size, fontWeight:800, padding:"3px 8px", borderRadius:999, background:statusColors[status]?.bg || T.input, color:statusColors[status]?.color || T.textSub, border:`1px solid ${statusColors[status]?.border || T.border}`, display:"inline-flex", alignItems:"center", gap:4 });
+  const chipStyle = (status) => ({ fontSize:FONT.xs.size, fontWeight:900, padding:"4px 9px", borderRadius:999, background:statusColors[status]?.bg || T.input, color:statusColors[status]?.color || T.textSub, border:`1px solid ${statusColors[status]?.border || T.border}`, display:"inline-flex", alignItems:"center", gap:4, whiteSpace:"nowrap" });
   const cardStyle = { background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, boxShadow:T.shadow, overflow:"hidden" };
-  const cardHd = (label, tone="") => <div style={{ padding:"14px 16px", borderBottom:`1px solid ${T.border}`, background:tone === "gold" ? T.accentBg : "rgba(255,255,255,0.025)", color:tone === "gold" ? T.accent : T.text, fontWeight:950, letterSpacing:.15, textTransform:"none", fontSize:FONT.md.size, lineHeight:1.25 }}>{label}</div>;
+  const cardHd = (label, tone="") => <div style={{ padding:"15px 17px", borderBottom:`1px solid ${T.border}`, borderLeft:`4px solid ${tone === "gold" ? T.accent : T.accentBorder}`, background:tone === "gold" ? (T.sidebar || "#0D1B2A") : "rgba(255,255,255,0.055)", color:T.text || "#F5F0E8", fontWeight:950, letterSpacing:.05, textTransform:"none", fontSize:FONT.md.size + 1, lineHeight:1.22 }}>{label}</div>;
   const kpi = (label, value, sub, tone="") => <div style={{ ...cardStyle, padding:"15px 16px", borderLeft:`4px solid ${tone === "gold" ? T.accent : tone === "red" ? DA : tone === "green" ? SU : T.accentBorder}` }}><div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.h2.size, fontWeight:850, color:T.text, lineHeight:1.05 }}>{value}</div><div style={{ color:T.textSub || T.textMuted, fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:.2, fontWeight:900, marginTop:4 }}>{label}</div>{sub && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2, marginTop:5, lineHeight:1.35 }}>{sub}</div>}</div>;
 
   const renderProgress = (pct, height=5) => <div style={{ width:"100%", height, background:T.input, borderRadius:999, overflow:"hidden" }}><div style={{ width:`${Math.max(0, Math.min(100, pct || 0))}%`, height:"100%", background:T.accent, borderRadius:999 }}/></div>;
@@ -700,16 +700,17 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
           const active = d.id === selectedId;
           const metaData = mergeStructData(d);
           const cc = calc(metaData);
-          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("audit"); }} style={{ width:"100%", textAlign:"left", border:`1px solid ${active ? T.accentBorder : "transparent"}`, background:active ? T.accentBg : "transparent", borderRadius:RADIUS.md, padding:"11px 11px", marginBottom:8, cursor:"pointer", fontFamily:"inherit" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start" }}>
+          const title = d.client ? clientFullName(d.client) : d.titre || "Nouveau dossier";
+          return <button key={d.id} onClick={()=>{ setSelectedId(d.id); setTab("audit"); }} style={{ width:"100%", textAlign:"left", border:`1px solid ${active ? T.accentBorder : "rgba(255,255,255,0.08)"}`, background:active ? "linear-gradient(135deg, rgba(201,168,76,0.26), rgba(255,255,255,0.10))" : "rgba(255,255,255,0.045)", borderRadius:RADIUS.lg, padding:"13px 12px", marginBottom:9, cursor:"pointer", fontFamily:"inherit", boxShadow:active ? "0 10px 28px rgba(0,0,0,0.22)" : "none" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", gap:10, alignItems:"flex-start" }}>
               <div style={{ minWidth:0, flex:1 }}>
-                <div style={{ color:active ? T.accent : T.text, fontWeight:900, fontSize:FONT.sm.size+1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.client ? clientFullName(d.client) : d.titre || "Nouveau dossier"}</div>
-                <div style={{ color:T.textMuted, fontSize:FONT.xs.size, marginTop:2 }}>{d.conseiller || "Sans conseiller"} · {new Date(d.updated_at || d.created_at).toLocaleDateString("fr-FR")}</div>
+                <div style={{ color:"#FFFFFF", fontWeight:950, fontSize:FONT.md.size, lineHeight:1.18, whiteSpace:"normal", overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", textShadow:"0 1px 2px rgba(0,0,0,0.45)" }}>{title}</div>
+                <div style={{ color:active ? "rgba(255,255,255,0.84)" : (T.textSub || T.textMuted), fontSize:FONT.xs.size+1, marginTop:5, lineHeight:1.3, fontWeight:700 }}>{d.conseiller || "Sans conseiller"} · {new Date(d.updated_at || d.created_at).toLocaleDateString("fr-FR")}</div>
               </div>
               <span style={chipStyle(d.statut || "Collecte")}>{d.statut || "Collecte"}</span>
             </div>
-            <div style={{ marginTop:8 }}>{renderProgress(cc.completion, 3)}</div>
-            <div style={{ marginTop:5, color:T.textMuted, fontSize:FONT.xs.size }}>{cc.completion} % complété</div>
+            <div style={{ marginTop:10 }}>{renderProgress(cc.completion, 4)}</div>
+            <div style={{ marginTop:6, color:active ? "rgba(255,255,255,0.86)" : (T.textSub || T.textMuted), fontSize:FONT.xs.size+1, fontWeight:800 }}>{cc.completion} % complété</div>
           </button>;
         })}
       </div>
@@ -812,24 +813,46 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       ["Taux d'endettement", fmtPct(c.tauxEndettement)],
       ["Pièces indispensables", `${c.docsObligatoiresOk}/${c.docsObligatoires}`],
     ];
+    const collecteSteps = [
+      { n:"01", title:"Cadrage", desc:"Origine, conseiller, contexte", done:[q.date_r1, q.source_lead, q.origine_commentaire].filter(Boolean).length, total:3 },
+      { n:"02", title:"Foyer", desc:"Identité, famille, protection", done:[p.prenom, p.nom, p.situation_familiale, p.regime_matrimonial].filter(Boolean).length, total:4 },
+      { n:"03", title:"Revenus", desc:"Activité, fiscalité, stabilité", done:[p.profession, p.statut_pro, p.revenus_nets_mois, p.tmi].filter(Boolean).length, total:4 },
+      { n:"04", title:"Objectifs", desc:"Budget, horizon, zones", done:[obj.objectif_principal, obj.horizon, q.budget_max, obj.zones].filter(Boolean).length, total:4 },
+      { n:"05", title:"Patrimoine", desc:"Actifs, épargne, dettes", done:[pat.residence_principale_statut, pat.rp_valeur, pf.liquidites, fin.apport_disponible].filter(Boolean).length, total:4 },
+      { n:"06", title:"Décision", desc:"Alertes, suite, consentement", done:[q.niveau_complexite, q.alertes, rdv.issue, rdv.prochaine_action].filter(Boolean).length, total:4 },
+    ];
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:SPACING.md }}>
-        {auditKpis.map(([lab,val],i)=><div key={lab} style={{ ...cardStyle, padding:"12px 14px", borderTop:`3px solid ${i===2 && c.tauxEndettement > .35 ? DA : T.accent}` }}><div style={{ color:T.textMuted, fontSize:FONT.xs.size, textTransform:"uppercase", fontWeight:900, letterSpacing:.7 }}>{lab}</div><div style={{ color:T.text, fontSize:FONT.xl.size, fontWeight:900, marginTop:5 }}>{val}</div></div>)}
+        {auditKpis.map(([lab,val],i)=><div key={lab} style={{ ...cardStyle, padding:"13px 15px", borderTop:`3px solid ${i===2 && c.tauxEndettement > .35 ? DA : T.accent}` }}><div style={{ color:T.textSub || T.textMuted, fontSize:FONT.xs.size+1, textTransform:"none", fontWeight:950, letterSpacing:.15 }}>{lab}</div><div style={{ color:T.text, fontSize:FONT.xl.size, fontWeight:950, marginTop:5, lineHeight:1.05 }}>{val}</div></div>)}
       </div>
-      <div style={{ ...cardStyle, padding:"11px 14px", borderLeft:`4px solid ${T.accent}`, background:T.accentBg }}>
-        <div style={{ color:T.text, fontWeight:900, fontSize:FONT.sm.size }}>Trame de rendez-vous patrimonial immobilier</div>
-        <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, marginTop:3 }}>Renseignez dans l'ordre : qualification → foyer → revenus/fiscalité → objectifs → patrimoine déclaré → alertes et suite. Les données alimentent automatiquement les onglets Profil patrimonial, Patrimoine & financement et Analyse.</div>
+      <div style={{ ...cardStyle, padding:"14px 16px", borderLeft:`5px solid ${T.accent}`, background:"linear-gradient(135deg, rgba(201,168,76,0.18), rgba(255,255,255,0.045))" }}>
+        <div style={{ color:T.text, fontWeight:950, fontSize:FONT.md.size, lineHeight:1.2 }}>Collecte structurée en 6 blocs</div>
+        <div style={{ color:T.textSub, fontSize:FONT.sm.size, marginTop:5, lineHeight:1.45 }}>L’équipe complète le dossier dans l’ordre : cadrage → foyer → revenus/fiscalité → objectifs → patrimoine → décision. Chaque bloc ci-dessous indique rapidement ce qui est renseigné.</div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(6,minmax(0,1fr))", gap:10 }}>
+        {collecteSteps.map(step => {
+          const pct = Math.round((step.done / step.total) * 100);
+          return <div key={step.n} style={{ ...cardStyle, padding:"12px 11px", borderTop:`3px solid ${pct >= 75 ? SU : pct >= 35 ? T.accent : DA}`, background:"rgba(255,255,255,0.035)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+              <span style={{ color:T.accent, fontWeight:950, fontSize:FONT.xs.size+1 }}>{step.n}</span>
+              <span style={{ color:pct >= 75 ? SU : pct >= 35 ? T.accent : DA, fontWeight:950, fontSize:FONT.xs.size+1 }}>{step.done}/{step.total}</span>
+            </div>
+            <div style={{ color:T.text, fontWeight:950, fontSize:FONT.sm.size+1, marginTop:6, lineHeight:1.15 }}>{step.title}</div>
+            <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, marginTop:4, lineHeight:1.3 }}>{step.desc}</div>
+            <div style={{ marginTop:9 }}>{renderProgress(pct, 4)}</div>
+          </div>;
+        })}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:SPACING.md, alignItems:"start" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
-          <div style={cardStyle}>{cardHd("01 — Cadre du rendez-vous & origine du lead", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+          <div style={cardStyle}>{cardHd("01 — Cadrage du rendez-vous", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
             <StructField {...fieldProps} label="Date du R1" type="date" value={q.date_r1} onChange={v=>updateSection("qualification","date_r1",v)} />
             <StructField {...fieldProps} label="Conseiller référent" value={p.conseiller || dossier?.conseiller} onChange={v=>updateSection("profil","conseiller",v)} />
             <StructField {...fieldProps} label="Source du lead" value={q.source_lead} onChange={v=>updateSection("qualification","source_lead",v)} options={["Recommandation","Réseau personnel","Site web","Événement","Partenaire","Autre"]} />
             <StructField {...fieldProps} label="Prescripteur" value={q.prescripteur} onChange={v=>updateSection("qualification","prescripteur",v)} />
             <StructField {...fieldProps} label="Contexte / origine de la demande" type="textarea" value={q.origine_commentaire} onChange={v=>updateSection("qualification","origine_commentaire",v)} wide />
           </div></div>
-          <div style={cardStyle}>{cardHd("02 — Identité, famille & protection", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
+          <div style={cardStyle}>{cardHd("02 — Foyer fiscal, famille & protection", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
             <StructField {...fieldProps} label="Prénom" value={p.prenom} onChange={v=>updateSection("profil","prenom",v)} />
             <StructField {...fieldProps} label="Nom" value={p.nom} onChange={v=>updateSection("profil","nom",v)} />
             <StructField {...fieldProps} label="Date de naissance" type="date" value={p.date_naissance} onChange={v=>updateSection("profil","date_naissance",v)} />
@@ -840,7 +863,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
             <StructField {...fieldProps} label="Détail enfants / transmission" value={p.enfants_details} onChange={v=>updateSection("profil","enfants_details",v)} wide />
             <StructField {...fieldProps} label="Adresse" value={p.adresse} onChange={v=>updateSection("profil","adresse",v)} wide />
           </div></div>
-          <div style={cardStyle}>{cardHd("03 — Activité, revenus & fiscalité", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
+          <div style={cardStyle}>{cardHd("03 — Revenus, activité professionnelle & fiscalité", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
             <StructField {...fieldProps} label="Profession / fonction" value={p.profession} onChange={v=>updateSection("profil","profession",v)} />
             <StructField {...fieldProps} label="Statut professionnel" value={p.statut_pro} onChange={v=>updateSection("profil","statut_pro",v)} options={["Salarié CDI","Salarié CDD","TNS / Indépendant","Chef d'entreprise","Profession libérale","Fonctionnaire","Retraité","Autre"]} />
             <StructField {...fieldProps} label="Employeur / secteur" value={p.employeur} onChange={v=>updateSection("profil","employeur",v)} />
@@ -856,7 +879,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
           </div></div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
-          <div style={cardStyle}>{cardHd("04 — Objectifs & critères de stratégie", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+          <div style={cardStyle}>{cardHd("04 — Objectifs d’investissement & critères de recherche", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
             <StructField {...fieldProps} label="Objectif principal" value={obj.objectif_principal} onChange={v=>updateSection("objectifs","objectif_principal",v)} options={["Revenus complémentaires","Constitution patrimoine","Retraite","Défiscalisation","Transmission","Accélération patrimoniale","Mix"]} />
             <StructField {...fieldProps} label="Horizon d'investissement" value={obj.horizon} onChange={v=>updateSection("objectifs","horizon",v)} options={["Court terme < 5 ans","Moyen terme 5-15 ans","Long terme > 15 ans","À définir"]} />
             <StructField {...fieldProps} label="Budget acquisition min." type="number" value={q.budget_min} onChange={v=>updateSection("qualification","budget_min",v)} />
@@ -867,7 +890,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
             <StructField {...fieldProps} label="Niveau d'implication" value={q.niveau_implication} onChange={v=>updateSection("qualification","niveau_implication",v)} options={["Autonome","Accompagné","Clé-en-main"]} />
             <StructField {...fieldProps} label="Projets à 3-5 ans" type="textarea" value={obj.projets_3_5_ans} onChange={v=>updateSection("objectifs","projets_3_5_ans",v)} wide />
           </div></div>
-          <div style={cardStyle}>{cardHd("05 — Photo patrimoniale déclarative", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+          <div style={cardStyle}>{cardHd("05 — Photo patrimoniale rapide", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
             <StructField {...fieldProps} label="Statut résidence principale" value={pat.residence_principale_statut} onChange={v=>updateSection("patrimoine","residence_principale_statut",v)} options={["Propriétaire — crédit en cours","Propriétaire — crédit soldé","Locataire","Hébergé(e)"]} />
             <StructField {...fieldProps} label="Valeur résidence principale" type="number" value={pat.rp_valeur} onChange={v=>updateSection("patrimoine","rp_valeur",v)} />
             <StructField {...fieldProps} label="CRD résidence principale" type="number" value={pat.rp_crd} onChange={v=>updateSection("patrimoine","rp_crd",v)} />
@@ -877,7 +900,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
             <StructField {...fieldProps} label="Charges fixes mensuelles" type="number" value={q.charges_fixes_mois} onChange={v=>updateSection("qualification","charges_fixes_mois",v)} />
             <StructField {...fieldProps} label="Crédits conso / pensions" type="number" value={q.credits_conso_mois} onChange={v=>updateSection("qualification","credits_conso_mois",v)} />
           </div><div style={{ padding:"0 14px 14px", color:T.textSub, fontSize:FONT.xs.size+1 }}>Le détail des biens, crédits, placements et structures est complété dans l'onglet <b style={{color:T.text}}>Patrimoine & financement</b>.</div></div>
-          <div style={cardStyle}>{cardHd("06 — Qualification, alertes & suite", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
+          <div style={cardStyle}>{cardHd("06 — Décision, alertes & prochaine étape", "gold")}<div style={{ padding:14, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }}>
             <StructField {...fieldProps} label="Complexité attribuée" value={q.niveau_complexite} onChange={v=>updateSection("qualification","niveau_complexite",v)} options={["Simple","Intermédiaire","Complexe"]} />
             <StructField {...fieldProps} label="Situation bancaire / conformité" value={q.situation_bancaire} onChange={v=>updateSection("qualification","situation_bancaire",v)} options={["RAS","Incident récent","FICP","Surendettement","À vérifier"]} />
             <StructField {...fieldProps} label="Justification du niveau" type="textarea" value={q.justification_complexite} onChange={v=>updateSection("qualification","justification_complexite",v)} wide />
@@ -887,7 +910,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
             <StructField {...fieldProps} label="Prochaine action" value={rdv.prochaine_action} onChange={v=>updateSection("rdv","prochaine_action",v)} wide />
             <StructField {...fieldProps} label="Consentement RGPD" value={q.consentement_rgpd} onChange={v=>updateSection("qualification","consentement_rgpd",v)} options={["Obtenu","À obtenir","Refusé"]} />
           </div></div>
-          <div style={cardStyle}>{cardHd("Pièces prioritaires à demander avant analyse")}<div style={{ padding:14, display:"flex", flexDirection:"column", gap:6 }}>
+          <div style={cardStyle}>{cardHd("07 — Pièces prioritaires avant analyse")}<div style={{ padding:14, display:"flex", flexDirection:"column", gap:6 }}>
             {criticalDocs.map((doc,i)=><div key={doc.id} style={{ display:"grid", gridTemplateColumns:"1fr 115px", gap:8, alignItems:"center", padding:"5px 7px", background:T.input, borderRadius:RADIUS.md }}><div style={{ color:T.text, fontSize:FONT.xs.size+1, fontWeight:800 }}>{doc.label}</div><select className="inv-sel" value={doc.statut || "À demander"} onChange={e=>updateDoc(docs.findIndex(x=>x.id===doc.id),"statut",e.target.value)} style={{ fontSize:FONT.xs.size+1 }}>{STRUCT_DOC_STATUTS.map(x=><option key={x}>{x}</option>)}</select></div>)}
           </div></div>
         </div>
@@ -1158,7 +1181,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       .structuration-compact ::placeholder{color:${T.textMuted}!important;opacity:.9}
     `}</style>
     {renderClientCreator()}
-    <div className="structuration-compact" style={{ display:"grid", gridTemplateColumns:"320px minmax(0,1fr)", gap:SPACING.md, alignItems:"start", height:"100%", minHeight:0 }}>
+    <div className="structuration-compact" style={{ display:"grid", gridTemplateColumns:"360px minmax(0,1fr)", gap:SPACING.md, alignItems:"start", height:"100%", minHeight:0 }}>
       <div style={{ height:"100%", minHeight:0 }}>{renderSidebarDossiers()}</div>
       <div style={{ minWidth:0, height:"100%", minHeight:0, overflow:"hidden" }}>
         {error && <div style={{ marginBottom:SPACING.sm, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
