@@ -1303,6 +1303,12 @@ const finMergeSignedClients = (source, clients = []) => {
   return next;
 };
 const finRowsSum = (rows) => SUIVI_FIN_MONTHS.map((_, i) => (rows || []).reduce((s, r) => s + finNum(r.values?.[i]), 0));
+const finIsPaidRow = (row) => String(row?.payment_status || "").toLowerCase() === "regle";
+const finRowsSumWhere = (rows, predicate) => SUIVI_FIN_MONTHS.map((_, i) =>
+  (rows || []).reduce((s, r) => predicate(r) ? s + finNum(r.values?.[i]) : s, 0)
+);
+const finRowsPaidSum = (rows) => finRowsSumWhere(rows, finIsPaidRow);
+const finRowsUnpaidSum = (rows) => finRowsSumWhere(rows, r => !finIsPaidRow(r));
 const finAddVec = (...vectors) => SUIVI_FIN_MONTHS.map((_, i) => vectors.reduce((s, v) => s + finNum(v?.[i]), 0));
 const finSubVec = (a, b) => SUIVI_FIN_MONTHS.map((_, i) => finNum(a?.[i]) - finNum(b?.[i]));
 const finMulVec = (a, pct) => SUIVI_FIN_MONTHS.map((_, i) => finNum(a?.[i]) * finNum(pct) / 100);
@@ -1330,10 +1336,23 @@ const finTvaDeductibleRows = (finance = {}) => [
 function calcSuiviFinancier(data) {
   const d = data || cloneSuiviFinancier();
   const p = d.params || {};
-  const forfaits = finRowsSum(d.commercial?.forfaits);
-  const negociation = finRowsSum(d.commercial?.negociation);
-  const autres = finRowsSum(d.commercial?.autres);
-  const ca = finAddVec(forfaits, negociation, autres);
+
+  // CA reconnu dans les indicateurs financiers = uniquement les montants HT marqués "Réglé".
+  // Les lignes non réglées, partielles ou non qualifiées restent suivies à part en "CA HT non réglé".
+  const forfaitsRegles = finRowsPaidSum(d.commercial?.forfaits);
+  const negociationReglee = finRowsPaidSum(d.commercial?.negociation);
+  const autresRegles = finRowsPaidSum(d.commercial?.autres);
+  const forfaitsNonRegles = finRowsUnpaidSum(d.commercial?.forfaits);
+  const negociationNonReglee = finRowsUnpaidSum(d.commercial?.negociation);
+  const autresNonRegles = finRowsUnpaidSum(d.commercial?.autres);
+
+  const forfaits = forfaitsRegles;
+  const negociation = negociationReglee;
+  const autres = autresRegles;
+  const ca = finAddVec(forfaitsRegles, negociationReglee, autresRegles);
+  const caNonRegle = finAddVec(forfaitsNonRegles, negociationNonReglee, autresNonRegles);
+  const caSaisi = finAddVec(ca, caNonRegle);
+
   const chargesFixes = finRowsSum(d.finance?.chargesFixes);
   const chargesVariables = finRowsSum(d.finance?.chargesVariables);
   const decaissements = finAddVec(chargesFixes, chargesVariables);
@@ -1353,7 +1372,15 @@ function calcSuiviFinancier(data) {
   const signatures = (d.commercial?.pipeline || []).find(r => String(r.label || "").toLowerCase().includes("signature"))?.values || finVec();
   const prospects = (d.commercial?.pipeline || []).find(r => String(r.label || "").toLowerCase().includes("prospect"))?.values || finVec();
   const rdv = (d.commercial?.pipeline || []).find(r => String(r.label || "").toLowerCase().includes("rdv"))?.values || finVec();
-  return { forfaits, negociation, autres, ca, chargesFixes, chargesVariables, decaissements, margeBrute, tauxMarge, rnAvantIS, impotIS, rnApresIS, tauxRentabiliteNette, tvaCollectee, tvaDeductibleRows, tvaDeductible, tvaNette, treso, signatures, prospects, rdv };
+  return {
+    forfaits, negociation, autres, ca, caNonRegle, caSaisi,
+    forfaitsRegles, negociationReglee, autresRegles,
+    forfaitsNonRegles, negociationNonReglee, autresNonRegles,
+    chargesFixes, chargesVariables, decaissements, margeBrute, tauxMarge,
+    rnAvantIS, impotIS, rnApresIS, tauxRentabiliteNette,
+    tvaCollectee, tvaDeductibleRows, tvaDeductible, tvaNette,
+    treso, signatures, prospects, rdv
+  };
 }
 
 function FinKPI({ label, value, sub, color, icon: IconComp, T }) {
@@ -1456,13 +1483,15 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
     setData(next); scheduleSave(next);
   };
   const totals = finRowsSum(rows);
+  const paidTotals = showPaymentStatus ? finRowsPaidSum(rows) : totals;
+  const unpaidTotals = showPaymentStatus ? finRowsUnpaidSum(rows) : finVec();
   const gridCols = `minmax(145px,1.35fr) repeat(${SUIVI_FIN_MONTHS.length}, minmax(38px,.65fr)) minmax(62px,.75fr) ${showPaymentStatus ? "minmax(82px,.75fr)" : ""} 26px`;
   const paymentBg = (r) => {
     if (!showPaymentStatus || finSum(r.values) <= 0) return "transparent";
     if (r.payment_status === "regle") return "rgba(34,197,94,0.10)";
     if (r.payment_status === "non_regle") return "rgba(239,68,68,0.08)";
     if (r.payment_status === "partiel") return "rgba(245,158,11,0.08)";
-    return "transparent";
+    return "rgba(245,158,11,0.05)";
   };
   return (
     <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
@@ -1496,7 +1525,7 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
               {showPaymentStatus && (
                 <div style={{ padding:"3px 4px", borderLeft:`1px solid ${T.rowBorder}` }}>
                   <select className="inv-sel" value={r.payment_status || ""} onChange={e=>updatePaymentStatus(ri,e.target.value)} style={{ width:"100%", padding:"4px 5px", fontSize:FONT.xs.size-1 }}>
-                    <option value="">—</option>
+                    <option value="">À qualifier</option>
                     <option value="regle">Réglé</option>
                     <option value="non_regle">Non réglé</option>
                     <option value="partiel">Partiel</option>
@@ -1506,13 +1535,31 @@ function SuiviFinanceTable({ title, rows, sectionPath, data, setData, scheduleSa
               <button title="Supprimer" onClick={()=>removeRow(ri)} style={{ background:"transparent", border:"none", color:T.textMuted, cursor:"pointer", padding:3 }}><Icon as={Trash2} size={12}/></button>
             </div>
           ))}
-          <div style={{ display:"grid", gridTemplateColumns:gridCols, background:T.accentBg, borderTop:`1px solid ${T.accentBorder}`, alignItems:"center" }}>
-            <div style={{ padding:"8px 8px", color:T.accent, fontWeight:800, fontSize:FONT.xs.size+1 }}>TOTAL</div>
-            {totals.map((v, i) => <div key={i} style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:700, fontSize:FONT.xs.size }}>{money ? finEur(v) : v}</div>)}
-            <div style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size }}>{money ? finEur(finSum(totals)) : finSum(totals)}</div>
-            {showPaymentStatus && <div />}
-            <div />
-          </div>
+          {showPaymentStatus ? (
+            <>
+              <div style={{ display:"grid", gridTemplateColumns:gridCols, background:"rgba(34,197,94,0.10)", borderTop:`1px solid ${T.accentBorder}`, alignItems:"center" }}>
+                <div style={{ padding:"8px 8px", color:SU, fontWeight:800, fontSize:FONT.xs.size+1 }}>TOTAL RÉGLÉ</div>
+                {paidTotals.map((v, i) => <div key={i} style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:SU, fontWeight:700, fontSize:FONT.xs.size }}>{money ? finEur(v) : v}</div>)}
+                <div style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:SU, fontWeight:800, fontSize:FONT.xs.size }}>{money ? finEur(finSum(paidTotals)) : finSum(paidTotals)}</div>
+                <div />
+                <div />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:gridCols, background:"rgba(245,158,11,0.08)", borderTop:`1px solid ${T.rowBorder}`, alignItems:"center" }}>
+                <div style={{ padding:"8px 8px", color:WA, fontWeight:800, fontSize:FONT.xs.size+1 }}>NON RÉGLÉ / À ENCAISSER</div>
+                {unpaidTotals.map((v, i) => <div key={i} style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:WA, fontWeight:700, fontSize:FONT.xs.size }}>{money ? finEur(v) : v}</div>)}
+                <div style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:WA, fontWeight:800, fontSize:FONT.xs.size }}>{money ? finEur(finSum(unpaidTotals)) : finSum(unpaidTotals)}</div>
+                <div />
+                <div />
+              </div>
+            </>
+          ) : (
+            <div style={{ display:"grid", gridTemplateColumns:gridCols, background:T.accentBg, borderTop:`1px solid ${T.accentBorder}`, alignItems:"center" }}>
+              <div style={{ padding:"8px 8px", color:T.accent, fontWeight:800, fontSize:FONT.xs.size+1 }}>TOTAL</div>
+              {totals.map((v, i) => <div key={i} style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:700, fontSize:FONT.xs.size }}>{money ? finEur(v) : v}</div>)}
+              <div style={{ padding:"8px 4px", textAlign:"right", fontFamily:"'DM Mono',monospace", color:T.accent, fontWeight:800, fontSize:FONT.xs.size }}>{money ? finEur(finSum(totals)) : finSum(totals)}</div>
+              <div />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1650,7 +1697,7 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
   const exportCsv = () => {
     const lines = [["Indicateur", ...SUIVI_FIN_MONTHS, "Total"]];
     const add = (label, arr) => lines.push([label, ...arr.map(v => finNum(v).toFixed(2)), finSum(arr).toFixed(2)]);
-    add("CA HT", calc.ca); add("Charges fixes", calc.chargesFixes); add("Charges variables", calc.chargesVariables); add("Décaissements TTC", calc.decaissements); add("Marge brute", calc.margeBrute); add("Résultat avant IS", calc.rnAvantIS); add("Résultat après IS", calc.rnApresIS); add("TVA nette", calc.tvaNette); add("Trésorerie fin de mois", calc.treso);
+    add("CA HT réglé", calc.ca); add("CA HT non réglé", calc.caNonRegle); add("CA HT saisi", calc.caSaisi); add("Charges fixes", calc.chargesFixes); add("Charges variables", calc.chargesVariables); add("Décaissements TTC", calc.decaissements); add("Marge brute", calc.margeBrute); add("Résultat avant IS", calc.rnAvantIS); add("Résultat après IS", calc.rnApresIS); add("TVA nette", calc.tvaNette); add("Trésorerie fin de mois", calc.treso);
     const csv = lines.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
     const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a");
@@ -1658,6 +1705,8 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
   };
 
   const totalCA = finSum(calc.ca);
+  const totalCANonRegle = finSum(calc.caNonRegle);
+  const totalCASaisi = finSum(calc.caSaisi);
   const totalDec = finSum(calc.decaissements);
   const totalRN = finSum(calc.rnApresIS);
   const tauxMargeAnnuel = finPct(finSum(calc.margeBrute), totalCA);
@@ -1677,7 +1726,9 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
             <div style={{ padding:"8px 5px", textAlign:"right", color:T.accent, fontWeight:900, fontSize:FONT.xs.size-2 }}>Total annuel</div>
           </div>
           {[
-            ["CA HT", calc.ca, "green"],
+            ["CA HT réglé", calc.ca, "green"],
+            ["CA HT non réglé", calc.caNonRegle, "orange"],
+            ["CA HT saisi", calc.caSaisi, "accent"],
             ["Charges fixes", calc.chargesFixes, ""],
             ["Charges variables", calc.chargesVariables, ""],
             ["Décaissements TTC", calc.decaissements, "orange"],
@@ -1723,7 +1774,8 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
       {error && <div style={{ marginBottom:SPACING.md, padding:"10px 12px", borderRadius:RADIUS.md, border:`1px solid ${SEMANTIC.warning.border}`, background:SEMANTIC.warning.bg, color:WA, fontSize:FONT.sm.size+1 }}>{error}</div>}
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:SPACING.md, marginBottom:SPACING.xl }}>
-        <FinKPI T={T} icon={Euro} label="CA HT total" value={finEur(totalCA)} sub={`Objectif : ${finEur(objectifCA)} · ${finPctFmt(finPct(totalCA, objectifCA))}`} color={SU} />
+        <FinKPI T={T} icon={Euro} label="CA HT total réglé" value={finEur(totalCA)} sub={`Objectif : ${finEur(objectifCA)} · ${finPctFmt(finPct(totalCA, objectifCA))}`} color={SU} />
+        <FinKPI T={T} icon={Wallet} label="CA HT non réglé" value={finEur(totalCANonRegle)} sub={`CA HT saisi : ${finEur(totalCASaisi)}`} color={WA} />
         <FinKPI T={T} icon={Wallet} label="Décaissements" value={finEur(totalDec)} sub="Charges fixes + variables" color={WA} />
         <FinKPI T={T} icon={TrendingUp} label="Résultat après IS" value={finEur(totalRN)} sub={`Taux net : ${finPctFmt(tauxRNAnnuel)}`} color={totalRN >= 0 ? SU : DA} />
         <FinKPI T={T} icon={BarChart3} label="Marge brute" value={finPctFmt(tauxMargeAnnuel)} sub={finEur(finSum(calc.margeBrute))} color={T.accent} />
