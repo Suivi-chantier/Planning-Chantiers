@@ -344,6 +344,68 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     });
   }, [persistExtras]);
 
+  // ── Suggestions de blocages : tâches "en cours" depuis 3 semaines ou plus ────
+  // On croise l'historique des rapports sur une fenêtre de 5 semaines. Une tâche
+  // encore "en cours" cette semaine ET marquée "en cours" sur au moins 3 semaines
+  // distinctes est proposée (jamais ajoutée automatiquement) au conducteur.
+  const [suggestions, setSuggestions] = useState([]);
+  useEffect(() => {
+    if (etape !== "bilan" || !weekId) return;
+    const chantierIds = JSON.parse(chantierIdsKey).filter(k => k !== "__divers__");
+    if (chantierIds.length === 0) { setSuggestions([]); return; }
+
+    // Fenêtre glissante de 5 weekId (semaine du bilan + 4 précédentes).
+    const prevWeekId = (wid) => {
+      const m = /^(\d{4})-W(\d{2})$/.exec(wid || "");
+      if (!m) return null;
+      let y = +m[1], w = +m[2] - 1;
+      if (w <= 0) { w += 52; y -= 1; }
+      return getWeekId(y, w);
+    };
+    const windowIds = [weekId];
+    let cur = weekId;
+    for (let i = 0; i < 4; i++) { cur = prevWeekId(cur); if (!cur) break; windowIds.push(cur); }
+
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.from("rapports")
+        .select("semaine, chantier_id, taches")
+        .in("semaine", windowIds).in("chantier_id", chantierIds);
+      if (cancelled) return;
+      if (error) { console.warn("Suggestions blocages : load", error.message); return; }
+
+      // chantier -> semaine -> tâches cumulées
+      const byCW = {};
+      (data || []).forEach(r => {
+        if (!r.chantier_id) return;
+        (byCW[r.chantier_id] ||= {});
+        (byCW[r.chantier_id][r.semaine] ||= []).push(...(r.taches || []));
+      });
+
+      const sugg = [];
+      Object.entries(byCW).forEach(([cid, weeks]) => {
+        const enCoursWeeks = {}, labelOf = {};
+        Object.entries(weeks).forEach(([wk, taches]) => {
+          // Statut dominant par semaine : une tâche déclarée "en cours" puis
+          // "faite" la même semaine ne compte pas comme restée bloquée.
+          filtrerStatutDominant(taches).filter(t => t.statut === "en_cours").forEach(t => {
+            const key = normTexteBilan(t.planifie || t.text || "");
+            if (!key) return;
+            (enCoursWeeks[key] ||= new Set()).add(wk);
+            labelOf[key] = t.planifie || t.text || "";
+          });
+        });
+        Object.entries(enCoursWeeks).forEach(([key, wset]) => {
+          if (wset.has(weekId) && wset.size >= 3) {
+            sugg.push({ chantier_id: cid, chantier_nom: parChantier[cid]?.nom || "", texte: labelOf[key], normKey: key, semaines: wset.size });
+          }
+        });
+      });
+      setSuggestions(sugg);
+    })();
+    return () => { cancelled = true; };
+  }, [etape, weekId, chantierIdsKey]);
+
   // ── Création brouillon Gmail ─────────────────────────────────────────────────
   const [generatingDoc, setGeneratingDoc] = useState(false);
   const [showNotes, setShowNotes]         = useState(false);
@@ -926,6 +988,21 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     blocages: prev.blocages.filter((_, i) => i !== idx),
   }));
 
+  // Ajoute une suggestion détectée comme blocage pré-rempli (statut "info").
+  const ajouterSuggestion = (s) => updateExtras(prev => ({
+    ...prev,
+    blocages: [...prev.blocages, {
+      chantier_id:  s.chantier_id,
+      chantier_nom: s.chantier_nom,
+      texte:  `${s.texte} — en cours depuis ${s.semaines} semaines`,
+      statut: "info",
+    }],
+  }));
+  // Suggestions non encore reprises dans les blocages (dédup par préfixe texte).
+  const suggestionsVisibles = suggestions.filter(s =>
+    !(bilanExtras.blocages || []).some(b => b.chantier_id === s.chantier_id && normTexteBilan(b.texte).startsWith(s.normKey))
+  );
+
   const addPoint = () => updateExtras(prev => ({
     ...prev,
     semaineSuivante: [...prev.semaineSuivante, {
@@ -1162,6 +1239,32 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
                 </div>
                 <div style={{ fontSize:12, color:T.textMuted }}>Points à remonter à la hiérarchie</div>
               </div>
+
+              {suggestionsVisibles.length > 0 && (
+                <div style={{ background:"rgba(245,166,35,0.10)", border:"1px solid rgba(245,166,35,0.35)",
+                  borderRadius:10, padding:"11px 13px", marginBottom:12 }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:"#e0a020", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+                    ⚡ Points d'attention détectés
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                    {suggestionsVisibles.map((s, i) => (
+                      <div key={i} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                        <div style={{ flex:"1 1 220px", minWidth:0, fontSize:12.5, color:T.textSub, lineHeight:1.4 }}>
+                          <strong style={{ color:T.text }}>{s.chantier_nom}</strong> · {s.texte}
+                          <span style={{ color:"#e0a020", fontWeight:700 }}> — en cours depuis {s.semaines} sem.</span>
+                        </div>
+                        <button onClick={() => ajouterSuggestion(s)}
+                          style={{ background:"rgba(245,166,35,0.9)", border:"none", borderRadius:8, padding:"6px 12px",
+                            color:"#1a1a1a", fontFamily:"inherit", fontSize:12, fontWeight:700, cursor:"pointer",
+                            whiteSpace:"nowrap", flexShrink:0 }}>
+                          + Ajouter aux blocages
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                 {bilanExtras.blocages.map((b, idx) => {
                   const isDecision = b.statut === "decision";
