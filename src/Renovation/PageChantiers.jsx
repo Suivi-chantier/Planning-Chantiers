@@ -1166,25 +1166,47 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               <div style={{ display: "flex", alignItems: "flex-start", gap: 20 }}>
                 <AvancementCircle value={avancement} accent={acc.accent}/>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: FONT.sm.size, color: textMuted, marginBottom: 8 }}>Détail par phase</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 170, overflowY: "auto" }}>
-                    {PHASES.map(ph => {
-                      const taches = selectedPhasage.plan_travaux?.[ph.id] || [];
-                      if (taches.length === 0) return null;
-                      const totalH = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-                      const av = totalH > 0
-                        ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement)||0)*(parseFloat(t.heures_vendues)||0)),0)/totalH)
+                  {(() => {
+                    // Détail de l'avancement : par OUVRAGE en V2 (source de vérité
+                    // ouvrages[].taches), par PHASE en repli legacy V1.
+                    const ouvragesV2 = selectedPhasage.ouvrages || [];
+                    const hasV2 = ouvragesV2.length > 0;
+                    // Avancement pondéré (heures_estimees, repli moyenne simple) d'un
+                    // jeu de tâches — cohérent avec calcAvancementPondere.
+                    const avPondere = (taches) => {
+                      if (!taches.length) return 0;
+                      const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+                      return totalHE > 0
+                        ? Math.round(taches.reduce((s, t) => s + ((parseFloat(t.avancement)||0)*(parseFloat(t.heures_estimees)||0)),0)/totalHE)
                         : Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement)||0), 0) / taches.length);
-                      return (
-                        <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: ph.couleur, flexShrink: 0 }}/>
-                          <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, minWidth: 140, flexShrink: 0 }}>{ph.label}</span>
-                          <div style={{ flex: 1 }}><ProgressBar value={av} color={ph.couleur} height={5}/></div>
-                          <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: text, minWidth: 32, textAlign: "right" }}>{av}%</span>
+                    };
+                    const rows = hasV2
+                      ? ouvragesV2
+                          .filter(o => (o.taches || []).length > 0)
+                          .map(o => ({ id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, av: avPondere(o.taches || []) }))
+                      : PHASES.map(ph => {
+                          const taches = selectedPhasage.plan_travaux?.[ph.id] || [];
+                          if (taches.length === 0) return null;
+                          return { id: ph.id, label: ph.label, couleur: ph.couleur, av: avPondere(taches) };
+                        }).filter(Boolean);
+                    return (
+                      <>
+                        <div style={{ fontSize: FONT.sm.size, color: textMuted, marginBottom: 8 }}>
+                          {hasV2 ? "Détail par ouvrage" : "Détail par phase"}
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 170, overflowY: "auto" }}>
+                          {rows.map(r => (
+                            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: r.couleur, flexShrink: 0 }}/>
+                              <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, minWidth: 140, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+                              <div style={{ flex: 1 }}><ProgressBar value={r.av} color={r.couleur} height={5}/></div>
+                              <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: text, minWidth: 32, textAlign: "right" }}>{r.av}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             ) : (
