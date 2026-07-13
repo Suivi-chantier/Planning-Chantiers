@@ -1234,8 +1234,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                           {rows.map(r => (
                             <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <div style={{ width: 8, height: 8, borderRadius: "50%", background: r.couleur, flexShrink: 0 }}/>
-                              <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, minWidth: 140, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
-                              <div style={{ flex: 1 }}><ProgressBar value={r.av} color={r.couleur} height={5}/></div>
+                              <span title={r.label} style={{ fontSize: FONT.xs.size + 1, color: textMuted, flex: "0 0 220px", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}><ProgressBar value={r.av} color={r.couleur} height={5}/></div>
                               <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: text, minWidth: 32, textAlign: "right" }}>{r.av}%</span>
                             </div>
                           ))}
