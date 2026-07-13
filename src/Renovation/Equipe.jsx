@@ -479,24 +479,39 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         const cell = cells[`${cId}_${jour}`];
         if (cell && (cell.ouvriers||[]).length) presences.push({ jour, ouvriers: cell.ouvriers });
       });
+      // Blocages et points "semaine suivante" saisis pour CE chantier.
+      const blocagesCh = (bilanExtras.blocages || []).filter(b => b.chantier_id === cId && (b.texte || "").trim());
+      const suiteCh    = (bilanExtras.semaineSuivante || []).filter(s => s.chantier_id === cId && (s.texte || "").trim());
+
       const p = progressions[cId];
-      let progBadge = "";
-      if (p) {
-        if (p.avant == null) {
-          progBadge = `<span style="font-size:9pt;color:#5b6a8a;white-space:nowrap;">Avancement : <strong style="color:#1a1f2e;font-size:10pt;">${p.maintenant}%</strong></span>`;
-        } else {
-          const c = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : "#5b6a8a";
-          const sign = p.delta > 0 ? "+" : "";
-          const euros = p.deltaEuros != null
-            ? ` <span style="color:${c};font-weight:700;">(${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €)</span>`
-            : "";
-          progBadge = `<span style="white-space:nowrap;font-size:9pt;color:#5b6a8a;">${p.avant}% → </span><strong style="font-size:10pt;color:#1a1f2e;white-space:nowrap;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:9pt;white-space:nowrap;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}${euros}</span>`;
-        }
+      // Pastille d'état d'avancement de la semaine :
+      //   vert   : delta >= 3 pts        orange : 0 <= delta < 3 pts
+      //   rouge  : régression (delta < 0) gris  : pas de donnée de progression
+      let pastille = "#b8b8b8";
+      if (p && p.delta != null) {
+        pastille = p.delta < 0 ? "#e15a5a" : p.delta < 3 ? "#f5a623" : "#22c55e";
       }
-      const listeTaches = (items, color, icon) => items.length === 0 ? "" : `
+      // Progression = élément le plus visible du bloc (affichée en tête à droite).
+      let progLigne;
+      if (!p || p.maintenant == null) {
+        progLigne = `<span style="font-size:10pt;color:#999;">Avancement non calculé</span>`;
+      } else if (p.avant == null) {
+        progLigne = `<span style="font-size:10pt;color:#666;">Avancement </span><strong style="font-size:15pt;color:#1a1f2e;">${p.maintenant}%</strong>`;
+      } else {
+        const c = p.delta > 0 ? "#1a8f4a" : p.delta < 0 ? "#c0392b" : "#8a6a00";
+        const sign = p.delta > 0 ? "+" : "";
+        const euros = p.deltaEuros != null
+          ? ` <span style="color:${c};font-weight:800;font-size:11pt;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
+          : "";
+        progLigne = `<span style="font-size:9pt;color:#999;">${p.avant}% →</span> <strong style="font-size:16pt;color:#1a1f2e;">${p.maintenant}%</strong> <span style="color:${c};font-weight:800;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
+      }
+
+      // Liste de tâches. `compact` = version discrète (utilisée pour "Réalisé",
+      // qui n'est plus qu'une synthèse détaillée sous le compteur).
+      const listeTaches = (items, color, icon, compact = false) => items.length === 0 ? "" : `
         <ul style="margin:0 0 8pt;padding:0;">
-          ${items.map(t => `<li style="font-size:10pt;color:#222;margin:0 0 3pt;padding-left:14pt;position:relative;list-style:none;">
-            <span style="position:absolute;left:0;top:0;color:${color};font-weight:700;">${icon}</span>${esc(t.planifie||t.text||"")}${t.remarque ? ` <span style="color:#666;">— ${esc(t.remarque)}</span>` : ""}<span style="color:#999;font-size:9pt;"> (${esc(t.ouvrier||"")})</span>
+          ${items.map(t => `<li style="font-size:${compact ? "9pt" : "10pt"};color:${compact ? "#555" : "#222"};margin:0 0 ${compact ? "2pt" : "3pt"};padding-left:14pt;position:relative;list-style:none;">
+            <span style="position:absolute;left:0;top:0;color:${color};font-weight:700;">${icon}</span>${esc(t.planifie||t.text||"")}${t.remarque ? ` <span style="color:#888;">— ${esc(t.remarque)}</span>` : ""}<span style="color:#aaa;font-size:8.5pt;"> (${esc(t.ouvrier||"")})</span>
           </li>`).join("")}
         </ul>`;
       const titreSection = (label, color) => `<div class="sect-title" style="color:${color};font-size:8pt;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4pt;">${label}</div>`;
@@ -504,28 +519,32 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         <div class="chantier-card" style="background:#fff;border:1pt solid #e0e0e0;border-left:5pt solid ${couleur};margin:0 0 10pt;">
           <table class="card-header" style="width:100%;border-collapse:collapse;background:#fafafa;">
             <tr>
-              <td style="padding:8pt 12pt;vertical-align:middle;white-space:nowrap;">
-                <span style="font-size:13pt;font-weight:800;color:#1a1f2e;">${esc(grp.nom)}</span>
+              <td style="padding:9pt 12pt;vertical-align:middle;">
+                <span style="display:inline-block;width:11pt;height:11pt;border-radius:50%;background:${pastille};vertical-align:middle;margin-right:8pt;"></span><span style="font-size:14pt;font-weight:800;color:#1a1f2e;vertical-align:middle;">${esc(grp.nom)}</span>
               </td>
-              <td style="padding:8pt 12pt;vertical-align:middle;text-align:center;">${progBadge}</td>
-              <td style="padding:8pt 12pt;vertical-align:middle;text-align:right;white-space:nowrap;width:90pt;">
-                ${heures > 0 ? `<span style="background:#fff4b8;padding:2pt 9pt;font-weight:800;color:#8a6a00;font-size:11pt;">${heures.toFixed(1)} h</span>` : ""}
-              </td>
+              <td style="padding:9pt 12pt;vertical-align:middle;text-align:right;white-space:nowrap;">${progLigne}</td>
             </tr>
           </table>
           <div style="padding:9pt 12pt;">
-            ${presences.length > 0 ? `
+            ${faites.length > 0 ? `<div class="taches-section">${titreSection(`✓ ${faites.length} tâche${faites.length>1?"s":""} terminée${faites.length>1?"s":""}`, "#1a8f4a")}${listeTaches(faites, "#22c55e", "✓", true)}</div>` : ""}
+            ${enCours.length > 0 ? `<div class="taches-section">${titreSection("↻ En cours", "#c07000")}${listeTaches(enCours, "#f5a623", "↻")}</div>` : ""}
+            ${blocagesCh.length > 0 ? `
               <div class="taches-section">
-                ${titreSection("Présences", "#888")}
-                ${presences.map(p => `<div class="presence-row" style="font-size:10pt;color:#222;margin:0 0 2pt;"><strong>${esc(p.jour)} :</strong> ${esc(p.ouvriers.join(", "))}</div>`).join("")}
-                <div style="height:6pt;"></div>
+                ${titreSection("⚠ Blocages / arbitrages", "#c0392b")}
+                ${blocagesCh.map(b => {
+                  const dec = b.statut === "decision";
+                  return `<div class="remarque-row" style="background:${dec ? "#fff6e6" : "#f5f7fa"};border-left:2pt solid ${dec ? "#e0a020" : "#5b8af5"};padding:5pt 9pt;margin:0 0 4pt;font-size:10pt;color:#222;">${dec ? `<span style="display:inline-block;background:#e0a020;color:#fff;font-size:7pt;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:1pt 6pt;border-radius:3pt;margin-right:6pt;vertical-align:middle;">Décision attendue</span>` : ""}${fmt(b.texte)}</div>`;
+                }).join("")}
               </div>` : ""}
-            ${faites.length > 0 ? `<div class="taches-section">${titreSection("✓ Réalisé", "#22c55e")}${listeTaches(faites, "#22c55e", "✓")}</div>` : ""}
-            ${enCours.length > 0 ? `<div class="taches-section">${titreSection("↻ En cours", "#f5a623")}${listeTaches(enCours, "#f5a623", "↻")}</div>` : ""}
-            ${remarques.length > 0 ? `
+            ${suiteCh.length > 0 ? `
               <div class="taches-section">
-                ${titreSection("Remarques", "#888")}
-                ${remarques.map(r => `<div class="remarque-row" style="background:#f5f7fa;border-left:2pt solid #5b8af5;padding:5pt 9pt;margin:0 0 4pt;font-size:10pt;color:#222;"><strong>${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}
+                ${titreSection("→ Semaine suivante", "#5b6a8a")}
+                ${suiteCh.map(s => `<div class="presence-row" style="font-size:10pt;color:#333;margin:0 0 3pt;padding-left:14pt;position:relative;"><span style="position:absolute;left:0;top:0;color:#5b8af5;font-weight:700;">→</span>${fmt(s.texte)}</div>`).join("")}
+              </div>` : ""}
+            ${(presences.length > 0 || heures > 0 || remarques.length > 0) ? `
+              <div class="taches-section" style="margin-top:7pt;padding-top:6pt;border-top:1pt solid #eee;">
+                ${(presences.length > 0 || heures > 0) ? `${titreSection(`Présences${heures > 0 ? ` · ${heures.toFixed(1)} h` : ""}`, "#aaa")}${presences.map(pr => `<div class="presence-row" style="font-size:9pt;color:#777;margin:0 0 2pt;"><strong style="color:#555;">${esc(pr.jour)} :</strong> ${esc(pr.ouvriers.join(", "))}</div>`).join("")}` : ""}
+                ${remarques.length > 0 ? `<div style="margin-top:${(presences.length > 0 || heures > 0) ? "5pt" : "0"};">${remarques.map(r => `<div class="remarque-row" style="font-size:9pt;color:#777;margin:0 0 2pt;"><strong style="color:#555;">${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}</div>` : ""}
               </div>` : ""}
           </div>
         </div>`;
