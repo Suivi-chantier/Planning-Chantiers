@@ -820,6 +820,28 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     );
   }
 
+  // ── Saisie blocages / semaine suivante ───────────────────────────────────────
+  // Chantiers présents dans le bilan de la semaine (pour les menus déroulants).
+  const chantierOptions = Object.entries(parChantier).map(([cId, grp]) => ({ id: cId, nom: grp.nom }));
+
+  const addBlocage = () => updateExtras(prev => ({
+    ...prev,
+    blocages: [...prev.blocages, {
+      chantier_id:  chantierOptions[0]?.id  || "",
+      chantier_nom: chantierOptions[0]?.nom || "",
+      texte:  "",
+      statut: "info",
+    }],
+  }));
+  const updateBlocage = (idx, patch) => updateExtras(prev => ({
+    ...prev,
+    blocages: prev.blocages.map((b, i) => i === idx ? { ...b, ...patch } : b),
+  }));
+  const removeBlocage = (idx) => updateExtras(prev => ({
+    ...prev,
+    blocages: prev.blocages.filter((_, i) => i !== idx),
+  }));
+
   // ── Bilan (étape 2) ──────────────────────────────────────────────────────────
   return (
     <div className="modal-backdrop bilan-modal" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:600,
@@ -1029,6 +1051,69 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
               Aucun compte rendu pour cette semaine.
             </div>
           )}
+
+          {/* ── Blocages & arbitrages (saisie conducteur) ────────────────────── */}
+          {chantierOptions.length > 0 && (
+            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px 18px", flexShrink:0 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom: bilanExtras.blocages.length ? 12 : 10 }}>
+                <div style={{ display:"inline-flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:15, fontWeight:800, color:T.text }}>⚠ Blocages &amp; arbitrages</span>
+                </div>
+                <div style={{ fontSize:12, color:T.textMuted }}>Points à remonter à la hiérarchie</div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {bilanExtras.blocages.map((b, idx) => {
+                  const isDecision = b.statut === "decision";
+                  return (
+                    <div key={idx} style={{ display:"flex", flexDirection:"column", gap:8,
+                      background:T.card, border:`1px solid ${isDecision ? "rgba(245,166,35,0.55)" : T.border}`,
+                      borderRadius:10, padding:"10px 12px" }}>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                        <select value={b.chantier_id} onChange={e => {
+                            const opt = chantierOptions.find(o => o.id === e.target.value);
+                            updateBlocage(idx, { chantier_id: opt?.id || "", chantier_nom: opt?.nom || "" });
+                          }}
+                          style={{ background:T.fieldBg||"#1a1d28", border:`1px solid ${T.border}`, borderRadius:8,
+                            padding:"7px 10px", color:T.text, fontFamily:"inherit", fontSize:13, fontWeight:700,
+                            outline:"none", flex:"1 1 160px", minWidth:0, cursor:"pointer" }}>
+                          {chantierOptions.map(o => <option key={o.id} value={o.id} style={{ color:"#000" }}>{o.nom}</option>)}
+                        </select>
+                        <div style={{ display:"inline-flex", borderRadius:8, overflow:"hidden", border:`1px solid ${T.border}` }}>
+                          <button onClick={() => updateBlocage(idx, { statut: "info" })}
+                            style={{ border:"none", padding:"7px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+                              background: !isDecision ? "rgba(91,138,245,0.9)" : "transparent", color: !isDecision ? "#fff" : T.textMuted }}>
+                            Pour info
+                          </button>
+                          <button onClick={() => updateBlocage(idx, { statut: "decision" })}
+                            style={{ border:"none", padding:"7px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+                              background: isDecision ? "#f5a623" : "transparent", color: isDecision ? "#1a1a1a" : T.textMuted }}>
+                            Décision attendue
+                          </button>
+                        </div>
+                        <button onClick={() => removeBlocage(idx)} title="Supprimer ce blocage"
+                          style={{ background:"transparent", border:`1px solid ${T.border}`, borderRadius:8, width:34, height:34,
+                            cursor:"pointer", color:T.textMuted, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                          <Icon as={Trash2} size={14}/>
+                        </button>
+                      </div>
+                      <textarea value={b.texte} onChange={e => updateBlocage(idx, { texte: e.target.value })}
+                        placeholder="Décris le blocage ou l'arbitrage attendu…" rows={2}
+                        style={{ width:"100%", background:T.fieldBg||"#1a1d28", border:`1px solid ${T.border}`, borderRadius:8,
+                          padding:"8px 10px", color:T.text, fontFamily:"inherit", fontSize:13, lineHeight:1.5,
+                          resize:"vertical", outline:"none", boxSizing:"border-box" }}/>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={addBlocage}
+                style={{ marginTop: bilanExtras.blocages.length ? 12 : 0, background:"transparent",
+                  border:`1.5px dashed ${T.border}`, borderRadius:10, padding:"9px 14px", color:T.textSub,
+                  fontFamily:"inherit", fontSize:13, fontWeight:700, cursor:"pointer", width:"100%" }}>
+                + Ajouter un blocage
+              </button>
+            </div>
+          )}
+
           {Object.entries(parChantier).map(([cId, grp]) => {
             const ch = chantiers.find(c => c.id === cId);
             const heures = heuresParChantier[cId] || 0;
