@@ -842,6 +842,23 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     blocages: prev.blocages.filter((_, i) => i !== idx),
   }));
 
+  const addPoint = () => updateExtras(prev => ({
+    ...prev,
+    semaineSuivante: [...prev.semaineSuivante, {
+      chantier_id:  chantierOptions[0]?.id  || "",
+      chantier_nom: chantierOptions[0]?.nom || "",
+      texte: "",
+    }],
+  }));
+  const updatePoint = (idx, patch) => updateExtras(prev => ({
+    ...prev,
+    semaineSuivante: prev.semaineSuivante.map((p, i) => i === idx ? { ...p, ...patch } : p),
+  }));
+  const removePoint = (idx) => updateExtras(prev => ({
+    ...prev,
+    semaineSuivante: prev.semaineSuivante.filter((_, i) => i !== idx),
+  }));
+
   // ── Bilan (étape 2) ──────────────────────────────────────────────────────────
   return (
     <div className="modal-backdrop bilan-modal" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:600,
@@ -1110,6 +1127,47 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
                   border:`1.5px dashed ${T.border}`, borderRadius:10, padding:"9px 14px", color:T.textSub,
                   fontFamily:"inherit", fontSize:13, fontWeight:700, cursor:"pointer", width:"100%" }}>
                 + Ajouter un blocage
+              </button>
+            </div>
+          )}
+
+          {/* ── Semaine suivante (anticipation conducteur) ────────────────────── */}
+          {chantierOptions.length > 0 && (
+            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px 18px", flexShrink:0 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom: bilanExtras.semaineSuivante.length ? 12 : 10 }}>
+                <span style={{ fontSize:15, fontWeight:800, color:T.text }}>→ Semaine suivante</span>
+                <div style={{ fontSize:12, color:T.textMuted }}>Appro, effectifs, relances à anticiper</div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {bilanExtras.semaineSuivante.map((p, idx) => (
+                  <div key={idx} style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap",
+                    background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"8px 12px" }}>
+                    <select value={p.chantier_id} onChange={e => {
+                        const opt = chantierOptions.find(o => o.id === e.target.value);
+                        updatePoint(idx, { chantier_id: opt?.id || "", chantier_nom: opt?.nom || "" });
+                      }}
+                      style={{ background:T.fieldBg||"#1a1d28", border:`1px solid ${T.border}`, borderRadius:8,
+                        padding:"7px 10px", color:T.text, fontFamily:"inherit", fontSize:13, fontWeight:700,
+                        outline:"none", flex:"0 1 150px", minWidth:0, cursor:"pointer" }}>
+                      {chantierOptions.map(o => <option key={o.id} value={o.id} style={{ color:"#000" }}>{o.nom}</option>)}
+                    </select>
+                    <input value={p.texte} onChange={e => updatePoint(idx, { texte: e.target.value })}
+                      placeholder="Ex : commander le carrelage, relancer le client…"
+                      style={{ flex:"1 1 200px", minWidth:0, background:T.fieldBg||"#1a1d28", border:`1px solid ${T.border}`,
+                        borderRadius:8, padding:"8px 10px", color:T.text, fontFamily:"inherit", fontSize:13, outline:"none" }}/>
+                    <button onClick={() => removePoint(idx)} title="Supprimer ce point"
+                      style={{ background:"transparent", border:`1px solid ${T.border}`, borderRadius:8, width:34, height:34,
+                        cursor:"pointer", color:T.textMuted, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <Icon as={Trash2} size={14}/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button onClick={addPoint}
+                style={{ marginTop: bilanExtras.semaineSuivante.length ? 12 : 0, background:"transparent",
+                  border:`1.5px dashed ${T.border}`, borderRadius:10, padding:"9px 14px", color:T.textSub,
+                  fontFamily:"inherit", fontSize:13, fontWeight:700, cursor:"pointer", width:"100%" }}>
+                + Ajouter un point
               </button>
             </div>
           )}
