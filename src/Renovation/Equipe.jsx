@@ -458,6 +458,12 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     const fmt = (txt) => esc(txt).replace(/\n/g, "<br>");
     const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
 
+    // Couleur de pastille d'état (partagée entre la synthèse et les blocs) :
+    //   vert >= 3 pts · orange 0-3 pts · rouge régression · gris pas de donnée.
+    const pastilleDe = (p) => (p && p.delta != null)
+      ? (p.delta < 0 ? "#e15a5a" : p.delta < 3 ? "#f5a623" : "#22c55e")
+      : "#b8b8b8";
+
     const chantierBlocs = Object.entries(parChantier).map(([cId, grp]) => {
       const ch = chantiers.find(c => c.id === cId);
       const couleur = ch?.couleur || "#5b8af5";
@@ -484,13 +490,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       const suiteCh    = (bilanExtras.semaineSuivante || []).filter(s => s.chantier_id === cId && (s.texte || "").trim());
 
       const p = progressions[cId];
-      // Pastille d'état d'avancement de la semaine :
-      //   vert   : delta >= 3 pts        orange : 0 <= delta < 3 pts
-      //   rouge  : régression (delta < 0) gris  : pas de donnée de progression
-      let pastille = "#b8b8b8";
-      if (p && p.delta != null) {
-        pastille = p.delta < 0 ? "#e15a5a" : p.delta < 3 ? "#f5a623" : "#22c55e";
-      }
+      const pastille = pastilleDe(p);
       // Progression = élément le plus visible du bloc (affichée en tête à droite).
       let progLigne;
       if (!p || p.maintenant == null) {
@@ -553,6 +553,48 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     // Espace insécable français entre les milliers et l'unité € ( )
     const fmtEuros = (n) => `${n.toLocaleString("fr-FR")} €`;
 
+    // ── Encart de synthèse (résumé exécutif, placé sous le bandeau) ──────────
+    // Une ligne par chantier (pastille + nom + progression + généré €) puis la
+    // liste de TOUTES les décisions attendues, tous chantiers confondus.
+    const synthChantiers = Object.entries(parChantier).map(([cId, grp]) => {
+      const p = progressions[cId];
+      const dot = pastilleDe(p);
+      let droite;
+      if (!p || p.maintenant == null) {
+        droite = `<span style="color:#999;">n/c</span>`;
+      } else if (p.avant == null) {
+        droite = `<span style="color:#555;">Avancement <strong style="color:#1a1f2e;">${p.maintenant}%</strong></span>`;
+      } else {
+        const c = p.delta > 0 ? "#1a8f4a" : p.delta < 0 ? "#c0392b" : "#8a6a00";
+        const sign = p.delta > 0 ? "+" : "";
+        const euros = p.deltaEuros != null
+          ? ` · <span style="color:${c};font-weight:800;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
+          : "";
+        droite = `<strong style="color:#1a1f2e;">${p.maintenant}%</strong> <span style="color:${c};font-weight:800;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
+      }
+      return `<tr>
+        <td class="presence-row" style="padding:4pt 0;vertical-align:middle;"><span style="display:inline-block;width:9pt;height:9pt;border-radius:50%;background:${dot};vertical-align:middle;margin-right:7pt;"></span><span style="font-size:10pt;font-weight:700;color:#1a1f2e;vertical-align:middle;">${esc(grp.nom)}</span></td>
+        <td class="presence-row" style="padding:4pt 0;text-align:right;font-size:10pt;white-space:nowrap;vertical-align:middle;">${droite}</td>
+      </tr>`;
+    }).join("");
+
+    const decisions = (bilanExtras.blocages || []).filter(b => b.statut === "decision" && (b.texte || "").trim());
+    const decisionsHTML = decisions.length > 0
+      ? decisions.map(b => `<div class="remarque-row" style="font-size:10pt;color:#222;margin:0 0 4pt;padding-left:15pt;position:relative;"><span style="position:absolute;left:0;top:0;color:#e0a020;font-weight:800;">!</span><strong style="color:#8a5a00;">${esc(b.chantier_nom || "—")} :</strong> ${fmt(b.texte)}</div>`).join("")
+      : `<div style="font-size:9pt;color:#999;font-style:italic;">Aucune décision en attente</div>`;
+
+    const syntheseHTML = Object.keys(parChantier).length === 0 ? "" : `
+      <div class="synthese" style="border:1.5pt solid #1a1f2e;margin:0 0 14pt;">
+        <div style="background:#1a1f2e;color:#f5c400;font-size:8pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:5pt 12pt;">Synthèse de la semaine</div>
+        <div style="padding:8pt 12pt;">
+          <table style="width:100%;border-collapse:collapse;">${synthChantiers}</table>
+          <div style="margin-top:9pt;padding-top:8pt;border-top:1pt solid #e0e0e0;">
+            <div class="sect-title" style="color:#c0392b;font-size:8pt;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 5pt;">Décisions attendues</div>
+            ${decisionsHTML}
+          </div>
+        </div>
+      </div>`;
+
     const kpiCell = (val, label, color) => `
       <td style="padding:10pt 12pt;vertical-align:middle;text-align:center;border-left:1pt solid rgba(255,255,255,.12);">
         <div style="color:${color};font-size:14pt;font-weight:800;line-height:1;white-space:nowrap;">${val}</div>
@@ -604,6 +646,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       ${totalGenereEuros > 0 ? kpiCell(`+${fmtEuros(totalGenereEuros)}`, "Généré", "#f5c400") : ""}
     </tr>
   </table>
+  ${syntheseHTML}
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:#999;">Aucun compte rendu pour cette semaine.</div>`}
   <div style="text-align:center;margin-top:14pt;font-size:8pt;color:#999;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
 </div></body></html>`;
