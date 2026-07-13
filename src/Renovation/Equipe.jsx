@@ -407,6 +407,11 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         const rawEnCours   = taches.filter(t=>t.statut==="en_cours") .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
         const rawRemarques = grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque }));
         const prog = progressions[cId] || null;
+        // Blocages / points semaine suivante saisis par le conducteur pour CE chantier.
+        const blocages        = (bilanExtras.blocages || []).filter(b => b.chantier_id === cId && (b.texte || "").trim())
+          .map(b => ({ texte: b.texte, statut: b.statut }));
+        const semaineSuivante = (bilanExtras.semaineSuivante || []).filter(s => s.chantier_id === cId && (s.texte || "").trim())
+          .map(s => ({ texte: s.texte }));
         return {
           nom: grp.nom,
           heures: hCh,
@@ -414,21 +419,29 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
           faites:    dedupe(rawFaites),
           enCours:   dedupe(rawEnCours),
           remarques: dedupeRemarques(rawRemarques),
-          // Progression hebdo : avancement avant/après et delta (peut être null
-          // si pas de snapshot antérieur à cette semaine)
+          blocages,
+          semaineSuivante,
+          // Progression hebdo : avancement avant/après, delta et delta € (peut
+          // être null si pas de snapshot antérieur à cette semaine)
           progression: prog ? {
             avant:      prog.avant,
             maintenant: prog.maintenant,
             delta:      prog.delta,
+            deltaEuros: prog.deltaEuros,
             dateAvant:  prog.dateAvant,
           } : null,
         };
       });
 
+      // Décisions attendues, tous chantiers confondus (résumé exécutif du .docx).
+      const decisions = (bilanExtras.blocages || [])
+        .filter(b => b.statut === "decision" && (b.texte || "").trim())
+        .map(b => ({ chantier_nom: b.chantier_nom || "", texte: b.texte }));
+
       const response = await fetch("/api/generate-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekId, totalH, chantierData, notesLibres })
+        body: JSON.stringify({ weekId, totalH, chantierData, decisions, notesLibres })
       });
 
       if (!response.ok) {
