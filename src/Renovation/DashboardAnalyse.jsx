@@ -1806,6 +1806,8 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
   // Date du dernier CR (cr_comptes_rendus) par chantier_id, pour calcul statut hebdo
   const [lastCRByChantier, setLastCRByChantier] = useState({});
   const [loading, setLoading] = useState(true);
+  const [dataErrors, setDataErrors] = useState([]);
+  const [lastDataSync, setLastDataSync] = useState(null);
   // Pipeline et Trésorerie persistés dans planning_config (PR6).
   const [pipeline, setPipeline]   = useState(INIT_PIPELINE);
   const [finances, setFinances]   = useState(INIT_FINANCES);
@@ -1879,6 +1881,22 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         // premières directes" auto-calculée par mois du Point financier.
         supabase.from("factures").select("montant_ht, date_facture"),
       ]);
+      // Contrôle explicite des lectures : le dashboard ne doit pas afficher des
+      // zéros silencieux lorsqu'une table est inaccessible, mal nommée ou bloquée
+      // par une policy RLS. Les erreurs restent non bloquantes mais sont visibles.
+      const sourceErrors = [
+        ["phasages", phQ?.error],
+        ["planning_config", cfgQ?.error],
+        ["cr_comptes_rendus", crQ?.error?.code === "42703" ? null : crQ?.error],
+        ["pointages", ptsQ?.error],
+        ["commande_lignes", cmdQ?.error],
+        ["factures", facQ?.error],
+      ].filter(([, err]) => !!err).map(([source, err]) => ({
+        source,
+        message: err?.message || "Erreur de lecture inconnue",
+        code: err?.code || null,
+      }));
+
       // Regroupement par chantier_id (repli vide si erreur)
       const byCh = {};
       if (!ptsQ?.error) (ptsQ.data || []).forEach(p => {
@@ -1931,15 +1949,78 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
       setPointagesByChantier(byCh);
       setCommandeCostByChantier(cmdByCh);
       setDerivedFinance({ moByMonth, matByMonth });
+      setDataErrors(sourceErrors);
+      setLastDataSync(new Date());
       setLoading(false);
     })();
-    // Channel realtime : recharger les phasages dès qu'un est mis à jour
-    const ch = supabase.channel("dashboard-phasages")
-      .on("postgres_changes", { event: "*", schema: "public", table: "phasages" },
-          async () => {
-            const { data } = await supabase.from("phasages").select("id, chantier_id, chantier_nom, plan_travaux, updated_at");
-            if (!cancelled) setPhasagesRaw(data || []);
-          })
+    // Synchronisation temps réel de TOUTES les sources qui alimentent les KPIs.
+    // Auparavant seul `phasages` était écouté, et le rechargement omettait même
+    // `ouvrages` : les données V2 pouvaient donc disparaître jusqu'au refresh.
+    const refreshPhasages = async () => {
+      const { data, error } = await supabase.from("phasages")
+        .select("id, chantier_id, chantier_nom, plan_travaux, ouvrages, updated_at");
+      if (!cancelled && !error) setPhasagesRaw(data || []);
+    };
+    const refreshPointages = async () => {
+      const { data, error } = await supabase.from("pointages")
+        .select("chantier_id,tache_id,heures,taux_horaire,type_pointage,motif_indirect,date");
+      if (cancelled || error) return;
+      const byCh = {};
+      const moByMonth = {};
+      (data || []).forEach(p => {
+        const k = p.chantier_id;
+        if (k) {
+          if (!byCh[k]) byCh[k] = [];
+          byCh[k].push(p);
+        }
+        const m = (p.date || "").slice(0, 7);
+        if (m.length === 7) moByMonth[m] = (moByMonth[m] || 0) + nv(p.heures) * nv(p.taux_horaire);
+      });
+      setPointagesByChantier(byCh);
+      setDerivedFinance(prev => ({ ...prev, moByMonth }));
+      setLastDataSync(new Date());
+    };
+    const refreshCommandes = async () => {
+      const { data, error } = await supabase.from("commande_lignes").select("chantier_id, lot_id, prix_total");
+      if (cancelled || error) return;
+      const map = {};
+      (data || []).forEach(l => { if (l.chantier_id) map[l.chantier_id] = (map[l.chantier_id] || 0) + nv(l.prix_total); });
+      setCommandeCostByChantier(map);
+      setLastDataSync(new Date());
+    };
+    const refreshFactures = async () => {
+      const { data, error } = await supabase.from("factures").select("montant_ht, date_facture");
+      if (cancelled || error) return;
+      const matByMonth = {};
+      (data || []).forEach(f => {
+        const m = (f.date_facture || "").slice(0, 7);
+        if (m.length === 7) matByMonth[m] = (matByMonth[m] || 0) + nv(f.montant_ht);
+      });
+      setDerivedFinance(prev => ({ ...prev, matByMonth }));
+      setLastDataSync(new Date());
+    };
+    const refreshCR = async () => {
+      let { data, error } = await supabase.from("cr_comptes_rendus")
+        .select("chantier_id, date_visite, validateur").order("date_visite", { ascending: false }).limit(200);
+      if (error?.code === "42703") ({ data, error } = await supabase.from("cr_comptes_rendus")
+        .select("chantier_id, date_visite").order("date_visite", { ascending: false }).limit(200));
+      if (cancelled || error) return;
+      const map = {};
+      (data || []).forEach(r => {
+        if (!r.chantier_id || !r.date_visite) return;
+        if (!map[r.chantier_id] || r.date_visite > map[r.chantier_id].date)
+          map[r.chantier_id] = { date: r.date_visite, validateur: r.validateur || null };
+      });
+      setLastCRByChantier(map);
+      setLastDataSync(new Date());
+    };
+
+    const ch = supabase.channel("dashboard-analyse-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "phasages" }, refreshPhasages)
+      .on("postgres_changes", { event: "*", schema: "public", table: "pointages" }, refreshPointages)
+      .on("postgres_changes", { event: "*", schema: "public", table: "commande_lignes" }, refreshCommandes)
+      .on("postgres_changes", { event: "*", schema: "public", table: "factures" }, refreshFactures)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cr_comptes_rendus" }, refreshCR)
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, []);
@@ -2046,6 +2127,17 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: T?.textSub || '#9aa5c0', padding: '7px 12px', border: `1px solid ${T?.border || 'rgba(255,255,255,0.07)'}`, borderRadius: 999 }}>{dateLabel}</div>
         {loading && <span style={{ fontSize: 11, color: T?.textMuted || '#5b6a8a', fontStyle: 'italic' }}>Chargement…</span>}
       </div>
+
+      {dataErrors.length > 0 && (
+        <div style={{ margin: '14px 28px 0', padding: '11px 14px', borderRadius: 12, background: 'rgba(255,98,95,.10)', border: '1px solid rgba(255,98,95,.30)', color: '#ff625f', fontSize: 11, lineHeight: 1.5 }}>
+          <strong>Lecture incomplète :</strong> {dataErrors.map(e => `${e.source}${e.code ? ` (${e.code})` : ''} : ${e.message}`).join(' · ')}
+        </div>
+      )}
+      {lastDataSync && (
+        <div style={{ padding: '6px 28px 0', textAlign: 'right', fontSize: 9, color: T?.textMuted || '#5b6a8a' }}>
+          Données synchronisées à {lastDataSync.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        </div>
+      )}
 
       {/* KPIs */}
       <div style={{
