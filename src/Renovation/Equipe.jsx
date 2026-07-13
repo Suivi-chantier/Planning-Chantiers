@@ -458,11 +458,17 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     const fmt = (txt) => esc(txt).replace(/\n/g, "<br>");
     const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
 
+    // ── Palette de marque (sobre, restreinte) ────────────────────────────────
+    //   ink   noir profond      jaune Profero    vert avancement
+    //   orange alerte sobre     rouge régression gris texte secondaire
+    const INK = "#14181c", YELLOW = "#f5c400", GREEN = "#3f9c5f",
+          ORANGE = "#d98a2b", RED = "#cf5b5b", GREY = "#8a9099", LINE = "#e6e8ec";
+
     // Couleur de pastille d'état (partagée entre la synthèse et les blocs) :
     //   vert >= 3 pts · orange 0-3 pts · rouge régression · gris pas de donnée.
     const pastilleDe = (p) => (p && p.delta != null)
-      ? (p.delta < 0 ? "#e15a5a" : p.delta < 3 ? "#f5a623" : "#22c55e")
-      : "#b8b8b8";
+      ? (p.delta < 0 ? RED : p.delta < 3 ? ORANGE : GREEN)
+      : "#c2c6cc";
 
     const chantierBlocs = Object.entries(parChantier).map(([cId, grp]) => {
       const ch = chantiers.find(c => c.id === cId);
@@ -494,57 +500,57 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       // Progression = élément le plus visible du bloc (affichée en tête à droite).
       let progLigne;
       if (!p || p.maintenant == null) {
-        progLigne = `<span style="font-size:10pt;color:#999;">Avancement non calculé</span>`;
+        progLigne = `<span style="font-size:9.5pt;color:${GREY};">Avancement non calculé</span>`;
       } else if (p.avant == null) {
-        progLigne = `<span style="font-size:10pt;color:#666;">Avancement </span><strong style="font-size:15pt;color:#1a1f2e;">${p.maintenant}%</strong>`;
+        progLigne = `<span style="font-size:9.5pt;color:${GREY};">Avancement </span><strong style="font-size:15pt;color:${INK};">${p.maintenant}%</strong>`;
       } else {
-        const c = p.delta > 0 ? "#1a8f4a" : p.delta < 0 ? "#c0392b" : "#8a6a00";
+        const c = p.delta > 0 ? GREEN : p.delta < 0 ? RED : ORANGE;
         const sign = p.delta > 0 ? "+" : "";
         const euros = p.deltaEuros != null
-          ? ` <span style="color:${c};font-weight:800;font-size:11pt;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
+          ? `<span style="display:inline-block;margin-left:8pt;padding-left:8pt;border-left:1pt solid ${LINE};color:${c};font-weight:700;font-size:11pt;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
           : "";
-        progLigne = `<span style="font-size:9pt;color:#999;">${p.avant}% →</span> <strong style="font-size:16pt;color:#1a1f2e;">${p.maintenant}%</strong> <span style="color:${c};font-weight:800;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
+        progLigne = `<span style="font-size:9pt;color:${GREY};">${p.avant}% →</span> <strong style="font-size:17pt;color:${INK};letter-spacing:-.01em;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
       }
 
       // Liste de tâches. `compact` = version discrète (utilisée pour "Réalisé",
       // qui n'est plus qu'une synthèse détaillée sous le compteur).
       const listeTaches = (items, color, icon, compact = false) => items.length === 0 ? "" : `
-        <ul style="margin:0 0 8pt;padding:0;">
-          ${items.map(t => `<li style="font-size:${compact ? "9pt" : "10pt"};color:${compact ? "#555" : "#222"};margin:0 0 ${compact ? "2pt" : "3pt"};padding-left:14pt;position:relative;list-style:none;">
-            <span style="position:absolute;left:0;top:0;color:${color};font-weight:700;">${icon}</span>${esc(t.planifie||t.text||"")}${t.remarque ? ` <span style="color:#888;">— ${esc(t.remarque)}</span>` : ""}<span style="color:#aaa;font-size:8.5pt;"> (${esc(t.ouvrier||"")})</span>
+        <ul style="margin:0 0 9pt;padding:0;">
+          ${items.map(t => `<li style="font-size:${compact ? "9pt" : "10pt"};color:${compact ? "#5a616b" : "#2a2f37"};margin:0 0 ${compact ? "3pt" : "4pt"};padding-left:15pt;position:relative;list-style:none;line-height:1.45;">
+            <span style="position:absolute;left:0;top:0;color:${color};font-weight:700;">${icon}</span>${esc(t.planifie||t.text||"")}${t.remarque ? ` <span style="color:${GREY};">— ${esc(t.remarque)}</span>` : ""}${t.ouvrier ? `<span style="color:#b3b8bf;font-size:8pt;"> · ${esc(t.ouvrier)}</span>` : ""}
           </li>`).join("")}
         </ul>`;
-      const titreSection = (label, color) => `<div class="sect-title" style="color:${color};font-size:8pt;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4pt;">${label}</div>`;
+      const titreSection = (label, color) => `<div class="sect-title" style="color:${color};">${label}</div>`;
       return `
-        <div class="chantier-card" style="background:#fff;border:1pt solid #e0e0e0;border-left:5pt solid ${couleur};margin:0 0 10pt;">
-          <table class="card-header" style="width:100%;border-collapse:collapse;background:#fafafa;">
+        <div class="chantier-card" style="border:1pt solid ${LINE};border-left:3pt solid ${couleur};border-radius:3pt;margin:0 0 13pt;overflow:hidden;">
+          <table class="card-header" style="width:100%;border-collapse:collapse;background:#fbfbfc;border-bottom:1pt solid ${LINE};">
             <tr>
-              <td style="padding:9pt 12pt;vertical-align:middle;">
-                <span style="display:inline-block;width:11pt;height:11pt;border-radius:50%;background:${pastille};vertical-align:middle;margin-right:8pt;"></span><span style="font-size:14pt;font-weight:800;color:#1a1f2e;vertical-align:middle;">${esc(grp.nom)}</span>
+              <td style="padding:11pt 14pt;vertical-align:middle;">
+                <span style="display:inline-block;width:10pt;height:10pt;border-radius:50%;background:${pastille};vertical-align:middle;margin-right:9pt;"></span><span style="font-size:13pt;font-weight:800;color:${INK};vertical-align:middle;letter-spacing:-.01em;">${esc(grp.nom)}</span>
               </td>
-              <td style="padding:9pt 12pt;vertical-align:middle;text-align:right;white-space:nowrap;">${progLigne}</td>
+              <td style="padding:11pt 14pt;vertical-align:middle;text-align:right;white-space:nowrap;">${progLigne}</td>
             </tr>
           </table>
-          <div style="padding:9pt 12pt;">
-            ${faites.length > 0 ? `<div class="taches-section">${titreSection(`✓ ${faites.length} tâche${faites.length>1?"s":""} terminée${faites.length>1?"s":""}`, "#1a8f4a")}${listeTaches(faites, "#22c55e", "✓", true)}</div>` : ""}
-            ${enCours.length > 0 ? `<div class="taches-section">${titreSection("↻ En cours", "#c07000")}${listeTaches(enCours, "#f5a623", "↻")}</div>` : ""}
+          <div style="padding:12pt 14pt;">
+            ${faites.length > 0 ? `<div class="taches-section">${titreSection(`✓ ${faites.length} tâche${faites.length>1?"s":""} terminée${faites.length>1?"s":""}`, GREEN)}${listeTaches(faites, GREEN, "✓", true)}</div>` : ""}
+            ${enCours.length > 0 ? `<div class="taches-section">${titreSection("En cours", ORANGE)}${listeTaches(enCours, ORANGE, "↻")}</div>` : ""}
             ${blocagesCh.length > 0 ? `
               <div class="taches-section">
-                ${titreSection("⚠ Blocages / arbitrages", "#c0392b")}
+                ${titreSection("Blocages / arbitrages", RED)}
                 ${blocagesCh.map(b => {
                   const dec = b.statut === "decision";
-                  return `<div class="remarque-row" style="background:${dec ? "#fff6e6" : "#f5f7fa"};border-left:2pt solid ${dec ? "#e0a020" : "#5b8af5"};padding:5pt 9pt;margin:0 0 4pt;font-size:10pt;color:#222;">${dec ? `<span style="display:inline-block;background:#e0a020;color:#fff;font-size:7pt;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:1pt 6pt;border-radius:3pt;margin-right:6pt;vertical-align:middle;">Décision attendue</span>` : ""}${fmt(b.texte)}</div>`;
+                  return `<div class="remarque-row" style="background:${dec ? "#fdf6ea" : "#f6f7f9"};border-left:2.5pt solid ${dec ? ORANGE : "#c2c6cc"};padding:6pt 10pt;margin:0 0 5pt;font-size:10pt;color:#2a2f37;border-radius:2pt;line-height:1.45;">${dec ? `<span style="display:inline-block;background:${ORANGE};color:#fff;font-size:6.5pt;font-weight:800;text-transform:uppercase;letter-spacing:.06em;padding:1.5pt 6pt;border-radius:2pt;margin-right:7pt;vertical-align:middle;">Décision attendue</span>` : ""}${fmt(b.texte)}</div>`;
                 }).join("")}
               </div>` : ""}
             ${suiteCh.length > 0 ? `
               <div class="taches-section">
-                ${titreSection("→ Semaine suivante", "#5b6a8a")}
-                ${suiteCh.map(s => `<div class="presence-row" style="font-size:10pt;color:#333;margin:0 0 3pt;padding-left:14pt;position:relative;"><span style="position:absolute;left:0;top:0;color:#5b8af5;font-weight:700;">→</span>${fmt(s.texte)}</div>`).join("")}
+                ${titreSection("Semaine suivante", "#6b7280")}
+                ${suiteCh.map(s => `<div class="presence-row" style="font-size:10pt;color:#3a3f47;margin:0 0 4pt;padding-left:15pt;position:relative;line-height:1.45;"><span style="position:absolute;left:0;top:0;color:#9aa0a8;font-weight:700;">→</span>${fmt(s.texte)}</div>`).join("")}
               </div>` : ""}
             ${(presences.length > 0 || heures > 0 || remarques.length > 0) ? `
-              <div class="taches-section" style="margin-top:7pt;padding-top:6pt;border-top:1pt solid #eee;">
-                ${(presences.length > 0 || heures > 0) ? `${titreSection(`Présences${heures > 0 ? ` · ${heures.toFixed(1)} h` : ""}`, "#aaa")}${presences.map(pr => `<div class="presence-row" style="font-size:9pt;color:#777;margin:0 0 2pt;"><strong style="color:#555;">${esc(pr.jour)} :</strong> ${esc(pr.ouvriers.join(", "))}</div>`).join("")}` : ""}
-                ${remarques.length > 0 ? `<div style="margin-top:${(presences.length > 0 || heures > 0) ? "5pt" : "0"};">${remarques.map(r => `<div class="remarque-row" style="font-size:9pt;color:#777;margin:0 0 2pt;"><strong style="color:#555;">${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}</div>` : ""}
+              <div class="taches-section" style="margin-top:9pt;padding-top:8pt;border-top:1pt solid ${LINE};">
+                ${(presences.length > 0 || heures > 0) ? `${titreSection(`Présences${heures > 0 ? ` · ${heures.toFixed(1)} h` : ""}`, "#b3b8bf")}${presences.map(pr => `<div class="presence-row" style="font-size:9pt;color:#7a808a;margin:0 0 2pt;"><strong style="color:#5a616b;">${esc(pr.jour)}</strong> · ${esc(pr.ouvriers.join(", "))}</div>`).join("")}` : ""}
+                ${remarques.length > 0 ? `<div style="margin-top:${(presences.length > 0 || heures > 0) ? "6pt" : "0"};">${remarques.map(r => `<div class="remarque-row" style="font-size:9pt;color:#7a808a;margin:0 0 2pt;line-height:1.4;"><strong style="color:#5a616b;">${esc(r.ouvrier)} :</strong> ${fmt(r.remarque)}</div>`).join("")}</div>` : ""}
               </div>` : ""}
           </div>
         </div>`;
@@ -561,52 +567,55 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       const dot = pastilleDe(p);
       let droite;
       if (!p || p.maintenant == null) {
-        droite = `<span style="color:#999;">n/c</span>`;
+        droite = `<span style="color:${GREY};">n/c</span>`;
       } else if (p.avant == null) {
-        droite = `<span style="color:#555;">Avancement <strong style="color:#1a1f2e;">${p.maintenant}%</strong></span>`;
+        droite = `<span style="color:${GREY};">Avancement <strong style="color:${INK};">${p.maintenant}%</strong></span>`;
       } else {
-        const c = p.delta > 0 ? "#1a8f4a" : p.delta < 0 ? "#c0392b" : "#8a6a00";
+        const c = p.delta > 0 ? GREEN : p.delta < 0 ? RED : ORANGE;
         const sign = p.delta > 0 ? "+" : "";
         const euros = p.deltaEuros != null
-          ? ` · <span style="color:${c};font-weight:800;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
+          ? ` · <span style="color:${c};font-weight:700;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
           : "";
-        droite = `<strong style="color:#1a1f2e;">${p.maintenant}%</strong> <span style="color:${c};font-weight:800;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
+        droite = `<strong style="color:${INK};">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
       }
       return `<tr>
-        <td class="presence-row" style="padding:4pt 0;vertical-align:middle;"><span style="display:inline-block;width:9pt;height:9pt;border-radius:50%;background:${dot};vertical-align:middle;margin-right:7pt;"></span><span style="font-size:10pt;font-weight:700;color:#1a1f2e;vertical-align:middle;">${esc(grp.nom)}</span></td>
-        <td class="presence-row" style="padding:4pt 0;text-align:right;font-size:10pt;white-space:nowrap;vertical-align:middle;">${droite}</td>
+        <td class="presence-row" style="padding:5pt 0;vertical-align:middle;border-bottom:1pt solid #f0f1f3;"><span style="display:inline-block;width:9pt;height:9pt;border-radius:50%;background:${dot};vertical-align:middle;margin-right:9pt;"></span><span style="font-size:10pt;font-weight:700;color:${INK};vertical-align:middle;">${esc(grp.nom)}</span></td>
+        <td class="presence-row" style="padding:5pt 0;text-align:right;font-size:10pt;white-space:nowrap;vertical-align:middle;border-bottom:1pt solid #f0f1f3;">${droite}</td>
       </tr>`;
     }).join("");
 
     const decisions = (bilanExtras.blocages || []).filter(b => b.statut === "decision" && (b.texte || "").trim());
     const decisionsHTML = decisions.length > 0
-      ? decisions.map(b => `<div class="remarque-row" style="font-size:10pt;color:#222;margin:0 0 4pt;padding-left:15pt;position:relative;"><span style="position:absolute;left:0;top:0;color:#e0a020;font-weight:800;">!</span><strong style="color:#8a5a00;">${esc(b.chantier_nom || "—")} :</strong> ${fmt(b.texte)}</div>`).join("")
-      : `<div style="font-size:9pt;color:#999;font-style:italic;">Aucune décision en attente</div>`;
+      ? decisions.map(b => `<div class="remarque-row" style="font-size:10pt;color:#2a2f37;margin:0 0 5pt;padding-left:16pt;position:relative;line-height:1.45;"><span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span><strong style="color:${INK};">${esc(b.chantier_nom || "—")}</strong> — ${fmt(b.texte)}</div>`).join("")
+      : `<div style="font-size:9pt;color:#a0a5ad;font-style:italic;">Aucune décision en attente</div>`;
 
     const syntheseHTML = Object.keys(parChantier).length === 0 ? "" : `
-      <div class="synthese" style="border:1.5pt solid #1a1f2e;margin:0 0 14pt;">
-        <div style="background:#1a1f2e;color:#f5c400;font-size:8pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:5pt 12pt;">Synthèse de la semaine</div>
-        <div style="padding:8pt 12pt;">
+      <div class="synthese" style="border:1pt solid ${INK};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
+        <div style="background:${INK};color:${YELLOW};font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:6pt 14pt;">Synthèse de la semaine</div>
+        <div style="padding:10pt 14pt;">
           <table style="width:100%;border-collapse:collapse;">${synthChantiers}</table>
-          <div style="margin-top:9pt;padding-top:8pt;border-top:1pt solid #e0e0e0;">
-            <div class="sect-title" style="color:#c0392b;font-size:8pt;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 5pt;">Décisions attendues</div>
+          <div style="margin-top:11pt;padding-top:9pt;border-top:1pt solid ${LINE};">
+            <div class="sect-title" style="color:${RED};margin:0 0 6pt;">Décisions attendues</div>
             ${decisionsHTML}
           </div>
         </div>
       </div>`;
 
     const kpiCell = (val, label, color) => `
-      <td style="padding:10pt 12pt;vertical-align:middle;text-align:center;border-left:1pt solid rgba(255,255,255,.12);">
-        <div style="color:${color};font-size:14pt;font-weight:800;line-height:1;white-space:nowrap;">${val}</div>
-        <div style="color:rgba(255,255,255,.55);font-size:7pt;letter-spacing:.08em;text-transform:uppercase;margin-top:3pt;white-space:nowrap;">${label}</div>
+      <td style="padding:15pt 14pt;vertical-align:middle;text-align:center;border-left:1pt solid rgba(255,255,255,.10);">
+        <div style="color:${color};font-size:15pt;font-weight:800;line-height:1;white-space:nowrap;">${val}</div>
+        <div style="color:rgba(255,255,255,.5);font-size:6.5pt;font-weight:700;letter-spacing:.11em;text-transform:uppercase;margin-top:4pt;white-space:nowrap;">${label}</div>
       </td>`;
 
     return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <title>Bilan ${esc(weekId)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.45;padding:0;}
-  .page{max-width:760pt;margin:0 auto;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#2a2f37;font-size:10pt;line-height:1.55;padding:0;}
+  .page{max-width:720pt;margin:0 auto;padding:0;}
+  /* Titre de sous-section : un seul style, partout. La couleur est passée en
+     inline par titreSection() ; taille/graisse/espacement viennent d'ici. */
+  .sect-title{font-size:7.5pt;font-weight:700;letter-spacing:.11em;text-transform:uppercase;margin:0 0 5pt;}
   /* Coupures de page : on protège UNIQUEMENT les unités atomiques (rangée
      présence, item de liste, rangée remarque, headers). Les .taches-section
      sont autorisées à se scinder entre deux pages — c'est ce qui évite les
@@ -622,33 +631,33 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
   .card-header, .sect-title { page-break-after: avoid; }
   /* Footer générique répété sur chaque page (running footer Chrome print). */
   @page {
-    @bottom-left   { content: "Profero Rénovation"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
-    @bottom-center { content: "Bilan semaine ${esc(weekId)}"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
-    @bottom-right  { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-left   { content: "Profero Rénovation"; font-size: 8pt; color: #a0a5ad; font-family: Arial, sans-serif; }
+    @bottom-center { content: "Bilan semaine ${esc(weekId)}"; font-size: 8pt; color: #a0a5ad; font-family: Arial, sans-serif; }
+    @bottom-right  { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #a0a5ad; font-family: Arial, sans-serif; }
   }
-  @page{margin:14mm 14mm;size:A4;}
+  @page{margin:16mm 15mm;size:A4;}
   @media print {
     body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}
     .no-print{display:none!important;}
   }
 </style></head><body><div class="page">
-  <table class="bilan-banner" style="width:100%;border-collapse:collapse;background:#0a0a0a;margin:0 0 14pt;">
+  <table class="bilan-banner" style="width:100%;border-collapse:collapse;background:${INK};margin:0 0 16pt;border-radius:3pt;overflow:hidden;">
     <tr>
-      <td style="padding:12pt 16pt;vertical-align:middle;width:80pt;">
+      <td style="padding:15pt 18pt;vertical-align:middle;width:78pt;">
         <img src="${logoUrl}" alt="Profero" style="height:30pt;object-fit:contain;display:block;"/>
       </td>
-      <td style="padding:12pt 8pt;vertical-align:middle;white-space:nowrap;">
-        <div style="color:#f5c400;font-size:7pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;">Bilan semaine</div>
-        <div style="color:#fff;font-size:15pt;font-weight:800;line-height:1.1;margin-top:2pt;">${esc(weekId)}</div>
+      <td style="padding:15pt 10pt;vertical-align:middle;white-space:nowrap;border-left:1pt solid rgba(255,255,255,.10);">
+        <div style="color:${YELLOW};font-size:7pt;font-weight:700;letter-spacing:1.6pt;text-transform:uppercase;">Bilan semaine</div>
+        <div style="color:#fff;font-size:17pt;font-weight:800;line-height:1.1;margin-top:3pt;letter-spacing:-.01em;">${esc(weekId)}</div>
       </td>
-      ${kpiCell(`${totalHeures.toFixed(1)} h`, "Heures", "#f5c400")}
-      ${kpiCell(`${totalFaites}`, "Tâches", "#50c878")}
-      ${totalGenereEuros > 0 ? kpiCell(`+${fmtEuros(totalGenereEuros)}`, "Généré", "#f5c400") : ""}
+      ${kpiCell(`${totalHeures.toFixed(1)} h`, "Heures", YELLOW)}
+      ${kpiCell(`${totalFaites}`, "Tâches", "#5fbf85")}
+      ${totalGenereEuros > 0 ? kpiCell(`+${fmtEuros(totalGenereEuros)}`, "Généré", YELLOW) : ""}
     </tr>
   </table>
   ${syntheseHTML}
-  ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:#999;">Aucun compte rendu pour cette semaine.</div>`}
-  <div style="text-align:center;margin-top:14pt;font-size:8pt;color:#999;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
+  ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun compte rendu pour cette semaine.</div>`}
+  <div style="text-align:center;margin-top:16pt;padding-top:9pt;border-top:1pt solid ${LINE};font-size:8pt;color:#a0a5ad;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
 </div></body></html>`;
   };
 
