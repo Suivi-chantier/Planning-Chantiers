@@ -57,7 +57,15 @@ function ProgressBar({ value, color, height = 6 }) {
 // (legacy), on retombe sur l'ancien calcul heures_reelles × ouvriers[0].
 // Le caller passe pointagesIndexes (résultat de indexPointagesParTache) et
 // extraStats ({coutLibre, coutIndirect}) pour ajouter les heures hors-tâches.
-function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = []) {
+// Total réel d'un jeu de lignes de commande (prix_total sinon PU × quantité).
+// Aligné sur PhasageV2 : la somme des lignes de commande est la source de
+// vérité du coût matériaux RÉEL.
+function totalLignes(lignes) {
+  return (lignes || []).reduce(
+    (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
+}
+
+function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = []) {
   const ouvrages = phasage?.ouvrages || [];
   const hasV2 = ouvrages.length > 0;
   if (!hasV2 && !phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0 };
@@ -73,9 +81,12 @@ function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraSt
     const coutMOTaches = allTaches.reduce((s, t) => s + coutMOEff(t, pointagesIndexes, tauxHoraires), 0);
     coutMO = coutMOTaches + (extraStats.coutLibre || 0) + (extraStats.coutIndirect || 0);
   }
-  // Coût matériaux : V2 = somme cout_materiaux des ouvrages ; V1 = cout_materiel des tâches.
+  // Coût matériaux RÉEL : V2 = somme des lignes de commande du chantier (source
+  // de vérité depuis la refonte commandes ; identique à PhasageV2, y compris 0
+  // tant qu'aucune commande n'est saisie — l'estimation cout_materiaux reste le
+  // PRÉVISIONNEL, affiché séparément). V1 legacy = cout_materiel des tâches.
   const coutMat = hasV2
-    ? ouvrages.reduce((s, o) => s + (parseFloat(o.cout_materiaux) || 0), 0)
+    ? totalLignes(commandeLignes)
     : PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || [])).reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = coutMO + coutMat;
   const prixVendu = parseFloat(phasage?.prix_vendu) || parseFloat(phasage?.plan_travaux?.meta?.prix_vendu) || 0;
@@ -449,6 +460,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const [adresseSaving, setAdresseSaving]   = useState(false);
   const [adresseError, setAdresseError]     = useState("");
   const [rapportsEquipe, setRapportsEquipe] = useState([]);
+  // Lignes de commande du chantier sélectionné → coût matériaux RÉEL (V2).
+  // Source de vérité depuis la refonte commandes (cf. PhasageV2), remplace
+  // l'estimation ouvrages[].cout_materiaux pour le "réel".
+  const [commandeLignes, setCommandeLignes] = useState([]);
   const [lightboxGal, setLightboxGal]     = useState(null);
   const [loadingTous, setLoadingTous]   = useState(false);
   const fileInputRef                    = useRef(null);
@@ -509,6 +524,22 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       setAdresseError("");
     }
   }, [selected, chantierAdresses]);
+
+  // ── Chargement des lignes de commande (tous chantiers) ──
+  // Coût matériaux RÉEL (V2) = somme des lignes de commande liées au chantier,
+  // cohérent avec PhasageV2. Chargées globalement (comme les pointages) puis
+  // filtrées par chantier, pour que les cartes de la liste ET la fiche détail
+  // soient justes. Si la table n'existe pas encore, on garde [].
+  useEffect(() => {
+    let cancelled = false;
+    supabase.from("commande_lignes")
+      .select("id, quantite, prix_unitaire, prix_total, lot_id, ouvrage_id, chantier_id")
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setCommandeLignes(error ? [] : (data || []));
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Géocode + sauvegarde l'adresse via Nominatim (OSM, gratuit, sans clé)
   const handleSaveAdresse = async () => {
@@ -711,7 +742,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     : [];
   const ptsIndexSelected = indexPointagesParTache(pointagesChantierSelected);
   const extraSelected = sumLibreEtIndirect(pointagesChantierSelected);
-  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected) : null;
+  // Lignes de commande du chantier sélectionné → coût matériaux réel (V2).
+  const commandeLignesSelected = selectedPhasage
+    ? commandeLignes.filter(l => l.chantier_id === selectedPhasage.chantier_id)
+    : [];
+  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // Heures vendues vs réelles par OUVRAGE (suivi des dérives).
@@ -926,7 +961,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               const ptsCh   = phasage ? pointages.filter(p => p.chantier_id === phasage.chantier_id) : [];
               const ptsIdx  = indexPointagesParTache(ptsCh);
               const extras  = sumLibreEtIndirect(ptsCh);
-              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh) : null;
+              const cmdCh   = phasage ? commandeLignes.filter(l => l.chantier_id === phasage.chantier_id) : [];
+              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh, cmdCh) : null;
               const photo   = photoMap[chantier.id];
               const statut  = getStatut(chantier, phasage);
 
@@ -1634,22 +1670,55 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           const coutMOPrev     = totalHVendues * tauxMoyen;
           const coutMOReel     = finances?.coutMO || 0;
 
-          // Agrégats matériaux par phase
-          const lignesPhases = PHASES.map(ph => {
-            const taches    = selectedPhasage.plan_travaux?.[ph.id] || [];
-            const matsPrev  = selectedPhasage.plan_travaux?.[ph.id + "__materiaux_prevus"] || [];
-            const coutCmd   = parseFloat(selectedPhasage.plan_travaux?.[ph.id + "__cout_commandes"]) || 0;
-            const dateCmd   = selectedPhasage.plan_travaux?.[ph.id + "__date_commande"] || null;
-            const coutPrev  = matsPrev.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
-            const coutMatTaches = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
-            const coutReel  = coutMatTaches + coutCmd;
-            return {
-              id: ph.id, label: ph.label, couleur: ph.couleur, emoji: ph.emoji,
-              matsPrev, coutPrev, coutReel, coutCmd, dateCmd,
-              hasMat: matsPrev.length > 0 || coutCmd > 0 || coutMatTaches > 0,
-              statutCmd: coutCmd > 0 ? "commande" : "a_commander",
-            };
-          }).filter(l => l.hasMat);
+          // Détail matériaux : par OUVRAGE en V2 (prévu = cout_materiaux estimé,
+          // réel = lignes de commande rattachées), par PHASE en repli legacy V1.
+          const hasV2Budget = (selectedPhasage.ouvrages || []).length > 0;
+          let lignesMat, totalMatReel, aucunMatPrev;
+          if (hasV2Budget) {
+            const ouvrages = selectedPhasage.ouvrages || [];
+            lignesMat = ouvrages.map(o => {
+              const coutPrev = parseFloat(o.cout_materiaux) || 0;
+              const coutReel = totalLignes(commandeLignesSelected.filter(l => l.ouvrage_id === o.id));
+              return {
+                id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, emoji: null,
+                matsPrev: [], coutPrev, coutReel, dateCmd: null,
+                hasMat: coutPrev > 0 || coutReel > 0,
+                statutCmd: coutReel > 0 ? "commande" : "a_commander",
+              };
+            }).filter(l => l.hasMat);
+            // Lignes de commande non rattachées à un ouvrage → ligne récap.
+            const orphanReel = totalLignes(commandeLignesSelected.filter(l => !l.ouvrage_id));
+            if (orphanReel > 0) {
+              lignesMat.push({
+                id: "_orphan", label: "Commandes non rattachées", couleur: textMuted, emoji: null,
+                matsPrev: [], coutPrev: 0, coutReel: orphanReel, dateCmd: null,
+                hasMat: true, statutCmd: "commande",
+              });
+            }
+            // Réel = TOTAL des lignes de commande du chantier (source de vérité,
+            // identique à PhasageV2), y compris les lignes non rattachées.
+            totalMatReel = totalLignes(commandeLignesSelected);
+            aucunMatPrev = false;
+          } else {
+            // Agrégats matériaux par phase (ancien modèle V1)
+            lignesMat = PHASES.map(ph => {
+              const taches    = selectedPhasage.plan_travaux?.[ph.id] || [];
+              const matsPrev  = selectedPhasage.plan_travaux?.[ph.id + "__materiaux_prevus"] || [];
+              const coutCmd   = parseFloat(selectedPhasage.plan_travaux?.[ph.id + "__cout_commandes"]) || 0;
+              const dateCmd   = selectedPhasage.plan_travaux?.[ph.id + "__date_commande"] || null;
+              const coutPrev  = matsPrev.reduce((s, m) => s + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0);
+              const coutMatTaches = taches.reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+              const coutReel  = coutMatTaches + coutCmd;
+              return {
+                id: ph.id, label: ph.label, couleur: ph.couleur, emoji: ph.emoji,
+                matsPrev, coutPrev, coutReel, coutCmd, dateCmd,
+                hasMat: matsPrev.length > 0 || coutCmd > 0 || coutMatTaches > 0,
+                statutCmd: coutCmd > 0 ? "commande" : "a_commander",
+              };
+            }).filter(l => l.hasMat);
+            totalMatReel = lignesMat.reduce((s, l) => s + l.coutReel, 0);
+            aucunMatPrev = lignesMat.every(l => l.matsPrev.length === 0);
+          }
 
           // Matériaux prévisionnel = somme des coûts matériaux estimés des
           // ouvrages (cout_materiaux, calculé depuis les matériaux liés de la
@@ -1658,13 +1727,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           const totalMatPrev = (selectedPhasage.ouvrages || []).reduce(
             (s, o) => s + (parseFloat(o.cout_materiaux) || 0), 0
           );
-          const totalMatReel = lignesPhases.reduce((s, l) => s + l.coutReel, 0);
           const coutTotalPrev = coutMOPrev + totalMatPrev;
           const coutTotalReel = coutMOReel + totalMatReel;
           const prixVendu    = parseFloat(selectedPhasage.prix_vendu) || 0;
           const margePrev    = prixVendu - coutTotalPrev;
           const margeReel    = prixVendu - coutTotalReel;
-          const aucunMatPrev = lignesPhases.every(l => l.matsPrev.length === 0);
 
           const fmtH = (n) => `${(+(parseFloat(n) || 0).toFixed(1))}h`;
           const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : null;
@@ -1710,10 +1777,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                 <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: RADIUS.lg, padding: "14px 16px" }}>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, color: textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>
                     <Icon as={Package} size={12} color="#f59e0b"/>
-                    Matériaux par phase
+                    {hasV2Budget ? "Matériaux par ouvrage" : "Matériaux par phase"}
                   </div>
 
-                  {lignesPhases.length === 0 || aucunMatPrev ? (
+                  {lignesMat.length === 0 || aucunMatPrev ? (
                     <div style={{
                       padding: "20px 14px", textAlign: "center",
                       background: card, borderRadius: RADIUS.md, border: `1px dashed ${border}`,
@@ -1721,24 +1788,26 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     }}>
                       <Icon as={Package} size={24} strokeWidth={1.5} style={{ opacity: .4, marginBottom: 6 }}/>
                       <div style={{ fontSize: FONT.sm.size, color: text, fontWeight: 600, marginBottom: 3 }}>
-                        Aucun matériau prévisionnel défini
+                        {hasV2Budget ? "Aucun matériau ni commande" : "Aucun matériau prévisionnel défini"}
                       </div>
                       <div style={{ fontSize: FONT.xs.size + 1, opacity: .8, lineHeight: 1.5 }}>
-                        Ajoute des matériaux par phase depuis la page <strong style={{ color: text }}>Phasage</strong>.
+                        {hasV2Budget
+                          ? <>Renseigne les matériaux des ouvrages et les commandes depuis la page <strong style={{ color: text }}>Phasage</strong>.</>
+                          : <>Ajoute des matériaux par phase depuis la page <strong style={{ color: text }}>Phasage</strong>.</>}
                       </div>
                     </div>
                   ) : (
                     <div className="ch-budget-mat-wrap" style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: hasV2Budget ? 380 : 600 }}>
                         <thead>
                           <tr style={{ borderBottom: `1px solid ${border}` }}>
                             {[
-                              { l: "Phase",          align: "left",   w: 160 },
-                              { l: "Matériaux prévus", align: "left",  w: null },
+                              { l: hasV2Budget ? "Ouvrage" : "Phase", align: "left", w: 160 },
+                              ...(hasV2Budget ? [] : [{ l: "Matériaux prévus", align: "left", w: null }]),
                               { l: "Prévu HT",       align: "right",  w: 90 },
                               { l: "Réel HT",        align: "right",  w: 90 },
                               { l: "Statut",         align: "center", w: 100 },
-                              { l: "À cmd. avant",   align: "center", w: 110 },
+                              ...(hasV2Budget ? [] : [{ l: "À cmd. avant", align: "center", w: 110 }]),
                             ].map(h => (
                               <th key={h.l} style={{
                                 padding: "8px 8px", fontSize: 10, fontWeight: 700, color: textMuted,
@@ -1749,7 +1818,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                           </tr>
                         </thead>
                         <tbody>
-                          {lignesPhases.map(l => (
+                          {lignesMat.map(l => (
                             <tr key={l.id} style={{ borderBottom: `1px solid ${border}` }}>
                               <td style={{ padding: "8px 8px" }}>
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -1757,19 +1826,21 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                                   <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: text }}>{l.emoji ? `${l.emoji} ` : ""}{l.label}</span>
                                 </span>
                               </td>
-                              <td style={{ padding: "8px 8px", fontSize: FONT.xs.size + 1, color: textSub, lineHeight: 1.5 }}>
-                                {l.matsPrev.length === 0 ? (
-                                  <span style={{ color: textMuted, fontStyle: "italic" }}>—</span>
-                                ) : (
-                                  l.matsPrev.map((m, i) => (
-                                    <span key={m.id}>
-                                      <span style={{ color: text, fontWeight: 600 }}>{m.libelle}</span>
-                                      <span style={{ color: textMuted }}> ({m.quantite}{m.unite ? ` ${m.unite}` : ""})</span>
-                                      {i < l.matsPrev.length - 1 && <span style={{ color: textMuted }}> · </span>}
-                                    </span>
-                                  ))
-                                )}
-                              </td>
+                              {!hasV2Budget && (
+                                <td style={{ padding: "8px 8px", fontSize: FONT.xs.size + 1, color: textSub, lineHeight: 1.5 }}>
+                                  {l.matsPrev.length === 0 ? (
+                                    <span style={{ color: textMuted, fontStyle: "italic" }}>—</span>
+                                  ) : (
+                                    l.matsPrev.map((m, i) => (
+                                      <span key={m.id}>
+                                        <span style={{ color: text, fontWeight: 600 }}>{m.libelle}</span>
+                                        <span style={{ color: textMuted }}> ({m.quantite}{m.unite ? ` ${m.unite}` : ""})</span>
+                                        {i < l.matsPrev.length - 1 && <span style={{ color: textMuted }}> · </span>}
+                                      </span>
+                                    ))
+                                  )}
+                                </td>
+                              )}
                               <td style={{ padding: "8px 8px", textAlign: "right", fontSize: FONT.sm.size, fontWeight: 700, color: "#f59e0b", fontFamily: "'DM Mono',monospace" }}>
                                 {l.coutPrev > 0 ? fmt(l.coutPrev) : "—"}
                               </td>
@@ -1788,9 +1859,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                                   {l.statutCmd === "commande" ? "Commandé" : "À commander"}
                                 </span>
                               </td>
-                              <td style={{ padding: "8px 8px", textAlign: "center", fontSize: FONT.xs.size + 1, color: l.dateCmd ? textSub : textMuted, fontStyle: l.dateCmd ? "normal" : "italic" }}>
-                                {fmtDate(l.dateCmd) || "—"}
-                              </td>
+                              {!hasV2Budget && (
+                                <td style={{ padding: "8px 8px", textAlign: "center", fontSize: FONT.xs.size + 1, color: l.dateCmd ? textSub : textMuted, fontStyle: l.dateCmd ? "normal" : "italic" }}>
+                                  {fmtDate(l.dateCmd) || "—"}
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
