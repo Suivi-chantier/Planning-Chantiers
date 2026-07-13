@@ -715,12 +715,26 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // Heures vendues vs réelles par OUVRAGE (suivi des dérives).
-  // Source : ouvrage.heures_devis pour les vendues, somme des heures_reelles
-  // des tâches rattachées à l'ouvrage (toutes phases confondues) pour le réel.
-  // Tâches sans ouvrage_id → groupées sous "Sans ouvrage" en fin de liste.
+  // Source : ouvrage.heures_devis pour les vendues, somme des heures réelles
+  // (dérivées du registre, repli legacy) des tâches rattachées à l'ouvrage.
+  // V2 : les tâches vivent dans ouvrages[].taches (source de vérité, comme
+  // calcFinances/calcAvancement et PhasageV2). V1 (legacy) : on retombe sur
+  // plan_travaux[phase], en groupant par ouvrage_id + "Sans ouvrage" en fin.
   const heuresParOuvrage = (() => {
     if (!selectedPhasage) return [];
     const ouvrages = selectedPhasage.ouvrages || [];
+    const hasV2 = ouvrages.length > 0;
+
+    if (hasV2) {
+      // Tâches rattachées directement à chaque ouvrage (structure V2).
+      return ouvrages.map(o => {
+        const reelles = (o.taches || []).reduce((s, t) => s + heuresEff(t, ptsIndexSelected), 0);
+        const vendues = parseFloat(o.heures_devis) || 0;
+        return { id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, vendues, reelles };
+      }).filter(o => o.vendues > 0 || o.reelles > 0);
+    }
+
+    // ── Repli V1 : tâches organisées par phase dans plan_travaux ──
     const tachesParOuvrage = new Map();
     const orphan = { reelles: 0, vendues: 0 };
     PHASES.forEach(ph => {
