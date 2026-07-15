@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId, LOGO_RENO_H, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { Icon } from "../ui";
@@ -7,11 +7,11 @@ import {
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
-  FileText, User, Calendar, Link2,
+  FileText, User, Calendar, Link2, Car,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
 import { confirmPerteMassive } from "../guards";
-import { fetchPointages, indexPointagesParTache } from "../pointages";
+import { fetchPointages, indexPointagesParTache, sumLibreEtIndirect } from "../pointages";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un
@@ -854,6 +854,43 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // (somme heures_reelles des tâches, gère le format tableau v1 via helper).
   const heuresVenduesChantier = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
   const heuresReellesChantier = ouvrages.reduce((s, o) => s + (o.taches || []).reduce((ss, t) => ss + tacheHeuresReelles(t), 0), 0);
+
+  // Heures + coût des pointages hors tâches d'ouvrage : "libres" (tache_id null,
+  // type "tache") et "indirects" (trajet, intempéries…). coutIndirect INCLUT le trajet.
+  const extras = useMemo(() => sumLibreEtIndirect(pointages), [pointages]);
+
+  // Totaux chantier alignés sur DashboardAnalyse (per-tâche + extras). Pas de
+  // double comptage : coutMOChantier/heuresReellesChantier ne somment que les
+  // pointages à tache_id d'un ouvrage ; extras ne somme que les type "indirect"
+  // ou tache_id null. Ensembles disjoints.
+  const coutMOTotalChantier =
+    coutMOChantier + extras.coutLibre + extras.coutIndirect;
+  const heuresReellesTotalChantier =
+    heuresReellesChantier + extras.heuresLibre + extras.heuresIndirect;
+
+  // Stats d'affichage (cartes informatives) — trajet et indirect hors trajet.
+  // Elles n'ajoutent rien au total : déjà comptées dans coutMOTotalChantier.
+  const trajetStats = useMemo(() => {
+    let heures = 0, cout = 0;
+    pointages.forEach(p => {
+      if (p.type_pointage !== "indirect") return;
+      if (!/trajet/i.test(p.motif_indirect || "")) return;
+      const h = parseFloat(p.heures) || 0;
+      heures += h; cout += h * (parseFloat(p.taux_horaire) || 0);
+    });
+    return { heures, cout };
+  }, [pointages]);
+
+  const indirectStats = useMemo(() => {   // indirect HORS trajet
+    let heures = 0, cout = 0;
+    pointages.forEach(p => {
+      if (p.type_pointage !== "indirect") return;
+      if (/trajet/i.test(p.motif_indirect || "")) return;
+      const h = parseFloat(p.heures) || 0;
+      heures += h; cout += h * (parseFloat(p.taux_horaire) || 0);
+    });
+    return { heures, cout };
+  }, [pointages]);
   // ── PRÉVISIONNEL ──────────────────────────────────────────────────────────
   // Coût MO PRÉVU = heures vendues (Σ heures_devis) × taux horaire global réglé
   // dans Admin → Taux MO prévisionnel (repli sur le défaut si non réglé).
@@ -872,8 +909,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     return Number.isFinite(v) ? v : 0;
   })();
   const fgChantier = fgTauxHoraire * heuresVenduesChantier;
-  // Marge nette = Vendu − Coût MO − Coût matériaux − Frais généraux.
-  const margeChantier  = prixHTChantier - coutMOChantier - coutMatChantier - fgChantier;
+  // Marge nette = Vendu − Coût MO (tâches + trajets + indirect) − Matériaux − FG.
+  const margeChantier  = prixHTChantier - coutMOTotalChantier - coutMatChantier - fgChantier;
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
   const fmtEur = (n) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
@@ -1361,9 +1398,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <div style="color:rgba(255,255,255,.5);font-size:8pt;margin-top:3pt;">Édité le ${dateGen}</div>
       </td>
       ${kpiCell(`${avancementChantier}%`, "Avancement", avancementChantier >= 100 ? "#50c878" : "#f5c400")}
-      ${kpiCell(`${heuresReellesChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`, "Heures", "#5b9cf6")}
+      ${kpiCell(`${heuresReellesTotalChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`, "Heures", "#5b9cf6")}
       ${kpiCell(`${Math.round(prixHTChantier).toLocaleString("fr-FR")} €`, "Vendu", "#f5c400")}
-      ${kpiCell(`${Math.round(coutMOChantier).toLocaleString("fr-FR")} €`, "Coût MO", "#60a5fa")}
+      ${kpiCell(`${Math.round(coutMOTotalChantier).toLocaleString("fr-FR")} €`, "Coût MO", "#60a5fa")}
       ${kpiCell(`${Math.round(coutMatChantier).toLocaleString("fr-FR")} €`, "Matériaux", "#f97316")}
       ${kpiCell(`${Math.round(fgChantier).toLocaleString("fr-FR")} €`, `FG ${fgTauxHoraire ? fgTauxHoraire+"€/h" : ""}`, "#a78bfa")}
       ${kpiCell(`${margeChantier >= 0 ? "+" : ""}${Math.round(margeChantier).toLocaleString("fr-FR")} €`,
@@ -1992,15 +2029,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 sub="Estimé · matériaux liés"
                 onClick={() => setKpiDetail("commandes_prev")}/>
               <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label="Heures totales"
-                value={`${heuresReellesChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`}
-                sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}
-                accent={couleurDerive(heuresReellesChantier, heuresVenduesChantier)}
+                value={`${heuresReellesTotalChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`}
+                sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesTotalChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}
+                accent={couleurDerive(heuresReellesTotalChantier, heuresVenduesChantier)}
                 onClick={() => setKpiDetail("heures")}/>
               <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label="Coût MO"
-                value={fmtEur(coutMOChantier)}
-                sub="Heures réelles × taux"
-                accent={coutMOChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}
+                value={fmtEur(coutMOTotalChantier)}
+                sub="Tâches + trajets + indirect"
+                accent={coutMOTotalChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}
                 onClick={() => setKpiDetail("mo")}/>
+              <KpiCard T={T} icon={Car} iconColor="#f59e0b" label="Trajets"
+                value={trajetStats.heures > 0
+                  ? `${trajetStats.heures.toFixed(1)}h · ${fmtEur(trajetStats.cout)}`
+                  : "—"}
+                sub="Inclus dans le coût MO"/>
+              <KpiCard T={T} icon={Clock} iconColor="#f59e0b" label="Heures indirectes"
+                value={indirectStats.heures > 0
+                  ? `${indirectStats.heures.toFixed(1)}h · ${fmtEur(indirectStats.cout)}`
+                  : "—"}
+                sub="Intempéries, SAV, nettoyage…"/>
               <KpiCard T={T} icon={Receipt} iconColor="#f97316" label="Matériaux"
                 value={fmtEur(coutMatChantier)}
                 sub={`Voir les commandes (${commandeLignes.length})`}
@@ -2680,18 +2727,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               r: heuresReellesOuvrage(o), v: heuresVenduesOuvrage(o) }))
             .filter(r => r.r > 0 || r.v > 0)
             .sort((a, b) => b.v - a.v || b.r - a.r);
+          const rowsHeures = rows.map(r => ({
+            main: r.main, sub: r.sub,
+            right: `${fmtH(r.r)}h / ${fmtH(r.v)}h`,
+            rightColor: couleurDepassement(r.r, r.v),
+          }));
+          const hExtra = extras.heuresIndirect + extras.heuresLibre;
+          if (hExtra > 0.05) {
+            rowsHeures.push({ main: "Trajets + indirect + libres", sub: "hors tâche du plan", right: `${fmtH(hExtra)}h / —` });
+          }
           cfg = {
             icon: Clock, color: "#5b9cf6", title: "Heures réelles / vendues",
-            subtitle: `${heuresReellesChantier.toFixed(1)}h pointées sur ${heuresVenduesChantier.toFixed(0)}h vendues`,
+            subtitle: `${heuresReellesTotalChantier.toFixed(1)}h pointées sur ${heuresVenduesChantier.toFixed(0)}h vendues`,
             empty: "Aucune heure vendue ni pointée.",
-            rows: rows.map(r => ({
-              main: r.main, sub: r.sub,
-              right: `${fmtH(r.r)}h / ${fmtH(r.v)}h`,
-              rightColor: couleurDepassement(r.r, r.v),
-            })),
-            total: `${fmtH(heuresReellesChantier)}h / ${fmtH(heuresVenduesChantier)}h`,
+            rows: rowsHeures,
+            total: `${fmtH(heuresReellesTotalChantier)}h / ${fmtH(heuresVenduesChantier)}h`,
             totalLabel: "Total réelles / vendues",
-            totalColor: couleurDepassement(heuresReellesChantier, heuresVenduesChantier) || "#5b9cf6",
+            totalColor: couleurDepassement(heuresReellesTotalChantier, heuresVenduesChantier) || "#5b9cf6",
             totalIsText: true,
           };
         } else if (kpiDetail === "mo") {
@@ -2715,12 +2767,22 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           if (reste > 0.5) {
             out.push({ main: "Heures sans pointage nominatif", sub: "coût estimé via ouvriers assignés", right: eur(reste) });
           }
+          // Trajets + indirect + libres : hors tâches du plan mais comptés dans le coût MO.
+          if (trajetStats.cout > 0) {
+            out.push({ main: "Trajets", sub: `${fmtH(trajetStats.heures)}h · pointages indirects`, right: eur(trajetStats.cout) });
+          }
+          if (indirectStats.cout > 0) {
+            out.push({ main: "Heures indirectes", sub: "intempéries, SAV, nettoyage…", right: eur(indirectStats.cout) });
+          }
+          if (extras.coutLibre > 0.5) {
+            out.push({ main: "Heures libres", sub: "hors tâche du plan", right: eur(extras.coutLibre) });
+          }
           cfg = {
             icon: HardHat, color: "#60a5fa", title: "Coût main d'œuvre réel",
             subtitle: rows.length > 0 ? `${rows.length} ouvrier${rows.length > 1 ? "s" : ""} au registre` : "depuis les heures réelles",
             empty: "Aucune heure réelle pointée pour l'instant.",
             rows: out,
-            total: coutMOChantier, totalLabel: "Total coût MO", totalColor: "#60a5fa",
+            total: coutMOTotalChantier, totalLabel: "Total coût MO", totalColor: "#60a5fa",
           };
         } else if (kpiDetail === "fg") {
           const rows = fgTauxHoraire > 0
@@ -2747,7 +2809,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             empty: null,
             rows: [
               { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
-              { main: "Coût main d'œuvre", sub: "heures réelles × taux", right: `− ${eur(coutMOChantier)}`, rightColor: "#e15a5a" },
+              { main: "Coût main d'œuvre", sub: "tâches + trajets + indirect", right: `− ${eur(coutMOTotalChantier)}`, rightColor: "#e15a5a" },
               { main: "Matériaux", sub: "commandes du chantier", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
               { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures vendues` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
             ],

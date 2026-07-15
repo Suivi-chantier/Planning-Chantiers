@@ -978,6 +978,192 @@ function PrimesTab({ chantiers, T, acc }) {
   );
 }
 
+// ─── ONGLET TRAJETS (pilotage consolidé tous chantiers / tous ouvriers) ──────
+// Consolide les pointages "indirects" trajet de tous les chantiers : coût total,
+// répartition par chantier (+ part du prix vendu) et par ouvrier (taux de trajet
+// = fuite de productivité). Le trajet est déjà compté dans le coût MO de chaque
+// chantier ; cet onglet ne fait qu'agréger pour le pilotage.
+function TrajetsTab({ pointagesByChantier, chantiers, T, acc }) {
+  const [periode, setPeriode] = useState('mois'); // 'mois' | '90j' | 'tout'
+
+  const allPts = useMemo(
+    () => Object.values(pointagesByChantier || {}).flat(),
+    [pointagesByChantier]
+  );
+
+  // Filtre période sur pointage.date (YYYY-MM-DD)
+  const pts = useMemo(() => {
+    if (periode === 'tout') return allPts;
+    const now = new Date();
+    const min = new Date(now);
+    if (periode === 'mois') min.setDate(1);
+    if (periode === '90j') min.setDate(now.getDate() - 90);
+    const minISO = min.toISOString().slice(0, 10);
+    return allPts.filter(p => (p.date || '') >= minISO);
+  }, [allPts, periode]);
+
+  const h = p => parseFloat(p.heures) || 0;
+  const c = p => h(p) * (parseFloat(p.taux_horaire) || 0);
+  const isTrajet = p => p.type_pointage === 'indirect' && /trajet/i.test(p.motif_indirect || '');
+  const isIndirect = p => p.type_pointage === 'indirect' && !/trajet/i.test(p.motif_indirect || '');
+
+  // ── KPI globaux ──
+  const heuresTotales = pts.reduce((s, p) => s + h(p), 0);
+  const trajetH   = pts.filter(isTrajet).reduce((s, p) => s + h(p), 0);
+  const trajetCout = pts.filter(isTrajet).reduce((s, p) => s + c(p), 0);
+  const indirectCout = pts.filter(isIndirect).reduce((s, p) => s + c(p), 0);
+  const tauxTrajet = heuresTotales > 0 ? (trajetH / heuresTotales) * 100 : 0;
+
+  // ── Par chantier (trajet uniquement), trié par coût décroissant ──
+  // Les pointages portent chantier_id ; l'objet chantier mappé l'expose sous
+  // `chantierId` (son `id` est l'id du phasage). Le prix vendu = `ca`.
+  const parChantier = useMemo(() => {
+    const m = {};
+    pts.filter(isTrajet).forEach(p => {
+      const k = p.chantier_id || 'divers';
+      if (!m[k]) m[k] = { id: k, heures: 0, cout: 0 };
+      m[k].heures += h(p); m[k].cout += c(p);
+    });
+    return Object.values(m).map(row => {
+      const ch = (chantiers || []).find(x => x.chantierId === row.id);
+      const venduHT = ch?.ca || 0;
+      return {
+        ...row,
+        nom: ch?.nom || row.id,
+        pctVendu: venduHT > 0 ? (row.cout / venduHT) * 100 : null,
+      };
+    }).sort((a, b) => b.cout - a.cout);
+  }, [pts, chantiers]);
+
+  // ── Par ouvrier : taux de trajet perso = heures trajet / heures totales ──
+  const parOuvrier = useMemo(() => {
+    const m = {};
+    pts.forEach(p => {
+      const k = p.ouvrier || '?';
+      if (!m[k]) m[k] = { ouvrier: k, heuresTotales: 0, trajetH: 0, trajetCout: 0 };
+      m[k].heuresTotales += h(p);
+      if (isTrajet(p)) { m[k].trajetH += h(p); m[k].trajetCout += c(p); }
+    });
+    return Object.values(m)
+      .map(r => ({ ...r, taux: r.heuresTotales > 0 ? (r.trajetH / r.heuresTotales) * 100 : 0 }))
+      .sort((a, b) => b.trajetCout - a.trajetCout);
+  }, [pts]);
+
+  const chartData = parChantier.slice(0, 8).map(r => ({ nom: r.nom, cout: Math.round(r.cout) }));
+  const tooltipStyle = {
+    background: T?.surface || '#262a32',
+    border: `1px solid ${T?.border || 'rgba(255,255,255,0.10)'}`,
+    borderRadius: 8, padding: '8px 12px', fontSize: 12,
+  };
+  const periodes = [
+    { key: 'mois', label: 'Mois en cours' },
+    { key: '90j',  label: '90 jours' },
+    { key: 'tout', label: 'Tout' },
+  ];
+  const tauxColor = (t) => t >= 20 ? '#ff625f' : t >= 12 ? '#ff9a4d' : '#34d188';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+      {/* Sélecteur de période */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {periodes.map(p => {
+          const a = periode === p.key;
+          return (
+            <button key={p.key} onClick={() => setPeriode(p.key)} style={{
+              padding: '7px 15px', fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+              background: a ? acc.bg10 : 'transparent',
+              border: `1px solid ${a ? acc.accent + '55' : (T?.border || 'rgba(255,255,255,0.07)')}`,
+              borderRadius: 999, color: a ? acc.accent : (T?.textSub || '#9aa5c0'),
+              cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .15s',
+            }}>{p.label}</button>
+          );
+        })}
+      </div>
+
+      {/* 4 cartes KPI */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+        <SummaryCardFin T={T} label="Coût trajet"                value={fmt(trajetCout)}            color="#ff9a4d" sub="Inclus dans le coût MO"/>
+        <SummaryCardFin T={T} label="Heures trajet"             value={`${trajetH.toFixed(1)} h`}  color="#5b9cf6" sub={`sur ${heuresTotales.toFixed(0)} h pointées`}/>
+        <SummaryCardFin T={T} label="Taux de trajet"            value={fmtPct(tauxTrajet)}         color={tauxColor(tauxTrajet)} sub="Part des heures en trajet"/>
+        <SummaryCardFin T={T} label="Coût indirect (hors trajet)" value={fmt(indirectCout)}        color="#a78bfa" sub="Intempéries, SAV, nettoyage…"/>
+      </div>
+
+      {/* Graphe : coût trajet par chantier (top 8) */}
+      <Card T={T}>
+        <CardHdr T={T} acc={acc} title="🚗 Coût trajet par chantier" right={<span style={{ fontSize: 10, color: T?.textSub || '#9aa5c0' }}>Top {chartData.length}</span>}/>
+        <div style={{ padding: '18px 16px 8px', height: 300 }}>
+          {chartData.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: T?.textMuted || '#5b6a8a', fontSize: 12 }}>
+              Aucun trajet sur la période.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={T?.border || 'rgba(255,255,255,0.08)'}/>
+                <XAxis dataKey="nom" tick={{ fill: T?.textSub || '#9aa5c0', fontSize: 10 }} stroke={T?.border || 'rgba(255,255,255,0.10)'} interval={0} angle={-12} textAnchor="end" height={50}/>
+                <YAxis tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} tick={{ fill: T?.textSub || '#9aa5c0', fontSize: 11 }} stroke={T?.border || 'rgba(255,255,255,0.10)'}/>
+                <RTooltip contentStyle={tooltipStyle} itemStyle={{ color: T?.text || '#f0f0f0' }} labelStyle={{ color: T?.text || '#f0f0f0', fontWeight: 700, marginBottom: 4 }} formatter={(value) => fmt(value)}/>
+                <Bar dataKey="cout" fill="#ff9a4d" name="Coût trajet" radius={[4,4,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </Card>
+
+      {/* Table : par chantier */}
+      <Card T={T}>
+        <CardHdr T={T} acc={acc} title="📋 Trajets par chantier"/>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="da-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr><th>Chantier</th><th>Heures trajet</th><th>Coût trajet</th><th>% du prix vendu HT</th></tr>
+            </thead>
+            <tbody>
+              {parChantier.length === 0 ? (
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '18px', color: T?.textMuted || '#5b6a8a' }}>Aucun trajet sur la période.</td></tr>
+              ) : parChantier.map(r => (
+                <tr key={r.id}>
+                  <td style={{ fontSize: 12, fontWeight: 600, color: T?.text || '#f0f0f0' }}>{r.nom}</td>
+                  <td><span style={{ fontFamily: "'DM Mono',monospace" }}>{r.heures.toFixed(1)} h</span></td>
+                  <td><span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 600 }}>{fmt(r.cout)}</span></td>
+                  <td><span style={{ fontFamily: "'DM Mono',monospace" }}>{r.pctVendu == null ? '—' : fmtPct(r.pctVendu)}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Table : par ouvrier */}
+      <Card T={T}>
+        <CardHdr T={T} acc={acc} title="👷 Trajets par ouvrier" right={<span style={{ fontSize: 10, color: T?.textMuted || '#5b6a8a' }}>Taux élevé = fuite de productivité</span>}/>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="da-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr><th>Ouvrier</th><th>Heures trajet</th><th>Heures totales</th><th>Taux de trajet</th><th>Coût trajet</th></tr>
+            </thead>
+            <tbody>
+              {parOuvrier.length === 0 ? (
+                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '18px', color: T?.textMuted || '#5b6a8a' }}>Aucun pointage sur la période.</td></tr>
+              ) : parOuvrier.map(r => (
+                <tr key={r.ouvrier}>
+                  <td style={{ fontSize: 12, fontWeight: 600, color: T?.text || '#f0f0f0' }}>{r.ouvrier}</td>
+                  <td><span style={{ fontFamily: "'DM Mono',monospace" }}>{r.trajetH.toFixed(1)} h</span></td>
+                  <td><span style={{ fontFamily: "'DM Mono',monospace" }}>{r.heuresTotales.toFixed(1)} h</span></td>
+                  <td><span style={{ fontFamily: "'DM Mono',monospace", color: tauxColor(r.taux), fontWeight: 600 }}>{fmtPct(r.taux)}</span></td>
+                  <td><span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 600 }}>{fmt(r.trajetCout)}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+    </div>
+  );
+}
+
 // ─── BULLE FLOTTANTE "ANALYSES" (FAB + DRAWER) ───────────────────────────────
 // Accessible depuis tous les onglets du dashboard. Remplace l'ancien onglet
 // "Analyses". Persistance par période : un sticker quotidien expire le
@@ -1782,6 +1968,7 @@ function FinPctLine({ label, numCalc, denomCalc, visibleMonths, style }) {
 // ─── PAGE ROOT ───────────────────────────────────────────────────────────────
 const TABS = [
   { key: 'chantiers',      label: '🏗️ Chantiers' },
+  { key: 'trajets',        label: '🚗 Trajets' },
   { key: 'pipeline',       label: '🔖 Pipeline' },
   { key: 'analyseSociete', label: '📊 Point financier' },
   { key: 'primes',         label: '🎯 Primes' },
@@ -2185,6 +2372,7 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
       {/* CONTENU */}
       <div style={{ padding: '24px 28px', maxWidth: 1540, margin: '0 auto' }}>
         {activeTab === 'chantiers'      && <ChantiersTab     chantiers={chantiers} archives={archives} onRestore={restoreChantier} onOpenChantier={onOpenChantier} loading={loading} phasesLabels={phasesLabels} T={T} acc={acc}/>}
+        {activeTab === 'trajets'        && <TrajetsTab       pointagesByChantier={pointagesByChantier} chantiers={chantiers} T={T} acc={acc}/>}
         {activeTab === 'pipeline'       && <PipelineTab      pipeline={pipeline} onAdd={() => setPipeModal({ open: true, item: null })} onEdit={item => setPipeModal({ open: true, item })} T={T} acc={acc}/>}
         {activeTab === 'analyseSociete' && <SocieteFinanceTab derivedFinance={derivedFinance} T={T} acc={acc}/>}
         {activeTab === 'primes'         && <PrimesTab        chantiers={chantiers} T={T} acc={acc}/>}
