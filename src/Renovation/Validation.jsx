@@ -537,25 +537,53 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const dateISO = frToISO(rapport.date_rapport);
 
     // 1) Pointages à insérer : tâches (heures > 0) + heures indirectes
-    const lignesTaches = lignes
-      .filter(li => (parseFloat(li.heures) || 0) > 0)
-      .map(li => ({
-        chantier_id: rapport.chantier_id,
-        phasage_id,
-        phase_id: li.phase_id || null,
-        tache_id: li.tache_id || null,
-        ouvrier: rapport.ouvrier,
-        date: dateISO,
-        heures: parseFloat(li.heures) || 0,
-        taux_horaire: taux,
-        rapport_id: rapport.id,
-        // L'ouvrier DÉCLARE l'avancement, le conducteur l'ARBITRE. On stocke
-        // toujours le DÉCLARÉ ici, à des fins de traçabilité. La valeur
-        // arbitrée vit dans plan_travaux (mise à jour ci-dessous).
-        avancement_declare: li.avancement_declare != null ? parseInt(li.avancement_declare) : null,
-        valide_par: valideur,
-        type_pointage: "tache",
-      }));
+    //
+    // ⚠️ FUSION DES DOUBLONS DE TÂCHE. Une même tâche du plan peut être déclarée
+    // sur PLUSIEURS lignes d'un même rapport (ex. deux « Terminer appareillage »
+    // auto-détectés vers la même tâche). Deux pointages partageant
+    // (rapport_id, tache_id, ouvrier, date) violent l'index unique
+    // `uniq_pointages_rapport_tache` : comme l'INSERT est un lot atomique,
+    // TOUT le rapport partirait en erreur 23505 et se retrouverait SANS aucun
+    // pointage (bug observé : un CR « validé » à 0 h dans le registre). On
+    // additionne donc les heures des lignes qui pointent vers la même tâche
+    // avant l'insert. Les tâches libres (tache_id null) ne sont pas couvertes
+    // par l'index unique → on les garde distinctes.
+    const lignesAvecHeures = lignes.filter(li => (parseFloat(li.heures) || 0) > 0);
+    const fusionParTache = new Map(); // `${phase_id}::${tache_id}` → ligne agrégée
+    const lignesLibres = [];
+    lignesAvecHeures.forEach(li => {
+      const h  = parseFloat(li.heures) || 0;
+      // L'ouvrier DÉCLARE l'avancement, le conducteur l'ARBITRE. On stocke le
+      // DÉCLARÉ ici (traçabilité) ; l'arbitré vit dans plan_travaux (plus bas).
+      const av = li.avancement_declare != null ? parseInt(li.avancement_declare) : null;
+      if (!li.tache_id) { lignesLibres.push({ li, h, av }); return; }
+      const key = `${li.phase_id || ""}::${li.tache_id}`;
+      const cur = fusionParTache.get(key);
+      if (cur) {
+        cur.h += h;
+        if (av != null) cur.av = cur.av == null ? av : Math.max(cur.av, av);
+      } else {
+        fusionParTache.set(key, { li, h, av });
+      }
+    });
+    const mkTache = ({ li, h, av }) => ({
+      chantier_id: rapport.chantier_id,
+      phasage_id,
+      phase_id: li.phase_id || null,
+      tache_id: li.tache_id || null,
+      ouvrier: rapport.ouvrier,
+      date: dateISO,
+      heures: h,
+      taux_horaire: taux,
+      rapport_id: rapport.id,
+      avancement_declare: av,
+      valide_par: valideur,
+      type_pointage: "tache",
+    });
+    const lignesTaches = [
+      ...[...fusionParTache.values()].map(mkTache),
+      ...lignesLibres.map(mkTache),
+    ];
 
     const lignesIndirectes = (indirectes || [])
       .filter(li => (parseFloat(li.heures) || 0) > 0 && (li.motif || "").trim())
