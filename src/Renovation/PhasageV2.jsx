@@ -7,7 +7,7 @@ import {
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
-  FileText, User, Calendar, Link2, Car,
+  FileText, User, Calendar, Link2, Car, ListOrdered, GripVertical, FolderPlus,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
 import { confirmPerteMassive } from "../guards";
@@ -1052,6 +1052,26 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       : o));
   };
 
+  // ─── VUE CHRONOLOGIQUE ────────────────────────────────────────────────────
+  // Groupes de tâches personnalisés (libres), stockés dans meta.chrono_groupes
+  // ([{ id, nom, couleur, ordre }]). Chaque tâche porte chrono_groupe_id +
+  // chrono_ordre (dans ouvrages[].taches). La date reste date_prevue (partagée
+  // avec le Gantt). Ordre/affectation → applyChrono ; date → updateTache.
+  const chronoGroupes = Array.isArray(phasage?.plan_travaux?.meta?.chrono_groupes)
+    ? phasage.plan_travaux.meta.chrono_groupes : [];
+  const setChronoGroupes = (next) => saveMeta({ chrono_groupes: next });
+  // Applique en un seul passage un lot d'affectations
+  // { [tacheId]: { groupe_id, ordre } } sur les tâches concernées.
+  const applyChrono = (assignments) => {
+    updateOuvrages(ouvrages.map(o => ({
+      ...o,
+      taches: (o.taches || []).map(t =>
+        assignments[t.id]
+          ? { ...t, chrono_groupe_id: assignments[t.id].groupe_id, chrono_ordre: assignments[t.id].ordre }
+          : t),
+    })));
+  };
+
   // Déplace une tâche vers un autre ouvrage (réparation des tâches atterries
   // dans « Divers / hors devis »). La tâche garde son id : ses pointages
   // (heures réelles + coût) suivent automatiquement. On ne touche pas aux
@@ -1983,6 +2003,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             }}>
               {[
                 { id: "list",         icon: LayoutGrid,        label: "Liste" },
+                { id: "chrono",       icon: ListOrdered,       label: "Chronologique" },
                 { id: "gantt",        icon: GanttChartSquare,  label: "Gantt" },
                 { id: "previsionnel", icon: Calendar,          label: "Prévisionnel" },
               ].map(opt => {
@@ -2213,6 +2234,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         </div>
       ) : viewMode === "previsionnel" ? (
         <PrevisionnelEditor prev={prev} updatePrev={updatePrev} chantier={chantier} T={T} acc={acc} />
+      ) : viewMode === "chrono" ? (
+        <ChronoView
+          ouvrages={ouvrages} lots={lots} groupes={chronoGroupes}
+          acc={acc} T={T}
+          applyChrono={applyChrono} setGroupes={setChronoGroupes}
+          updateTache={updateTache}
+          onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
+        />
       ) : viewMode === "gantt" ? (
         <GanttV2
           ouvrages={ouvrages} lots={lots} acc={acc} T={T}
@@ -3661,6 +3690,263 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // Timeline simple par jour ouvré (Lun-Ven). Une ligne par tâche, groupées par
 // ouvrage puis par lot. Chaque tâche a une barre qui commence à date_prevue
 // et s'étend sur ⌈heures_estimees / 7⌉ jours (heuristique 7h/jour).
+// ─── VUE CHRONOLOGIQUE ────────────────────────────────────────────────────────
+// Reprend TOUTES les tâches créées (tous ouvrages) et permet de :
+//  • créer des groupes de tâches libres (nom + couleur),
+//  • ranger/ordonner les tâches par glisser-déposer (dans et entre groupes),
+//  • dater chaque tâche (écrit date_prevue, partagé avec le Gantt).
+// Persistance : groupes → meta.chrono_groupes ; affectation + ordre → sur la
+// tâche (chrono_groupe_id / chrono_ordre) via applyChrono ; date → updateTache.
+const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
+
+function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, updateTache, onClickTache }) {
+  const [drag, setDrag] = useState(null);        // { tacheId, ouvrageId }
+  const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
+  // Édition nom + couleur des groupes : brouillon local, persisté au blur pour
+  // éviter un aller-retour DB (saveMeta) à chaque frappe.
+  const [drafts, setDrafts] = useState({});      // { [id]: { nom?, couleur? } }
+  const gVal = (g, key) => (drafts[g.id]?.[key] ?? g[key] ?? "");
+  const setDraft = (id, key, v) => setDrafts(d => ({ ...d, [id]: { ...d[id], [key]: v } }));
+  const commit = (g, key) => {
+    const v = drafts[g.id]?.[key];
+    if (v != null && v !== g[key]) setGroupes(groupes.map(x => x.id === g.id ? { ...x, [key]: v } : x));
+  };
+
+  const isoDay = (s) => {
+    if (!s) return "";
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? "" : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  // Liste plate de toutes les tâches du chantier.
+  const items = [];
+  ouvrages.forEach(o => {
+    const lot = lots.find(l => l.id === o.lot_id) || null;
+    (o.taches || []).forEach(t => items.push({ ouvrageId: o.id, ouvrage: o, lot, tache: t }));
+  });
+
+  const groupesTries = [...groupes].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
+  const groupeIds = new Set(groupesTries.map(g => g.id));
+  const itemsOfGroup = (gid) => items
+    .filter(it => it.tache.chrono_groupe_id === gid)
+    .sort((a, b) => {
+      const oa = a.tache.chrono_ordre ?? 1e9, ob = b.tache.chrono_ordre ?? 1e9;
+      if (oa !== ob) return oa - ob;
+      return (a.tache.nom || "").localeCompare(b.tache.nom || "");
+    });
+  const unassigned = items
+    .filter(it => !it.tache.chrono_groupe_id || !groupeIds.has(it.tache.chrono_groupe_id))
+    .sort((a, b) => (a.tache.nom || "").localeCompare(b.tache.nom || ""));
+
+  // ── Groupes : CRUD ──
+  const addGroupe = () => {
+    const ordre = groupes.reduce((m, g) => Math.max(m, g.ordre ?? 0), 0) + 1;
+    const couleur = CHRONO_PALETTE[groupes.length % CHRONO_PALETTE.length];
+    setGroupes([...groupes, { id: rid(), nom: "Nouveau groupe", couleur, ordre }]);
+  };
+  const deleteGroupe = (g) => {
+    // Détache les tâches du groupe supprimé (retour à « À classer »).
+    const toDetach = itemsOfGroup(g.id);
+    if (toDetach.length) {
+      const assignments = {};
+      toDetach.forEach(it => { assignments[it.tache.id] = { groupe_id: null, ordre: 0 }; });
+      applyChrono(assignments);
+    }
+    setGroupes(groupes.filter(x => x.id !== g.id));
+  };
+
+  // ── Glisser-déposer ──
+  // Dépose la tâche traînée dans `groupeId` à la position `index`
+  // (index null → à la fin). Renumérote proprement le groupe cible.
+  const handleDrop = (groupeId, index) => {
+    if (!drag) return;
+    const current = itemsOfGroup(groupeId).filter(it => it.tache.id !== drag.tacheId);
+    const pos = index == null ? current.length : Math.min(index, current.length);
+    const orderedIds = current.map(it => it.tache.id);
+    orderedIds.splice(pos, 0, drag.tacheId);
+    const assignments = {};
+    orderedIds.forEach((id, i) => { assignments[id] = { groupe_id: groupeId, ordre: i }; });
+    applyChrono(assignments);
+    setDrag(null); setOverKey(null);
+  };
+  const handleDropUnassigned = () => {
+    if (!drag) return;
+    applyChrono({ [drag.tacheId]: { groupe_id: null, ordre: 0 } });
+    setDrag(null); setOverKey(null);
+  };
+
+  // ── Rendu d'une ligne tâche (fonction, PAS un composant, pour ne pas
+  //    remonter les <input> à chaque frappe et perdre le focus). ──
+  const renderRow = (it, color, groupeId, index) => {
+    const t = it.tache;
+    const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+    const c = av >= 100 ? "#22c55e" : color;
+    const dragging = drag?.tacheId === t.id;
+    const rowKey = `row:${groupeId || "_u"}:${index}`;
+    const isOver = overKey === rowKey && !dragging;
+    return (
+      <div key={t.id} className="chrono-row" draggable
+        onDragStart={e => { setDrag({ tacheId: t.id, ouvrageId: it.ouvrageId }); e.dataTransfer.effectAllowed = "move"; }}
+        onDragEnd={() => { setDrag(null); setOverKey(null); }}
+        onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== rowKey) setOverKey(rowKey); }}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); groupeId ? handleDrop(groupeId, index) : handleDropUnassigned(); }}
+        onClick={() => onClickTache(it.ouvrageId, t.id)}
+        style={{
+          "--c": c,
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "9px 12px", margin: "6px 0",
+          borderRadius: RADIUS.md,
+          border: `1px solid ${T.border}`, borderLeft: `4px solid ${c}`,
+          borderTop: isOver ? `2px solid ${color}` : `1px solid ${T.border}`,
+          background: T.card, cursor: "pointer",
+          opacity: dragging ? 0.4 : 1,
+          transition: "border-color .12s, box-shadow .12s",
+        }}>
+        <Icon as={GripVertical} size={14} color={T.textMuted} style={{ flexShrink: 0, cursor: "grab" }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
+          </div>
+          <div style={{ fontSize: FONT.xs.size, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {(it.lot?.label ? it.lot.label + " · " : "") + (it.ouvrage.libelle || "—")}
+          </div>
+        </div>
+        <input type="date" value={isoDay(t.date_prevue)}
+          onClick={e => e.stopPropagation()}
+          onChange={e => updateTache(it.ouvrageId, t.id, { date_prevue: e.target.value || null })}
+          title="Date prévue (partagée avec le Gantt)"
+          style={{
+            padding: "5px 8px", borderRadius: RADIUS.sm,
+            border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
+            color: t.date_prevue ? T.text : T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", flexShrink: 0,
+          }} />
+        <span title={`${av}% réalisé`}
+          style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.textMuted, minWidth: 34, textAlign: "right", flexShrink: 0 }}>
+          {av}%
+        </span>
+      </div>
+    );
+  };
+
+  const renderGroup = (g) => {
+    const rows = itemsOfGroup(g.id);
+    const couleur = gVal(g, "couleur") || "#5b8af5";
+    const emptyOver = overKey === `group:${g.id}`;
+    return (
+      <div key={g.id} style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+          <input type="color" value={couleur}
+            onChange={e => setDraft(g.id, "couleur", e.target.value)}
+            onBlur={() => commit(g, "couleur")}
+            title="Couleur du groupe"
+            style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer", flexShrink: 0 }} />
+          <input value={gVal(g, "nom")}
+            onChange={e => setDraft(g.id, "nom", e.target.value)}
+            onBlur={() => commit(g, "nom")}
+            placeholder="Nom du groupe"
+            style={{
+              flex: 1, minWidth: 0, background: "transparent", border: "none",
+              borderBottom: "1px solid transparent",
+              color: T.text, fontFamily: "inherit", fontSize: FONT.md.size, fontWeight: 800, outline: "none",
+            }}
+            onFocus={e => { e.target.style.borderBottomColor = T.border; }}
+            onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderBottomColor = "transparent"; }} />
+          <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px", flexShrink: 0 }}>
+            {rows.length}
+          </span>
+          <button onClick={() => deleteGroupe(g)} title="Supprimer le groupe (les tâches repassent « à classer »)"
+            style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Icon as={Trash2} size={13} />
+          </button>
+        </div>
+        <div
+          onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== `group:${g.id}`) setOverKey(`group:${g.id}`); }}
+          onDrop={e => { e.preventDefault(); handleDrop(g.id, null); }}
+          style={{
+            borderRadius: RADIUS.lg,
+            border: `1.5px dashed ${emptyOver ? couleur : T.border}`,
+            background: emptyOver ? `color-mix(in srgb, ${couleur} 8%, transparent)` : "transparent",
+            padding: "4px 10px", minHeight: 52, transition: "border-color .12s, background .12s",
+          }}>
+          {rows.length === 0
+            ? <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0", fontStyle: "italic" }}>Glissez des tâches ici</div>
+            : rows.map((it, i) => renderRow(it, couleur, g.id, i))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px", minHeight: 0 }}>
+      <style>{`
+        .chrono-row:hover {
+          border-color: color-mix(in srgb, var(--c) 55%, transparent) !important;
+          box-shadow: 0 3px 12px color-mix(in srgb, var(--c) 20%, transparent);
+        }
+      `}</style>
+
+      {/* Barre d'action */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text }}>Vue chronologique</div>
+          <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+            Regroupez, ordonnez (glisser-déposer) et datez toutes les tâches du chantier.
+          </div>
+        </div>
+        <button onClick={addGroupe}
+          style={{
+            marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "8px 14px", borderRadius: RADIUS.md,
+            border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+            fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+          }}>
+          <Icon as={FolderPlus} size={14} /> Nouveau groupe
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 40, color: T.textMuted, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl }}>
+          Aucune tâche pour ce chantier.
+        </div>
+      ) : (
+        <>
+          {/* À classer */}
+          {unassigned.length > 0 && (
+            <div style={{ marginBottom: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", color: T.textMuted }}>À classer</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px" }}>{unassigned.length}</span>
+              </div>
+              <div
+                onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== "unassigned") setOverKey("unassigned"); }}
+                onDrop={e => { e.preventDefault(); handleDropUnassigned(); }}
+                style={{
+                  borderRadius: RADIUS.lg,
+                  border: `1.5px dashed ${overKey === "unassigned" ? acc.accent : T.border}`,
+                  background: overKey === "unassigned" ? acc.bg10 : "transparent",
+                  padding: "4px 10px",
+                }}>
+                {unassigned.map((it, i) => renderRow(it, T.textMuted, null, i))}
+              </div>
+            </div>
+          )}
+
+          {/* Groupes */}
+          {groupesTries.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 20px", color: T.textMuted, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl }}>
+              <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text, marginBottom: 6 }}>Aucun groupe</div>
+              <div style={{ fontSize: FONT.sm.size }}>Créez un premier groupe, puis glissez-y les tâches « à classer ».</div>
+            </div>
+          ) : (
+            groupesTries.map(renderGroup)
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function GanttV2({ ouvrages, lots, acc, T, avancementOuvrage, tacheHeuresReelles, onClickTache }) {
   const DAY_PX = 28, ROW_H = 30, LABEL_W = 280, HEADER_H = 56;
   const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
