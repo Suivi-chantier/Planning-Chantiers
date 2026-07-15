@@ -1,0 +1,23 @@
+Matricule;Nom;Periode;Code variable;Libelle variable;Valeur
+001;JP;2026-07;HN;Heures normales;140
+001;JP;2026-07;HS25;Heures supplementaires 25%;16
+002;Stev;2026-07;HN;Heures normales;140
+002;Stev;2026-07;HS25;Heures supplementaires 25%;24
+002;Stev;2026-07;HS50;Heures supplementaires 50%;2
+003;Kev;2026-07;HN;Heures normales;140
+003;Kev;2026-07;HS25;Heures supplementaires 25%;12
+004;Reza;2026-07;HN;Heures normales;140
+004;Reza;2026-07;HS25;Heures supplementaires 25%;16
+005;Hamed;2026-07;HN;Heures normales;105
+005;Hamed;2026-07;HS25;Heures supplementaires 25%;8
+005;Hamed;2026-07;CP;Conges payes (jours);4
+006;Mady;2026-07;HN;Heures normales;140
+006;Mady;2026-07;HS25;Heures supplementaires 25%;16
+007;Yann;2026-07;HN;Heures normales;140
+007;Yann;2026-07;HS25;Heures supplementaires 25%;20
+007;Yann;2026-07;HS50;Heures supplementaires 50%;4
+008;Julien;2026-07;HN;Heures normales;140
+008;Julien;2026-07;HS25;Heures supplementaires 25%;16
+009;Steven;2026-07;HN;Heures normales;135
+009;Steven;2026-07;HS25;Heures supplementaires 25%;12
+009;Steven;2026-07;MAL;Absence maladie (heures);9

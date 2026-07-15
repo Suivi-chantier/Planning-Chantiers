@@ -1,0 +1,23 @@
+Matricule;Nom;Code rubrique;Libelle rubrique;Nombre;Unite;Periode
+001;JP;1000;Heures normales;140;H;2026-07
+001;JP;1025;Heures supplementaires 25%;16;H;2026-07
+002;Stev;1000;Heures normales;140;H;2026-07
+002;Stev;1025;Heures supplementaires 25%;24;H;2026-07
+002;Stev;1050;Heures supplementaires 50%;2;H;2026-07
+003;Kev;1000;Heures normales;140;H;2026-07
+003;Kev;1025;Heures supplementaires 25%;12;H;2026-07
+004;Reza;1000;Heures normales;140;H;2026-07
+004;Reza;1025;Heures supplementaires 25%;16;H;2026-07
+005;Hamed;1000;Heures normales;105;H;2026-07
+005;Hamed;1025;Heures supplementaires 25%;8;H;2026-07
+005;Hamed;6200;Conges payes;4;J;2026-07
+006;Mady;1000;Heures normales;140;H;2026-07
+006;Mady;1025;Heures supplementaires 25%;16;H;2026-07
+007;Yann;1000;Heures normales;140;H;2026-07
+007;Yann;1025;Heures supplementaires 25%;20;H;2026-07
+007;Yann;1050;Heures supplementaires 50%;4;H;2026-07
+008;Julien;1000;Heures normales;140;H;2026-07
+008;Julien;1025;Heures supplementaires 25%;16;H;2026-07
+009;Steven;1000;Heures normales;135;H;2026-07
+009;Steven;1025;Heures supplementaires 25%;12;H;2026-07
+009;Steven;6100;Absence maladie;9;H;2026-07
