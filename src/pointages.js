@@ -129,6 +129,92 @@ export function sumLibreEtIndirect(points) {
   return { heuresLibre, coutLibre, heuresIndirect, coutIndirect };
 }
 
+// ── Construction des lignes de pointages d'un rapport ─────────────────────
+//
+// Source unique de vérité pour transformer un rapport validé en écritures
+// `pointages`. Utilisée à la validation (Validation.jsx) ET par l'outil de
+// ré-génération (Admin → Pointages), pour éviter toute divergence de logique.
+//
+// Règles encapsulées :
+//  1. FUSION des tâches doublons — plusieurs lignes du même rapport pointant la
+//     même tâche du plan (même `phase_id::tache_id`) sont additionnées. Sinon
+//     deux pointages partageraient (rapport_id, tache_id, ouvrier, date) et
+//     violeraient l'index unique `uniq_pointages_rapport_tache` : l'INSERT du
+//     lot entier échouerait (23505) → rapport « validé » mais sans aucune heure.
+//     Les tâches libres (tache_id null) ne sont pas couvertes par l'index → on
+//     les garde distinctes.
+//  2. Trajet réparti en CENTIMES exacts (plus grand reste) entre les N chantiers
+//     du jour, pour que la somme des quote-parts = exactement le trajet total
+//     (fini les journées à 9,99 / 10,01 h dues à l'arrondi numeric(6,2)).
+//
+// Renvoie le tableau des lignes prêtes pour `insert`.
+export function buildPointagesRapport({
+  chantier_id, ouvrier, dateISO, taux = 0, phasage_id = null, rapport_id, valide_par = null,
+  taskLines = [],       // [{ tache_id, phase_id, heures, avancement_declare }]
+  indirectLines = [],   // [{ motif, heures }]
+  trajetMinTotal = 0,   // minutes de trajet total du jour (posé identiquement sur chaque rapport)
+  nbChantiersDuJour = 1,
+  rangRapport = 0,      // index de CE rapport dans le tri stable des rapports du même jour
+}) {
+  const base = { chantier_id, phasage_id, ouvrier, date: dateISO, taux_horaire: taux, rapport_id, valide_par };
+
+  // 1) Tâches — fusion des doublons par (phase_id::tache_id). Tâches libres à part.
+  const fusion = new Map();
+  const libres = [];
+  (taskLines || []).forEach(li => {
+    const h = parseFloat(li.heures) || 0;
+    if (h <= 0) return;
+    const av = li.avancement_declare != null && li.avancement_declare !== "" ? parseInt(li.avancement_declare) : null;
+    const entry = { tache_id: li.tache_id || null, phase_id: li.phase_id || null, h, av };
+    if (!entry.tache_id) { libres.push(entry); return; }
+    const key = `${entry.phase_id || ""}::${entry.tache_id}`;
+    const cur = fusion.get(key);
+    if (cur) {
+      cur.h += h;
+      if (av != null) cur.av = cur.av == null ? av : Math.max(cur.av, av);
+    } else {
+      fusion.set(key, entry);
+    }
+  });
+  const mkTache = (e) => ({
+    ...base, phase_id: e.phase_id, tache_id: e.tache_id,
+    heures: e.h, avancement_declare: e.av, type_pointage: "tache",
+  });
+  const lignesTaches = [...[...fusion.values()].map(mkTache), ...libres.map(mkTache)];
+
+  // 2) Heures indirectes saisies (motif + heures).
+  const lignesIndirectes = (indirectLines || [])
+    .filter(li => (parseFloat(li.heures) || 0) > 0 && (li.motif || "").trim())
+    .map(li => ({
+      ...base, phase_id: null, tache_id: null,
+      heures: parseFloat(li.heures), avancement_declare: null,
+      type_pointage: "indirect", motif_indirect: li.motif.trim(),
+    }));
+
+  // 3) Trajet — quote-part exacte en centimes (méthode du plus grand reste).
+  const nb = Math.max(1, nbChantiersDuJour);
+  const totalCents = Math.round((trajetMinTotal / 60) * 100);
+  const baseCents = Math.floor(totalCents / nb);
+  const extraCents = totalCents - baseCents * nb;
+  const trajetH = (baseCents + (rangRapport >= 0 && rangRapport < extraCents ? 1 : 0)) / 100;
+  const lignesTrajet = trajetH > 0 ? [{
+    ...base, phase_id: null, tache_id: null,
+    heures: trajetH, avancement_declare: null,
+    type_pointage: "indirect", motif_indirect: nb > 1 ? `Trajet (1/${nb})` : "Trajet",
+  }] : [];
+
+  return [...lignesTaches, ...lignesIndirectes, ...lignesTrajet];
+}
+
+// Rang stable d'un rapport parmi les rapports du même ouvrier/jour (tri par id).
+// Sert à la répartition déterministe du trajet, indépendante de l'ordre de
+// validation.
+export function rangRapportDuJour(rapport, rapportsMemeJour) {
+  return [...(rapportsMemeJour || [])]
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .findIndex(r => r.id === rapport.id);
+}
+
 // ── Stats composées (récupération + agrégation en un appel) ───────────────
 
 export async function statsTache({ chantier_id, tache_id }) {

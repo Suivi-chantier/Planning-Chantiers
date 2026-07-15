@@ -27,6 +27,7 @@ import {
   Plus, Trash2, Split, PlusCircle, Lock, LockOpen,
 } from "lucide-react";
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
+import { buildPointagesRapport, rangRapportDuJour } from "../pointages";
 
 // ─── Helpers date ────────────────────────────────────────────────────────────
 
@@ -536,118 +537,32 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     // pointages.date est de type Postgres date → on convertit le format FR si besoin
     const dateISO = frToISO(rapport.date_rapport);
 
-    // 1) Pointages à insérer : tâches (heures > 0) + heures indirectes
-    //
-    // ⚠️ FUSION DES DOUBLONS DE TÂCHE. Une même tâche du plan peut être déclarée
-    // sur PLUSIEURS lignes d'un même rapport (ex. deux « Terminer appareillage »
-    // auto-détectés vers la même tâche). Deux pointages partageant
-    // (rapport_id, tache_id, ouvrier, date) violent l'index unique
-    // `uniq_pointages_rapport_tache` : comme l'INSERT est un lot atomique,
-    // TOUT le rapport partirait en erreur 23505 et se retrouverait SANS aucun
-    // pointage (bug observé : un CR « validé » à 0 h dans le registre). On
-    // additionne donc les heures des lignes qui pointent vers la même tâche
-    // avant l'insert. Les tâches libres (tache_id null) ne sont pas couvertes
-    // par l'index unique → on les garde distinctes.
-    const lignesAvecHeures = lignes.filter(li => (parseFloat(li.heures) || 0) > 0);
-    const fusionParTache = new Map(); // `${phase_id}::${tache_id}` → ligne agrégée
-    const lignesLibres = [];
-    lignesAvecHeures.forEach(li => {
-      const h  = parseFloat(li.heures) || 0;
-      // L'ouvrier DÉCLARE l'avancement, le conducteur l'ARBITRE. On stocke le
-      // DÉCLARÉ ici (traçabilité) ; l'arbitré vit dans plan_travaux (plus bas).
-      const av = li.avancement_declare != null ? parseInt(li.avancement_declare) : null;
-      if (!li.tache_id) { lignesLibres.push({ li, h, av }); return; }
-      const key = `${li.phase_id || ""}::${li.tache_id}`;
-      const cur = fusionParTache.get(key);
-      if (cur) {
-        cur.h += h;
-        if (av != null) cur.av = cur.av == null ? av : Math.max(cur.av, av);
-      } else {
-        fusionParTache.set(key, { li, h, av });
-      }
-    });
-    const mkTache = ({ li, h, av }) => ({
-      chantier_id: rapport.chantier_id,
-      phasage_id,
-      phase_id: li.phase_id || null,
-      tache_id: li.tache_id || null,
-      ouvrier: rapport.ouvrier,
-      date: dateISO,
-      heures: h,
-      taux_horaire: taux,
-      rapport_id: rapport.id,
-      avancement_declare: av,
-      valide_par: valideur,
-      type_pointage: "tache",
-    });
-    const lignesTaches = [
-      ...[...fusionParTache.values()].map(mkTache),
-      ...lignesLibres.map(mkTache),
-    ];
-
-    const lignesIndirectes = (indirectes || [])
-      .filter(li => (parseFloat(li.heures) || 0) > 0 && (li.motif || "").trim())
-      .map(li => ({
-        chantier_id: rapport.chantier_id,
-        phasage_id,
-        phase_id: null,
-        tache_id: null,
-        ouvrier: rapport.ouvrier,
-        date: dateISO,
-        heures: parseFloat(li.heures),
-        taux_horaire: taux,
-        rapport_id: rapport.id,
-        avancement_declare: null,
-        valide_par: valideur,
-        type_pointage: "indirect",
-        motif_indirect: li.motif.trim(),
-      }));
-
-    // Trajet matin + soir → pointage indirect dédié (motif="Trajet"), pour qu'il
-    // apparaisse dans le coût MO du chantier et soit affiché à part dans la
-    // carte "Trajets" du PlanTravaux.
-    //
-    // ⚠️ LISSAGE : RapportMobile pose le MÊME temps de trajet sur chaque rapport
-    // quand l'ouvrier fait plusieurs chantiers le même jour. Pour ne pas
-    // compter le trajet ×N, on divise par le nombre de rapports de cet ouvrier
-    // ce jour-là. Chaque chantier reçoit sa quote-part équitable.
+    // 1) Construit les écritures de pointages du rapport : tâches (heures > 0,
+    //    doublons fusionnés), heures indirectes, et trajet réparti en centimes
+    //    exacts entre les N chantiers du jour. Logique PARTAGÉE avec l'outil de
+    //    ré-génération (Admin → Pointages) via buildPointagesRapport().
     const rapportsMemeJour = rapports.filter(r =>
       r.ouvrier === rapport.ouvrier && r.date_rapport === rapport.date_rapport
     );
-    const nbChantiersDuJour = Math.max(1, rapportsMemeJour.length);
-    const trajetMinTotal = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
-    // Répartition EXACTE du trajet entre les N chantiers du jour.
-    // Diviser naïvement (total ÷ N) puis stocker en numeric(6,2) fait dériver le
-    // total du jour : 1 h ÷ 3 = 0,3333 → 0,33 stocké, et 3 × 0,33 = 0,99 h — le
-    // jour affiche 9,99 h au lieu de 10. On répartit donc en CENTIMES par la
-    // méthode du plus grand reste : la somme des quote-parts vaut EXACTEMENT le
-    // trajet total. Déterministe (indépendant de l'ordre de validation) grâce au
-    // tri stable par id ; il faut cependant revalider les N rapports d'un même
-    // jour pour que leur somme redevienne juste.
-    const totalCentsTrajet = Math.round((trajetMinTotal / 60) * 100);
-    const baseCents  = Math.floor(totalCentsTrajet / nbChantiersDuJour);
-    const extraCents = totalCentsTrajet - baseCents * nbChantiersDuJour; // rapports recevant +1 centime
-    const rangRapport = [...rapportsMemeJour]
-      .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-      .findIndex(r => r.id === rapport.id);
-    const trajetH = (baseCents + (rangRapport >= 0 && rangRapport < extraCents ? 1 : 0)) / 100;
-    const lignesTrajet = trajetH > 0 ? [{
+    const lignesPointages = buildPointagesRapport({
       chantier_id: rapport.chantier_id,
-      phasage_id,
-      phase_id: null,
-      tache_id: null,
       ouvrier: rapport.ouvrier,
-      date: dateISO,
-      heures: trajetH,
-      taux_horaire: taux,
+      dateISO,
+      taux,
+      phasage_id,
       rapport_id: rapport.id,
-      avancement_declare: null,
       valide_par: valideur,
-      type_pointage: "indirect",
-      motif_indirect: nbChantiersDuJour > 1 ? `Trajet (1/${nbChantiersDuJour})` : "Trajet",
-    }] : [];
-
-    const lignesPointages = [...lignesTaches, ...lignesIndirectes, ...lignesTrajet];
+      taskLines: lignes.map(li => ({
+        tache_id: li.tache_id || null,
+        phase_id: li.phase_id || null,
+        heures: li.heures,
+        avancement_declare: li.avancement_declare,
+      })),
+      indirectLines: indirectes,
+      trajetMinTotal: (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0),
+      nbChantiersDuJour: Math.max(1, rapportsMemeJour.length),
+      rangRapport: rangRapportDuJour(rapport, rapportsMemeJour),
+    });
 
     // ── INTÉGRITÉ : le registre AVANT le marquage « validé » ────────────────
     // On enregistre les pointages en premier. Si l'écriture échoue, on ARRÊTE

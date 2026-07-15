@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
+import { buildPointagesRapport, rangRapportDuJour } from "../pointages";
 import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
@@ -1777,6 +1778,268 @@ function OngletHistorique({ T, acc, chantiers }) {
   );
 }
 
+// ─── ONGLET POINTAGES (contrôle & réparation du registre) ───────────────────
+// Deux réparations, toutes deux issues de bugs corrigés depuis :
+//   1) CR validés SANS pointages (collision d'index unique avalée en 23505) →
+//      régénération des écritures à partir du déclaratif du rapport.
+//   2) Journées dont le trajet ne somme pas juste (0,33 × 3 = 0,99) → recalage
+//      chirurgical des pointages de trajet en centimes exacts.
+function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
+  const now = new Date();
+  const [mois, setMois]       = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy]       = useState(false);
+  const [scan, setScan]       = useState(null);
+  const [msg, setMsg]         = useState(null);
+
+  const valideur = profil?.nom || profil?.email || "Admin";
+
+  const frToISO = (s) => {
+    if (!s) return "";
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    return s;
+  };
+  const fmtH = (n) => { const v = Math.round((parseFloat(n) || 0) * 100) / 100; return Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0+$/, "").replace(/\.$/, ""); };
+
+  // Cible de trajet (heures) du rapport de rang idx parmi n rapports du jour.
+  const partTrajet = (trajetMin, n, idx) => {
+    const totalCents = Math.round((trajetMin / 60) * 100);
+    const base = Math.floor(totalCents / n);
+    const extra = totalCents - base * n;
+    return (base + (idx < extra ? 1 : 0)) / 100;
+  };
+
+  const analyser = async () => {
+    setLoading(true); setMsg(null); setScan(null);
+    const [y, mo] = mois.split("-").map(Number);
+    const first = new Date(y, mo - 1, 1), last = new Date(y, mo, 0);
+    const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const days = [];
+    for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) days.push(isoOf(new Date(d)));
+    const frDays = days.map(s => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s); return `${m[3]}/${m[2]}/${m[1]}`; });
+
+    const { data: rps, error: e1 } = await supabase.from("rapports")
+      .select("id,ouvrier,date_rapport,chantier_id,chantier_nom,taches,heures_indirectes,trajet_matin_min,trajet_soir_min,statut")
+      .in("date_rapport", [...days, ...frDays]).eq("statut", "valide");
+    const { data: pts, error: e2 } = await supabase.from("pointages")
+      .select("id,rapport_id,heures,type_pointage,motif_indirect")
+      .gte("date", days[0]).lte("date", days[days.length - 1]);
+    if (e1 || e2) { setMsg({ type: "err", text: "Erreur de lecture — réessaie." }); setLoading(false); return; }
+
+    const rapports = rps || [], pointages = pts || [];
+    const ptsParRapport = {};
+    pointages.forEach(p => { (ptsParRapport[p.rapport_id] ||= []).push(p); });
+
+    // 1) CR validés sans aucun pointage (heures déclarées perdues)
+    const crSansPointages = rapports.filter(r => {
+      const decl = (r.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
+      return decl > 0 && (ptsParRapport[r.id] || []).length === 0;
+    }).map(r => ({
+      id: r.id, ouvrier: r.ouvrier, date: frToISO(r.date_rapport),
+      chantier: r.chantier_nom || r.chantier_id,
+      heures: (r.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0),
+    }));
+
+    // 2) Journées dont les pointages de trajet ne somment pas juste
+    const parJour = {};
+    rapports.forEach(r => { const k = `${r.ouvrier}__${frToISO(r.date_rapport)}`; (parJour[k] ||= []).push(r); });
+    const joursDrift = [];
+    Object.entries(parJour).forEach(([k, rs]) => {
+      const [ouvrier, dateISO] = k.split("__");
+      const trajetMin = (parseInt(rs[0].trajet_matin_min) || 0) + (parseInt(rs[0].trajet_soir_min) || 0);
+      if (trajetMin <= 0) return;
+      const n = rs.length;
+      const tri = [...rs].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      let besoin = false, actuelJour = 0, cibleJour = 0;
+      tri.forEach((r, idx) => {
+        const cible = partTrajet(trajetMin, n, idx);
+        const trajPts = (ptsParRapport[r.id] || []).filter(p => p.type_pointage === "indirect" && /^trajet/i.test(p.motif_indirect || ""));
+        if (trajPts.length === 0) return; // pas de pointage trajet (CR manquant) → traité ailleurs
+        const actuel = trajPts.reduce((s, p) => s + (parseFloat(p.heures) || 0), 0);
+        actuelJour += actuel; cibleJour += cible;
+        if (Math.abs(actuel - cible) > 0.005) besoin = true;
+      });
+      if (besoin) joursDrift.push({ ouvrier, date: dateISO, rapports: tri, trajetMin, actuel: actuelJour, cible: cibleJour });
+    });
+
+    setScan({ crSansPointages, joursDrift, nbRapports: rapports.length });
+    setLoading(false);
+  };
+
+  // Recalage chirurgical des trajets (ne touche QUE les pointages de trajet).
+  const recalerTrajets = async () => {
+    if (!scan?.joursDrift?.length) return;
+    setBusy(true); setMsg(null);
+    let jours = 0, errs = 0;
+    for (const j of scan.joursDrift) {
+      const n = j.rapports.length;
+      for (let idx = 0; idx < n; idx++) {
+        const r = j.rapports[idx];
+        const cible = partTrajet(j.trajetMin, n, idx);
+        const { error } = await supabase.from("pointages")
+          .update({ heures: cible, motif_indirect: n > 1 ? `Trajet (1/${n})` : "Trajet" })
+          .eq("rapport_id", r.id).eq("type_pointage", "indirect").ilike("motif_indirect", "trajet%");
+        if (error) errs++;
+      }
+      jours++;
+    }
+    setBusy(false);
+    setMsg(errs
+      ? { type: "err", text: `Recalage terminé avec ${errs} erreur(s) sur ${jours} journée(s).` }
+      : { type: "ok", text: `Trajets recalés sur ${jours} journée(s).` });
+    await analyser();
+  };
+
+  // Régénération des CR sans pointages (rattrape les heures perdues).
+  const regenererCR = async () => {
+    if (!scan?.crSansPointages?.length) return;
+    if (!window.confirm(
+      `Régénérer les pointages de ${scan.crSansPointages.length} rapport(s) validé(s) sans écriture ?\n\n`
+      + "Les heures sont reconstruites à partir de la déclaration de l'ouvrier. "
+      + "Pour la paie, les totaux redeviennent corrects. (Une correction manuelle faite "
+      + "pendant la validation d'origine, si elle existait, n'est pas restaurée.)"
+    )) return;
+    setBusy(true); setMsg(null);
+
+    // Récupère les rapports complets + phasage_id par chantier.
+    const ids = scan.crSansPointages.map(c => c.id);
+    const { data: rps } = await supabase.from("rapports")
+      .select("id,ouvrier,date_rapport,chantier_id,taches,heures_indirectes,trajet_matin_min,trajet_soir_min").in("id", ids);
+    const rapports = rps || [];
+    const chIds = [...new Set(rapports.map(r => r.chantier_id).filter(Boolean))];
+    const phasageParChantier = {};
+    if (chIds.length) {
+      const { data: phs } = await supabase.from("phasages").select("id,chantier_id").in("chantier_id", chIds);
+      (phs || []).forEach(p => { if (!phasageParChantier[p.chantier_id]) phasageParChantier[p.chantier_id] = p.id; });
+    }
+    // Rapports du même jour (tous statuts) pour le rang + N de trajet.
+    let ok = 0, errs = 0;
+    for (const r of rapports) {
+      const dateISO = frToISO(r.date_rapport);
+      const dateFR = (() => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateISO); return m ? `${m[3]}/${m[2]}/${m[1]}` : dateISO; })();
+      const { data: memeJour } = await supabase.from("rapports").select("id")
+        .eq("ouvrier", r.ouvrier).in("date_rapport", [dateISO, dateFR]).eq("statut", "valide");
+      const rmj = memeJour || [{ id: r.id }];
+      const lignes = buildPointagesRapport({
+        chantier_id: r.chantier_id,
+        ouvrier: r.ouvrier,
+        dateISO,
+        taux: parseFloat(tauxHoraires?.[r.ouvrier]) || 0,
+        phasage_id: phasageParChantier[r.chantier_id] || null,
+        rapport_id: r.id,
+        valide_par: valideur,
+        taskLines: (r.taches || []).map(t => ({
+          tache_id: t.tache_id || null, phase_id: t.phase_id || null,
+          heures: t.heures_reelles, avancement_declare: t.avancement,
+        })),
+        indirectLines: (r.heures_indirectes || []).map(h => ({ motif: h.motif, heures: h.heures })),
+        trajetMinTotal: (parseInt(r.trajet_matin_min) || 0) + (parseInt(r.trajet_soir_min) || 0),
+        nbChantiersDuJour: Math.max(1, rmj.length),
+        rangRapport: rangRapportDuJour(r, rmj),
+      });
+      if (!lignes.length) { ok++; continue; }
+      // Nettoyage puis insert (le CR n'a pas de pointage, mais on sécurise).
+      await supabase.from("pointages").delete().eq("rapport_id", r.id);
+      const { error } = await supabase.from("pointages").insert(lignes);
+      if (error) errs++; else ok++;
+    }
+    setBusy(false);
+    setMsg(errs
+      ? { type: "err", text: `${ok} rapport(s) régénéré(s), ${errs} en erreur.` }
+      : { type: "ok", text: `${ok} rapport(s) régénéré(s) — heures rattrapées.` });
+    await analyser();
+  };
+
+  const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "14px 16px" };
+  const rien = scan && scan.crSansPointages.length === 0 && scan.joursDrift.length === 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ ...card }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 4 }}>Contrôle du registre de pointage</div>
+        <div style={{ fontSize: 12.5, color: T.textMuted, lineHeight: 1.5 }}>
+          Détecte et répare deux anomalies héritées de bugs corrigés : les CR validés sans aucune heure au registre,
+          et les journées dont le trajet ne tombe pas juste (ex. 9,99 h au lieu de 10). Analyse mois par mois.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+          <input type="month" value={mois} onChange={e => setMois(e.target.value)}
+            style={{ background: T.inputBg || T.fieldBg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "8px 12px", color: T.text, fontFamily: "inherit", fontSize: 14 }} />
+          <button onClick={analyser} disabled={loading || busy}
+            style={{ display: "inline-flex", alignItems: "center", gap: 7, background: acc.accent, color: acc.onAccent || "#111", border: "none", borderRadius: RADIUS.md, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, cursor: loading ? "wait" : "pointer", fontFamily: "inherit" }}>
+            <Icon as={Activity} size={15} /> {loading ? "Analyse…" : "Analyser le mois"}
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{ ...card, borderColor: msg.type === "err" ? "rgba(224,92,92,0.4)" : "rgba(80,200,120,0.4)", color: msg.type === "err" ? "#e05c5c" : "#3f9c5f", fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon as={msg.type === "err" ? AlertTriangle : Check} size={16} /> {msg.text}
+        </div>
+      )}
+
+      {rien && (
+        <div style={{ ...card, display: "flex", alignItems: "center", gap: 8, color: "#3f9c5f", fontWeight: 600, fontSize: 13.5 }}>
+          <Icon as={Check} size={16} /> Registre sain pour ce mois — {scan.nbRapports} CR validés, aucune anomalie.
+        </div>
+      )}
+
+      {/* Journées à recaler (trajet) */}
+      {scan && scan.joursDrift.length > 0 && (
+        <div style={{ ...card }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+            <Icon as={Clock} size={17} color={acc.accent} />
+            <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>
+              {scan.joursDrift.length} journée(s) à recaler (trajet)
+            </span>
+            <button onClick={recalerTrajets} disabled={busy}
+              style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, background: acc.accent, color: acc.onAccent || "#111", border: "none", borderRadius: RADIUS.md, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: "inherit" }}>
+              <Icon as={RefreshCw} size={14} /> {busy ? "En cours…" : "Recaler les trajets"}
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {scan.joursDrift.map((j, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: T.textSub, padding: "5px 0", borderBottom: i < scan.joursDrift.length - 1 ? `1px solid ${T.sectionDivider || T.border}` : "none" }}>
+                <span style={{ fontWeight: 700, color: T.text, minWidth: 90 }}>{j.ouvrier}</span>
+                <span>{j.date}</span>
+                <span style={{ marginLeft: "auto", color: T.textMuted }}>
+                  {fmtH(j.actuel)} h → <b style={{ color: "#3f9c5f" }}>{fmtH(j.cible)} h</b>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CR sans pointages */}
+      {scan && scan.crSansPointages.length > 0 && (
+        <div style={{ ...card }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+            <Icon as={AlertTriangle} size={17} color="#d98a2b" />
+            <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>
+              {scan.crSansPointages.length} CR validé(s) sans aucune heure au registre
+            </span>
+            <button onClick={regenererCR} disabled={busy}
+              style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, background: "#d98a2b", color: "#fff", border: "none", borderRadius: RADIUS.md, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: "inherit" }}>
+              <Icon as={RefreshCw} size={14} /> {busy ? "En cours…" : "Régénérer les pointages"}
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {scan.crSansPointages.map((c, i) => (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: T.textSub, padding: "5px 0", borderBottom: i < scan.crSansPointages.length - 1 ? `1px solid ${T.sectionDivider || T.border}` : "none" }}>
+                <span style={{ fontWeight: 700, color: T.text, minWidth: 90 }}>{c.ouvrier}</span>
+                <span>{c.date}</span>
+                <span style={{ color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.chantier}</span>
+                <span style={{ marginLeft: "auto", fontWeight: 700, color: "#d98a2b" }}>{fmtH(c.heures)} h manquantes</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,tauxMOPrev=0,setTauxMOPrev,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
   const [adminTab,setAdminTab]=useState("vue");
@@ -2317,6 +2580,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
     ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
     ...(isAdmin ? [["historique",   "Historique",   RefreshCw]] : []),
+    ...(isAdmin ? [["pointages",    "Pointages",    Activity]] : []),
     ["maintenance",  "Maintenance",     Wrench],
   ];
 
@@ -2390,6 +2654,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="historique" && isAdmin && (
         <OngletHistorique T={T} acc={acc} chantiers={chantiers}/>
+      )}
+
+      {adminTab==="pointages" && isAdmin && (
+        <OngletPointages T={T} acc={acc} tauxHoraires={tauxHoraires} profil={profil}/>
       )}
 
       {/* ── PHASES DE TRAVAUX ── */}
