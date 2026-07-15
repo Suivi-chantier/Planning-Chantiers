@@ -616,7 +616,21 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     );
     const nbChantiersDuJour = Math.max(1, rapportsMemeJour.length);
     const trajetMinTotal = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
-    const trajetH = (trajetMinTotal / 60) / nbChantiersDuJour;
+    // Répartition EXACTE du trajet entre les N chantiers du jour.
+    // Diviser naïvement (total ÷ N) puis stocker en numeric(6,2) fait dériver le
+    // total du jour : 1 h ÷ 3 = 0,3333 → 0,33 stocké, et 3 × 0,33 = 0,99 h — le
+    // jour affiche 9,99 h au lieu de 10. On répartit donc en CENTIMES par la
+    // méthode du plus grand reste : la somme des quote-parts vaut EXACTEMENT le
+    // trajet total. Déterministe (indépendant de l'ordre de validation) grâce au
+    // tri stable par id ; il faut cependant revalider les N rapports d'un même
+    // jour pour que leur somme redevienne juste.
+    const totalCentsTrajet = Math.round((trajetMinTotal / 60) * 100);
+    const baseCents  = Math.floor(totalCentsTrajet / nbChantiersDuJour);
+    const extraCents = totalCentsTrajet - baseCents * nbChantiersDuJour; // rapports recevant +1 centime
+    const rangRapport = [...rapportsMemeJour]
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      .findIndex(r => r.id === rapport.id);
+    const trajetH = (baseCents + (rangRapport >= 0 && rangRapport < extraCents ? 1 : 0)) / 100;
     const lignesTrajet = trajetH > 0 ? [{
       chantier_id: rapport.chantier_id,
       phasage_id,
