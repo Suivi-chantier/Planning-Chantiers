@@ -396,10 +396,15 @@ function phasageToChantier(phasage, chantier, tauxHoraires, phasesConfig, lastCR
   // ignorait l'historique non pointé et gonflait la marge (incohérence avec
   // Phasage).
   const hasV2 = Array.isArray(phasage?.ouvrages) && phasage.ouvrages.length > 0;
-  const moC   = hasV2
+  // Reprise d'heures antérieures (chantiers démarrés avant l'app) : total saisi
+  // dans PhasageV2 (meta.reprise_heures × meta.reprise_taux). Ajouté au coût MO
+  // pour que la marge réelle du chantier soit cohérente avec la page Phasage.
+  const repriseCoutMO = (parseFloat(meta?.reprise_heures) || 0) * (parseFloat(meta?.reprise_taux) || 0);
+  const moC   = (hasV2
     ? coutMOChantierV2(phasage.ouvrages, ptsIdx, tauxHoraires)
       + (extras.coutLibre || 0) + (extras.coutIndirect || 0)
-    : calcMOConsommee(plan, phasesConfig, tauxHoraires, ptsIdx, extras);
+    : calcMOConsommee(plan, phasesConfig, tauxHoraires, ptsIdx, extras))
+    + repriseCoutMO;
   const budMat = calcBudgetMat(plan, phasesConfig);
   const commandeCost = commandeCostByChantier[phasage?.chantier_id] || 0;
   const matC   = calcMatConsomme(plan, phasesConfig, commandeCost);
