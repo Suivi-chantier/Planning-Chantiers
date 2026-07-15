@@ -902,13 +902,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // À distinguer du KPI « Matériaux » = commandes réellement passées
   // (coutMatChantier, somme des lignes de commande).
   const commandesPrevChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);
-  // Frais généraux = taux horaire × heures vendues (configurable dans Suivi
-  // direction). On garde fg_pct en compat mais on privilégie fg_taux_horaire.
+  // Frais généraux = taux horaire × heures RÉELLES (heures réellement passées :
+  // tâches + trajets + indirect). Ils couvrent l'admin/transport supporté par
+  // chaque heure travaillée, pas par les heures vendues. Configurable dans Suivi
+  // direction. On garde fg_pct en compat mais on privilégie fg_taux_horaire.
   const fgTauxHoraire = (() => {
     const v = parseFloat(phasage?.plan_travaux?.meta?.fg_taux_horaire);
     return Number.isFinite(v) ? v : 0;
   })();
-  const fgChantier = fgTauxHoraire * heuresVenduesChantier;
+  const fgChantier = fgTauxHoraire * heuresReellesTotalChantier;
   // Marge nette = Vendu − Coût MO (tâches + trajets + indirect) − Matériaux − FG.
   const margeChantier  = prixHTChantier - coutMOTotalChantier - coutMatChantier - fgChantier;
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
@@ -2056,7 +2058,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 onClick={() => setMatKpiModal(true)}/>
               <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label="Frais généraux"
                 value={fmtEur(fgChantier)}
-                sub={fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${heuresVenduesChantier.toFixed(0)}h` : "0 — à régler"}
+                sub={fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${heuresReellesTotalChantier.toFixed(0)}h réelles` : "0 — à régler"}
                 onClick={() => setKpiDetail("fg")}/>
               <KpiCard T={T}
                 icon={margeChantier >= 0 ? TrendingUp : TrendingDown}
@@ -2620,7 +2622,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.6,
           }}>
             <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge nette pour considérer le chantier rentable.</div>
-            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : taux horaire (€/h) multiplié par les heures vendues du chantier. Couvre admin, transport, etc. Déduit de la marge.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : taux horaire (€/h) multiplié par les heures réelles du chantier (tâches + trajets + indirect). Couvre admin, transport, etc. Déduit de la marge.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Seuil prime</strong> : marge minimale à partir de laquelle l'équipe touche la prime.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Prime chantier</strong> : montant attribué à l'équipe si le seuil est dépassé.</div>
           </div>
@@ -2787,19 +2789,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             total: coutMOTotalChantier, totalLabel: "Total coût MO", totalColor: "#60a5fa",
           };
         } else if (kpiDetail === "fg") {
+          // Ventilation par heures RÉELLES : par ouvrage + une ligne pour les
+          // heures travaillées hors tâche (trajets, indirect, libres).
           const rows = fgTauxHoraire > 0
             ? ouvrages
-                .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hv: heuresVenduesOuvrage(o) }))
-                .filter(r => r.hv > 0)
-                .sort((a, b) => b.hv - a.hv)
-                .map(r => ({ main: r.main, sub: `${fmtH(r.hv)}h × ${fgTauxHoraire}€/h`, right: eur(r.hv * fgTauxHoraire) }))
+                .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hr: heuresReellesOuvrage(o) }))
+                .filter(r => r.hr > 0)
+                .sort((a, b) => b.hr - a.hr)
+                .map(r => ({ main: r.main, sub: `${fmtH(r.hr)}h × ${fgTauxHoraire}€/h`, right: eur(r.hr * fgTauxHoraire) }))
             : [];
+          const hExtra = extras.heuresIndirect + extras.heuresLibre;
+          if (fgTauxHoraire > 0 && hExtra > 0.05) {
+            rows.push({ main: "Trajets + indirect + libres", sub: `${fmtH(hExtra)}h × ${fgTauxHoraire}€/h`, right: eur(hExtra * fgTauxHoraire) });
+          }
           cfg = {
             icon: Percent, color: "#a78bfa", title: "Frais généraux",
             subtitle: fgTauxHoraire > 0
-              ? `${fgTauxHoraire}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`
+              ? `${fgTauxHoraire}€/h × ${heuresReellesTotalChantier.toFixed(0)}h réelles`
               : "Taux horaire non réglé (Suivi direction)",
-            empty: fgTauxHoraire > 0 ? "Aucune heure vendue." : "Définis un taux horaire de frais généraux dans « Suivi direction » pour ventiler ce coût.",
+            empty: fgTauxHoraire > 0 ? "Aucune heure réelle pointée." : "Définis un taux horaire de frais généraux dans « Suivi direction » pour ventiler ce coût.",
             rows,
             total: fgChantier, totalLabel: "Total frais généraux", totalColor: "#a78bfa",
           };
@@ -2813,7 +2821,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
               { main: "Coût main d'œuvre", sub: "tâches + trajets + indirect", right: `− ${eur(coutMOTotalChantier)}`, rightColor: "#e15a5a" },
               { main: "Matériaux", sub: "commandes du chantier", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
-              { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures vendues` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
+              { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures réelles` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
             ],
             total: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
             totalLabel: "Marge nette", totalColor: margeColor, totalIsText: true,
