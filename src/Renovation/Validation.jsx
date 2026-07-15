@@ -169,9 +169,11 @@ function AlerteBox({ icon, text, T }) {
 
 // ─── Page principale ─────────────────────────────────────────────────────────
 
-function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, branch = "renovation", profil }) {
+function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, branch = "renovation", profil, initialDate = null, onInitialDateConsumed }) {
   const acc = getBranchAccent(branch);
-  const [dateFilter, setDateFilter] = useState(dateKey());
+  // initialDate (ISO ou FR) : raccourci depuis « Heures des salariés » pour
+  // ouvrir directement le jour d'un CR en attente. Normalisé en ISO.
+  const [dateFilter, setDateFilter] = useState(() => frToISO(initialDate) || dateKey());
   const [rapports, setRapports] = useState([]);
   const [cellsJour, setCellsJour] = useState([]);
   const [phasages, setPhasages] = useState([]);
@@ -255,6 +257,16 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [dateFilter]);
+
+  // Si l'app fournit une date cible (navigation depuis « Heures des salariés »),
+  // on s'y positionne puis on signale la consommation pour ne pas la ré-appliquer.
+  useEffect(() => {
+    if (!initialDate) return;
+    const iso = frToISO(initialDate);
+    if (iso) setDateFilter(iso);
+    onInitialDateConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDate]);
 
   const ouvriersPlanifies = useMemo(() => {
     const s = new Set();

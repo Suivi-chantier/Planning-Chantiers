@@ -72,6 +72,7 @@ const PageBibliothequeMateriaux = lazy(() => import("./Renovation/PageBibliotheq
 const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages"));
 const PageInvest             = lazy(() => import("./PageInvest"));
 const PageDashboardAnalyse   = lazy(() => import("./Renovation/DashboardAnalyse"));
+const PageHeuresSalaries     = lazy(() => import("./Renovation/HeuresSalaries"));
 const PageEtatsFinanciers    = lazy(() => import("./Renovation/EtatsFinanciers"));
 const EspaceOuvrier          = lazy(() => import("./Renovation/EspaceOuvrier"));
 
@@ -389,6 +390,14 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     setPage("chantiers");
   };
 
+  // Navigation depuis « Heures des salariés » vers la Validation, préréglée sur
+  // une date (raccourci pour aller valider un CR en attente). Reset après conso.
+  const [validationDate, setValidationDate] = useState(null);
+  const ouvrirValidation = (dateISO) => {
+    setValidationDate(dateISO || null);
+    setPage("validation");
+  };
+
   // Config d'accès dynamique (rôles ↔ pages), chargée depuis planning_config.
   const [rolePages, setRolePages] = useState(ROLE_PAGES_DEFAULT_RENOVATION);
   useEffect(() => {
@@ -678,7 +687,8 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
           {page==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
           {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T}/> : <AccesRefuse T={T} page="equipe"/>)}
-          {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="validation"/>)}
+          {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={validationDate} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
+          {page==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {page==="phasage"            && (canAccess(role,"phasage")            ? <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage"/>)}
           {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage-v2"/>)}

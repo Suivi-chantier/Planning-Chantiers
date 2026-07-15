@@ -4,7 +4,7 @@ import {
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
-  Pencil, Check, RotateCcw, GripVertical,
+  Pencil, Check, RotateCcw, GripVertical, Clock,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -28,19 +28,19 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","heures-salaries","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","etats-financiers","guide-ouvrages","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","validation","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","heures-salaries","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client"
   ],
   commercial: [
     "dashboard","chantiers","planning","plans","visite","info-client"
   ],
   comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2","etats-financiers"
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2","heures-salaries","etats-financiers"
   ],
 };
 
@@ -59,6 +59,7 @@ const ALL_NAV_ITEMS = [
   { id:"planning-commandes", icon:ShoppingCart,  label:"À passer",   longLabel:"Commandes à passer" },
   { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
   { id:"validation",       icon:CheckCircle2,    label:"Valid.",     longLabel:"Validation de fin de journée" },
+  { id:"heures-salaries",  icon:Clock,           label:"Heures",     longLabel:"Heures des salariés" },
   { id:"plans",            icon:Ruler,           label:"Plans",      longLabel:"Plans"               },
   { id:"phasage-v2",       icon:ListChecks,      label:"Phasage",    longLabel:"Phasage" },
   { id:"bibliotheque",     icon:BookOpen,        label:"Biblio.",    longLabel:"Biblio. ouvrages"    },
@@ -255,6 +256,7 @@ function Sidebar({
     { id:"planning-commandes", icon:ShoppingCart,  label:"Commandes à passer" },
     { id:"equipe",           icon:Users,           label:"Équipe"           },
     { id:"validation",       icon:CheckCircle2,    label:"Validation fin de journée" },
+    { id:"heures-salaries",  icon:Clock,           label:"Heures des salariés" },
     { id:"plans",            icon:Ruler,           label:"Plans"            },
     { id:"phasage-v2",       icon:ListChecks,      label:"Phasage" },
     { id:"bibliotheque",     icon:BookOpen,        label:"Biblio. ouvrages" },

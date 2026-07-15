@@ -175,6 +175,24 @@ export const AIDE_CONTENU = {
       "Vous pouvez ajouter des heures indirectes (trajets, imprévus) depuis le formulaire.",
     ],
   },
+  "heures-salaries": {
+    titre: "Heures des salariés",
+    sousTitre: "Vue par salarié pour préparer la paie du mois.",
+    intro: "Un tableau avec les salariés en lignes et les jours en colonnes : le total d'heures validées de chacun, jour par jour. Contrairement aux vues de coût, on additionne TOUTES les heures payées (tâches, indirect, trajets), tous chantiers confondus.",
+    etapes: [
+      "Choisissez la granularité : jour, semaine ou mois (mois par défaut).",
+      "Lisez le total de chaque salarié par jour et le total du mois sous son nom.",
+      "En vue mois, le bandeau du haut indique s'il reste des CR à valider avant de clôturer la paie.",
+      "Cliquez sur une case pour voir le détail (chantiers, tâches, heures indirectes) et remonter au CR source.",
+      "Activez « Vue détaillée » pour éclater chaque case par chantier ; exportez le récapitulatif en CSV.",
+    ],
+    savoir: [
+      "Une case n'apparaît que si le CR a été validé. « À valider » (bordure pointillée) = planifié mais pas encore validé.",
+      "Cette page est en lecture seule : pour corriger une heure, revalidez le CR dans la page Validation.",
+      "Le sous-total d'une semaine se colore au-delà de 35 h (alerte forte à 48 h) : c'est un simple repère, pas un calcul de majoration.",
+      "Absences, clôture et export paie arriveront après décision avec le comptable.",
+    ],
+  },
   plans: {
     titre: "Plans du chantier",
     sousTitre: "Dessiner, mesurer et annoter les plans d'un chantier.",
