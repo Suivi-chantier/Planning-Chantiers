@@ -942,6 +942,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       .sort((a, b) => b.mois.localeCompare(a.mois));
   }, [pointages]);
   const heuresTotalTousMois = useMemo(() => heuresParMois.reduce((s, m) => s + m.heures, 0), [heuresParMois]);
+  // Heures du MOIS EN COURS — affiché sur le KPI d'en-tête (plus parlant que le
+  // cumul). Le détail par mois / par ouvrier reste accessible via la modale.
+  const moisCourant = useMemo(() => {
+    const d = new Date();
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    return { k, label, heures: heuresParMois.find(m => m.mois === k)?.heures || 0 };
+  }, [heuresParMois]);
 
   // ── PRÉVISIONNEL ──────────────────────────────────────────────────────────
   // Coût MO PRÉVU = heures vendues (Σ heures_devis) × taux horaire global réglé
@@ -2094,11 +2102,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesTotalChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}
                 accent={couleurDerive(heuresReellesTotalChantier, heuresVenduesChantier)}
                 onClick={() => setKpiDetail("heures")}/>
-              <KpiCard T={T} icon={Calendar} iconColor="#5b9cf6" label="Heures / mois"
-                value={(heuresTotalTousMois + repriseHeures) > 0 ? `${(heuresTotalTousMois + repriseHeures).toFixed(0)}h` : "—"}
-                sub={(heuresParMois.length > 0 || repriseHeures > 0)
-                  ? `${heuresParMois.length} mois${repriseHeures > 0 ? " + reprise" : ""} · détail par ouvrier`
-                  : "aucun pointage"}
+              <KpiCard T={T} icon={Calendar} iconColor="#5b9cf6" label="Heures ce mois"
+                value={moisCourant.heures > 0 ? `${moisCourant.heures.toFixed(0)}h` : "—"}
+                sub={moisCourant.heures > 0
+                  ? `${moisCourant.label} · voir le détail`
+                  : `${moisCourant.label} · aucun pointage`}
                 onClick={() => setMoisModal(true)}/>
               <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label="Coût MO"
                 value={fmtEur(coutMOTotalChantier)}
