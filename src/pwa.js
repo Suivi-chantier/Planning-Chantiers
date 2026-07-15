@@ -54,15 +54,30 @@ export function initPWA() {
       pending = true
       applyUpdate = () => updateSW(true) // skipWaiting + reload
       maybeApply()
+      // Filet anti-blocage : si une saisie (ou une clé « dirty » restée ouverte à
+      // cause d'un bug) empêche l'application trop longtemps, on force au bout de
+      // 3 min. Les brouillons sont sauvegardés en localStorage (useDraft) : aucune
+      // perte même si le reload tombe pendant une frappe.
+      setTimeout(() => { if (pending && applyUpdate) { pending = false; applyUpdate() } }, 3 * 60 * 1000)
     },
     onRegisteredSW(_swUrl, reg) {
       if (!reg) return
-      // Vérifie l'arrivée de nouveaux déploiements toutes les 30 min…
-      setInterval(() => { reg.update().catch(() => {}) }, 30 * 60 * 1000)
-      // …et chaque fois que l'onglet/app redevient actif.
+      // Cas où un nouveau SW est DÉJÀ en attente au chargement (onNeedRefresh
+      // parfois raté selon le timing) : on l'applique nous-mêmes.
+      if (reg.waiting) {
+        pending = true
+        applyUpdate = () => updateSW(true)
+        maybeApply()
+      }
+      const check = () => reg.update().catch(() => {})
+      check() // vérifie tout de suite au démarrage
+      // Puis toutes les 15 min…
+      setInterval(check, 15 * 60 * 1000)
+      // …et chaque fois que l'onglet/app reprend le focus ou redevient visible.
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') reg.update().catch(() => {})
+        if (document.visibilityState === 'visible') check()
       })
+      window.addEventListener('focus', check)
     },
   })
 }
