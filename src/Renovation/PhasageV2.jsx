@@ -7,7 +7,7 @@ import {
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
-  FileText, User, Calendar, Link2, Car, ListOrdered, GripVertical, FolderPlus,
+  FileText, User, Calendar, Link2, Car, ListOrdered, GripVertical, FolderPlus, Flag,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
 import { confirmPerteMassive } from "../guards";
@@ -310,6 +310,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Comptes rendus (rapports) du chantier — pour le bouton "voir le dernier CR"
   const [rapports, setRapports] = useState([]);
   const [rapportModal, setRapportModal] = useState(null); // { rapport, tacheNom }
+  const [rapportsModal, setRapportsModal] = useState(null); // { tacheNom, rapports } — tous les CR d'une tâche
   // Lignes de commande du chantier + panneau "Matériaux & commandes"
   const [commandeLignes, setCommandeLignes] = useState([]);
   const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
@@ -559,6 +560,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       (x.tache_id && String(x.tache_id) === String(t.id)) ||
       (nom && (x.planifie || x.nom || "").trim().toLowerCase() === nom)
     )) || null;
+  };
+  // TOUS les comptes rendus liés à la tâche `t` (même logique de matching que
+  // rapportPourTache, mais renvoie l'ensemble, du plus récent au plus ancien).
+  const rapportsPourTache = (t) => {
+    if (!t) return [];
+    const nom = (t.nom || "").trim().toLowerCase();
+    return rapports.filter(r => (r.taches || []).some(x =>
+      (x.tache_id && String(x.tache_id) === String(t.id)) ||
+      (nom && (x.planifie || x.nom || "").trim().toLowerCase() === nom)
+    ));
   };
 
   // ─── Panneau "Matériaux & commandes" (ouvrage / lot) ──────────────────────
@@ -1060,6 +1071,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const chronoGroupes = Array.isArray(phasage?.plan_travaux?.meta?.chrono_groupes)
     ? phasage.plan_travaux.meta.chrono_groupes : [];
   const setChronoGroupes = (next) => saveMeta({ chrono_groupes: next });
+  // Jalons de la vue chronologique ([{ id, nom, date, groupe_id, ordre }]).
+  // Ce sont des repères (livraison, réception…) intercalés entre les tâches
+  // d'un groupe. Ordonnés avec les tâches via le même index `ordre`.
+  const chronoJalons = Array.isArray(phasage?.plan_travaux?.meta?.chrono_jalons)
+    ? phasage.plan_travaux.meta.chrono_jalons : [];
+  const setChronoJalons = (next) => saveMeta({ chrono_jalons: next });
   // Applique en un seul passage un lot d'affectations
   // { [tacheId]: { groupe_id, ordre } } sur les tâches concernées.
   const applyChrono = (assignments) => {
@@ -2236,11 +2253,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <PrevisionnelEditor prev={prev} updatePrev={updatePrev} chantier={chantier} T={T} acc={acc} />
       ) : viewMode === "chrono" ? (
         <ChronoView
-          ouvrages={ouvrages} lots={lots} groupes={chronoGroupes}
+          ouvrages={ouvrages} lots={lots} groupes={chronoGroupes} jalons={chronoJalons}
           acc={acc} T={T}
-          applyChrono={applyChrono} setGroupes={setChronoGroupes}
+          applyChrono={applyChrono} setGroupes={setChronoGroupes} setJalons={setChronoJalons}
           updateTache={updateTache}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
+          rapportsPourTache={rapportsPourTache}
+          onShowRapports={(tache, list) => setRapportsModal({ tacheNom: tache.nom, tacheId: tache.id, rapports: list })}
         />
       ) : viewMode === "gantt" ? (
         <GanttV2
@@ -3342,6 +3361,86 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         );
       })()}
 
+      {/* ── Modale : TOUS les comptes rendus liés à une tâche (vue Chronologique) ── */}
+      {rapportsModal && (() => {
+        const cibleNom = (rapportsModal.tacheNom || "").trim().toLowerCase();
+        const cibleId = rapportsModal.tacheId;
+        const list = rapportsModal.rapports || [];
+        const statutColor = (s) => s === "faite" ? "#22c55e" : s === "en_cours" ? "#eab308" : s === "non_faite" ? "#e05c5c" : T.textMuted;
+        const statutLbl = (s) => s === "faite" ? "Faite" : s === "en_cours" ? "En cours" : s === "non_faite" ? "Non faite" : (s || "—");
+        // Entrées de tâche d'un rapport qui correspondent à la tâche ciblée
+        // (par tache_id pour les tâches V2, sinon par nom pour les migrées V1).
+        const entriesCible = (r) => (Array.isArray(r.taches) ? r.taches : []).filter(x =>
+          (cibleId != null && x.tache_id != null && String(x.tache_id) === String(cibleId)) ||
+          (cibleNom && (x.planifie || x.nom || "").trim().toLowerCase() === cibleNom));
+        return (
+          <div onClick={() => setRapportsModal(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+                width: "min(600px, 100%)", maxHeight: "85vh", overflow: "auto",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: T.surface, zIndex: 1 }}>
+                <Icon as={FileText} size={18}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    Comptes rendus — {rapportsModal.tacheNom || "tâche"}
+                  </div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>
+                    {list.length} compte{list.length > 1 ? "s" : ""} rendu{list.length > 1 ? "s" : ""} lié{list.length > 1 ? "s" : ""}
+                  </div>
+                </div>
+                <button onClick={() => setRapportsModal(null)}
+                  style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}>
+                  <Icon as={X} size={18}/>
+                </button>
+              </div>
+              <div style={{ padding: "12px 20px" }}>
+                {list.length === 0 ? (
+                  <div style={{ color: T.textMuted, fontStyle: "italic", fontSize: FONT.sm.size }}>Aucun compte rendu lié à cette tâche.</div>
+                ) : list.map((r, ri) => {
+                  const entries = entriesCible(r);
+                  return (
+                    <div key={r.id || ri} style={{
+                      marginBottom: 12, borderRadius: 12,
+                      border: `1px solid ${T.border}`, background: T.card, overflow: "hidden",
+                    }}>
+                      <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 12, flexWrap: "wrap", fontSize: FONT.xs.size, color: T.textMuted }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 700, color: T.textSub }}><Icon as={Calendar} size={12}/> {r.date_rapport || "—"}</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon as={User} size={12}/> {r.ouvrier || "—"}</span>
+                        {r.chantier_nom && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon as={Building2} size={12}/> {r.chantier_nom}</span>}
+                      </div>
+                      <div style={{ padding: "10px 12px" }}>
+                        {(entries.length ? entries : []).map((x, i) => (
+                          <div key={i} style={{ padding: "8px 10px", marginBottom: entries.length > 1 ? 6 : 0, borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ flex: 1, fontWeight: 700, fontSize: FONT.sm.size, color: T.text }}>{x.planifie || x.nom || "(sans nom)"}</span>
+                              <span style={{ fontSize: 10, fontWeight: 800, color: statutColor(x.statut) }}>{statutLbl(x.statut)}</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: FONT.xs.size, color: T.textMuted }}>
+                              {x.heures_reelles != null && x.heures_reelles !== "" && <span>{x.heures_reelles}h réelles</span>}
+                              {x.avancement != null && x.avancement !== "" && <span>{x.avancement}%</span>}
+                            </div>
+                            {x.remarque && <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, fontStyle: "italic" }}>« {x.remarque} »</div>}
+                          </div>
+                        ))}
+                        {r.remarque && (
+                          <div style={{ marginTop: entries.length ? 8 : 0, fontSize: FONT.xs.size, color: T.textSub }}>
+                            <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: .5, color: T.textMuted }}>Remarque générale : </span>
+                            {r.remarque}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {editingOuvrageId && (() => {
         const o = ouvrages.find(x => x.id === editingOuvrageId);
         if (!o) return null;
@@ -3686,21 +3785,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   );
 }
 
-// ─── GANTT V2 ─────────────────────────────────────────────────────────────────
-// Timeline simple par jour ouvré (Lun-Ven). Une ligne par tâche, groupées par
-// ouvrage puis par lot. Chaque tâche a une barre qui commence à date_prevue
-// et s'étend sur ⌈heures_estimees / 7⌉ jours (heuristique 7h/jour).
 // ─── VUE CHRONOLOGIQUE ────────────────────────────────────────────────────────
 // Reprend TOUTES les tâches créées (tous ouvrages) et permet de :
 //  • créer des groupes de tâches libres (nom + couleur),
-//  • ranger/ordonner les tâches par glisser-déposer (dans et entre groupes),
-//  • dater chaque tâche (écrit date_prevue, partagé avec le Gantt).
-// Persistance : groupes → meta.chrono_groupes ; affectation + ordre → sur la
-// tâche (chrono_groupe_id / chrono_ordre) via applyChrono ; date → updateTache.
+//  • ranger/ordonner tâches ET jalons par glisser-déposer (dans/entre groupes),
+//  • intercaler des jalons (repères datés : livraison, réception…),
+//  • dater chaque tâche (écrit date_prevue, partagé avec le Gantt),
+//  • ouvrir tous les comptes rendus liés à une tâche.
+// Persistance : groupes → meta.chrono_groupes ; jalons → meta.chrono_jalons ;
+// affectation + ordre des tâches → sur la tâche (chrono_groupe_id /
+// chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, updateTache, onClickTache }) {
-  const [drag, setDrag] = useState(null);        // { tacheId, ouvrageId }
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports }) {
+  const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   // Édition nom + couleur des groupes : brouillon local, persisté au blur pour
   // éviter un aller-retour DB (saveMeta) à chaque frappe.
@@ -3710,6 +3808,13 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
   const commit = (g, key) => {
     const v = drafts[g.id]?.[key];
     if (v != null && v !== g[key]) setGroupes(groupes.map(x => x.id === g.id ? { ...x, [key]: v } : x));
+  };
+  // Nom des jalons : brouillon local, persisté au blur (même logique).
+  const [jNameDraft, setJNameDraft] = useState({});
+  const jNom = (j) => jNameDraft[j.id] ?? j.nom ?? "";
+  const commitJNom = (j) => {
+    const v = jNameDraft[j.id];
+    if (v != null && v !== j.nom) setJalons(jalons.map(x => x.id === j.id ? { ...x, nom: v } : x));
   };
 
   const isoDay = (s) => {
@@ -3738,6 +3843,22 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
     .filter(it => !it.tache.chrono_groupe_id || !groupeIds.has(it.tache.chrono_groupe_id))
     .sort((a, b) => (a.tache.nom || "").localeCompare(b.tache.nom || ""));
 
+  // Entrées ordonnées d'un groupe = tâches + jalons fusionnés par `ordre`.
+  // À égalité d'ordre, la tâche passe avant le jalon (stable).
+  const entriesOfGroup = (gid) => {
+    const es = [];
+    items.forEach(it => {
+      if (it.tache.chrono_groupe_id === gid)
+        es.push({ kind: "tache", id: it.tache.id, ordre: it.tache.chrono_ordre ?? 1e9, it });
+    });
+    jalons.forEach(j => {
+      if ((j.groupe_id ?? null) === gid)
+        es.push({ kind: "jalon", id: j.id, ordre: j.ordre ?? 1e9, jalon: j });
+    });
+    es.sort((a, b) => (a.ordre - b.ordre) || (a.kind === b.kind ? 0 : a.kind === "tache" ? -1 : 1));
+    return es;
+  };
+
   // ── Groupes : CRUD ──
   const addGroupe = () => {
     const ordre = groupes.reduce((m, g) => Math.max(m, g.ordre ?? 0), 0) + 1;
@@ -3745,33 +3866,53 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
     setGroupes([...groupes, { id: rid(), nom: "Nouveau groupe", couleur, ordre }]);
   };
   const deleteGroupe = (g) => {
-    // Détache les tâches du groupe supprimé (retour à « À classer »).
+    // Détache les tâches du groupe supprimé (retour à « À classer »)…
     const toDetach = itemsOfGroup(g.id);
     if (toDetach.length) {
       const assignments = {};
       toDetach.forEach(it => { assignments[it.tache.id] = { groupe_id: null, ordre: 0 }; });
       applyChrono(assignments);
     }
+    // … et supprime ses jalons (repères propres au groupe).
+    if (jalons.some(j => (j.groupe_id ?? null) === g.id)) {
+      setJalons(jalons.filter(j => (j.groupe_id ?? null) !== g.id));
+    }
     setGroupes(groupes.filter(x => x.id !== g.id));
   };
 
+  // ── Jalons : CRUD ──
+  const addJalon = (groupeId) => {
+    const ordre = entriesOfGroup(groupeId).reduce((m, e) => Math.max(m, e.ordre ?? 0), -1) + 1;
+    setJalons([...jalons, { id: rid(), nom: "Jalon", date: null, groupe_id: groupeId, ordre }]);
+  };
+  const setJalonDate = (j, date) => setJalons(jalons.map(x => x.id === j.id ? { ...x, date: date || null } : x));
+  const deleteJalon = (j) => setJalons(jalons.filter(x => x.id !== j.id));
+
   // ── Glisser-déposer ──
-  // Dépose la tâche traînée dans `groupeId` à la position `index`
-  // (index null → à la fin). Renumérote proprement le groupe cible.
+  // Dépose l'entrée traînée (tâche OU jalon) dans `groupeId` à la position
+  // `index` (null → à la fin). Renumérote le groupe cible : les tâches via
+  // applyChrono, les jalons via setJalons, dans le même espace d'ordre.
   const handleDrop = (groupeId, index) => {
     if (!drag) return;
-    const current = itemsOfGroup(groupeId).filter(it => it.tache.id !== drag.tacheId);
-    const pos = index == null ? current.length : Math.min(index, current.length);
-    const orderedIds = current.map(it => it.tache.id);
-    orderedIds.splice(pos, 0, drag.tacheId);
-    const assignments = {};
-    orderedIds.forEach((id, i) => { assignments[id] = { groupe_id: groupeId, ordre: i }; });
-    applyChrono(assignments);
+    const entries = entriesOfGroup(groupeId).filter(e => !(e.kind === drag.kind && e.id === drag.id));
+    const pos = index == null ? entries.length : Math.min(index, entries.length);
+    entries.splice(pos, 0, { kind: drag.kind, id: drag.id });
+    const tacheAssign = {};
+    const jalonOrdre = {};
+    entries.forEach((e, i) => {
+      if (e.kind === "tache") tacheAssign[e.id] = { groupe_id: groupeId, ordre: i };
+      else jalonOrdre[e.id] = i;
+    });
+    if (Object.keys(tacheAssign).length) applyChrono(tacheAssign);
+    if (Object.keys(jalonOrdre).length) {
+      setJalons(jalons.map(j => jalonOrdre[j.id] != null ? { ...j, groupe_id: groupeId, ordre: jalonOrdre[j.id] } : j));
+    }
     setDrag(null); setOverKey(null);
   };
   const handleDropUnassigned = () => {
     if (!drag) return;
-    applyChrono({ [drag.tacheId]: { groupe_id: null, ordre: 0 } });
+    // Les jalons appartiennent toujours à un groupe : on ignore leur dépôt ici.
+    if (drag.kind === "tache") applyChrono({ [drag.id]: { groupe_id: null, ordre: 0 } });
     setDrag(null); setOverKey(null);
   };
 
@@ -3781,12 +3922,13 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
     const t = it.tache;
     const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
     const c = av >= 100 ? "#22c55e" : color;
-    const dragging = drag?.tacheId === t.id;
+    const dragging = drag?.kind === "tache" && drag?.id === t.id;
     const rowKey = `row:${groupeId || "_u"}:${index}`;
     const isOver = overKey === rowKey && !dragging;
+    const crs = rapportsPourTache(t);
     return (
       <div key={t.id} className="chrono-row" draggable
-        onDragStart={e => { setDrag({ tacheId: t.id, ouvrageId: it.ouvrageId }); e.dataTransfer.effectAllowed = "move"; }}
+        onDragStart={e => { setDrag({ kind: "tache", id: t.id, ouvrageId: it.ouvrageId }); e.dataTransfer.effectAllowed = "move"; }}
         onDragEnd={() => { setDrag(null); setOverKey(null); }}
         onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== rowKey) setOverKey(rowKey); }}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); groupeId ? handleDrop(groupeId, index) : handleDropUnassigned(); }}
@@ -3811,6 +3953,20 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
             {(it.lot?.label ? it.lot.label + " · " : "") + (it.ouvrage.libelle || "—")}
           </div>
         </div>
+        {crs.length > 0 && (
+          <button className="chrono-cr-btn"
+            onClick={e => { e.stopPropagation(); onShowRapports(t, crs); }}
+            title={`${crs.length} compte${crs.length > 1 ? "s" : ""} rendu${crs.length > 1 ? "s" : ""} lié${crs.length > 1 ? "s" : ""} à cette tâche`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0,
+              padding: "4px 8px", borderRadius: RADIUS.sm,
+              border: `1px solid ${T.border}`, background: T.card, color: T.textSub,
+              fontFamily: "inherit", fontSize: 10, fontWeight: 800, cursor: "pointer",
+            }}>
+            <Icon as={FileText} size={12} />
+            {crs.length}
+          </button>
+        )}
         <input type="date" value={isoDay(t.date_prevue)}
           onClick={e => e.stopPropagation()}
           onChange={e => updateTache(it.ouvrageId, t.id, { date_prevue: e.target.value || null })}
@@ -3829,8 +3985,67 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
     );
   };
 
+  // ── Rendu d'un jalon (repère daté intercalé entre les tâches). ──
+  const renderJalon = (j, color, groupeId, index) => {
+    const dragging = drag?.kind === "jalon" && drag?.id === j.id;
+    const rowKey = `row:${groupeId || "_u"}:${index}`;
+    const isOver = overKey === rowKey && !dragging;
+    const dateLbl = j.date ? new Date(j.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "";
+    return (
+      <div key={"j" + j.id} className="chrono-jalon" draggable
+        onDragStart={e => { setDrag({ kind: "jalon", id: j.id }); e.dataTransfer.effectAllowed = "move"; }}
+        onDragEnd={() => { setDrag(null); setOverKey(null); }}
+        onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== rowKey) setOverKey(rowKey); }}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); groupeId ? handleDrop(groupeId, index) : handleDropUnassigned(); }}
+        style={{
+          "--c": color,
+          display: "flex", alignItems: "center", gap: 9,
+          padding: "7px 12px", margin: "6px 0",
+          borderRadius: RADIUS.md,
+          border: `1.5px dashed ${color}`,
+          borderTop: isOver ? `2px solid ${color}` : `1.5px dashed ${color}`,
+          background: `color-mix(in srgb, ${color} 12%, transparent)`,
+          opacity: dragging ? 0.4 : 1,
+          transition: "border-color .12s, box-shadow .12s",
+        }}>
+        <Icon as={GripVertical} size={14} color={T.textMuted} style={{ flexShrink: 0, cursor: "grab" }} />
+        <Icon as={Flag} size={13} color={color} style={{ flexShrink: 0 }} />
+        <input value={jNom(j)}
+          onChange={e => setJNameDraft(d => ({ ...d, [j.id]: e.target.value }))}
+          onBlur={() => commitJNom(j)}
+          placeholder="Nom du jalon"
+          style={{
+            flex: 1, minWidth: 0, background: "transparent", border: "none",
+            borderBottom: "1px solid transparent",
+            color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+            letterSpacing: .2, outline: "none",
+          }}
+          onFocus={e => { e.target.style.borderBottomColor = `color-mix(in srgb, ${color} 60%, transparent)`; }}
+          onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderBottomColor = "transparent"; }} />
+        <input type="date" value={isoDay(j.date)}
+          onChange={e => setJalonDate(j, e.target.value)}
+          title={dateLbl ? `Jalon prévu le ${dateLbl}` : "Dater le jalon"}
+          style={{
+            padding: "5px 8px", borderRadius: RADIUS.sm,
+            border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
+            color: j.date ? T.text : T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", flexShrink: 0,
+          }} />
+        <button onClick={() => deleteJalon(j)} title="Supprimer le jalon"
+          style={{
+            width: 26, height: 26, borderRadius: RADIUS.sm, flexShrink: 0,
+            border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted,
+            cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>
+          <Icon as={Trash2} size={12} />
+        </button>
+      </div>
+    );
+  };
+
   const renderGroup = (g) => {
-    const rows = itemsOfGroup(g.id);
+    const entries = entriesOfGroup(g.id);
+    const nbTaches = entries.filter(e => e.kind === "tache").length;
     const couleur = gVal(g, "couleur") || "#5b8af5";
     const emptyOver = overKey === `group:${g.id}`;
     return (
@@ -3853,8 +4068,17 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
             onFocus={e => { e.target.style.borderBottomColor = T.border; }}
             onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderBottomColor = "transparent"; }} />
           <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px", flexShrink: 0 }}>
-            {rows.length}
+            {nbTaches}
           </span>
+          <button onClick={() => addJalon(g.id)} title="Ajouter un jalon dans ce groupe"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0,
+              padding: "5px 9px", borderRadius: RADIUS.sm,
+              border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+              fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer",
+            }}>
+            <Icon as={Flag} size={12} /> Jalon
+          </button>
           <button onClick={() => deleteGroupe(g)} title="Supprimer le groupe (les tâches repassent « à classer »)"
             style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Icon as={Trash2} size={13} />
@@ -3869,9 +4093,11 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
             background: emptyOver ? `color-mix(in srgb, ${couleur} 8%, transparent)` : "transparent",
             padding: "4px 10px", minHeight: 52, transition: "border-color .12s, background .12s",
           }}>
-          {rows.length === 0
-            ? <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0", fontStyle: "italic" }}>Glissez des tâches ici</div>
-            : rows.map((it, i) => renderRow(it, couleur, g.id, i))}
+          {entries.length === 0
+            ? <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0", fontStyle: "italic" }}>Glissez des tâches ici, ajoutez un jalon…</div>
+            : entries.map((e, i) => e.kind === "tache"
+              ? renderRow(e.it, couleur, g.id, i)
+              : renderJalon(e.jalon, couleur, g.id, i))}
         </div>
       </div>
     );
@@ -3884,6 +4110,13 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
           border-color: color-mix(in srgb, var(--c) 55%, transparent) !important;
           box-shadow: 0 3px 12px color-mix(in srgb, var(--c) 20%, transparent);
         }
+        /* Bouton "comptes rendus" : masqué, révélé au survol de la ligne. */
+        .chrono-cr-btn { opacity: 0; transition: opacity .12s, color .12s, border-color .12s; }
+        .chrono-row:hover .chrono-cr-btn { opacity: 1; }
+        .chrono-cr-btn:hover {
+          border-color: color-mix(in srgb, var(--c) 60%, transparent) !important;
+          color: var(--c) !important;
+        }
       `}</style>
 
       {/* Barre d'action */}
@@ -3891,7 +4124,7 @@ function ChronoView({ ouvrages, lots, groupes, acc, T, applyChrono, setGroupes, 
         <div>
           <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text }}>Vue chronologique</div>
           <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
-            Regroupez, ordonnez (glisser-déposer) et datez toutes les tâches du chantier.
+            Regroupez, ordonnez (glisser-déposer), datez les tâches et intercalez des jalons.
           </div>
         </div>
         <button onClick={addGroupe}
