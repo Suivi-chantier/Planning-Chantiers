@@ -2042,12 +2042,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 value={trajetStats.heures > 0
                   ? `${trajetStats.heures.toFixed(1)}h · ${fmtEur(trajetStats.cout)}`
                   : "—"}
-                sub="Inclus dans le coût MO"/>
+                sub="Inclus dans le coût MO"
+                onClick={() => setKpiDetail("trajet")}/>
               <KpiCard T={T} icon={Clock} iconColor="#f59e0b" label="Heures indirectes"
                 value={indirectStats.heures > 0
                   ? `${indirectStats.heures.toFixed(1)}h · ${fmtEur(indirectStats.cout)}`
                   : "—"}
-                sub="Intempéries, SAV, nettoyage…"/>
+                sub="Intempéries, SAV, nettoyage…"
+                onClick={() => setKpiDetail("indirect")}/>
               <KpiCard T={T} icon={Receipt} iconColor="#f97316" label="Matériaux"
                 value={fmtEur(coutMatChantier)}
                 sub={`Voir les commandes (${commandeLignes.length})`}
@@ -2842,6 +2844,46 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             empty: "Aucun matériau lié aux ouvrages (associe une fiche biblio pour estimer les commandes).",
             rows: rows.map(r => ({ main: r.main, sub: r.sub, right: eur(r.value) })),
             total: commandesPrevChantier, totalLabel: "Total commandes prév.", totalColor: "#fb923c",
+          };
+        } else if (kpiDetail === "trajet") {
+          // Ventilation du coût trajet par ouvrier (pointages indirects « Trajet »).
+          const m = {};
+          pointages.forEach(p => {
+            if (p.type_pointage !== "indirect") return;
+            if (!/trajet/i.test(p.motif_indirect || "")) return;
+            const nom = p.ouvrier || "?";
+            const hh = parseFloat(p.heures) || 0;
+            const taux = parseFloat(p.taux_horaire) || 0;
+            if (!m[nom]) m[nom] = { ouvrier: nom, heures: 0, cout: 0, taux };
+            m[nom].heures += hh; m[nom].cout += hh * taux; m[nom].taux = taux;
+          });
+          const rows = Object.values(m).sort((a, b) => b.cout - a.cout);
+          cfg = {
+            icon: Car, color: "#f59e0b", title: "Trajets",
+            subtitle: `${trajetStats.heures.toFixed(1)}h · ${rows.length} ouvrier${rows.length > 1 ? "s" : ""} · inclus dans le coût MO`,
+            empty: "Aucun trajet pointé pour l'instant.",
+            rows: rows.map(r => ({ main: r.ouvrier, sub: `${fmtH(r.heures)}h × ${eur(r.taux)}/h`, right: eur(r.cout) })),
+            total: trajetStats.cout, totalLabel: "Total trajets", totalColor: "#f59e0b",
+          };
+        } else if (kpiDetail === "indirect") {
+          // Ventilation des heures indirectes (hors trajet) par motif.
+          const m = {};
+          pointages.forEach(p => {
+            if (p.type_pointage !== "indirect") return;
+            if (/trajet/i.test(p.motif_indirect || "")) return;
+            const motif = (p.motif_indirect || "").trim() || "Autre";
+            const hh = parseFloat(p.heures) || 0;
+            const taux = parseFloat(p.taux_horaire) || 0;
+            if (!m[motif]) m[motif] = { motif, heures: 0, cout: 0 };
+            m[motif].heures += hh; m[motif].cout += hh * taux;
+          });
+          const rows = Object.values(m).sort((a, b) => b.cout - a.cout);
+          cfg = {
+            icon: Clock, color: "#f59e0b", title: "Heures indirectes",
+            subtitle: `${indirectStats.heures.toFixed(1)}h · hors trajet · incluses dans le coût MO`,
+            empty: "Aucune heure indirecte (hors trajet) pointée.",
+            rows: rows.map(r => ({ main: r.motif, sub: `${fmtH(r.heures)}h`, right: eur(r.cout) })),
+            total: indirectStats.cout, totalLabel: "Total indirect (hors trajet)", totalColor: "#f59e0b",
           };
         }
         if (!cfg) return null;
