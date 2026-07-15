@@ -317,6 +317,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [kpiDetail, setKpiDetail] = useState(null); // détail d'un KPI : "vendu" | "heures" | "mo" | "fg" | "marge"
   const [moisModal, setMoisModal] = useState(false); // modale « heures par mois / par ouvrier »
   const [moisOuvert, setMoisOuvert] = useState({});  // { "2026-07": true } — mois dépliés dans la modale
+  // Champs « reprise » : état LOCAL (saisie fluide) sauvegardé à la sortie du champ.
+  // Piloter les <input> directement par meta + saveMeta à chaque frappe créait une
+  // course (relecture DB → réécriture) qui effaçait la valeur de l'autre champ.
+  const [repriseHInput, setRepriseHInput] = useState("");
+  const [repriseTInput, setRepriseTInput] = useState("");
   // Form d'ajout de référence dans le panneau
   const [refForm, setRefForm] = useState({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" });
   const [refSaving, setRefSaving] = useState(false);
@@ -868,6 +873,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const repriseHeures = parseFloat(phasage?.plan_travaux?.meta?.reprise_heures) || 0;
   const repriseTaux   = parseFloat(phasage?.plan_travaux?.meta?.reprise_taux)   || 0;
   const repriseCout   = repriseHeures * repriseTaux;
+  // Recharge les champs locaux depuis meta uniquement quand on change de chantier
+  // (pas à chaque saveMeta, sinon on écraserait la frappe en cours).
+  useEffect(() => {
+    const m = phasage?.plan_travaux?.meta || {};
+    setRepriseHInput(m.reprise_heures ?? "");
+    setRepriseTInput(m.reprise_taux ?? "");
+  }, [phasage?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Totaux chantier alignés sur DashboardAnalyse (per-tâche + extras). Pas de
   // double comptage : coutMOChantier/heuresReellesChantier ne somment que les
@@ -985,6 +997,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     }).eq("id", p.id);
     if (error) console.warn("saveMeta:", error.message);
   };
+
+  // Reprise : on écrit TOUJOURS les deux champs ensemble (une seule écriture),
+  // pour qu'aucun ne puisse effacer l'autre en cas de saisie rapide.
+  const saveReprise = () => saveMeta({
+    reprise_heures: repriseHInput === "" ? null : parseFloat(repriseHInput),
+    reprise_taux:   repriseTInput === "" ? null : parseFloat(repriseTInput),
+  });
 
   // ─── PRÉVISIONNEL : chargement (1×/chantier) + sauvegarde debounced ──────
   // On charge depuis meta.previsionnel une seule fois par chantier (une fois
@@ -2667,13 +2686,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <ModalField label="Heures avant l'app (h)">
-              <input type="number" step="1" min="0" value={meta.reprise_heures ?? ""}
-                onChange={e => saveMeta({ reprise_heures: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="1" min="0" value={repriseHInput}
+                onChange={e => setRepriseHInput(e.target.value)}
+                onBlur={saveReprise}
                 placeholder="0" style={modalInp(T)}/>
             </ModalField>
             <ModalField label="Taux horaire moyen (€/h)">
-              <input type="number" step="0.5" min="0" value={meta.reprise_taux ?? ""}
-                onChange={e => saveMeta({ reprise_taux: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="0.5" min="0" value={repriseTInput}
+                onChange={e => setRepriseTInput(e.target.value)}
+                onBlur={saveReprise}
                 placeholder="21" style={modalInp(T)}/>
             </ModalField>
           </div>
