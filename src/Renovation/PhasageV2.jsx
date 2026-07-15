@@ -315,6 +315,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
   const [matKpiModal, setMatKpiModal] = useState(false); // modale "toutes les commandes du chantier"
   const [kpiDetail, setKpiDetail] = useState(null); // détail d'un KPI : "vendu" | "heures" | "mo" | "fg" | "marge"
+  const [moisModal, setMoisModal] = useState(false); // modale « heures par mois / par ouvrier »
+  const [moisOuvert, setMoisOuvert] = useState({});  // { "2026-07": true } — mois dépliés dans la modale
   // Form d'ajout de référence dans le panneau
   const [refForm, setRefForm] = useState({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" });
   const [refSaving, setRefSaving] = useState(false);
@@ -891,6 +893,36 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     });
     return { heures, cout };
   }, [pointages]);
+
+  // Heures passées sur le chantier, ventilées PAR MOIS puis PAR OUVRIER.
+  // Toutes les heures pointées comptent (tâches + trajets + indirect), c.-à-d.
+  // le temps réellement passé. Renvoie une liste triée du mois le plus récent
+  // au plus ancien : [{ mois:"2026-07", label:"juillet 2026", heures, cout,
+  // ouvriers:[{ nom, heures, cout }] }].
+  const heuresParMois = useMemo(() => {
+    const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+    const parMois = {};
+    pointages.forEach(p => {
+      const d = (p.date || "").slice(0, 7); // "YYYY-MM"
+      if (!/^\d{4}-\d{2}$/.test(d)) return;
+      const h = parseFloat(p.heures) || 0;
+      const c = h * (parseFloat(p.taux_horaire) || 0);
+      const nom = (p.ouvrier || "—").trim() || "—";
+      const m = (parMois[d] ||= { mois: d, heures: 0, cout: 0, ouvriers: {} });
+      m.heures += h; m.cout += c;
+      const o = (m.ouvriers[nom] ||= { nom, heures: 0, cout: 0 });
+      o.heures += h; o.cout += c;
+    });
+    return Object.values(parMois)
+      .map(m => ({
+        ...m,
+        label: (() => { const [y, mo] = m.mois.split("-"); return `${MOIS[parseInt(mo, 10) - 1]} ${y}`; })(),
+        ouvriers: Object.values(m.ouvriers).sort((a, b) => b.heures - a.heures),
+      }))
+      .sort((a, b) => b.mois.localeCompare(a.mois));
+  }, [pointages]);
+  const heuresTotalTousMois = useMemo(() => heuresParMois.reduce((s, m) => s + m.heures, 0), [heuresParMois]);
+
   // ── PRÉVISIONNEL ──────────────────────────────────────────────────────────
   // Coût MO PRÉVU = heures vendues (Σ heures_devis) × taux horaire global réglé
   // dans Admin → Taux MO prévisionnel (repli sur le défaut si non réglé).
@@ -2035,6 +2067,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesTotalChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}
                 accent={couleurDerive(heuresReellesTotalChantier, heuresVenduesChantier)}
                 onClick={() => setKpiDetail("heures")}/>
+              <KpiCard T={T} icon={Calendar} iconColor="#5b9cf6" label="Heures / mois"
+                value={heuresTotalTousMois > 0 ? `${heuresTotalTousMois.toFixed(0)}h` : "—"}
+                sub={heuresParMois.length > 0 ? `${heuresParMois.length} mois · détail par ouvrier` : "aucun pointage"}
+                onClick={() => setMoisModal(true)}/>
               <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label="Coût MO"
                 value={fmtEur(coutMOTotalChantier)}
                 sub="Tâches + trajets + indirect"
@@ -2938,6 +2974,70 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           </div>
         );
       })()}
+
+      {moisModal && (
+        <div onClick={() => setMoisModal(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+              width: "min(560px, 100%)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ width: 30, height: 30, borderRadius: RADIUS.md, flexShrink: 0,
+                background: "color-mix(in srgb, #5b9cf6 20%, transparent)", color: "#5b9cf6",
+                display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon as={Calendar} size={16}/>
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>Heures par mois</div>
+                <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+                  {chantier?.nom ? `${chantier.nom} · ` : ""}temps réel passé (tâches + trajets + indirect)
+                </div>
+              </div>
+              <button onClick={() => setMoisModal(false)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
+            </div>
+            <div style={{ padding: "8px 12px" }}>
+              {heuresParMois.length === 0 ? (
+                <div style={{ padding: "16px 8px", fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>
+                  Aucune heure pointée sur ce chantier.
+                </div>
+              ) : heuresParMois.map(m => {
+                const ouvert = !!moisOuvert[m.mois];
+                return (
+                  <div key={m.mois} style={{ marginBottom: 6, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, overflow: "hidden" }}>
+                    <button onClick={() => setMoisOuvert(prev => ({ ...prev, [m.mois]: !prev[m.mois] }))}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 14px",
+                        background: ouvert ? T.card : "transparent", border: "none", cursor: "pointer",
+                        fontFamily: "inherit", textAlign: "left" }}>
+                      <Icon as={ChevronDown} size={15} color={T.textMuted}
+                        style={{ transform: ouvert ? "none" : "rotate(-90deg)", transition: "transform .15s", flexShrink: 0 }}/>
+                      <span style={{ flex: 1, fontSize: FONT.sm.size, fontWeight: 700, color: T.text, textTransform: "capitalize" }}>{m.label}</span>
+                      <span style={{ fontSize: 11, color: T.textMuted }}>{m.ouvriers.length} ouvrier{m.ouvriers.length > 1 ? "s" : ""}</span>
+                      <span style={{ fontSize: FONT.sm.size, fontWeight: 900, color: "#5b9cf6", whiteSpace: "nowrap", minWidth: 54, textAlign: "right" }}>{fmtH(m.heures)} h</span>
+                    </button>
+                    {ouvert && (
+                      <div style={{ padding: "2px 14px 8px 39px" }}>
+                        {m.ouvriers.map(o => (
+                          <div key={o.nom} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: `1px solid ${T.border}` }}>
+                            <Icon as={User} size={13} color={T.textMuted} style={{ flexShrink: 0 }}/>
+                            <span style={{ flex: 1, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.nom}</span>
+                            <span style={{ fontSize: 10, color: T.textMuted, whiteSpace: "nowrap" }}>{fmtEur(o.cout)}</span>
+                            <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text, whiteSpace: "nowrap", minWidth: 48, textAlign: "right" }}>{fmtH(o.heures)} h</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
+              <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>Total pointé</span>
+              <span style={{ fontSize: 16, fontWeight: 900, color: "#5b9cf6" }}>{fmtH(heuresTotalTousMois)} h</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {matPanel && (() => {
         const isLot = matPanel.type === "lot";
