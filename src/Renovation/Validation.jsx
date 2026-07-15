@@ -635,11 +635,39 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 
     const lignesPointages = [...lignesTaches, ...lignesIndirectes, ...lignesTrajet];
 
+    // ── INTÉGRITÉ : le registre AVANT le marquage « validé » ────────────────
+    // On enregistre les pointages en premier. Si l'écriture échoue, on ARRÊTE
+    // tout : le rapport n'est PAS marqué validé. Sans ça, une erreur d'insert
+    // (ex. collision sur l'index unique) laissait un CR « validé » sans aucune
+    // heure au registre — perte silencieuse (bug corrigé).
+    //
+    // Nettoyage préalable : on supprime d'éventuels pointages déjà liés à ce
+    // rapport (re-validation, reprise après échec) pour repartir propre et ne
+    // pas déclencher de faux doublon sur l'index unique.
+    {
+      const { error: delErr } = await supabase.from("pointages").delete().eq("rapport_id", rapport.id);
+      if (delErr) {
+        console.error("Nettoyage pointages avant validation:", delErr);
+        alert("⚠️ Impossible de préparer l'enregistrement des heures (nettoyage).\n\n"
+          + "Le rapport N'A PAS été validé. Réessaie ; si l'erreur persiste, préviens un administrateur.");
+        setValidating(false);
+        return;
+      }
+    }
     if (lignesPointages.length > 0) {
       const { error: insErr } = await supabase.from("pointages").insert(lignesPointages);
-      if (insErr && insErr.code !== "23505") {
+      if (insErr) {
         console.error("Insert pointages:", insErr);
-        alert("Erreur lors de la création des pointages — la validation est annulée.");
+        const doublon = insErr.code === "23505";
+        alert(
+          "⚠️ Les heures de ce rapport n'ont pas pu être enregistrées.\n\n"
+          + "Le rapport N'A PAS été validé — aucune heure n'a été écrite au registre.\n\n"
+          + (doublon
+              ? "Cause probable : deux lignes pointent vers la même tâche du plan. "
+                + "Regroupe-les sur une seule ligne (en additionnant les heures) puis revalide."
+              : `Détail technique : ${insErr.message || "erreur inconnue"}`)
+          + "\n\nCorrige puis réessaie — il n'y a pas de risque de double comptage."
+        );
         setValidating(false);
         return;
       }
