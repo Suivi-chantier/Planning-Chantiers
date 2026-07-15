@@ -861,14 +861,22 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // type "tache") et "indirects" (trajet, intempéries…). coutIndirect INCLUT le trajet.
   const extras = useMemo(() => sumLibreEtIndirect(pointages), [pointages]);
 
+  // Reprise d'heures antérieures : pour les chantiers démarrés AVANT l'app, on
+  // saisit à la main le total d'heures (et un taux moyen) déjà consommé hors
+  // registre. Ajouté aux heures/coût réels, mais NON rattaché à un mois ni à un
+  // ouvrier — c'est un report d'antériorité. Stocké dans plan_travaux.meta.
+  const repriseHeures = parseFloat(phasage?.plan_travaux?.meta?.reprise_heures) || 0;
+  const repriseTaux   = parseFloat(phasage?.plan_travaux?.meta?.reprise_taux)   || 0;
+  const repriseCout   = repriseHeures * repriseTaux;
+
   // Totaux chantier alignés sur DashboardAnalyse (per-tâche + extras). Pas de
   // double comptage : coutMOChantier/heuresReellesChantier ne somment que les
   // pointages à tache_id d'un ouvrage ; extras ne somme que les type "indirect"
-  // ou tache_id null. Ensembles disjoints.
+  // ou tache_id null. Ensembles disjoints. + reprise d'antériorité.
   const coutMOTotalChantier =
-    coutMOChantier + extras.coutLibre + extras.coutIndirect;
+    coutMOChantier + extras.coutLibre + extras.coutIndirect + repriseCout;
   const heuresReellesTotalChantier =
-    heuresReellesChantier + extras.heuresLibre + extras.heuresIndirect;
+    heuresReellesChantier + extras.heuresLibre + extras.heuresIndirect + repriseHeures;
 
   // Stats d'affichage (cartes informatives) — trajet et indirect hors trajet.
   // Elles n'ajoutent rien au total : déjà comptées dans coutMOTotalChantier.
@@ -2068,8 +2076,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 accent={couleurDerive(heuresReellesTotalChantier, heuresVenduesChantier)}
                 onClick={() => setKpiDetail("heures")}/>
               <KpiCard T={T} icon={Calendar} iconColor="#5b9cf6" label="Heures / mois"
-                value={heuresTotalTousMois > 0 ? `${heuresTotalTousMois.toFixed(0)}h` : "—"}
-                sub={heuresParMois.length > 0 ? `${heuresParMois.length} mois · détail par ouvrier` : "aucun pointage"}
+                value={(heuresTotalTousMois + repriseHeures) > 0 ? `${(heuresTotalTousMois + repriseHeures).toFixed(0)}h` : "—"}
+                sub={(heuresParMois.length > 0 || repriseHeures > 0)
+                  ? `${heuresParMois.length} mois${repriseHeures > 0 ? " + reprise" : ""} · détail par ouvrier`
+                  : "aucun pointage"}
                 onClick={() => setMoisModal(true)}/>
               <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label="Coût MO"
                 value={fmtEur(coutMOTotalChantier)}
@@ -2652,6 +2662,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 placeholder="300" style={modalInp(T)}/>
             </ModalField>
           </div>
+          <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.5, margin: "8px 0 4px", paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+            <strong style={{ color: T.text }}>Reprise d'heures antérieures</strong> — chantier démarré avant l'application.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <ModalField label="Heures avant l'app (h)">
+              <input type="number" step="1" min="0" value={meta.reprise_heures ?? ""}
+                onChange={e => saveMeta({ reprise_heures: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                placeholder="0" style={modalInp(T)}/>
+            </ModalField>
+            <ModalField label="Taux horaire moyen (€/h)">
+              <input type="number" step="0.5" min="0" value={meta.reprise_taux ?? ""}
+                onChange={e => saveMeta({ reprise_taux: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                placeholder="21" style={modalInp(T)}/>
+            </ModalField>
+          </div>
+          {repriseHeures > 0 && (
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 2 }}>
+              Coût de reprise ajouté : <strong style={{ color: T.text }}>{fmtEur(repriseCout)}</strong> ({fmtH(repriseHeures)} h × {repriseTaux || 0} €/h).
+            </div>
+          )}
+
           <div style={{
             marginTop: 4, padding: "10px 12px", borderRadius: RADIUS.md,
             background: T.card, border: `1px solid ${T.border}`,
@@ -2661,6 +2692,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : taux horaire (€/h) multiplié par les heures réelles du chantier (tâches + trajets + indirect). Couvre admin, transport, etc. Déduit de la marge.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Seuil prime</strong> : marge minimale à partir de laquelle l'équipe touche la prime.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Prime chantier</strong> : montant attribué à l'équipe si le seuil est dépassé.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Reprise d'heures</strong> : heures (et coût) déjà consommés avant l'app. Ajoutées aux « Heures totales », au « Coût MO » et à la marge, mais rangées à part (« avant l'application »), sans fausser la répartition par mois ni par ouvrier.</div>
           </div>
         </ItemEditModal>
       )}
@@ -2997,7 +3029,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               <button onClick={() => setMoisModal(false)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
             </div>
             <div style={{ padding: "8px 12px" }}>
-              {heuresParMois.length === 0 ? (
+              {repriseHeures > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", marginBottom: 6,
+                  border: `1px dashed ${T.border}`, borderRadius: RADIUS.md, background: T.card }}>
+                  <Icon as={Clock} size={15} color={T.textMuted} style={{ flexShrink: 0 }}/>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>Avant l'application</div>
+                    <div style={{ fontSize: 10, color: T.textMuted }}>reprise d'antériorité{repriseCout > 0 ? ` · ${fmtEur(repriseCout)}` : ""}</div>
+                  </div>
+                  <span style={{ fontSize: FONT.sm.size, fontWeight: 900, color: T.textMuted, whiteSpace: "nowrap" }}>{fmtH(repriseHeures)} h</span>
+                </div>
+              )}
+              {heuresParMois.length === 0 && repriseHeures === 0 ? (
                 <div style={{ padding: "16px 8px", fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>
                   Aucune heure pointée sur ce chantier.
                 </div>
@@ -3032,8 +3075,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               })}
             </div>
             <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
-              <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>Total pointé</span>
-              <span style={{ fontSize: 16, fontWeight: 900, color: "#5b9cf6" }}>{fmtH(heuresTotalTousMois)} h</span>
+              <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>Total{repriseHeures > 0 ? " (reprise incluse)" : " pointé"}</span>
+              <span style={{ fontSize: 16, fontWeight: 900, color: "#5b9cf6" }}>{fmtH(heuresTotalTousMois + repriseHeures)} h</span>
             </div>
           </div>
         </div>
