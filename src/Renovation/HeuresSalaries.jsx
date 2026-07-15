@@ -291,17 +291,6 @@ export default function HeuresSalaries({
   const effectifActif = useMemo(() => {
     return new Set(pointages.map(p => normNom(p.ouvrier)).filter(Boolean)).size;
   }, [pointages]);
-  // Heures « au-delà du seuil hebdo », tous salariés — indicateur de vraisemblance.
-  const heuresSup = useMemo(() => {
-    let hs = 0;
-    lignesSalaries.forEach(({ nom }) => {
-      semainesDeLaPlage.forEach(lundi => {
-        const t = totalSemaine(nom, lundi);
-        if (t > SEUIL_HS) hs += t - SEUIL_HS;
-      });
-    });
-    return hs;
-  }, [lignesSalaries, semainesDeLaPlage, totalSemaine]);
 
   const moisPropre = crNonValides.length === 0;
 
@@ -391,7 +380,7 @@ export default function HeuresSalaries({
       {vue === "mois" && !loading && (
         <EnteteMensuel
           T={T} crNonValides={crNonValides} moisPropre={moisPropre}
-          totalMois={totalMois} heuresSup={heuresSup} effectif={effectifActif}
+          totalMois={totalMois} effectif={effectifActif}
           onGoToValidation={onGoToValidation} onExport={exporterCSV}
           warnBg={warnBg} warnBorder={warnBorder} warnText={warnText}
           okBg={okBg} okBorder={okBorder} okText={okText}
@@ -437,7 +426,7 @@ export default function HeuresSalaries({
 
 // ─── En-tête mensuel (Partie 2) ──────────────────────────────────────────────
 function EnteteMensuel({
-  T, crNonValides, moisPropre, totalMois, heuresSup, effectif,
+  T, crNonValides, moisPropre, totalMois, effectif,
   onGoToValidation, onExport, warnBg, warnBorder, warnText, okBg, okBorder, okText,
 }) {
   const [showListe, setShowListe] = useState(false);
@@ -484,7 +473,6 @@ function EnteteMensuel({
       {/* KPI + actions */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "stretch" }}>
         <Kpi T={T} label="Heures du mois" value={`${fmtH(totalMois)} h`} icon={Clock} />
-        <Kpi T={T} label="Dont > seuil hebdo" value={`${fmtH(heuresSup)} h`} icon={AlertTriangle} color={heuresSup > 0 ? warnText : undefined} />
         <Kpi T={T} label="Effectif pointé" value={String(effectif)} icon={Users} />
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={onExport} style={{ display: "flex", alignItems: "center", gap: 7, background: T.surface, border: `1px solid ${T.border}`, color: T.text, borderRadius: RADIUS.md, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
