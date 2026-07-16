@@ -2388,7 +2388,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         />
       ) : viewMode === "gantt" ? (
         <GanttV2
-          ouvrages={ouvrages} lots={lots} acc={acc} T={T}
+          ouvrages={ouvrages} lots={lots} jalons={chronoJalons} acc={acc} T={T}
           avancementOuvrage={avancementOuvrage}
           tacheHeuresReelles={tacheHeuresReelles}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
@@ -4618,7 +4618,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   );
 }
 
-function GanttV2({ ouvrages, lots, acc, T, avancementOuvrage, tacheHeuresReelles, onClickTache }) {
+function GanttV2({ ouvrages, lots, jalons, acc, T, avancementOuvrage, tacheHeuresReelles, onClickTache }) {
   const DAY_PX = 28, ROW_H = 30, LABEL_W = 280, HEADER_H = 56;
   const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
   const addDays    = (d, n) => { const x = startOfDay(d); x.setDate(x.getDate() + n); return x; };
@@ -4887,6 +4887,38 @@ function GanttV2({ ouvrages, lots, acc, T, avancementOuvrage, tacheHeuresReelles
             ))}
           </>
         )}
+
+        {/* Jalons : repères verticaux datés (issus de la vue Chronologique) */}
+        {(jalons || []).some(j => j.date) && (() => {
+          const xForDate = (d) => {
+            if (!d) return null;
+            let idx = dayIndex(d);
+            if (idx < 0) idx = days.findIndex(x => x.getTime() >= d.getTime());
+            return idx < 0 ? null : idx * DAY_PX;
+          };
+          const col = "#f5a623";
+          return (
+            <div style={{ position: "absolute", left: LABEL_W, top: HEADER_H, width: totalWidth, bottom: 0, pointerEvents: "none", zIndex: 6 }}>
+              {jalons.filter(j => j.date).map((j, i) => {
+                const x = xForDate(parseDate(j.date));
+                if (x == null) return null;
+                return (
+                  <div key={j.id} style={{ position: "absolute", left: x, top: 0, bottom: 0 }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderLeft: `2px dashed ${col}` }} />
+                    <div style={{
+                      position: "absolute", left: 3, top: 2 + (i % 4) * 16, whiteSpace: "nowrap",
+                      display: "inline-flex", alignItems: "center", gap: 3,
+                      background: col, color: "#000", fontSize: 9, fontWeight: 800,
+                      padding: "1px 6px", borderRadius: 4, boxShadow: "0 1px 3px rgba(0,0,0,.3)",
+                    }}>
+                      ⚑ {j.nom || "Jalon"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
