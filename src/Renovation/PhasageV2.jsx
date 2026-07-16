@@ -3950,6 +3950,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
+  const [unassignedCollapsed, setUnassignedCollapsed] = useState(false); // repli de « À classer »
   const [selected, setSelected] = useState(() => new Set());    // ids de tâches sélectionnées (multi)
   const [hideDone, setHideDone] = useState(false);              // masquer les tâches à 100 %
   const [onlyTodo, setOnlyTodo] = useState(false);              // n'afficher que « À classer »
@@ -4608,21 +4609,28 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
             if (shown.length === 0) return null;
             return (
               <div style={{ marginBottom: 22 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <button onClick={() => setUnassignedCollapsed(v => !v)}
+                    title={unassignedCollapsed ? "Déplier" : "Replier"}
+                    style={{ width: 22, height: 22, borderRadius: RADIUS.sm, border: "none", background: "transparent", color: T.textMuted, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon as={unassignedCollapsed ? ChevronRight : ChevronDown} size={15} />
+                  </button>
                   <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", color: T.textMuted }}>À classer</span>
                   <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px" }}>{shown.length}</span>
                 </div>
-                <div
-                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== "unassigned") setOverKey("unassigned"); }}
-                  onDrop={e => { e.preventDefault(); handleDropUnassigned(); }}
-                  style={{
-                    borderRadius: RADIUS.lg,
-                    border: `1.5px dashed ${overKey === "unassigned" ? acc.accent : T.border}`,
-                    background: overKey === "unassigned" ? acc.bg10 : "transparent",
-                    padding: "4px 10px",
-                  }}>
-                  {shown.map((it, i) => renderRow(it, T.textMuted, null, i))}
-                </div>
+                {!unassignedCollapsed && (
+                  <div
+                    onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== "unassigned") setOverKey("unassigned"); }}
+                    onDrop={e => { e.preventDefault(); handleDropUnassigned(); }}
+                    style={{
+                      borderRadius: RADIUS.lg,
+                      border: `1.5px dashed ${overKey === "unassigned" ? acc.accent : T.border}`,
+                      background: overKey === "unassigned" ? acc.bg10 : "transparent",
+                      padding: "4px 10px",
+                    }}>
+                    {shown.map((it, i) => renderRow(it, T.textMuted, null, i))}
+                  </div>
+                )}
               </div>
             );
           })()}
