@@ -312,6 +312,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [rapports, setRapports] = useState([]);
   const [rapportModal, setRapportModal] = useState(null); // { rapport, tacheNom }
   const [rapportsModal, setRapportsModal] = useState(null); // { tacheNom, rapports } — tous les CR d'une tâche
+  // Repli du bandeau KPI (on ne garde que la barre d'avancement). Préférence
+  // d'affichage locale, mémorisée entre les sessions.
+  const [kpiCollapsed, setKpiCollapsed] = useState(() => {
+    try { return localStorage.getItem("p2_kpi_collapsed") === "1"; } catch { return false; }
+  });
+  const toggleKpiCollapsed = () => setKpiCollapsed(v => {
+    const n = !v;
+    try { localStorage.setItem("p2_kpi_collapsed", n ? "1" : "0"); } catch { /* ignore */ }
+    return n;
+  });
   // Lignes de commande du chantier + panneau "Matériaux & commandes"
   const [commandeLignes, setCommandeLignes] = useState([]);
   const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
@@ -2243,6 +2253,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             padding: "10px 22px 12px",
             display: "flex", flexDirection: "column", gap: 8,
           }}>
+            {!kpiCollapsed && (
             <div style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
@@ -2310,6 +2321,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                   prixHT={prixHTChantier}/>
               )}
             </div>
+            )}
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{
                 fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.textMuted,
@@ -2341,6 +2353,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               }}>
                 {avancementChantier}%
               </div>
+              <button onClick={toggleKpiCollapsed}
+                title={kpiCollapsed ? "Afficher les indicateurs" : "Masquer les indicateurs (ne garder que la barre)"}
+                style={{
+                  flexShrink: 0, width: 28, height: 28, borderRadius: RADIUS.sm,
+                  border: `1px solid ${T.border}`, background: T.card, color: T.textSub,
+                  cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  transition: "all .12s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = acc.accent; e.currentTarget.style.borderColor = acc.border; }}
+                onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.borderColor = T.border; }}>
+                <Icon as={kpiCollapsed ? ChevronDown : ChevronUp} size={16}/>
+              </button>
             </div>
           </div>
         );
