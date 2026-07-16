@@ -8,6 +8,7 @@ import {
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
   FileText, User, Calendar, Link2, Car, ListOrdered, GripVertical, FolderPlus, Flag,
+  ChevronUp, ChevronRight, Filter, CalendarClock,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
 import { confirmPerteMassive } from "../guards";
@@ -1086,6 +1087,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         assignments[t.id]
           ? { ...t, chrono_groupe_id: assignments[t.id].groupe_id, chrono_ordre: assignments[t.id].ordre }
           : t),
+    })));
+  };
+  // Applique en un seul passage un patch libre par tâche
+  // { [tacheId]: { …champs } } — utilisé pour dater/décaler un groupe entier.
+  const patchTaches = (patchesById) => {
+    updateOuvrages(ouvrages.map(o => ({
+      ...o,
+      taches: (o.taches || []).map(t => patchesById[t.id] ? { ...t, ...patchesById[t.id] } : t),
     })));
   };
 
@@ -2255,7 +2264,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <ChronoView
           ouvrages={ouvrages} lots={lots} groupes={chronoGroupes} jalons={chronoJalons}
           acc={acc} T={T}
-          applyChrono={applyChrono} setGroupes={setChronoGroupes} setJalons={setChronoJalons}
+          applyChrono={applyChrono} patchTaches={patchTaches} setGroupes={setChronoGroupes} setJalons={setChronoJalons}
           updateTache={updateTache}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
@@ -3797,9 +3806,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
+  const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
+  const [selected, setSelected] = useState(() => new Set());    // ids de tâches sélectionnées (multi)
+  const [hideDone, setHideDone] = useState(false);              // masquer les tâches à 100 %
+  const [onlyTodo, setOnlyTodo] = useState(false);              // n'afficher que « À classer »
+  const [filterLot, setFilterLot] = useState("");               // filtrer par lot
   // Édition nom + couleur des groupes : brouillon local, persisté au blur pour
   // éviter un aller-retour DB (saveMeta) à chaque frappe.
   const [drafts, setDrafts] = useState({});      // { [id]: { nom?, couleur? } }
@@ -3961,6 +3975,97 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
     applyChrono({ [tacheId]: { groupe_id: groupeId, ordre } });
   };
 
+  // ── Dates (règles jours ouvrés, cohérentes avec le Gantt) ──
+  const H_PER_DAY = 7;
+  const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const addDays = (d, n) => { const x = startOfDay(d); x.setDate(x.getDate() + n); return x; };
+  const isWeekend = (d) => { const w = d.getDay(); return w === 0 || w === 6; };
+  const nextWorkDay = (d) => { let x = startOfDay(d); while (isWeekend(x)) x = addDays(x, 1); return x; };
+  const addWorkDays = (start, n) => { let x = startOfDay(start), r = Math.max(0, n); while (r > 0) { x = addDays(x, 1); if (!isWeekend(x)) r--; } return x; };
+  const parseD = (s) => { if (!s) return null; const d = new Date(s); return isNaN(d.getTime()) ? null : startOfDay(d); };
+  const today = startOfDay(new Date());
+  const todayLbl = today.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  const fmtShort = (d) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  // Tâche en retard : datée dans le passé et pas terminée.
+  const overdueT = (t) => { const d = parseD(t.date_prevue); return !!d && d < today && (parseInt(t.avancement) || 0) < 100; };
+
+  // ── Synthèse d'un groupe (fenêtre de dates, heures vendues, avancement pondéré, retards) ──
+  const groupStats = (gid) => {
+    const its = itemsOfGroup(gid);
+    let hv = 0, wsum = 0, wtot = 0, dmin = null, dmax = null, nbLate = 0;
+    its.forEach(({ tache: t }) => {
+      const h = parseFloat(t.heures_vendues) || 0;
+      const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+      hv += h;
+      if (h > 0) { wsum += h * av; wtot += h; }
+      const d = parseD(t.date_prevue);
+      if (d) { if (!dmin || d < dmin) dmin = d; if (!dmax || d > dmax) dmax = d; }
+      if (overdueT(t)) nbLate++;
+    });
+    jalons.forEach(j => { if ((j.groupe_id ?? null) === gid) { const d = parseD(j.date); if (d) { if (!dmin || d < dmin) dmin = d; if (!dmax || d > dmax) dmax = d; } } });
+    const avg = wtot > 0 ? Math.round(wsum / wtot)
+      : (its.length ? Math.round(its.reduce((s, { tache: t }) => s + (parseInt(t.avancement) || 0), 0) / its.length) : 0);
+    return { count: its.length, hv, avg, dmin, dmax, nbLate };
+  };
+
+  // ── Réordonner les groupes (flèches ↑/↓) : renumérote tout le monde ──
+  const reorderGroupe = (idx, dir) => {
+    const arr = [...groupesTries];
+    const j = idx + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    const ordreById = {}; arr.forEach((g, i) => { ordreById[g.id] = i; });
+    setGroupes(groupes.map(g => ({ ...g, ordre: ordreById[g.id] ?? g.ordre })));
+  };
+
+  // ── Dater tout un groupe : répartit les dates en jours ouvrés depuis `startStr`,
+  //    chaque tâche durant ⌈heures/7⌉ jours (comme le Gantt). ──
+  const planGroupe = (gid, startStr) => {
+    const start = parseD(startStr);
+    if (!start) return;
+    let cur = nextWorkDay(start);
+    const patch = {};
+    itemsOfGroup(gid).forEach(({ tache: t }) => {
+      patch[t.id] = { date_prevue: isoDay(cur) };
+      const h = parseFloat(t.heures_vendues) || parseFloat(t.heures_estimees) || H_PER_DAY;
+      const dur = Math.max(1, Math.ceil(h / H_PER_DAY));
+      cur = nextWorkDay(addWorkDays(cur, dur));
+    });
+    if (Object.keys(patch).length) patchTaches(patch);
+  };
+  // ── Décaler tout un groupe (tâches datées + jalons) de `days` jours calendaires. ──
+  const shiftGroupe = (gid, days) => {
+    const patch = {};
+    itemsOfGroup(gid).forEach(({ tache: t }) => { const d = parseD(t.date_prevue); if (d) patch[t.id] = { date_prevue: isoDay(addDays(d, days)) }; });
+    if (Object.keys(patch).length) patchTaches(patch);
+    if (jalons.some(j => (j.groupe_id ?? null) === gid && j.date)) {
+      setJalons(jalons.map(j => (j.groupe_id ?? null) === gid && j.date ? { ...j, date: isoDay(addDays(parseD(j.date), days)) } : j));
+    }
+  };
+
+  // ── Multi-sélection + affectation en masse ──
+  const toggleSelect = (id) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelect = () => setSelected(new Set());
+  const bulkAssign = (groupeId) => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    const a = {};
+    if (groupeId == null) { ids.forEach(id => { a[id] = { groupe_id: null, ordre: 0 }; }); }
+    else { let base = entriesOfGroup(groupeId).reduce((m, e) => Math.max(m, e.ordre ?? -1), -1); ids.forEach(id => { base += 1; a[id] = { groupe_id: groupeId, ordre: base }; }); }
+    applyChrono(a);
+    clearSelect();
+  };
+
+  // ── Filtres d'affichage (n'altèrent pas les données ni les synthèses) ──
+  const passFilters = (it) => {
+    const t = it.tache;
+    if (hideDone && (parseInt(t.avancement) || 0) >= 100) return false;
+    if (filterLot && (it.lot?.id || "") !== filterLot) return false;
+    return true;
+  };
+  // Lots réellement présents parmi les tâches (pour le filtre).
+  const lotsPresent = lots.filter(l => items.some(it => it.lot?.id === l.id));
+
   // ── Rendu d'une ligne tâche (fonction, PAS un composant, pour ne pas
   //    remonter les <input> à chaque frappe et perdre le focus). ──
   const renderRow = (it, color, groupeId, index) => {
@@ -3971,10 +4076,12 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
     const rowKey = `row:${groupeId || "_u"}:${index}`;
     const isOver = overKey === rowKey && !dragging;
     const crs = rapportsPourTache(t);
+    const late = overdueT(t);
+    const sel = selected.has(t.id);
     return (
-      <div key={t.id} className="chrono-row" draggable
+      <div key={t.id} className="chrono-row"
         onDragStart={e => { setDrag({ kind: "tache", id: t.id, ouvrageId: it.ouvrageId }); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.id); }}
-        onDragEnd={() => { setDrag(null); setOverKey(null); }}
+        onDragEnd={e => { e.currentTarget.draggable = false; setDrag(null); setOverKey(null); }}
         onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== rowKey) setOverKey(rowKey); }}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); groupeId ? handleDrop(groupeId, index) : handleDropUnassigned(); }}
         onClick={() => onClickTache(it.ouvrageId, t.id)}
@@ -3983,13 +4090,26 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
           display: "flex", alignItems: "center", gap: 10,
           padding: "9px 12px", margin: "6px 0",
           borderRadius: RADIUS.md,
-          border: `1px solid ${T.border}`, borderLeft: `4px solid ${c}`,
-          borderTop: isOver ? `2px solid ${color}` : `1px solid ${T.border}`,
-          background: T.card, cursor: "pointer",
+          border: `1px solid ${sel ? acc.accent : T.border}`,
+          borderLeft: `4px solid ${late ? "#e15a5a" : c}`,
+          borderTop: isOver ? `2px solid ${color}` : `1px solid ${sel ? acc.accent : T.border}`,
+          background: sel ? acc.bg10 : T.card, cursor: "pointer",
           opacity: dragging ? 0.4 : 1,
           transition: "border-color .12s, box-shadow .12s",
         }}>
-        <Icon as={GripVertical} size={14} color={T.textMuted} style={{ flexShrink: 0, cursor: "grab" }} />
+        <input type="checkbox" checked={sel}
+          onClick={e => e.stopPropagation()}
+          onChange={() => toggleSelect(t.id)}
+          title="Sélectionner pour une action groupée"
+          style={{ flexShrink: 0, cursor: "pointer", width: 15, height: 15, accentColor: acc.accent }} />
+        <span
+          onMouseDown={e => { const row = e.currentTarget.parentElement; if (row) row.draggable = true; }}
+          onMouseUp={e => { const row = e.currentTarget.parentElement; if (row) row.draggable = false; }}
+          onClick={e => e.stopPropagation()}
+          title="Glisser pour déplacer / ordonner"
+          style={{ display: "inline-flex", flexShrink: 0, cursor: "grab" }}>
+          <Icon as={GripVertical} size={14} color={T.textMuted} />
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
@@ -4029,15 +4149,17 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
             {crs.length}
           </button>
         )}
+        {late && <Icon as={AlertTriangle} size={13} color="#e15a5a" title="En retard : date passée et tâche non terminée" style={{ flexShrink: 0 }} />}
         <input type="date" value={isoDay(t.date_prevue)}
           onClick={e => e.stopPropagation()}
           onChange={e => updateTache(it.ouvrageId, t.id, { date_prevue: e.target.value || null })}
           title="Date prévue (partagée avec le Gantt)"
           style={{
             padding: "5px 8px", borderRadius: RADIUS.sm,
-            border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
-            color: t.date_prevue ? T.text : T.textMuted,
+            border: `1px solid ${late ? "#e15a5a" : T.border}`, background: T.fieldBg || T.card,
+            color: late ? "#e15a5a" : (t.date_prevue ? T.text : T.textMuted),
             fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", flexShrink: 0,
+            fontWeight: late ? 700 : 400,
           }} />
         <span title={`${av}% réalisé`}
           style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.textMuted, minWidth: 34, textAlign: "right", flexShrink: 0 }}>
@@ -4105,14 +4227,31 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
     );
   };
 
-  const renderGroup = (g) => {
-    const entries = entriesOfGroup(g.id);
-    const nbTaches = entries.filter(e => e.kind === "tache").length;
+  const iconBtn = (extra) => ({
+    width: 26, height: 26, borderRadius: RADIUS.sm, flexShrink: 0,
+    border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted,
+    cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+    fontFamily: "inherit", ...extra,
+  });
+
+  const renderGroup = (g, gIndex) => {
+    const allEntries = entriesOfGroup(g.id);
+    const entries = allEntries.filter(e => e.kind !== "tache" || passFilters(e.it));
     const couleur = gVal(g, "couleur") || "#5b8af5";
     const emptyOver = overKey === `group:${g.id}`;
+    const isCollapsed = collapsed.has(g.id);
+    const st = groupStats(g.id);
+    const rangeLbl = st.dmin ? (st.dmax && +st.dmax !== +st.dmin ? `${fmtShort(st.dmin)} – ${fmtShort(st.dmax)}` : fmtShort(st.dmin)) : null;
+    const hvLbl = st.hv > 0 ? `${Math.round(st.hv * 10) / 10} h vendues` : null;
     return (
       <div key={g.id} style={{ marginBottom: 18 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        {/* Ligne titre */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <button onClick={() => setCollapsed(s => { const n = new Set(s); n.has(g.id) ? n.delete(g.id) : n.add(g.id); return n; })}
+            title={isCollapsed ? "Déplier" : "Replier"}
+            style={{ ...iconBtn({ border: "none", width: 22 }) }}>
+            <Icon as={isCollapsed ? ChevronRight : ChevronDown} size={16} />
+          </button>
           <input type="color" value={couleur}
             onChange={e => setDraft(g.id, "couleur", e.target.value)}
             onBlur={() => commit(g, "couleur")}
@@ -4130,8 +4269,24 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
             onFocus={e => { e.target.style.borderBottomColor = T.border; }}
             onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderBottomColor = "transparent"; }} />
           <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px", flexShrink: 0 }}>
-            {nbTaches}
+            {st.count}
           </span>
+          {st.nbLate > 0 && (
+            <span title={`${st.nbLate} tâche(s) en retard`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 800, color: "#e15a5a", background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.35)", borderRadius: RADIUS.pill, padding: "2px 8px", flexShrink: 0 }}>
+              <Icon as={AlertTriangle} size={11} /> {st.nbLate}
+            </span>
+          )}
+          <div style={{ display: "inline-flex", gap: 2, flexShrink: 0 }}>
+            <button onClick={() => reorderGroupe(gIndex, -1)} disabled={gIndex === 0} title="Monter le groupe"
+              style={iconBtn({ width: 22, opacity: gIndex === 0 ? 0.35 : 1, cursor: gIndex === 0 ? "default" : "pointer" })}>
+              <Icon as={ChevronUp} size={13} />
+            </button>
+            <button onClick={() => reorderGroupe(gIndex, +1)} disabled={gIndex === groupesTries.length - 1} title="Descendre le groupe"
+              style={iconBtn({ width: 22, opacity: gIndex === groupesTries.length - 1 ? 0.35 : 1, cursor: gIndex === groupesTries.length - 1 ? "default" : "pointer" })}>
+              <Icon as={ChevronDown} size={13} />
+            </button>
+          </div>
           <button onClick={() => addJalon(g.id)} title="Ajouter un jalon dans ce groupe"
             style={{
               display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0,
@@ -4142,25 +4297,65 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
             <Icon as={Flag} size={12} /> Jalon
           </button>
           <button onClick={() => deleteGroupe(g)} title="Supprimer le groupe (les tâches repassent « à classer »)"
-            style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            style={iconBtn({ width: 28, height: 28 })}>
             <Icon as={Trash2} size={13} />
           </button>
         </div>
-        <div
-          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== `group:${g.id}`) setOverKey(`group:${g.id}`); }}
-          onDrop={e => { e.preventDefault(); handleDrop(g.id, null); }}
-          style={{
-            borderRadius: RADIUS.lg,
-            border: `1.5px dashed ${emptyOver ? couleur : T.border}`,
-            background: emptyOver ? `color-mix(in srgb, ${couleur} 8%, transparent)` : "transparent",
-            padding: "4px 10px", minHeight: 52, transition: "border-color .12s, background .12s",
-          }}>
-          {entries.length === 0
-            ? <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0", fontStyle: "italic" }}>Glissez des tâches ici, ajoutez un jalon…</div>
-            : entries.map((e, i) => e.kind === "tache"
-              ? renderRow(e.it, couleur, g.id, i)
-              : renderJalon(e.jalon, couleur, g.id, i))}
-        </div>
+
+        {/* Ligne synthèse + planification */}
+        {!isCollapsed && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "0 0 8px 30px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: FONT.xs.size, color: T.textMuted, flexWrap: "wrap" }}>
+              {rangeLbl && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon as={Calendar} size={12} /> {rangeLbl}</span>}
+              {hvLbl && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon as={Clock} size={12} /> {hvLbl}</span>}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 72, height: 6, borderRadius: 99, background: T.border, overflow: "hidden", display: "inline-block" }}>
+                  <span style={{ display: "block", height: "100%", width: `${st.avg}%`, background: st.avg >= 100 ? "#22c55e" : couleur, transition: "width .2s" }} />
+                </span>
+                <strong style={{ color: st.avg >= 100 ? "#22c55e" : T.textSub }}>{st.avg}%</strong>
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: .3, color: T.textMuted, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={CalendarClock} size={12} /> Dater dès le
+              </span>
+              <input type="date"
+                onChange={e => { if (e.target.value) { planGroupe(g.id, e.target.value); e.target.value = ""; } }}
+                title="Répartir automatiquement les dates des tâches en jours ouvrés à partir de cette date"
+                style={{ padding: "4px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none" }} />
+              {[["−1 j", -1], ["+1 j", 1], ["+1 sem.", 7]].map(([lbl, d]) => (
+                <button key={lbl} onClick={() => shiftGroupe(g.id, d)} title={`Décaler tout le groupe de ${d > 0 ? "+" : ""}${d} jour(s)`}
+                  style={{ padding: "4px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Corps */}
+        {!isCollapsed && (
+          <div
+            onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== `group:${g.id}`) setOverKey(`group:${g.id}`); }}
+            onDrop={e => { e.preventDefault(); handleDrop(g.id, null); }}
+            style={{
+              borderRadius: RADIUS.lg,
+              border: `1.5px dashed ${emptyOver ? couleur : T.border}`,
+              background: emptyOver ? `color-mix(in srgb, ${couleur} 8%, transparent)` : "transparent",
+              padding: "4px 10px", minHeight: 52, transition: "border-color .12s, background .12s",
+            }}>
+            {entries.length === 0
+              ? <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0", fontStyle: "italic" }}>
+                  {allEntries.length === 0 ? "Glissez des tâches ici, ajoutez un jalon…" : "Aucune tâche ne correspond au filtre."}
+                </div>
+              : entries.map(e => {
+                  const ui = allEntries.findIndex(x => x.kind === e.kind && x.id === e.id);
+                  return e.kind === "tache"
+                    ? renderRow(e.it, couleur, g.id, ui)
+                    : renderJalon(e.jalon, couleur, g.id, ui);
+                })}
+          </div>
+        )}
       </div>
     );
   };
@@ -4190,9 +4385,16 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
             Regroupez, ordonnez (glisser-déposer), datez les tâches et intercalez des jalons.
           </div>
         </div>
+        <span style={{
+          marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5,
+          fontSize: FONT.xs.size, fontWeight: 700, color: T.textSub,
+          background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.pill, padding: "4px 10px",
+        }}>
+          <Icon as={CalendarClock} size={12} /> Aujourd'hui · {todayLbl}
+        </span>
         <button onClick={addGroupe}
           style={{
-            marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6,
+            display: "inline-flex", alignItems: "center", gap: 6,
             padding: "8px 14px", borderRadius: RADIUS.md,
             border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
             fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
@@ -4207,35 +4409,92 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
         </div>
       ) : (
         <>
-          {/* À classer */}
-          {unassigned.length > 0 && (
-            <div style={{ marginBottom: 22 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", color: T.textMuted }}>À classer</span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px" }}>{unassigned.length}</span>
-              </div>
-              <div
-                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== "unassigned") setOverKey("unassigned"); }}
-                onDrop={e => { e.preventDefault(); handleDropUnassigned(); }}
-                style={{
-                  borderRadius: RADIUS.lg,
-                  border: `1.5px dashed ${overKey === "unassigned" ? acc.accent : T.border}`,
-                  background: overKey === "unassigned" ? acc.bg10 : "transparent",
-                  padding: "4px 10px",
-                }}>
-                {unassigned.map((it, i) => renderRow(it, T.textMuted, null, i))}
-              </div>
+          {/* Barre de filtres */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap", fontSize: FONT.xs.size }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.textMuted, fontWeight: 700 }}>
+              <Icon as={Filter} size={13} /> Filtres
+            </span>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.textSub, cursor: "pointer" }}>
+              <input type="checkbox" checked={hideDone} onChange={e => setHideDone(e.target.checked)} style={{ cursor: "pointer", accentColor: acc.accent }} />
+              Masquer les terminées
+            </label>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.textSub, cursor: "pointer" }}>
+              <input type="checkbox" checked={onlyTodo} onChange={e => setOnlyTodo(e.target.checked)} style={{ cursor: "pointer", accentColor: acc.accent }} />
+              Seulement « À classer »
+            </label>
+            {lotsPresent.length > 0 && (
+              <select value={filterLot} onChange={e => setFilterLot(e.target.value)}
+                style={{ padding: "4px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer" }}>
+                <option value="">Tous les lots</option>
+                {lotsPresent.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+              </select>
+            )}
+            {(hideDone || onlyTodo || filterLot) && (
+              <button onClick={() => { setHideDone(false); setOnlyTodo(false); setFilterLot(""); }}
+                style={{ padding: "4px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer" }}>
+                Réinitialiser
+              </button>
+            )}
+          </div>
+
+          {/* Barre d'action groupée (sélection multiple) */}
+          {selected.size > 0 && (
+            <div style={{
+              position: "sticky", top: 0, zIndex: 5,
+              display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+              marginBottom: 14, padding: "8px 12px", borderRadius: RADIUS.md,
+              background: acc.bg10, border: `1px solid ${acc.border}`,
+            }}>
+              <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: acc.accent }}>
+                {selected.size} tâche{selected.size > 1 ? "s" : ""} sélectionnée{selected.size > 1 ? "s" : ""}
+              </span>
+              <span style={{ fontSize: FONT.xs.size, color: T.textSub }}>Envoyer vers :</span>
+              <select value="" onChange={e => { if (e.target.value !== "") bulkAssign(e.target.value === "_unassigned" ? null : e.target.value); }}
+                style={{ padding: "5px 9px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer" }}>
+                <option value="">— choisir un groupe —</option>
+                {groupesTries.map(g => <option key={g.id} value={g.id}>{g.nom || "(groupe)"}</option>)}
+                <option value="_unassigned">À classer</option>
+              </select>
+              <button onClick={clearSelect}
+                style={{ marginLeft: "auto", padding: "5px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer" }}>
+                Effacer la sélection
+              </button>
             </div>
           )}
 
+          {/* À classer */}
+          {(() => {
+            const shown = unassigned.filter(passFilters);
+            if (shown.length === 0) return null;
+            return (
+              <div style={{ marginBottom: 22 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", color: T.textMuted }}>À classer</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px" }}>{shown.length}</span>
+                </div>
+                <div
+                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== "unassigned") setOverKey("unassigned"); }}
+                  onDrop={e => { e.preventDefault(); handleDropUnassigned(); }}
+                  style={{
+                    borderRadius: RADIUS.lg,
+                    border: `1.5px dashed ${overKey === "unassigned" ? acc.accent : T.border}`,
+                    background: overKey === "unassigned" ? acc.bg10 : "transparent",
+                    padding: "4px 10px",
+                  }}>
+                  {shown.map((it, i) => renderRow(it, T.textMuted, null, i))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Groupes */}
-          {groupesTries.length === 0 ? (
+          {onlyTodo ? null : groupesTries.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 20px", color: T.textMuted, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl }}>
               <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text, marginBottom: 6 }}>Aucun groupe</div>
               <div style={{ fontSize: FONT.sm.size }}>Créez un premier groupe, puis glissez-y les tâches « à classer ».</div>
             </div>
           ) : (
-            groupesTries.map(renderGroup)
+            groupesTries.map((g, i) => renderGroup(g, i))
           )}
         </>
       )}
