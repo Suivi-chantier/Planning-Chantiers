@@ -3817,6 +3817,42 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
     if (v != null && v !== j.nom) setJalons(jalons.map(x => x.id === j.id ? { ...x, nom: v } : x));
   };
 
+  // ── Auto-scroll pendant le glisser-déposer ──
+  // Le drag & drop HTML5 ne fait pas défiler le conteneur : sans ça,
+  // impossible d'atteindre un groupe situé plus bas. On fait défiler quand
+  // le curseur entre dans la zone haute/basse du conteneur scrollable.
+  const scrollRef = useRef(null);
+  const scrollVel = useRef(0);
+  const rafRef = useRef(0);
+  const runAutoScroll = () => {
+    const el = scrollRef.current;
+    if (el && scrollVel.current !== 0) {
+      el.scrollTop += scrollVel.current;
+      rafRef.current = requestAnimationFrame(runAutoScroll);
+    } else {
+      rafRef.current = 0;
+    }
+  };
+  const stopAutoScroll = () => {
+    scrollVel.current = 0;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+  };
+  const onRootDragOver = (e) => {
+    const el = scrollRef.current;
+    if (!el || !drag) return;
+    const rect = el.getBoundingClientRect();
+    const EDGE = 70;   // hauteur de la zone sensible (px)
+    const MAX = 20;    // vitesse max (px/frame)
+    const y = e.clientY;
+    let v = 0;
+    if (y < rect.top + EDGE) v = -Math.ceil(MAX * Math.min(1, (rect.top + EDGE - y) / EDGE));
+    else if (y > rect.bottom - EDGE) v = Math.ceil(MAX * Math.min(1, (y - (rect.bottom - EDGE)) / EDGE));
+    scrollVel.current = v;
+    if (v !== 0 && !rafRef.current) rafRef.current = requestAnimationFrame(runAutoScroll);
+  };
+  // Arrête l'auto-scroll dès que le drag se termine (drop, dragend, annulation).
+  useEffect(() => { if (!drag) stopAutoScroll(); }, [drag]);
+
   const isoDay = (s) => {
     if (!s) return "";
     const d = new Date(s);
@@ -4104,7 +4140,8 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
   };
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px", minHeight: 0 }}>
+    <div ref={scrollRef} onDragOver={onRootDragOver} onDrop={stopAutoScroll}
+      style={{ flex: 1, overflowY: "auto", padding: "18px 22px", minHeight: 0 }}>
       <style>{`
         .chrono-row:hover {
           border-color: color-mix(in srgb, var(--c) 55%, transparent) !important;
