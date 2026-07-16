@@ -3951,6 +3951,15 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
     if (drag.kind === "tache") applyChrono({ [drag.id]: { groupe_id: null, ordre: 0 } });
     setDrag(null); setOverKey(null);
   };
+  // Affecte une tâche à un groupe (ou à « À classer » si groupeId null) via la
+  // liste déroulante : elle se place en fin du groupe cible. No-op si elle y est
+  // déjà, pour éviter un ré-ordonnancement inutile.
+  const moveTacheToGroup = (tacheId, currentGroupeId, groupeId) => {
+    if ((currentGroupeId ?? null) === (groupeId ?? null)) return;
+    if (groupeId == null) { applyChrono({ [tacheId]: { groupe_id: null, ordre: 0 } }); return; }
+    const ordre = entriesOfGroup(groupeId).reduce((m, e) => Math.max(m, e.ordre ?? -1), -1) + 1;
+    applyChrono({ [tacheId]: { groupe_id: groupeId, ordre } });
+  };
 
   // ── Rendu d'une ligne tâche (fonction, PAS un composant, pour ne pas
   //    remonter les <input> à chaque frappe et perdre le focus). ──
@@ -3989,6 +3998,23 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
             {(it.lot?.label ? it.lot.label + " · " : "") + (it.ouvrage.libelle || "—")}
           </div>
         </div>
+        {groupesTries.length > 0 && (
+          <select
+            value={t.chrono_groupe_id && groupeIds.has(t.chrono_groupe_id) ? t.chrono_groupe_id : ""}
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            onChange={e => { e.stopPropagation(); moveTacheToGroup(t.id, t.chrono_groupe_id, e.target.value || null); }}
+            title="Attribuer à un groupe"
+            style={{
+              maxWidth: 150, flexShrink: 0, padding: "5px 8px", borderRadius: RADIUS.sm,
+              border: `1px solid ${T.border}`, background: T.fieldBg || T.card,
+              color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600,
+              outline: "none", cursor: "pointer",
+            }}>
+            <option value="">À classer</option>
+            {groupesTries.map(g => <option key={g.id} value={g.id}>{g.nom || "(groupe)"}</option>)}
+          </select>
+        )}
         {crs.length > 0 && (
           <button className="chrono-cr-btn"
             onClick={e => { e.stopPropagation(); onShowRapports(t, crs); }}
