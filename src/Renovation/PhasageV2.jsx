@@ -3928,9 +3928,9 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
     const crs = rapportsPourTache(t);
     return (
       <div key={t.id} className="chrono-row" draggable
-        onDragStart={e => { setDrag({ kind: "tache", id: t.id, ouvrageId: it.ouvrageId }); e.dataTransfer.effectAllowed = "move"; }}
+        onDragStart={e => { setDrag({ kind: "tache", id: t.id, ouvrageId: it.ouvrageId }); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.id); }}
         onDragEnd={() => { setDrag(null); setOverKey(null); }}
-        onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== rowKey) setOverKey(rowKey); }}
+        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== rowKey) setOverKey(rowKey); }}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); groupeId ? handleDrop(groupeId, index) : handleDropUnassigned(); }}
         onClick={() => onClickTache(it.ouvrageId, t.id)}
         style={{
@@ -3993,9 +3993,9 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
     const dateLbl = j.date ? new Date(j.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "";
     return (
       <div key={"j" + j.id} className="chrono-jalon" draggable
-        onDragStart={e => { setDrag({ kind: "jalon", id: j.id }); e.dataTransfer.effectAllowed = "move"; }}
+        onDragStart={e => { setDrag({ kind: "jalon", id: j.id }); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", j.id); }}
         onDragEnd={() => { setDrag(null); setOverKey(null); }}
-        onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== rowKey) setOverKey(rowKey); }}
+        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== rowKey) setOverKey(rowKey); }}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); groupeId ? handleDrop(groupeId, index) : handleDropUnassigned(); }}
         style={{
           "--c": color,
@@ -4085,7 +4085,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
           </button>
         </div>
         <div
-          onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== `group:${g.id}`) setOverKey(`group:${g.id}`); }}
+          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== `group:${g.id}`) setOverKey(`group:${g.id}`); }}
           onDrop={e => { e.preventDefault(); handleDrop(g.id, null); }}
           style={{
             borderRadius: RADIUS.lg,
@@ -4152,7 +4152,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, setG
                 <span style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, background: T.card, borderRadius: RADIUS.pill, padding: "2px 9px" }}>{unassigned.length}</span>
               </div>
               <div
-                onDragOver={e => { if (!drag) return; e.preventDefault(); if (overKey !== "unassigned") setOverKey("unassigned"); }}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== "unassigned") setOverKey("unassigned"); }}
                 onDrop={e => { e.preventDefault(); handleDropUnassigned(); }}
                 style={{
                   borderRadius: RADIUS.lg,
