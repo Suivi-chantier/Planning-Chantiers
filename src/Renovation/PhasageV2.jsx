@@ -1657,6 +1657,122 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     }
   };
 
+  // ─── EXPORT PDF DU PLANNING CHRONOLOGIQUE ───────────────────────────────
+  // Feuille de route interne : une section par groupe (dans l'ordre chrono),
+  // chaque tâche datée avec heures/avancement, jalons intercalés, retards
+  // signalés. Reflète la vue Chronologique. Non destiné au client (≠ Prévi).
+  const buildChronoHTML = () => {
+    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+    const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
+    const dateLongue = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const dateCourte = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const titre = chantier?.nom || chantierId;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const parseD = (s) => { if (!s) return null; const d = new Date(s); if (isNaN(d.getTime())) return null; d.setHours(0, 0, 0, 0); return d; };
+    const fmtD = (d) => d ? d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) : "—";
+    const grs = chronoGroupes.slice().sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
+    const groupeIds = new Set(grs.map(g => g.id));
+    const tItems = [];
+    ouvrages.forEach(o => { const lot = lots.find(l => l.id === o.lot_id) || null; (o.taches || []).forEach(t => tItems.push({ o, lot, t })); });
+
+    const entriesFor = (gid) => {
+      const es = [];
+      tItems.forEach(({ o, lot, t }) => { if (t.chrono_groupe_id === gid) es.push({ kind: "tache", ordre: t.chrono_ordre ?? 1e9, o, lot, t }); });
+      chronoJalons.forEach(j => { if ((j.groupe_id ?? null) === gid) es.push({ kind: "jalon", ordre: j.ordre ?? 1e9, j }); });
+      es.sort((a, b) => (a.ordre - b.ordre) || (a.kind === b.kind ? 0 : a.kind === "tache" ? -1 : 1));
+      return es;
+    };
+    const rowTache = ({ o, lot, t }) => {
+      const d = parseD(t.date_prevue);
+      const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+      const late = d && d < today && av < 100;
+      const hv = parseFloat(t.heures_vendues) || 0;
+      const ctx = (lot?.label ? esc(lot.label) + " · " : "") + esc(o.libelle || "—");
+      return `<tr>
+        <td style="padding:5pt 8pt;white-space:nowrap;color:${late ? "#c0392b" : "#333"};font-weight:${late ? 700 : 400};border-bottom:0.5pt solid #eee;vertical-align:top;">${late ? "⚠ " : ""}${fmtD(d)}</td>
+        <td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;"><strong>${esc(t.nom || "(sans nom)")}</strong><div style="color:#999;font-size:8pt;">${ctx}</div></td>
+        <td style="padding:5pt 8pt;text-align:right;white-space:nowrap;color:#555;border-bottom:0.5pt solid #eee;vertical-align:top;">${hv > 0 ? `${Math.round(hv * 10) / 10} h` : ""}</td>
+        <td style="padding:5pt 8pt;text-align:right;white-space:nowrap;font-weight:700;color:${av >= 100 ? "#1e8e3e" : "#555"};border-bottom:0.5pt solid #eee;vertical-align:top;">${av}%</td>
+      </tr>`;
+    };
+    const rowJalon = ({ j }) => `<tr>
+        <td style="padding:5pt 8pt;white-space:nowrap;color:#8a6d00;font-weight:700;border-bottom:0.5pt solid #eee;vertical-align:top;">${fmtD(parseD(j.date))}</td>
+        <td colspan="3" style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;background:#fdf6df;"><span style="color:#8a6d00;font-weight:800;">⚑ ${esc(j.nom || "Jalon")}</span></td>
+      </tr>`;
+
+    const groupHTML = grs.map(g => {
+      const es = entriesFor(g.id);
+      if (es.length === 0) return "";
+      const couleur = g.couleur || "#5b8af5";
+      let dmin = null, dmax = null, hv = 0, wsum = 0, wtot = 0, nbT = 0;
+      es.forEach(e => {
+        if (e.kind === "tache") {
+          nbT++;
+          const d = parseD(e.t.date_prevue); if (d) { if (!dmin || d < dmin) dmin = d; if (!dmax || d > dmax) dmax = d; }
+          const h = parseFloat(e.t.heures_vendues) || 0, av = parseInt(e.t.avancement) || 0; hv += h; if (h > 0) { wsum += h * av; wtot += h; }
+        } else { const d = parseD(e.j.date); if (d) { if (!dmin || d < dmin) dmin = d; if (!dmax || d > dmax) dmax = d; } }
+      });
+      const avg = wtot > 0 ? Math.round(wsum / wtot) : 0;
+      const range = dmin ? (dmax && +dmax !== +dmin ? `${fmtD(dmin)} → ${fmtD(dmax)}` : fmtD(dmin)) : "";
+      return `<section style="margin:0 0 14pt;break-inside:avoid;page-break-inside:avoid;">
+        <table style="width:100%;border-collapse:collapse;border-left:5pt solid ${couleur};background:color-mix(in srgb, ${couleur} 15%, #ffffff);border-radius:0 4pt 4pt 0;margin-bottom:3pt;">
+          <tr><td style="padding:6pt 12pt;font-weight:800;font-size:11pt;color:#1a1f2e;">${esc(g.nom || "Groupe")}</td>
+          <td style="padding:6pt 12pt;text-align:right;font-size:8.5pt;color:#555;white-space:nowrap;">${nbT} tâche${nbT > 1 ? "s" : ""}${range ? ` · ${range}` : ""}${hv > 0 ? ` · ${Math.round(hv * 10) / 10} h` : ""} · ${avg}%</td></tr>
+        </table>
+        <table style="width:100%;border-collapse:collapse;font-size:9pt;">${es.map(e => e.kind === "tache" ? rowTache(e) : rowJalon(e)).join("")}</table>
+      </section>`;
+    }).join("");
+
+    const unassigned = tItems.filter(({ t }) => !t.chrono_groupe_id || !groupeIds.has(t.chrono_groupe_id));
+    const unHTML = unassigned.length ? `<section style="margin:0 0 14pt;break-inside:avoid;">
+        <div style="background:#f3f4f6;border-left:5pt solid #999;padding:6pt 12pt;border-radius:0 4pt 4pt 0;font-weight:800;font-size:11pt;color:#555;margin-bottom:3pt;">Non classées <span style="font-weight:400;font-size:8.5pt;">(${unassigned.length})</span></div>
+        <table style="width:100%;border-collapse:collapse;font-size:9pt;">${unassigned.map(rowTache).join("")}</table>
+      </section>` : "";
+
+    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Planning ${esc(titre)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.4;}
+  .page{max-width:720pt;margin:0 auto;}
+  @page{margin:14mm 12mm 14mm;size:A4;}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body><div class="page">
+  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:10pt;overflow:hidden;margin:0 0 16pt;">
+    <tr>
+      <td style="padding:14pt 16pt;vertical-align:middle;width:150pt;"><img src="${logoUrl}" alt="Profero" style="height:34pt;object-fit:contain;display:block;"/></td>
+      <td style="padding:14pt 8pt;vertical-align:middle;text-align:center;"><div style="color:#cfcfcf;font-size:15pt;font-weight:800;">Planning chantier</div></td>
+      <td style="padding:14pt 16pt;vertical-align:middle;text-align:right;white-space:nowrap;">
+        <div style="color:#fff;font-size:11pt;font-weight:800;">${esc(titre)}</div>
+        <div style="color:rgba(255,255,255,.55);font-size:8.5pt;margin-top:2pt;text-transform:capitalize;">${dateLongue}</div>
+      </td>
+    </tr>
+  </table>
+  ${groupHTML || `<div style="text-align:center;padding:30pt;color:#999;">Aucun groupe. Créez des groupes dans la vue Chronologique.</div>`}
+  ${unHTML}
+  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:8pt;overflow:hidden;margin-top:16pt;">
+    <tr>
+      <td style="padding:8pt 14pt;color:rgba(255,255,255,.7);font-size:8pt;">PROFERO — Planning interne</td>
+      <td style="padding:8pt 14pt;text-align:right;color:rgba(255,255,255,.7);font-size:8pt;">${dateCourte}</td>
+    </tr>
+  </table>
+</div></body></html>`;
+  };
+
+  const exportChronoPDF = () => {
+    try {
+      const html = buildChronoHTML();
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `Planning-${chantier?.nom || chantierId}`;
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+    } catch (e) {
+      alert("Erreur génération PDF : " + (e.message || e));
+    }
+  };
+
   // ─── EXPORT PDF DE LA VUE GANTT ─────────────────────────────────────────
   // Landscape A4 avec table : 1 colonne label + 1fr × N jours. Pour chaque
   // tâche, on colore les cellules de date_prevue jusqu'à +durée jours
@@ -2051,8 +2167,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 );
               })}
             </div>
-            <button onClick={viewMode === "gantt" ? exportGanttPDF : viewMode === "previsionnel" ? exportPrevisionnelPDF : exportRapportPDF}
-              title={viewMode === "gantt" ? "Exporter le Gantt en PDF (paysage)" : viewMode === "previsionnel" ? "Exporter le prévisionnel client en PDF" : "Exporter le phasage en PDF"}
+            <button onClick={viewMode === "gantt" ? exportGanttPDF : viewMode === "previsionnel" ? exportPrevisionnelPDF : viewMode === "chrono" ? exportChronoPDF : exportRapportPDF}
+              title={viewMode === "gantt" ? "Exporter le Gantt en PDF (paysage)" : viewMode === "previsionnel" ? "Exporter le prévisionnel client en PDF" : viewMode === "chrono" ? "Exporter le planning chantier en PDF (par groupe)" : "Exporter le phasage en PDF"}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 6,
                 padding: "8px 14px", borderRadius: RADIUS.md,
@@ -2063,7 +2179,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               onMouseEnter={e => { e.currentTarget.style.color = acc.accent; e.currentTarget.style.borderColor = acc.border; }}
               onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.borderColor = T.border; }}>
               <Icon as={FileDown} size={14}/>
-              PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : ""}
+              PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : viewMode === "chrono" ? "Planning" : ""}
             </button>
             <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
               style={{
