@@ -70,7 +70,20 @@ Format :
 }
 Ne pas inclure totaux, TVA, frais de port dans les LIGNES (le total HT va dans montant_ht).
 Prix en nombres décimaux. Cherche activement le numéro de document : il est souvent
-en haut à droite, libellé "BL", "Bon de livraison", "Ticket", "N°", "Commande".`
+en haut à droite, libellé "BL", "Bon de livraison", "Ticket", "N°", "Commande".
+
+RÈGLE IMPORTANTE POUR LES BONS DE LIVRAISON (doc_type = "bl") :
+Un BL a souvent trois colonnes de quantité : "Quantité commandée", "Quantité livrée"
+et "Reste à livrer". Dans ce cas :
+- N'INCLUS PAS dans "lignes" les articles dont la quantité LIVRÉE est 0 (montant H.T.
+  vide) : ce sont des articles commandés mais pas encore livrés, ils figureront sur un
+  futur BL. Ils doivent être totalement ignorés.
+- Pour les lignes que tu gardes, le champ "quantite" doit être la quantité LIVRÉE
+  (celle réellement reçue sur ce BL), pas la quantité commandée. Ex. livrée 4 / reste 2
+  → quantite = 4.
+Cette règle ne s'applique QUE s'il existe une colonne "Quantité livrée" distincte
+(cas des BL). Pour un ticket ou un bon de commande sans cette colonne, prends la
+quantité telle qu'affichée.`
             }
           ]
         }]
