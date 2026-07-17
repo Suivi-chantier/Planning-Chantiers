@@ -35,7 +35,9 @@ serve(async (req) => {
       body: JSON.stringify({
         // Pour réduire le coût sur gros volume : remplacer par "claude-sonnet-4-6"
         model: "claude-opus-4-8",
-        max_tokens: 3000,
+        // Un gros BL (ex. 38 lignes sur 5 pages) génère un JSON > 3000 tokens :
+        // la réponse était tronquée et le JSON.parse échouait. On monte le plafond.
+        max_tokens: 16000,
         messages: [{
           role: "user",
           content: [
