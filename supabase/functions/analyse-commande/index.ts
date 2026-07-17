@@ -97,7 +97,20 @@ ce cas, n'utilise PAS ces montants TTC tels quels :
   HT = TTC / (1 + taux/100). Ex. 38,85 TTC à 20% -> 32,37 HT.
 - prix_unitaire = prix_total (HT) / quantité.
 Pour montant_ht, prends le "Total HT" du document (ex. "Total HT 166,48"), jamais
-le "Total TTC". Ne renvoie jamais un montant TTC dans ces champs.`
+le "Total TTC". Ne renvoie jamais un montant TTC dans ces champs.
+
+REMISE GLOBALE (remise fidélité, remise globale, avoir) :
+Si le document applique une remise sur le TOTAL qui n'est PAS déjà déduite ligne
+par ligne (ex. "remise fidélité" chez Leroy Merlin), tu dois la RÉPARTIR sur les
+lignes pour refléter le montant réellement payé :
+- Calcule d'abord le HT de chaque ligne (voir règle prix ci-dessus).
+- Puis réduis proportionnellement chaque prix_total ET prix_unitaire pour que la
+  SOMME des prix_total soit EXACTEMENT égale au Total HT APRÈS remise du document.
+- montant_ht = ce Total HT APRÈS remise (le vrai montant payé HT), jamais le total
+  avant remise.
+Exemple : lignes = 184,98 € HT avant remise, Total HT après remise fidélité =
+166,48 € → multiplie chaque ligne par 166,48 / 184,98 ≈ 0,9000, et montant_ht =
+166,48. Ne crée PAS de ligne "remise" séparée : la remise est fondue dans les prix.`
             }
           ]
         }]
