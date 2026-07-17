@@ -16,7 +16,8 @@ const normNom = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[
 // Date d'échéance de paiement selon le mode du fournisseur.
 //  comptant / inconnu -> le jour même (mois du document)
 //  30j                 -> date + 30 jours
-//  echeance (30j FDM)  -> date + 30 jours, arrondi à la fin de ce mois-là
+//  echeance (30j FDM)  -> fin du mois de la facture, PUIS + 30 jours
+//     (ex. facture du 01/07 -> fin juillet 31/07 -> + 30 j = 30/08, payable en août)
 // Renvoie "AAAA-MM-JJ" (heure locale, pas de décalage de fuseau).
 function echeanceISO(docISO, mode) {
   if (!docISO) return docISO || "";
@@ -24,8 +25,9 @@ function echeanceISO(docISO, mode) {
   if (isNaN(d.getTime())) return docISO;
   if (mode === "30j") { d.setDate(d.getDate() + 30); }
   else if (mode === "echeance") {
-    d.setDate(d.getDate() + 30);
-    return new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString("sv-SE");
+    const fdm = new Date(d.getFullYear(), d.getMonth() + 1, 0); // dernier jour du mois de la facture
+    fdm.setDate(fdm.getDate() + 30);
+    return fdm.toLocaleDateString("sv-SE");
   } else { return docISO; }
   return d.toLocaleDateString("sv-SE");
 }

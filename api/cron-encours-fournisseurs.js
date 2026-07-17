@@ -33,8 +33,11 @@ function echeanceISO(docISO, mode) {
   if (isNaN(d.getTime())) return docISO;
   if (mode === "30j") { d.setDate(d.getDate() + 30); }
   else if (mode === "echeance") {
-    d.setDate(d.getDate() + 30);
-    return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    // 30j fin de mois : fin du mois de la facture, PUIS + 30 jours
+    // (facture du 01/07 -> 31/07 -> + 30 j = 30/08, payable en août).
+    const fdm = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    fdm.setDate(fdm.getDate() + 30);
+    return fdm.toISOString().slice(0, 10);
   } else { return docISO; }
   return d.toISOString().slice(0, 10);
 }
