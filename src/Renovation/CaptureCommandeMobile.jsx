@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { useDraft, useDirtyGuard } from "../hooks";
+import { pdfFileToImages } from "../pdfToImages";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -90,12 +91,18 @@ async function analyseCommande(images) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
   const anthropic = data.content ? data : (data.data || data);
+  // L'API peut renvoyer un objet d'erreur (ex. PDF illisible) sans "content" :
+  // on remonte son message plutôt que de laisser JSON.parse("") échouer.
+  if (!anthropic.content && anthropic.error) {
+    throw new Error(anthropic.error.message || "Document illisible par l'IA.");
+  }
   const textContent = anthropic.content?.find(c => c.type === "text")?.text || "";
   let clean = textContent.replace(/```json|```/g, "").trim();
   if (clean[0] !== "{") {
     const match = clean.match(/\{[\s\S]*\}/);
     if (match) clean = match[0];
   }
+  if (!clean) throw new Error("L'IA n'a rien renvoyé (document illisible ?).");
   return JSON.parse(clean);
 }
 
@@ -410,8 +417,16 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     const [ups, ia] = await Promise.allSettled([
       Promise.all(photos.map(p => uploadPhoto(p.file, "commandes"))),
       (async () => {
-        const images = await Promise.all(photos.map(async p => ({ base64: await fileToBase64(p.file), mediaType: p.mediaType })));
-        return analyseCommande(images);
+        // Les PDF sont convertis en images (pages PNG) : l'API rejette certains
+        // PDF « exotiques », mais lit toujours les images. Fallback = PDF brut.
+        const parPage = await Promise.all(photos.map(async p => {
+          if (p.mediaType === "application/pdf") {
+            try { return await pdfFileToImages(p.file); }
+            catch { return [{ base64: await fileToBase64(p.file), mediaType: "application/pdf" }]; }
+          }
+          return [{ base64: await fileToBase64(p.file), mediaType: p.mediaType }];
+        }));
+        return analyseCommande(parPage.flat());
       })(),
     ]);
 

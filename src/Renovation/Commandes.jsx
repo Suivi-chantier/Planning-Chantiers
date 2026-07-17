@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
+import { pdfFileToImages } from "../pdfToImages";
 import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
 import {
@@ -274,20 +275,28 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
     setStep("analysing");
     setErreur("");
     try {
-      // Lire le fichier en base64
-      const base64 = await new Promise((res, rej) => {
+      const fileToB64 = (f) => new Promise((res, rej) => {
         const reader = new FileReader();
         reader.onload = () => res(reader.result.split(",")[1]);
         reader.onerror = rej;
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(f);
       });
 
-      const mediaType = file.type === "application/pdf" ? "application/pdf" : file.type;
+      // Les PDF sont convertis en images (pages PNG) côté navigateur : l'API
+      // rejette certains PDF « exotiques » mais lit toujours les images.
+      // Fallback = PDF brut si le rendu échoue.
+      let images;
+      if (file.type === "application/pdf") {
+        try { images = await pdfFileToImages(file); }
+        catch { images = [{ base64: await fileToB64(file), mediaType: "application/pdf" }]; }
+      } else {
+        images = [{ base64: await fileToB64(file), mediaType: file.type }];
+      }
 
       const response = await fetch("https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-commande", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType }),
+        body: JSON.stringify({ images }),
       });
 
       const data = await response.json();
@@ -296,6 +305,10 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
 
       // La Edge Function peut renvoyer la réponse Anthropic directement ou encapsulée
       const anthropicData = data.content ? data : (data.data || data);
+      // Objet d'erreur API (ex. document illisible) sans "content" : on remonte le message.
+      if (!anthropicData.content && anthropicData.error) {
+        throw new Error(anthropicData.error.message || "Document illisible par l'IA.");
+      }
       const textContent = anthropicData.content?.find(c => c.type === "text")?.text || "";
       let parsed;
       try {
