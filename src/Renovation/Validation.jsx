@@ -27,7 +27,7 @@ import {
   Plus, Trash2, Split, PlusCircle, Lock, LockOpen,
 } from "lucide-react";
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
-import { buildPointagesRapport, rangRapportDuJour } from "../pointages";
+import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, heuresDeclareesRapport } from "../pointages";
 
 // ─── Helpers date ────────────────────────────────────────────────────────────
 
@@ -544,6 +544,17 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const rapportsMemeJour = rapports.filter(r =>
       r.ouvrier === rapport.ouvrier && r.date_rapport === rapport.date_rapport
     );
+    // Trajet pondéré par le temps passé sur chaque chantier : on constitue les
+    // heures de chaque rapport du jour dans l'ordre stable (par id). Pour CE
+    // rapport, on prend les heures ÉDITÉES (ce qui sera réellement écrit), pas
+    // le déclaré brut ; pour les autres, leur déclaré.
+    const rapportsMemeJourTri = [...rapportsMemeJour]
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const heuresEditeesRapport = lignes.reduce((s, l) => s + (parseFloat(l.heures) || 0), 0)
+      + indirectes.reduce((s, x) => s + (parseFloat(x.heures) || 0), 0);
+    const heuresParRapportDuJour = rapportsMemeJourTri.map(r =>
+      r.id === rapport.id ? heuresEditeesRapport : heuresDeclareesRapport(r)
+    );
     const lignesPointages = buildPointagesRapport({
       chantier_id: rapport.chantier_id,
       ouvrier: rapport.ouvrier,
@@ -562,6 +573,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       trajetMinTotal: (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0),
       nbChantiersDuJour: Math.max(1, rapportsMemeJour.length),
       rangRapport: rangRapportDuJour(rapport, rapportsMemeJour),
+      heuresParRapportDuJour,
     });
 
     // ── INTÉGRITÉ : le registre AVANT le marquage « validé » ────────────────
@@ -899,6 +911,9 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           ouvriersDispo={ouvriers}
           journeeCloturee={!!journeeCloturee}
           nbChantiersDuJour={rapports.filter(r => r.ouvrier === opened.ouvrier && r.date_rapport === opened.date_rapport).length || 1}
+          autresRapportsDuJour={rapports
+            .filter(r => r.ouvrier === opened.ouvrier && r.date_rapport === opened.date_rapport && r.id !== opened.id)
+            .map(r => ({ id: r.id, heures: heuresDeclareesRapport(r) }))}
           onCreerTache={(args) => creerTacheDansPlan({ ...args, chantier_id: opened.chantier_id })}
           onClose={() => setOpenedId(null)}
           onValider={({ lignes, indirectes }) => validerRapport({ rapport: opened, lignes, indirectes })}
@@ -1014,6 +1029,7 @@ function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
   nbChantiersDuJour = 1,
+  autresRapportsDuJour = [],   // [{ id, heures }] des AUTRES rapports du jour (poids trajet)
   onCreerTache, onClose, onValider, onDevalider, validating,
 }) {
   // État local éditable : copie indépendante de rapport.taches[] pour ne pas
@@ -1080,9 +1096,18 @@ function ModaleRapport({
   const totalHTaches = lignes.reduce((s, l) => s + (parseFloat(l.heures) || 0), 0);
   const totalHIndirect = indirectes.reduce((s, t) => s + (parseFloat(t.heures) || 0), 0);
   const trajetMin = (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0);
-  // ⚠️ Lissage : le trajet est divisé par le nombre de rapports du jour pour
-  // cet ouvrier (sinon il serait compté ×N quand l'ouvrier fait N chantiers).
-  const totalHTrajet = (trajetMin / 60) / nbChantiersDuJour;
+  // ⚠️ Trajet pondéré par le temps passé : la quote-part de CE rapport dépend de
+  // ses heures rapportées aux heures des autres chantiers du jour. Un chantier à
+  // 0h ne porte aucun trajet. On reproduit EXACTEMENT le calcul en centimes de
+  // buildPointagesRapport (plus grand reste), avec les heures ÉDITÉES ici.
+  const heuresCeRapport = totalHTaches + totalHIndirect;
+  const rapportsJourTri = [
+    ...autresRapportsDuJour.map(a => ({ id: a.id, h: parseFloat(a.heures) || 0 })),
+    { id: rapport.id, h: heuresCeRapport },
+  ].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const centsJour = repartTrajetCents(trajetMin, rapportsJourTri.map(x => x.h));
+  const rangCeRapport = rapportsJourTri.findIndex(x => x.id === rapport.id);
+  const totalHTrajet = (centsJour[rangCeRapport] || 0) / 100;
   const totalCout = (totalHTaches + totalHIndirect + totalHTrajet) * taux;
 
   const updateLigne = (rowId, patch) => setLignes(prev => prev.map(l => l.rowId === rowId ? { ...l, ...patch } : l));
@@ -1171,7 +1196,7 @@ function ModaleRapport({
               {trajetMin > 0 && (
                 <span> · 🚗 Trajet {fmtH(totalHTrajet)}h
                   {nbChantiersDuJour > 1
-                    ? <span style={{ fontStyle: "italic" }}> (quote-part {fmtH(trajetMin / 60)}h ÷ {nbChantiersDuJour} chantiers)</span>
+                    ? <span style={{ fontStyle: "italic" }}> (quote-part de {fmtH(trajetMin / 60)}h, pondérée au temps passé)</span>
                     : <span> ({parseInt(rapport.trajet_matin_min) || 0}min matin / {parseInt(rapport.trajet_soir_min) || 0}min soir)</span>
                   }
                 </span>

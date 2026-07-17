@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
-import { buildPointagesRapport, rangRapportDuJour } from "../pointages";
+import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
   Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
@@ -1803,13 +1803,6 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
   const fmtH = (n) => { const v = Math.round((parseFloat(n) || 0) * 100) / 100; return Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0+$/, "").replace(/\.$/, ""); };
 
   // Cible de trajet (heures) du rapport de rang idx parmi n rapports du jour.
-  const partTrajet = (trajetMin, n, idx) => {
-    const totalCents = Math.round((trajetMin / 60) * 100);
-    const base = Math.floor(totalCents / n);
-    const extra = totalCents - base * n;
-    return (base + (idx < extra ? 1 : 0)) / 100;
-  };
-
   // Heures DÉCLARÉES d'un rapport hors trajet : tâches + heures indirectes saisies.
   const declaredRapport = (r) =>
     (r.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0)
@@ -1884,11 +1877,13 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
     let jours = 0, errs = 0;
     for (const j of scan.aRecaler) {
       const n = j.rapports.length;
+      // Trajet pondéré par le temps passé sur chaque chantier (cf. validation).
+      const centsJour = repartTrajetCents(j.trajetMin, j.rapports.map(declaredRapport));
       for (let idx = 0; idx < n; idx++) {
         const r = j.rapports[idx];
-        const cible = partTrajet(j.trajetMin, n, idx);
+        const cible = (centsJour[idx] || 0) / 100;
         const { error } = await supabase.from("pointages")
-          .update({ heures: cible, motif_indirect: n > 1 ? `Trajet (1/${n})` : "Trajet" })
+          .update({ heures: cible, motif_indirect: n > 1 ? "Trajet (quote-part)" : "Trajet" })
           .eq("rapport_id", r.id).eq("type_pointage", "indirect").ilike("motif_indirect", "trajet%");
         if (error) errs++;
       }
@@ -1929,6 +1924,8 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
     let okJours = 0, errs = 0;
     for (const j of scan.aRegenerer) {
       const n = j.rapports.length; // rapports déjà triés par id (rang stable)
+      // Poids du trajet : heures travaillées de chaque rapport du jour (ordre stable).
+      const heuresParRapportDuJour = j.rapports.map(declaredRapport);
       for (let idx = 0; idx < n; idx++) {
         const r = j.rapports[idx];
         const dateISO = frToISO(r.date_rapport);
@@ -1948,6 +1945,7 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
           trajetMinTotal: (parseInt(r.trajet_matin_min) || 0) + (parseInt(r.trajet_soir_min) || 0),
           nbChantiersDuJour: n,
           rangRapport: idx,
+          heuresParRapportDuJour,
         });
         // Remplace intégralement les pointages du rapport.
         const { error: delErr } = await supabase.from("pointages").delete().eq("rapport_id", r.id);

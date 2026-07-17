@@ -143,8 +143,10 @@ export function sumLibreEtIndirect(points) {
 //     lot entier échouerait (23505) → rapport « validé » mais sans aucune heure.
 //     Les tâches libres (tache_id null) ne sont pas couvertes par l'index → on
 //     les garde distinctes.
-//  2. Trajet réparti en CENTIMES exacts (plus grand reste) entre les N chantiers
-//     du jour, pour que la somme des quote-parts = exactement le trajet total
+//  2. Trajet réparti en CENTIMES exacts (plus grand reste) entre les chantiers
+//     du jour, PONDÉRÉ par le temps passé sur chaque chantier — un chantier à 0h
+//     ne porte aucun trajet ; deux chantiers à 5h partagent le trajet moitié-
+//     moitié. La somme des quote-parts = exactement le trajet total du jour
 //     (fini les journées à 9,99 / 10,01 h dues à l'arrondi numeric(6,2)).
 //
 // Renvoie le tableau des lignes prêtes pour `insert`.
@@ -155,6 +157,7 @@ export function buildPointagesRapport({
   trajetMinTotal = 0,   // minutes de trajet total du jour (posé identiquement sur chaque rapport)
   nbChantiersDuJour = 1,
   rangRapport = 0,      // index de CE rapport dans le tri stable des rapports du même jour
+  heuresParRapportDuJour = null, // [h0, h1, …] heures travaillées de chaque rapport du jour (tri stable) → pondération du trajet. À défaut : parts égales.
 }) {
   const base = { chantier_id, phasage_id, ouvrier, date: dateISO, taux_horaire: taux, rapport_id, valide_par };
 
@@ -191,19 +194,63 @@ export function buildPointagesRapport({
       type_pointage: "indirect", motif_indirect: li.motif.trim(),
     }));
 
-  // 3) Trajet — quote-part exacte en centimes (méthode du plus grand reste).
+  // 3) Trajet — quote-part exacte en centimes, PONDÉRÉE par le temps passé sur
+  //    chaque chantier du jour (plus grand reste). Un rapport à 0h ne porte
+  //    aucun trajet ; à défaut d'infos horaires on retombe sur des parts égales.
   const nb = Math.max(1, nbChantiersDuJour);
-  const totalCents = Math.round((trajetMinTotal / 60) * 100);
-  const baseCents = Math.floor(totalCents / nb);
-  const extraCents = totalCents - baseCents * nb;
-  const trajetH = (baseCents + (rangRapport >= 0 && rangRapport < extraCents ? 1 : 0)) / 100;
+  const heuresJour = Array.isArray(heuresParRapportDuJour) && heuresParRapportDuJour.length
+    ? heuresParRapportDuJour
+    : Array(nb).fill(1); // pas d'infos → parts égales (comportement historique)
+  const centsParRapport = repartTrajetCents(trajetMinTotal, heuresJour);
+  const trajetH = (centsParRapport[rangRapport] || 0) / 100;
   const lignesTrajet = trajetH > 0 ? [{
     ...base, phase_id: null, tache_id: null,
     heures: trajetH, avancement_declare: null,
-    type_pointage: "indirect", motif_indirect: nb > 1 ? `Trajet (1/${nb})` : "Trajet",
+    type_pointage: "indirect", motif_indirect: nb > 1 ? "Trajet (quote-part)" : "Trajet",
   }] : [];
 
   return [...lignesTaches, ...lignesIndirectes, ...lignesTrajet];
+}
+
+// Répartit le trajet total (minutes) entre les rapports d'un même jour, en
+// CENTIMES d'heure, pondéré par le temps travaillé de chaque rapport.
+// Renvoie un tableau de centimes aligné sur `heuresParRapport` (même ordre).
+//   • poids = heures travaillées → un rapport à 0h reçoit 0 (trajet non compté).
+//   • plus grand reste → la somme des centimes = exactement le trajet total.
+//   • journée entière à 0h (cas dégénéré : trajet sans heures) → parts égales,
+//     pour ne pas perdre le trajet.
+export function repartTrajetCents(trajetMin, heuresParRapport) {
+  const hrs = (heuresParRapport || []).map(h => Math.max(0, parseFloat(h) || 0));
+  const n = hrs.length;
+  const out = new Array(n).fill(0);
+  const totalCents = Math.round(((parseInt(trajetMin) || 0) / 60) * 100);
+  if (n === 0 || totalCents <= 0) return out;
+
+  const totalH = hrs.reduce((s, h) => s + h, 0);
+  const poids = totalH > 0 ? hrs : hrs.map(() => 1);
+  const totalPoids = totalH > 0 ? totalH : n;
+
+  const exact = poids.map(p => (totalCents * p) / totalPoids);
+  const cents = exact.map(Math.floor);
+  let reste = totalCents - cents.reduce((s, c) => s + c, 0);
+  // Les centimes restants vont aux rapports dont la partie fractionnaire est la
+  // plus grande (départage stable par index). Un rapport à poids nul a une
+  // fraction nulle → il ne reçoit jamais de centime.
+  const ordre = exact
+    .map((e, i) => ({ i, frac: e - Math.floor(e) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; k < ordre.length && reste > 0; k++) {
+    cents[ordre[k].i] += 1;
+    reste -= 1;
+  }
+  return cents;
+}
+
+// Heures DÉCLARÉES d'un rapport hors trajet : tâches + heures indirectes saisies.
+// Sert de poids à la répartition pondérée du trajet.
+export function heuresDeclareesRapport(r) {
+  return (r?.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0)
+    + (r?.heures_indirectes || []).reduce((s, h) => s + (parseFloat(h.heures) || 0), 0);
 }
 
 // Rang stable d'un rapport parmi les rapports du même ouvrier/jour (tri par id).
