@@ -83,7 +83,21 @@ et "Reste à livrer". Dans ce cas :
   → quantite = 4.
 Cette règle ne s'applique QUE s'il existe une colonne "Quantité livrée" distincte
 (cas des BL). Pour un ticket ou un bon de commande sans cette colonne, prends la
-quantité telle qu'affichée.`
+quantité telle qu'affichée.
+
+RÈGLE PRIX — TOUJOURS EN HT (hors taxes), JAMAIS EN TTC :
+Les champs prix_unitaire, prix_total et montant_ht doivent TOUJOURS être hors taxes.
+Attention : beaucoup de tickets/factures de magasin (ex. Leroy Merlin, Castorama,
+Brico Dépôt) affichent leurs colonnes en TTC ("Prix unit. TTC", "Total TTC"). Dans
+ce cas, n'utilise PAS ces montants TTC tels quels :
+- Si la ligne indique un "Montant HT" (souvent dans le petit texte sous la
+  désignation, avec le taux et le montant de TVA), utilise ce Montant HT comme
+  prix_total de la ligne (c'est le total HT de la ligne, quantité comprise).
+- Sinon, calcule le HT à partir du TTC et du taux de TVA de la ligne :
+  HT = TTC / (1 + taux/100). Ex. 38,85 TTC à 20% -> 32,37 HT.
+- prix_unitaire = prix_total (HT) / quantité.
+Pour montant_ht, prends le "Total HT" du document (ex. "Total HT 166,48"), jamais
+le "Total TTC". Ne renvoie jamais un montant TTC dans ces champs.`
             }
           ]
         }]
