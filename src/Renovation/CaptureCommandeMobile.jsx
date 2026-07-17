@@ -41,6 +41,17 @@ function toNum(v) {
   return isNaN(n) ? null : n;
 }
 
+// Numéro de document normalisé pour comparaison (sans espaces, casse, ponctuation).
+// "BL-1234 / A" et "bl1234a" deviennent identiques.
+const normDocNum = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+// Deux noms de fournisseur désignent-ils la même enseigne ? (réutilise la
+// logique tolérante de matchFournisseur : casse/accents/tokens/inclusion).
+function memeFournisseur(a, b) {
+  if (!a || !b) return false;
+  return matchFournisseur(a, [{ id: "_", nom: b }]).score >= 0.8;
+}
+
 // Upload vers le bucket "photos" (réutilise le pattern de RapportMobile)
 async function uploadPhoto(file, pathPrefix) {
   try {
@@ -459,8 +470,47 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   });
   const estComplete = !!form.doc_numero.trim() && lignesCompletes;
 
+  // ── Détection de doublon (comparaison locale avec l'historique déjà chargé) ──
+  // exact     : même fournisseur + même n° de document (doublon quasi certain)
+  // probables : même fournisseur + même montant HT + date à ±3 j (sans n° identique),
+  //             pour rattraper les tickets/achats comptoir sans numéro fiable.
+  const detectDoublons = useCallback(() => {
+    const numNorm = normDocNum(form.doc_numero);
+    const mont = toNum(form.montant_ht);
+    const dDoc = form.date_doc ? new Date(form.date_doc) : null;
+    let exact = null;
+    const probables = [];
+    for (const c of recents) {
+      if (!memeFournisseur(form.fournisseur, c.fournisseur_nom)) continue;
+      if (numNorm && normDocNum(c.doc_numero) === numNorm) {
+        if (!exact) exact = c;
+        continue;
+      }
+      if (mont != null && c.montant_ht != null && Math.abs(Number(c.montant_ht) - mont) < 0.01) {
+        let proche = true;
+        if (dDoc && c.date_doc) proche = Math.abs((dDoc - new Date(c.date_doc)) / 86400000) <= 3;
+        if (proche) probables.push(c);
+      }
+    }
+    return { exact, probables };
+  }, [form.doc_numero, form.montant_ht, form.date_doc, form.fournisseur, recents]);
+
   const enregistrer = async () => {
     if (docMissing) return;
+    // Doublon quasi certain (même n° + même fournisseur) → on avertit et on
+    // laisse enregistrer après confirmation explicite.
+    const { exact } = detectDoublons();
+    if (exact) {
+      const dSaisi = exact.created_at ? new Date(exact.created_at).toLocaleDateString("fr-FR") : "";
+      const ok = window.confirm(
+        "⚠️ Doublon possible\n\n"
+        + `Un document ${exact.doc_numero ? "n° " + exact.doc_numero + " " : ""}de `
+        + `${exact.fournisseur_nom || "ce fournisseur"} a déjà été saisi`
+        + `${dSaisi ? " le " + dSaisi : ""}${exact.saisi_par ? " par " + exact.saisi_par : ""}.\n\n`
+        + "Enregistrer quand même ?"
+      );
+      if (!ok) return;
+    }
     setSaving(true); setSaveErr("");
     // mémorise le dernier chantier choisi
     if (chantierDefaut) localStorage.setItem(LS_DERNIER_CHANTIER, chantierDefaut);
@@ -591,6 +641,12 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     };
     const filtres = recents.filter(matchDoc);
 
+    // Vérif rapide : le texte recherché correspond-il exactement à un n° déjà saisi ?
+    const rechNum = normDocNum(recherche);
+    const numExactMatches = rechNum.length >= 2
+      ? recents.filter(c => { const n = normDocNum(c.doc_numero); return n && n === rechNum; })
+      : [];
+
     // Regroupement par chantier : un document réparti apparaît sous chaque
     // chantier concerné ; les documents sans chantier vont dans « Sans chantier ».
     const groupes = (() => {
@@ -685,6 +741,17 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             </button>
           )}
         </div>
+
+        {/* Vérif rapide « déjà saisi ? » sur un n° de document */}
+        {numExactMatches.length > 0 && (
+          <div style={{ ...card, display: "flex", gap: 10, alignItems: "center", background: SEMANTIC.success.bg, border: `1px solid ${SEMANTIC.success.border}`, marginBottom: SPACING.sm }}>
+            <Icon as={Check} size={18} color={SEMANTIC.success.color} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: FONT.sm.size, color: T.text }}>
+              <strong style={{ color: SEMANTIC.success.color }}>Déjà saisi</strong> — ce numéro existe déjà
+              ({numExactMatches.length} document{numExactMatches.length > 1 ? "s" : ""}).
+            </span>
+          </div>
+        )}
 
         {loadingRecents ? (
           <div style={{ textAlign: "center", padding: 30, color: T.textSub }}>
@@ -861,9 +928,51 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     setRepartir(true);
   };
 
+  const doublon = detectDoublons();
+
   return (
     <div style={page}>
       <Header titre="Vérifier & enregistrer" onBack={() => setStep("setup")} />
+
+      {/* Doublon quasi certain : même n° + même fournisseur */}
+      {doublon.exact && (
+        <div style={{ ...card, display: "flex", gap: 10, alignItems: "flex-start", background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}` }}>
+          <Icon as={AlertTriangle} size={18} color={SEMANTIC.danger.color} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: SEMANTIC.danger.color }}>Déjà saisi</div>
+            <div style={{ fontSize: FONT.sm.size, color: T.text, marginTop: 2 }}>
+              {doublon.exact.doc_numero ? `N° ${doublon.exact.doc_numero} · ` : ""}{doublon.exact.fournisseur_nom || "Fournisseur ?"}
+              {doublon.exact.created_at ? ` — saisi le ${new Date(doublon.exact.created_at).toLocaleDateString("fr-FR")}` : ""}
+              {doublon.exact.saisi_par ? ` par ${doublon.exact.saisi_par}` : ""}.
+            </div>
+            <button onClick={() => setDetail(doublon.exact)} style={{ marginTop: 8, background: "transparent", border: `1px solid ${SEMANTIC.danger.border}`, color: SEMANTIC.danger.color, borderRadius: RADIUS.md, padding: "6px 12px", fontFamily: "inherit", fontWeight: 700, fontSize: FONT.sm.size, cursor: "pointer" }}>
+              Voir le document existant
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Doublon probable : même fournisseur + même montant (n° différent/absent) */}
+      {!doublon.exact && doublon.probables.length > 0 && (
+        <div style={{ ...card, display: "flex", gap: 10, alignItems: "flex-start", background: SEMANTIC.warning.bg, border: `1px solid ${SEMANTIC.warning.border}` }}>
+          <Icon as={AlertTriangle} size={18} color={SEMANTIC.warning.color} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: SEMANTIC.warning.color }}>
+              Doublon possible ({doublon.probables.length})
+            </div>
+            <div style={{ fontSize: FONT.sm.size, color: T.text, marginTop: 2 }}>
+              Même fournisseur et même montant qu'un document déjà saisi.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              {doublon.probables.slice(0, 3).map(c => (
+                <button key={c.id} onClick={() => setDetail(c)} style={{ background: "transparent", border: `1px solid ${SEMANTIC.warning.border}`, color: SEMANTIC.warning.color, borderRadius: RADIUS.md, padding: "5px 10px", fontFamily: "inherit", fontWeight: 700, fontSize: FONT.xs.size, cursor: "pointer" }}>
+                  {c.doc_numero ? `N° ${c.doc_numero}` : (c.date_doc ? new Date(c.date_doc).toLocaleDateString("fr-FR") : "Voir")}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {iaErr && (
         <div style={{ ...card, display: "flex", gap: 10, alignItems: "flex-start", background: SEMANTIC.warning.bg, border: `1px solid ${SEMANTIC.warning.border}` }}>
@@ -1012,6 +1121,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         {saving ? "Enregistrement…" : "Enregistrer"}
       </button>
 
+      {detail && <DetailModale commande={detail} chantiers={chantiers} lots={lots} T={T} acc={acc} onClose={() => setDetail(null)} onSaved={loadRecents} />}
       <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
     </div>
   );
