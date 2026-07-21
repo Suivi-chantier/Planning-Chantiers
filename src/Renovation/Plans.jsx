@@ -214,6 +214,40 @@ function calcSurface(pts) {
 }
 
 // ─── BIBLIOTHÈQUE DXF ────────────────────────────────────────────────────────
+// Schéma de porte battante : seuil, vantail ouvert à 90° (ép. 4 cm) et arc de
+// débattement (quart de cercle approximé). sens = côté des charnières.
+function porteBattante(w, sens) {
+  const ep = 0.04, N = 16, segs = [];
+  const mx = x => sens === 'droit' ? w - x : x;
+  // Seuil (ouverture dans le mur)
+  segs.push({x1:0, y1:0, x2:w, y2:0});
+  // Vantail ouvert à 90° (rectangle fin côté charnières)
+  segs.push(
+    {x1:mx(0),  y1:0, x2:mx(ep), y2:0},
+    {x1:mx(ep), y1:0, x2:mx(ep), y2:w},
+    {x1:mx(ep), y1:w, x2:mx(0),  y2:w},
+    {x1:mx(0),  y1:w, x2:mx(0),  y2:0},
+  );
+  // Arc de débattement, du bord fermé au bout du vantail ouvert
+  for (let i = 0; i < N; i++) {
+    const a1 = (Math.PI/2) * (i/N), a2 = (Math.PI/2) * ((i+1)/N);
+    segs.push({
+      x1: mx(w*Math.cos(a1)), y1: w*Math.sin(a1),
+      x2: mx(w*Math.cos(a2)), y2: w*Math.sin(a2),
+    });
+  }
+  return segs;
+}
+
+// Porte double : deux vantaux battants qui se rejoignent au centre
+function porteDouble(w) {
+  const half = w/2;
+  return [
+    ...porteBattante(half, 'gauche'),
+    ...porteBattante(half, 'droit').map(s => ({x1:s.x1+half, y1:s.y1, x2:s.x2+half, y2:s.y2})),
+  ];
+}
+
 const DXF_LIBRARY = [
   // ── SANITAIRES ──────────────────────────────────────────────────────────────
   { id:'receveur_90x90', name:'Receveur douche 90×90 cm', icon:'🚿', category:'Sanitaires',
@@ -293,17 +327,21 @@ const DXF_LIBRARY = [
     ]},
 
   // ── OUVERTURES ──────────────────────────────────────────────────────────────
-  { id:'porte_simple', name:'Porte simple 90 cm', icon:'🚪', category:'Ouvertures',
-    segments:[
-      {x1:0,y1:0,x2:0.9,y2:0},{x1:0,y1:0,x2:0,y2:0.9},
-    ]},
+  { id:'porte_70_g', name:'Porte 70 poussant gauche', icon:'🚪', category:'Ouvertures',
+    segments: porteBattante(0.7, 'gauche') },
+  { id:'porte_70_d', name:'Porte 70 poussant droit',  icon:'🚪', category:'Ouvertures',
+    segments: porteBattante(0.7, 'droit') },
+  { id:'porte_80_g', name:'Porte 80 poussant gauche', icon:'🚪', category:'Ouvertures',
+    segments: porteBattante(0.8, 'gauche') },
+  { id:'porte_80_d', name:'Porte 80 poussant droit',  icon:'🚪', category:'Ouvertures',
+    segments: porteBattante(0.8, 'droit') },
+  { id:'porte_90_g', name:'Porte 90 poussant gauche', icon:'🚪', category:'Ouvertures',
+    segments: porteBattante(0.9, 'gauche') },
+  { id:'porte_90_d', name:'Porte 90 poussant droit',  icon:'🚪', category:'Ouvertures',
+    segments: porteBattante(0.9, 'droit') },
 
   { id:'porte_double', name:'Porte double 140 cm', icon:'🚪', category:'Ouvertures',
-    segments:[
-      {x1:0,y1:0,x2:1.4,y2:0},
-      {x1:0,y1:0,x2:0,y2:0.7},
-      {x1:1.4,y1:0,x2:1.4,y2:0.7},
-    ]},
+    segments: porteDouble(1.4) },
 
   { id:'porte_coulissante', name:'Porte coulissante 90 cm', icon:'🚪', category:'Ouvertures',
     segments:[
@@ -1256,8 +1294,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.rotate((sym.angle||0)*Math.PI/180);
         if (sym.type==='door') {
           ctx.strokeStyle=C.symC; ctx.lineWidth=2;
-          ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sz,0);
-          ctx.arc(0,0,sz,0,Math.PI/2); ctx.stroke();
+          // Seuil + vantail ouvert à 90°
+          ctx.beginPath(); ctx.moveTo(sz,0); ctx.lineTo(0,0); ctx.lineTo(0,sz); ctx.stroke();
+          // Arc de débattement en pointillés
+          ctx.setLineDash([5,4]);
+          ctx.beginPath(); ctx.arc(0,0,sz,0,Math.PI/2); ctx.stroke();
+          ctx.setLineDash([]);
         } else if (sym.type==='window') {
           ctx.strokeStyle=C.symW; ctx.lineWidth=2;
           ctx.strokeRect(-sz/2,-sz/4,sz,sz/2);
@@ -1788,7 +1830,25 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         setMeasureDist(null);
       }
 
-    } else if (['door','window','stair','wc'].includes(tool)) {
+    } else if (tool==='door' || tool==='window') {
+      // Raccourci barre d'outils = même schéma que la bibliothèque, à l'échelle réelle
+      const lib = DXF_LIBRARY.find(x => x.id === (tool==='door' ? 'porte_90_g' : 'fenetre_std'));
+      const allX=lib.segments.flatMap(s=>[s.x1,s.x2]);
+      const allY=lib.segments.flatMap(s=>[s.y1,s.y2]);
+      const offX=wx-(Math.min(...allX)+Math.max(...allX))/2;
+      const offY=wy-(Math.min(...allY)+Math.max(...allY))/2;
+      const groupId='grp_'+Date.now();
+      const newSegs=lib.segments.map(s=>({
+        x1:s.x1+offX,y1:s.y1+offY,x2:s.x2+offX,y2:s.y2+offY,
+        color:'#e8eaf0',layer:'library',user:true,
+        id:Date.now()+Math.random(), groupId,
+      }));
+      pushHistory(segments,symbols,cotes);
+      setSegments(s=>[...s,...newSegs]);
+      setSelectedIds(new Set(newSegs.map(s=>s.id)));
+      setGroupProps({groupId, angle:0, name:lib.name});
+
+    } else if (['stair','wc'].includes(tool)) {
       pushHistory(segments,symbols,cotes);
       setSymbols(s=>[...s,{x:wx,y:wy,type:tool,angle:0,id:Date.now()+Math.random()}]);
 
