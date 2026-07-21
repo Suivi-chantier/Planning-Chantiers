@@ -1023,6 +1023,10 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
   const [sending, setSending] = useState(false);
   const [statutGroupes, setStatutGroupes] = useState({});
   const [globalErr, setGlobalErr] = useState("");
+  // Envoi du mail par groupe fournisseur : true par défaut si un email existe.
+  // Décoché = commande passée hors appli (téléphone, comptoir…) : on enregistre sans envoyer.
+  const [envoiMail, setEnvoiMail] = useState({});
+  const doitEnvoyer = (g) => !!g.email && envoiMail[g.key] !== false;
 
   const setLigne = (uid, patch) => setLignes(prev => prev.map(l => l.uid === uid ? { ...l, ...patch } : l));
   const removeLigne = (uid) => setLignes(prev => prev.filter(l => l.uid !== uid));
@@ -1149,6 +1153,7 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
 
     const resultatsEnvoi = await Promise.all(groupes.map(async (g) => {
       if ((!g.fournisseur_id && g.key === "__sans__") || !g.email) return { key: g.key, status: "none" };
+      if (!doitEnvoyer(g)) return { key: g.key, status: "skipped" };
       const corps = construireCorps(g);
       const html  = corpsVersHtml(corps, g);
       try {
@@ -1182,7 +1187,9 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
           source:             "planning",
           statut_completude:  "a_completer",
           statut_facturation: "en_attente_facture",
-          notes:              `Commandé via Commandes le ${dateTag}`,
+          notes:              doitEnvoyer(g)
+            ? `Commandé via Commandes le ${dateTag}`
+            : `Commandé via Commandes le ${dateTag} · sans envoi de mail (passée hors appli)`,
         }).select("id").single();
         if (cErr || !cmd) { console.warn("Insert commandes (planning) :", cErr?.message); continue; }
 
@@ -1361,8 +1368,10 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, padding: "10px 12px", background: "rgba(91,156,246,0.10)", border: "1px solid rgba(91,156,246,0.3)", borderRadius: RADIUS.md, color: "#5b9cf6", fontSize: FONT.xs.size + 1, lineHeight: 1.5 }}>
                 <Icon as={Info} size={12} style={{ marginTop: 2, flexShrink: 0 }}/>
                 <span>
-                  {groupes.filter(g => g.email).length} mail{groupes.filter(g => g.email).length > 1 ? "s" : ""} à envoyer
+                  {groupes.filter(doitEnvoyer).length} mail{groupes.filter(doitEnvoyer).length > 1 ? "s" : ""} à envoyer
+                  {groupes.filter(g => g.email && !doitEnvoyer(g)).length > 0 && ` · ${groupes.filter(g => g.email && !doitEnvoyer(g)).length} sans envoi (passée hors appli)`}
                   {groupes.filter(g => !g.email).length > 0 && ` · ${groupes.filter(g => !g.email).length} groupe(s) sans email (à passer manuellement)`}
+                  {" — décochez « Envoyer le mail » pour une commande passée par téléphone ou au comptoir."}
                 </span>
               </div>
 
@@ -1385,16 +1394,23 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
                             <span style={{ marginLeft: 6 }}>· {g.lignes.length} ligne{g.lignes.length > 1 ? "s" : ""} · {g.chantiers.length} chantier{g.chantiers.length > 1 ? "s" : ""} · {fmtMontant(g.total)} € HT</span>
                           </div>
                         </div>
+                        {g.email && !statut && (
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: doitEnvoyer(g) ? textSub : textMuted, padding: "4px 10px", borderRadius: RADIUS.pill, border: `1px solid ${border}`, background: doitEnvoyer(g) ? "transparent" : "rgba(255,255,255,0.05)", cursor: "pointer", userSelect: "none" }}>
+                            <input type="checkbox" checked={doitEnvoyer(g)} onChange={e => setEnvoiMail(prev => ({ ...prev, [g.key]: e.target.checked }))} style={{ accentColor: accent, cursor: "pointer" }}/>
+                            Envoyer le mail
+                          </label>
+                        )}
                         {statut === "pending" && <span style={{ fontSize: 11, fontWeight: 700, color: accent, padding: "3px 9px", borderRadius: RADIUS.pill, background: accent + "22" }}>Envoi…</span>}
                         {statut === "sent" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#22c55e", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(34,197,94,0.15)" }}><Icon as={Check} size={10}/> Envoyé</span>}
                         {statut === "failed" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#e15a5a", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(225,90,90,0.15)" }}><Icon as={AlertTriangle} size={10}/> Échec</span>}
                         {statut === "none" && <span style={{ fontSize: 11, fontWeight: 700, color: textMuted, padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(255,255,255,0.05)" }}>Non envoyé</span>}
+                        {statut === "skipped" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: textMuted, padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(255,255,255,0.05)" }}><Icon as={Check} size={10}/> Enregistrée sans envoi</span>}
                       </div>
                       {!isSans && (
                         <div style={{ padding: "12px 14px" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
                             <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Sujet</div>
-                            {(statut === "failed" || noEmail) && (
+                            {(statut === "failed" || noEmail || !doitEnvoyer(g)) && (
                               <button onClick={() => copier(`Sujet : ${sujetMail(g)}\n\n${corps}`)} style={{
                                 display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: RADIUS.sm, border: `1px solid ${border}`,
                                 background: "transparent", color: textSub, fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer", fontWeight: 600,
@@ -1451,7 +1467,17 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
               border: "none", borderRadius: RADIUS.md, padding: "9px 20px", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
               cursor: sending ? "not-allowed" : "pointer",
             }}>
-              <Icon as={Send} size={13}/>{sending ? "Envoi en cours…" : "Confirmer et envoyer"}
+              {(() => {
+                const nbMails = groupes.filter(doitEnvoyer).length;
+                return (
+                  <>
+                    <Icon as={nbMails > 0 ? Send : Check} size={13}/>
+                    {sending
+                      ? (nbMails > 0 ? "Envoi en cours…" : "Enregistrement…")
+                      : (nbMails > 0 ? "Confirmer et envoyer" : "Enregistrer sans envoi")}
+                  </>
+                );
+              })()}
             </button>
           )}
         </div>
