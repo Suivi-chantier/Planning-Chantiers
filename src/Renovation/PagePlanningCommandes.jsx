@@ -641,6 +641,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           lignesInit={cmdModal.lignes}
           dateBesoinInit={cmdModal.dateBesoin}
           fournisseurs={fournisseurs}
+          materiaux={materiaux}
           onClose={() => setCmdModal(null)}
           onSuccess={onCommandePassee}
           T={T} acc={acc}
@@ -1078,7 +1079,7 @@ function ModaleVendredi({ lignes, onClose, onCommander, T, acc }) {
 // lignesInit : [{ libelle, quantite, unite, prix_ht, fournisseur_id, fournisseur_nom,
 //                 materiau_id, chantierId, chantierNom, chantierCouleur, phasageId,
 //                 lotId, lotLabel, ouvrageId, ouvrageLibelle }]
-function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClose, onSuccess, T, acc }) {
+function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, materiaux = [], onClose, onSuccess, T, acc }) {
   const text      = T?.text      || "#f0f0f0";
   const textSub   = T?.textSub   || "#9aa5c0";
   const textMuted = T?.textMuted || "#5b6a8a";
@@ -1130,6 +1131,13 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
 
   const lignesCochees = lignes.filter(l => l.checked && (l.libelle?.trim() || "") && (parseFloat(l.quantite) || 0) > 0);
   const totalGlobal = lignesCochees.reduce((s, l) => s + (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0), 0);
+
+  // Bibliothèque matériaux indexée par id : photo produit + lien fournisseur.
+  const matById = useMemo(() => {
+    const m = {};
+    materiaux.forEach(x => { m[String(x.id)] = x; });
+    return m;
+  }, [materiaux]);
 
   // Regroupement par fournisseur (pour les mails)
   const groupes = useMemo(() => {
@@ -1312,77 +1320,84 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
                 <input type="date" value={dateBesoin || ""} onChange={e => setDateBesoin(e.target.value)} style={{ ...inp, width: 160, colorScheme: "dark" }}/>
               </div>
 
-              {/* Tableau lignes */}
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${border}` }}>
-                      {[
-                        { l: "", w: 28, a: "center" },
-                        { l: "Libellé", w: null, a: "left" },
-                        { l: "Chantier / Ouvrage", w: 180, a: "left" },
-                        { l: "Qté", w: 64, a: "center" },
-                        { l: "Unité", w: 56, a: "center" },
-                        { l: "PU HT", w: 84, a: "right" },
-                        { l: "Total", w: 90, a: "right" },
-                        { l: "Fournisseur", w: 160, a: "left" },
-                        { l: "", w: 28, a: "center" },
-                      ].map((h, i) => (
-                        <th key={i} style={{ padding: "8px 6px", fontSize: 10, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .8, textAlign: h.a, width: h.w || undefined }}>{h.l}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lignes.map(l => {
-                      const total = (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0);
-                      const isManuel = l.source === "manuel";
-                      return (
-                        <tr key={l.uid} style={{ borderBottom: `1px solid ${border}`, opacity: l.checked ? 1 : .45 }}>
-                          <td style={{ padding: "6px 6px", textAlign: "center" }}>
-                            <input type="checkbox" checked={l.checked} onChange={e => setLigne(l.uid, { checked: e.target.checked })} style={{ accentColor: accent, cursor: "pointer" }}/>
-                          </td>
-                          <td style={{ padding: "6px 6px" }}>
-                            <input value={l.libelle} onChange={e => setLigne(l.uid, { libelle: e.target.value })} placeholder="Libellé de l'article" style={{ ...inp, fontWeight: 600 }}/>
-                            {isManuel && <span style={{ display: "inline-block", marginTop: 3, fontSize: 9, fontWeight: 700, letterSpacing: .5, padding: "1px 6px", borderRadius: RADIUS.pill, background: "rgba(91,156,246,0.15)", color: "#5b9cf6", textTransform: "uppercase" }}>Manuel</span>}
-                          </td>
-                          <td style={{ padding: "6px 6px", fontSize: 11, color: textMuted, lineHeight: 1.3 }}>
-                            <div style={{ color: textSub, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{l.chantierNom}</div>
-                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{l.ouvrageLibelle}</div>
-                          </td>
-                          <td style={{ padding: "6px 6px" }}>
-                            <input type="number" min="0" step="0.01" value={l.quantite} onChange={e => setLigne(l.uid, { quantite: e.target.value })} style={{ ...inp, textAlign: "center", fontWeight: 700 }}/>
-                          </td>
-                          <td style={{ padding: "6px 6px" }}>
-                            <input value={l.unite || ""} onChange={e => setLigne(l.uid, { unite: e.target.value })} placeholder="U" style={{ ...inp, textAlign: "center" }}/>
-                          </td>
-                          <td style={{ padding: "6px 6px" }}>
-                            <input type="number" min="0" step="0.01" value={l.prix_ht} onChange={e => setLigne(l.uid, { prix_ht: e.target.value })} style={{ ...inp, textAlign: "right", color: "#22c55e", fontWeight: 700 }}/>
-                          </td>
-                          <td style={{ padding: "6px 6px", textAlign: "right", fontSize: 13, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>{total.toFixed(2)} €</td>
-                          <td style={{ padding: "6px 6px" }}>
-                            {fournisseurs.length > 0 ? (
-                              <select value={l.fournisseur_id || ""} onChange={e => {
-                                const id = e.target.value || null;
-                                const f = id ? fournisseurs.find(x => x.id === id) : null;
-                                setLigne(l.uid, { fournisseur_id: id, fournisseur_nom: f ? f.nom : l.fournisseur_nom });
-                              }} style={inp}>
-                                <option value="">— {l.fournisseur_nom ? `Texte : « ${l.fournisseur_nom} »` : "Aucun"} —</option>
-                                {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
-                              </select>
-                            ) : (
-                              <input value={l.fournisseur_nom || ""} onChange={e => setLigne(l.uid, { fournisseur_nom: e.target.value })} placeholder="Nom du fournisseur" style={inp}/>
+              {/* Cartes articles : photo + lien produit + champs regroupés */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {lignes.map(l => {
+                  const total = (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0);
+                  const isManuel = l.source === "manuel";
+                  const mat = l.materiau_id != null ? matById[String(l.materiau_id)] : null;
+                  const photo = mat?.photo_url || null;
+                  // Lien fournisseur réel si connu, sinon recherche web sur le libellé.
+                  const lienDirect = mat?.lien_fournisseur?.trim() || null;
+                  const lien = lienDirect || ((l.libelle || "").trim()
+                    ? "https://www.google.com/search?q=" + encodeURIComponent(l.libelle.trim() + (l.fournisseur_nom ? " " + l.fournisseur_nom : ""))
+                    : null);
+                  return (
+                    <div key={l.uid} style={{
+                      background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md,
+                      padding: "10px 12px", opacity: l.checked ? 1 : .45,
+                    }}>
+                      {/* Rangée 1 : coche · photo · libellé + contexte + lien · total · suppr */}
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                        <input type="checkbox" checked={l.checked} onChange={e => setLigne(l.uid, { checked: e.target.checked })} style={{ accentColor: accent, cursor: "pointer", marginTop: 14 }}/>
+                        {photo ? (
+                          <a href={lien || photo} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "block" }} title={lienDirect ? "Voir chez le fournisseur" : "Rechercher le produit"}>
+                            <img src={photo} alt="" style={{ width: 48, height: 48, borderRadius: RADIUS.sm, objectFit: "cover", border: `1px solid ${border}`, background: "#fff", display: "block" }}/>
+                          </a>
+                        ) : (
+                          <div style={{ width: 48, height: 48, borderRadius: RADIUS.sm, background: surface, border: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <Icon as={Package} size={18} color={textMuted}/>
+                          </div>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <input value={l.libelle} onChange={e => setLigne(l.uid, { libelle: e.target.value })} placeholder="Libellé de l'article" style={{ ...inp, fontWeight: 700, fontSize: 14 }}/>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4, fontSize: 11, color: textMuted }}>
+                            {isManuel && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: .5, padding: "1px 6px", borderRadius: RADIUS.pill, background: "rgba(91,156,246,0.15)", color: "#5b9cf6", textTransform: "uppercase" }}>Manuel</span>}
+                            {l.chantierNom && <span style={{ color: textSub, fontWeight: 600 }}>{l.chantierNom}</span>}
+                            {l.ouvrageLibelle && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>· {l.ouvrageLibelle}</span>}
+                            {lien && (
+                              <a href={lien} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#5b9cf6", fontWeight: 700, textDecoration: "none" }}>
+                                <Icon as={ExternalLink} size={10}/> {lienDirect ? "Voir chez le fournisseur" : "Rechercher le produit"}
+                              </a>
                             )}
-                          </td>
-                          <td style={{ padding: "6px 6px", textAlign: "center" }}>
-                            <button onClick={() => removeLigne(l.uid)} title="Supprimer la ligne" style={{ background: "transparent", border: "none", color: "#e15a5a", cursor: "pointer", padding: 4, display: "inline-flex" }}>
-                              <Icon as={Trash2} size={12}/>
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace", flexShrink: 0, marginTop: 8 }}>{total.toFixed(2)} €</div>
+                        <button onClick={() => removeLigne(l.uid)} title="Supprimer la ligne" style={{ background: "transparent", border: "none", color: "#e15a5a", cursor: "pointer", padding: 4, display: "inline-flex", marginTop: 8 }}>
+                          <Icon as={Trash2} size={13}/>
+                        </button>
+                      </div>
+                      {/* Rangée 2 : quantité · unité · PU · fournisseur */}
+                      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", marginTop: 8, paddingLeft: 26 }}>
+                        {[
+                          { label: "Qté", w: 74, el: <input type="number" min="0" step="0.01" value={l.quantite} onChange={e => setLigne(l.uid, { quantite: e.target.value })} style={{ ...inp, textAlign: "center", fontWeight: 700 }}/> },
+                          { label: "Unité", w: 60, el: <input value={l.unite || ""} onChange={e => setLigne(l.uid, { unite: e.target.value })} placeholder="U" style={{ ...inp, textAlign: "center" }}/> },
+                          { label: "PU HT", w: 92, el: <input type="number" min="0" step="0.01" value={l.prix_ht} onChange={e => setLigne(l.uid, { prix_ht: e.target.value })} style={{ ...inp, textAlign: "right", color: "#22c55e", fontWeight: 700 }}/> },
+                        ].map(f => (
+                          <div key={f.label} style={{ width: f.w, flexShrink: 0 }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .7, marginBottom: 3 }}>{f.label}</div>
+                            {f.el}
+                          </div>
+                        ))}
+                        <div style={{ flex: 1, minWidth: 170 }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: textMuted, textTransform: "uppercase", letterSpacing: .7, marginBottom: 3 }}>Fournisseur</div>
+                          {fournisseurs.length > 0 ? (
+                            <select value={l.fournisseur_id || ""} onChange={e => {
+                              const id = e.target.value || null;
+                              const f = id ? fournisseurs.find(x => x.id === id) : null;
+                              setLigne(l.uid, { fournisseur_id: id, fournisseur_nom: f ? f.nom : l.fournisseur_nom });
+                            }} style={inp}>
+                              <option value="">— {l.fournisseur_nom ? `Texte : « ${l.fournisseur_nom} »` : "Aucun"} —</option>
+                              {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                            </select>
+                          ) : (
+                            <input value={l.fournisseur_nom || ""} onChange={e => setLigne(l.uid, { fournisseur_nom: e.target.value })} placeholder="Nom du fournisseur" style={inp}/>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, gap: 12, flexWrap: "wrap" }}>
