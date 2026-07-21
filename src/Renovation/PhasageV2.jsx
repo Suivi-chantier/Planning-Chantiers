@@ -3951,6 +3951,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
   const [unassignedCollapsed, setUnassignedCollapsed] = useState(false); // repli de « À classer »
+  const [focusOpen, setFocusOpen] = useState(true);             // encart « Où en est-on ? »
   const [selected, setSelected] = useState(() => new Set());    // ids de tâches sélectionnées (multi)
   const [hideDone, setHideDone] = useState(false);              // masquer les tâches à 100 %
   const [onlyTodo, setOnlyTodo] = useState(false);              // n'afficher que « À classer »
@@ -4550,6 +4551,97 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         </div>
       ) : (
         <>
+          {/* Encart « Où en est-on ? » : synthèse d'avancement + prochaines tâches
+              (exploite l'ordre défini : groupes triés → tâches triées). */}
+          {(() => {
+            const plan = groupesTries.flatMap(g => itemsOfGroup(g.id).map(it => ({ it, g })));
+            const total = plan.length;
+            if (total === 0) return null;
+            const avOf = (t) => Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+            const done = plan.filter(x => avOf(x.it.tache) >= 100).length;
+            const enCours = plan.filter(x => { const a = avOf(x.it.tache); return a > 0 && a < 100; }).length;
+            const pct = Math.round((done / total) * 100);
+            const incomplete = plan.filter(x => avOf(x.it.tache) < 100);
+            const nextTasks = incomplete.slice(0, 6);
+            const currentGroup = incomplete[0]?.g || null;
+            const upJalons = jalons.filter(j => { const d = parseD(j.date); return d && d >= today; }).sort((a, b) => parseD(a.date) - parseD(b.date));
+            const nextJalon = upJalons[0] || null;
+            const daysTo = nextJalon ? Math.round((parseD(nextJalon.date) - today) / 86400000) : null;
+            const nbLate = plan.filter(x => overdueT(x.it.tache)).length;
+            const nbUnassigned = unassigned.length;
+            return (
+              <div style={{ marginBottom: 18, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, background: T.card, overflow: "hidden" }}>
+                <div onClick={() => setFocusOpen(o => !o)}
+                  style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: focusOpen ? `1px solid ${T.border}` : "none" }}>
+                  <Icon as={focusOpen ? ChevronDown : ChevronRight} size={16} color={T.textMuted} />
+                  <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text }}>Où en est-on ?</span>
+                  <span style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, fontWeight: 800, color: pct >= 100 ? "#22c55e" : acc.accent }}>{done}/{total} tâches · {pct}%</span>
+                </div>
+                {focusOpen && (
+                  <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 160, height: 10, borderRadius: 99, background: T.border, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "#22c55e" : acc.accent, transition: "width .3s" }} />
+                      </div>
+                      <div style={{ display: "flex", gap: 12, fontSize: FONT.xs.size, color: T.textSub, flexWrap: "wrap" }}>
+                        <span><strong style={{ color: "#22c55e" }}>{done}</strong> terminées</span>
+                        <span><strong style={{ color: acc.accent }}>{enCours}</strong> en cours</span>
+                        <span><strong>{total - done - enCours}</strong> à faire</span>
+                        {nbLate > 0 && <span style={{ color: "#e15a5a", fontWeight: 700 }}>⚠ {nbLate} en retard</span>}
+                        {nbUnassigned > 0 && <span style={{ color: T.textMuted }}>{nbUnassigned} non classée{nbUnassigned > 1 ? "s" : ""}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: FONT.xs.size }}>
+                      {currentGroup && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.textSub }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: .5, color: T.textMuted }}>Étape en cours</span>
+                          <span style={{ width: 9, height: 9, borderRadius: 3, background: currentGroup.couleur || acc.accent }} />
+                          <strong style={{ color: T.text }}>{currentGroup.nom || "(groupe)"}</strong>
+                        </span>
+                      )}
+                      {nextJalon && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.textSub }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: .5, color: T.textMuted }}>Prochain jalon</span>
+                          <Icon as={Flag} size={12} color="#f5a623" />
+                          <strong style={{ color: T.text }}>{nextJalon.nom || "Jalon"}</strong>
+                          <span style={{ color: T.textMuted }}>· {daysTo === 0 ? "aujourd'hui" : daysTo === 1 ? "demain" : `dans ${daysTo} j`} ({fmtShort(parseD(nextJalon.date))})</span>
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6, color: T.textMuted, marginBottom: 6 }}>Prochaines tâches</div>
+                      {nextTasks.length === 0 ? (
+                        <div style={{ fontSize: FONT.sm.size, color: "#22c55e", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <Icon as={Check} size={14} /> Tout est terminé 🎉
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          {nextTasks.map(({ it, g }, idx) => {
+                            const t = it.tache; const a = avOf(t); const late = overdueT(t); const d = parseD(t.date_prevue);
+                            return (
+                              <div key={t.id} onClick={() => onClickTache(it.ouvrageId, t.id)}
+                                style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: RADIUS.sm, background: T.surface, border: `1px solid ${idx === 0 ? acc.border : T.border}`, cursor: "pointer" }}>
+                                <span style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, background: idx === 0 ? acc.accent : T.card, color: idx === 0 ? (acc.onAccent || "#000") : T.textMuted, border: `1px solid ${idx === 0 ? acc.accent : T.border}` }}>{idx + 1}</span>
+                                <span style={{ width: 8, height: 8, borderRadius: 2, background: g.couleur || acc.accent, flexShrink: 0 }} />
+                                <span style={{ flex: 1, minWidth: 0, fontSize: FONT.sm.size, fontWeight: idx === 0 ? 800 : 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.nom || "(sans nom)"}</span>
+                                {a > 0 && <span style={{ fontSize: 10, fontWeight: 800, color: acc.accent, flexShrink: 0 }}>en cours {a}%</span>}
+                                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.nom || ""}</span>
+                                {d && <span style={{ fontSize: FONT.xs.size, fontWeight: late ? 800 : 600, color: late ? "#e15a5a" : T.textSub, flexShrink: 0, whiteSpace: "nowrap" }}>{late ? "⚠ " : ""}{fmtShort(d)}</span>}
+                              </div>
+                            );
+                          })}
+                          {incomplete.length > nextTasks.length && (
+                            <div style={{ fontSize: FONT.xs.size, color: T.textMuted, paddingLeft: 2 }}>+ {incomplete.length - nextTasks.length} autre{incomplete.length - nextTasks.length > 1 ? "s" : ""} à venir</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Barre de filtres */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap", fontSize: FONT.xs.size }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.textMuted, fontWeight: 700 }}>
