@@ -128,12 +128,55 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       .then(({ data }) => setMateriaux(data || []));
   }, []);
 
-  // Appelé après une commande passée : on recharge les lignes pour refléter le
-  // nouveau "déjà commandé" (et donc retirer les articles du "à commander").
-  const onCommandePassee = async () => {
-    await loadLignesCmd();
+  // Appelé après une commande passée. AUCUNE écriture dans commandes ici : la
+  // page sert de suivi visuel + envoi des mails, la commande réelle est saisie
+  // à réception (page Saisie commande). On pose juste un flag commande_le sur
+  // les materiaux_liens du phasage pour retirer les articles du "à commander".
+  const marquerCommande = async (lignesPassees) => {
+    const parPhasage = new Map();
+    (lignesPassees || []).forEach(l => {
+      if (!l.phasageId || !l.ouvrageId || l.materiau_id == null) return;
+      if (!parPhasage.has(l.phasageId)) parPhasage.set(l.phasageId, []);
+      parPhasage.get(l.phasageId).push(l);
+    });
+    const dateISO = new Date().toISOString().slice(0, 10);
+    for (const [phasageId, ls] of parPhasage) {
+      // Relit la version fraîche du phasage pour ne pas écraser des modifs concurrentes.
+      const { data: frais } = await supabase.from("phasages").select("ouvrages").eq("id", phasageId).single();
+      const base = Array.isArray(frais?.ouvrages) ? frais.ouvrages : null;
+      if (!base) continue;
+      const ouvrages = base.map(o => {
+        const lsO = ls.filter(l => l.ouvrageId === o.id);
+        if (lsO.length === 0) return o;
+        return {
+          ...o,
+          materiaux_liens: (o.materiaux_liens || []).map(ml =>
+            lsO.some(l => String(l.materiau_id) === String(ml.materiau_id)) ? { ...ml, commande_le: dateISO } : ml
+          ),
+        };
+      });
+      await supabase.from("phasages").update({ ouvrages }).eq("id", phasageId);
+    }
+    await loadPhasages();
+  };
+  const onCommandePassee = async (lignesPassees) => {
+    await marquerCommande(lignesPassees);
     setCmdModal(null);
     setVendrediOpen(false);
+  };
+  // Annule le marquage "commandé" d'un matériau : il revient dans "à commander".
+  const annulerMarque = async (chantier, ouvrage, materiauId) => {
+    const { data: frais } = await supabase.from("phasages").select("ouvrages").eq("id", chantier.phasageId).single();
+    const base = Array.isArray(frais?.ouvrages) ? frais.ouvrages : null;
+    if (!base) return;
+    const ouvrages = base.map(o => o.id !== ouvrage.id ? o : ({
+      ...o,
+      materiaux_liens: (o.materiaux_liens || []).map(ml =>
+        String(ml.materiau_id) === String(materiauId) ? (({ commande_le, ...rest }) => rest)(ml) : ml
+      ),
+    }));
+    await supabase.from("phasages").update({ ouvrages }).eq("id", chantier.phasageId);
+    await loadPhasages();
   };
 
   // Index biblio par id (string-safe)
@@ -185,6 +228,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
               prix_ht:         parseFloat(mat.prix_unitaire) || 0,
               fournisseur_id:  mat.fournisseur_id || null,
               fournisseur_nom: mat.fournisseur || "",
+              commande_le:     ml.commande_le || null,
             };
           })
           .filter(Boolean);
@@ -196,8 +240,11 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         );
         const matCommandes = new Set(lignesO.map(l => l.materiau_id != null ? String(l.materiau_id) : null).filter(Boolean));
 
-        // À commander = prévus dont le matériau n'apparaît dans aucune ligne de cet ouvrage
-        const aCommander = prevus.filter(pr => !matCommandes.has(String(pr.materiau_id)));
+        // À commander = prévus sans ligne de commande saisie NI flag commande_le
+        // (posé par « Passer commande » — la saisie réelle se fait à réception).
+        const aCommander = prevus.filter(pr => !matCommandes.has(String(pr.materiau_id)) && !pr.commande_le);
+        // Marqués commandés via la page, en attente de la saisie réelle.
+        const marques = prevus.filter(pr => pr.commande_le && !matCommandes.has(String(pr.materiau_id)));
 
         // Date de besoin = date_prevue la plus proche parmi les tâches de l'ouvrage
         let earliest = null;
@@ -215,6 +262,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           lotCouleur:    lotById[o.lot_id]?.couleur || "#888",
           prevus,
           aCommander,
+          marques,
           lignesCmd:     lignesO,
           dateISO:       earliest,
           dateObj:       earliest ? new Date(earliest) : null,
@@ -545,6 +593,11 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                               {o.aCommander.length} à commander
                             </span>
                           )}
+                          {o.marques.length > 0 && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "rgba(245,158,11,0.12)", borderRadius: RADIUS.pill, padding: "1px 7px" }}>
+                              {o.marques.length} commandé{o.marques.length > 1 ? "s" : ""} · à saisir
+                            </span>
+                          )}
                           {o.lignesCmd.length > 0 && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,0.12)", borderRadius: RADIUS.pill, padding: "1px 7px", display: "inline-flex", alignItems: "center", gap: 3 }}>
                               <Icon as={Check} size={9}/> {o.lignesCmd.length} commandé{o.lignesCmd.length > 1 ? "s" : ""}
@@ -569,6 +622,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                   chantier={chantierSel} ouvrage={ouvrageSel}
                   onBack={isMobile ? () => setSelOuvrageId(null) : null}
                   onCommander={() => commanderOuvrage(chantierSel, ouvrageSel)}
+                  onAnnulerMarque={(materiauId) => annulerMarque(chantierSel, ouvrageSel, materiauId)}
                   fournisseurs={fournisseurs}
                   T={T} acc={acc}
                 />
@@ -637,7 +691,7 @@ function backBtnStyle(text, border) {
 }
 
 // ─── DÉTAIL OUVRAGE : à commander + déjà commandé ────────────────────────────
-function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, T, acc }) {
+function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque, T, acc }) {
   const text      = T?.text      || "#f0f0f0";
   const textSub   = T?.textSub   || "#9aa5c0";
   const textMuted = T?.textMuted || "#5b6a8a";
@@ -724,6 +778,40 @@ function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, T, acc }) {
           </>
         )}
       </div>
+
+      {/* COMMANDÉ — EN ATTENTE DE SAISIE (flag posé par « Passer commande ») */}
+      {(ouvrage.marques || []).length > 0 && (
+        <div style={{ padding: "4px 16px 14px" }}>
+          <SectionTitre icon={CalendarClock} titre="Commandé · à saisir à réception" compteur={ouvrage.marques.length} couleur="#f59e0b" textMuted={textMuted}/>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            {ouvrage.marques.map((m, i) => (
+              <div key={(m.materiau_id ?? "x") + "_" + i} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "8px 11px",
+                background: card, border: `1px solid rgba(245,158,11,0.25)`, borderRadius: RADIUS.md,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.libelle}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 1 }}>
+                    {m.quantite} {m.unite}
+                    {m.fournisseur_nom && <span> · {m.fournisseur_nom}</span>}
+                    <span> · commandé le {new Date(m.commande_le).toLocaleDateString("fr-FR")}</span>
+                  </div>
+                </div>
+                <button onClick={() => onAnnulerMarque?.(m.materiau_id)} title="Remettre dans « à commander »" style={{
+                  background: "transparent", border: `1px solid ${border}`, borderRadius: RADIUS.sm,
+                  color: textMuted, cursor: "pointer", padding: "4px 8px", fontFamily: "inherit",
+                  fontSize: FONT.xs.size, fontWeight: 600, flexShrink: 0,
+                }}>
+                  Remettre à commander
+                </button>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 8, fontSize: FONT.xs.size, color: textMuted, fontStyle: "italic" }}>
+            Aucun coût compté : la commande réelle sera saisie à réception via la page Saisie commande.
+          </div>
+        </div>
+      )}
 
       {/* DÉJÀ COMMANDÉ */}
       <div style={{ padding: "4px 16px 18px" }}>
@@ -1022,7 +1110,6 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
   const [dateBesoin, setDateBesoin] = useState(dateBesoinInit || "");
   const [sending, setSending] = useState(false);
   const [statutGroupes, setStatutGroupes] = useState({});
-  const [globalErr, setGlobalErr] = useState("");
   // Envoi du mail par groupe fournisseur : true par défaut si un email existe.
   // Décoché = commande passée hors appli (téléphone, comptoir…) : on enregistre sans envoyer.
   const [envoiMail, setEnvoiMail] = useState({});
@@ -1142,10 +1229,12 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
     }
   };
 
-  // ── Confirmation : envoi mails + écriture commandes / commande_lignes
+  // ── Confirmation : envoi des mails UNIQUEMENT. Aucun bon de commande n'est
+  // créé ici (la page est un outil de préparation/suivi) : la commande réelle
+  // sera saisie à réception via la page Saisie commande, seule source du coût
+  // matériaux. Le parent (onSuccess) marque juste les articles "commandés".
   const confirmer = async () => {
     setSending(true);
-    setGlobalErr("");
 
     const next = {};
     groupes.forEach(g => { next[g.key] = "pending"; });
@@ -1169,60 +1258,8 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
     resultatsEnvoi.forEach(r => { statutFinal[r.key] = r.status; });
     setStatutGroupes(statutFinal);
 
-    // Écriture : un document "bon de commande" par groupe fournisseur, lignes
-    // ventilées par chantier / phasage / lot / OUVRAGE (clé du suivi par ouvrage).
-    try {
-      const dateTag = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-      const dateISO = new Date().toISOString().slice(0, 10);
-      for (const g of groupes) {
-        const { data: cmd, error: cErr } = await supabase.from("commandes").insert({
-          type_evenement:     "commande",
-          doc_type:           "bon_commande",
-          doc_numero:         null,
-          numero_en_attente:  true,
-          fournisseur_id:     g.fournisseur_id || null,
-          fournisseur_nom:    g.nom || null,
-          date_doc:           dateISO,
-          montant_ht:         +g.total.toFixed(2),
-          source:             "planning",
-          statut_completude:  "a_completer",
-          statut_facturation: "en_attente_facture",
-          notes:              doitEnvoyer(g)
-            ? `Commandé via Commandes le ${dateTag}`
-            : `Commandé via Commandes le ${dateTag} · sans envoi de mail (passée hors appli)`,
-        }).select("id").single();
-        if (cErr || !cmd) { console.warn("Insert commandes (planning) :", cErr?.message); continue; }
-
-        const lignesIns = g.lignes.map(l => {
-          const pu = parseFloat(l.prix_ht) || null;
-          const q  = parseFloat(l.quantite) || null;
-          return {
-            commande_id:   cmd.id,
-            libelle:       l.libelle || "",
-            quantite:      q,
-            unite:         l.unite || "U",
-            prix_unitaire: pu,
-            prix_total:    (pu != null && q != null) ? +(pu * q).toFixed(2) : null,
-            materiau_id:   l.materiau_id || null,
-            chantier_id:   l.chantierId || null,
-            phasage_id:    l.phasageId || null,
-            lot_id:        l.lotId || null,
-            ouvrage_id:    l.ouvrageId || null,
-          };
-        });
-        if (lignesIns.length > 0) {
-          const { error: lErr } = await supabase.from("commande_lignes").insert(lignesIns);
-          if (lErr) console.warn("Insert commande_lignes (planning) :", lErr.message);
-        }
-      }
-    } catch (e) {
-      setGlobalErr(`La commande a été partiellement enregistrée : ${e.message}`);
-      setSending(false);
-      return;
-    }
-
     setSending(false);
-    onSuccess?.();
+    onSuccess?.(lignesCochees);
   };
 
   const inp = {
@@ -1371,7 +1408,8 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
                   {groupes.filter(doitEnvoyer).length} mail{groupes.filter(doitEnvoyer).length > 1 ? "s" : ""} à envoyer
                   {groupes.filter(g => g.email && !doitEnvoyer(g)).length > 0 && ` · ${groupes.filter(g => g.email && !doitEnvoyer(g)).length} sans envoi (passée hors appli)`}
                   {groupes.filter(g => !g.email).length > 0 && ` · ${groupes.filter(g => !g.email).length} groupe(s) sans email (à passer manuellement)`}
-                  {" — décochez « Envoyer le mail » pour une commande passée par téléphone ou au comptoir."}
+                  {" — décochez « Envoyer le mail » pour une commande passée par téléphone ou au comptoir. "}
+                  Aucun bon de commande n'est créé ici : la commande réelle sera saisie à réception (page Saisie commande).
                 </span>
               </div>
 
@@ -1404,7 +1442,7 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
                         {statut === "sent" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#22c55e", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(34,197,94,0.15)" }}><Icon as={Check} size={10}/> Envoyé</span>}
                         {statut === "failed" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#e15a5a", padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(225,90,90,0.15)" }}><Icon as={AlertTriangle} size={10}/> Échec</span>}
                         {statut === "none" && <span style={{ fontSize: 11, fontWeight: 700, color: textMuted, padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(255,255,255,0.05)" }}>Non envoyé</span>}
-                        {statut === "skipped" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: textMuted, padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(255,255,255,0.05)" }}><Icon as={Check} size={10}/> Enregistrée sans envoi</span>}
+                        {statut === "skipped" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: textMuted, padding: "3px 9px", borderRadius: RADIUS.pill, background: "rgba(255,255,255,0.05)" }}><Icon as={Check} size={10}/> Sans envoi</span>}
                       </div>
                       {!isSans && (
                         <div style={{ padding: "12px 14px" }}>
@@ -1433,11 +1471,6 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
                 })}
               </div>
 
-              {globalErr && (
-                <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.4)", borderRadius: RADIUS.md, color: "#e15a5a", fontSize: FONT.xs.size + 1 }}>
-                  <Icon as={AlertTriangle} size={11} style={{ marginRight: 6 }}/>{globalErr}
-                </div>
-              )}
             </>
           )}
         </div>
@@ -1473,8 +1506,8 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, onClo
                   <>
                     <Icon as={nbMails > 0 ? Send : Check} size={13}/>
                     {sending
-                      ? (nbMails > 0 ? "Envoi en cours…" : "Enregistrement…")
-                      : (nbMails > 0 ? "Confirmer et envoyer" : "Enregistrer sans envoi")}
+                      ? (nbMails > 0 ? "Envoi en cours…" : "Marquage…")
+                      : (nbMails > 0 ? "Confirmer et envoyer" : "Marquer comme commandé")}
                   </>
                 );
               })()}
