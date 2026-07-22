@@ -117,9 +117,32 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
 
   const [edit, setEdit] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [dejaPaye, setDejaPaye] = useState(c.statut_facturation === "facture");
   const [lignesE, setLignesE] = useState(() => (c.lignes || []).map(l => ({ ...l })));
   const setLigne = (i, patch) => setLignesE(prev => prev.map((l, j) => j === i ? { ...l, ...patch } : l));
+
+  // Suppression d'une saisie (cas typique : doublon). Les lignes d'articles
+  // partent avec (cascade en base) ; le tout reste restaurable via
+  // Admin → Historique (filet data_history).
+  const supprimer = async () => {
+    const nbLignes = (c.lignes || []).length;
+    const ok = window.confirm(
+      "Supprimer cette saisie ?\n\n"
+      + `${DOC_TYPE_LABEL[c.doc_type] || "Document"}${c.doc_numero ? " n° " + c.doc_numero : ""} — ${c.fournisseur_nom || "fournisseur ?"}`
+      + `${c.montant_ht != null ? ` (${c.montant_ht} € HT)` : ""}\n`
+      + (nbLignes ? `Ses ${nbLignes} ligne${nbLignes > 1 ? "s" : ""} d'articles seront supprimées avec.\n` : "")
+      + "\nÀ utiliser pour retirer un doublon ou une erreur de saisie.\n"
+      + "Récupérable ensuite depuis Admin → Historique."
+    );
+    if (!ok) return;
+    setDeleting(true);
+    const { error } = await supabase.from("commandes").delete().eq("id", c.id);
+    setDeleting(false);
+    if (error) { alert("Erreur suppression : " + error.message); return; }
+    onSaved?.();
+    onClose();
+  };
 
   const lignes = edit ? lignesE : (c.lignes || []);
   const totalLignes = lignes.reduce((s, l) => s + (num(l.prix_total) || 0), 0);
@@ -178,6 +201,11 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
             {!edit && (
               <button onClick={() => setEdit(true)} title="Corriger cette saisie" style={{ background: acc.bg10, border: `1px solid ${acc.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: acc.accent, cursor: "pointer", flexShrink: 0 }}>
                 <Icon as={Pencil} size={16} />
+              </button>
+            )}
+            {!edit && (
+              <button onClick={supprimer} disabled={deleting} title="Supprimer cette saisie (doublon)" style={{ background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SEMANTIC.danger.color, cursor: deleting ? "wait" : "pointer", flexShrink: 0 }}>
+                <Icon as={deleting ? Loader2 : Trash2} size={16} className={deleting ? "spin" : undefined} />
               </button>
             )}
             <button onClick={onClose} aria-label="Fermer" style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: T.text, cursor: "pointer", flexShrink: 0 }}>
