@@ -11,6 +11,12 @@ const moisLabel = (ym) => {
   return `${MOIS_FR[parseInt(m, 10) - 1] || m} ${y}`;
 };
 const eur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dateFR = (iso) => { const d = iso ? new Date(iso + "T00:00:00") : null; return d && !isNaN(d.getTime()) ? d.toLocaleDateString("fr-FR") : ""; };
+const docLabel = (d) => {
+  if (d.kind === "fact") return `Facture${d.numero ? " n° " + d.numero : ""}`;
+  const type = d.type === "bl" ? "BL" : d.type === "ticket" ? "Ticket" : "Bon de commande";
+  return `${type}${d.numero ? " n° " + d.numero : ""}`;
+};
 const normNom = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
 
 // Date d'échéance de paiement selon le mode du fournisseur.
@@ -48,15 +54,19 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [fournRes, cRes, fRes] = await Promise.all([
+      const [fournRes, cRes, fRes, blRes] = await Promise.all([
         supabase.from("fournisseurs").select("id, nom, mode_paiement"),
         supabase.from("commandes")
-          .select("fournisseur_id, fournisseur_nom, montant_ht, date_doc, created_at, statut_facturation, source, lignes:commande_lignes(prix_total)")
+          .select("id, fournisseur_id, fournisseur_nom, doc_type, doc_numero, montant_ht, date_doc, created_at, statut_facturation, source, lignes:commande_lignes(prix_total)")
           .is("facture_id", null).limit(5000),
         supabase.from("factures")
-          .select("fournisseur_id, fournisseur_nom, montant_ht, date_facture, created_at, statut")
+          .select("id, numero, fournisseur_id, fournisseur_nom, montant_ht, date_facture, created_at, statut")
           .neq("statut", "archivee").limit(2000),
+        supabase.from("facture_bl").select("facture_id, bl_numero, montant_ht, statut").limit(10000),
       ]);
+      // BL rapprochés par facture
+      const blByFacture = {};
+      (blRes.data || []).forEach(b => { (blByFacture[b.facture_id] = blByFacture[b.facture_id] || []).push(b); });
       // mode de paiement par fournisseur (par id et par nom normalisé)
       const modeById = {}, modeByNom = {};
       (fournRes.data || []).forEach(f => { modeById[f.id] = f.mode_paiement || ""; if (f.nom) modeByNom[normNom(f.nom)] = f.mode_paiement || ""; });
@@ -72,14 +82,20 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
         const paye = c.statut_facturation === "facture";
         // payé (comptant) -> le mois du document ; sinon -> mois d'échéance selon le mode
         const dueISO = paye ? docISO : echeanceISO(docISO, modeOf(c.fournisseur_id, c.fournisseur_nom));
-        arr.push({ kind: "cmd", mois: (dueISO || "").slice(0, 7), fournisseur: c.fournisseur_nom || "Sans fournisseur", montant, paye });
+        arr.push({
+          kind: "cmd", mois: (dueISO || "").slice(0, 7), fournisseur: c.fournisseur_nom || "Sans fournisseur", montant, paye,
+          doc: { kind: "cmd", type: c.doc_type, numero: c.doc_numero, date: docISO, montant, paye },
+        });
       });
       (fRes.data || []).forEach(f => {
         const montant = Number(f.montant_ht) || 0;
         if (!montant) return;
         const docISO = f.date_facture || (f.created_at || "").slice(0, 10);
         const dueISO = echeanceISO(docISO, modeOf(f.fournisseur_id, f.fournisseur_nom));
-        arr.push({ kind: "fact", mois: (dueISO || "").slice(0, 7), fournisseur: f.fournisseur_nom || "Sans fournisseur", montant, paye: false });
+        arr.push({
+          kind: "fact", mois: (dueISO || "").slice(0, 7), fournisseur: f.fournisseur_nom || "Sans fournisseur", montant, paye: false,
+          doc: { kind: "fact", numero: f.numero, date: docISO, montant, bls: blByFacture[f.id] || [] },
+        });
       });
       setItems(arr);
       setLoading(false);
@@ -98,11 +114,12 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
     const m = it.mois || "____";
     if (!moisMap.has(m)) moisMap.set(m, { mois: m, parFourn: new Map() });
     const g = moisMap.get(m);
-    if (!g.parFourn.has(it.fournisseur)) g.parFourn.set(it.fournisseur, { nom: it.fournisseur, saisi: 0, facture: 0, paye: 0 });
+    if (!g.parFourn.has(it.fournisseur)) g.parFourn.set(it.fournisseur, { nom: it.fournisseur, saisi: 0, facture: 0, paye: 0, docs: [] });
     const pf = g.parFourn.get(it.fournisseur);
     if (it.kind === "fact") pf.facture += it.montant;
     else if (it.paye) pf.paye += it.montant;
     else pf.saisi += it.montant;
+    if (it.doc) pf.docs.push(it.doc);
   }
   for (const g of moisMap.values()) {
     const list = [...g.parFourn.values()];
@@ -239,20 +256,51 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
                     if (pf.saisi > 0) parts.push(`Saisi ${eur(pf.saisi)} €`);
                     if (pf.facture > 0) parts.push(`Facturé ${eur(pf.facture)} €`);
                     if (pf.paye > 0) parts.push(`Payé ${eur(pf.paye)} €`);
+                    const docs = [...pf.docs].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
                     return (
-                      <div key={pf.nom} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px 10px 40px", borderBottom: `1px solid ${T.border}` }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: FONT.base.size, fontWeight: 600, color: T.text }}>{pf.nom}</div>
-                          {parts.length > 0 && <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 1 }}>{parts.join("  ·  ")}</div>}
-                          {ecart != null && (
-                            <div style={{ fontSize: FONT.xs.size, fontWeight: 700, marginTop: 1, color: Math.abs(ecart) < 1 ? SEMANTIC.success.color : SEMANTIC.warning.color }}>
-                              écart facture − saisi : {ecart > 0 ? "+" : ""}{eur(ecart)} €
-                            </div>
-                          )}
+                      <div key={pf.nom} style={{ padding: "10px 16px 10px 40px", borderBottom: `1px solid ${T.border}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: FONT.base.size, fontWeight: 600, color: T.text }}>{pf.nom}</div>
+                            {parts.length > 0 && <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 1 }}>{parts.join("  ·  ")}</div>}
+                            {ecart != null && (
+                              <div style={{ fontSize: FONT.xs.size, fontWeight: 700, marginTop: 1, color: Math.abs(ecart) < 1 ? SEMANTIC.success.color : SEMANTIC.warning.color }}>
+                                écart facture − saisi : {ecart > 0 ? "+" : ""}{eur(ecart)} €
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ fontSize: FONT.base.size, fontWeight: 800, minWidth: 96, textAlign: "right", fontFamily: "'DM Mono', monospace", color: aP > 0 ? SEMANTIC.warning.color : (pf.paye > 0 ? SEMANTIC.success.color : T.textSub) }}>
+                            {aP > 0 ? `${eur(aP)} €` : (pf.paye > 0 ? "payé" : "—")}
+                          </div>
                         </div>
-                        <div style={{ fontSize: FONT.base.size, fontWeight: 800, minWidth: 96, textAlign: "right", fontFamily: "'DM Mono', monospace", color: aP > 0 ? SEMANTIC.warning.color : (pf.paye > 0 ? SEMANTIC.success.color : T.textSub) }}>
-                          {aP > 0 ? `${eur(aP)} €` : (pf.paye > 0 ? "payé" : "—")}
-                        </div>
+
+                        {docs.length > 0 && (
+                          <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: `2px solid ${T.border}` }}>
+                            {docs.map((d, i) => (
+                              <div key={i} style={{ padding: "4px 0" }}>
+                                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                  <span style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textSub }}>{docLabel(d)}</span>
+                                  {d.date && <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{dateFR(d.date)}</span>}
+                                  {d.kind === "cmd" && d.paye && <span style={{ fontSize: 10, fontWeight: 800, color: SEMANTIC.success.color }}>payé comptant</span>}
+                                  <span style={{ flex: 1 }} />
+                                  <span style={{ fontSize: FONT.xs.size, fontWeight: 700, fontFamily: "'DM Mono', monospace", color: T.textSub }}>{eur(d.montant)} €</span>
+                                </div>
+                                {d.kind === "fact" && (d.bls || []).length > 0 && (
+                                  <div style={{ paddingLeft: 14 }}>
+                                    {d.bls.map((b, j) => (
+                                      <div key={j} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "1px 0" }}>
+                                        <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>BL n° {b.bl_numero || "?"}</span>
+                                        {b.statut === "ecart" && <span style={{ fontSize: 10, fontWeight: 800, color: SEMANTIC.warning.color }}>écart</span>}
+                                        <span style={{ flex: 1 }} />
+                                        <span style={{ fontSize: FONT.xs.size, fontFamily: "'DM Mono', monospace", color: T.textMuted }}>{b.montant_ht != null ? `${eur(b.montant_ht)} €` : "—"}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
