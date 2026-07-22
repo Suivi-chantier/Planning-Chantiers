@@ -611,6 +611,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const lineColorRef  = useRef(lineColor);
   const layersRef       = useRef(layers);
   const planRotRef      = useRef(planRotation);
+  const thresholdRef    = useRef(threshold);
+  const onSaveRef       = useRef(onSave);
 
   vpRef.current         = vp;
   segmentsRef.current   = segments;
@@ -631,6 +633,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   lineColorRef.current  = lineColor;
   layersRef.current     = layers;
   planRotRef.current    = planRotation;
+  thresholdRef.current  = threshold;
+  onSaveRef.current     = onSave;
   printModeRef.current  = printMode;
   coteFontRef.current   = coteFontSize;
   autoCloseRef.current  = autoClose;
@@ -2065,15 +2069,56 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setTimeout(fitView, 50);
   };
 
-  const handleSave = async () => {
+  // ── Sauvegarde (manuelle + automatique) ─────────────────────────────────────
+  const saveTimerRef  = useRef(null);
+  const dirtyRef      = useRef(false);
+  const savingRef     = useRef(false);
+  const firstRunRef   = useRef(true);
+  const [lastSaved, setLastSaved] = useState(null);
+
+  const doSave = useCallback(async () => {
+    if (savingRef.current) return; // un save en cours reprendra via dirtyRef
+    savingRef.current = true;
     setSaving(true);
-    const canvas=canvasRef.current;
-    const thumb=canvas?canvas.toDataURL('image/png',0.3):'';
-    const data={segments,symbols,cotes,surfaces,viewport:vp,threshold,planRotation};
-    await supabase.from('plans').update({data,thumbnail:thumb,updated_at:new Date().toISOString()}).eq('id',plan.id);
-    setSaving(false);
-    onSave({...plan,data,thumbnail:thumb});
+    try {
+      do {
+        dirtyRef.current = false;
+        const canvas = canvasRef.current;
+        const thumb = canvas ? canvas.toDataURL('image/png',0.3) : (plan.thumbnail || '');
+        const data = {
+          segments: segmentsRef.current, symbols: symbolsRef.current,
+          cotes: cotesRef.current, surfaces: surfacesRef.current,
+          viewport: vpRef.current, threshold: thresholdRef.current,
+          planRotation: planRotRef.current,
+        };
+        await supabase.from('plans').update({data,thumbnail:thumb,updated_at:new Date().toISOString()}).eq('id',plan.id);
+        onSaveRef.current({...plan,data,thumbnail:thumb});
+        setLastSaved(new Date());
+      } while (dirtyRef.current); // des modifs sont arrivées pendant le save
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }, [plan]);
+
+  const handleSave = () => {
+    clearTimeout(saveTimerRef.current);
+    doSave();
   };
+
+  // Sauvegarde automatique : 2 s après la dernière modification du dessin
+  useEffect(() => {
+    if (firstRunRef.current) { firstRunRef.current = false; return; }
+    dirtyRef.current = true;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(doSave, 2000);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [segments, symbols, cotes, surfaces, planRotation, threshold, doSave]);
+
+  // À la fermeture de l'éditeur : on sauvegarde ce qui reste en attente
+  useEffect(() => () => {
+    if (dirtyRef.current) doSave();
+  }, [doSave]);
 
   const exportPNG = (forPrint=false) => {
     const canvas=canvasRef.current; if(!canvas) return;
@@ -2328,9 +2373,17 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PDF</button>
         <button onClick={()=>exportPDF(true)} style={{background:'rgba(245,166,35,0.2)',border:'1px solid rgba(245,166,35,0.4)',
           borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:'pointer'}}>🖨 PDF</button>
-        <button onClick={handleSave} disabled={saving} style={{background:'#5b8af5',border:'none',borderRadius:8,
-          padding:'6px 16px',color:'#fff',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.6:1}}>
-          {saving?'…':'💾 Sauvegarder'}
+        <button onClick={handleSave} disabled={saving}
+          title="Sauvegarde automatique activée — cliquer pour forcer une sauvegarde immédiate"
+          style={{background:saving?'#5b8af5':lastSaved?'rgba(80,200,120,0.18)':'#5b8af5',
+          border:lastSaved&&!saving?'1px solid rgba(80,200,120,0.4)':'none',borderRadius:8,
+          padding:'6px 16px',color:saving?'#fff':lastSaved?'#7ee8a2':'#fff',fontFamily:'inherit',
+          fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.7:1,whiteSpace:'nowrap'}}>
+          {saving
+            ? '💾 Enregistrement…'
+            : lastSaved
+              ? `✓ Enregistré ${lastSaved.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`
+              : '💾 Sauvegarder'}
         </button>
       </div>
 
