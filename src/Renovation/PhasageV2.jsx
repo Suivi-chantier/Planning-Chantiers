@@ -584,6 +584,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     ));
   };
 
+  // Date d'un compte rendu (minuit locale) : date_rapport au format FR
+  // « DD/MM/YYYY » (anciens CR) ou ISO (récents), repli sur submitted_at.
+  const dateDuRapport = (r) => {
+    const s = r.date_rapport;
+    if (s) {
+      const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) { d.setHours(0, 0, 0, 0); return d; }
+    }
+    if (r.submitted_at) {
+      const d = new Date(r.submitted_at);
+      if (!isNaN(d.getTime())) { d.setHours(0, 0, 0, 0); return d; }
+    }
+    return null;
+  };
+  // Fenêtre d'exécution RÉELLE d'une tâche d'après ses comptes rendus :
+  // { debut, fin } (premier / dernier CR daté) ou null si aucun. Sert aux
+  // vues Gantt à placer les tâches réalisées mais jamais datées (pas de
+  // date_prevue) au lieu de les laisser dans « Non planifiées ».
+  const crWindowPourTache = (t) => {
+    const ds = rapportsPourTache(t).map(dateDuRapport).filter(Boolean);
+    if (!ds.length) return null;
+    const ts = ds.map(d => d.getTime());
+    return { debut: new Date(Math.min(...ts)), fin: new Date(Math.max(...ts)) };
+  };
+
   // ─── Panneau "Matériaux & commandes" (ouvrage / lot) ──────────────────────
   const matBiblioById = (() => { const m = {}; materiauxBiblio.forEach(x => { m[String(x.id)] = x; }); return m; })();
   // Lignes de commande rattachées à un lot.
@@ -1833,15 +1860,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     const isoDay     = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     const todayISO   = isoDay(startOfDay(new Date()));
 
-    // Construit les rows
+    // Construit les rows. Tâches jamais datées mais avec des comptes rendus
+    // liés : placées sur leur fenêtre réelle premier → dernier CR (fromCR),
+    // comme dans l'écran Gantt.
     const rows = [];
     const orphans = [];
     ouvrages.forEach(o => {
       const lot = lots.find(l => l.id === o.lot_id) || { id: "_x", label: "Sans lot", couleur: "#888" };
       (o.taches || []).forEach(t => {
         const d = parseDate(t.date_prevue);
-        if (d) rows.push({ lot, ouvrage: o, tache: t, date: d });
-        else   orphans.push({ lot, ouvrage: o, tache: t });
+        if (d) { rows.push({ lot, ouvrage: o, tache: t, date: d }); return; }
+        const win = crWindowPourTache(t);
+        if (win) rows.push({ lot, ouvrage: o, tache: t, date: win.debut, dateFin: win.fin, fromCR: true });
+        else orphans.push({ lot, ouvrage: o, tache: t });
       });
     });
 
@@ -1850,7 +1881,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     }
 
     // Plage de dates
-    const dates = rows.map(r => r.date);
+    const dates = rows.flatMap(r => r.dateFin ? [r.date, r.dateFin] : [r.date]);
     let dateMin = new Date(Math.min(...dates.map(d => d.getTime())));
     let dateMax = new Date(Math.max(...dates.map(d => d.getTime())));
     dateMin = addDays(dateMin, -2);
@@ -1904,8 +1935,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         </tr>`;
         lastLotId = r.lot.id;
       }
-      const startIdx = dayIndex(r.date);
-      const spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
+      // fromCR : la barre couvre la fenêtre réelle premier → dernier CR
+      // (mêmes règles que l'écran Gantt) ; sinon date_prevue + durée estimée.
+      let startIdx = dayIndex(r.date);
+      if (startIdx < 0 && r.fromCR) startIdx = days.findIndex(x => x.getTime() >= r.date.getTime());
+      let spanDays;
+      if (r.fromCR) {
+        let end = days.length - 1;
+        while (end > startIdx && days[end].getTime() > r.dateFin.getTime()) end--;
+        spanDays = Math.max(1, end - startIdx + 1);
+      } else {
+        spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
+      }
       const av = Math.max(0, Math.min(100, parseInt(r.tache.avancement) || 0));
       const barColor = av >= 100 ? "#22c55e" : r.lot.couleur;
       const cells = days.map((d, i) => {
@@ -1922,7 +1963,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       html += `<tr style="break-inside:avoid;page-break-inside:avoid;">
         <td style="padding:4pt 8pt;border-right:1pt solid #ccc;border-bottom:0.5pt solid #eee;font-size:8pt;color:#1a1f2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140pt;">
           <div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;">${esc(r.tache.nom || "(sans nom)")}</div>
-          <div style="font-size:7pt;color:#888;overflow:hidden;text-overflow:ellipsis;">${esc(r.ouvrage.libelle || "")}</div>
+          <div style="font-size:7pt;color:#888;overflow:hidden;text-overflow:ellipsis;">${esc(r.ouvrage.libelle || "")}${r.fromCR ? " · d'après CR" : ""}</div>
         </td>
         ${cells}
       </tr>`;
@@ -2450,6 +2491,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           ouvrages={ouvrages} lots={lots} jalons={chronoJalons} groupes={chronoGroupes} acc={acc} T={T}
           avancementOuvrage={avancementOuvrage}
           tacheHeuresReelles={tacheHeuresReelles}
+          crWindowPourTache={crWindowPourTache}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
         />
       ) : (
@@ -4800,7 +4842,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   );
 }
 
-function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, tacheHeuresReelles, onClickTache }) {
+function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, tacheHeuresReelles, crWindowPourTache, onClickTache }) {
   const DAY_PX = 28, ROW_H = 30, LABEL_W = 280, HEADER_H = 56;
   const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
   const addDays    = (d, n) => { const x = startOfDay(d); x.setDate(x.getDate() + n); return x; };
@@ -4812,21 +4854,26 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
   const todayISO   = isoDay(startOfDay(new Date()));
 
   // ── Construit la liste plate { lot, ouvrage, tache } pour les tâches qui
-  //    ont une date_prevue. Les non-planifiées vont dans un bloc séparé.
+  //    ont une date_prevue. Les tâches jamais datées mais déjà travaillées
+  //    (au moins un compte rendu lié) sont placées sur leur fenêtre
+  //    d'exécution réelle (premier → dernier CR), marquées fromCR. Les
+  //    autres vont dans le bloc « Non planifiées ».
   const rows = [];
   const orphans = [];
   ouvrages.forEach(o => {
     const lot = lots.find(l => l.id === o.lot_id) || { id: "_x", label: "Sans lot", couleur: "#888" };
     (o.taches || []).forEach(t => {
       const d = parseDate(t.date_prevue);
-      if (d) rows.push({ lot, ouvrage: o, tache: t, date: d });
-      else   orphans.push({ lot, ouvrage: o, tache: t });
+      if (d) { rows.push({ lot, ouvrage: o, tache: t, date: d }); return; }
+      const win = crWindowPourTache(t);
+      if (win) rows.push({ lot, ouvrage: o, tache: t, date: win.debut, dateFin: win.fin, fromCR: true });
+      else orphans.push({ lot, ouvrage: o, tache: t });
     });
   });
 
   // ── Plage de dates : du min des date_prevue à +35 jours après le max.
   //    Si rien de planifié, on affiche aujourd'hui + 30 jours.
-  const dates = rows.map(r => r.date);
+  const dates = rows.flatMap(r => r.dateFin ? [r.date, r.dateFin] : [r.date]);
   let dateMin = dates.length > 0 ? new Date(Math.min(...dates.map(d => d.getTime()))) : startOfDay(new Date());
   let dateMax = dates.length > 0 ? new Date(Math.max(...dates.map(d => d.getTime()))) : addDays(new Date(), 30);
   // 3 jours de marge avant, 14 jours après le max (ou heures longues).
@@ -4970,15 +5017,29 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
               );
               lastLotId = r.lot.id;
             }
-            // Rangée tâche
-            const startIdx = dayIndex(r.date);
-            const spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
+            // Rangée tâche. Placée d'après les CR (fromCR) : la barre couvre
+            // la fenêtre réelle premier → dernier CR (jours ouvrés affichés,
+            // en glissant au jour ouvré suivant/précédent si un CR tombe un
+            // week-end) ; sinon règle habituelle date_prevue + durée estimée.
+            let startIdx = dayIndex(r.date);
+            if (startIdx < 0 && r.fromCR) startIdx = days.findIndex(x => x.getTime() >= r.date.getTime());
+            let spanDays;
+            if (r.fromCR) {
+              let end = days.length - 1;
+              while (end > startIdx && days[end].getTime() > r.dateFin.getTime()) end--;
+              spanDays = Math.max(1, end - startIdx + 1);
+            } else {
+              spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
+            }
             const left = startIdx >= 0 ? startIdx * DAY_PX : 0;
             const widthBar = spanDays * DAY_PX - 4;
             const av = Math.max(0, Math.min(100, parseInt(r.tache.avancement) || 0));
             const barColor = av >= 100 ? "#22c55e" : r.lot.couleur;
             const hr = tacheHeuresReelles(r.tache);
-            const tooltip = `${r.tache.nom || "(sans nom)"} — ${r.date.toLocaleDateString("fr-FR")} — ${av}%${r.tache.heures_estimees ? ` — ${hr || 0}h/${r.tache.heures_estimees}h` : ""}`;
+            const dateLbl = r.fromCR
+              ? `${r.date.toLocaleDateString("fr-FR")} → ${r.dateFin.toLocaleDateString("fr-FR")} (d'après les comptes rendus — pas de date prévue)`
+              : r.date.toLocaleDateString("fr-FR");
+            const tooltip = `${r.tache.nom || "(sans nom)"} — ${dateLbl} — ${av}%${r.tache.heures_estimees ? ` — ${hr || 0}h/${r.tache.heures_estimees}h` : ""}`;
             els.push(
               <div key={`row-${r.tache.id}-${idx}`} style={{
                 display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
@@ -4990,7 +5051,7 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
                     {r.tache.nom || "(sans nom)"}
                   </div>
                   <div style={{ fontSize: 9, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.ouvrage.libelle || "(sans libellé)"}
+                    {r.ouvrage.libelle || "(sans libellé)"}{r.fromCR ? " · d'après CR" : ""}
                   </div>
                 </div>
                 <div style={{ position: "relative", height: ROW_H }}>
@@ -5017,7 +5078,7 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
                           color-mix(in srgb, ${barColor} 80%, transparent) ${av}%,
                           color-mix(in srgb, ${barColor} 30%, transparent) ${av}%,
                           color-mix(in srgb, ${barColor} 30%, transparent) 100%)`,
-                        border: `1px solid ${barColor}`,
+                        border: r.fromCR ? `1.5px dashed ${barColor}` : `1px solid ${barColor}`,
                         color: "#000", fontSize: 10, fontWeight: 800,
                         display: "flex", alignItems: "center", padding: "0 8px",
                         cursor: "pointer", overflow: "hidden",
