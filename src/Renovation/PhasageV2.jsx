@@ -4844,6 +4844,13 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
 
 function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, tacheHeuresReelles, crWindowPourTache, onClickTache }) {
   const DAY_PX = 28, ROW_H = 30, LABEL_W = 280, HEADER_H = 56;
+  // Lots repliés (local à la vue, non persisté).
+  const [collapsedLots, setCollapsedLots] = useState(() => new Set());
+  const toggleLot = (lotId) => setCollapsedLots(s => {
+    const n = new Set(s);
+    n.has(lotId) ? n.delete(lotId) : n.add(lotId);
+    return n;
+  });
   const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
   const addDays    = (d, n) => { const x = startOfDay(d); x.setDate(x.getDate() + n); return x; };
   const isWeekend  = (d) => { const w = d.getDay(); return w === 0 || w === 6; };
@@ -4914,6 +4921,33 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
   // Tri des non planifiées : ordre chrono métier (groupes de la vue
   // Chronologique), plus dans l'ordre de saisie du devis.
   sortByChrono(orphans, groupes);
+
+  // ── Sections par lot : tâches datées + non planifiées du même lot sous un
+  //    seul en-tête repliable. Ordre des sections = ordre d'apparition dans
+  //    les rows triées, puis les lots qui n'ont que du non-planifié.
+  const lotSections = [];
+  const sectionByLot = new Map();
+  const sectionFor = (lot) => {
+    let s = sectionByLot.get(lot.id);
+    if (!s) { s = { lot, dated: [], unplanned: [] }; sectionByLot.set(lot.id, s); lotSections.push(s); }
+    return s;
+  };
+  rows.forEach(r => sectionFor(r.lot).dated.push(r));
+  orphans.forEach(r => sectionFor(r.lot).unplanned.push(r));
+  // Avancement d'un lot : pondéré par les heures vendues quand elles existent,
+  // sinon moyenne simple des tâches.
+  const avancementSection = (s) => {
+    const ts = [...s.dated, ...s.unplanned].map(r => r.tache);
+    if (!ts.length) return 0;
+    let wsum = 0, wtot = 0, sum = 0;
+    ts.forEach(t => {
+      const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+      const h = parseFloat(t.heures_vendues) || 0;
+      sum += av;
+      if (h > 0) { wsum += h * av; wtot += h; }
+    });
+    return Math.round(wtot > 0 ? wsum / wtot : sum / ts.length);
+  };
 
   // Longueur en jours (skip weekends) à partir des heures estimées (~ 7h/jour)
   const dureeJours = (t) => {
@@ -4993,147 +5027,160 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
           </div>
         </div>
 
-        {/* Rangées tâches */}
+        {/* Sections par lot : en-tête repliable, tâches datées puis non
+            planifiées du lot (celles-ci sans barre, ordre chrono métier). */}
         {(() => {
           const els = [];
-          let lastLotId = null;
-          rows.forEach((r, idx) => {
-            // Header de lot si on change
-            if (r.lot.id !== lastLotId) {
-              els.push(
-                <div key={`lot-${r.lot.id}`} style={{
-                  display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
-                  background: `color-mix(in srgb, ${r.lot.couleur} 14%, transparent)`,
-                  borderTop: `1px solid ${T.border}`,
-                  borderBottom: `1px solid ${T.border}`,
-                  height: 26, alignItems: "center",
-                }}>
-                  <div style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, height: "100%", display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: r.lot.couleur }}/>
-                    <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: T.text, textTransform: "uppercase", letterSpacing: .5 }}>{r.lot.label}</span>
-                  </div>
-                  <div/>
-                </div>
-              );
-              lastLotId = r.lot.id;
-            }
-            // Rangée tâche. Placée d'après les CR (fromCR) : la barre couvre
-            // la fenêtre réelle premier → dernier CR (jours ouvrés affichés,
-            // en glissant au jour ouvré suivant/précédent si un CR tombe un
-            // week-end) ; sinon règle habituelle date_prevue + durée estimée.
-            let startIdx = dayIndex(r.date);
-            if (startIdx < 0 && r.fromCR) startIdx = days.findIndex(x => x.getTime() >= r.date.getTime());
-            let spanDays;
-            if (r.fromCR) {
-              let end = days.length - 1;
-              while (end > startIdx && days[end].getTime() > r.dateFin.getTime()) end--;
-              spanDays = Math.max(1, end - startIdx + 1);
-            } else {
-              spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
-            }
-            const left = startIdx >= 0 ? startIdx * DAY_PX : 0;
-            const widthBar = spanDays * DAY_PX - 4;
+          let stripe = 0;
+          // Cellule label commune (nom + ouvrage + avancement à droite).
+          const labelCell = (r, note, clickable) => {
             const av = Math.max(0, Math.min(100, parseInt(r.tache.avancement) || 0));
-            const barColor = av >= 100 ? "#22c55e" : r.lot.couleur;
-            const hr = tacheHeuresReelles(r.tache);
-            const dateLbl = r.fromCR
-              ? `${r.date.toLocaleDateString("fr-FR")} → ${r.dateFin.toLocaleDateString("fr-FR")} (d'après les comptes rendus — pas de date prévue)`
-              : r.date.toLocaleDateString("fr-FR");
-            const tooltip = `${r.tache.nom || "(sans nom)"} — ${dateLbl} — ${av}%${r.tache.heures_estimees ? ` — ${hr || 0}h/${r.tache.heures_estimees}h` : ""}`;
-            els.push(
-              <div key={`row-${r.tache.id}-${idx}`} style={{
-                display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
-                height: ROW_H, borderBottom: `1px solid ${T.border}`,
-                background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)",
-              }}>
-                <div style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, minWidth: 0 }}>
+            return (
+              <div onClick={clickable ? () => onClickTache(r.ouvrage.id, r.tache.id) : undefined}
+                style={{ padding: "0 10px 0 14px", borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, minWidth: 0, cursor: clickable ? "pointer" : "default" }}>
+                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
                   <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {r.tache.nom || "(sans nom)"}
                   </div>
                   <div style={{ fontSize: 9, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.ouvrage.libelle || "(sans libellé)"}{r.fromCR ? " · d'après CR" : ""}
+                    {r.ouvrage.libelle || "(sans libellé)"}{note || ""}
                   </div>
                 </div>
-                <div style={{ position: "relative", height: ROW_H }}>
-                  {/* Grille de fond (jour) */}
-                  {days.map((d, i) => {
-                    const today = isoDay(d) === todayISO;
-                    return (
-                      <div key={i} style={{
-                        position: "absolute", left: i * DAY_PX, top: 0, width: DAY_PX, height: "100%",
-                        borderRight: `1px solid ${T.border}`,
-                        background: today ? `color-mix(in srgb, ${acc.accent} 8%, transparent)` : "transparent",
-                      }}/>
-                    );
-                  })}
-                  {/* Barre tâche */}
-                  {startIdx >= 0 && (
-                    <div onClick={() => onClickTache(r.ouvrage.id, r.tache.id)}
-                      title={tooltip}
-                      style={{
-                        position: "absolute", left: left + 2, top: 4, width: Math.max(20, widthBar),
-                        height: ROW_H - 8, borderRadius: 5,
-                        background: `linear-gradient(to right,
-                          color-mix(in srgb, ${barColor} 80%, transparent) 0,
-                          color-mix(in srgb, ${barColor} 80%, transparent) ${av}%,
-                          color-mix(in srgb, ${barColor} 30%, transparent) ${av}%,
-                          color-mix(in srgb, ${barColor} 30%, transparent) 100%)`,
-                        border: r.fromCR ? `1.5px dashed ${barColor}` : `1px solid ${barColor}`,
-                        color: "#000", fontSize: 10, fontWeight: 800,
-                        display: "flex", alignItems: "center", padding: "0 8px",
-                        cursor: "pointer", overflow: "hidden",
-                        boxShadow: `0 2px 4px color-mix(in srgb, ${barColor} 30%, transparent)`,
-                      }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {r.tache.nom || ""} {av > 0 ? `· ${av}%` : ""}
-                      </span>
-                    </div>
-                  )}
+                <span title={`${av}% réalisé`} style={{
+                  flexShrink: 0, fontSize: 10, fontWeight: 800, minWidth: 32, textAlign: "right",
+                  color: av >= 100 ? "#22c55e" : av > 0 ? acc.accent : T.textMuted,
+                }}>
+                  {av}%
+                </span>
+              </div>
+            );
+          };
+          const dayGrid = () => days.map((d, i) => {
+            const today = isoDay(d) === todayISO;
+            return (
+              <div key={i} style={{
+                position: "absolute", left: i * DAY_PX, top: 0, width: DAY_PX, height: "100%",
+                borderRight: `1px solid ${T.border}`,
+                background: today ? `color-mix(in srgb, ${acc.accent} 8%, transparent)` : "transparent",
+              }}/>
+            );
+          });
+          lotSections.forEach(sec => {
+            const lot = sec.lot;
+            const isCollapsed = collapsedLots.has(lot.id);
+            const total = sec.dated.length + sec.unplanned.length;
+            const avLot = avancementSection(sec);
+            // En-tête de lot (clic = replier/déplier)
+            els.push(
+              <div key={`lot-${lot.id}`} onClick={() => toggleLot(lot.id)}
+                title={isCollapsed ? "Déplier le lot" : "Replier le lot"}
+                style={{
+                  display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+                  background: `color-mix(in srgb, ${lot.couleur} 14%, transparent)`,
+                  borderTop: `1px solid ${T.border}`,
+                  borderBottom: `1px solid ${T.border}`,
+                  height: 26, alignItems: "center", cursor: "pointer",
+                }}>
+                <div style={{ padding: "0 10px 0 14px", borderRight: `1px solid ${T.border}`, height: "100%", display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                  <Icon as={isCollapsed ? ChevronRight : ChevronDown} size={13} color={T.textMuted} style={{ flexShrink: 0 }} />
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: lot.couleur, flexShrink: 0 }}/>
+                  <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: T.text, textTransform: "uppercase", letterSpacing: .5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lot.label}</span>
+                  <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 10, fontWeight: 800, color: avLot >= 100 ? "#22c55e" : T.textSub }}>
+                    {avLot}%
+                  </span>
+                </div>
+                <div style={{ padding: "0 10px", fontSize: 10, fontWeight: 700, color: T.textMuted }}>
+                  {total} tâche{total > 1 ? "s" : ""}
+                  {sec.unplanned.length > 0 ? ` · ${sec.unplanned.length} non planifiée${sec.unplanned.length > 1 ? "s" : ""}` : ""}
                 </div>
               </div>
             );
+            if (isCollapsed) return;
+            // Tâches datées (ou placées d'après les CR)
+            sec.dated.forEach(r => {
+              // fromCR : la barre couvre la fenêtre réelle premier → dernier
+              // CR (jours ouvrés affichés, en glissant au jour ouvré suivant
+              // si un CR tombe un week-end) ; sinon date_prevue + durée.
+              let startIdx = dayIndex(r.date);
+              if (startIdx < 0 && r.fromCR) startIdx = days.findIndex(x => x.getTime() >= r.date.getTime());
+              let spanDays;
+              if (r.fromCR) {
+                let end = days.length - 1;
+                while (end > startIdx && days[end].getTime() > r.dateFin.getTime()) end--;
+                spanDays = Math.max(1, end - startIdx + 1);
+              } else {
+                spanDays = Math.min(days.length - Math.max(0, startIdx), dureeJours(r.tache));
+              }
+              const left = startIdx >= 0 ? startIdx * DAY_PX : 0;
+              const widthBar = spanDays * DAY_PX - 4;
+              const av = Math.max(0, Math.min(100, parseInt(r.tache.avancement) || 0));
+              const barColor = av >= 100 ? "#22c55e" : r.lot.couleur;
+              const hr = tacheHeuresReelles(r.tache);
+              const dateLbl = r.fromCR
+                ? `${r.date.toLocaleDateString("fr-FR")} → ${r.dateFin.toLocaleDateString("fr-FR")} (d'après les comptes rendus — pas de date prévue)`
+                : r.date.toLocaleDateString("fr-FR");
+              const tooltip = `${r.tache.nom || "(sans nom)"} — ${dateLbl} — ${av}%${r.tache.heures_estimees ? ` — ${hr || 0}h/${r.tache.heures_estimees}h` : ""}`;
+              stripe += 1;
+              els.push(
+                <div key={`row-${r.tache.id}`} style={{
+                  display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+                  height: ROW_H, borderBottom: `1px solid ${T.border}`,
+                  background: stripe % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)",
+                }}>
+                  {labelCell(r, r.fromCR ? " · d'après CR" : "", true)}
+                  <div style={{ position: "relative", height: ROW_H }}>
+                    {dayGrid()}
+                    {/* Barre tâche */}
+                    {startIdx >= 0 && (
+                      <div onClick={() => onClickTache(r.ouvrage.id, r.tache.id)}
+                        title={tooltip}
+                        style={{
+                          position: "absolute", left: left + 2, top: 4, width: Math.max(20, widthBar),
+                          height: ROW_H - 8, borderRadius: 5,
+                          background: `linear-gradient(to right,
+                            color-mix(in srgb, ${barColor} 80%, transparent) 0,
+                            color-mix(in srgb, ${barColor} 80%, transparent) ${av}%,
+                            color-mix(in srgb, ${barColor} 30%, transparent) ${av}%,
+                            color-mix(in srgb, ${barColor} 30%, transparent) 100%)`,
+                          border: r.fromCR ? `1.5px dashed ${barColor}` : `1px solid ${barColor}`,
+                          color: "#000", fontSize: 10, fontWeight: 800,
+                          display: "flex", alignItems: "center", padding: "0 8px",
+                          cursor: "pointer", overflow: "hidden",
+                          boxShadow: `0 2px 4px color-mix(in srgb, ${barColor} 30%, transparent)`,
+                        }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.tache.nom || ""} {av > 0 ? `· ${av}%` : ""}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            });
+            // Tâches non planifiées du lot (pas de date, pas de CR)
+            sec.unplanned.forEach(r => {
+              stripe += 1;
+              els.push(
+                <div key={`unp-${r.tache.id}`} style={{
+                  display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
+                  height: ROW_H, borderBottom: `1px solid ${T.border}`,
+                  background: stripe % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)",
+                  opacity: .6,
+                }}>
+                  {labelCell(r, " · non planifiée", true)}
+                  <div onClick={() => onClickTache(r.ouvrage.id, r.tache.id)}
+                    style={{ position: "relative", height: ROW_H, cursor: "pointer" }}>
+                    {dayGrid()}
+                    <div style={{ position: "sticky", left: LABEL_W + 14, display: "inline-flex", alignItems: "center", height: "100%", paddingLeft: 14, fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic", whiteSpace: "nowrap" }}>
+                      Non planifiée — clique pour planifier
+                    </div>
+                  </div>
+                </div>
+              );
+            });
           });
           return els;
         })()}
-
-        {/* Section tâches non planifiées (pas de date_prevue) */}
-        {orphans.length > 0 && (
-          <>
-            <div style={{
-              display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
-              background: "rgba(255,255,255,0.03)",
-              borderTop: `1px dashed ${T.border}`, borderBottom: `1px solid ${T.border}`,
-              height: 26, alignItems: "center",
-            }}>
-              <div style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, height: "100%", display: "flex", alignItems: "center" }}>
-                <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: T.textMuted, textTransform: "uppercase", letterSpacing: .5, fontStyle: "italic" }}>
-                  Non planifiées ({orphans.length})
-                </span>
-              </div>
-              <div/>
-            </div>
-            {orphans.map((r, idx) => (
-              <div key={`orphan-${r.tache.id}-${idx}`} style={{
-                display: "grid", gridTemplateColumns: `${LABEL_W}px 1fr`,
-                height: ROW_H, borderBottom: `1px solid ${T.border}`,
-                opacity: .65,
-              }}>
-                <div onClick={() => onClickTache(r.ouvrage.id, r.tache.id)}
-                  style={{ padding: "0 14px", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, cursor: "pointer", minWidth: 0 }}>
-                  <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.tache.nom || "(sans nom)"}
-                  </div>
-                  <div style={{ fontSize: 9, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.ouvrage.libelle || "(sans libellé)"}
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", padding: "0 14px", fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
-                  Clique pour planifier (modale → Envoyer dans le planning)
-                </div>
-              </div>
-            ))}
-          </>
-        )}
 
         {/* Jalons : repères verticaux datés (issus de la vue Chronologique) */}
         {(jalons || []).some(j => j.date) && (() => {
