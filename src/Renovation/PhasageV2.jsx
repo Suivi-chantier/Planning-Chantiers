@@ -11,6 +11,7 @@ import {
   ChevronUp, ChevronRight, Filter, CalendarClock,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
+import { buildChronoInit, sortByChrono } from "./chronoTemplate";
 import { confirmPerteMassive } from "../guards";
 import { fetchPointages, indexPointagesParTache, sumLibreEtIndirect } from "../pointages";
 
@@ -1108,6 +1109,37 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     })));
   };
 
+  // ─── Pré-génération de la vue Chrono depuis la template globale ──────────
+  // Un phasage est « vierge côté chrono » quand il n'a AUCUN groupe et
+  // qu'aucune tâche ne porte d'affectation. C'est la SEULE situation où la
+  // template s'applique (auto à l'ouverture de la vue, ou via le bouton) :
+  // un phasage déjà classé, même partiellement, n'est jamais retouché.
+  const chronoVierge = chronoGroupes.length === 0 &&
+    !ouvrages.some(o => (o.taches || []).some(t => t.chrono_groupe_id));
+  const applyChronoTemplate = () => {
+    const init = buildChronoInit(ouvrages, lots, rid);
+    if (!init) return;
+    setChronoGroupes(init.groupes);
+    applyChrono(init.assignments);
+  };
+  // Auto-génération à l'ouverture de la vue Chrono : une seule tentative par
+  // chantier (si aucun lot ne matche la template, on n'insiste pas — les
+  // tâches restent dans « À classer », signal d'enrichir les motsCles).
+  const chronoAutoGenRef = useRef(null);
+  useEffect(() => {
+    if (viewMode !== "chrono" || loadingPhasage || !chantierId) return;
+    // Anti-course au changement de chantier : dans le commit où chantierId
+    // vient de changer, `phasage` (donc `ouvrages`) est encore celui de
+    // l'ancien chantier et loadingPhasage capturé vaut encore false. On
+    // n'agit que si le phasage chargé appartient bien au chantier courant.
+    if (phasage?.chantier_id !== chantierId) return;
+    if (!chronoVierge) return;
+    if (!ouvrages.some(o => (o.taches || []).length > 0)) return;
+    if (chronoAutoGenRef.current === chantierId) return;
+    chronoAutoGenRef.current = chantierId;
+    applyChronoTemplate();
+  }, [viewMode, loadingPhasage, chantierId, phasage, chronoVierge, ouvrages]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Déplace une tâche vers un autre ouvrage (réparation des tâches atterries
   // dans « Divers / hors devis »). La tâche garde son id : ses pointages
   // (heures réelles + coût) suivent automatiquement. On ne touche pas aux
@@ -1856,6 +1888,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       if (a.ouvrage.id !== b.ouvrage.id) return (a.ouvrage.libelle || "").localeCompare(b.ouvrage.libelle || "");
       return a.date.getTime() - b.date.getTime();
     });
+    // Non planifiées : ordre chrono métier (même règle que l'écran Gantt).
+    sortByChrono(orphans, chronoGroupes);
 
     // Build les lignes regroupées par lot
     let html = "";
@@ -2406,13 +2440,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           acc={acc} T={T}
           applyChrono={applyChrono} patchTaches={patchTaches} setGroupes={setChronoGroupes} setJalons={setChronoJalons}
           updateTache={updateTache}
+          onApplyTemplate={chronoVierge ? applyChronoTemplate : null}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
           onShowRapports={(tache, list) => setRapportsModal({ tacheNom: tache.nom, tacheId: tache.id, rapports: list })}
         />
       ) : viewMode === "gantt" ? (
         <GanttV2
-          ouvrages={ouvrages} lots={lots} jalons={chronoJalons} acc={acc} T={T}
+          ouvrages={ouvrages} lots={lots} jalons={chronoJalons} groupes={chronoGroupes} acc={acc} T={T}
           avancementOuvrage={avancementOuvrage}
           tacheHeuresReelles={tacheHeuresReelles}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
@@ -3946,7 +3981,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onApplyTemplate }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
@@ -4534,6 +4569,21 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         }}>
           <Icon as={CalendarClock} size={12} /> Aujourd'hui · {todayLbl}
         </span>
+        {/* Visible uniquement sur un phasage vierge côté chrono (même
+            condition que l'auto-génération) : relance manuelle de la template
+            si l'auto n'a rien produit (aucun lot reconnu). */}
+        {onApplyTemplate && items.length > 0 && (
+          <button onClick={onApplyTemplate}
+            title="Pré-générer les groupes selon l'ordre des corps d'état de l'entreprise et y classer les tâches par lot"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 14px", borderRadius: RADIUS.md,
+              border: `1px dashed ${T.border}`, background: "transparent", color: T.textSub,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+            }}>
+            <Icon as={Sparkles} size={14} /> Appliquer la template
+          </button>
+        )}
         <button onClick={addGroupe}
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
@@ -4561,7 +4611,15 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
             const done = plan.filter(x => avOf(x.it.tache) >= 100).length;
             const enCours = plan.filter(x => { const a = avOf(x.it.tache); return a > 0 && a < 100; }).length;
             const pct = Math.round((done / total) * 100);
-            const incomplete = plan.filter(x => avOf(x.it.tache) < 100);
+            // Ordre des « prochaines tâches » : la DATE prime (croissante) ;
+            // à défaut de date (ou à date égale), on suit l'ordre manuel.
+            const idxOf = new Map(plan.map((x, i) => [x.it.tache.id, i]));
+            const incomplete = plan.filter(x => avOf(x.it.tache) < 100).sort((a, b) => {
+              const da = parseD(a.it.tache.date_prevue), db = parseD(b.it.tache.date_prevue);
+              const ka = da ? da.getTime() : Infinity, kb = db ? db.getTime() : Infinity;
+              if (ka !== kb) return ka - kb;
+              return idxOf.get(a.it.tache.id) - idxOf.get(b.it.tache.id);
+            });
             const nextTasks = incomplete.slice(0, 6);
             const currentGroup = incomplete[0]?.g || null;
             const upJalons = jalons.filter(j => { const d = parseD(j.date); return d && d >= today; }).sort((a, b) => parseD(a.date) - parseD(b.date));
@@ -4742,7 +4800,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   );
 }
 
-function GanttV2({ ouvrages, lots, jalons, acc, T, avancementOuvrage, tacheHeuresReelles, onClickTache }) {
+function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, tacheHeuresReelles, onClickTache }) {
   const DAY_PX = 28, ROW_H = 30, LABEL_W = 280, HEADER_H = 56;
   const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
   const addDays    = (d, n) => { const x = startOfDay(d); x.setDate(x.getDate() + n); return x; };
@@ -4805,6 +4863,10 @@ function GanttV2({ ouvrages, lots, jalons, acc, T, avancementOuvrage, tacheHeure
     if (a.ouvrage.id !== b.ouvrage.id) return (a.ouvrage.libelle || "").localeCompare(b.ouvrage.libelle || "");
     return a.date.getTime() - b.date.getTime();
   });
+
+  // Tri des non planifiées : ordre chrono métier (groupes de la vue
+  // Chronologique), plus dans l'ordre de saisie du devis.
+  sortByChrono(orphans, groupes);
 
   // Longueur en jours (skip weekends) à partir des heures estimées (~ 7h/jour)
   const dureeJours = (t) => {
