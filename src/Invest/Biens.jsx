@@ -3002,42 +3002,93 @@ function buildSimulateurProjectFromBien(bien = {}, selectedSimulationId = "") {
   };
 }
 
+function hasMetricValue(value) {
+  if (value === null || value === undefined || value === "") return false;
+  const n = getNumberLoose(value);
+  return Number.isFinite(n);
+}
+
+function metricValue(...values) {
+  for (const value of values) {
+    if (hasMetricValue(value)) return getNumberLoose(value);
+  }
+  return 0;
+}
+
 function getSimulationMetricsFromBien(bien = {}, selectedSimulationId = "") {
   const active = getActiveSimulationEntry(bien, selectedSimulationId);
   const sim = active?.donnees || bien.visite_data?.simulateur || {};
   const inputs = sim.inputs || {};
+  const selects = sim.selects || {};
   const lots = Array.isArray(sim.lots) ? sim.lots : [];
   const activeLots = lots.filter(l => l && (l.type || "") !== "Sélectionner");
-  const prix = numVal(inputs.prixNegocie || bien.montant_offre || bien.prix_vente);
-  const prixAffiche = numVal(inputs.prixAffiche || bien.prix_vente);
-  const travaux = numVal(inputs.budgetTravaux || bien.prix_travaux);
-  const honoraires = numVal(inputs.honoraires);
-  const enedis = numVal(inputs.enedis);
-  const tauxNotaire = numVal(inputs.tauxNotaire || 0.08);
-  const coutTotal = numVal(bien.cout_total) || prix + prix * tauxNotaire + travaux + honoraires + enedis;
+
+  // IMPORTANT — dossier investisseur :
+  // On reprend strictement l'hypothèse active du simulateur, et non les champs agrégés du bien.
+  // Sinon le dossier peut afficher un cash-flow différent si plusieurs simulations existent
+  // ou si l'hypothèse 2 est sélectionnée.
+  const prix = metricValue(inputs.prixNegocie, bien.montant_offre, bien.prix_vente);
+  const prixAffiche = metricValue(inputs.prixAffiche, bien.prix_vente);
+  const travaux = metricValue(inputs.budgetTravaux, bien.prix_travaux);
+  const honoraires = metricValue(inputs.honoraires);
+  const enedis = metricValue(inputs.enedis);
+  const tauxNotaire = hasMetricValue(inputs.tauxNotaire) ? getNumberLoose(inputs.tauxNotaire) : 0.08;
+  const coutTotalSimulateur = prix + prix * tauxNotaire + travaux + honoraires + enedis;
+  const coutTotal = coutTotalSimulateur > 0 ? coutTotalSimulateur : metricValue(bien.cout_total);
+
   const loyerMensuel = activeLots.reduce((s,l)=>s+numVal(l.loyer),0);
-  const rendement = coutTotal > 0 ? (loyerMensuel * 12 / coutTotal) * 100 : numVal(bien.rendement_brut);
-  const taxeFonciere = numVal(inputs.taxeFonciere);
-  const assurance = numVal(inputs.assurance);
-  const compta = numVal(inputs.compta);
-  const provisions = numVal(inputs.provisions);
-  const taux = numVal(inputs.taux1 || 0);
-  const duree = numVal(inputs.duree1 || 20);
-  const apport = numVal(inputs.apport1 || 0);
-  const mensualite = pmt(Math.max(coutTotal - apport, 0), taux, duree);
-  const cashflow = loyerMensuel - ((taxeFonciere + assurance + compta + provisions) / 12) - mensualite;
+  const loyerAnnuel = loyerMensuel * 12;
+  const rendement = coutTotal > 0 ? (loyerAnnuel / coutTotal) * 100 : metricValue(bien.rendement_brut);
+
+  const gestionActive = !!selects.gestionActive;
+  const gestionMensuelle = gestionActive
+    ? activeLots.reduce((s,l)=>s+(GESTION_PRICES[l.type] || 0),0)
+    : 0;
+  const gestionAnnuelle = gestionMensuelle * 12;
+
+  const taxeFonciere = metricValue(inputs.taxeFonciere);
+  const assurance = metricValue(inputs.assurance);
+  const compta = metricValue(inputs.compta);
+  const provisions = metricValue(inputs.provisions);
+  const chargesAnnuelles = taxeFonciere + assurance + compta + gestionAnnuelle + provisions;
+  const rendementNet = coutTotal > 0 ? ((loyerAnnuel - chargesAnnuelles) / coutTotal) * 100 : 0;
+
+  const selectedScenario = String(selects.selectedScenario || 1) === "2" ? 2 : 1;
+  const apport = selectedScenario === 2 ? metricValue(inputs.apport2) : metricValue(inputs.apport1);
+  const taux = selectedScenario === 2 ? metricValue(inputs.taux2) : metricValue(inputs.taux1);
+  const duree = selectedScenario === 2 ? metricValue(inputs.duree2, 25) : metricValue(inputs.duree1, 20);
+  const montantFinance = Math.max(coutTotal - apport, 0);
+  const mensualite = pmt(montantFinance, taux, duree);
+  const annuite = mensualite * 12;
+  const cashflow = (loyerAnnuel - chargesAnnuelles) / 12 - mensualite;
+  const pointEquilibreMois = loyerAnnuel > 0 ? ((chargesAnnuelles + annuite) / loyerAnnuel) * 12 : 0;
+  const margeSecuritePct = loyerAnnuel > 0 ? (1 - ((chargesAnnuelles + annuite) / loyerAnnuel)) * 100 : 0;
 
   return {
     simulation: active,
+    simulationId: active?.id || selectedSimulationId || sim.simulation_id || "",
+    simulationNom: active?.nom || sim.projectName || "Simulation",
+    selectedScenario,
     prixAffiche,
     prix,
     travaux,
     coutTotal,
     loyerMensuel,
+    loyerAnnuel,
     rendement,
-    cashflow: Number.isFinite(cashflow) ? cashflow : numVal(bien.cashflow_estime),
+    rendementNet,
+    cashflow: Number.isFinite(cashflow) ? cashflow : metricValue(bien.cashflow_estime),
+    mensualite,
+    annuite,
+    apport,
+    taux,
+    duree,
+    chargesAnnuelles,
+    gestionMensuelle,
+    pointEquilibreMois,
+    margeSecuritePct,
     lots: activeLots.length,
-    surface: numVal(inputs.surface || bien.surface_totale || bien.visite_data?.general?.surface_totale),
+    surface: metricValue(inputs.surface, bien.surface_totale, bien.visite_data?.general?.surface_totale),
     score: computeAutoBienScore(bien),
     ville: bien.ville || "—",
     adresse: getBienFullAddress(bien) || "—",
@@ -3441,9 +3492,9 @@ function buildDossierPresentationDefaults(bien = {}, selectedSimulationId = "") 
   const ville = bien.ville || gen.ville || "la ville ciblée";
   const lotsLabel = lots.length ? `${lots.length} logement${lots.length > 1 ? "s" : ""}` : (gen.lots_cibles ? `${gen.lots_cibles} logement(s)` : "plusieurs logements");
   const rb = metrics.rendement ? dossierFmtPct(metrics.rendement) : (bien.rendement_brut ? dossierFmtPct(bien.rendement_brut) : "à confirmer");
-  const prixCible = metrics.prix || bien.montant_offre || bien.prix_vente || 0;
-  const travaux = metrics.travaux || bien.prix_travaux || 0;
-  const coutTotal = metrics.coutTotal || bien.cout_total || (prixCible + travaux) || 0;
+  const prixCible = metricValue(metrics.prix, bien.montant_offre, bien.prix_vente);
+  const travaux = metricValue(metrics.travaux, bien.prix_travaux);
+  const coutTotal = metricValue(metrics.coutTotal, bien.cout_total, prixCible + travaux);
 
   const photoPrincipale = dossierSaved.photo_url || v.photo_principale_url || bien.photo_url || "";
   const galeriePhotos = cleanDossierMediaList(dossierSaved.photos || []);
@@ -3526,11 +3577,11 @@ function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selec
   const photoUrl = String(dossier.photo_url || "").trim();
   const dateEdition = dossier.date_edition ? new Date(dossier.date_edition).toLocaleDateString("fr-FR") : new Date().toLocaleDateString("fr-FR");
   const totalLoyers = lots.reduce((s,l)=>s+(Number(l.loyer)||0),0) || metrics.loyerMensuel || 0;
-  const prixCible = metrics.prix || bien.montant_offre || bien.prix_vente || 0;
-  const travaux = metrics.travaux || bien.prix_travaux || 0;
-  const coutTotal = metrics.coutTotal || bien.cout_total || 0;
-  const rendement = metrics.rendement || bien.rendement_brut || 0;
-  const cashflow = metrics.cashflow || bien.cashflow_estime || 0;
+  const prixCible = metricValue(metrics.prix, bien.montant_offre, bien.prix_vente);
+  const travaux = metricValue(metrics.travaux, bien.prix_travaux);
+  const coutTotal = metricValue(metrics.coutTotal, bien.cout_total);
+  const rendement = metricValue(metrics.rendement, bien.rendement_brut);
+  const cashflow = metricValue(metrics.cashflow, bien.cashflow_estime);
   const surface = metrics.surface || bien.surface_totale || bien.visite_data?.general?.surface_totale || 0;
   const photoGallery = cleanDossierMediaList(dossier.photos || []);
   const planGallery = cleanDossierMediaList(dossier.plans || []);
@@ -3998,12 +4049,12 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
         <div className="inv-card-bd">
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:8,marginBottom:12}}>
             {[
-              ["Prix cible", dossierFmtEur(metrics.prix || bien.montant_offre || bien.prix_vente)],
-              ["Travaux", dossierFmtEur(metrics.travaux || bien.prix_travaux)],
-              ["Coût global", dossierFmtEur(metrics.coutTotal || bien.cout_total)],
+              ["Prix cible", dossierFmtEur(metricValue(metrics.prix, bien.montant_offre, bien.prix_vente))],
+              ["Travaux", dossierFmtEur(metricValue(metrics.travaux, bien.prix_travaux))],
+              ["Coût global", dossierFmtEur(metricValue(metrics.coutTotal, bien.cout_total))],
               ["Loyers", `${dossierFmtEur(metrics.loyerMensuel)}/mois`],
-              ["Rendement", dossierFmtPct(metrics.rendement || bien.rendement_brut)],
-              ["Cash-flow", `${dossierFmtEur(metrics.cashflow || bien.cashflow_estime)}/mois`],
+              ["Rendement", dossierFmtPct(metricValue(metrics.rendement, bien.rendement_brut))],
+              ["Cash-flow", `${dossierFmtEur(metricValue(metrics.cashflow, bien.cashflow_estime))}/mois`],
             ].map(([label,value]) => (
               <div key={label} style={{padding:"9px 10px",borderRadius:RADIUS.md,background:T.input,border:`1px solid ${T.border}`}}>
                 <div style={{fontSize:FONT.xs.size,color:T.textMuted,textTransform:"uppercase",fontWeight:900,letterSpacing:.7}}>{label}</div>
@@ -4123,12 +4174,12 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
             <div style={{fontSize:FONT.sm.size,color:T.textSub,marginTop:5,lineHeight:1.45}}>{data.sous_titre}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
               {[
-                ["Prix cible", dossierFmtEur(metrics.prix || bien.montant_offre || bien.prix_vente)],
-                ["Travaux", dossierFmtEur(metrics.travaux || bien.prix_travaux)],
-                ["Rendement", dossierFmtPct(metrics.rendement || bien.rendement_brut)],
-                ["Cash-flow", `${dossierFmtEur(metrics.cashflow || bien.cashflow_estime)}/mois`],
+                ["Prix cible", dossierFmtEur(metricValue(metrics.prix, bien.montant_offre, bien.prix_vente))],
+                ["Travaux", dossierFmtEur(metricValue(metrics.travaux, bien.prix_travaux))],
+                ["Rendement", dossierFmtPct(metricValue(metrics.rendement, bien.rendement_brut))],
+                ["Cash-flow", `${dossierFmtEur(metricValue(metrics.cashflow, bien.cashflow_estime))}/mois`],
                 ["Lots", lots.length || "—"],
-                ["Surface", metrics.surface ? `${metrics.surface} m²` : "—"],
+                ["Surface", metricValue(metrics.surface) ? `${metricValue(metrics.surface)} m²` : "—"],
               ].map(([label,value])=>(
                 <div key={label} style={{padding:"8px 9px",borderRadius:RADIUS.md,background:T.input,border:`1px solid ${T.border}`}}>
                   <div style={{fontSize:FONT.xs.size,color:T.textMuted,textTransform:"uppercase",fontWeight:900,letterSpacing:.7}}>{label}</div>
