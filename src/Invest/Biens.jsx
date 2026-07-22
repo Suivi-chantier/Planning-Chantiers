@@ -3613,53 +3613,81 @@ function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selec
 <title>${dossierEscapeHtml(dossier.titre || "Dossier investisseur")}</title>
 <style>
   *{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
-  html{background:#e9edf5}
-  body{margin:0;background:#e9edf5;color:#172033;font-family:Arial,Helvetica,sans-serif;line-height:1.38}
+  html{background:#e7ebf3}
+  body{margin:0;background:#e7ebf3;color:#172033;font-family:Arial,Helvetica,sans-serif;line-height:1.36}
   .print-toolbar{position:fixed;right:18px;top:18px;z-index:50;display:flex;align-items:center;gap:10px;background:rgba(17,24,39,.94);color:white;border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:10px 12px;box-shadow:0 18px 50px rgba(0,0,0,.28);backdrop-filter:blur(10px)}
   .print-toolbar span{font-size:11px;color:rgba(255,255,255,.72);font-weight:700;line-height:1.25}
   .print-btn{background:#c9a34a;color:#111827;border:0;border-radius:999px;padding:11px 16px;font-weight:900;box-shadow:0 8px 22px rgba(201,163,74,.28);cursor:pointer;white-space:nowrap}
-  .doc{width:1060px;margin:0 auto;background:#ffffff;min-height:100vh;box-shadow:0 24px 90px rgba(15,23,42,.2)}
-  .page{padding:24px 34px;border-top:1px solid #e8edf5;background:#ffffff;page-break-inside:auto;break-inside:auto}.page.break{page-break-before:auto;break-before:auto}.tight{padding-top:18px;padding-bottom:18px}
-  .cover{min-height:610px;background:#14213d;background:linear-gradient(135deg,#111827 0%,#182743 58%,#263a60 100%);color:#ffffff;padding:34px 42px 32px;position:relative;overflow:hidden;page-break-after:always;break-after:page}.cover:after{content:"";position:absolute;right:-120px;top:-140px;width:410px;height:410px;border-radius:50%;background:rgba(201,163,74,.16)}.cover:before{content:"";position:absolute;left:-160px;bottom:-190px;width:430px;height:430px;border-radius:50%;background:rgba(255,255,255,.045)}
-  .brand{display:flex;justify-content:space-between;align-items:center;gap:20px;position:relative;z-index:1;margin-bottom:22px}.brand img{max-height:46px;max-width:270px;object-fit:contain;filter:brightness(0) invert(1)}.brand .meta{text-align:right;color:rgba(255,255,255,.7);font-size:11px;text-transform:uppercase;letter-spacing:1.8px;font-weight:800}
-  h1{font-size:41px;line-height:1.01;margin:0 0 10px;font-weight:900;letter-spacing:-.9px;max-width:780px;position:relative;z-index:1}.subtitle{font-size:16px;color:rgba(255,255,255,.8);max-width:790px;position:relative;z-index:1}.cover-claim{margin-top:16px;font-size:21px;font-weight:900;max-width:780px;line-height:1.24;color:#f8fafc;position:relative;z-index:1}.badge{display:inline-block;margin-top:14px;border:1px solid rgba(201,163,74,.7);background:rgba(201,163,74,.12);color:#f4d58a;border-radius:999px;padding:7px 12px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1.1px;position:relative;z-index:1}
-  .cover-photo{margin-top:22px;position:relative;z-index:1}.hero-photo{width:100%;height:300px;object-fit:cover;border-radius:22px;display:block;box-shadow:0 18px 52px rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.18)}.photo-placeholder{height:285px;border-radius:22px;background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.34);display:flex;align-items:center;justify-content:center;flex-direction:column;color:rgba(255,255,255,.82);font-weight:900;text-transform:uppercase;letter-spacing:1px}.photo-placeholder span{font-weight:600;text-transform:none;letter-spacing:0;margin-top:8px;font-size:12px;color:rgba(255,255,255,.58)}
-  .section-title{margin:0 0 11px;font-size:15px;color:#14213d;text-transform:uppercase;letter-spacing:1.6px;font-weight:900;display:flex;align-items:center;gap:10px}.section-title:before{content:"";display:block;width:28px;height:3px;background:#c9a34a;border-radius:999px}.lead{font-size:18px;color:#172033;font-weight:900;margin:0 0 10px;line-height:1.32}.text{font-size:13.5px;color:#334155;white-space:pre-line}.muted{color:#64748b}.gold{color:#b98d22}.dark{color:#14213d}
-  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}.kpi{background:#f8fafc;border:1px solid #e5eaf2;border-radius:14px;padding:11px 10px;border-left:4px solid #c9a34a;page-break-inside:avoid;break-inside:avoid}.kpi .v{font-size:18px;font-weight:900;color:#14213d;line-height:1.05}.kpi .l{font-size:9.5px;color:#64748b;text-transform:uppercase;letter-spacing:.7px;margin-top:5px;font-weight:900}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.box{background:#f8fafc;border:1px solid #e5eaf2;border-radius:14px;padding:12px;page-break-inside:avoid;break-inside:avoid}.box.darkbox{background:#14213d;color:white;border:0}.box h3{margin:0 0 6px;color:#14213d;font-size:12px;text-transform:uppercase;letter-spacing:.85px}.box.darkbox h3{color:#f4d58a}.box p{margin:0;color:#334155;font-size:13.2px;white-space:pre-line}.box.darkbox p{color:rgba(255,255,255,.82)}
-  .media-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.media-grid figure{margin:0;background:#f8fafc;border:1px solid #e5eaf2;border-radius:14px;overflow:hidden;break-inside:avoid;page-break-inside:avoid}.media-grid img{width:100%;height:205px;object-fit:cover;display:block}.media-grid figcaption{padding:9px 11px;color:#475569;font-size:12px;line-height:1.3}.media-grid figcaption strong{color:#14213d}.visual-empty{height:180px;border-radius:14px;background:#f8fafc;border:1px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#64748b;text-align:center;padding:20px}.visual-empty span{font-size:12px;margin-top:5px;color:#94a3b8;font-weight:600}
-  .project{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;align-items:stretch}.project-card{background:#14213d;background:linear-gradient(135deg,#14213d,#233c65);color:white;border-radius:16px;padding:17px;page-break-inside:avoid;break-inside:avoid}.project-card h3{margin:0 0 8px;color:#f4d58a;font-size:12px;text-transform:uppercase;letter-spacing:1.05px}.project-card p{margin:0;font-size:14px;color:rgba(255,255,255,.86);white-space:pre-line}.timeline{display:grid;gap:7px}.step{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start}.step b{width:28px;height:28px;border-radius:50%;background:#c9a34a;color:#111827;display:flex;align-items:center;justify-content:center;font-size:11px}.step span{font-size:12.5px;color:#334155;padding-top:4px}
-  table{width:100%;border-collapse:collapse;border:1px solid #e5eaf2;border-radius:14px;overflow:hidden}th{background:#14213d;color:white;font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;text-align:left;padding:8px}td{border-top:1px solid #e5eaf2;padding:8px;font-size:12.5px;color:#334155;vertical-align:top}td strong{color:#14213d}td span{color:#64748b;font-size:11px}
-  .risk{background:#fff8ec;border:1px solid #f2d5a2;border-radius:14px;padding:12px;page-break-inside:avoid;break-inside:avoid}.risk strong{color:#b45309}.success{background:#eefaf3;border:1px solid #bde7cc;border-radius:14px;padding:12px;page-break-inside:avoid;break-inside:avoid}.success strong{color:#157347}.footer{background:#111827;color:rgba(255,255,255,.72);padding:20px 34px;font-size:11.5px}.footer strong{color:#f4d58a}
-  section + section{margin-top:0}
+
+  .doc{width:1060px;margin:0 auto;background:#ffffff;min-height:100vh;box-shadow:0 24px 90px rgba(15,23,42,.22)}
+  .cover{min-height:650px;background:#14213d;background-image:linear-gradient(135deg,#0f172a 0%,#14213d 48%,#243b63 100%);color:#ffffff;padding:38px 44px 34px;position:relative;overflow:hidden;page-break-after:always;break-after:page}
+  .cover:after{content:"";position:absolute;right:-125px;top:-150px;width:430px;height:430px;border-radius:50%;background:rgba(201,163,74,.18)}
+  .cover:before{content:"";position:absolute;left:-170px;bottom:-205px;width:455px;height:455px;border-radius:50%;background:rgba(255,255,255,.055)}
+  .brand{display:flex;justify-content:space-between;align-items:center;gap:20px;position:relative;z-index:1;margin-bottom:28px}
+  .brand img{max-height:48px;max-width:270px;object-fit:contain;filter:brightness(0) invert(1)}
+  .brand .meta{text-align:right;color:rgba(255,255,255,.72);font-size:11px;text-transform:uppercase;letter-spacing:1.8px;font-weight:800}
+  h1{font-size:43px;line-height:1.02;margin:0 0 12px;font-weight:900;letter-spacing:-.9px;max-width:810px;position:relative;z-index:1}
+  .subtitle{font-size:16px;color:rgba(255,255,255,.82);max-width:790px;position:relative;z-index:1}
+  .cover-claim{margin-top:18px;font-size:22px;font-weight:900;max-width:805px;line-height:1.27;color:#f8fafc;position:relative;z-index:1}
+  .badge{display:inline-block;margin-top:16px;border:1px solid rgba(201,163,74,.72);background:rgba(201,163,74,.13);color:#f4d58a;border-radius:999px;padding:8px 13px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1.1px;position:relative;z-index:1}
+  .cover-photo{margin-top:24px;position:relative;z-index:1}
+  .hero-photo{width:100%;height:305px;object-fit:cover;border-radius:22px;display:block;box-shadow:0 18px 52px rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.18)}
+  .photo-placeholder{height:300px;border-radius:22px;background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.34);display:flex;align-items:center;justify-content:center;flex-direction:column;color:rgba(255,255,255,.82);font-weight:900;text-transform:uppercase;letter-spacing:1px}.photo-placeholder span{font-weight:600;text-transform:none;letter-spacing:0;margin-top:8px;font-size:12px;color:rgba(255,255,255,.58)}
+
+  .page{padding:30px 40px;background:#ffffff;border-top:1px solid #e8edf5;page-break-inside:auto;break-inside:auto}
+  .page.major{page-break-before:always;break-before:page}
+  .page.compact{padding-top:24px;padding-bottom:24px}
+  .section-title{margin:0 0 14px;font-size:15px;color:#14213d;text-transform:uppercase;letter-spacing:1.55px;font-weight:900;display:flex;align-items:center;gap:10px}
+  .section-title:before{content:"";display:block;width:30px;height:3px;background:#c9a34a;border-radius:999px;flex-shrink:0}
+  .lead{font-size:18px;color:#172033;font-weight:900;margin:0 0 12px;line-height:1.33}
+  .text{font-size:13.5px;color:#334155;white-space:pre-line}.muted{color:#64748b}.gold{color:#b98d22}.dark{color:#14213d}
+
+  .summary-layout{display:grid;grid-template-columns:1.05fr .95fr;gap:15px;align-items:stretch}
+  .metric-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .kpi{background:#f8fafc;border:1px solid #e5eaf2;border-radius:14px;padding:11px 10px;border-left:4px solid #c9a34a;page-break-inside:avoid;break-inside:avoid}
+  .kpi .v{font-size:18px;font-weight:900;color:#14213d;line-height:1.06}.kpi .l{font-size:9.5px;color:#64748b;text-transform:uppercase;letter-spacing:.7px;margin-top:5px;font-weight:900}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .stack{display:flex;flex-direction:column;gap:12px}
+  .box{background:#f8fafc;border:1px solid #e5eaf2;border-radius:15px;padding:13px;page-break-inside:avoid;break-inside:avoid}
+  .box.darkbox{background:#14213d;color:white;border:0}.box.goldbox{background:#fff8ea;border:1px solid #efd497}
+  .box h3{margin:0 0 6px;color:#14213d;font-size:12px;text-transform:uppercase;letter-spacing:.85px}.box.darkbox h3{color:#f4d58a}
+  .box p{margin:0;color:#334155;font-size:13px;white-space:pre-line}.box.darkbox p{color:rgba(255,255,255,.84)}
+
+  .media-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.media-grid figure{margin:0;background:#f8fafc;border:1px solid #e5eaf2;border-radius:14px;overflow:hidden;break-inside:avoid;page-break-inside:avoid}.media-grid img{width:100%;height:190px;object-fit:cover;display:block}.media-grid figcaption{padding:8px 10px;color:#475569;font-size:11.7px;line-height:1.25}.media-grid figcaption strong{color:#14213d}.visual-empty{height:170px;border-radius:14px;background:#f8fafc;border:1px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#64748b;text-align:center;padding:18px}.visual-empty span{font-size:12px;margin-top:5px;color:#94a3b8;font-weight:600}
+  .media-compact .media-grid img{height:160px}.plans .media-grid img{height:215px;object-fit:contain;background:#ffffff}
+
+  .project{display:grid;grid-template-columns:1.08fr .92fr;gap:12px;align-items:stretch}.project-card{background:#14213d;background-image:linear-gradient(135deg,#14213d,#233c65);color:white;border-radius:17px;padding:17px;page-break-inside:avoid;break-inside:avoid}.project-card h3{margin:0 0 8px;color:#f4d58a;font-size:12px;text-transform:uppercase;letter-spacing:1.05px}.project-card p{margin:0;font-size:14px;color:rgba(255,255,255,.86);white-space:pre-line}
+  .timeline{display:grid;gap:7px}.step{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start}.step b{width:28px;height:28px;border-radius:50%;background:#c9a34a;color:#111827;display:flex;align-items:center;justify-content:center;font-size:11px}.step span{font-size:12.5px;color:#334155;padding-top:4px}
+
+  table{width:100%;border-collapse:collapse;border:1px solid #e5eaf2;border-radius:14px;overflow:hidden;page-break-inside:auto;break-inside:auto}th{background:#14213d;color:white;font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;text-align:left;padding:8px}td{border-top:1px solid #e5eaf2;padding:8px;font-size:12.5px;color:#334155;vertical-align:top}td strong{color:#14213d}td span{color:#64748b;font-size:11px}
+  .risk{background:#fff8ec;border:1px solid #f2d5a2;border-radius:15px;padding:13px;page-break-inside:avoid;break-inside:avoid}.risk strong{color:#b45309}.success{background:#eefaf3;border:1px solid #bde7cc;border-radius:15px;padding:13px;page-break-inside:avoid;break-inside:avoid}.success strong{color:#157347}
+  .footer{background:#111827;color:rgba(255,255,255,.72);padding:20px 40px;font-size:11.5px}.footer strong{color:#f4d58a}
+
+  .section-gap{margin-top:14px}.micro-gap{margin-top:10px}.map-wrap{margin-top:12px;border-radius:16px;overflow:hidden;border:1px solid #e5eaf2;background:#f8fafc}.map-wrap iframe{width:100%;height:205px;border:0;display:block}.map-link{font-size:11px;margin-top:6px}.map-link a{color:#b98d22;font-weight:900;text-decoration:none}
 
   @page{size:A4;margin:0}
   @media print{
-    html,body{width:210mm;background:#ffffff!important;margin:0!important;padding:0!important;line-height:1.32!important}
+    html,body{width:210mm;background:#ffffff!important;margin:0!important;padding:0!important;line-height:1.30!important}
     .print-toolbar{display:none!important}
     .doc{width:210mm!important;margin:0!important;box-shadow:none!important;background:#ffffff!important}
     .cover{min-height:297mm!important;padding:16mm 14mm!important;background:#14213d!important;background-image:linear-gradient(135deg,#111827 0%,#182743 58%,#263a60 100%)!important;color:#ffffff!important}
     .cover:after{background:rgba(201,163,74,.18)!important}.cover:before{background:rgba(255,255,255,.05)!important}
-    .page{padding:9mm 11mm!important;border-top:1px solid #e8edf5!important;background:#ffffff!important;page-break-inside:auto!important;break-inside:auto!important}
-    .page.break{page-break-before:auto!important;break-before:auto!important}
-    .tight{padding-top:8mm!important;padding-bottom:8mm!important}
-    h1{font-size:32pt!important}.subtitle{font-size:12.5pt!important}.cover-claim{font-size:17pt!important}
-    .section-title{color:#14213d!important;margin-bottom:7px!important}.section-title:before{background:#c9a34a!important}
-    .lead{font-size:15.5pt!important;margin-bottom:7px!important}
-    .text{font-size:10.5pt!important}
-    .kpis{grid-template-columns:repeat(3,1fr)!important;gap:6px!important;margin-top:8px!important}
-    .kpi{background:#f8fafc!important;border:1px solid #e5eaf2!important;border-left:4px solid #c9a34a!important;box-shadow:none!important;padding:8px 9px!important;border-radius:12px!important}
-    .kpi .v{color:#14213d!important;font-size:14pt!important}.kpi .l{color:#64748b!important;font-size:7.5pt!important;margin-top:3px!important}
-    .grid2{gap:8px!important}.grid3{gap:6px!important}
-    .box{background:#f8fafc!important;border:1px solid #e5eaf2!important;padding:9px!important;border-radius:12px!important}.box.darkbox{background:#14213d!important;color:#ffffff!important}.box.darkbox h3{color:#f4d58a!important}.box.darkbox p{color:rgba(255,255,255,.86)!important}.box h3{margin-bottom:4px!important;font-size:8.5pt!important}.box p{font-size:9.8pt!important}
-    .project{gap:8px!important}.project-card{background:#14213d!important;background-image:linear-gradient(135deg,#14213d,#233c65)!important;color:#ffffff!important;padding:12px!important;border-radius:13px!important}.project-card h3{color:#f4d58a!important;margin-bottom:5px!important}.project-card p{color:rgba(255,255,255,.88)!important;font-size:10pt!important}
-    .timeline{gap:5px!important}.step{grid-template-columns:24px 1fr!important;gap:6px!important}.step b{width:24px!important;height:24px!important}.step span{font-size:9.5pt!important;padding-top:3px!important}
-    th{background:#14213d!important;color:#ffffff!important;padding:6px!important;font-size:7.5pt!important}td{background:#ffffff!important;color:#334155!important;padding:6px!important;font-size:9pt!important}
-    .risk{background:#fff8ec!important;border:1px solid #f2d5a2!important;padding:9px!important;border-radius:12px!important}.success{background:#eefaf3!important;border:1px solid #bde7cc!important;padding:9px!important;border-radius:12px!important}
-    .footer{background:#111827!important;color:rgba(255,255,255,.72)!important;padding:14px 11mm!important;font-size:8.5pt!important}.footer strong{color:#f4d58a!important}
-    .hero-photo{height:88mm!important;box-shadow:none!important}.media-grid{gap:7px!important}.media-grid img{height:55mm!important}.media-grid figure{background:#f8fafc!important;border:1px solid #e5eaf2!important;page-break-inside:avoid!important;break-inside:avoid!important;border-radius:12px!important}.media-grid figcaption{padding:6px 8px!important;font-size:8.8pt!important}
-    .visual-empty{height:48mm!important;border-radius:12px!important}
-    iframe{max-height:62mm!important}
+    h1{font-size:32pt!important}.subtitle{font-size:12.5pt!important}.cover-claim{font-size:16.5pt!important}.hero-photo{height:88mm!important;box-shadow:none!important}
+    .page{padding:9.5mm 11mm!important;border-top:1px solid #e8edf5!important;background:#ffffff!important;page-break-inside:auto!important;break-inside:auto!important}.page.major{page-break-before:always!important;break-before:page!important}.page.compact{padding-top:8mm!important;padding-bottom:8mm!important}
+    .section-title{color:#14213d!important;margin-bottom:7px!important;font-size:11pt!important}.section-title:before{background:#c9a34a!important}
+    .lead{font-size:15pt!important;margin-bottom:8px!important}.text{font-size:10pt!important}
+    .summary-layout{grid-template-columns:1.05fr .95fr!important;gap:8px!important}.metric-grid{gap:5px!important}
+    .kpi{background:#f8fafc!important;border:1px solid #e5eaf2!important;border-left:4px solid #c9a34a!important;box-shadow:none!important;padding:7px 8px!important;border-radius:11px!important}.kpi .v{color:#14213d!important;font-size:13pt!important}.kpi .l{color:#64748b!important;font-size:7.3pt!important;margin-top:3px!important}
+    .grid2{gap:7px!important}.grid3{gap:6px!important}.stack{gap:7px!important}
+    .box{background:#f8fafc!important;border:1px solid #e5eaf2!important;padding:8px!important;border-radius:11px!important}.box.darkbox{background:#14213d!important;color:#ffffff!important}.box.goldbox{background:#fff8ea!important;border:1px solid #efd497!important}.box.darkbox h3{color:#f4d58a!important}.box.darkbox p{color:rgba(255,255,255,.86)!important}.box h3{margin-bottom:4px!important;font-size:8.2pt!important}.box p{font-size:9.4pt!important}
+    .project{gap:7px!important}.project-card{background:#14213d!important;background-image:linear-gradient(135deg,#14213d,#233c65)!important;color:#ffffff!important;padding:11px!important;border-radius:12px!important}.project-card h3{color:#f4d58a!important;margin-bottom:5px!important}.project-card p{color:rgba(255,255,255,.88)!important;font-size:9.7pt!important}
+    .timeline{gap:5px!important}.step{grid-template-columns:23px 1fr!important;gap:6px!important}.step b{width:23px!important;height:23px!important}.step span{font-size:9pt!important;padding-top:3px!important}
+    th{background:#14213d!important;color:#ffffff!important;padding:5px!important;font-size:7pt!important}td{background:#ffffff!important;color:#334155!important;padding:5px!important;font-size:8.7pt!important}
+    .risk{background:#fff8ec!important;border:1px solid #f2d5a2!important;padding:8px!important;border-radius:11px!important}.success{background:#eefaf3!important;border:1px solid #bde7cc!important;padding:8px!important;border-radius:11px!important}
+    .footer{background:#111827!important;color:rgba(255,255,255,.72)!important;padding:12px 11mm!important;font-size:8.3pt!important}.footer strong{color:#f4d58a!important}
+    .media-grid{gap:6px!important}.media-grid img{height:48mm!important}.media-compact .media-grid img{height:39mm!important}.plans .media-grid img{height:48mm!important}.media-grid figure{background:#f8fafc!important;border:1px solid #e5eaf2!important;page-break-inside:avoid!important;break-inside:avoid!important;border-radius:10px!important}.media-grid figcaption{padding:5px 7px!important;font-size:8.2pt!important}.visual-empty{height:42mm!important;border-radius:11px!important}
+    .section-gap{margin-top:7px!important}.micro-gap{margin-top:5px!important}.map-wrap{margin-top:7px!important;border-radius:11px!important}.map-wrap iframe{height:48mm!important}.map-link{font-size:7.8pt!important;margin-top:4px!important}
     a{color:inherit!important;text-decoration:none!important}
   }
 </style>
@@ -3682,108 +3710,120 @@ function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selec
     <div class="cover-photo">${photoBlock}</div>
   </section>
 
-  <section class="page tight">
+  <section class="page compact">
     <h2 class="section-title">Synthèse investisseur</h2>
-    <p class="lead">${dossierEscapeHtml(dossier.accroche || "Synthèse du projet")}</p>
-    <div class="kpis">
-      <div class="kpi"><div class="v">${dossierFmtEur(prixCible)}</div><div class="l">Prix cible</div></div>
-      <div class="kpi"><div class="v">${dossierFmtEur(travaux)}</div><div class="l">Travaux</div></div>
-      <div class="kpi"><div class="v">${dossierFmtEur(coutTotal)}</div><div class="l">Coût global</div></div>
-      <div class="kpi"><div class="v">${dossierFmtEur(totalLoyers)}</div><div class="l">Loyers mensuels</div></div>
-      <div class="kpi"><div class="v">${dossierFmtPct(rendement)}</div><div class="l">Rendement brut</div></div>
-      <div class="kpi"><div class="v">${dossierFmtEur(cashflow)}</div><div class="l">Cash-flow / mois</div></div>
-      <div class="kpi"><div class="v">${lots.length || "—"}</div><div class="l">Lots cibles</div></div>
-      <div class="kpi"><div class="v">${surface ? `${dossierEscapeHtml(surface)} m²` : "—"}</div><div class="l">Surface</div></div>
-      <div class="kpi"><div class="v">${dossierEscapeHtml(bien.statut || "À analyser")}</div><div class="l">Statut</div></div>
-      <div class="kpi"><div class="v">${dossierEscapeHtml(dossier.responsable || "Profero")}</div><div class="l">Suivi par</div></div>
-    </div>
-  </section>
-
-  <section class="page">
-    <h2 class="section-title">Résumé exécutif</h2>
-    <div class="grid2">
-      <div class="box darkbox"><h3>Vision du projet</h3><p>${renderDossierHtmlParagraph(dossier.synthese_executive)}</p></div>
-      <div class="box"><h3>Profil investisseur</h3><p>${renderDossierHtmlParagraph(dossier.profil_investisseur)}</p></div>
+    <div class="summary-layout">
+      <div class="stack">
+        <div class="box darkbox">
+          <h3>Ce qu’il faut retenir</h3>
+          <p>${dossierEscapeHtml(dossier.accroche || "Synthèse du projet")}</p>
+        </div>
+        <div class="box">
+          <h3>Vision Profero du projet</h3>
+          <p>${renderDossierHtmlParagraph(dossier.synthese_executive)}</p>
+        </div>
+        <div class="box goldbox">
+          <h3>Profil investisseur cible</h3>
+          <p>${renderDossierHtmlParagraph(dossier.profil_investisseur)}</p>
+        </div>
+      </div>
+      <div>
+        <div class="metric-grid">
+          <div class="kpi"><div class="v">${dossierFmtEur(prixCible)}</div><div class="l">Prix cible</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(travaux)}</div><div class="l">Travaux</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(coutTotal)}</div><div class="l">Coût global</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(totalLoyers)}</div><div class="l">Loyers mensuels</div></div>
+          <div class="kpi"><div class="v">${dossierFmtPct(rendement)}</div><div class="l">Rendement brut</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(cashflow)}</div><div class="l">Cash-flow / mois</div></div>
+          <div class="kpi"><div class="v">${lots.length || "—"}</div><div class="l">Lots cibles</div></div>
+          <div class="kpi"><div class="v">${surface ? `${dossierEscapeHtml(surface)} m²` : "—"}</div><div class="l">Surface</div></div>
+          <div class="kpi"><div class="v">${dossierEscapeHtml(bien.statut || "À analyser")}</div><div class="l">Statut</div></div>
+          <div class="kpi"><div class="v">${dossierEscapeHtml(dossier.responsable || "Profero")}</div><div class="l">Suivi par</div></div>
+        </div>
+      </div>
     </div>
   </section>
 
   ${dossier.afficher_page_ville !== false ? `
-  <section class="page break">
-    <h2 class="section-title">Analyse de la ville et du secteur</h2>
+  <section class="page">
+    <h2 class="section-title">Emplacement, ville et demande locative</h2>
     <div class="grid2">
-      <div class="box"><h3>${dossierEscapeHtml(dossier.analyse_ville_titre || "Analyse de la ville")}</h3><p>${renderDossierHtmlParagraph(dossier.analyse_ville)}</p></div>
-      <div class="box"><h3>Dynamique économique</h3><p>${renderDossierHtmlParagraph(dossier.dynamique_economique)}</p></div>
-      <div class="box"><h3>Quartier et micro-localisation</h3><p>${renderDossierHtmlParagraph(dossier.analyse_quartier)}</p></div>
-      <div class="box"><h3>Demande locative</h3><p>${renderDossierHtmlParagraph(dossier.demande_locative)}<br><br>${renderDossierHtmlParagraph(dossier.population_cible)}</p></div>
+      <div class="stack">
+        <div class="box"><h3>${dossierEscapeHtml(dossier.analyse_ville_titre || "Analyse de la ville")}</h3><p>${renderDossierHtmlParagraph(dossier.analyse_ville)}</p></div>
+        <div class="box"><h3>Dynamique économique</h3><p>${renderDossierHtmlParagraph(dossier.dynamique_economique)}</p></div>
+      </div>
+      <div class="stack">
+        <div class="box darkbox"><h3>Quartier et micro-localisation</h3><p>${renderDossierHtmlParagraph(dossier.analyse_quartier)}</p></div>
+        <div class="box"><h3>Demande locative et population cible</h3><p>${renderDossierHtmlParagraph(dossier.demande_locative)}<br><br>${renderDossierHtmlParagraph(dossier.population_cible)}</p></div>
+      </div>
     </div>
-    ${mapEmbed ? `<div style="margin-top:18px;border-radius:18px;overflow:hidden;border:1px solid #e5eaf2"><iframe src="${mapEmbed}" style="width:100%;height:260px;border:0" loading="lazy"></iframe></div><div style="font-size:11px;margin-top:8px"><a href="${mapLink}" target="_blank" style="color:#b98d22;font-weight:800;text-decoration:none">Ouvrir la localisation dans Google Maps →</a></div>` : ""}
+    ${mapEmbed ? `<div class="map-wrap"><iframe src="${mapEmbed}" loading="lazy"></iframe></div><div class="map-link"><a href="${mapLink}" target="_blank">Ouvrir la localisation dans Google Maps →</a></div>` : ""}
   </section>` : ""}
 
-  ${dossier.afficher_page_photos !== false ? `
-  <section class="page break">
-    <h2 class="section-title">Photos du bien</h2>
-    ${renderDossierMediaGrid(photoGallery, "Photos du bien")}
-  </section>` : ""}
-
-  <section class="page break">
-    <h2 class="section-title">Présentation du projet global</h2>
+  <section class="page major">
+    <h2 class="section-title">Le bien et le projet de transformation</h2>
     <div class="project">
       <div class="project-card"><h3>Projet proposé</h3><p>${renderDossierHtmlParagraph(dossier.projet_global)}</p></div>
-      <div class="box"><h3>Avant / Après</h3><p>${renderDossierHtmlParagraph(dossier.vision_avant_apres)}</p></div>
+      <div class="box"><h3>Vision avant / après</h3><p>${renderDossierHtmlParagraph(dossier.vision_avant_apres)}</p></div>
     </div>
-    <div class="grid2" style="margin-top:18px">
+    <div class="grid2 section-gap">
       <div class="box"><h3>Programme travaux</h3><p>${renderDossierHtmlParagraph(dossier.programme_travaux)}</p></div>
       <div class="box"><h3>Stratégie locative</h3><p>${renderDossierHtmlParagraph(dossier.strategie_locative)}</p></div>
     </div>
+    ${dossier.afficher_page_photos !== false ? `
+    <div class="media-compact section-gap">
+      <h2 class="section-title" style="margin-top:4px">Photos du bien</h2>
+      ${renderDossierMediaGrid(photoGallery, "Photos du bien")}
+    </div>` : ""}
   </section>
 
   ${dossier.afficher_page_plans !== false ? `
-  <section class="page break">
-    <h2 class="section-title">Plans du projet</h2>
-    ${renderDossierMediaGrid(planGallery, "Plans du projet")}
+  <section class="page">
+    <h2 class="section-title">Plans et configuration projetée</h2>
+    <div class="plans">
+      ${renderDossierMediaGrid(planGallery, "Plans du projet")}
+    </div>
   </section>` : ""}
 
-  <section class="page">
-    <h2 class="section-title">Configuration locative cible</h2>
-    <table>
-      <thead><tr><th>Lot</th><th>Typologie</th><th>Surface</th><th>Loyer cible</th><th>Commentaire</th></tr></thead>
-      <tbody>${lotRows || `<tr><td colspan="5">Aucun lot renseigné</td></tr>`}</tbody>
-    </table>
-  </section>
-
-  <section class="page break">
-    <h2 class="section-title">Analyse financière</h2>
-    <p class="lead">${renderDossierHtmlParagraph(dossier.analyse_financiere_commentaire)}</p>
-    <div class="grid3" style="margin-top:18px">
-      <div class="box"><h3>Coût d’acquisition</h3><p><strong>${dossierFmtEur(prixCible)}</strong><br>Prix cible / offre envisagée</p></div>
-      <div class="box"><h3>Budget travaux</h3><p><strong>${dossierFmtEur(travaux)}</strong><br>Enveloppe à confirmer par devis</p></div>
-      <div class="box"><h3>Coût global</h3><p><strong>${dossierFmtEur(coutTotal)}</strong><br>Base de calcul rentabilité</p></div>
-      <div class="box"><h3>Loyers mensuels</h3><p><strong>${dossierFmtEur(totalLoyers)}</strong><br>Hypothèse locative cible</p></div>
-      <div class="box"><h3>Rendement brut</h3><p><strong>${dossierFmtPct(rendement)}</strong><br>Avant fiscalité et charges détaillées</p></div>
-      <div class="box"><h3>Cash-flow</h3><p><strong>${dossierFmtEur(cashflow)}/mois</strong><br>Selon hypothèses de financement</p></div>
+  <section class="page major">
+    <h2 class="section-title">Configuration locative et analyse financière</h2>
+    <div class="grid2">
+      <div>
+        <table>
+          <thead><tr><th>Lot</th><th>Typologie</th><th>Surface</th><th>Loyer cible</th><th>Commentaire</th></tr></thead>
+          <tbody>${lotRows || `<tr><td colspan="5">Aucun lot renseigné</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="stack">
+        <div class="box darkbox"><h3>Lecture financière</h3><p>${renderDossierHtmlParagraph(dossier.analyse_financiere_commentaire)}</p></div>
+        <div class="metric-grid">
+          <div class="kpi"><div class="v">${dossierFmtEur(prixCible)}</div><div class="l">Prix cible</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(travaux)}</div><div class="l">Travaux</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(coutTotal)}</div><div class="l">Coût global</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(totalLoyers)}</div><div class="l">Loyers / mois</div></div>
+          <div class="kpi"><div class="v">${dossierFmtPct(rendement)}</div><div class="l">Rendement brut</div></div>
+          <div class="kpi"><div class="v">${dossierFmtEur(cashflow)}</div><div class="l">Cash-flow / mois</div></div>
+        </div>
+      </div>
     </div>
   </section>
 
   <section class="page">
-    <h2 class="section-title">Pourquoi ce projet peut intéresser un investisseur</h2>
+    <h2 class="section-title">Conviction investisseur</h2>
     <div class="grid2">
       <div class="success"><strong>Arguments investisseurs</strong><br><br>${renderDossierHtmlParagraph(dossier.arguments_investisseurs)}</div>
       <div class="box"><h3>Points forts identifiés</h3><p>${renderDossierHtmlParagraph(dossier.points_forts)}</p></div>
     </div>
+    ${dossier.afficher_page_risques !== false ? `
+    <div class="grid2 section-gap">
+      <div class="risk"><strong>Points de vigilance</strong><br><br>${renderDossierHtmlParagraph(dossier.points_vigilance)}</div>
+      <div class="box"><h3>Réponse Profero</h3><p>${renderDossierHtmlParagraph(dossier.reponse_aux_risques)}</p></div>
+    </div>` : ""}
   </section>
 
-  ${dossier.afficher_page_risques !== false ? `
-  <section class="page break">
-    <h2 class="section-title">Points de vigilance et maîtrise des risques</h2>
-    <div class="grid2">
-      <div class="risk"><strong>Points à vérifier</strong><br><br>${renderDossierHtmlParagraph(dossier.points_vigilance)}</div>
-      <div class="box"><h3>Réponse Profero</h3><p>${renderDossierHtmlParagraph(dossier.reponse_aux_risques)}</p></div>
-    </div>
-  </section>` : ""}
-
   ${dossier.afficher_page_accompagnement !== false ? `
-  <section class="page break">
-    <h2 class="section-title">Accompagnement Profero Invest</h2>
+  <section class="page">
+    <h2 class="section-title">Accompagnement Profero et prochaine étape</h2>
     <div class="project">
       <div class="project-card"><h3>Notre rôle</h3><p>${renderDossierHtmlParagraph(dossier.accompagnement_profero)}</p></div>
       <div class="timeline">
@@ -3793,15 +3833,18 @@ function openDossierPresentationInvestisseurPDF({ bien = {}, dossier = {}, selec
         <div class="step"><b>4</b><span>Coordination opérationnelle possible selon le projet et les intervenants retenus.</span></div>
       </div>
     </div>
-  </section>` : ""}
-
-  <section class="page break">
+    <div class="grid2 section-gap">
+      <div class="box darkbox"><h3>Conclusion Profero Invest</h3><p>${renderDossierHtmlParagraph(dossier.conclusion)}</p></div>
+      <div class="box"><h3>Prochaine étape</h3><p>${renderDossierHtmlParagraph(dossier.prochaine_etape)}</p></div>
+    </div>
+  </section>` : `
+  <section class="page">
     <h2 class="section-title">Conclusion et prochaines étapes</h2>
     <div class="grid2">
       <div class="box darkbox"><h3>Conclusion Profero Invest</h3><p>${renderDossierHtmlParagraph(dossier.conclusion)}</p></div>
       <div class="box"><h3>Prochaine étape</h3><p>${renderDossierHtmlParagraph(dossier.prochaine_etape)}</p></div>
     </div>
-  </section>
+  </section>`}
 
   <div class="footer">
     <strong>Profero Invest</strong><br>
