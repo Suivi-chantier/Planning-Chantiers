@@ -868,7 +868,7 @@ function geocodeAddress(geocoder, address) {
         return;
       }
 
-      // Fallback France : si Google refuse le géocodage (REQUEST_DENIED) ou ne trouve pas,
+      // Fallback France :  si Google refuse le géocodage (REQUEST_DENIED) ou ne trouve pas,
       // on utilise l'API Adresse nationale pour créer latitude/longitude à partir de l'adresse.
       const fallback = await geocodeAddressWithApiAdresse(address);
       if (fallback?.lat && fallback?.lng && isValidLatLng(fallback.lat, fallback.lng)) {
