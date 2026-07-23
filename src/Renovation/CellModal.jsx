@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots } from "../constants";
 import { useDirtyGuard } from "../hooks";
-import { loadPhasagePourPlanning, syncDatePrevueTache, planningParTache } from "./phasagePlanning";
+import { loadPhasagePourPlanning, syncDatePrevueTache, planningParTache, HEURES_JOUR } from "./phasagePlanning";
 import { sortByChrono } from "./chronoTemplate";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
@@ -115,10 +115,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     }
     return null;
   };
-  // Heures travaillées par jour (horaires affichés aux ouvriers : 7h30 →
-  // 17h30 lun-mer, 7h30 → 16h30 jeu-ven, moins 1 h de pause). Ajuster ici
-  // si les horaires de l'entreprise changent.
-  const HEURES_JOUR = { Lundi: 9, Mardi: 9, Mercredi: 9, Jeudi: 8, Vendredi: 8 };
+  // Capacité du jour (HEURES_JOUR est partagée : voir phasagePlanning.js).
   const capaciteJour = HEURES_JOUR[jour] ?? 9;
   // Charge d'un ouvrier ce jour : autres chantiers + lignes de cette cellule
   // qui le concernent (une ligne sans assigné vaut pour tous les ouvriers de

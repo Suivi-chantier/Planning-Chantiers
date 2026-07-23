@@ -7,6 +7,13 @@
 
 import { supabase } from "../supabase";
 
+// Heures travaillées par jour (horaires affichés aux ouvriers : 7h30 → 17h30
+// lun-mer, 7h30 → 16h30 jeu-ven, moins 1 h de pause). Ajuster ici si les
+// horaires de l'entreprise changent — utilisé par la modale du planning
+// (plafond des durées proposées, cumul jour) et la ligne « Charge » de la
+// grille semaine.
+export const HEURES_JOUR = { Lundi: 9, Mardi: 9, Mercredi: 9, Jeudi: 8, Vendredi: 8 };
+
 // Charge le phasage d'un chantier pour le sélecteur du planning :
 // { ouvrages, chronoGroupes } — null si pas de phasage.
 export async function loadPhasagePourPlanning(chantierId) {

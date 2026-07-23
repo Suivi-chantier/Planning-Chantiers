@@ -5,7 +5,7 @@ import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour
 import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
-import { syncDatePrevueTache } from "./phasagePlanning";
+import { syncDatePrevueTache, HEURES_JOUR } from "./phasagePlanning";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft, Clock, TriangleAlert, Check,
@@ -132,9 +132,10 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     return cells[`${cId}_${jour}`] || emptyCell();
   };
 
-  // Heures déjà planifiées ce jour-là par ouvrier sur les AUTRES chantiers
-  // (même règle que heuresParOuvrier : une tâche sans ouvrier assigné compte
-  // pour tous les ouvriers de la cellule). Sert au cumul jour de la modale.
+  // Heures planifiées ce jour-là par ouvrier, tous chantiers (exceptCid :
+  // chantier à exclure, pour le cumul de la modale ; null = tous). Même
+  // règle que heuresParOuvrier : une tâche sans ouvrier assigné compte pour
+  // tous les ouvriers de la cellule.
   const heuresJourAutresChantiers = (jour, exceptCid) => {
     const totals = {};
     chantiers.forEach(c => {
@@ -149,6 +150,29 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       });
     });
     return totals;
+  };
+
+  // Chips « ouvrier · Xh » d'un jour (ligne Charge de la grille + vue mobile).
+  // Rouge : dépasse la capacité du jour ; vert : journée pleine pile.
+  const renderChargeJour = (jour, compact = false) => {
+    const totals = heuresJourAutresChantiers(jour, null);
+    const noms = ouvriers.filter(o => totals[o] > 0);
+    const cap = HEURES_JOUR[jour] ?? 9;
+    if (noms.length === 0) return <span style={{ fontSize:10, color:T.textMuted, opacity:.5 }}>—</span>;
+    return noms.map(o => {
+      const h = Math.round(totals[o] * 4) / 4;
+      const col = h > cap ? "#ef4444" : h === cap ? "#22c55e" : T.textSub;
+      return (
+        <span key={o} title={`${o} : ${h}h planifiées ${jour.toLowerCase()} (capacité ${cap}h)`} style={{
+          fontSize: compact ? 10.5 : 10, fontWeight:700, color:col,
+          background: col === "#ef4444" ? "rgba(239,68,68,0.10)" : col === "#22c55e" ? "rgba(34,197,94,0.10)" : T.card,
+          border:`1px solid ${col === T.textSub ? T.border : col + "44"}`,
+          borderRadius:6, padding:"1px 6px", whiteSpace:"nowrap",
+        }}>
+          {o} · {h}h
+        </span>
+      );
+    });
   };
 
   const openModal = (cId, jour) => {
@@ -492,6 +516,16 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
             })}
           </div>
 
+          {/* Charge du jour sélectionné par ouvrier (tous chantiers) */}
+          {Object.keys(heuresJourAutresChantiers(mobileDay, null)).length > 0 && (
+            <div style={{ display:"flex", flexWrap:"wrap", gap:4, alignItems:"center", marginBottom:12 }}>
+              <span style={{ fontSize:10, fontWeight:700, letterSpacing:1, textTransform:"uppercase", color:T.textMuted, marginRight:2 }}>
+                ⏱ Charge
+              </span>
+              {renderChargeJour(mobileDay, true)}
+            </div>
+          )}
+
           {/* Chantiers actifs du jour en cartes ; les vides regroupés dans « À planifier » */}
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {(() => {
@@ -684,6 +718,24 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                   </div>
                 );
               })}
+            </div>
+
+            {/* Charge par ouvrier et par jour (tous chantiers confondus) */}
+            <div style={{
+              display:"grid", gridTemplateColumns:`160px repeat(${JOURS.length},minmax(140px,1fr))`,
+              gap:5, marginBottom:8, minWidth:860,
+            }}>
+              <div style={{
+                display:"flex", alignItems:"center", justifyContent:"flex-end", gap:5, paddingRight:10,
+                fontSize:10, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted,
+              }}>
+                <Icon as={Clock} size={11}/> Charge
+              </div>
+              {JOURS.map(j => (
+                <div key={j} style={{ display:"flex", flexWrap:"wrap", gap:3, alignItems:"center", justifyContent:"center", padding:"1px 2px" }}>
+                  {renderChargeJour(j)}
+                </div>
+              ))}
             </div>
 
             {/* Lignes de chantier : actives visibles, vides repliées en bas */}
