@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "../supabase";
-import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie } from "../constants";
+import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots } from "../constants";
 import { useDirtyGuard } from "../hooks";
+import { loadPhasagePourPlanning, setDatePrevueTache } from "./phasagePlanning";
+import { sortByChrono } from "./chronoTemplate";
+
+// Arrondi au quart d'heure (durée proposée par défaut depuis les heures
+// estimées du phasage — modifiable ensuite dans la ligne de tâche).
+const arrondiQuart = (h) => {
+  const n = parseFloat(h);
+  if (isNaN(n) || n <= 0) return null;
+  return Math.round(n * 4) / 4;
+};
 
 function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicules=[],saving,onClose,T,weekId,year,week}){
   if(!chantier)return null;
@@ -15,8 +25,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // Lightbox plein écran pour les photos du compte rendu
   const [lightbox, setLightbox] = useState(null); // { urls: string[], idx: number }
 
-  // Calculer la date réelle du jour sélectionné
-  const getDateDuJour = () => {
+  // Date réelle du jour sélectionné (objet Date, minuit locale)
+  const getDateObj = () => {
     const JOURS_ORDER = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"];
     const dayIndex = JOURS_ORDER.indexOf(jour);
     if (dayIndex < 0 || !year || !week) return null;
@@ -25,7 +35,110 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     mon.setDate(jan4.getDate() - ((jan4.getDay() || 7) - 1) + (week - 1) * 7);
     const d = new Date(mon);
     d.setDate(mon.getDate() + dayIndex);
-    return d.toLocaleDateString("fr-FR"); // format dd/mm/yyyy
+    return d;
+  };
+  const getDateDuJour = () => {
+    const d = getDateObj();
+    return d ? d.toLocaleDateString("fr-FR") : null; // format dd/mm/yyyy
+  };
+  // Même jour au format ISO "YYYY-MM-DD" (format de date_prevue du phasage).
+  const getDateISO = () => {
+    const d = getDateObj();
+    return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : null;
+  };
+
+  // ── Tâches du phasage du chantier (sélecteur « Planifier depuis le phasage »).
+  // Chargé à la première ouverture du panneau (lazy), trié dans l'ordre chrono
+  // métier. Ajouter une tâche au jour écrit immédiatement sa date_prevue dans
+  // le phasage ; la retirer du jour efface la date (si elle vaut encore ce jour).
+  const [phasageOpen, setPhasageOpen] = useState(false);
+  const [phasageData, setPhasageData] = useState(null); // { ouvrages, chronoGroupes }
+  const [phasageLoading, setPhasageLoading] = useState(false);
+  const [phasageLots, setPhasageLots] = useState([]);
+  const [phasageSearch, setPhasageSearch] = useState("");
+  useEffect(() => {
+    if (!phasageOpen || phasageData || phasageLoading || !chantier?.id) return;
+    let cancelled = false;
+    setPhasageLoading(true);
+    Promise.all([loadPhasagePourPlanning(chantier.id), loadLots()])
+      .then(([data, lots]) => {
+        if (cancelled) return;
+        setPhasageData(data || { ouvrages: [], chronoGroupes: [] });
+        setPhasageLots(lots || []);
+      })
+      .finally(() => { if (!cancelled) setPhasageLoading(false); });
+    return () => { cancelled = true; };
+  }, [phasageOpen, phasageData, phasageLoading, chantier?.id]);
+
+  // Lignes candidates : toutes les tâches non terminées, ordre chrono métier.
+  const phasageRows = (() => {
+    if (!phasageData) return [];
+    const rows = [];
+    phasageData.ouvrages.forEach(o => {
+      const lot = phasageLots.find(l => l.id === o.lot_id) || null;
+      (o.taches || []).forEach(t => {
+        if ((parseInt(t.avancement) || 0) >= 100) return;
+        rows.push({ lot, ouvrage: o, tache: t });
+      });
+    });
+    sortByChrono(rows, phasageData.chronoGroupes);
+    const q = (phasageSearch || "").trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r =>
+      `${r.tache.nom || ""} ${r.ouvrage.libelle || ""} ${r.lot?.label || ""}`.toLowerCase().includes(q));
+  })();
+  const dansLeJour = (tacheId) => (draft.taches || []).some(x => String(x.tache_id || "") === String(tacheId));
+
+  // Ajoute une tâche du phasage au jour : ligne structurée liée (tache_id),
+  // durée par défaut = heures estimées, ouvriers de la tâche ajoutés à la
+  // cellule, et date_prevue écrite tout de suite dans le phasage.
+  const addFromPhasage = (row) => {
+    const t = row.tache;
+    if (dansLeJour(t.id)) return;
+    const ouvT = (Array.isArray(t.ouvriers) ? t.ouvriers : []).filter(o => ouvriers.includes(o));
+    const newT = {
+      id: Math.random().toString(36).slice(2),
+      tache_id: t.id,
+      text: t.nom || "",
+      duree: arrondiQuart(t.heures_estimees),
+      ouvriers: ouvT,
+    };
+    setDraft(p => {
+      const taches = [...(p.taches || []), newT];
+      return {
+        ...p, taches,
+        planifie: taches.map(x => x.text).join("\n"),
+        ouvriers: [...new Set([...(p.ouvriers || []), ...ouvT])],
+      };
+    });
+    const iso = getDateISO();
+    if (iso) {
+      setDatePrevueTache(chantier.id, t.id, iso);
+      // Reflète la nouvelle date dans le panneau sans recharger.
+      setPhasageData(d => d ? {
+        ...d,
+        ouvrages: d.ouvrages.map(o => ({
+          ...o,
+          taches: (o.taches || []).map(x => x.id === t.id ? { ...x, date_prevue: iso } : x),
+        })),
+      } : d);
+    }
+  };
+
+  // À la suppression d'une ligne liée au phasage : efface la date_prevue si
+  // elle correspond encore à ce jour (sinon on ne touche à rien).
+  const onRemoveTache = (removed) => {
+    if (!removed?.tache_id) return;
+    const iso = getDateISO();
+    if (!iso) return;
+    setDatePrevueTache(chantier.id, removed.tache_id, null, { onlyIfDate: iso });
+    setPhasageData(d => d ? {
+      ...d,
+      ouvrages: d.ouvrages.map(o => ({
+        ...o,
+        taches: (o.taches || []).map(x => x.id === removed.tache_id && (x.date_prevue || "") === iso ? { ...x, date_prevue: "" } : x),
+      })),
+    } : d);
   };
 
   useEffect(() => {
@@ -190,6 +303,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                     <button onClick={()=>{
                       const t=(draft.taches||[]).filter((_,i)=>i!==idx);
                       setDraft(p=>({...p,taches:t,planifie:t.map(x=>x.text).join("\n")}));
+                      onRemoveTache(tache);
                     }} style={{background:"transparent",border:"none",cursor:"pointer",
                       color:"#e05c5c",fontSize:16,padding:"0 2px",flexShrink:0,opacity:.6}}
                       title="Supprimer cette tâche">✕</button>
@@ -237,6 +351,93 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                 background:"transparent",color:T.textMuted,cursor:"pointer",
                 fontFamily:"inherit",fontSize:13,fontWeight:600,transition:"all .15s"
               }}>+ Ajouter une tâche</button>
+
+              {/* ── Planifier depuis le phasage du chantier ── */}
+              <button onClick={()=>setPhasageOpen(o=>!o)} style={{
+                padding:"10px",border:`1.5px dashed ${phasageOpen?chantier.couleur:T.border}`,borderRadius:10,
+                background:phasageOpen?chantier.couleur+"14":"transparent",
+                color:phasageOpen?T.text:T.textMuted,cursor:"pointer",
+                fontFamily:"inherit",fontSize:13,fontWeight:600,transition:"all .15s",
+                display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+              }}>
+                🧱 Planifier depuis le phasage {phasageOpen?"▴":"▾"}
+              </button>
+              {phasageOpen&&(
+                <div style={{background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
+                  borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                  {phasageLoading||(!phasageData)?(
+                    <div style={{color:T.textMuted,fontSize:13,padding:"4px 0"}}>Chargement du phasage…</div>
+                  ):phasageData.ouvrages.length===0?(
+                    <div style={{color:T.textMuted,fontSize:13,fontStyle:"italic",padding:"4px 0"}}>
+                      Aucun phasage pour ce chantier.
+                    </div>
+                  ):(
+                    <>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <input value={phasageSearch} onChange={e=>setPhasageSearch(e.target.value)}
+                          placeholder="Filtrer (tâche, ouvrage, lot)…"
+                          style={{flex:1,background:"transparent",border:`1px solid ${T.border}`,borderRadius:7,
+                            padding:"6px 10px",color:T.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+                        <span style={{fontSize:11,color:T.textMuted,flexShrink:0}}>
+                          {phasageRows.length} tâche{phasageRows.length>1?"s":""}
+                        </span>
+                      </div>
+                      <div style={{maxHeight:280,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+                        {phasageRows.length===0?(
+                          <div style={{color:T.textMuted,fontSize:12.5,fontStyle:"italic",padding:"6px 2px"}}>
+                            Aucune tâche ne correspond au filtre.
+                          </div>
+                        ):phasageRows.map(row=>{
+                          const t=row.tache;
+                          const added=dansLeJour(t.id);
+                          const dejaDatee=!!t.date_prevue;
+                          return(
+                            <div key={t.id} style={{
+                              display:"flex",alignItems:"center",gap:8,
+                              padding:"7px 9px",borderRadius:8,
+                              border:`1px solid ${added?chantier.couleur+"88":T.border}`,
+                              background:added?chantier.couleur+"14":"transparent",
+                              opacity:added?.85:1,
+                            }}>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:13,fontWeight:600,color:T.text,
+                                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                  {t.nom||"(sans nom)"}
+                                </div>
+                                <div style={{fontSize:11,color:T.textMuted,
+                                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                  {(row.lot?.label?row.lot.label+" · ":"")+(row.ouvrage.libelle||"—")}
+                                  {t.heures_estimees?` · ${t.heures_estimees}h`:""}
+                                </div>
+                              </div>
+                              {dejaDatee&&!added&&(
+                                <span title="Déjà planifiée — l'ajouter ici déplacera sa date"
+                                  style={{flexShrink:0,fontSize:11,fontWeight:700,color:"#f5a623",
+                                    background:"rgba(245,166,35,0.12)",borderRadius:6,padding:"2px 7px"}}>
+                                  📅 {new Date(t.date_prevue).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}
+                                </span>
+                              )}
+                              {added?(
+                                <span style={{flexShrink:0,fontSize:12,fontWeight:800,color:T.text}}>✓ Ajoutée</span>
+                              ):(
+                                <button onClick={()=>addFromPhasage(row)}
+                                  title="Ajouter cette tâche au jour (sa date sera mise à jour dans le phasage)"
+                                  style={{flexShrink:0,background:chantier.couleur,border:"none",borderRadius:7,
+                                    padding:"5px 12px",color:"#1a1f2e",fontFamily:"inherit",fontSize:13,
+                                    fontWeight:800,cursor:"pointer"}}>+</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{fontSize:11,color:T.textMuted,fontStyle:"italic"}}>
+                        Ajouter une tâche ici écrit sa date prévue dans le phasage (visible sur le Gantt).
+                        La retirer du jour efface la date.
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ── COMPTES RENDUS OUVRIERS ── */}

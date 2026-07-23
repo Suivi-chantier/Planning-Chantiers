@@ -420,7 +420,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       const ouvriersTache = Array.isArray(tache.ouvriers) ? tache.ouvriers : [];
       // La durée affichée sur le planning est toujours arrondie à 0,25.
       const duree = arrondiQuart(planifDuree) || 0;
-      const newTask = { id: rid(), text: tache.nom || "", duree, ouvriers: ouvriersTache };
+      // tache_id : lie la ligne du planning à la tâche du phasage — déplacer
+      // la ligne dans le planning semaine met alors à jour date_prevue.
+      const newTask = { id: rid(), tache_id: tache.id, text: tache.nom || "", duree, ouvriers: ouvriersTache };
       const nouveauPlanifie = base.planifie ? `${base.planifie}\n${tache.nom || ""}` : (tache.nom || "");
       const upsertPayload = {
         week_id: planifSemaine,

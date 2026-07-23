@@ -5,6 +5,7 @@ import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour
 import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
+import { setDatePrevueTache } from "./phasagePlanning";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft, Clock, TriangleAlert, Check,
@@ -194,6 +195,11 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
         { onConflict: "week_id,chantier_id,jour" }
       ),
     ]);
+    // Tâche liée au phasage : sa date_prevue suit le nouveau jour.
+    if (moved?.tache_id) {
+      const di = JOURS.indexOf(toJour);
+      if (di >= 0) setDatePrevueTache(cId, moved.tache_id, toIsoDate(getDateDuJour(di)));
+    }
   };
 
   const closeModal = async () => {
