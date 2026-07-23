@@ -53,6 +53,30 @@ export async function joursPlanifiesPourTache(chantierId, tacheId) {
   return dates;
 }
 
+// Toutes les lignes du planning semaine liées à des tâches du phasage d'un
+// chantier, indexées par tache_id : { [tacheId]: [{ weekId, jour, date, duree }] }.
+// Sert à proposer la durée RESTANTE d'une tâche étalée sur plusieurs jours.
+export async function planningParTache(chantierId) {
+  if (!chantierId) return {};
+  const { data, error } = await supabase.from("planning_cells")
+    .select("week_id, jour, taches").eq("chantier_id", chantierId);
+  if (error || !data) return {};
+  const map = {};
+  data.forEach(cell => {
+    (cell.taches || []).forEach(x => {
+      if (!x.tache_id) return;
+      const key = String(x.tache_id);
+      if (!map[key]) map[key] = [];
+      map[key].push({
+        weekId: cell.week_id, jour: cell.jour,
+        date: dateFromWeekJour(cell.week_id, cell.jour),
+        duree: parseFloat(x.duree) || 0,
+      });
+    });
+  });
+  return map;
+}
+
 // Synchronise date_prevue d'une tâche avec le planning semaine, selon
 // l'invariant : date_prevue = PREMIER jour planifié (une tâche peut être
 // posée sur plusieurs jours — les jours suivants sont des continuations et

@@ -132,6 +132,25 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     return cells[`${cId}_${jour}`] || emptyCell();
   };
 
+  // Heures déjà planifiées ce jour-là par ouvrier sur les AUTRES chantiers
+  // (même règle que heuresParOuvrier : une tâche sans ouvrier assigné compte
+  // pour tous les ouvriers de la cellule). Sert au cumul jour de la modale.
+  const heuresJourAutresChantiers = (jour, exceptCid) => {
+    const totals = {};
+    chantiers.forEach(c => {
+      if (c.id === exceptCid) return;
+      const cell = cells[`${c.id}_${jour}`];
+      if (!cell?.taches) return;
+      cell.taches.forEach(t => {
+        const duree = parseFloat(t.duree) || 0;
+        if (!duree) return;
+        const ouvs = (t.ouvriers && t.ouvriers.length > 0) ? t.ouvriers : (cell.ouvriers || []);
+        ouvs.forEach(o => { totals[o] = (totals[o] || 0) + duree; });
+      });
+    });
+    return totals;
+  };
+
   const openModal = (cId, jour) => {
     setModal({ cId, jour });
     const existing = cells[`${cId}_${jour}`] || emptyCell();
@@ -366,6 +385,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
         note={{ value: noteDraft, set: setNoteDraft }}
         ouvriers={ouvriers} vehicules={vehicules} saving={saving} onClose={closeModal}
         T={T} weekId={weekId} year={year} week={week}
+        autresHeuresJour={heuresJourAutresChantiers(modal.jour, modal.cId)}
       />}
 
       {/* ── HEADER ── */}
