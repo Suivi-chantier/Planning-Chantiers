@@ -115,11 +115,37 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     }
     return null;
   };
-  // Journée type (cohérente avec le Gantt et « Dater dès le » : 7 h ouvrées).
-  const JOURNEE_H = 7;
+  // Heures travaillées par jour (horaires affichés aux ouvriers : 7h30 →
+  // 17h30 lun-mer, 7h30 → 16h30 jeu-ven, moins 1 h de pause). Ajuster ici
+  // si les horaires de l'entreprise changent.
+  const HEURES_JOUR = { Lundi: 9, Mardi: 9, Mercredi: 9, Jeudi: 8, Vendredi: 8 };
+  const capaciteJour = HEURES_JOUR[jour] ?? 9;
+  // Charge d'un ouvrier ce jour : autres chantiers + lignes de cette cellule
+  // qui le concernent (une ligne sans assigné vaut pour tous les ouvriers de
+  // la cellule). skipIdx : ligne à exclure (recalcul de sa propre durée).
+  const chargeOuvrier = (taches, o, skipIdx = -1) => {
+    let h = parseFloat(autresHeuresJour[o]) || 0;
+    taches.forEach((x, i) => {
+      if (i === skipIdx) return;
+      const d = parseFloat(x.duree) || 0;
+      if (!d) return;
+      const cibles = (x.ouvriers && x.ouvriers.length > 0) ? x.ouvriers : (draft.ouvriers || []);
+      if (cibles.includes(o)) h += d;
+    });
+    return h;
+  };
+  // Temps restant dans la journée pour une ligne = capacité du jour moins la
+  // charge de l'ouvrier le PLUS occupé parmi les assignés (tous chantiers).
+  // Sans ouvrier connu : capacité moins la somme des lignes de la cellule.
+  const restantJourPour = (taches, cibles, skipIdx = -1) => {
+    const charge = (cibles && cibles.length)
+      ? Math.max(...cibles.map(o => chargeOuvrier(taches, o, skipIdx)))
+      : taches.reduce((s, x, i) => i === skipIdx ? s : s + (parseFloat(x.duree) || 0), 0);
+    return Math.max(0, Math.round((capaciteJour - charge) * 4) / 4);
+  };
   // Durée du jour proposée pour une ligne liée = MO restante de la tâche
   // (hors cette ligne) ÷ nb d'ouvriers de la ligne, plafonnée à ce qui reste
-  // de la journée (hors cette ligne). null si rien à proposer.
+  // de la journée pour ces ouvriers. null si rien à proposer.
   const dureeAutoLigne = (taches, idx) => {
     const line = taches[idx];
     const t = line?.tache_id ? tacheDuPhasage(line.tache_id) : null;
@@ -127,10 +153,10 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     const total = arrondiQuart(dureeTotale(t)) || 0;
     if (total <= 0) return undefined;
     const restantMO = Math.max(0, total - heuresDejaPlanifiees(line.tache_id, line.id));
-    const nb = (line.ouvriers && line.ouvriers.length) || (draft.ouvriers || []).length || 1;
+    const cibles = (line.ouvriers && line.ouvriers.length > 0) ? line.ouvriers : (draft.ouvriers || []);
+    const nb = cibles.length || 1;
     let d = Math.round((restantMO / nb) * 4) / 4;
-    const chargeJour = taches.reduce((s, x, i) => i === idx ? s : s + (parseFloat(x.duree) || 0), 0);
-    const restantJour = Math.max(0, Math.round((JOURNEE_H - chargeJour) * 4) / 4);
+    const restantJour = restantJourPour(taches, cibles, idx);
     if (restantJour > 0 && d > restantJour) d = restantJour;
     return d > 0 ? d : null;
   };
@@ -208,10 +234,11 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     const total = arrondiQuart(dureeTotale(t)) || 0;
     const restantMO = Math.max(0, Math.round((total - heuresDejaPlanifiees(t.id)) * 4) / 4);
     // MO restante ÷ nb d'ouvriers = durée réelle dans la journée
-    // (10 h vendues à 2 ouvriers → 5 h posées).
-    const nb = ouvT.length || (draft.ouvriers || []).length || 1;
-    const chargeJour = (draft.taches || []).reduce((s, x) => s + (parseFloat(x.duree) || 0), 0);
-    const restantJour = Math.max(0, Math.round((JOURNEE_H - chargeJour) * 4) / 4);
+    // (10 h vendues à 2 ouvriers → 5 h posées), plafonnée au temps restant
+    // de l'ouvrier le plus occupé (tous chantiers du jour).
+    const cibles = ouvT.length ? ouvT : (draft.ouvriers || []);
+    const nb = cibles.length || 1;
+    const restantJour = restantJourPour(draft.taches || [], cibles);
     let duree = restantMO > 0 ? Math.round((restantMO / nb) * 4) / 4 : null;
     if (duree != null && restantJour > 0 && duree > restantJour) duree = restantJour;
     const newT = {
@@ -361,8 +388,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                     const ici=cumulParOuvrier[o]||0;
                     const ailleurs=parseFloat(autresHeuresJour[o])||0;
                     const h=Math.round((ici+ailleurs)*4)/4;
-                    // > 8 h : surcharge (rouge) ; > 7 h : journée pleine (orange).
-                    const colH=h>8?"#ef4444":h>7?"#f5a623":(h>0?T.text:T.textMuted);
+                    // Rouge : dépasse la journée ; vert : journée pleine pile.
+                    const colH=h>capaciteJour?"#ef4444":h===capaciteJour?"#22c55e":(h>0?T.text:T.textMuted);
                     return(
                       <span key={o}
                         title={ailleurs>0?`${ici}h sur ce chantier + ${ailleurs}h sur d'autres chantiers ce jour`:undefined}
@@ -606,7 +633,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                         La date prévue du phasage suit le premier jour planifié : une tâche posée sur
                         plusieurs jours garde son jour de début. La durée proposée est la main-d'œuvre
                         restante divisée par le nombre d'ouvriers de la ligne (10 h vendues à 2 ouvriers
-                        → 5 h dans la journée), plafonnée à la journée (7 h).
+                        → 5 h dans la journée), plafonnée au temps restant des ouvriers ce jour
+                        ({capaciteJour} h le {jour.toLowerCase()}, tous chantiers confondus).
                       </div>
                     </>
                   )}
