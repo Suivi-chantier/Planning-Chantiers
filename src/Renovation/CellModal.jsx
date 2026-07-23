@@ -56,19 +56,23 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   const [phasageLoading, setPhasageLoading] = useState(false);
   const [phasageLots, setPhasageLots] = useState([]);
   const [phasageSearch, setPhasageSearch] = useState("");
+  // Garde par ref (et non par state) : mettre loading/data dans les deps
+  // relançait l'effet à son propre setState et annulait le fetch en cours
+  // (« Chargement… » infini).
+  const phasageLoadRef = useRef(null); // chantier.id déjà chargé ou en cours
   useEffect(() => {
-    if (!phasageOpen || phasageData || phasageLoading || !chantier?.id) return;
-    let cancelled = false;
+    if (!phasageOpen || !chantier?.id) return;
+    if (phasageLoadRef.current === chantier.id) return;
+    phasageLoadRef.current = chantier.id;
     setPhasageLoading(true);
     Promise.all([loadPhasagePourPlanning(chantier.id), loadLots()])
       .then(([data, lots]) => {
-        if (cancelled) return;
         setPhasageData(data || { ouvrages: [], chronoGroupes: [] });
         setPhasageLots(lots || []);
       })
-      .finally(() => { if (!cancelled) setPhasageLoading(false); });
-    return () => { cancelled = true; };
-  }, [phasageOpen, phasageData, phasageLoading, chantier?.id]);
+      .catch(e => { console.warn("loadPhasagePourPlanning:", e?.message || e); phasageLoadRef.current = null; })
+      .finally(() => setPhasageLoading(false));
+  }, [phasageOpen, chantier?.id]);
 
   // Lignes candidates : toutes les tâches non terminées, ordre chrono métier.
   const phasageRows = (() => {
