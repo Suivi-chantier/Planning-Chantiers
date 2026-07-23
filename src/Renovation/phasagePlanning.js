@@ -54,12 +54,16 @@ export async function joursPlanifiesPourTache(chantierId, tacheId) {
 }
 
 // Toutes les lignes du planning semaine liées à des tâches du phasage d'un
-// chantier, indexées par tache_id : { [tacheId]: [{ weekId, jour, date, duree }] }.
-// Sert à proposer la durée RESTANTE d'une tâche étalée sur plusieurs jours.
+// chantier, indexées par tache_id :
+// { [tacheId]: [{ weekId, jour, date, duree, nb }] }.
+// `duree` = heures de la journée, `nb` = ouvriers dessus (une ligne sans
+// ouvrier assigné vaut pour tous les ouvriers de la cellule) : la
+// main-d'œuvre consommée par la ligne est duree × nb. Sert à proposer la
+// durée RESTANTE d'une tâche étalée sur plusieurs jours.
 export async function planningParTache(chantierId) {
   if (!chantierId) return {};
   const { data, error } = await supabase.from("planning_cells")
-    .select("week_id, jour, taches").eq("chantier_id", chantierId);
+    .select("week_id, jour, taches, ouvriers").eq("chantier_id", chantierId);
   if (error || !data) return {};
   const map = {};
   data.forEach(cell => {
@@ -71,6 +75,7 @@ export async function planningParTache(chantierId) {
         weekId: cell.week_id, jour: cell.jour,
         date: dateFromWeekJour(cell.week_id, cell.jour),
         duree: parseFloat(x.duree) || 0,
+        nb: (x.ouvriers && x.ouvriers.length) || (cell.ouvriers && cell.ouvriers.length) || 1,
       });
     });
   });

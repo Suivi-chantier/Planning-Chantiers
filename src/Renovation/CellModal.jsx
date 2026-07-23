@@ -64,7 +64,11 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // (« Chargement… » infini).
   const phasageLoadRef = useRef(null); // chantier.id déjà chargé ou en cours
   useEffect(() => {
-    if (!phasageOpen || !chantier?.id) return;
+    if (!chantier?.id) return;
+    // Charge à l'ouverture du panneau, OU dès que la cellule contient des
+    // lignes liées au phasage (le recalcul de durée au changement d'ouvriers
+    // a besoin des tâches du phasage même panneau fermé).
+    if (!phasageOpen && !(draft.taches || []).some(x => x.tache_id)) return;
     if (phasageLoadRef.current === chantier.id) return;
     phasageLoadRef.current = chantier.id;
     setPhasageLoading(true);
@@ -76,27 +80,60 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
       })
       .catch(e => { console.warn("loadPhasagePourPlanning:", e?.message || e); phasageLoadRef.current = null; })
       .finally(() => setPhasageLoading(false));
-  }, [phasageOpen, chantier?.id]);
+  }, [phasageOpen, chantier?.id, draft.taches]);
 
-  // Heures de la tâche déjà posées dans le planning (tous jours, toutes
-  // semaines). Le brouillon de la cellule en cours remplace ce que la DB
-  // connaît de CE jour (la cellule n'est sauvegardée qu'à la fermeture).
-  const heuresDejaPlanifiees = (tacheId) => {
+  // Nombre d'ouvriers d'une ligne du brouillon (sans assignés = « visible
+  // par tous » → tous les ouvriers de la cellule).
+  const nbOuvriersLigne = (x) => (x.ouvriers && x.ouvriers.length) || (draft.ouvriers || []).length || 1;
+  // MAIN-D'ŒUVRE de la tâche déjà posée dans le planning (durée × ouvriers,
+  // tous jours, toutes semaines) : la durée vendue est en heures de MO — à
+  // 2 ouvriers, 10 h vendues se font en 5 h dans la journée. Le brouillon de
+  // la cellule en cours remplace ce que la DB connaît de CE jour (la cellule
+  // n'est sauvegardée qu'à la fermeture). skipDraftId : ligne du brouillon à
+  // exclure (recalcul de sa propre durée).
+  const heuresDejaPlanifiees = (tacheId, skipDraftId = null) => {
     let h = (planningMap[String(tacheId)] || [])
       .filter(l => !(l.weekId === weekId && l.jour === jour))
-      .reduce((s, l) => s + l.duree, 0);
+      .reduce((s, l) => s + l.duree * (l.nb || 1), 0);
     (draft.taches || []).forEach(x => {
-      if (String(x.tache_id || "") === String(tacheId)) h += parseFloat(x.duree) || 0;
+      if (x.id === skipDraftId) return;
+      if (String(x.tache_id || "") === String(tacheId)) h += (parseFloat(x.duree) || 0) * nbOuvriersLigne(x);
     });
     return h;
   };
-  // Durée totale prévue d'une tâche : heures vendues puis, à défaut, estimées.
+  // Durée totale prévue d'une tâche (heures de MO) : vendues puis estimées.
   const dureeTotale = (t) => {
     const hV = parseFloat(t.heures_vendues) || 0;
     return hV > 0 ? hV : (parseFloat(t.heures_estimees) || 0);
   };
+  // Retrouve la tâche du phasage liée à un tache_id.
+  const tacheDuPhasage = (tacheId) => {
+    if (!phasageData) return null;
+    for (const o of phasageData.ouvrages) {
+      const t = (o.taches || []).find(x => String(x.id) === String(tacheId));
+      if (t) return t;
+    }
+    return null;
+  };
   // Journée type (cohérente avec le Gantt et « Dater dès le » : 7 h ouvrées).
   const JOURNEE_H = 7;
+  // Durée du jour proposée pour une ligne liée = MO restante de la tâche
+  // (hors cette ligne) ÷ nb d'ouvriers de la ligne, plafonnée à ce qui reste
+  // de la journée (hors cette ligne). null si rien à proposer.
+  const dureeAutoLigne = (taches, idx) => {
+    const line = taches[idx];
+    const t = line?.tache_id ? tacheDuPhasage(line.tache_id) : null;
+    if (!t) return undefined; // phasage pas chargé ou tâche inconnue : ne rien changer
+    const total = arrondiQuart(dureeTotale(t)) || 0;
+    if (total <= 0) return undefined;
+    const restantMO = Math.max(0, total - heuresDejaPlanifiees(line.tache_id, line.id));
+    const nb = (line.ouvriers && line.ouvriers.length) || (draft.ouvriers || []).length || 1;
+    let d = Math.round((restantMO / nb) * 4) / 4;
+    const chargeJour = taches.reduce((s, x, i) => i === idx ? s : s + (parseFloat(x.duree) || 0), 0);
+    const restantJour = Math.max(0, Math.round((JOURNEE_H - chargeJour) * 4) / 4);
+    if (restantJour > 0 && d > restantJour) d = restantJour;
+    return d > 0 ? d : null;
+  };
 
   // Sections du sélecteur : tâches non terminées regroupées sous les étapes
   // de la vue Chronologique du chantier (ordre + couleur des groupes), à
@@ -169,10 +206,13 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     if (dansLeJour(t.id)) return;
     const ouvT = (Array.isArray(t.ouvriers) ? t.ouvriers : []).filter(o => ouvriers.includes(o));
     const total = arrondiQuart(dureeTotale(t)) || 0;
-    const restant = Math.max(0, Math.round((total - heuresDejaPlanifiees(t.id)) * 4) / 4);
+    const restantMO = Math.max(0, Math.round((total - heuresDejaPlanifiees(t.id)) * 4) / 4);
+    // MO restante ÷ nb d'ouvriers = durée réelle dans la journée
+    // (10 h vendues à 2 ouvriers → 5 h posées).
+    const nb = ouvT.length || (draft.ouvriers || []).length || 1;
     const chargeJour = (draft.taches || []).reduce((s, x) => s + (parseFloat(x.duree) || 0), 0);
     const restantJour = Math.max(0, Math.round((JOURNEE_H - chargeJour) * 4) / 4);
-    let duree = restant > 0 ? restant : null;
+    let duree = restantMO > 0 ? Math.round((restantMO / nb) * 4) / 4 : null;
     if (duree != null && restantJour > 0 && duree > restantJour) duree = restantJour;
     const newT = {
       id: Math.random().toString(36).slice(2),
@@ -397,6 +437,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                           if(i>=0)list.splice(i,1);else list.push(o);
                           const t=[...(draft.taches||[])];
                           t[idx]={...t[idx],ouvriers:list};
+                          // Ligne liée au phasage : la durée du jour suit le
+                          // nombre d'ouvriers (MO restante ÷ ouvriers).
+                          if(t[idx].tache_id){
+                            const d=dureeAutoLigne(t,idx);
+                            if(d!==undefined)t[idx]={...t[idx],duree:d};
+                          }
                           setDraft(p=>({...p,taches:t}));
                         }} style={{
                           padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:700,
@@ -558,8 +604,9 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                       </div>
                       <div style={{fontSize:11,color:T.textMuted,fontStyle:"italic"}}>
                         La date prévue du phasage suit le premier jour planifié : une tâche posée sur
-                        plusieurs jours garde son jour de début. La durée proposée est le restant de la
-                        tâche (heures déjà posées ailleurs déduites), plafonné à la journée (7 h).
+                        plusieurs jours garde son jour de début. La durée proposée est la main-d'œuvre
+                        restante divisée par le nombre d'ouvriers de la ligne (10 h vendues à 2 ouvriers
+                        → 5 h dans la journée), plafonnée à la journée (7 h).
                       </div>
                     </>
                   )}
