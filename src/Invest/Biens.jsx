@@ -868,7 +868,7 @@ function geocodeAddress(geocoder, address) {
         return;
       }
 
-      // Fallback France :  si Google refuse le géocodage (REQUEST_DENIED) ou ne trouve pas,
+      // Fallback France : si Google refuse le géocodage (REQUEST_DENIED) ou ne trouve pas,
       // on utilise l'API Adresse nationale pour créer latitude/longitude à partir de l'adresse.
       const fallback = await geocodeAddressWithApiAdresse(address);
       if (fallback?.lat && fallback?.lng && isValidLatLng(fallback.lat, fallback.lng)) {
@@ -3188,7 +3188,7 @@ function ComparateurBiensNomade({ biens = [], selectedIds = [], onToggle, onOpen
 }
 
 function openFicheClientInvestisseurPDFAvecMap(data = {}) {
-  const esc = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({
+  const esc = (x) => String(x ?? "").replace(/[&<>\"']/g, c => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
@@ -3208,21 +3208,32 @@ function openFicheClientInvestisseurPDFAvecMap(data = {}) {
     return n.toFixed(2).replace(".", ",") + " %";
   };
 
+  const showAddress = data.showAddress !== false;
+  const exactAddress = String(data.address || "").trim();
+  const publicLocation = String(data.publicLocation || data.ville || "Secteur communiqué sur demande").trim();
+  const displayedLocation = showAddress && exactAddress ? exactAddress : publicLocation;
+  const locationTitle = showAddress ? "Localisation du bien" : "Localisation indicative";
+  const subtitle = showAddress
+    ? (data.subtitle || "Analyse de rentabilité")
+    : (data.publicSubtitle || "Opportunité présentée à la communauté Profero");
+  const mapEmbed = showAddress ? (data.mapEmbedUrl || googleMapsEmbedUrl(exactAddress || data.mapAddress || "")) : "";
+  const mapLink = showAddress ? (data.mapSearchUrl || googleMapsSearchUrl(exactAddress || data.mapAddress || "")) : "";
+  const logo = LOGO_INVEST_H || LOGO_INVEST_V || "";
+  const photoUrl = String(data.photoUrl || "").trim();
   const lots = Array.isArray(data.lots) ? data.lots : [];
   const lotRows = lots.map((l, index) => `
     <tr>
-      <td>${esc(l.type || `Lot ${index + 1}`)}</td>
+      <td><strong>${esc(l.type || `Lot ${index + 1}`)}</strong><span>${esc(l.comment || "")}</span></td>
       <td>${esc(l.niveau || "—")}</td>
       <td>${esc(l.m2 || 0)} m²</td>
       <td>${eur(l.loyer)}/mois</td>
       <td>${eur(l.gestion)}/mois</td>
-      <td>${esc(l.comment || "")}</td>
     </tr>
   `).join("");
 
-  const mapEmbed = data.mapEmbedUrl || googleMapsEmbedUrl(data.address || "");
-  const mapLink = data.mapSearchUrl || googleMapsSearchUrl(data.address || "");
-  const logo = LOGO_INVEST_H || LOGO_INVEST_V || "";
+  const photoBlock = photoUrl
+    ? `<img class="hero-img" src="${esc(photoUrl)}" alt="Visuel du bien" />`
+    : `<div class="hero-placeholder"><strong>Visuel du projet</strong><span>Ajoutez une photo dans le dossier investisseur pour un rendu plus attractif</span></div>`;
 
   const win = window.open("", "_blank", "width=980,height=780");
   if (!win) {
@@ -3236,65 +3247,45 @@ function openFicheClientInvestisseurPDFAvecMap(data = {}) {
 <meta charset="utf-8">
 <title>${esc(data.title || "Fiche client investisseur")}</title>
 <style>
-  *{box-sizing:border-box}
-  body{margin:0;background:#f3f5f9;color:#172033;font-family:Arial,Helvetica,sans-serif}
-  .wrap{max-width:960px;margin:0 auto;background:#fff;min-height:100vh}
-  .hero{background:linear-gradient(135deg,#111827,#1f2f4a);color:#fff;padding:30px 38px 26px}
-  .brand{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px}
-  .brand img{max-height:44px;max-width:240px;object-fit:contain}
-  .brand .tag{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:rgba(255,255,255,.62);font-weight:800}
-  h1{font-size:32px;line-height:1.05;margin:0 0 8px;font-weight:900;letter-spacing:-.5px}
-  .sub{font-size:14px;color:rgba(255,255,255,.76);line-height:1.45}
-  .pill{display:inline-block;border:1px solid rgba(201,163,74,.55);color:#f4d58a;background:rgba(201,163,74,.11);border-radius:999px;padding:7px 12px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.9px;margin-top:14px}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 38px;background:#fff}
-  .kpi{background:#f8fafc;border:1px solid #e5eaf2;border-radius:14px;padding:14px 13px;border-left:4px solid #c9a34a}
-  .kpi .v{font-size:21px;font-weight:900;color:#14213d;line-height:1.1}
-  .kpi .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.9px;margin-top:5px;font-weight:800}
-  .sec{padding:20px 38px;border-top:1px solid #e8edf5}
-  .title{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#1f4ea1;margin-bottom:12px}
-  .title:before{content:"";width:9px;height:9px;border-radius:50%;background:#c9a34a;display:inline-block}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px}
-  .row{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #edf1f7;padding:8px 0;font-size:13px}
-  .row span{color:#64748b}
-  .row b{color:#172033;text-align:right}
-  table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;overflow:hidden;border-radius:12px;border:1px solid #e5eaf2}
-  th{background:#172033;color:#fff;text-align:left;padding:10px 9px;font-size:10px;text-transform:uppercase;letter-spacing:.8px}
-  td{padding:10px 9px;border-bottom:1px solid #edf1f7;color:#172033}
-  tr:last-child td{border-bottom:0}
-  .map{border:1px solid #e5eaf2;border-radius:16px;overflow:hidden;background:#f8fafc}
-  .map iframe{width:100%;height:300px;border:0;display:block}
-  .map-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 13px;font-size:12px;color:#64748b;border-top:1px solid #e5eaf2}
-  .map-foot a{color:#1f4ea1;font-weight:800;text-decoration:none}
-  .txt{font-size:13px;line-height:1.62;color:#263244;white-space:pre-wrap}
-  .reco{background:linear-gradient(135deg,#f8fafc,#fff8e1);border:1px solid #ead9a8;border-radius:16px;padding:15px 16px;font-size:14px;font-weight:800;color:#172033}
-  .no-print{position:fixed;right:18px;top:18px;z-index:5}
-  .btn{background:#1f4ea1;color:#fff;border:0;border-radius:10px;padding:11px 16px;font-weight:900;cursor:pointer;box-shadow:0 12px 26px rgba(31,78,161,.22)}
-  @media print{
-    body{background:#fff}
-    .wrap{max-width:none}
-    .no-print{display:none}
-    .hero{print-color-adjust:exact;-webkit-print-color-adjust:exact}
-    .kpi{break-inside:avoid}
-    .sec{break-inside:avoid}
-    .map iframe{height:260px}
-  }
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
+  :root{--blue:#0f1b2d;--blue2:#14213d;--blue3:#20395f;--gold:#c9a34a;--gold2:#f4d58a;--white:#ffffff;--paper:#f4f6fa;--line:#e5eaf2;--text:#172033;--muted:#667085;--green:#157347;--danger:#b42318}
+  html,body{margin:0;background:var(--paper);color:var(--text);font-family:Arial,Helvetica,sans-serif;line-height:1.42}
+  .toolbar{position:fixed;right:18px;top:18px;z-index:10;display:flex;gap:8px;align-items:center;background:rgba(15,27,45,.94);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:10px 12px;box-shadow:0 18px 45px rgba(15,27,45,.28)}
+  .toolbar span{font-size:11px;color:rgba(255,255,255,.68);font-weight:700}.btn{background:var(--gold);color:var(--blue);border:0;border-radius:999px;padding:11px 16px;font-weight:900;cursor:pointer;white-space:nowrap}
+  .wrap{max-width:980px;margin:0 auto;background:#fff;min-height:100vh;box-shadow:0 24px 80px rgba(15,27,45,.18)}
+  .hero{background:linear-gradient(135deg,var(--blue) 0%,var(--blue2) 55%,var(--blue3) 100%);color:#fff;padding:32px 38px 30px;position:relative;overflow:hidden}.hero:before{content:"";position:absolute;right:-120px;top:-145px;width:390px;height:390px;border-radius:50%;background:rgba(201,163,74,.16)}.hero:after{content:"";position:absolute;left:-170px;bottom:-210px;width:450px;height:450px;border-radius:50%;background:rgba(255,255,255,.045)}
+  .brand{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:24px}.brand img{max-height:46px;max-width:250px;object-fit:contain;filter:brightness(0) invert(1)}.brand .tag{font-size:11px;letter-spacing:2.1px;text-transform:uppercase;color:rgba(255,255,255,.68);font-weight:900;text-align:right}
+  h1{position:relative;z-index:1;font-size:35px;line-height:1.04;margin:0 0 9px;font-weight:900;letter-spacing:-.6px;max-width:760px}.sub{position:relative;z-index:1;font-size:14px;color:rgba(255,255,255,.78);line-height:1.45;max-width:720px}.location-line{margin-top:7px;color:#fff;font-weight:800}.privacy{display:inline-flex;align-items:center;gap:7px;margin-top:14px;border:1px solid rgba(201,163,74,.62);background:rgba(201,163,74,.12);color:var(--gold2);border-radius:999px;padding:8px 12px;font-size:10.5px;font-weight:900;text-transform:uppercase;letter-spacing:.9px;position:relative;z-index:1}.privacy.dark{color:rgba(255,255,255,.78);border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.07)}
+  .hero-grid{position:relative;z-index:1;display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:end;margin-top:22px}.hero-claim{font-size:19px;line-height:1.32;font-weight:900;color:#f8fafc}.hero-img,.hero-placeholder{width:100%;height:190px;border-radius:20px;border:1px solid rgba(255,255,255,.18);object-fit:cover;display:block;box-shadow:0 16px 42px rgba(0,0,0,.28)}.hero-placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;background:rgba(255,255,255,.08);color:rgba(255,255,255,.78);padding:18px}.hero-placeholder span{font-size:11px;margin-top:7px;color:rgba(255,255,255,.55);line-height:1.35}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 38px;background:#fff}.kpi{background:#f8fafc;border:1px solid var(--line);border-radius:16px;padding:14px 12px;border-left:4px solid var(--gold)}.kpi .v{font-size:21px;font-weight:900;color:var(--blue2);line-height:1.08}.kpi .l{font-size:9.7px;color:var(--muted);text-transform:uppercase;letter-spacing:.85px;margin-top:5px;font-weight:900}
+  .sec{padding:20px 38px;border-top:1px solid var(--line)}.title{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1.55px;color:var(--blue2);margin-bottom:12px}.title:before{content:"";width:28px;height:3px;border-radius:999px;background:var(--gold);display:inline-block;flex-shrink:0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px}.row{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #edf1f7;padding:8px 0;font-size:13px}.row span{color:var(--muted)}.row b{color:var(--blue2);text-align:right}
+  .split{display:grid;grid-template-columns:1.05fr .95fr;gap:15px}.box{background:#f8fafc;border:1px solid var(--line);border-radius:16px;padding:14px}.box.dark{background:var(--blue2);border-color:var(--blue2);color:white}.box.gold{background:#fff8ea;border-color:#efd497}.box h3{margin:0 0 7px;color:var(--blue2);font-size:12px;text-transform:uppercase;letter-spacing:.85px}.box.dark h3{color:var(--gold2)}.box p{margin:0;color:#334155;font-size:13.2px;white-space:pre-wrap}.box.dark p{color:rgba(255,255,255,.84)}
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;overflow:hidden;border-radius:14px;border:1px solid var(--line)}th{background:var(--blue2);color:#fff;text-align:left;padding:10px 9px;font-size:9.7px;text-transform:uppercase;letter-spacing:.8px}td{padding:10px 9px;border-bottom:1px solid #edf1f7;color:#172033;vertical-align:top}tr:last-child td{border-bottom:0}td span{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+  .map{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#f8fafc}.map iframe{width:100%;height:255px;border:0;display:block}.map-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 13px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}.map-foot a{color:var(--blue2);font-weight:900;text-decoration:none}.indicative{background:#fff8ea;border:1px solid #efd497;color:#684b0f;border-radius:16px;padding:15px 16px;font-size:13px;line-height:1.55;font-weight:700}
+  .txt{font-size:13.4px;line-height:1.62;color:#263244;white-space:pre-wrap}.reco{background:linear-gradient(135deg,#fff8ea,#ffffff);border:1px solid #ead9a8;border-radius:16px;padding:15px 16px;font-size:14px;font-weight:800;color:var(--blue2);white-space:pre-wrap}.footer{background:var(--blue);color:rgba(255,255,255,.74);padding:18px 38px;font-size:11.5px}.footer strong{color:var(--gold2)}
+  @page{size:A4;margin:0}
+  @media print{html,body{background:#fff!important}.toolbar{display:none!important}.wrap{max-width:none;width:210mm;box-shadow:none}.hero{background:var(--blue2)!important;background-image:linear-gradient(135deg,#0f1b2d,#14213d 55%,#20395f)!important}.sec{break-inside:avoid}.kpi,.box{break-inside:avoid}.map iframe{height:210px}.kpis{grid-template-columns:repeat(4,1fr)!important}.hero-grid{grid-template-columns:1fr 265px!important}.hero-img,.hero-placeholder{height:165px!important}}
 </style>
 </head>
 <body>
-  <div class="no-print"><button class="btn" onclick="window.print()">Imprimer / PDF</button></div>
+  <div class="toolbar"><span>Export PDF</span><button class="btn" onclick="window.print()">Imprimer / PDF</button></div>
   <div class="wrap">
     <div class="hero">
       <div class="brand">
-        ${logo ? `<img src="${esc(logo)}" alt="Profero Invest">` : `<div class="tag">Profero Invest</div>`}
+        ${logo ? `<img src="${esc(logo)}" alt="Profero Invest">` : `<div class="tag">Groupe Profero</div>`}
         <div class="tag">${esc(data.dateEdition || "")}</div>
       </div>
-      <h1>${esc(data.title || "Fiche client investisseur")}</h1>
-      <div class="sub">${esc(data.subtitle || "Analyse de rentabilité")}<br>${esc(data.address || "")}</div>
-      <div class="pill">${esc(data.recommandation || "Analyse Profero Invest")}</div>
+      <h1>${esc(data.title || "Fiche investisseur")}</h1>
+      <div class="sub">${esc(subtitle)}<div class="location-line">${showAddress ? "Adresse : " : "Secteur : "}${esc(displayedLocation || "—")}</div></div>
+      <div class="privacy ${showAddress ? "" : "dark"}">${showAddress ? "Adresse exacte affichée" : "Adresse masquée pour diffusion communauté"}</div>
+      <div class="hero-grid">
+        <div class="hero-claim">${esc(data.claim || data.recommandation || "Projet immobilier analysé et structuré par Profero Invest.")}</div>
+        ${photoBlock}
+      </div>
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="v">${eur(data.coutTotal)}</div><div class="l">Coût total</div></div>
+      <div class="kpi"><div class="v">${eur(data.coutTotal)}</div><div class="l">Coût global</div></div>
       <div class="kpi"><div class="v">${pct(data.rendementBrutPct)}</div><div class="l">Rendement brut</div></div>
       <div class="kpi"><div class="v">${eur(data.cashflowS1)}/mois</div><div class="l">Cash-flow</div></div>
       <div class="kpi"><div class="v">${eur(data.totLoyer)}/mois</div><div class="l">Loyers</div></div>
@@ -3302,15 +3293,19 @@ function openFicheClientInvestisseurPDFAvecMap(data = {}) {
 
     ${mapEmbed ? `
     <div class="sec">
-      <div class="title">Localisation du bien</div>
+      <div class="title">${locationTitle}</div>
       <div class="map">
         <iframe src="${esc(mapEmbed)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
         <div class="map-foot">
-          <span>${esc(data.address || data.mapAddress || "")}</span>
+          <span>${esc(displayedLocation || data.mapAddress || "")}</span>
           <a href="${esc(mapLink)}" target="_blank" rel="noreferrer">Ouvrir dans Google Maps →</a>
         </div>
       </div>
-    </div>` : ""}
+    </div>` : `
+    <div class="sec">
+      <div class="title">${locationTitle}</div>
+      <div class="indicative">L’adresse exacte du projet n’est pas affichée dans cette version afin de permettre une diffusion à la communauté. Elle pourra être communiquée après qualification de l’investisseur.</div>
+    </div>`}
 
     <div class="sec">
       <div class="title">Synthèse financière</div>
@@ -3331,31 +3326,33 @@ function openFicheClientInvestisseurPDFAvecMap(data = {}) {
     <div class="sec">
       <div class="title">Configuration locative cible</div>
       <table>
-        <thead><tr><th>Lot</th><th>Niveau</th><th>Surface</th><th>Loyer</th><th>Gestion</th><th>Commentaire</th></tr></thead>
-        <tbody>${lotRows || `<tr><td colspan="6">Aucun lot renseigné</td></tr>`}</tbody>
+        <thead><tr><th>Lot</th><th>Niveau</th><th>Surface</th><th>Loyer</th><th>Gestion</th></tr></thead>
+        <tbody>${lotRows || `<tr><td colspan="5">Aucun lot renseigné</td></tr>`}</tbody>
       </table>
     </div>
 
     <div class="sec">
-      <div class="title">Présentation du projet</div>
-      <div class="txt">${esc(data.description || "")}</div>
-    </div>
-
-    <div class="sec">
-      <div class="title">Travaux envisagés</div>
-      <div class="txt">${esc(data.travaux || "")}</div>
+      <div class="title">Projet et conviction Profero</div>
+      <div class="split">
+        <div class="box dark"><h3>Présentation du projet</h3><p>${esc(data.description || "")}</p></div>
+        <div class="box"><h3>Travaux envisagés</h3><p>${esc(data.travaux || "")}</p></div>
+      </div>
     </div>
 
     <div class="sec">
       <div class="title">Atouts et recommandation</div>
       <div class="reco">${esc(data.atouts || data.recommandation || "")}</div>
     </div>
+
+    <div class="footer">
+      <strong>Groupe Profero · Profero Invest</strong><br>
+      Fiche de présentation non contractuelle, établie à partir des hypothèses disponibles. Les chiffres sont à confirmer par devis, financement, diagnostics et validation réglementaire.
+    </div>
   </div>
 </body>
 </html>`);
   win.document.close();
 }
-
 
 function dossierEscapeHtml(value) {
   return String(value ?? "").replace(/[&<>\"']/g, c => ({
@@ -4609,9 +4606,10 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   };
 
 
-  const genererPresentationClientPDF = () => {
+  const genererPresentationClientPDF = ({ showAddress = true } = {}) => {
     const v = bien.visite_data || {};
-    const sim = v.simulateur || {};
+    const activeClientSimulation = getActiveSimulationEntry(bien, activeSimulationId);
+    const sim = activeClientSimulation?.donnees || v.simulateur || {};
     const inputs = sim.inputs || {};
     const selects = sim.selects || {};
     const simLots = Array.isArray(sim.lots) ? sim.lots : [];
@@ -4646,11 +4644,23 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     const desc = sim.descriptions?.description || v.presentation || v.general?.commentaire || "Projet d’investissement immobilier analysé par Profero Invest.";
     const travaux = sim.descriptions?.travaux || v.technique?.travaux_envisages || (budgetTravauxPdf > 0 ? `Budget travaux estimé : ${new Intl.NumberFormat("fr-FR", {maximumFractionDigits:0}).format(budgetTravauxPdf)} €.` : "Travaux à préciser après validation technique et devis.");
     const atouts = sim.descriptions?.atouts || v.marche?.points_forts || v.conclusion?.commentaire || `Rentabilité brute estimée à ${rbPdf.toFixed(2).replace(".", ",")} %. Stratégie à confirmer selon financement et objectifs client.`;
+    const exactAddressPdf = [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", ");
+    const publicLocationPdf = bien.ville ? `${bien.ville} · secteur communiqué sur demande` : "Secteur communiqué sur demande";
+    const titlePdf = showAddress
+      ? ([bien.adresse, bien.ville].filter(Boolean).join(" - ") || bien.reference_interne || "Fiche investisseur")
+      : `${bien.ville || "Opportunité immobilière"} — Projet investisseur`;
+    const dossierPresentation = v.dossier_presentation || {};
 
     openFicheClientInvestisseurPDFAvecMap({
-      title: [bien.adresse, bien.ville].filter(Boolean).join(" - ") || bien.reference_interne || "Fiche investisseur",
-      subtitle: "Analyse de Rentabilité",
-      address: [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", "),
+      title: titlePdf,
+      subtitle: "Analyse de rentabilité",
+      publicSubtitle: "Présentation synthétique d’une opportunité d’investissement",
+      address: exactAddressPdf,
+      publicLocation: publicLocationPdf,
+      ville: bien.ville || "",
+      showAddress,
+      photoUrl: dossierPresentation.photo_url || v.photo_principale_url || bien.photo_url || "",
+      claim: v.conclusion?.commentaire_conseiller || v.conclusion?.recommandation || "Projet immobilier analysé et structuré par Profero Invest.",
       mapAddress: getBienFullAddress(bien),
       mapEmbedUrl: googleMapsEmbedUrlForBien(bien),
       mapSearchUrl: googleMapsSearchUrl(getBienMapQuery(bien) || getBienFullAddress(bien)),
@@ -4934,7 +4944,8 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
                 <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setFicheTab("terrain")} style={{width:"100%",justifyContent:"center"}}><Icon as={PhoneIcon} size={12}/> Remplir la visite terrain</button>
                 <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setFicheTab("simulateur")} style={{width:"100%",justifyContent:"center"}}><Icon as={BarChart3} size={12}/> Ouvrir le simulateur</button>
                 <button className="inv-btn inv-btn-gold inv-btn-sm" onClick={() => setFicheTab("dossier")} style={{width:"100%",justifyContent:"center"}}><Icon as={Briefcase} size={12}/> Préparer le dossier investisseur</button>
-                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={genererPresentationClientPDF} style={{width:"100%",justifyContent:"center"}}><Icon as={FileText} size={12}/> Ancienne fiche client</button>
+                <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => genererPresentationClientPDF({ showAddress:true })} style={{width:"100%",justifyContent:"center"}}><Icon as={FileText} size={12}/> Fiche client avec adresse</button>
+                <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => genererPresentationClientPDF({ showAddress:false })} style={{width:"100%",justifyContent:"center"}}><Icon as={Send} size={12}/> Fiche communauté sans adresse</button>
                 <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setShowEdit(true)} style={{width:"100%",justifyContent:"center"}}><Icon as={Pencil} size={12}/> Modifier les infos principales</button>
               </div>
             </div>
