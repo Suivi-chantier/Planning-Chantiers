@@ -435,9 +435,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       };
       const { error } = await supabase.from("planning_cells").upsert(upsertPayload, { onConflict: "week_id,chantier_id,jour" });
       if (error) throw error;
-      // Met à jour la date_prevue sur la tâche d'origine
+      // Met à jour la date_prevue sur la tâche d'origine. date_prevue = date
+      // de DÉBUT : une tâche peut être posée sur plusieurs jours, envoyer un
+      // jour de continuation (plus tard) ne recule pas le début.
       const exactDate = getDateFromWeekAndDay(planifSemaine, planifJour);
-      updateTache(ouvrageId, tache.id, { date_prevue: exactDate });
+      const dejaISO = tache.date_prevue ? String(tache.date_prevue).slice(0, 10) : "";
+      if (exactDate && (!dejaISO || exactDate < dejaISO)) {
+        updateTache(ouvrageId, tache.id, { date_prevue: exactDate });
+      }
       setPlanifMsg({ ok: true, txt: `✓ Envoyé dans ${planifSemaine} · ${planifJour}` });
     } catch (e) {
       console.error("envoyerDansPlanning:", e);

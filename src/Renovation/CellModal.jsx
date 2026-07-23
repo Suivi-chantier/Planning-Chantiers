@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots } from "../constants";
 import { useDirtyGuard } from "../hooks";
-import { loadPhasagePourPlanning, setDatePrevueTache } from "./phasagePlanning";
+import { loadPhasagePourPlanning, syncDatePrevueTache } from "./phasagePlanning";
 import { sortByChrono } from "./chronoTemplate";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
@@ -89,9 +89,23 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   })();
   const dansLeJour = (tacheId) => (draft.taches || []).some(x => String(x.tache_id || "") === String(tacheId));
 
+  // Reflète une date recalculée dans le panneau, sans recharger le phasage.
+  const majDateLocale = (tacheId, date) => {
+    if (date === undefined) return;
+    setPhasageData(d => d ? {
+      ...d,
+      ouvrages: d.ouvrages.map(o => ({
+        ...o,
+        taches: (o.taches || []).map(x => x.id === tacheId ? { ...x, date_prevue: date || "" } : x),
+      })),
+    } : d);
+  };
+
   // Ajoute une tâche du phasage au jour : ligne structurée liée (tache_id),
-  // durée par défaut = heures estimées, ouvriers de la tâche ajoutés à la
-  // cellule, et date_prevue écrite tout de suite dans le phasage.
+  // durée par défaut = heures VENDUES puis, à défaut, heures estimées,
+  // ouvriers de la tâche ajoutés à la cellule. La date_prevue du phasage est
+  // synchronisée sur le PREMIER jour planifié : poser un jour de continuation
+  // (plus tard que l'existant) ne déplace pas la date de début.
   const addFromPhasage = (row) => {
     const t = row.tache;
     if (dansLeJour(t.id)) return;
@@ -100,7 +114,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
       id: Math.random().toString(36).slice(2),
       tache_id: t.id,
       text: t.nom || "",
-      duree: arrondiQuart(t.heures_estimees),
+      duree: arrondiQuart(t.heures_vendues) ?? arrondiQuart(t.heures_estimees),
       ouvriers: ouvT,
     };
     setDraft(p => {
@@ -113,32 +127,20 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     });
     const iso = getDateISO();
     if (iso) {
-      setDatePrevueTache(chantier.id, t.id, iso);
-      // Reflète la nouvelle date dans le panneau sans recharger.
-      setPhasageData(d => d ? {
-        ...d,
-        ouvrages: d.ouvrages.map(o => ({
-          ...o,
-          taches: (o.taches || []).map(x => x.id === t.id ? { ...x, date_prevue: iso } : x),
-        })),
-      } : d);
+      syncDatePrevueTache(chantier.id, t.id, { addDates: [iso] })
+        .then(({ changed, date }) => { if (changed) majDateLocale(t.id, date); });
     }
   };
 
-  // À la suppression d'une ligne liée au phasage : efface la date_prevue si
-  // elle correspond encore à ce jour (sinon on ne touche à rien).
+  // À la suppression d'une ligne liée au phasage : recalcule la date depuis
+  // les jours encore planifiés (premier jour restant) ; s'il n'en reste
+  // aucun, efface la date si elle valait encore ce jour.
   const onRemoveTache = (removed) => {
     if (!removed?.tache_id) return;
     const iso = getDateISO();
     if (!iso) return;
-    setDatePrevueTache(chantier.id, removed.tache_id, null, { onlyIfDate: iso });
-    setPhasageData(d => d ? {
-      ...d,
-      ouvrages: d.ouvrages.map(o => ({
-        ...o,
-        taches: (o.taches || []).map(x => x.id === removed.tache_id && (x.date_prevue || "") === iso ? { ...x, date_prevue: "" } : x),
-      })),
-    } : d);
+    syncDatePrevueTache(chantier.id, removed.tache_id, { removeDates: [iso] })
+      .then(({ changed, date }) => { if (changed) majDateLocale(removed.tache_id, date); });
   };
 
   useEffect(() => {
@@ -407,11 +409,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                                 <div style={{fontSize:11,color:T.textMuted,
                                   overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                                   {(row.lot?.label?row.lot.label+" · ":"")+(row.ouvrage.libelle||"—")}
-                                  {t.heures_estimees?` · ${t.heures_estimees}h`:""}
+                                  {parseFloat(t.heures_vendues)>0?` · ${t.heures_vendues}h vendues`
+                                    :t.heures_estimees?` · ${t.heures_estimees}h estimées`:""}
                                 </div>
                               </div>
                               {dejaDatee&&!added&&(
-                                <span title="Déjà planifiée — l'ajouter ici déplacera sa date"
+                                <span title="Début prévu (une tâche peut s'étaler sur plusieurs jours : l'ajouter ici ne recule jamais cette date de début)"
                                   style={{flexShrink:0,fontSize:11,fontWeight:700,color:"#f5a623",
                                     background:"rgba(245,166,35,0.12)",borderRadius:6,padding:"2px 7px"}}>
                                   📅 {new Date(t.date_prevue).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}
@@ -421,7 +424,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                                 <span style={{flexShrink:0,fontSize:12,fontWeight:800,color:T.text}}>✓ Ajoutée</span>
                               ):(
                                 <button onClick={()=>addFromPhasage(row)}
-                                  title="Ajouter cette tâche au jour (sa date sera mise à jour dans le phasage)"
+                                  title="Ajouter cette tâche au jour (le phasage garde comme date le premier jour planifié)"
                                   style={{flexShrink:0,background:chantier.couleur,border:"none",borderRadius:7,
                                     padding:"5px 12px",color:"#1a1f2e",fontFamily:"inherit",fontSize:13,
                                     fontWeight:800,cursor:"pointer"}}>+</button>
@@ -431,8 +434,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                         })}
                       </div>
                       <div style={{fontSize:11,color:T.textMuted,fontStyle:"italic"}}>
-                        Ajouter une tâche ici écrit sa date prévue dans le phasage (visible sur le Gantt).
-                        La retirer du jour efface la date.
+                        La date prévue du phasage suit le premier jour planifié : une tâche posée sur
+                        plusieurs jours garde son jour de début. Retirer une tâche recalcule (ou efface) la date.
                       </div>
                     </>
                   )}
