@@ -290,30 +290,80 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
   };
 
+  // Export PDF : uniquement les chantiers actifs de la semaine, mise en page
+  // compacte calibrée (zoom auto) pour tenir sur UNE page A4 paysage.
   const handlePrint = () => {
-    const vl = { "planifie":"PLANNING PLANIFIÉ", "reel":"RÉEL", "compare":"BILAN COMPARATIF" }[view];
-    const rows = chantiers.map(c => {
+    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[ch]));
+    const hasAct = (c) => JOURS.some(j => { const cl = getCell(c.id, j); return cl.planifie || cl.ouvriers?.length > 0; });
+    const actifs = chantiers.filter(hasAct);
+    const d0 = getDateDuJour(0), d4 = getDateDuJour(4);
+    const periode = `${d0.toLocaleDateString("fr-FR",{day:"numeric",month:"long"})} – ${d4.toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}`;
+
+    // Lignes chantier + estimation de hauteur (pour le zoom une-page).
+    let totalLines = 0;
+    const rows = actifs.map(c => {
+      const onLot = contrastText(c.couleur);
+      let rowMax = 1;
       const cols = JOURS.map(j => {
-        const cell = getCell(c.id, j); let html = "";
-        if (view === "compare") {
-          if (cell.planifie) html += `<div style="color:#3060c0">▸ ${cell.planifie.replace(/\n/g,"<br>")}</div>`;
-          if (cell.reel)     html += `<div style="color:#207040">✓ ${cell.reel.replace(/\n/g,"<br>")}</div>`;
-        } else if (cell[view]) html += cell[view].replace(/\n/g,"<br>");
-        if (cell.ouvriers?.length) html += `<div style="font-weight:700;color:#666;font-size:9px;border-top:1px solid #eee;padding-top:3px;margin-top:4px">${cell.ouvriers.join(" · ")}</div>`;
-        return `<td>${html || "—"}</td>`;
+        const cell = getCell(c.id, j);
+        const taches = getDisplayTaches(cell).filter(t => t.text?.trim());
+        rowMax = Math.max(rowMax, taches.length + (cell.ouvriers?.length ? 1 : 0) || 1);
+        const tHtml = taches.map(t =>
+          `<div class="t">${esc(t.text)}${t.duree ? ` <span class="d">· ${t.duree}h</span>` : ""}</div>`
+        ).join("");
+        const oHtml = cell.ouvriers?.length
+          ? `<div class="ouv">${cell.ouvriers.map(o => `<span style="background:${c.couleur};color:${onLot}">${esc(o)}</span>`).join("")}</div>`
+          : "";
+        return `<td>${tHtml}${oHtml}</td>`;
       }).join("");
-      return `<tr><td style="font-weight:800;font-size:11px;text-transform:uppercase;background:${c.couleur};color:${contrastText(c.couleur)};width:100px">${c.nom}</td>${cols}</tr>`;
+      totalLines += rowMax;
+      return `<tr><td class="lot" style="background:${c.couleur};color:${onLot}">${esc(c.nom)}</td>${cols}</tr>`;
     }).join("");
+
+    // Zoom pour tenir en une page : ~700 px utiles en A4 paysage (marges 8 mm).
+    const estH = 60 + actifs.length * 16 + totalLines * 13;
+    const zoom = Math.max(0.45, Math.min(1, Math.floor((700 / estH) * 100) / 100));
+
+    // Récap heures / ouvrier sur une ligne.
+    const recap = ouvriers.filter(o => heuresParOuvrier[o])
+      .map(o => `<strong>${esc(o)}</strong> ${Math.round(heuresParOuvrier[o]*4)/4}h`).join('<span class="sep">·</span>');
+
     const w = window.open("","_blank");
-    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Planning S${week}—${year}</title>
-    <style>@page{size:A4 landscape;margin:12mm}body{font-family:Arial,sans-serif;font-size:10px}
-    h1{font-size:16px;margin-bottom:2px}.sub{font-size:10px;color:#666;margin-bottom:12px}
-    table{width:100%;border-collapse:collapse}th{background:#1a1f2e;color:#fff;padding:6px 8px;text-align:center;font-size:11px}
-    td{border:1px solid #ddd;padding:6px 8px;vertical-align:top;line-height:1.4}
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Planning S${week} ${year}</title>
+    <style>
+      @page{size:A4 landscape;margin:8mm}
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Arial,Helvetica,sans-serif;color:#1a1f2e;-webkit-print-color-adjust:exact;print-color-adjust:exact;zoom:${zoom}}
+      .head{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+      h1{font-size:17px;letter-spacing:.3px}
+      .sub{font-size:10.5px;color:#666}
+      table{width:100%;border-collapse:collapse;table-layout:fixed}
+      th{background:#1a1f2e;color:#fff;padding:4px 6px;text-align:center;font-size:10px;letter-spacing:.6px;text-transform:uppercase}
+      th .dt{display:block;font-weight:400;font-size:8.5px;opacity:.75;text-transform:none;letter-spacing:0}
+      th.cha{width:88px}
+      td{border:1px solid #d8d8d8;padding:3px 5px;vertical-align:top}
+      td.lot{font-weight:800;font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;text-align:center;vertical-align:middle;line-height:1.25}
+      .t{font-size:9px;line-height:1.3;margin-bottom:1px}
+      .d{color:#555;font-weight:700;font-size:8px;white-space:nowrap}
+      .ouv{margin-top:2px}
+      .ouv span{display:inline-block;border-radius:3px;padding:0 4px;font-size:8px;font-weight:700;margin:1px 3px 0 0}
+      .recap{margin-top:6px;font-size:9px;color:#444}
+      .recap .sep{margin:0 5px;color:#bbb}
+      tr{page-break-inside:avoid}
     </style></head><body>
-    <h1>Planning — Semaine ${week} / ${year}</h1>
-    <div class="sub">${vl} · ${new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
-    <table><thead><tr><th>Chantier</th>${JOURS.map(j => `<th>${j}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="head">
+      <h1>Planning — Semaine ${week}</h1>
+      <span class="sub">${periode}</span>
+      <span class="sub" style="margin-left:auto">Imprimé le ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span>
+    </div>
+    <table>
+      <thead><tr><th class="cha">Chantier</th>${JOURS.map((j, di) => {
+        const d = getDateDuJour(di);
+        return `<th>${j}<span class="dt">${d.getDate()} ${MOIS_COURTS[d.getMonth()]}</span></th>`;
+      }).join("")}</tr></thead>
+      <tbody>${rows || `<tr><td colspan="${JOURS.length+1}" style="text-align:center;color:#888;padding:14px">Rien de planifié cette semaine.</td></tr>`}</tbody>
+    </table>
+    ${recap ? `<div class="recap">Heures planifiées&nbsp;: ${recap}</div>` : ""}
     </body></html>`);
     w.document.close(); setTimeout(() => w.print(), 400);
   };
