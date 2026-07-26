@@ -248,6 +248,70 @@ function porteDouble(w) {
   ];
 }
 
+// ─── DOUBLAGES & CLOISONS ────────────────────────────────────────────────────
+// Outils de tracé rapide : deux parements + BA13 + isolant en zigzag.
+// L'axe tracé au clic est l'axe central du mur.
+const WALL_TYPES = {
+  wall_d120: { label:'Doublage 120', short:'D120', thickness:0.12,  kind:'doublage' },
+  wall_d160: { label:'Doublage 160', short:'D160', thickness:0.16,  kind:'doublage' },
+  wall_c70:  { label:'Cloison 70',   short:'C70',  thickness:0.07,  kind:'cloison'  },
+  wall_c45:  { label:'Cloison 45',   short:'C45',  thickness:0.045, kind:'cloison'  },
+};
+
+function buildWallSegments(p1, p2, def) {
+  const segs = [];
+  const dx = p2.x-p1.x, dy = p2.y-p1.y;
+  const len = Math.sqrt(dx*dx+dy*dy);
+  if (len < 0.01) return segs;
+  const ux = dx/len, uy = dy/len;
+  const px = -uy, py = ux;               // perpendiculaire au tracé
+  const h = def.thickness/2;
+  const off = (pt,d) => ({x:pt.x+px*d, y:pt.y+py*d});
+  const addLine = (d) => {
+    const a = off(p1,d), b = off(p2,d);
+    segs.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y});
+  };
+  // Parements extérieurs + fermetures aux extrémités
+  addLine(h); addLine(-h);
+  const A1=off(p1,h), B1=off(p1,-h), A2=off(p2,h), B2=off(p2,-h);
+  segs.push({x1:A1.x,y1:A1.y,x2:B1.x,y2:B1.y});
+  segs.push({x1:A2.x,y1:A2.y,x2:B2.x,y2:B2.y});
+  // Plaques BA13 (13 mm) : 2 côtés pour une cloison, 1 côté pour un doublage
+  const ba = 0.013;
+  let cavA = h, cavB = -h;               // bornes de la cavité isolant
+  if (def.kind === 'cloison') {
+    addLine(h-ba); addLine(-h+ba);
+    cavA = h-ba; cavB = -h+ba;
+  } else {
+    addLine(-h+ba);
+    cavB = -h+ba;
+  }
+  // Isolant : zigzag (symbole laine minérale) dans la cavité
+  const mid = (cavA+cavB)/2;
+  const amp = (cavA-cavB)/2*0.75;
+  const step = Math.max(def.thickness*1.5, 0.08);
+  const n = Math.max(2, Math.round(len/step));
+  let prev = off(p1, mid);
+  for (let i=1; i<=n; i++) {
+    const base = {x:p1.x+dx*(i/n), y:p1.y+dy*(i/n)};
+    const pt = i===n ? off(base, mid) : off(base, mid + (i%2 ? amp : -amp));
+    segs.push({x1:prev.x,y1:prev.y,x2:pt.x,y2:pt.y});
+    prev = pt;
+  }
+  return segs;
+}
+
+// Paramètre t (sur le segment a) de l'intersection a×b, ou null si pas de croisement
+function segIntersectParam(a, b) {
+  const d1x=a.x2-a.x1, d1y=a.y2-a.y1, d2x=b.x2-b.x1, d2y=b.y2-b.y1;
+  const den = d1x*d2y - d1y*d2x;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((b.x1-a.x1)*d2y - (b.y1-a.y1)*d2x)/den;
+  const u = ((b.x1-a.x1)*d1y - (b.y1-a.y1)*d1x)/den;
+  if (t < 1e-4 || t > 1-1e-4 || u < -1e-6 || u > 1+1e-6) return null;
+  return t;
+}
+
 const DXF_LIBRARY = [
   // ── SANITAIRES ──────────────────────────────────────────────────────────────
   { id:'receveur_90x90', name:'Receveur douche 90×90 cm', icon:'🚿', category:'Sanitaires',
@@ -556,6 +620,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const clipboardRef = useRef(null);
   const [printMode, setPrintMode] = useState(false);
   const printModeRef = useRef(false);
+  const [bgLight, setBgLight] = useState(plan.data?.bgLight || false);
+  const bgLightRef = useRef(plan.data?.bgLight || false);
+  const [typedLen, setTypedLen] = useState('');   // longueur saisie au clavier (outil ligne/cloison)
+  const typedLenRef = useRef('');
   const [coteFontSize, setCoteFontSize] = useState(12);
   const coteFontRef = useRef(12);
   const [showLibrary, setShowLibrary] = useState(false);
@@ -638,6 +706,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   printModeRef.current  = printMode;
   coteFontRef.current   = coteFontSize;
   autoCloseRef.current  = autoClose;
+  bgLightRef.current    = bgLight;
+  typedLenRef.current   = typedLen;
 
   const toWorld = (cx, cy) => {
     const vp = vpRef.current;
@@ -676,6 +746,91 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       wx: startX + len*Math.cos(snap45*Math.PI/180),
       wy: startY + len*Math.sin(snap45*Math.PI/180),
     };
+  };
+
+  // Interprétation de la longueur tapée : entier = cm, décimal = mètres
+  const parseTypedLen = (raw) => {
+    const num = parseFloat((raw||'').replace(',','.'));
+    if (!num || num <= 0) return 0;
+    return /[.,]/.test(raw) ? num : num/100;
+  };
+
+  // Valide la longueur tapée au clavier : crée le segment (ou la cloison)
+  // dans la direction de la souris, à la longueur exacte demandée.
+  const commitTypedLen = useCallback(() => {
+    const meters = parseTypedLen(typedLenRef.current);
+    const ls = lineStartRef.current;
+    if (!meters || !ls) { setTypedLen(''); return; }
+    let dirX = 1, dirY = 0;
+    const mp = mousePosRef.current;
+    if (mp) {
+      let {wx,wy} = toWorld(mp.cx, mp.cy);
+      const o = applyOrtho(ls.x, ls.y, wx, wy);
+      const d = Math.sqrt((o.wx-ls.x)**2+(o.wy-ls.y)**2);
+      if (d > 0.0001) { dirX=(o.wx-ls.x)/d; dirY=(o.wy-ls.y)/d; }
+    }
+    const end = {x: ls.x+dirX*meters, y: ls.y+dirY*meters};
+    pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+    const def = WALL_TYPES[toolRef.current];
+    if (def) {
+      const groupId = 'grp_'+Date.now();
+      const newSegs = buildWallSegments(ls, end, def).map(sg=>({
+        ...sg, color:lineColorRef.current, layer:'wall', user:true,
+        id:Date.now()+Math.random(), groupId,
+      }));
+      setSegments(s=>[...s, ...newSegs]);
+    } else {
+      setSegments(s=>[...s, {x1:ls.x,y1:ls.y,x2:end.x,y2:end.y,
+        color:lineColorRef.current, layer:'user', user:true, id:Date.now()+Math.random()}]);
+    }
+    setLineStart(end);
+    setTypedLen('');
+  }, []);
+
+  // Étirement d'un groupe le long de son grand axe (largeur fenêtre/porte…)
+  const stretchGroup = useCallback((groupId, factor) => {
+    if (!factor || !isFinite(factor) || factor <= 0) return;
+    setSegments(prev => {
+      const grp = prev.filter(s => s.groupId === groupId && !s.deleted);
+      if (!grp.length) return prev;
+      // Axe principal = direction du segment le plus long du groupe
+      let best = grp[0], bl = 0;
+      grp.forEach(s => { const l=(s.x2-s.x1)**2+(s.y2-s.y1)**2; if (l>bl) {bl=l; best=s;} });
+      const l = Math.sqrt(bl) || 1;
+      const ux=(best.x2-best.x1)/l, uy=(best.y2-best.y1)/l;
+      let cx=0, cy=0, n=0;
+      grp.forEach(s => { cx+=s.x1+s.x2; cy+=s.y1+s.y2; n+=2; });
+      cx/=n; cy/=n;
+      const tr = (x,y) => {
+        const vx=x-cx, vy=y-cy;
+        const a = vx*ux+vy*uy;               // composante le long de l'axe
+        const px = vx-a*ux, py = vy-a*uy;    // composante perpendiculaire (conservée)
+        return {x: cx+a*factor*ux+px, y: cy+a*factor*uy+py};
+      };
+      return prev.map(s => {
+        if (s.groupId !== groupId || s.deleted) return s;
+        const p1=tr(s.x1,s.y1), p2=tr(s.x2,s.y2);
+        return {...s, x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y};
+      });
+    });
+  }, []);
+
+  // Étendue du groupe le long de son grand axe (en mètres)
+  const getGroupLen = (groupId) => {
+    const grp = segmentsRef.current.filter(s => s.groupId === groupId && !s.deleted);
+    if (!grp.length) return 0;
+    let best = grp[0], bl = 0;
+    grp.forEach(s => { const l=(s.x2-s.x1)**2+(s.y2-s.y1)**2; if (l>bl) {bl=l; best=s;} });
+    const l = Math.sqrt(bl) || 1;
+    const ux=(best.x2-best.x1)/l, uy=(best.y2-best.y1)/l;
+    let min=Infinity, max=-Infinity;
+    grp.forEach(s => {
+      [[s.x1,s.y1],[s.x2,s.y2]].forEach(([x,y]) => {
+        const a = x*ux+y*uy;
+        if (a<min) min=a; if (a>max) max=a;
+      });
+    });
+    return max-min;
   };
 
   // ── Dessin des symboles bibliothèque (taille écran fixe) ────────────────────
@@ -954,7 +1109,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
     try {
       ctx.clearRect(0,0,W,H);
-      const isPrint = printModeRef.current;
+      // Fond clair : même palette que le mode impression, mais on garde la grille
+      const isPrint = printModeRef.current || bgLightRef.current;
       // Désactive l'effet d'ombre quand beaucoup d'éléments sont sélectionnés
       // (shadowBlur = compositing hors-écran très coûteux en multi-sélection)
       const useShadow = !isPrint && selectedRef.current.size <= 30;
@@ -996,7 +1152,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
       const gridSize = Math.max(0.1, 1/vp.scale);
       const gStep = gridSize * vp.scale;
-      if (!isPrint && gStep > 15 && isFinite(gStep)) {
+      if (!printModeRef.current && gStep > 15 && isFinite(gStep)) {
         ctx.strokeStyle = C.grid;
         ctx.lineWidth = 0.5;
         const ox = (-vp.x % gridSize) * vp.scale;
@@ -1344,16 +1500,46 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       });
 
       const ls=lineStartRef.current, mp=mousePosRef.current;
-      if (toolRef.current==='line' && ls && mp) {
+      const wallDef = WALL_TYPES[toolRef.current];
+      if ((toolRef.current==='line' || wallDef) && ls && mp) {
         let {wx,wy}=toWorld(mp.cx,mp.cy);
         const ortho=applyOrtho(ls.x,ls.y,wx,wy);
         wx=ortho.wx; wy=ortho.wy;
         const snapped=snapToPoint(wx,wy);
         const ex=(snapped.wx-vp.x)*vp.scale, ey=(snapped.wy-vp.y)*vp.scale;
         const sx=(ls.x-vp.x)*vp.scale, sy=(ls.y-vp.y)*vp.scale;
-        ctx.strokeStyle=lineColorRef.current; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+        const previewColor = C.seg(lineColorRef.current);
+        ctx.strokeStyle=previewColor; ctx.lineWidth=2; ctx.setLineDash([6,4]);
         ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey); ctx.stroke();
+        // Aperçu des deux parements de la cloison/du doublage
+        if (wallDef) {
+          const ddx=ex-sx, ddy=ey-sy, dl=Math.sqrt(ddx*ddx+ddy*ddy);
+          if (dl>1) {
+            const hw = wallDef.thickness*vp.scale/2;
+            const hpx=-ddy/dl*hw, hpy=ddx/dl*hw;
+            ctx.lineWidth=1.5;
+            ctx.beginPath(); ctx.moveTo(sx+hpx,sy+hpy); ctx.lineTo(ex+hpx,ey+hpy); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(sx-hpx,sy-hpy); ctx.lineTo(ex-hpx,ey-hpy); ctx.stroke();
+          }
+        }
         ctx.setLineDash([]);
+        // Longueur en cours de saisie au clavier
+        if (typedLenRef.current) {
+          const typed=typedLenRef.current;
+          const m=parseFloat(typed.replace(',','.'))||0;
+          const meters=/[.,]/.test(typed)?m:m/100;
+          const tLabel=`⌨ ${typed} → ${meters.toFixed(2).replace('.',',')} m — Entrée`;
+          ctx.save();
+          ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+          const tw2=ctx.measureText(tLabel).width+12;
+          ctx.fillStyle='rgba(80,200,120,0.92)';
+          ctx.beginPath();
+          if(ctx.roundRect)ctx.roundRect(mp.cx-tw2/2,mp.cy+14,tw2,20,4);else ctx.rect(mp.cx-tw2/2,mp.cy+14,tw2,20);
+          ctx.fill();
+          ctx.fillStyle='#fff';
+          ctx.fillText(tLabel, mp.cx, mp.cy+28);
+          ctx.restore();
+        }
         if (snapped.snapped) {
           ctx.strokeStyle='#50c878'; ctx.lineWidth=2;
           ctx.beginPath(); ctx.arc(ex,ey,7,0,Math.PI*2); ctx.stroke();
@@ -1497,6 +1683,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
       if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if (((e.ctrlKey||e.metaKey)&&e.key==='y')||((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key==='z')) { e.preventDefault(); redo(); }
+      // Saisie clavier de la longueur pendant le tracé (ligne / doublage / cloison)
+      if (!e.ctrlKey && !e.metaKey && (toolRef.current==='line'||WALL_TYPES[toolRef.current]) && lineStartRef.current) {
+        if (/^[0-9]$/.test(e.key)) { setTypedLen(v=>v+e.key); return; }
+        if (e.key==='.'||e.key===',') { setTypedLen(v=>v.includes('.')?v:v+'.'); return; }
+        if (e.key==='Backspace' && typedLenRef.current) { e.preventDefault(); setTypedLen(v=>v.slice(0,-1)); return; }
+        if (e.key==='Enter' && typedLenRef.current) { e.preventDefault(); commitTypedLen(); return; }
+      }
       if (e.key==='Delete'||e.key==='Backspace') {
         if (selectedRef.current.size>0) {
           pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
@@ -1508,7 +1701,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           setSelectedIds(new Set());
         }
       }
-      if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); setPolyPoints([]); setGroupProps(null); }
+      if (e.key==='Escape') { setSelectedIds(new Set()); setLineStart(null); setMeasurePts([]); setMeasureDist(null); setRectSel(null); setPolyPoints([]); setGroupProps(null); setTypedLen(''); }
       if (e.key==='o'||e.key==='O') setOrthoMode(v=>!v);
       if (e.key==='r'||e.key==='R') setPlanRotation(v=>(v+15)%360);
       if ((e.ctrlKey||e.metaKey)&&e.key==='p') { e.preventDefault(); setPrintMode(v=>!v); }
@@ -1768,15 +1961,47 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
     } else if (tool==='delete') {
       const hitThresh=10/vpRef.current.scale;
-      let bestId=null,bestDist=Infinity;
-      [...segmentsRef.current.filter(s=>!s.deleted),...cotesRef.current.filter(s=>!s.deleted)].forEach(s=>{
+      let bestSeg=null,bestSegT=0,bestId=null,bestDist=Infinity;
+      segmentsRef.current.filter(s=>!s.deleted).forEach(s=>{
         const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
         if(!len2) return;
         const t=Math.max(0,Math.min(1,((wx-s.x1)*dx+(wy-s.y1)*dy)/len2));
         const px=s.x1+t*dx-wx,py=s.y1+t*dy-wy;
         const d=Math.sqrt(px*px+py*py);
-        if(d<hitThresh&&d<bestDist){bestDist=d;bestId=s.id;}
+        if(d<hitThresh&&d<bestDist){bestDist=d;bestSeg=s;bestSegT=t;bestId=null;}
       });
+      cotesRef.current.filter(s=>!s.deleted).forEach(s=>{
+        const dx=s.x2-s.x1,dy=s.y2-s.y1,len2=dx*dx+dy*dy;
+        if(!len2) return;
+        const t=Math.max(0,Math.min(1,((wx-s.x1)*dx+(wy-s.y1)*dy)/len2));
+        const px=s.x1+t*dx-wx,py=s.y1+t*dy-wy;
+        const d=Math.sqrt(px*px+py*py);
+        if(d<hitThresh&&d<bestDist){bestDist=d;bestId=s.id;bestSeg=null;}
+      });
+      if(bestSeg){
+        // Suppression partielle : on n'efface que le tronçon compris entre les
+        // intersections avec les autres lignes (comme la gomme d'un logiciel CAO)
+        const s=bestSeg;
+        const cuts=[];
+        segmentsRef.current.forEach(o=>{
+          if(o.deleted||o.id===s.id) return;
+          const t=segIntersectParam(s,o);
+          if(t!=null) cuts.push(t);
+        });
+        let lo=0,hi=1;
+        cuts.forEach(t=>{ if(t<=bestSegT&&t>lo)lo=t; if(t>=bestSegT&&t<hi)hi=t; });
+        pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
+        const segLen=Math.sqrt((s.x2-s.x1)**2+(s.y2-s.y1)**2);
+        const mkPt=t=>({x:s.x1+(s.x2-s.x1)*t,y:s.y1+(s.y2-s.y1)*t});
+        const newSegs=[[0,lo],[hi,1]]
+          .filter(([a,b])=>(b-a)*segLen>0.002)
+          .map(([a,b])=>{
+            const pA=mkPt(a),pB=mkPt(b);
+            return {...s,x1:pA.x,y1:pA.y,x2:pB.x,y2:pB.y,id:Date.now()+Math.random()};
+          });
+        setSegments(arr=>[...arr.map(x=>x.id===s.id?{...x,deleted:true}:x),...newSegs]);
+        return;
+      }
       if(!bestId){
         for(const sym of symbolsRef.current.filter(s=>!s.deleted)){
           const hitR=Math.max(0.8,(12/vpRef.current.scale)*(sym.size||1));
@@ -1795,7 +2020,6 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       }
       if(bestId){
         pushHistory(segmentsRef.current,symbolsRef.current,cotesRef.current);
-        setSegments(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
         setCotes(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
         setSurfaces(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
         setSymbols(s=>s.map(x=>x.id===bestId?{...x,deleted:true}:x));
@@ -1816,6 +2040,32 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           color:lineColorRef.current,layer:'user',user:true,id:Date.now()+Math.random()};
         pushHistory(segments,symbols,cotes);
         setSegments(s=>[...s,newSeg]);
+        setLineStart({x:lx,y:ly});
+      }
+
+    } else if (WALL_TYPES[tool]) {
+      // Doublage / cloison : se trace comme une ligne (l'axe tracé = axe du mur)
+      let lx=wx, ly=wy;
+      if (lineStartRef.current) {
+        const o=applyOrtho(lineStartRef.current.x,lineStartRef.current.y,lx,ly);
+        lx=o.wx; ly=o.wy;
+      }
+      const s=snapToPoint(lx,ly);
+      lx=s.wx; ly=s.wy;
+      if (!lineStartRef.current) {
+        setLineStart({x:lx,y:ly});
+      } else {
+        const def=WALL_TYPES[tool];
+        const raw=buildWallSegments(lineStartRef.current,{x:lx,y:ly},def);
+        if (raw.length) {
+          const groupId='grp_'+Date.now();
+          const newSegs=raw.map(sg=>({
+            ...sg,color:lineColorRef.current,layer:'wall',user:true,
+            id:Date.now()+Math.random(),groupId,
+          }));
+          pushHistory(segments,symbols,cotes);
+          setSegments(s2=>[...s2,...newSegs]);
+        }
         setLineStart({x:lx,y:ly});
       }
 
@@ -2089,7 +2339,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           segments: segmentsRef.current, symbols: symbolsRef.current,
           cotes: cotesRef.current, surfaces: surfacesRef.current,
           viewport: vpRef.current, threshold: thresholdRef.current,
-          planRotation: planRotRef.current,
+          planRotation: planRotRef.current, bgLight: bgLightRef.current,
         };
         await supabase.from('plans').update({data,thumbnail:thumb,updated_at:new Date().toISOString()}).eq('id',plan.id);
         onSaveRef.current({...plan,data,thumbnail:thumb});
@@ -2113,7 +2363,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(doSave, 2000);
     return () => clearTimeout(saveTimerRef.current);
-  }, [segments, symbols, cotes, surfaces, planRotation, threshold, doSave]);
+  }, [segments, symbols, cotes, surfaces, planRotation, threshold, bgLight, doSave]);
 
   // À la fermeture de l'éditeur : on sauvegarde ce qui reste en attente
   useEffect(() => () => {
@@ -2165,6 +2415,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     {id:'select', icon:'⬚',  label:'Sélectionner / Transformer (clic simple, glisser = rectangle, Shift = ajouter)'},
     {id:'delete', icon:'✕',  label:'Supprimer au clic (clic molette pour se déplacer)'},
     {id:'line',   icon:'╱',  label:'Tracer une ligne (double-clic pour terminer, O = ortho, S = snap)'},
+    {id:'wall_d120', text:'D120', label:'Doublage 120 mm (isolant + BA13) — se trace comme une ligne, taper la longueur au clavier + Entrée'},
+    {id:'wall_d160', text:'D160', label:'Doublage 160 mm (isolant + BA13) — se trace comme une ligne'},
+    {id:'wall_c70',  text:'C70',  label:'Cloison 70 mm (BA13 des 2 côtés + isolant) — se trace comme une ligne'},
+    {id:'wall_c45',  text:'C45',  label:'Cloison 45 mm (BA13 des 2 côtés + isolant) — se trace comme une ligne'},
     {id:'cote',   icon:'↔',  label:'Ajouter une cote'},
     {id:'door',   icon:'🚪', label:'Porte'},
     {id:'window', icon:'⬜', label:'Fenêtre'},
@@ -2198,8 +2452,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         <div style={{height:22,width:1,background:'rgba(255,255,255,0.1)',margin:'0 2px'}}/>
 
         {TOOLS.map(t=>(
-          <button key={t.id} title={t.label} onClick={()=>{setTool(t.id);setLineStart(null);setMeasurePts([]);setMeasureDist(null);setRectSel(null);}} style={btnStyle(t.id)}>
-            {t.icon}
+          <button key={t.id} title={t.label}
+            onClick={()=>{setTool(t.id);setLineStart(null);setMeasurePts([]);setMeasureDist(null);setRectSel(null);setTypedLen('');}}
+            style={{...btnStyle(t.id),...(t.text?{width:'auto',padding:'0 8px',fontSize:11,fontWeight:800}:{})}}>
+            {t.icon||t.text}
           </button>
         ))}
 
@@ -2326,6 +2582,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         <button title="Rétablir Ctrl+Y" onClick={redo} disabled={futureLen===0}  style={{...btnStyle('r'),fontSize:16,opacity:futureLen===0?0.3:1}}>⟳</button>
         <button title="Aide raccourcis ?" onClick={()=>setShowHelp(h=>!h)} style={{...btnStyle('h'),fontSize:14,background:showHelp?'rgba(255,194,0,0.2)':'rgba(255,255,255,0.06)'}}>?</button>
 
+        <button onClick={()=>setBgLight(v=>!v)} title="Basculer le fond de travail clair / sombre"
+          style={{...btnStyle('bg'),
+            background:bgLight?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.06)',
+            color:bgLight?'#1a1f2e':'#9aa5c0',border:`1px solid ${bgLight?'rgba(255,255,255,0.5)':'transparent'}`,
+            width:'auto',padding:'0 10px',fontSize:11,fontWeight:700}}>
+          {bgLight?'☀ Fond clair':'🌙 Fond sombre'}
+        </button>
+
         <button onClick={()=>setPrintMode(v=>!v)} title="Basculer fond blanc pour impression (Ctrl+P)"
           style={{...btnStyle('print'),
             background:printMode?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.06)',
@@ -2406,6 +2670,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             ['Outil Surface','Clic = points du polygone, clic sur ⭕ 1er point = fermer'],
             ['R','Pivoter le plan +15° (Shift+R = réinitialiser)'],
             ['Clic symbole','Ouvre le panneau rotation/taille/position'],
+            ['D120 / D160 / C70 / C45','Doublage ou cloison avec isolant — se trace comme une ligne'],
+            ['Taper 250 + Entrée','Pendant un tracé : ligne de 250 cm (2.5 = 2,50 m) vers la souris'],
+            ['Outil ✕ Supprimer','N\'efface que le tronçon entre les intersections'],
+            ['Clic fenêtre/porte posée','Panneau « Largeur » pour redimensionner l\'élément'],
           ].map(([k,v])=>(
             <div key={k} style={{display:'flex',gap:6,alignItems:'center'}}>
               <code style={{background:'rgba(255,255,255,0.1)',borderRadius:4,padding:'2px 7px',fontSize:11,color:'#f5a623',fontWeight:700}}>{k}</code>
@@ -2481,6 +2749,35 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
               ↕ Retourner 180°
             </button>
           </div>
+          {(() => {
+            const curLen = getGroupLen(groupProps.groupId);
+            const lenCm = Math.round(curLen*1000)/10;
+            const applyLen = (cm) => {
+              if (!cm || cm <= 0 || !curLen) return;
+              pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+              stretchGroup(groupProps.groupId, (cm/100)/curLen);
+            };
+            const stepBtn = {background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.12)',
+              borderRadius:5,width:32,height:26,cursor:'pointer',color:'#9aa5c0',fontSize:10,fontWeight:700,fontFamily:'inherit'};
+            return (
+              <div style={{marginTop:12}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#5b6a8a',marginBottom:5}}>Largeur</div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <button onClick={()=>applyLen(lenCm-5)} style={stepBtn}>−5</button>
+                  <input key={lenCm} type='number' step={1} min={5} defaultValue={lenCm}
+                    onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
+                    onBlur={e=>{const v=parseFloat(e.target.value);if(v&&Math.abs(v-lenCm)>0.01)applyLen(v);}}
+                    style={{flex:1,minWidth:0,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
+                      borderRadius:5,padding:'4px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:12,textAlign:'center'}}/>
+                  <span style={{fontSize:11,color:'#5b6a8a'}}>cm</span>
+                  <button onClick={()=>applyLen(lenCm+5)} style={stepBtn}>+5</button>
+                </div>
+                <div style={{fontSize:9,color:'#5b6a8a',marginTop:4,lineHeight:1.4}}>
+                  Étire l'élément le long de son grand axe (ex : largeur d'une fenêtre). Entrée ou clic ailleurs pour valider.
+                </div>
+              </div>
+            );
+          })()}
           <div style={{marginTop:8,fontSize:10,color:'#5b6a8a',lineHeight:1.5}}>
             Tu peux aussi sélectionner l'élément et utiliser les outils déplacer/recolorer normalement.
           </div>
@@ -2711,14 +3008,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       )}
 
       {/* ── Canvas ── */}
-      <div style={{flex:1,position:'relative',minHeight:0,background:'#12151f',overflow:'hidden'}}>
+      <div style={{flex:1,position:'relative',minHeight:0,background:(bgLight||printMode)?'#ffffff':'#12151f',overflow:'hidden'}}>
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',
-            background:'#12151f',display:'block',touchAction:'none',
+            background:(bgLight||printMode)?'#ffffff':'#12151f',display:'block',touchAction:'none',
             cursor:tool==='pan'?(dragRef.current?'grabbing':'grab')
               :tool==='select'?'crosshair'
               :tool==='delete'?'not-allowed'
-              :tool==='line'?'crosshair'
+              :(tool==='line'||WALL_TYPES[tool])?'crosshair'
               :'default'}}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
@@ -2736,7 +3033,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       <div style={{padding:'4px 14px',background:'#1a1f2e',borderTop:'1px solid rgba(255,255,255,0.06)',
         fontSize:11,color:'#5b6a8a',display:'flex',gap:16,flexShrink:0,flexWrap:'wrap'}}>
         <span>Outil : <strong style={{color:'#9aa5c0'}}>{TOOLS.find(t=>t.id===tool)?.label?.split('(')[0]||tool}</strong></span>
-        {tool==='line'&&lineStart&&<span style={{color:'#a0b8ff'}}>Clic = point suivant · Échap = terminer</span>}
+        {tool==='line'&&lineStart&&!typedLen&&<span style={{color:'#a0b8ff'}}>Clic = point suivant · Taper une longueur (250 = cm, 2.5 = m) + Entrée · Échap = terminer</span>}
+        {WALL_TYPES[tool]&&!lineStart&&<span style={{color:'#a0b8ff'}}>{WALL_TYPES[tool].label} : clic = 1er point de l'axe</span>}
+        {WALL_TYPES[tool]&&lineStart&&!typedLen&&<span style={{color:'#a0b8ff'}}>Clic = poser le tronçon · Taper une longueur + Entrée · Échap = terminer</span>}
+        {(tool==='line'||WALL_TYPES[tool])&&lineStart&&typedLen&&(
+          <span style={{color:'#50c878',fontWeight:700}}>
+            ⌨ Longueur : {typedLen} → {(parseFloat(typedLen.replace(',','.'))?(/[.,]/.test(typedLen)?parseFloat(typedLen.replace(',','.')):parseFloat(typedLen)/100):0).toFixed(2).replace('.',',')} m — Entrée = valider · Backspace = corriger
+          </span>
+        )}
         {tool==='cote'&&measurePts.length===0&&<span>Clic sur le 1er point de la cote</span>}
         {tool==='cote'&&measurePts.length===1&&<span style={{color:'#f5d08a'}}>Clic sur le 2ème point</span>}
         {tool==='select'&&<span>Clic = sélectionner · Glisser = rectangle · Shift = ajouter · Suppr = effacer</span>}
