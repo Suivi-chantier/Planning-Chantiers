@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
+import { COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
-  Settings, Users, HardHat, Euro, Building2, Image as ImageIcon, Palette,
+  Settings, Users, HardHat, Euro, Building2, Palette,
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
-  LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
-  Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck, Lock,
+  LayoutDashboard, Database, Briefcase, Clock, Wrench,
+  Download, ClipboardCheck, Activity, ChevronRight, Truck, Lock,
   Boxes, Car, Eye, ListOrdered,
 } from "lucide-react";
 import {
@@ -1555,34 +1555,6 @@ const EMAIL_TEMPLATES_DEFAUT = {
   },
 };
 
-// ─── DÉFAUTS POUR LA SOCIÉTÉ ET LE PLANNING ──────────────────────────────────
-const SOCIETE_DEFAUT = {
-  nom: "Profero Rénovation",
-  adresse: "",
-  siret: "",
-  telephone: "",
-  email: "",
-  site_web: "",
-};
-const HEURES_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
-const PHRASES_DEFAUT = {
-  cr_observation: [
-    "Travaux conformes au plan, RAS.",
-    "Bonne avancée, équipe motivée.",
-    "Retard sur la phase en cours, à rattraper.",
-  ],
-  visite_observation: [
-    "Chantier propre, EPI respectés.",
-    "Quelques points à reprendre, voir réserves.",
-    "Très bon état d'avancement.",
-  ],
-  vigilance: [
-    "Vérifier l'évacuation des gravats avant la fin de semaine.",
-    "Surveiller l'humidité dans la pièce concernée.",
-    "Pensez à protéger les sols pendant les travaux.",
-  ],
-};
-
 // ─── ONGLET HISTORIQUE & RESTAURATION ──────────────────────────────────────
 // Filet de récupération : consulte la table data_history (alimentée par le
 // trigger SQL sur pointages / commandes / factures / besoins / rapports) et
@@ -2071,9 +2043,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [chantierToDelete,setChantierToDelete]=useState(null);
 
   // ─── NOUVELLES CONFIGS (Bloc 1) ──────────────────────────────────────────
-  const [societe, setSociete]           = useState(SOCIETE_DEFAUT);
-  const [heuresParJour, setHeuresParJour] = useState(HEURES_DEFAUT);
-  const [phrases, setPhrases]           = useState(PHRASES_DEFAUT);
   const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, visitesEnCours: 0, ouvriersActifs: 0, derniersRapports: [], dernieresVisites: [] });
   const [backuping, setBackuping]       = useState(false);
 
@@ -2105,20 +2074,12 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── EMAIL TEMPLATES (Bloc 3) ────────────────────────────────────────────
   const [emailTemplates, setEmailTemplates] = useState(EMAIL_TEMPLATES_DEFAUT);
 
-  // ─── PHASAGE TEMPLATES (Bloc 3) ──────────────────────────────────────────
-  const [phasageTemplates, setPhasageTemplates] = useState([]);
-  const [editTplIdx, setEditTplIdx]         = useState(null);
-  const [tplToDelete, setTplToDelete]       = useState(null);
-
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates", "phasage_templates"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates"]);
       if (data) {
         data.forEach(r => {
-          if (r.key === "societe" && r.value)         setSociete({ ...SOCIETE_DEFAUT, ...r.value });
-          if (r.key === "heures_par_jour" && r.value) setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
-          if (r.key === "phrases_bank" && r.value)    setPhrases({ ...PHRASES_DEFAUT, ...r.value });
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
             setPhases(r.value.items);
           }
@@ -2133,9 +2094,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "email_templates" && r.value) {
             setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
-          }
-          if (r.key === "phasage_templates" && r.value && Array.isArray(r.value.items)) {
-            setPhasageTemplates(r.value.items);
           }
         });
       }
@@ -2168,24 +2126,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
   // ─── SAUVEGARDE CONFIGS ──────────────────────────────────────────────────
   const saveDebounce = React.useRef(null);
-  const updSociete = (field, val) => {
-    const next = { ...societe, [field]: val };
-    setSociete(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("societe", next), 600);
-  };
-  const updHeureJour = (jour, val) => {
-    const next = { ...heuresParJour, [jour]: parseFloat(val) || 0 };
-    setHeuresParJour(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("heures_par_jour", next), 600);
-  };
-  const updPhrases = (cat, list) => {
-    const next = { ...phrases, [cat]: list };
-    setPhrases(next);
-    saveConfig("phrases_bank", next);
-  };
-
   // ─── EMAIL TEMPLATES CRUD ────────────────────────────────────────────────
   const updEmailTemplate = (key, field, val) => {
     const next = { ...emailTemplates, [key]: { ...emailTemplates[key], [field]: val } };
@@ -2197,50 +2137,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     const next = { ...emailTemplates, [key]: EMAIL_TEMPLATES_DEFAUT[key] };
     setEmailTemplates(next);
     saveConfig("email_templates", next);
-  };
-
-  // ─── PHASAGE TEMPLATES CRUD ──────────────────────────────────────────────
-  const savePhasageTemplates = async (next) => {
-    setPhasageTemplates(next);
-    await saveConfig("phasage_templates", { items: next });
-  };
-  const addPhasageTpl = () => {
-    const nouveau = {
-      id:  `tpl_${Date.now()}`,
-      nom: "Nouveau modèle",
-      description: "",
-      ouvrages: [],
-    };
-    savePhasageTemplates([...phasageTemplates, nouveau]);
-    setEditTplIdx(phasageTemplates.length);
-  };
-  const updPhasageTpl = (i, patch) => {
-    const next = phasageTemplates.map((t, idx) => idx === i ? { ...t, ...patch } : t);
-    setPhasageTemplates(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("phasage_templates", { items: next }), 600);
-  };
-  const removePhasageTpl = () => {
-    if (tplToDelete === null) return;
-    const next = phasageTemplates.filter((_, idx) => idx !== tplToDelete);
-    savePhasageTemplates(next);
-    setTplToDelete(null);
-    if (editTplIdx === tplToDelete) setEditTplIdx(null);
-  };
-  const addTplOuvrage = (i) => {
-    const tpl = phasageTemplates[i];
-    const nouveau = { id: `ouv_${Date.now()}`, libelle: "", unite: "U", heures: 0 };
-    updPhasageTpl(i, { ouvrages: [...(tpl.ouvrages || []), nouveau] });
-  };
-  const updTplOuvrage = (i, j, patch) => {
-    const tpl = phasageTemplates[i];
-    const nv = (tpl.ouvrages || []).map((o, idx) => idx === j ? { ...o, ...patch } : o);
-    updPhasageTpl(i, { ouvrages: nv });
-  };
-  const removeTplOuvrage = (i, j) => {
-    const tpl = phasageTemplates[i];
-    const nv = (tpl.ouvrages || []).filter((_, idx) => idx !== j);
-    updPhasageTpl(i, { ouvrages: nv });
   };
 
   // ─── PHASES TRAVAUX CRUD ─────────────────────────────────────────────────
@@ -2427,58 +2323,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       alert("Erreur backup : " + e.message);
     }
     setBackuping(false);
-  };
-
-  // ─── LOGOS (stockés dans Supabase planning_config) ───────────────────────
-  const [logoNavbar,  setLogoNavbar]  = useState(null);
-  const [logoPortail, setLogoPortail] = useState(null);
-  const [logoReno,    setLogoReno]    = useState(null);
-  const [logoInvest,  setLogoInvest]  = useState(null);
-  const [logosLoading, setLogosLoading] = useState(true);
-  const [logosSaving,  setLogosSaving]  = useState({});
-
-  // Charger les logos depuis Supabase au montage
-  useEffect(() => {
-    const loadLogos = async () => {
-      setLogosLoading(true);
-      try {
-        const { data } = await supabase
-          .from("planning_config")
-          .select("key,value")
-          .in("key", ["logo_navbar","logo_portail","logo_reno","logo_invest"]);
-        if (data) {
-          data.forEach(r => {
-            if (r.key === "logo_navbar")  setLogoNavbar(r.value  || null);
-            if (r.key === "logo_portail") setLogoPortail(r.value || null);
-            if (r.key === "logo_reno")    setLogoReno(r.value    || null);
-            if (r.key === "logo_invest")  setLogoInvest(r.value  || null);
-          });
-        }
-      } catch(e) { console.error("Chargement logos:", e); }
-      setLogosLoading(false);
-    };
-    loadLogos();
-  }, []);
-
-  const handleLogoUpload = (key, setFn, e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => {
-      const data = ev.target.result;
-      setLogosSaving(s => ({...s, [key]: true}));
-      setFn(data);
-      await saveConfig(key, data);
-      setLogosSaving(s => ({...s, [key]: false}));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleLogoDelete = async (key, setFn) => {
-    setLogosSaving(s => ({...s, [key]: true}));
-    setFn(null);
-    await saveConfig(key, null);
-    setLogosSaving(s => ({...s, [key]: false}));
   };
 
   const addOuvrier=()=>{if(!newOuvrier.trim())return;const u=[...ouvriers,newOuvrier.trim()];setOuvriers(u);saveConfig("ouvriers",u);setNewOuvrier("");};
@@ -2695,30 +2539,37 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
   const isAdmin = profil?.role === "admin";
 
-  const tabs = [
-    ["vue",          "Vue d'ensemble",  LayoutDashboard],
-    ["ouvriers",     "Ouvriers",        HardHat],
-    ["taux",         "Taux horaires",   Euro],
-    ["chantiers",    "Chantiers",       Building2],
-    ["phases",       "Phases",          ClipboardCheck],
-    ["lots",         "Lots",            Boxes],
-    ["groupes_types","Groupes types",   ListOrdered],
-    ["equipes",      "Équipes",         Users],
-    ["templates",    "Templates phasage", FileText],
-    ["societe",      "Société",         Briefcase],
-    ["planning",     "Planning",        Clock],
-    ["logos",        "Logos",           ImageIcon],
-    ["phrases",      "Phrases types",   MessageSquare],
-    ["emails",       "Emails",          Mail],
-    ["fournisseurs", "Fournisseurs",    Truck],
-    ["vehicules",    "Véhicules",       Car],
-    ...(isAdmin ? [["mail-encours",  "Mail encours",  Send]] : []),
-    ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
-    ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
-    ...(isAdmin ? [["historique",   "Historique",   RefreshCw]] : []),
-    ...(isAdmin ? [["pointages",    "Pointages",    Activity]] : []),
-    ["maintenance",  "Maintenance",     Wrench],
+  // Onglets regroupés par grandes sections (barre à 2 niveaux)
+  const SECTIONS = [
+    { id:"apercu", label:"Vue d'ensemble", icon:LayoutDashboard, tabs:[
+      ["vue", "Vue d'ensemble", LayoutDashboard],
+    ]},
+    { id:"referentiels", label:"Référentiels", icon:Boxes, tabs:[
+      ["chantiers",     "Chantiers",     Building2],
+      ["lots",          "Lots",          Boxes],
+      ["phases",        "Phases",        ClipboardCheck],
+      ["groupes_types", "Groupes types", ListOrdered],
+      ["equipes",       "Équipes",       Users],
+      ["taux",          "Taux horaires", Euro],
+    ]},
+    { id:"personnes", label:"Personnes & accès", icon:HardHat, tabs:[
+      ["ouvriers", "Ouvriers", HardHat],
+      ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
+      ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
+    ]},
+    { id:"logistique", label:"Logistique", icon:Truck, tabs:[
+      ["fournisseurs", "Fournisseurs", Truck],
+      ["vehicules",    "Véhicules",    Car],
+      ["emails",       "Emails",       Mail],
+      ...(isAdmin ? [["mail-encours", "Mail encours", Send]] : []),
+    ]},
+    { id:"outils", label:"Outils", icon:Wrench, tabs:[
+      ...(isAdmin ? [["historique", "Historique", RefreshCw]] : []),
+      ...(isAdmin ? [["pointages",  "Pointages",  Activity]]  : []),
+      ["maintenance", "Maintenance", Wrench],
+    ]},
   ];
+  const activeSection = SECTIONS.find(s => s.tabs.some(t => t[0] === adminTab)) || SECTIONS[0];
 
   return(
     <div className="admin-page" style={{flex:1,overflowY:"auto",padding:"24px 28px",background:T.bg}}>
@@ -2747,26 +2598,49 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         </div>
       </div>
 
-      {/* ── Onglets ── */}
-      <div className="admin-tabs" style={{display:"flex",gap:6,marginBottom:20,borderBottom:`1px solid ${T.border}`,paddingBottom:10,flexWrap:"wrap"}}>
-        {tabs.map(([k,l,IconComp])=>{
-          const a = adminTab===k;
+      {/* ── Sections ── */}
+      <div className="admin-tabs" style={{display:"flex",gap:6,marginBottom:activeSection.tabs.length>1?10:20,flexWrap:"wrap"}}>
+        {SECTIONS.map(s=>{
+          const a = activeSection.id===s.id;
           return (
-            <button key={k} className={`atab ${a?"on":"off"}`} onClick={()=>setAdminTab(k)}
+            <button key={s.id} className={`atab ${a?"on":"off"}`} onClick={()=>setAdminTab(s.tabs[0][0])}
               style={{
                 display:"inline-flex",alignItems:"center",gap:6,
-                padding:"7px 14px",borderRadius:RADIUS.md,
+                padding:"8px 16px",borderRadius:RADIUS.md,
                 border:a?"none":`1px solid ${T.border}`,
                 background:a?acc.accent:"transparent",color:a?acc.onAccent:T.textSub,
-                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
                 transition:"all .12s",
               }}>
-              <Icon as={IconComp} size={12}/>
-              {l}
+              <Icon as={s.icon} size={13}/>
+              {s.label}
             </button>
           );
         })}
       </div>
+
+      {/* ── Sous-onglets de la section active ── */}
+      {activeSection.tabs.length > 1 && (
+        <div className="admin-tabs" style={{display:"flex",gap:6,marginBottom:20,borderBottom:`1px solid ${T.border}`,paddingBottom:10,flexWrap:"wrap"}}>
+          {activeSection.tabs.map(([k,l,IconComp])=>{
+            const a = adminTab===k;
+            return (
+              <button key={k} className={`atab ${a?"on":"off"}`} onClick={()=>setAdminTab(k)}
+                style={{
+                  display:"inline-flex",alignItems:"center",gap:6,
+                  padding:"6px 13px",borderRadius:RADIUS.pill,
+                  border:`1px solid ${a?acc.accent:T.border}`,
+                  background:a?acc.bg10:"transparent",color:a?acc.accent:T.textSub,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+                  transition:"all .12s",
+                }}>
+                <Icon as={IconComp} size={12}/>
+                {l}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {adminTab==="utilisateurs" && isAdmin && (
         <OngletUtilisateurs T={T} acc={acc}/>
@@ -3591,204 +3465,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       )}
 
       {/* ── TEMPLATES PHASAGE ── */}
-      {adminTab==="templates" && (
-        <div className="ac">
-          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
-            <div>
-              <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Templates de phasage</div>
-              <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
-                Modèles pré-remplis (« T2 standard », « Salle de bain »…) à dupliquer rapidement pour créer un nouveau phasage.
-              </div>
-            </div>
-            <button onClick={addPhasageTpl} style={{
-              display:"inline-flex",alignItems:"center",gap:5,
-              padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
-              background:acc.accent,color:acc.onAccent,
-              fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
-            }}>
-              <Icon as={Plus} size={12}/>
-              Nouveau template
-            </button>
-          </div>
-
-          {phasageTemplates.length === 0 ? (
-            <div style={{
-              background:T.card, border:`1px dashed ${T.border}`,
-              borderRadius:RADIUS.xl, padding:"40px 24px", textAlign:"center", color:T.textSub,
-            }}>
-              <div style={{
-                width:48,height:48,borderRadius:RADIUS.lg,
-                background:acc.bg10,color:acc.accent,
-                display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
-              }}>
-                <Icon as={FileText} size={24} strokeWidth={1.5}/>
-              </div>
-              <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun template</div>
-              <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6,marginBottom:16}}>
-                Crée un modèle de phasage pré-rempli pour gagner du temps sur les chantiers similaires.
-              </div>
-              <button onClick={addPhasageTpl} style={{
-                display:"inline-flex",alignItems:"center",gap:6,
-                background:acc.accent,color:acc.onAccent,border:"none",
-                borderRadius:RADIUS.md,padding:"9px 16px",cursor:"pointer",
-                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
-              }}>
-                <Icon as={Plus} size={13}/>
-                Créer mon premier template
-              </button>
-            </div>
-          ) : (
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {phasageTemplates.map((tpl, i) => {
-                const isOpen = editTplIdx === i;
-                const totalH = (tpl.ouvrages||[]).reduce((s,o)=>s+(parseFloat(o.heures)||0),0);
-                return (
-                  <div key={tpl.id || i} style={{
-                    background:T.surface, border:`1px solid ${isOpen ? acc.accent : T.border}`,
-                    borderRadius:RADIUS.lg, overflow:"hidden", transition:"border .15s",
-                  }}>
-                    {/* En-tête */}
-                    <div onClick={()=>setEditTplIdx(isOpen ? null : i)} style={{
-                      display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer",
-                      borderBottom:isOpen?`1px solid ${T.sectionDivider||T.border}`:"none",
-                    }}>
-                      <div style={{
-                        width:32,height:32,borderRadius:RADIUS.md,flexShrink:0,
-                        background:acc.bg10,color:acc.accent,
-                        display:"flex",alignItems:"center",justifyContent:"center",
-                      }}>
-                        <Icon as={FileText} size={15}/>
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text}}>{tpl.nom || "Sans nom"}</div>
-                        <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:1}}>
-                          {(tpl.ouvrages||[]).length} ouvrage{(tpl.ouvrages||[]).length>1?"s":""}
-                          {totalH > 0 && ` · ${totalH.toFixed(1)}h totales`}
-                        </div>
-                      </div>
-                      <button onClick={(e)=>{e.stopPropagation();setTplToDelete(i);}} className="btn-d" style={{display:"inline-flex",alignItems:"center",gap:4}}>
-                        <Icon as={Trash2} size={11}/>
-                      </button>
-                      <Icon as={isOpen ? ChevronUp : ChevronDown} size={14} color={T.textMuted}/>
-                    </div>
-
-                    {/* Édition */}
-                    {isOpen && (
-                      <div style={{padding:"12px 14px"}}>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:12}}>
-                          <div>
-                            <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Nom du template</label>
-                            <input className="ti" value={tpl.nom||""} onChange={e=>updPhasageTpl(i,{nom:e.target.value})}
-                              placeholder="Ex : T2 standard" style={{width:"100%"}}/>
-                          </div>
-                          <div>
-                            <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Description (optionnel)</label>
-                            <input className="ti" value={tpl.description||""} onChange={e=>updPhasageTpl(i,{description:e.target.value})}
-                              placeholder="Ex : Rénovation complète T2 50m²" style={{width:"100%"}}/>
-                          </div>
-                        </div>
-
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                          <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted}}>
-                            <Icon as={Hammer} size={11}/>
-                            Ouvrages du template
-                          </div>
-                          <button onClick={()=>addTplOuvrage(i)} style={{
-                            display:"inline-flex",alignItems:"center",gap:5,
-                            padding:"6px 12px",borderRadius:RADIUS.sm,
-                            background:T.card,border:`1px solid ${T.border}`,color:T.textSub,
-                            fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:600,cursor:"pointer",
-                          }}>
-                            <Icon as={Plus} size={11}/>
-                            Ajouter
-                          </button>
-                        </div>
-
-                        {(tpl.ouvrages||[]).length === 0 ? (
-                          <div style={{color:T.textMuted,fontSize:FONT.xs.size+1,fontStyle:"italic",padding:"12px 0"}}>
-                            Aucun ouvrage. Clique sur Ajouter pour en saisir.
-                          </div>
-                        ) : (
-                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                            {(tpl.ouvrages||[]).map((o, j) => (
-                              <div key={o.id || j} style={{display:"flex",gap:6,alignItems:"center"}}>
-                                <input className="ti" value={o.libelle||""} onChange={e=>updTplOuvrage(i,j,{libelle:e.target.value})}
-                                  placeholder="Libellé (ex : Pose plaques BA13)" style={{flex:"3 1 200px",minWidth:160}}/>
-                                <input className="ti" type="number" min="0" step="0.5" value={o.heures||""} onChange={e=>updTplOuvrage(i,j,{heures:parseFloat(e.target.value)||0})}
-                                  placeholder="0" style={{width:80,textAlign:"center",fontWeight:700,color:acc.accent}}/>
-                                <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>h</span>
-                                <select value={o.unite||"U"} onChange={e=>updTplOuvrage(i,j,{unite:e.target.value})}
-                                  style={{
-                                    padding:"7px 9px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,
-                                    background:T.fieldBg||T.card,color:T.text,
-                                    fontFamily:"inherit",fontSize:FONT.xs.size+1,outline:"none",cursor:"pointer",
-                                  }}>
-                                  <option value="U">U</option>
-                                  <option value="m">m</option>
-                                  <option value="m²">m²</option>
-                                  <option value="ml">ml</option>
-                                </select>
-                                <button onClick={()=>removeTplOuvrage(i,j)} title="Supprimer" style={{
-                                  display:"inline-flex",alignItems:"center",justifyContent:"center",
-                                  background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
-                                  borderRadius:RADIUS.sm,padding:"6px 8px",color:"#e15a5a",cursor:"pointer",
-                                }}>
-                                  <Icon as={Trash2} size={11}/>
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Modale suppression template */}
-          {tplToDelete !== null && (
-            <div onClick={()=>setTplToDelete(null)} style={{
-              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
-              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
-            }}>
-              <div onClick={e=>e.stopPropagation()} style={{
-                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
-                width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
-              }}>
-                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <Icon as={AlertTriangle} size={20}/>
-                  </div>
-                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce template&nbsp;?</div>
-                </div>
-                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
-                  Le template <strong style={{color:T.text}}>« {phasageTemplates[tplToDelete]?.nom} »</strong> sera supprimé.
-                  <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les phasages déjà créés à partir de ce template ne sont pas affectés.</span>
-                </div>
-                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setTplToDelete(null)} style={{
-                    background:"transparent",border:`1px solid ${T.border}`,
-                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
-                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
-                  }}>Annuler</button>
-                  <button onClick={removePhasageTpl} style={{
-                    display:"inline-flex",alignItems:"center",gap:6,
-                    background:"#e15a5a",color:"#fff",border:"none",
-                    borderRadius:RADIUS.md,padding:"9px 18px",
-                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
-                  }}>
-                    <Icon as={Trash2} size={13}/>
-                    Supprimer
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── VUE D'ENSEMBLE ── */}
       {adminTab==="vue" && (
         <div className="ac">
@@ -3873,100 +3549,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* ── SOCIÉTÉ ── */}
-      {adminTab==="societe" && (
-        <div className="ac">
-          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Coordonnées société</div>
-          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
-            Utilisées automatiquement dans les en-têtes des exports PDF/Word (visites, comptes rendus, fiches client).
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div>
-              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Nom de la société *</label>
-              <input className="ti" value={societe.nom||""} onChange={e=>updSociete("nom",e.target.value)} placeholder="Profero Rénovation" style={{width:"100%"}}/>
-            </div>
-            <div>
-              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>SIRET</label>
-              <input className="ti" value={societe.siret||""} onChange={e=>updSociete("siret",e.target.value)} placeholder="123 456 789 00012" style={{width:"100%"}}/>
-            </div>
-            <div style={{gridColumn:"1 / -1"}}>
-              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Adresse complète</label>
-              <textarea className="ti" value={societe.adresse||""} onChange={e=>updSociete("adresse",e.target.value)} placeholder="Rue, Code Postal, Ville" rows={2} style={{width:"100%",resize:"vertical"}}/>
-            </div>
-            <div>
-              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Téléphone</label>
-              <input className="ti" value={societe.telephone||""} onChange={e=>updSociete("telephone",e.target.value)} placeholder="01 23 45 67 89" style={{width:"100%"}}/>
-            </div>
-            <div>
-              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Email</label>
-              <input className="ti" type="email" value={societe.email||""} onChange={e=>updSociete("email",e.target.value)} placeholder="contact@profero.fr" style={{width:"100%"}}/>
-            </div>
-            <div style={{gridColumn:"1 / -1"}}>
-              <label style={{display:"block",fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Site web</label>
-              <input className="ti" value={societe.site_web||""} onChange={e=>updSociete("site_web",e.target.value)} placeholder="https://www.groupe-profero.com" style={{width:"100%"}}/>
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:16,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
-            <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
-            <span>Modifications enregistrées automatiquement. Les en-têtes des prochains exports utiliseront ces informations.</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── PLANNING : heures par jour ── */}
-      {adminTab==="planning" && (
-        <div className="ac">
-          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Heures travaillées par jour</div>
-          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
-            Volume horaire de référence par jour de la semaine. Utilisé pour calculer la répartition des heures dans le bilan équipe.
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:14}}>
-            {JOURS.map(j => (
-              <div key={j} style={{
-                background:T.surface,border:`1px solid ${T.border}`,
-                borderRadius:RADIUS.lg,padding:"12px 14px",
-              }}>
-                <div style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>{j}</div>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <input type="number" min="0" step="0.5"
-                    value={heuresParJour[j] || 0}
-                    onChange={e=>updHeureJour(j,e.target.value)}
-                    style={{
-                      width:60,padding:"7px 10px",borderRadius:RADIUS.md,textAlign:"center",
-                      border:`1px solid ${T.border}`,background:T.inputBg||T.card,color:acc.accent,
-                      fontFamily:"inherit",fontSize:FONT.md.size,fontWeight:800,outline:"none",
-                    }}/>
-                  <span style={{fontSize:FONT.sm.size,color:T.textMuted}}>h</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
-            <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
-            <span>Total semaine : <strong style={{color:T.text}}>{JOURS.reduce((s,j) => s + (parseFloat(heuresParJour[j])||0), 0).toFixed(1)}h</strong>. Les modifications sont prises en compte dans les bilans futurs ; les bilans déjà saisis ne sont pas recalculés.</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── PHRASES TYPES ── */}
-      {adminTab==="phrases" && (
-        <div className="ac">
-          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Banque de phrases</div>
-          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
-            Observations et notes réutilisables. Affichées en suggestions dans les CR équipe, visites de chantier et points de vigilance.
-          </div>
-          {[
-            { key:"cr_observation",      label:"Observations CR équipe" },
-            { key:"visite_observation",  label:"Observations visite chantier" },
-            { key:"vigilance",           label:"Points de vigilance" },
-          ].map(cat => (
-            <PhrasesEditor key={cat.key} catKey={cat.key} label={cat.label}
-              items={phrases[cat.key] || []} onChange={(items)=>updPhrases(cat.key, items)}
-              T={T} acc={acc}/>
-          ))}
         </div>
       )}
 
@@ -4273,85 +3855,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         </div>
       )}
 
-      {adminTab==="logos"&&(
-        <div className="ac">
-          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Logos de l'application</div>
-          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:22}}>
-            Importez vos logos PNG pour personnaliser le portail. Les logos sont partagés avec toute l'équipe.
-          </div>
-
-          {logosLoading
-            ? <div style={{display:"flex",alignItems:"center",gap:8,color:T.textMuted,fontSize:FONT.sm.size,padding:"20px 0"}}>
-                <svg width="14" height="14" viewBox="0 0 24 24" style={{animation:"spin 1s linear infinite"}}>
-                  <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
-                </svg>
-                Chargement des logos…
-              </div>
-            : [
-              { key:"logo_navbar",  state:logoNavbar,  setFn:setLogoNavbar,  label:"Logo navbar (en-tête, coin gauche)",   desc:"Affiché en haut à gauche dans la barre de navigation.",      w:160, h:40  },
-              { key:"logo_portail", state:logoPortail, setFn:setLogoPortail, label:"Logo principal (centre du portail)",   desc:"Grande zone rectangulaire au centre de la page d'accueil.", w:320, h:80  },
-              { key:"logo_reno",    state:logoReno,    setFn:setLogoReno,    label:"Icône carte Rénovation",               desc:"Icône carrée dans la carte Rénovation.",                    w:52,  h:52  },
-              { key:"logo_invest",  state:logoInvest,  setFn:setLogoInvest,  label:"Icône carte Invest",                   desc:"Icône carrée dans la carte Invest.",                        w:52,  h:52  },
-            ].map(({key,state,setFn,label,desc,w,h})=>(
-              <div key={key} style={{display:"flex",alignItems:"flex-start",gap:18,padding:"18px 0",borderBottom:`1px solid ${T.border}`}}>
-
-                {/* Aperçu */}
-                <div style={{
-                  width:w>80?120:60, height:h>60?60:52, flexShrink:0,
-                  borderRadius:10, border:`1.5px dashed ${state?"rgba(255,194,0,0.4)":T.border}`,
-                  background:T.card, display:"flex", alignItems:"center", justifyContent:"center",
-                  overflow:"hidden",
-                }}>
-                  {state
-                    ? <img src={state} alt={label} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
-                    : <Icon as={ImageIcon} size={22} color={T.textMuted} strokeWidth={1.5}/>
-                  }
-                </div>
-
-                {/* Infos + actions */}
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:3}}>{label}</div>
-                  <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>{desc}</div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                    <label style={{
-                      display:"inline-flex",alignItems:"center",gap:6,
-                      background: logosSaving[key] ? T.border : T.accent,
-                      color:"#111",border:"none",borderRadius:6,
-                      padding:"7px 14px",fontSize:12,fontWeight:700,
-                      cursor: logosSaving[key] ? "not-allowed" : "pointer",
-                      opacity: logosSaving[key] ? .6 : 1,
-                    }}>
-                      <input
-                        type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                        style={{display:"none"}}
-                        disabled={!!logosSaving[key]}
-                        onChange={e=>handleLogoUpload(key,setFn,e)}
-                      />
-                      {logosSaving[key]
-                        ? <><svg width="11" height="11" viewBox="0 0 24 24" style={{animation:"spin 1s linear infinite"}}><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/></svg> Sauvegarde…</>
-                        : state
-                          ? <><Icon as={RefreshCw} size={11}/> Remplacer PNG</>
-                          : <><Icon as={Plus} size={11}/> Importer PNG</>}
-                    </label>
-                    {state && !logosSaving[key] && (
-                      <button className="btn-d" onClick={()=>handleLogoDelete(key,setFn)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
-                        <Icon as={Trash2} size={11}/>
-                        Supprimer
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
-          }
-
-          <div style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:16,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6}}>
-            <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
-            <span>Les logos sont sauvegardés dans Supabase et partagés avec toute l'équipe. Formats acceptés : PNG, JPG, WEBP, SVG.</span>
-          </div>
-        </div>
-      )}
-
       {/* ── Modal suppression ouvrier ── */}
       {ouvrierToDelete !== null && (
         <div onClick={()=>setOuvrierToDelete(null)} style={{
@@ -4441,81 +3944,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── EDITOR DE PHRASES (utilisé dans l'onglet Phrases) ───────────────────────
-function PhrasesEditor({ catKey, label, items, onChange, T, acc }) {
-  const [draftItems, setDraftItems] = useState(items);
-  const [newItem, setNewItem] = useState("");
-
-  useEffect(() => { setDraftItems(items); }, [items]);
-
-  const add = () => {
-    if (!newItem.trim()) return;
-    const next = [...draftItems, newItem.trim()];
-    setDraftItems(next);
-    onChange(next);
-    setNewItem("");
-  };
-  const remove = (i) => {
-    const next = draftItems.filter((_, idx) => idx !== i);
-    setDraftItems(next);
-    onChange(next);
-  };
-  const update = (i, val) => {
-    const next = draftItems.map((x, idx) => idx === i ? val : x);
-    setDraftItems(next);
-  };
-  const commit = () => onChange(draftItems);
-
-  return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: 14, marginBottom: 14 }}>
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 10 }}>
-        <Icon as={FileText} size={11}/>
-        {label}
-        {draftItems.length > 0 && <span style={{ color: acc.accent }}>· {draftItems.length}</span>}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {draftItems.map((it, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input value={it} onChange={e => update(i, e.target.value)} onBlur={commit}
-              placeholder="Phrase…"
-              style={{
-                flex: 1, padding: "7px 10px", borderRadius: RADIUS.md,
-                border: `1px solid ${T.border}`, background: T.card, color: T.text,
-                fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none",
-              }}/>
-            <button onClick={() => remove(i)} title="Supprimer" style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              background: "transparent", border: `1px solid rgba(224,92,92,0.3)`,
-              borderRadius: RADIUS.md, padding: "6px 8px", color: "#e15a5a", cursor: "pointer",
-            }}>
-              <Icon as={Trash2} size={11}/>
-            </button>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-        <input value={newItem} onChange={e => setNewItem(e.target.value)} placeholder="Ajouter une phrase…"
-          onKeyDown={e => e.key === "Enter" && add()}
-          style={{
-            flex: 1, padding: "7px 10px", borderRadius: RADIUS.md,
-            border: `1px dashed ${T.border}`, background: "transparent", color: T.text,
-            fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none",
-          }}/>
-        <button onClick={add} disabled={!newItem.trim()} style={{
-          display: "inline-flex", alignItems: "center", gap: 5,
-          background: newItem.trim() ? acc.accent : T.border,
-          color: newItem.trim() ? acc.onAccent : T.textMuted,
-          border: "none", borderRadius: RADIUS.md, padding: "7px 14px",
-          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: newItem.trim() ? "pointer" : "not-allowed",
-        }}>
-          <Icon as={Plus} size={11}/>
-          Ajouter
-        </button>
-      </div>
     </div>
   );
 }

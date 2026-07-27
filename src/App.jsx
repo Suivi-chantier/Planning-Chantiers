@@ -64,8 +64,7 @@ import PageChantiers          from "./Renovation/PageChantiers";
 
 // Pages lourdes ou peu fréquentes : chargées à la demande (code-splitting) pour
 // alléger le bundle initial. recharts (DashboardAnalyse, Invest) et xlsx
-// (Phasage, PhasageV2 via devisImport) ne sont ainsi plus dans le chunk principal.
-const PagePhasage            = lazy(() => import("./Renovation/Phasage"));
+// (PhasageV2 via devisImport) ne sont ainsi plus dans le chunk principal.
 const PagePhasageV2          = lazy(() => import("./Renovation/PhasageV2"));
 const PageBibliotheque       = lazy(() => import("./Renovation/Bibliotheque"));
 const PageBibliothequeMateriaux = lazy(() => import("./Renovation/PageBibliothequeMateriaux"));
@@ -690,7 +689,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={validationDate} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
           {page==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
-          {page==="phasage"            && (canAccess(role,"phasage")            ? <PagePhasage chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage"/>)}
           {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
           {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}

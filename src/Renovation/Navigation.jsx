@@ -28,19 +28,19 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","validation","heures-salaries","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","heures-salaries","plans","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","etats-financiers","guide-ouvrages","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","validation","heures-salaries","plans","phasage","phasage-v2","bibliotheque","biblio-materiaux",
+    "equipe","validation","heures-salaries","plans","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client"
   ],
   commercial: [
     "dashboard","chantiers","planning","plans","visite","info-client"
   ],
   comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage","phasage-v2","heures-salaries","etats-financiers"
+    "dashboard","chantiers","commandes","biblio-materiaux","phasage-v2","heures-salaries","etats-financiers"
   ],
 };
 
