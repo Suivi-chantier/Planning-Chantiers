@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
-import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, getCurrentWeek, getWeekId, LOGO_RENO_H, TAUX_MO_PREV_DEFAUT } from "../constants";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, getCurrentWeek, getWeekId, LOGO_RENO_H, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { Icon } from "../ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
@@ -11,7 +11,7 @@ import {
   ChevronUp, ChevronRight, Filter, CalendarClock,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
-import { buildChronoInit, sortByChrono } from "./chronoTemplate";
+import { buildChronoInitFromGroupesTypes, sortByChrono } from "./chronoTemplate";
 import { confirmPerteMassive } from "../guards";
 import { fetchPointages, indexPointagesParTache, sumLibreEtIndirect } from "../pointages";
 
@@ -460,6 +460,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
   // Charge les lots (config Admin)
   useEffect(() => { loadLots().then(setLots); }, []);
+  // Charge les groupes types (référentiel Admin) : sert à initialiser les
+  // groupes de la vue Chronologique. [] tant que le chargement n'est pas fini,
+  // pour ne jamais initialiser un chantier avec une liste partielle.
+  const [groupesTypes, setGroupesTypes] = useState([]);
+  useEffect(() => { loadGroupesTypes().then(setGroupesTypes); }, []);
   // Charge la bibliothèque d'ouvrages
   useEffect(() => {
     supabase.from("bibliotheque_ratios").select("*").order("libelle")
@@ -1111,7 +1116,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
   // ─── VUE CHRONOLOGIQUE ────────────────────────────────────────────────────
   // Groupes de tâches personnalisés (libres), stockés dans meta.chrono_groupes
-  // ([{ id, nom, couleur, ordre }]). Chaque tâche porte chrono_groupe_id +
+  // ([{ id, nom, couleur, ordre, groupe_type_id? }] — groupe_type_id présent
+  // quand le groupe a été semé depuis un groupe type : il permet de retrouver
+  // l'équipe par défaut). Chaque tâche porte chrono_groupe_id +
   // chrono_ordre (dans ouvrages[].taches). La date reste date_prevue (partagée
   // avec le Gantt). Ordre/affectation → applyChrono ; date → updateTache.
   const chronoGroupes = Array.isArray(phasage?.plan_travaux?.meta?.chrono_groupes)
@@ -1143,22 +1150,56 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     })));
   };
 
-  // ─── Pré-génération de la vue Chrono depuis la template globale ──────────
+  // ─── Semis de la vue Chrono depuis les GROUPES TYPES (référentiel Admin) ─
   // Un phasage est « vierge côté chrono » quand il n'a AUCUN groupe et
-  // qu'aucune tâche ne porte d'affectation. C'est la SEULE situation où la
-  // template s'applique (auto à l'ouverture de la vue, ou via le bouton) :
-  // un phasage déjà classé, même partiellement, n'est jamais retouché.
+  // qu'aucune tâche ne porte d'affectation. Dans ce cas le semis s'applique
+  // sans confirmation (auto à l'ouverture de la vue si des tâches existent,
+  // ou via le bouton). Un phasage qui a déjà des groupes n'est JAMAIS
+  // retouché sans action explicite : le bouton demande alors quoi faire
+  // (ajouter les groupes types manquants — défaut — ou tout remplacer).
   const chronoVierge = chronoGroupes.length === 0 &&
     !ouvrages.some(o => (o.taches || []).some(t => t.chrono_groupe_id));
-  const applyChronoTemplate = () => {
-    const init = buildChronoInit(ouvrages, lots, rid);
-    if (!init) return;
-    setChronoGroupes(init.groupes);
-    applyChrono(init.assignments);
+  const normNom = (s) => (s || "").toString().trim().toLowerCase()
+    .normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  // Groupes types absents du chantier : ni liés (groupe_type_id) ni homonymes.
+  const gtManquants = groupesTypes.filter(gt =>
+    !chronoGroupes.some(g => g.groupe_type_id === gt.id || normNom(g.nom) === normNom(gt.nom)));
+  const initChronoDepuisGroupesTypes = (mode) => {
+    if (groupesTypes.length === 0) return;
+    if (mode === "remplacer" || chronoVierge) {
+      const init = buildChronoInitFromGroupesTypes(ouvrages, groupesTypes, rid);
+      if (!init) return;
+      // Reclasse TOUTES les tâches : celles dont le lot n'est rattaché à
+      // aucun groupe type repassent « à classer » (l'ancien groupe disparaît).
+      const assignments = { ...init.assignments };
+      ouvrages.forEach(o => (o.taches || []).forEach(t => {
+        if (!assignments[t.id]) assignments[t.id] = { groupe_id: null, ordre: 0 };
+      }));
+      // Les jalons étaient accrochés aux anciens groupes → supprimés aussi
+      // (même règle que la suppression manuelle d'un groupe).
+      if (chronoJalons.length) setChronoJalons([]);
+      setChronoGroupes(init.groupes);
+      applyChrono(assignments);
+      return;
+    }
+    // mode "ajouter" (défaut) : complète sans toucher à l'existant. Un groupe
+    // homonyme pas encore lié adopte le lien groupe_type_id ; les groupes
+    // types absents sont créés vides à leur rang d'exécution. Les groupes,
+    // affectations et jalons existants ne bougent pas.
+    const next = chronoGroupes.map(g => {
+      if (g.groupe_type_id) return g;
+      const gt = groupesTypes.find(x => normNom(x.nom) === normNom(g.nom));
+      return gt ? { ...g, groupe_type_id: gt.id } : g;
+    });
+    const crees = groupesTypes
+      .filter(gt => !next.some(g => g.groupe_type_id === gt.id))
+      .map(gt => ({ id: rid(), nom: gt.nom, couleur: gt.couleur, ordre: gt.ordre ?? 0, groupe_type_id: gt.id }));
+    const adoptes = next.some((g, i) => g !== chronoGroupes[i]);
+    if (!crees.length && !adoptes) return;
+    setChronoGroupes([...next, ...crees]);
   };
-  // Auto-génération à l'ouverture de la vue Chrono : une seule tentative par
-  // chantier (si aucun lot ne matche la template, on n'insiste pas — les
-  // tâches restent dans « À classer », signal d'enrichir les motsCles).
+  // Semis automatique à l'ouverture de la vue Chrono : uniquement sur un
+  // phasage vierge qui a des tâches, une seule application par chantier.
   const chronoAutoGenRef = useRef(null);
   useEffect(() => {
     if (viewMode !== "chrono" || loadingPhasage || !chantierId) return;
@@ -1167,12 +1208,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     // l'ancien chantier et loadingPhasage capturé vaut encore false. On
     // n'agit que si le phasage chargé appartient bien au chantier courant.
     if (phasage?.chantier_id !== chantierId) return;
+    if (groupesTypes.length === 0) return; // référentiel pas encore chargé
     if (!chronoVierge) return;
     if (!ouvrages.some(o => (o.taches || []).length > 0)) return;
     if (chronoAutoGenRef.current === chantierId) return;
     chronoAutoGenRef.current = chantierId;
-    applyChronoTemplate();
-  }, [viewMode, loadingPhasage, chantierId, phasage, chronoVierge, ouvrages]); // eslint-disable-line react-hooks/exhaustive-deps
+    initChronoDepuisGroupesTypes("init");
+  }, [viewMode, loadingPhasage, chantierId, phasage, chronoVierge, ouvrages, groupesTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Déplace une tâche vers un autre ouvrage (réparation des tâches atterries
   // dans « Divers / hors devis »). La tâche garde son id : ses pointages
@@ -2488,7 +2530,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           acc={acc} T={T}
           applyChrono={applyChrono} patchTaches={patchTaches} setGroupes={setChronoGroupes} setJalons={setChronoJalons}
           updateTache={updateTache}
-          onApplyTemplate={chronoVierge ? applyChronoTemplate : null}
+          onInitGroupesTypes={groupesTypes.length > 0 ? initChronoDepuisGroupesTypes : null}
+          chronoVierge={chronoVierge} nbGtManquants={gtManquants.length}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
           onShowRapports={(tache, list) => setRapportsModal({ tacheNom: tache.nom, tacheId: tache.id, rapports: list })}
@@ -4030,7 +4073,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onApplyTemplate }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
@@ -4049,6 +4092,9 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
     const v = drafts[g.id]?.[key];
     if (v != null && v !== g[key]) setGroupes(groupes.map(x => x.id === g.id ? { ...x, [key]: v } : x));
   };
+  // Confirmation avant de semer un chantier qui a DÉJÀ des groupes
+  // (ajouter les manquants vs tout remplacer).
+  const [initConfirm, setInitConfirm] = useState(false);
   // Nom des jalons : brouillon local, persisté au blur (même logique).
   const [jNameDraft, setJNameDraft] = useState({});
   const jNom = (j) => jNameDraft[j.id] ?? j.nom ?? "";
@@ -4618,19 +4664,19 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         }}>
           <Icon as={CalendarClock} size={12} /> Aujourd'hui · {todayLbl}
         </span>
-        {/* Visible uniquement sur un phasage vierge côté chrono (même
-            condition que l'auto-génération) : relance manuelle de la template
-            si l'auto n'a rien produit (aucun lot reconnu). */}
-        {onApplyTemplate && items.length > 0 && (
-          <button onClick={onApplyTemplate}
-            title="Pré-générer les groupes selon l'ordre des corps d'état de l'entreprise et y classer les tâches par lot"
+        {/* Semis depuis les groupes types (référentiel Admin). Sur un phasage
+            vierge : application directe. Sinon : confirmation (ajouter les
+            manquants — défaut — ou tout remplacer). */}
+        {onInitGroupesTypes && (
+          <button onClick={() => chronoVierge ? onInitGroupesTypes("init") : setInitConfirm(true)}
+            title="Créer les groupes du chantier depuis le référentiel des groupes types (Admin) et classer les tâches par lot"
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "8px 14px", borderRadius: RADIUS.md,
               border: `1px dashed ${T.border}`, background: "transparent", color: T.textSub,
               fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
             }}>
-            <Icon as={Sparkles} size={14} /> Appliquer la template
+            <Icon as={Sparkles} size={14} /> Initialiser depuis les groupes types
           </button>
         )}
         <button onClick={addGroupe}
@@ -4644,7 +4690,61 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         </button>
       </div>
 
-      {items.length === 0 ? (
+      {/* Confirmation : le chantier a déjà des groupes — rien ne bouge sans choix explicite. */}
+      {initConfirm && (
+        <div onClick={() => setInitConfirm(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.modal || T.surface, borderRadius: RADIUS.xl, padding: 24,
+            width: "100%", maxWidth: 500, border: `1px solid ${T.border}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div style={{ width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0, background: acc.bg10, color: acc.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon as={Sparkles} size={20} />
+              </div>
+              <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Initialiser depuis les groupes types</div>
+            </div>
+            <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 18 }}>
+              Ce chantier a déjà <strong style={{ color: T.text }}>{groupes.length} groupe{groupes.length > 1 ? "s" : ""}</strong>.
+              {nbGtManquants > 0
+                ? <> Tu peux <strong style={{ color: T.text }}>ajouter les {nbGtManquants} groupe{nbGtManquants > 1 ? "s" : ""} type{nbGtManquants > 1 ? "s" : ""} manquant{nbGtManquants > 1 ? "s" : ""}</strong> sans rien toucher à l'existant (recommandé), ou tout remplacer.</>
+                : <> Tous les groupes types y sont déjà. Tu peux tout remplacer pour repartir du référentiel.</>}
+              <br /><span style={{ color: "#e15a5a", fontSize: FONT.xs.size + 1 }}>« Tout remplacer » supprime les groupes et jalons actuels, reclasse les tâches par lot et perd l'ordre manuel.</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <button onClick={() => setInitConfirm(false)} style={{
+                background: "transparent", border: `1px solid ${T.border}`,
+                borderRadius: RADIUS.md, padding: "9px 16px", color: T.textSub,
+                fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+              }}>Annuler</button>
+              <button onClick={() => { onInitGroupesTypes("remplacer"); setInitConfirm(false); }} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: "transparent", color: "#e15a5a", border: "1px solid #e15a5a",
+                borderRadius: RADIUS.md, padding: "9px 16px",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+              }}>
+                <Icon as={AlertTriangle} size={13} />
+                Tout remplacer
+              </button>
+              {nbGtManquants > 0 && (
+                <button onClick={() => { onInitGroupesTypes("ajouter"); setInitConfirm(false); }} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: acc.accent, color: acc.onAccent, border: "none",
+                  borderRadius: RADIUS.md, padding: "9px 16px",
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+                }}>
+                  <Icon as={Plus} size={13} />
+                  Ajouter les manquants ({nbGtManquants})
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {items.length === 0 && groupesTries.length === 0 ? (
         <div style={{ textAlign: "center", padding: 40, color: T.textMuted, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl }}>
           Aucune tâche pour ce chantier.
         </div>
