@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
+import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
@@ -1555,6 +1555,11 @@ const EMAIL_TEMPLATES_DEFAUT = {
   },
 };
 
+// ─── HEURES ATTENDUES PAR JOUR (cible des comptes rendus ouvriers) ──────────
+// La clé planning_config "heures_par_jour" porte les heures par jour de semaine
+// + un champ "exceptions" { "AAAA-MM-JJ": heures } pour les fériés/ponts.
+const HEURES_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
+
 // ─── ONGLET HISTORIQUE & RESTAURATION ──────────────────────────────────────
 // Filet de récupération : consulte la table data_history (alimentée par le
 // trigger SQL sur pointages / commandes / factures / besoins / rapports) et
@@ -2074,10 +2079,15 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── EMAIL TEMPLATES (Bloc 3) ────────────────────────────────────────────
   const [emailTemplates, setEmailTemplates] = useState(EMAIL_TEMPLATES_DEFAUT);
 
+  // ─── HEURES PAR JOUR (cible des CR ouvriers) ─────────────────────────────
+  const [heuresParJour, setHeuresParJour] = useState(HEURES_DEFAUT);
+  const [excDate, setExcDate]     = useState("");
+  const [excHeures, setExcHeures] = useState("0");
+
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates", "heures_par_jour"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -2094,6 +2104,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "email_templates" && r.value) {
             setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
+          }
+          if (r.key === "heures_par_jour" && r.value) {
+            setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
           }
         });
       }
@@ -2126,6 +2139,35 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
   // ─── SAUVEGARDE CONFIGS ──────────────────────────────────────────────────
   const saveDebounce = React.useRef(null);
+
+  // ─── HEURES PAR JOUR CRUD ────────────────────────────────────────────────
+  const updHeureJour = (jour, val) => {
+    const next = { ...heuresParJour, [jour]: parseFloat(val) || 0 };
+    setHeuresParJour(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("heures_par_jour", next), 600);
+  };
+  const addExceptionJour = () => {
+    if (!excDate) return;
+    const next = { ...heuresParJour, exceptions: { ...(heuresParJour.exceptions || {}), [excDate]: parseFloat(excHeures) || 0 } };
+    setHeuresParJour(next);
+    saveConfig("heures_par_jour", next);
+    setExcDate(""); setExcHeures("0");
+  };
+  const updExceptionJour = (d, val) => {
+    const next = { ...heuresParJour, exceptions: { ...(heuresParJour.exceptions || {}), [d]: parseFloat(val) || 0 } };
+    setHeuresParJour(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("heures_par_jour", next), 600);
+  };
+  const removeExceptionJour = (d) => {
+    const exceptions = { ...(heuresParJour.exceptions || {}) };
+    delete exceptions[d];
+    const next = { ...heuresParJour, exceptions };
+    setHeuresParJour(next);
+    saveConfig("heures_par_jour", next);
+  };
+
   // ─── EMAIL TEMPLATES CRUD ────────────────────────────────────────────────
   const updEmailTemplate = (key, field, val) => {
     const next = { ...emailTemplates, [key]: { ...emailTemplates[key], [field]: val } };
@@ -2551,6 +2593,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["groupes_types", "Groupes types", ListOrdered],
       ["equipes",       "Équipes",       Users],
       ["taux",          "Taux horaires", Euro],
+      ["heures_jour",   "Heures / jour", Clock],
     ]},
     { id:"personnes", label:"Personnes & accès", icon:HardHat, tabs:[
       ["ouvriers", "Ouvriers", HardHat],
@@ -3547,6 +3590,114 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── HEURES PAR JOUR : cible des comptes rendus ouvriers ── */}
+      {adminTab==="heures_jour" && (
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Heures travaillées par jour</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18,maxWidth:640,lineHeight:1.6}}>
+            Volume horaire attendu chaque jour dans le compte rendu de fin de journée des ouvriers :
+            le total saisi (tâches + trajets + heures indirectes) doit correspondre exactement à cette cible.
+          </div>
+
+          {/* Heures par jour de semaine */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:14}}>
+            {JOURS.map(j => (
+              <div key={j} style={{
+                background:T.surface,border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.lg,padding:"12px 14px",
+              }}>
+                <div style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>{j}</div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <input type="number" min="0" step="0.5"
+                    value={heuresParJour[j] ?? 0}
+                    onChange={e=>updHeureJour(j,e.target.value)}
+                    style={{
+                      width:60,padding:"7px 10px",borderRadius:RADIUS.md,textAlign:"center",
+                      border:`1px solid ${T.border}`,background:T.inputBg||T.card,color:acc.accent,
+                      fontFamily:"inherit",fontSize:FONT.md.size,fontWeight:800,outline:"none",
+                    }}/>
+                  <span style={{fontSize:FONT.sm.size,color:T.textMuted}}>h</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6,marginBottom:22}}>
+            <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
+            <span>Total semaine : <strong style={{color:T.text}}>{JOURS.reduce((s,j) => s + (parseFloat(heuresParJour[j])||0), 0).toFixed(1)}h</strong>. Les modifications s'appliquent aux comptes rendus futurs ; les rapports déjà envoyés ne sont pas recalculés.</span>
+          </div>
+
+          {/* Exceptions par date (fériés, ponts…) */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+              <Icon as={Clock} size={11}/>
+              Exceptions par date (fériés, ponts…)
+            </div>
+            <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:12,lineHeight:1.6}}>
+              À la date indiquée, le compte rendu attend ce volume à la place de la valeur hebdomadaire. Mettre <strong style={{color:T.text}}>0 h</strong> pour un jour non travaillé (férié).
+            </div>
+
+            {Object.keys(heuresParJour.exceptions || {}).length > 0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+                {Object.entries(heuresParJour.exceptions || {}).sort(([a],[b]) => a.localeCompare(b)).map(([d, h]) => {
+                  const passee = d < new Date().toISOString().slice(0,10);
+                  return (
+                    <div key={d} style={{display:"flex",alignItems:"center",gap:8,opacity:passee?0.5:1}}>
+                      <span style={{flex:"0 0 auto",minWidth:150,fontSize:FONT.sm.size,fontWeight:700,color:T.text}}>
+                        {new Date(d + "T12:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+                      </span>
+                      <input type="number" min="0" step="0.5" value={h ?? 0}
+                        onChange={e=>updExceptionJour(d, e.target.value)}
+                        style={{
+                          width:60,padding:"6px 8px",borderRadius:RADIUS.md,textAlign:"center",
+                          border:`1px solid ${T.border}`,background:T.inputBg||T.card,color:acc.accent,
+                          fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,outline:"none",
+                        }}/>
+                      <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>h</span>
+                      {(parseFloat(h)||0) === 0 && (
+                        <span style={{fontSize:FONT.xs.size,fontWeight:700,color:"#f59e0b",background:"rgba(245,158,11,0.15)",padding:"1px 7px",borderRadius:RADIUS.pill}}>non travaillé</span>
+                      )}
+                      <button onClick={()=>removeExceptionJour(d)} title="Supprimer" style={{
+                        display:"inline-flex",alignItems:"center",justifyContent:"center",marginLeft:"auto",
+                        background:"transparent",border:`1px solid rgba(224,92,92,0.3)`,
+                        borderRadius:RADIUS.sm,padding:"6px 8px",color:"#e15a5a",cursor:"pointer",
+                      }}>
+                        <Icon as={Trash2} size={11}/>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <input type="date" value={excDate} onChange={e=>setExcDate(e.target.value)}
+                style={{
+                  padding:"7px 10px",borderRadius:RADIUS.md,border:`1px dashed ${T.border}`,
+                  background:"transparent",color:T.text,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,outline:"none",
+                }}/>
+              <input type="number" min="0" step="0.5" value={excHeures} onChange={e=>setExcHeures(e.target.value)}
+                style={{
+                  width:60,padding:"7px 10px",borderRadius:RADIUS.md,textAlign:"center",
+                  border:`1px dashed ${T.border}`,background:"transparent",color:T.text,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:700,outline:"none",
+                }}/>
+              <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>h</span>
+              <button onClick={addExceptionJour} disabled={!excDate} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                background:excDate ? acc.accent : T.border,
+                color:excDate ? acc.onAccent : T.textMuted,
+                border:"none",borderRadius:RADIUS.md,padding:"7px 14px",
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:excDate?"pointer":"not-allowed",
+              }}>
+                <Icon as={Plus} size={11}/>
+                Ajouter
+              </button>
             </div>
           </div>
         </div>

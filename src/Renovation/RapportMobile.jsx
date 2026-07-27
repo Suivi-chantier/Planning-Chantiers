@@ -289,8 +289,15 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const {year, week} = getCurrentWeek();
   const weekId   = getWeekId(year, week);
   const todayJour = getTodayJour();
-  // Cible d'heures du jour, lue depuis la config Admin (onglet "Planning").
-  const cibleHeures = parseFloat(heuresParJour?.[todayJour]) || HEURES_PAR_JOUR_DEFAUT[todayJour] || 10;
+  // Cible d'heures du jour, lue depuis la config Admin (onglet "Heures / jour").
+  // Une exception à la date du jour (férié, pont… — champ "exceptions" de la
+  // config) prime sur la valeur hebdomadaire ; 0 h est une valeur valide.
+  const todayISO = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const excHeures  = parseFloat(heuresParJour?.exceptions?.[todayISO]);
+  const baseHeures = parseFloat(heuresParJour?.[todayJour]);
+  const cibleHeures = Number.isFinite(excHeures) ? excHeures
+    : Number.isFinite(baseHeures) ? baseHeures
+    : (HEURES_PAR_JOUR_DEFAUT[todayJour] || 10);
 
   // Load config + planning
   useEffect(() => {
@@ -964,7 +971,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         const col = matchCible ? T.success : Math.abs(ecartH) > 1 ? T.danger : T.warning;
         const bg  = matchCible ? T.successBg : Math.abs(ecartH) > 1 ? T.dangerBg : T.warningBg;
         const bdr = matchCible ? T.successBd : Math.abs(ecartH) > 1 ? T.dangerBd : T.warningBd;
-        const pct = Math.min(100, (totalJourneeH / cibleHeures) * 100);
+        const pct = cibleHeures > 0 ? Math.min(100, (totalJourneeH / cibleHeures) * 100) : (totalJourneeH > 0 ? 100 : 0);
         return (
           <div style={{
             ...S.card,
