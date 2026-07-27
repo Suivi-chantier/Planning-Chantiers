@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase, photoTransform } from "../supabase";
+import { fetchPointages } from "../pointages";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -11,7 +12,10 @@ import {
 
 // ─── PAGE ÉQUIPE ──────────────────────────────────────────────────────────────
 // ─── HEURES PAR JOUR ─────────────────────────────────────────────────────────
-const HEURES_PAR_JOUR = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9 };
+// Barème de REPLI du bilan : utilisé uniquement quand la semaine n'a aucun
+// pointage (rapports non validés, ou semaines antérieures au registre). Dès
+// qu'il existe des pointages, le bilan lit les heures validées directement.
+const HEURES_PAR_JOUR = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
 
 // Priorité des statuts de tâche pour le bilan : la version "la plus avancée"
 // l'emporte si la même tâche est déclarée plusieurs fois dans la semaine.
@@ -92,6 +96,30 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     return () => { cancelled = true; };
   }, [weekId]);
 
+  // ── Pointages de la semaine (registre des heures validées) ──────────────────
+  // Source prioritaire du bilan : les heures validées en fin de journée
+  // (Validation → table pointages). null = chargement en cours ; [] = aucun
+  // pointage → repli sur l'estimation planning × barème (semaines antérieures
+  // au registre, ou rapports pas encore validés).
+  const [pointages, setPointages] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const m = /^(\d{4})-W(\d{1,2})$/.exec(weekId || "");
+      if (!m) { if (!cancelled) setPointages([]); return; }
+      const year = parseInt(m[1], 10), week = parseInt(m[2], 10);
+      const jan4 = new Date(year, 0, 4);
+      const mon = new Date(jan4);
+      mon.setDate(jan4.getDate() - ((jan4.getDay() || 7) - 1) + (week - 1) * 7);
+      const dim = new Date(mon); dim.setDate(mon.getDate() + 6);
+      const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const pts = await fetchPointages({ dateFrom: iso(mon), dateTo: iso(dim) });
+      if (!cancelled) setPointages(pts || []);
+    })();
+    return () => { cancelled = true; };
+  }, [weekId]);
+  const hasPointages = (pointages || []).length > 0;
+
   // ── Détection ouvriers sur plusieurs chantiers un même jour ─────────────────
   const conflits = (() => {
     const result = [];
@@ -118,7 +146,14 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     return result;
   })();
 
-  const [etape, setEtape] = useState(conflits.length > 0 ? "saisie" : "bilan");
+  // L'étape n'est décidée qu'une fois les pointages chargés : s'il y en a, la
+  // saisie manuelle des conflits est inutile (les heures validées font foi).
+  const [etape, setEtape] = useState(null);
+  useEffect(() => {
+    if (pointages === null) return;
+    setEtape(prev => prev ?? ((pointages.length === 0 && conflits.length > 0) ? "saisie" : "bilan"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointages]);
   const [heuresSaisies, setHeuresSaisies] = useState(() => {
     const init = {};
     conflits.forEach(c => {
@@ -171,8 +206,42 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     return res;
   };
 
-  const heuresParChantier = etape === "bilan" ? calcHeuresParChantier() : {};
+  // Heures par chantier : somme des pointages validés si la semaine en a,
+  // sinon estimation planning × barème (ancien calcul).
+  const heuresPointagesParChantier = {};
+  (pointages || []).forEach(p => {
+    const cid = p.chantier_id || "__divers__";
+    heuresPointagesParChantier[cid] = (heuresPointagesParChantier[cid] || 0) + (parseFloat(p.heures) || 0);
+  });
+  const heuresParChantier = etape === "bilan"
+    ? (hasPointages ? heuresPointagesParChantier : calcHeuresParChantier())
+    : {};
   const totalHeures = Object.values(heuresParChantier).reduce((a, b) => a + b, 0);
+
+  // ── Présences par chantier ({jour, ouvriers}) ────────────────────────────────
+  // Avec pointages : qui a réellement déclaré des heures sur le chantier ce
+  // jour-là. Sans pointages : qui était planifié (cells), comme avant.
+  const JOURS_SEMAINE_FULL = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+  const presencesDuChantier = (cId) => {
+    const parJour = {};
+    if (hasPointages) {
+      pointages.forEach(p => {
+        if (p.chantier_id !== cId || !p.ouvrier) return;
+        if ((parseFloat(p.heures) || 0) <= 0) return;
+        const d = new Date((p.date || "") + "T12:00:00");
+        const jour = isNaN(d.getTime()) ? null : JOURS_SEMAINE_FULL[d.getDay()];
+        if (!jour) return;
+        (parJour[jour] = parJour[jour] || new Set()).add(p.ouvrier);
+      });
+    } else {
+      Object.keys(HEURES_PAR_JOUR).forEach(jour => {
+        const cell = cells[`${cId}_${jour}`];
+        (cell?.ouvriers || []).forEach(o => (parJour[jour] = parJour[jour] || new Set()).add(o));
+      });
+    }
+    const ordre = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+    return ordre.filter(j => parJour[j]?.size).map(j => ({ jour: j, ouvriers: [...parJour[j]] }));
+  };
 
   // ── Regroupement rapports par chantier ───────────────────────────────────────
   const parChantier = {};
@@ -415,7 +484,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     setGeneratingDoc(true);
     setDraftStatus(null);
     try {
-      const hpc = calcHeuresParChantier();
+      const hpc = hasPointages ? heuresPointagesParChantier : calcHeuresParChantier();
       const totalH = Object.values(hpc).reduce((a, b) => a + b, 0);
 
       // ── Dédoublonnage des tâches : si plusieurs ouvriers ont rendu la même
@@ -459,12 +528,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         // semaine ne doit apparaître que dans "Réalisé". On filtre par statut
         // dominant avant de partitionner.
         const taches = filtrerStatutDominant(tachesRaw);
-        const presences = [];
-        Object.keys(HEURES_PAR_JOUR).forEach(jour => {
-          const cell = cells[`${cId}_${jour}`];
-          if (cell && (cell.ouvriers||[]).length)
-            presences.push(`${jour} : ${cell.ouvriers.join(", ")}`);
-        });
+        const presences = presencesDuChantier(cId).map(({ jour, ouvriers }) => `${jour} : ${ouvriers.join(", ")}`);
         const rawFaites    = taches.filter(t=>t.statut==="faite")    .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
         const rawEnCours   = taches.filter(t=>t.statut==="en_cours") .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
         const rawRemarques = grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque }));
@@ -561,11 +625,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       // Les tâches "non faites" ne sont plus affichées dans le bilan : le
       // document présente uniquement ce qui a avancé cette semaine.
       const remarques = grp.rapports.filter(r => r.remarque?.trim());
-      const presences = [];
-      Object.keys(HEURES_PAR_JOUR).forEach(jour => {
-        const cell = cells[`${cId}_${jour}`];
-        if (cell && (cell.ouvriers||[]).length) presences.push({ jour, ouvriers: cell.ouvriers });
-      });
+      const presences = presencesDuChantier(cId);
       // Blocages et points "semaine suivante" saisis pour CE chantier.
       const blocagesCh = (bilanExtras.blocages || []).filter(b => b.chantier_id === cId && (b.texte || "").trim());
       const suiteCh    = (bilanExtras.semaineSuivante || []).filter(s => s.chantier_id === cId && (s.texte || "").trim());
@@ -725,7 +785,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
         <div style="color:${YELLOW};font-size:7pt;font-weight:700;letter-spacing:1.6pt;text-transform:uppercase;">Bilan semaine</div>
         <div style="color:#fff;font-size:17pt;font-weight:800;line-height:1.1;margin-top:3pt;letter-spacing:-.01em;">${esc(weekId)}</div>
       </td>
-      ${kpiCell(`${totalHeures.toFixed(1)} h`, "Heures", YELLOW)}
+      ${kpiCell(`${totalHeures.toFixed(1)} h`, hasPointages ? "Heures validées" : "Heures estimées", YELLOW)}
       ${kpiCell(`${totalFaites}`, "Tâches", "#5fbf85")}
       ${totalGenereEuros > 0 ? kpiCell(`+${fmtEuros(totalGenereEuros)}`, "Généré", YELLOW) : ""}
     </tr>
@@ -874,6 +934,24 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
     }
     setEmailSending(false);
   };
+
+  // ── Chargement des pointages : l'étape n'est pas encore décidée ─────────────
+  if (etape === null) {
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.80)", zIndex:600,
+        display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)" }}
+        onClick={onClose}>
+        <style>{`@keyframes bilanspin{to{transform:rotate(360deg)}}`}</style>
+        <div onClick={e => e.stopPropagation()} style={{ background:T.modal, borderRadius:14, padding:"20px 28px",
+          border:`1px solid ${T.border}`, color:T.textSub, fontSize:14, display:"flex", alignItems:"center", gap:10 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" style={{animation:"bilanspin 1s linear infinite"}}>
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
+          </svg>
+          Chargement des heures validées…
+        </div>
+      </div>
+    );
+  }
 
   // ── Écran saisie heures (étape 1) ────────────────────────────────────────────
   if (etape === "saisie") {
@@ -1050,7 +1128,10 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
           <div className="bilan-header-actions" style={{ display:"flex", gap:20, alignItems:"center" }}>
             <div style={{ textAlign:"center" }}>
               <div style={{ fontSize:28, fontWeight:800, color:T.accent }}>{totalHeures.toFixed(1)}h</div>
-              <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Heures réelles</div>
+              <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}
+                title={hasPointages ? "Somme des pointages validés en fin de journée" : "Estimation depuis le planning (aucun pointage validé cette semaine)"}>
+                {hasPointages ? "Heures validées" : "Heures estimées"}
+              </div>
             </div>
             <div style={{ textAlign:"center" }}>
               <div style={{ fontSize:28, fontWeight:800, color:"#50c878" }}>{totalFaites}</div>
@@ -1362,12 +1443,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
           {Object.entries(parChantier).map(([cId, grp]) => {
             const ch = chantiers.find(c => c.id === cId);
             const heures = heuresParChantier[cId] || 0;
-            const detailJours = [];
-            Object.entries(HEURES_PAR_JOUR).forEach(([jour]) => {
-              const cell = cells[`${cId}_${jour}`];
-              if (!cell || !(cell.ouvriers||[]).length) return;
-              detailJours.push({ jour, ouvriers: cell.ouvriers });
-            });
+            const detailJours = presencesDuChantier(cId);
             const toutesTouches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
             const faites    = toutesTouches.filter(t => t.statut==="faite");
             const enCours   = toutesTouches.filter(t => t.statut==="en_cours");
@@ -1427,7 +1503,7 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
                     <div style={{ background:T.accent+"22", border:`1.5px solid ${T.accent}55`,
                       borderRadius:10, padding:"8px 16px", textAlign:"center" }}>
                       <div style={{ fontSize:22, fontWeight:800, color:T.accent, lineHeight:1 }}>{heures.toFixed(1)}h</div>
-                      <div style={{ fontSize:10, color:T.textMuted, textTransform:"uppercase", letterSpacing:1, marginTop:2 }}>réelles</div>
+                      <div style={{ fontSize:10, color:T.textMuted, textTransform:"uppercase", letterSpacing:1, marginTop:2 }}>{hasPointages ? "validées" : "estimées"}</div>
                     </div>
                   )}
                 </div>
