@@ -4143,8 +4143,10 @@ const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "
 function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, equipePourGroupe, onAffecterEquipe, onMarquerExterne }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
-  const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
-  const [unassignedCollapsed, setUnassignedCollapsed] = useState(false); // repli de « À classer »
+  // Tout est REPLIÉ par défaut : on mémorise les groupes DÉPLIÉS (local à la
+  // vue) — un nouveau groupe ou un autre chantier arrive donc toujours replié.
+  const [deplies, setDeplies] = useState(() => new Set());      // ids de groupes dépliés
+  const [unassignedCollapsed, setUnassignedCollapsed] = useState(true); // repli de « À classer »
   const [focusOpen, setFocusOpen] = useState(true);             // encart « Où en est-on ? »
   const [selected, setSelected] = useState(() => new Set());    // ids de tâches sélectionnées (multi)
   const [hideDone, setHideDone] = useState(false);              // masquer les tâches à 100 %
@@ -4590,7 +4592,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
     const entries = allEntries.filter(e => e.kind !== "tache" || passFilters(e.it));
     const couleur = gVal(g, "couleur") || "#5b8af5";
     const emptyOver = overKey === `group:${g.id}`;
-    const isCollapsed = collapsed.has(g.id);
+    const isCollapsed = !deplies.has(g.id);
     const st = groupStats(g.id);
     const rangeLbl = st.dmin ? (st.dmax && +st.dmax !== +st.dmin ? `${fmtShort(st.dmin)} – ${fmtShort(st.dmax)}` : fmtShort(st.dmin)) : null;
     const hvLbl = st.hv > 0 ? `${Math.round(st.hv * 10) / 10} h vendues` : null;
@@ -4598,7 +4600,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
       <div key={g.id} style={{ marginBottom: 18 }}>
         {/* Ligne titre */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <button onClick={() => setCollapsed(s => { const n = new Set(s); n.has(g.id) ? n.delete(g.id) : n.add(g.id); return n; })}
+          <button onClick={() => setDeplies(s => { const n = new Set(s); n.has(g.id) ? n.delete(g.id) : n.add(g.id); return n; })}
             title={isCollapsed ? "Déplier" : "Replier"}
             style={{ ...iconBtn({ border: "none", width: 22 }) }}>
             <Icon as={isCollapsed ? ChevronRight : ChevronDown} size={16} />
