@@ -483,3 +483,50 @@ export async function loadLots() {
   } catch (e) { console.warn("loadLots:", e?.message || e); }
   return LOTS_DEFAUT;
 }
+
+// ─── GROUPES TYPES (référentiel global d'étapes d'exécution) ─────────────────
+// Liste standard ORDONNÉE des étapes d'exécution d'un chantier, commune à toute
+// l'entreprise. Distincts des phases v1 ET des groupes chrono par chantier :
+// les groupes types servent à SEMER les groupes de la vue Chronologique d'un
+// phasage (chaque groupe semé garde un lien groupe_type_id vers son origine).
+// Forme : { id, nom, couleur, ordre, lot_id, equipe_id }
+//  - ordre : rang d'exécution, de 10 en 10 pour intercaler sans renuméroter.
+//  - lot_id : lot (devis) rattaché — un id de lots_travaux ("" si aucun).
+//  - equipe_id : équipe par défaut ("" tant que le référentiel équipes n'est
+//    pas branché). Proposée, jamais imposée.
+// Personnalisables via Admin → onglet Groupes types (planning_config/groupes_types).
+export const GROUPES_TYPES_DEFAUT = [
+  { id: "gt_demolition",      nom: "Démolition",             couleur: "#e15a5a", ordre: 10,  lot_id: "demolition",    equipe_id: "" },
+  { id: "gt_menuiserie_ext",  nom: "Menuiserie extérieure",  couleur: "#8b5cf6", ordre: 20,  lot_id: "menuiserie",    equipe_id: "" },
+  { id: "gt_couverture_ext",  nom: "Couverture extérieure",  couleur: "#94a3b8", ordre: 30,  lot_id: "",              equipe_id: "" },
+  { id: "gt_reseau_plomberie",nom: "Passage réseau plomberie", couleur: "#3b82f6", ordre: 40, lot_id: "plomberie",    equipe_id: "" },
+  { id: "gt_ossature_placo",  nom: "Ossature placo",         couleur: "#d97706", ordre: 50,  lot_id: "murs_cloison",  equipe_id: "" },
+  { id: "gt_reseau_elec",     nom: "Passage réseau élec",    couleur: "#f5c400", ordre: 60,  lot_id: "electricite",   equipe_id: "" },
+  { id: "gt_laine_placo",     nom: "Laine / Placo / Enduit", couleur: "#10b981", ordre: 70,  lot_id: "murs_cloison",  equipe_id: "" },
+  { id: "gt_peinture",        nom: "Peinture",               couleur: "#ec4899", ordre: 80,  lot_id: "finitions_gen", equipe_id: "" },
+  { id: "gt_sols",            nom: "Sols",                   couleur: "#14b8a6", ordre: 90,  lot_id: "finitions_gen", equipe_id: "" },
+  { id: "gt_appareillage_elec",nom: "Appareillage élec",     couleur: "#eab308", ordre: 100, lot_id: "electricite",   equipe_id: "" },
+  { id: "gt_appareillage_plomberie", nom: "Appareillage plomberie", couleur: "#0ea5e9", ordre: 110, lot_id: "plomberie", equipe_id: "" },
+  { id: "gt_finition_generale",nom: "Finition générale",     couleur: "#a78bfa", ordre: 120, lot_id: "finitions_gen", equipe_id: "" },
+];
+
+// Charge les groupes types depuis Supabase (planning_config/groupes_types,
+// forme { items: [...] } comme les lots), sinon GROUPES_TYPES_DEFAUT.
+// Renvoie la liste TRIÉE par ordre d'exécution.
+export async function loadGroupesTypes() {
+  try {
+    const { data } = await _supabase.from("planning_config").select("value").eq("key", "groupes_types").maybeSingle();
+    const items = data?.value?.items;
+    if (Array.isArray(items) && items.length > 0) {
+      return items.map((g, i) => ({
+        id:        g.id        || `gt_${i}`,
+        nom:       g.nom       || `Groupe ${i + 1}`,
+        couleur:   g.couleur   || "#888888",
+        ordre:     (typeof g.ordre === "number") ? g.ordre : (i + 1) * 10,
+        lot_id:    g.lot_id    || "",
+        equipe_id: g.equipe_id || "",
+      })).sort((a, b) => a.ordre - b.ordre);
+    }
+  } catch (e) { console.warn("loadGroupesTypes:", e?.message || e); }
+  return GROUPES_TYPES_DEFAUT;
+}

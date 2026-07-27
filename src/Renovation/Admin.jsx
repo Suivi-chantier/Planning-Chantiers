@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
@@ -9,7 +9,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, MessageSquare, Clock, Wrench,
   Download, ClipboardCheck, FileText, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car, Eye,
+  Boxes, Car, Eye, ListOrdered,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -2090,6 +2090,12 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [lotToDelete, setLotToDelete]   = useState(null);
   const [resetLotsConfirm, setResetLotsConfirm] = useState(false);
 
+  // ─── GROUPES TYPES (étapes d'exécution) ─────────────────────────────────
+  const [groupesTypes, setGroupesTypes]       = useState(GROUPES_TYPES_DEFAUT);
+  const [editGtColIdx, setEditGtColIdx]       = useState(null);
+  const [gtToDelete, setGtToDelete]           = useState(null);
+  const [resetGtConfirm, setResetGtConfirm]   = useState(false);
+
   // ─── EMAIL TEMPLATES (Bloc 3) ────────────────────────────────────────────
   const [emailTemplates, setEmailTemplates] = useState(EMAIL_TEMPLATES_DEFAUT);
 
@@ -2101,7 +2107,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "lots_travaux", "email_templates", "phasage_templates"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "lots_travaux", "groupes_types", "email_templates", "phasage_templates"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "societe" && r.value)         setSociete({ ...SOCIETE_DEFAUT, ...r.value });
@@ -2112,6 +2118,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "lots_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
             setLots(r.value.items);
+          }
+          if (r.key === "groupes_types" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
+            setGroupesTypes([...r.value.items].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0)));
           }
           if (r.key === "email_templates" && r.value) {
             setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
@@ -2288,6 +2297,52 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const resetLots = () => {
     saveLots([...LOTS_DEFAUT]);
     setResetLotsConfirm(false);
+  };
+
+  // ─── GROUPES TYPES CRUD ──────────────────────────────────────────────────
+  // La liste est maintenue TRIÉE par `ordre` (rang d'exécution). Monter /
+  // descendre échange les valeurs d'ordre des deux voisins, pour que le rang
+  // reste la seule source de vérité (l'ordre du tableau n'est qu'un reflet).
+  const saveGroupesTypes = async (next) => {
+    const tri = [...next].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
+    setGroupesTypes(tri);
+    await saveConfig("groupes_types", { items: tri });
+  };
+  const addGroupeType = () => {
+    const maxOrdre = groupesTypes.reduce((m, g) => Math.max(m, g.ordre ?? 0), 0);
+    saveGroupesTypes([...groupesTypes, {
+      id: `gt_${Date.now()}`,
+      nom: "Nouveau groupe",
+      couleur: COULEURS_PALETTE[groupesTypes.length % COULEURS_PALETTE.length],
+      ordre: maxOrdre + 10,
+      lot_id: "",
+      equipe_id: "",
+    }]);
+  };
+  const updGroupeType = (i, patch) => {
+    const next = groupesTypes.map((g, idx) => idx === i ? { ...g, ...patch } : g);
+    setGroupesTypes(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("groupes_types", { items: next }), 600);
+  };
+  const removeGroupeType = () => {
+    if (gtToDelete === null) return;
+    saveGroupesTypes(groupesTypes.filter((_, idx) => idx !== gtToDelete));
+    setGtToDelete(null);
+  };
+  const moveGroupeType = (i, d) => {
+    const j = i + d;
+    if (j < 0 || j >= groupesTypes.length) return;
+    const a = groupesTypes.map(g => ({ ...g }));
+    // Ordres dupliqués (données legacy) : on renumérote de 10 en 10 d'abord,
+    // sinon l'échange de deux valeurs égales ne bougerait rien.
+    if (a[i].ordre === a[j].ordre) a.forEach((g, idx) => { g.ordre = (idx + 1) * 10; });
+    [a[i].ordre, a[j].ordre] = [a[j].ordre, a[i].ordre];
+    saveGroupesTypes(a);
+  };
+  const resetGroupesTypes = () => {
+    saveGroupesTypes(GROUPES_TYPES_DEFAUT.map(g => ({ ...g })));
+    setResetGtConfirm(false);
   };
 
   // ─── BACKUP JSON ─────────────────────────────────────────────────────────
@@ -2587,6 +2642,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["chantiers",    "Chantiers",       Building2],
     ["phases",       "Phases",          ClipboardCheck],
     ["lots",         "Lots",            Boxes],
+    ["groupes_types","Groupes types",   ListOrdered],
     ["templates",    "Templates phasage", FileText],
     ["societe",      "Société",         Briefcase],
     ["planning",     "Planning",        Clock],
@@ -2969,6 +3025,158 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
                   }}>Annuler</button>
                   <button onClick={resetLots} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:acc.accent,color:acc.onAccent,border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Check} size={13}/>
+                    Restaurer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── GROUPES TYPES ── */}
+      {adminTab==="groupes_types" && (
+        <div className="ac">
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Groupes types</div>
+              <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
+                Liste standard <strong style={{color:T.text}}>ordonnée</strong> des étapes d'exécution d'un chantier. Elle servira à pré-remplir les groupes de la vue <strong style={{color:T.text}}>Chronologique</strong> d'un chantier. Chaque groupe est rattaché à un lot (devis). L'équipe par défaut sera branchée à l'étape suivante.
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>setResetGtConfirm(true)} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"7px 12px",borderRadius:RADIUS.md,
+                border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:600,cursor:"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11}/>
+                Restaurer par défaut
+              </button>
+              <button onClick={addGroupeType} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:acc.accent,color:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Plus} size={12}/>
+                Ajouter un groupe
+              </button>
+            </div>
+          </div>
+
+          {groupesTypes.map((g, i) => (
+            <div key={g.id || i} className="ar" style={{flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                <button className="ib" onClick={()=>moveGroupeType(i,-1)} title="Monter (exécuté plus tôt)"><Icon as={ChevronUp} size={12}/></button>
+                <button className="ib" onClick={()=>moveGroupeType(i,1)} title="Descendre (exécuté plus tard)"><Icon as={ChevronDown} size={12}/></button>
+              </div>
+              <div style={{
+                width:26,textAlign:"center",flexShrink:0,fontWeight:800,
+                fontSize:FONT.xs.size+1,color:T.textMuted,
+              }} title={`Rang d'exécution (ordre ${g.ordre})`}>{i+1}</div>
+              <div onClick={()=>setEditGtColIdx(editGtColIdx===i?null:i)}
+                style={{
+                  width:30,height:30,borderRadius:RADIUS.md,flexShrink:0,
+                  background:g.couleur||"#888",border:`2px solid ${T.border}`,cursor:"pointer",
+                }} title="Couleur du groupe"/>
+              {editGtColIdx===i ? (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,flex:"1 1 200px"}}>
+                  {COULEURS_PALETTE.map(col=>(
+                    <div key={col} onClick={()=>{updGroupeType(i,{couleur:col});setEditGtColIdx(null);}}
+                      className={`cdot ${g.couleur===col?"sel":""}`} style={{background:col,cursor:"pointer"}}/>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <input className="ti" value={g.nom||""} onChange={e=>updGroupeType(i,{nom:e.target.value})}
+                    placeholder="Nom du groupe" style={{flex:"2 1 180px",minWidth:140,fontWeight:600}}/>
+                  <select className="ti" value={g.lot_id||""} onChange={e=>updGroupeType(i,{lot_id:e.target.value})}
+                    title="Lot (devis) rattaché à ce groupe"
+                    style={{flex:"1 1 150px",minWidth:130,cursor:"pointer"}}>
+                    <option value="">— Aucun lot —</option>
+                    {lots.map(l=>(<option key={l.id} value={l.id}>{l.label}</option>))}
+                  </select>
+                  <button className="btn-d" onClick={()=>setGtToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                    <Icon as={Trash2} size={11}/>
+                    Supprimer
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+
+          {gtToDelete !== null && (
+            <div onClick={()=>setGtToDelete(null)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={AlertTriangle} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce groupe type&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  Le groupe <strong style={{color:T.text}}>« {groupesTypes[gtToDelete]?.nom} »</strong> sera retiré du référentiel.
+                  <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les groupes déjà créés sur les chantiers ne sont pas touchés.</span>
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setGtToDelete(null)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={removeGroupeType} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"#e15a5a",color:"#fff",border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Trash2} size={13}/>
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {resetGtConfirm && (
+            <div onClick={()=>setResetGtConfirm(false)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(245,166,35,0.16)",color:"#f5a623",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={RefreshCw} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Restaurer les groupes types par défaut&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  Ta liste actuelle sera remplacée par les 12 étapes standards (Démolition → Finition générale), chacune rattachée à son lot.
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setResetGtConfirm(false)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={resetGroupesTypes} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:acc.accent,color:acc.onAccent,border:"none",
                     borderRadius:RADIUS.md,padding:"9px 18px",
