@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
-import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, getCurrentWeek, getWeekId, LOGO_RENO_H, TAUX_MO_PREV_DEFAUT } from "../constants";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { Icon } from "../ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
@@ -22,6 +22,14 @@ import { fetchPointages, indexPointagesParTache, sumLibreEtIndirect } from "../p
 // Les ouvrages portent un nouveau champ `lot_id` qui les rattache à un lot.
 
 const rid = () => Math.random().toString(36).slice(2, 10);
+
+// Membres proposables d'une équipe : responsable + membres, par prénom
+// (la clé de jointure de toute l'appli), sans doublon. L'équipe Externe
+// (externe: true, sans membres) renvoie donc une liste vide.
+const membresEquipe = (eq) => {
+  const list = [eq?.responsable, ...(eq?.membres || []).map(m => m.ouvrier)].filter(Boolean);
+  return [...new Set(list)];
+};
 
 const JOURS_SEM = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
@@ -465,6 +473,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // pour ne jamais initialiser un chantier avec une liste partielle.
   const [groupesTypes, setGroupesTypes] = useState([]);
   useEffect(() => { loadGroupesTypes().then(setGroupesTypes); }, []);
+  // Charge les équipes (référentiel Admin) : sert à proposer l'équipe par
+  // défaut sur les groupes de la vue Chronologique.
+  const [equipes, setEquipes] = useState([]);
+  useEffect(() => { loadEquipes().then(setEquipes); }, []);
   // Charge la bibliothèque d'ouvrages
   useEffect(() => {
     supabase.from("bibliotheque_ratios").select("*").order("libelle")
@@ -1198,6 +1210,34 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (!crees.length && !adoptes) return;
     setChronoGroupes([...next, ...crees]);
   };
+  // ─── Équipe par défaut d'un groupe chrono ─────────────────────────────────
+  // Résolution : groupe.groupe_type_id → groupe type → equipe_id → équipe.
+  // L'équipe est PROPOSÉE (bouton sur le groupe), jamais imposée.
+  const equipePourGroupe = (g) => {
+    if (!g?.groupe_type_id) return null;
+    const gt = groupesTypes.find(x => x.id === g.groupe_type_id);
+    if (!gt?.equipe_id) return null;
+    return equipes.find(e => e.id === gt.equipe_id) || null;
+  };
+  // Pré-remplit taches[].ouvriers des tâches du groupe avec les membres de
+  // l'équipe (responsable + membres). mode "ajouter" : complète sans retirer
+  // les ouvriers déjà saisis ; mode "remplacer" : écrase (après confirmation
+  // côté UI). Passe par patchTaches — le même mécanisme que le reste de la
+  // vue chrono — et le flux vers le planning reste envoyerDansPlanning, qui
+  // lit taches[].ouvriers à l'envoi : aucun second chemin.
+  const affecterEquipeAuGroupe = (groupeId, equipe, mode) => {
+    const noms = membresEquipe(equipe);
+    if (!noms.length) return;
+    const patch = {};
+    ouvrages.forEach(o => (o.taches || []).forEach(t => {
+      if (t.chrono_groupe_id !== groupeId) return;
+      const actuels = Array.isArray(t.ouvriers) ? t.ouvriers : [];
+      const next = mode === "remplacer" ? noms : [...actuels, ...noms.filter(n => !actuels.includes(n))];
+      if (next.length !== actuels.length || next.some((n, i) => n !== actuels[i])) patch[t.id] = { ouvriers: next };
+    }));
+    if (Object.keys(patch).length) patchTaches(patch);
+  };
+
   // Semis automatique à l'ouverture de la vue Chrono : uniquement sur un
   // phasage vierge qui a des tâches, une seule application par chantier.
   const chronoAutoGenRef = useRef(null);
@@ -2532,6 +2572,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           updateTache={updateTache}
           onInitGroupesTypes={groupesTypes.length > 0 ? initChronoDepuisGroupesTypes : null}
           chronoVierge={chronoVierge} nbGtManquants={gtManquants.length}
+          equipePourGroupe={equipePourGroupe} onAffecterEquipe={affecterEquipeAuGroupe}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
           onShowRapports={(tache, list) => setRapportsModal({ tacheNom: tache.nom, tacheId: tache.id, rapports: list })}
@@ -4073,7 +4114,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, equipePourGroupe, onAffecterEquipe }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
@@ -4095,6 +4136,10 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   // Confirmation avant de semer un chantier qui a DÉJÀ des groupes
   // (ajouter les manquants vs tout remplacer).
   const [initConfirm, setInitConfirm] = useState(false);
+  // Confirmation avant d'affecter une équipe à un groupe dont des tâches ont
+  // déjà des ouvriers saisis (ajouter aux existants vs remplacer).
+  // { groupeId, equipe, nbAvecOuvriers } ou null.
+  const [affectConfirm, setAffectConfirm] = useState(null);
   // Nom des jalons : brouillon local, persisté au blur (même logique).
   const [jNameDraft, setJNameDraft] = useState({});
   const jNom = (j) => jNameDraft[j.id] ?? j.nom ?? "";
@@ -4587,6 +4632,55 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                 <strong style={{ color: st.avg >= 100 ? "#22c55e" : T.textSub }}>{st.avg}%</strong>
               </span>
             </div>
+            {/* Équipe par défaut (groupe type → équipe) : proposée, jamais imposée. */}
+            {(() => {
+              const eq = equipePourGroupe?.(g);
+              if (!eq) return null;
+              const noms = membresEquipe(eq);
+              const tachesGroupe = itemsOfGroup(g.id).map(it => it.tache);
+              if (noms.length === 0) {
+                // Équipe sans membre interne (ex : prestataire externe) :
+                // simple repère visuel, rien à pré-remplir.
+                return (
+                  <span title={eq.externe ? "Équipe externe (prestataire) — pas de membres internes" : "Équipe sans membre — se règle dans Admin → Équipes"}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "3px 9px", borderRadius: 999, border: `1px solid ${T.border}`,
+                      fontSize: 10, fontWeight: 700, color: T.textSub,
+                    }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: eq.couleur || "#888" }} />
+                    {eq.nom}{eq.externe ? " (externe)" : ""}
+                  </span>
+                );
+              }
+              const nbAvecOuvriers = tachesGroupe.filter(t => (t.ouvriers || []).length > 0).length;
+              const dejaTous = tachesGroupe.length > 0 &&
+                tachesGroupe.every(t => noms.every(n => (t.ouvriers || []).includes(n)));
+              return (
+                <button
+                  disabled={tachesGroupe.length === 0 || dejaTous}
+                  onClick={() => nbAvecOuvriers > 0
+                    ? setAffectConfirm({ groupeId: g.id, equipe: eq, nbAvecOuvriers })
+                    : onAffecterEquipe(g.id, eq, "ajouter")}
+                  title={tachesGroupe.length === 0
+                    ? "Aucune tâche dans ce groupe"
+                    : dejaTous
+                      ? `${noms.join(", ")} — déjà affectés à toutes les tâches du groupe`
+                      : `Pré-remplir les ouvriers des ${tachesGroupe.length} tâche(s) du groupe avec ${noms.join(", ")} — proposé, jamais imposé`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    padding: "3px 9px", borderRadius: 999,
+                    border: `1px solid color-mix(in srgb, ${eq.couleur || "#888"} 55%, transparent)`,
+                    background: `color-mix(in srgb, ${eq.couleur || "#888"} 10%, transparent)`,
+                    color: T.text, fontFamily: "inherit", fontSize: 10, fontWeight: 700,
+                    cursor: (tachesGroupe.length === 0 || dejaTous) ? "default" : "pointer",
+                    opacity: (tachesGroupe.length === 0 || dejaTous) ? .55 : 1,
+                  }}>
+                  <Icon as={HardHat} size={11} />
+                  {dejaTous ? `Équipe ${eq.nom} affectée` : `Affecter l'équipe ${eq.nom}`}
+                </button>
+              );
+            })()}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: .3, color: T.textMuted, display: "inline-flex", alignItems: "center", gap: 4 }}>
                 <Icon as={CalendarClock} size={12} /> Dater dès le
@@ -4743,6 +4837,60 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
           </div>
         </div>
       )}
+
+      {/* Confirmation : des tâches du groupe ont déjà des ouvriers saisis. */}
+      {affectConfirm && (() => {
+        const { groupeId, equipe, nbAvecOuvriers } = affectConfirm;
+        const noms = membresEquipe(equipe);
+        return (
+          <div onClick={() => setAffectConfirm(null)} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
+          }}>
+            <div onClick={e => e.stopPropagation()} style={{
+              background: T.modal || T.surface, borderRadius: RADIUS.xl, padding: 24,
+              width: "100%", maxWidth: 500, border: `1px solid ${T.border}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0, background: `color-mix(in srgb, ${equipe.couleur || "#888"} 14%, transparent)`, color: equipe.couleur || T.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon as={HardHat} size={20} />
+                </div>
+                <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Affecter l'équipe {equipe.nom}&nbsp;?</div>
+              </div>
+              <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 18 }}>
+                Ouvriers proposés : <strong style={{ color: T.text }}>{noms.join(", ")}</strong>.
+                <br />{nbAvecOuvriers} tâche{nbAvecOuvriers > 1 ? "s" : ""} de ce groupe {nbAvecOuvriers > 1 ? "ont" : "a"} déjà des ouvriers saisis.
+                Tu peux <strong style={{ color: T.text }}>ajouter l'équipe aux ouvriers existants</strong> (recommandé) ou les remplacer.
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button onClick={() => setAffectConfirm(null)} style={{
+                  background: "transparent", border: `1px solid ${T.border}`,
+                  borderRadius: RADIUS.md, padding: "9px 16px", color: T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+                }}>Annuler</button>
+                <button onClick={() => { onAffecterEquipe(groupeId, equipe, "remplacer"); setAffectConfirm(null); }} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: "transparent", color: "#e15a5a", border: "1px solid #e15a5a",
+                  borderRadius: RADIUS.md, padding: "9px 16px",
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+                }}>
+                  <Icon as={AlertTriangle} size={13} />
+                  Remplacer les ouvriers
+                </button>
+                <button onClick={() => { onAffecterEquipe(groupeId, equipe, "ajouter"); setAffectConfirm(null); }} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: acc.accent, color: acc.onAccent, border: "none",
+                  borderRadius: RADIUS.md, padding: "9px 16px",
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+                }}>
+                  <Icon as={Plus} size={13} />
+                  Ajouter aux existants
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {items.length === 0 && groupesTries.length === 0 ? (
         <div style={{ textAlign: "center", padding: 40, color: T.textMuted, border: `1px dashed ${T.border}`, borderRadius: RADIUS.xl }}>
