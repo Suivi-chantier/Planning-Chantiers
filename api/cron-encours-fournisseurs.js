@@ -128,10 +128,12 @@ async function runEncoursFournisseurs(req, supabase, t) {
   const { data: destCfg } = await supabase.from("planning_config").select("value").eq("key", "encours_mail_destinataires").maybeSingle();
   let dests = Array.isArray(destCfg?.value) ? destCfg.value
     : (Array.isArray(destCfg?.value?.emails) ? destCfg.value.emails : []);
-  dests = dests.filter(Boolean);
+  // Les comptes sans email portent une adresse synthétique @profero.local, non routable.
+  const routable = (e) => e && !String(e).toLowerCase().endsWith("@profero.local");
+  dests = dests.filter(routable);
   if (dests.length === 0) {
     const { data: users } = await supabase.from("utilisateurs").select("email, role, actif").eq("actif", true).in("role", ["admin", "comptable"]);
-    dests = (users || []).map(u => u.email).filter(Boolean);
+    dests = (users || []).map(u => u.email).filter(routable);
   }
   if (dests.length === 0) return { skipped: "no_recipients", date: t.dateFr };
 

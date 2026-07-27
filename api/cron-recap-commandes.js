@@ -181,7 +181,9 @@ async function runRecapCommandes(req, supabase, t) {
   const phasesById  = phasesArr.reduce((acc, ph) => { acc[ph.id] = ph; return acc; }, {});
   const chantById   = chantiers.reduce((acc, c) => { acc[c.id] = c; return acc; }, {});
   const demandes    = demandesQ.data || [];
-  const dests       = (usersQ.data || []).map(u => u.email).filter(Boolean);
+  // Exclut les comptes sans email (adresse synthétique @profero.local, non routable).
+  const dests       = (usersQ.data || []).map(u => u.email)
+    .filter(e => e && !String(e).toLowerCase().endsWith("@profero.local"));
 
   // 3) Extraire les "phases à commander aujourd'hui"
   const commandesPrevues = [];

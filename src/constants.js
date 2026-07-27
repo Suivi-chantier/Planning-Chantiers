@@ -146,6 +146,22 @@ export function calcAvancementPondere(ouvrages, allTaches) {
 // réglée est stockée dans planning_config sous la clé "taux_mo_previsionnel".
 export const TAUX_MO_PREV_DEFAUT = 25;
 
+// ─── COMPTES SANS EMAIL (identifiant + mot de passe) ─────────────────────────
+// Supabase Auth exige un email : les comptes créés « sans email » utilisent un
+// email synthétique identifiant@profero.local (domaine non routable). À la
+// connexion, un identifiant sans « @ » est converti en email synthétique.
+// Quand un vrai email est lié plus tard (Admin → Collaborateurs), il remplace
+// l'email synthétique et devient le nouvel identifiant de connexion.
+export const LOCAL_LOGIN_DOMAIN = "profero.local";
+export const isLocalLoginEmail = (email) =>
+  typeof email === "string" && email.toLowerCase().endsWith("@" + LOCAL_LOGIN_DOMAIN);
+export const loginEmailFromIdentifiant = (identifiant) =>
+  `${String(identifiant || "").trim().toLowerCase()}@${LOCAL_LOGIN_DOMAIN}`;
+export const identifiantFromLoginEmail = (email) =>
+  String(email || "").replace(new RegExp(`@${LOCAL_LOGIN_DOMAIN}$`, "i"), "");
+// Identifiant : 2 à 30 caractères, minuscules/chiffres, . _ - autorisés à l'intérieur.
+export const IDENTIFIANT_REGEX = /^[a-z0-9][a-z0-9._-]{1,29}$/;
+
 export const DEFAULT_OUVRIERS=["JP","Stev","Kev","Reza","Hamed","Mady","Yann","Julien","Steven"];
 export const DEFAULT_CHANTIERS=[
   {id:"lamartine",nom:"LAMARTINE",couleur:"#c8d8f0"},

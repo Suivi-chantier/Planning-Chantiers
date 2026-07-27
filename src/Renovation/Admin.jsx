@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
+import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX } from "../constants";
 import { Icon } from "../ui";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
@@ -19,10 +19,10 @@ import {
 import EspaceOuvrier from "./EspaceOuvrier";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
-const callAdminUsers = async (payload) => {
+const callEdgeFunction = async (fnName, payload) => {
   const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-users`,
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${fnName}`,
     {
       method: "POST",
       headers: {
@@ -37,6 +37,11 @@ const callAdminUsers = async (payload) => {
   if (!res.ok) throw new Error(data.error || "Erreur serveur");
   return data;
 };
+// Invitations / reset par email (fonction historique, non versionnée ici).
+const callAdminUsers = (payload) => callEdgeFunction("admin-users", payload);
+// Comptes sans email : création identifiant+mdp, liaison d'email, mdp direct
+// (supabase/functions/admin-users-local/index.ts).
+const callAdminUsersLocal = (payload) => callEdgeFunction("admin-users-local", payload);
 
 // ─── ONGLET MAIL ENCOURS ──────────────────────────────────────────────────────
 // Choix des utilisateurs qui reçoivent le récap "Encours fournisseurs" envoyé
@@ -57,7 +62,8 @@ function OngletMailEncours({ T, acc }) {
         supabase.from("utilisateurs").select("id,nom,email,role,actif").order("nom"),
         supabase.from("planning_config").select("value").eq("key", "encours_mail_destinataires").maybeSingle(),
       ]);
-      setUsers((uRes.data || []).filter(u => u.email));
+      // Les comptes sans email (identifiant@profero.local) ne peuvent pas recevoir de mail.
+      setUsers((uRes.data || []).filter(u => u.email && !isLocalLoginEmail(u.email)));
       const val = cfgRes.data?.value;
       const list = Array.isArray(val) ? val : (Array.isArray(val?.emails) ? val.emails : []);
       setSelected(list.filter(Boolean));
@@ -215,7 +221,12 @@ function OngletUtilisateurs({ T, acc }) {
 
   // Formulaire invitation
   const [showForm, setShowForm]       = useState(false);
+  // Mode de création : "email" (invitation classique) ou "identifiant" (compte
+  // sans email — identifiant + mot de passe, email liable plus tard).
+  const [invMode, setInvMode]         = useState("email");
   const [invEmail, setInvEmail]       = useState("");
+  const [invIdentifiant, setInvIdentifiant] = useState("");
+  const [invPassword, setInvPassword] = useState("");
   const [invNom, setInvNom]           = useState("");
   const [invRole, setInvRole]         = useState("conducteur");
   const [invBranches, setInvBranches] = useState(["renovation"]);
@@ -235,10 +246,17 @@ function OngletUtilisateurs({ T, acc }) {
   const [editId, setEditId]   = useState(null);
   const [editData, setEditData] = useState({});
 
-  // Confirmation reset
+  // Confirmation reset (comptes avec email) / définition directe (comptes locaux)
   const [resetId, setResetId]   = useState(null);
   const [resetEmail, setResetEmail] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
+  const [resetIsLocal, setResetIsLocal] = useState(false);
+  const [resetNewPwd, setResetNewPwd]   = useState("");
+
+  // Lier un email à un compte créé sans email
+  const [linkUser, setLinkUser]       = useState(null); // ligne utilisateurs
+  const [linkEmail, setLinkEmail]     = useState("");
+  const [linkLoading, setLinkLoading] = useState(false);
 
   // Liste de rôles chargée dynamiquement depuis access.js (union Réno + Invest).
   // Si un rôle existe dans les 2 branches, on garde la déclaration Réno (libellé + couleur).
@@ -309,9 +327,19 @@ function OngletUtilisateurs({ T, acc }) {
   const toggleBranche = (branches, val) =>
     branches.includes(val) ? branches.filter(b => b !== val) : [...branches, val];
 
-  // ── Inviter ────────────────────────────────────────────────────────────────
+  // ── Inviter / créer ───────────────────────────────────────────────────────
   const inviter = async () => {
-    if (!invEmail.trim() || !invNom.trim()) { flash("err", "Email et nom sont obligatoires."); return; }
+    const modeLocal = invMode === "identifiant";
+    if (!invNom.trim()) { flash("err", "Le nom est obligatoire."); return; }
+    if (!modeLocal && !invEmail.trim()) { flash("err", "Email et nom sont obligatoires."); return; }
+    const identifiant = invIdentifiant.trim().toLowerCase();
+    if (modeLocal) {
+      if (!IDENTIFIANT_REGEX.test(identifiant)) {
+        flash("err", "Identifiant invalide : 2 à 30 caractères, lettres minuscules, chiffres, . _ - autorisés.");
+        return;
+      }
+      if (invPassword.length < 8) { flash("err", "Le mot de passe doit contenir au moins 8 caractères."); return; }
+    }
     if (invBranches.length === 0) { flash("err", "Sélectionnez au moins une branche."); return; }
     // Pour un ouvrier, le prénom-planning est obligatoire (clé de jointure).
     const prenomPlanning = invRole === "ouvrier" ? invPrenomPlanning.trim() : null;
@@ -319,12 +347,17 @@ function OngletUtilisateurs({ T, acc }) {
       flash("err", "Sélectionnez le prénom-planning de l'ouvrier.");
       return;
     }
+    // Email réel, ou synthétique identifiant@profero.local pour un compte sans email.
+    const email = modeLocal ? loginEmailFromIdentifiant(identifiant) : invEmail.trim().toLowerCase();
     setInvLoading(true);
     try {
-      // 1. Vérifier doublon email
+      // 1. Vérifier doublon email / identifiant
       const { data: exist } = await supabase
-        .from("utilisateurs").select("id").eq("email", invEmail.trim().toLowerCase()).single();
-      if (exist) { flash("err", "Cet email est déjà enregistré."); setInvLoading(false); return; }
+        .from("utilisateurs").select("id").eq("email", email).single();
+      if (exist) {
+        flash("err", modeLocal ? `L'identifiant « ${identifiant} » est déjà pris.` : "Cet email est déjà enregistré.");
+        setInvLoading(false); return;
+      }
 
       // 1b. Un prénom-planning = une personne : refuser s'il est déjà relié.
       if (prenomPlanning && utilisateurs.some(u => u.prenom_planning === prenomPlanning)) {
@@ -332,12 +365,17 @@ function OngletUtilisateurs({ T, acc }) {
         setInvLoading(false); return;
       }
 
-      // 2. Envoyer invitation Supabase Auth via Edge Function
-      await callAdminUsers({ action: "invite", email: invEmail.trim().toLowerCase() });
+      // 2. Créer le compte Auth : invitation par email, ou création directe
+      //    avec mot de passe (aucun email envoyé) pour un compte sans adresse.
+      if (modeLocal) {
+        await callAdminUsersLocal({ action: "create_local", identifiant, password: invPassword });
+      } else {
+        await callAdminUsers({ action: "invite", email });
+      }
 
       // 3. Créer la ligne profil
       const { error: dbErr } = await supabase.from("utilisateurs").insert({
-        email:    invEmail.trim().toLowerCase(),
+        email,
         nom:      invNom.trim(),
         role:     invRole,
         branches: invBranches,
@@ -352,8 +390,11 @@ function OngletUtilisateurs({ T, acc }) {
         flash("err", msg); setInvLoading(false); return;
       }
 
-      flash("ok", `✓ Invitation envoyée à ${invEmail}. ${invNom} recevra un email pour créer son mot de passe.`);
-      setInvEmail(""); setInvNom(""); setInvRole("conducteur"); setInvBranches(["renovation"]); setInvPrenomPlanning("");
+      flash("ok", modeLocal
+        ? `✓ Compte créé pour ${invNom}. Connexion avec l'identifiant « ${identifiant} » et le mot de passe défini. Un email pourra être lié plus tard.`
+        : `✓ Invitation envoyée à ${invEmail}. ${invNom} recevra un email pour créer son mot de passe.`);
+      setInvEmail(""); setInvIdentifiant(""); setInvPassword(""); setInvNom("");
+      setInvRole("conducteur"); setInvBranches(["renovation"]); setInvPrenomPlanning("");
       setShowForm(false);
       charger();
     } catch (e) {
@@ -385,16 +426,43 @@ function OngletUtilisateurs({ T, acc }) {
   };
 
   // ── Réinitialiser mot de passe ─────────────────────────────────────────────
+  // Compte avec email : envoi du mail de réinitialisation classique.
+  // Compte sans email (identifiant) : définition directe du nouveau mot de passe.
   const resetPassword = async () => {
+    if (resetIsLocal && resetNewPwd.length < 8) {
+      flash("err", "Le mot de passe doit contenir au moins 8 caractères.");
+      return;
+    }
     setResetLoading(true);
     try {
-      await callAdminUsers({ action: "reset_password", email: resetEmail });
-      flash("ok", `✓ Email de réinitialisation envoyé à ${resetEmail}.`);
-      setResetId(null); setResetEmail("");
+      if (resetIsLocal) {
+        await callAdminUsersLocal({ action: "set_password", email: resetEmail, password: resetNewPwd });
+        flash("ok", `✓ Nouveau mot de passe enregistré pour « ${identifiantFromLoginEmail(resetEmail)} ».`);
+      } else {
+        await callAdminUsers({ action: "reset_password", email: resetEmail });
+        flash("ok", `✓ Email de réinitialisation envoyé à ${resetEmail}.`);
+      }
+      setResetId(null); setResetEmail(""); setResetNewPwd(""); setResetIsLocal(false);
     } catch (e) {
       flash("err", "Erreur : " + e.message);
     }
     setResetLoading(false);
+  };
+
+  // ── Lier un email à un compte créé sans adresse ────────────────────────────
+  const lierEmail = async () => {
+    const newEmail = linkEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) { flash("err", "Adresse email invalide."); return; }
+    setLinkLoading(true);
+    try {
+      await callAdminUsersLocal({ action: "set_email", current_email: linkUser.email, new_email: newEmail });
+      flash("ok", `✓ Email lié. ${linkUser.nom} se connecte désormais avec ${newEmail} (l'identifiant ne fonctionne plus).`);
+      setLinkUser(null); setLinkEmail("");
+      charger();
+    } catch (e) {
+      flash("err", "Erreur : " + e.message);
+    }
+    setLinkLoading(false);
   };
 
   // Filtrage
@@ -557,15 +625,49 @@ function OngletUtilisateurs({ T, acc }) {
           <div style={{ fontWeight:700, fontSize:14, marginBottom:16, color:T.text }}>
             Nouveau collaborateur
           </div>
+
+          {/* Mode de création : invitation email ou identifiant + mot de passe */}
+          <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+            {[
+              { value:"email",       label:"Avec email (invitation)" },
+              { value:"identifiant", label:"Sans email (identifiant + mdp)" },
+            ].map(m => (
+              <button key={m.value} onClick={() => setInvMode(m.value)} style={{
+                flex:1, padding:"9px 0", borderRadius:8, border:"1.5px solid",
+                fontFamily:"inherit", fontSize:13, fontWeight:700, cursor:"pointer",
+                background: invMode === m.value ? "rgba(255,194,0,0.12)" : "transparent",
+                borderColor: invMode === m.value ? "#FFC200" : T.border,
+                color: invMode === m.value ? "#FFC200" : T.textSub,
+              }}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
             <div>
               <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Nom complet *</label>
               <input className="ti" value={invNom} onChange={e=>setInvNom(e.target.value)} placeholder="Prénom Nom" style={{ width:"100%" }}/>
             </div>
-            <div>
-              <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Email *</label>
-              <input className="ti" type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="prenom.nom@profero.fr" style={{ width:"100%" }}/>
-            </div>
+            {invMode === "email" ? (
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Email *</label>
+                <input className="ti" type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="prenom.nom@profero.fr" style={{ width:"100%" }}/>
+              </div>
+            ) : (
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Identifiant *</label>
+                <input className="ti" value={invIdentifiant}
+                  onChange={e=>setInvIdentifiant(e.target.value.toLowerCase().replace(/\s+/g, ""))}
+                  placeholder="ex : kevin, jp.martin" style={{ width:"100%" }}/>
+              </div>
+            )}
+            {invMode === "identifiant" && (
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Mot de passe initial *</label>
+                <input className="ti" type="text" value={invPassword} onChange={e=>setInvPassword(e.target.value)} placeholder="Minimum 8 caractères" style={{ width:"100%" }}/>
+              </div>
+            )}
             <div>
               <label style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 }}>Rôle</label>
               <select className="ti" value={invRole} onChange={e=>setInvRole(e.target.value)} style={{ width:"100%" }}>
@@ -609,15 +711,24 @@ function OngletUtilisateurs({ T, acc }) {
             </div>
           )}
 
-          {/* Info invitation */}
-          <div style={{ display:"flex", alignItems:"flex-start", gap:8, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.xs.size+1, color:"#4db8ff", marginBottom:16, lineHeight:1.6 }}>
-            <Icon as={Mail} size={13} style={{marginTop:2, flexShrink:0}}/>
-            <span>Un email d'invitation sera envoyé à <strong>{invEmail || "l'adresse saisie"}</strong>. Le collaborateur cliquera sur le lien pour définir son mot de passe et accéder à l'application.</span>
-          </div>
+          {/* Info invitation / compte local */}
+          {invMode === "email" ? (
+            <div style={{ display:"flex", alignItems:"flex-start", gap:8, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.xs.size+1, color:"#4db8ff", marginBottom:16, lineHeight:1.6 }}>
+              <Icon as={Mail} size={13} style={{marginTop:2, flexShrink:0}}/>
+              <span>Un email d'invitation sera envoyé à <strong>{invEmail || "l'adresse saisie"}</strong>. Le collaborateur cliquera sur le lien pour définir son mot de passe et accéder à l'application.</span>
+            </div>
+          ) : (
+            <div style={{ display:"flex", alignItems:"flex-start", gap:8, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:RADIUS.md, padding:"10px 14px", fontSize:FONT.xs.size+1, color:"#4db8ff", marginBottom:16, lineHeight:1.6 }}>
+              <Icon as={KeyRound} size={13} style={{marginTop:2, flexShrink:0}}/>
+              <span>Aucun email envoyé : le compte est créé immédiatement. Communiquez l'identifiant <strong>{invIdentifiant || "choisi"}</strong> et le mot de passe au collaborateur — il pourra se connecter tout de suite. Une adresse email pourra être liée plus tard depuis cette liste.</span>
+            </div>
+          )}
 
           <button className="btn-p" onClick={inviter} disabled={invLoading} style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"11px" }}>
-            <Icon as={Send} size={13}/>
-            {invLoading ? "Envoi de l'invitation…" : "Envoyer l'invitation"}
+            <Icon as={invMode === "email" ? Send : UserPlus} size={13}/>
+            {invLoading
+              ? (invMode === "email" ? "Envoi de l'invitation…" : "Création du compte…")
+              : (invMode === "email" ? "Envoyer l'invitation" : "Créer le compte")}
           </button>
         </div>
       )}
@@ -699,7 +810,16 @@ function OngletUtilisateurs({ T, acc }) {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize:12, color:T.textMuted, marginTop:2 }}>{u.email}</div>
+                    <div style={{ fontSize:12, color:T.textMuted, marginTop:2, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                      {isLocalLoginEmail(u.email) ? (
+                        <>
+                          <span>Identifiant : <strong style={{color:T.textSub}}>{identifiantFromLoginEmail(u.email)}</strong></span>
+                          <span style={{ fontSize:10, padding:"1px 7px", borderRadius:4, background:"rgba(255,194,0,0.12)", color:"#c99a00", fontWeight:700, letterSpacing:.5, textTransform:"uppercase", border:"1px solid rgba(255,194,0,0.3)" }}>
+                            Sans email
+                          </span>
+                        </>
+                      ) : u.email}
+                    </div>
                     <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
                       <span style={{
                         fontSize:11, padding:"2px 8px", borderRadius:4, fontWeight:700, letterSpacing:.5,
@@ -727,8 +847,21 @@ function OngletUtilisateurs({ T, acc }) {
                       <Icon as={Pencil} size={11}/>
                       Modifier
                     </button>
+                    {isLocalLoginEmail(u.email) && (
+                      <button
+                        onClick={() => { setLinkUser(u); setLinkEmail(""); }}
+                        style={{
+                          display:"inline-flex", alignItems:"center", gap:4,
+                          fontSize:FONT.xs.size+1, padding:"5px 12px", border:"1px solid rgba(255,194,0,0.35)",
+                          borderRadius:RADIUS.sm, cursor:"pointer", fontFamily:"inherit", fontWeight:600,
+                          background:"rgba(255,194,0,0.08)", color:"#c99a00",
+                        }}>
+                        <Icon as={Mail} size={11}/>
+                        Lier un email
+                      </button>
+                    )}
                     <button
-                      onClick={() => { setResetId(u.id); setResetEmail(u.email); }}
+                      onClick={() => { setResetId(u.id); setResetEmail(u.email); setResetIsLocal(isLocalLoginEmail(u.email)); setResetNewPwd(""); }}
                       style={{
                         display:"inline-flex", alignItems:"center", gap:4,
                         fontSize:FONT.xs.size+1, padding:"5px 12px", border:"1px solid rgba(77,184,255,0.3)",
@@ -736,7 +869,7 @@ function OngletUtilisateurs({ T, acc }) {
                         background:"rgba(77,184,255,0.08)", color:"#4db8ff",
                       }}>
                       <Icon as={KeyRound} size={11}/>
-                      Réinit. MDP
+                      {isLocalLoginEmail(u.email) ? "Nouveau MDP" : "Réinit. MDP"}
                     </button>
                     <button
                       onClick={() => toggleActif(u)}
@@ -774,14 +907,26 @@ function OngletUtilisateurs({ T, acc }) {
                 <Icon as={KeyRound} size={20}/>
               </div>
               <div style={{ fontSize:FONT.lg.size, fontWeight:800, color:T.text }}>
-                Réinitialiser le mot de passe&nbsp;?
+                {resetIsLocal ? "Définir un nouveau mot de passe" : "Réinitialiser le mot de passe ?"}
               </div>
             </div>
-            <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6, marginBottom:20 }}>
-              Un email de réinitialisation sera envoyé à <strong style={{color:"#4db8ff"}}>{resetEmail}</strong>.
-            </div>
+            {resetIsLocal ? (
+              <>
+                <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6, marginBottom:14 }}>
+                  Ce compte n'a pas d'adresse email : saisissez directement le nouveau mot de passe
+                  pour <strong style={{color:"#4db8ff"}}>{identifiantFromLoginEmail(resetEmail)}</strong>, puis communiquez-le lui.
+                </div>
+                <input className="ti" type="text" value={resetNewPwd} onChange={e=>setResetNewPwd(e.target.value)}
+                  placeholder="Minimum 8 caractères" style={{ width:"100%", marginBottom:20 }}
+                  onKeyDown={e=>e.key==="Enter"&&resetPassword()}/>
+              </>
+            ) : (
+              <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6, marginBottom:20 }}>
+                Un email de réinitialisation sera envoyé à <strong style={{color:"#4db8ff"}}>{resetEmail}</strong>.
+              </div>
+            )}
             <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-              <button onClick={() => { setResetId(null); setResetEmail(""); }} disabled={resetLoading}
+              <button onClick={() => { setResetId(null); setResetEmail(""); setResetNewPwd(""); setResetIsLocal(false); }} disabled={resetLoading}
                 style={{ background:"transparent", border:`1px solid ${T.border}`,
                   borderRadius:RADIUS.md, padding:"9px 18px", color:T.textSub,
                   fontFamily:"inherit", fontSize:FONT.sm.size, cursor:"pointer", opacity:resetLoading?.5:1 }}>
@@ -794,8 +939,58 @@ function OngletUtilisateurs({ T, acc }) {
                 fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
                 cursor:"pointer", opacity:resetLoading?.6:1,
               }}>
-                <Icon as={Send} size={13}/>
-                {resetLoading ? "Envoi…" : "Envoyer l'email"}
+                <Icon as={resetIsLocal ? Check : Send} size={13}/>
+                {resetLoading ? (resetIsLocal ? "Enregistrement…" : "Envoi…") : (resetIsLocal ? "Enregistrer" : "Envoyer l'email")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal lier un email ── */}
+      {linkUser && (
+        <div onClick={()=>!linkLoading&&setLinkUser(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:16, backdropFilter:"blur(4px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal||T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl,
+            padding:24, width:"100%", maxWidth:440,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+              <div style={{
+                width:40, height:40, borderRadius:RADIUS.md, flexShrink:0,
+                background:"rgba(255,194,0,0.16)", color:"#c99a00",
+                display:"flex", alignItems:"center", justifyContent:"center",
+              }}>
+                <Icon as={Mail} size={20}/>
+              </div>
+              <div style={{ fontSize:FONT.lg.size, fontWeight:800, color:T.text }}>
+                Lier un email à {linkUser.nom}
+              </div>
+            </div>
+            <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6, marginBottom:14 }}>
+              L'adresse remplace l'identifiant « <strong style={{color:T.text}}>{identifiantFromLoginEmail(linkUser.email)}</strong> » :
+              la connexion se fera ensuite <strong style={{color:T.text}}>avec cet email</strong> (même mot de passe),
+              et la réinitialisation du mot de passe par email deviendra possible.
+            </div>
+            <input className="ti" type="email" value={linkEmail} onChange={e=>setLinkEmail(e.target.value)}
+              placeholder="prenom.nom@profero.fr" style={{ width:"100%", marginBottom:20 }}
+              onKeyDown={e=>e.key==="Enter"&&lierEmail()}/>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={() => { setLinkUser(null); setLinkEmail(""); }} disabled={linkLoading}
+                style={{ background:"transparent", border:`1px solid ${T.border}`,
+                  borderRadius:RADIUS.md, padding:"9px 18px", color:T.textSub,
+                  fontFamily:"inherit", fontSize:FONT.sm.size, cursor:"pointer", opacity:linkLoading?.5:1 }}>
+                Annuler
+              </button>
+              <button onClick={lierEmail} disabled={linkLoading} style={{
+                display:"inline-flex", alignItems:"center", gap:6,
+                background:"#FFC200", color:"#1e2128", border:"none",
+                borderRadius:RADIUS.md, padding:"9px 18px",
+                fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
+                cursor:"pointer", opacity:linkLoading?.6:1,
+              }}>
+                <Icon as={Check} size={13}/>
+                {linkLoading ? "Liaison…" : "Lier l'email"}
               </button>
             </div>
           </div>

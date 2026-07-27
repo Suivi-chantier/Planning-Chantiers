@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
-import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent } from "./constants";
+import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant } from "./constants";
 import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
 import { Icon } from "./ui";
 
@@ -224,8 +224,12 @@ function PageLogin({ onLogin }) {
     if (!email.trim() || !password.trim()) { setErreur("Veuillez remplir tous les champs."); return; }
     setLoading(true); setErreur("");
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { setErreur("Email ou mot de passe incorrect."); setLoading(false); return; }
+      // Saisie sans « @ » = identifiant d'un compte sans email → converti en
+      // email synthétique identifiant@profero.local (voir constants.js).
+      const saisie = email.trim().toLowerCase();
+      const loginEmail = saisie.includes("@") ? saisie : loginEmailFromIdentifiant(saisie);
+      const { data, error } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
+      if (error) { setErreur("Email/identifiant ou mot de passe incorrect."); setLoading(false); return; }
       const { data: profil, error: profilErr } = await supabase
         .from("utilisateurs").select("*").eq("email", data.user.email).single();
       if (profilErr || !profil) {
@@ -255,8 +259,8 @@ function PageLogin({ onLogin }) {
           <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>Connexion</div>
           <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:28 }}>Accès réservé aux collaborateurs Profero</div>
           <div style={{ marginBottom:16 }}>
-            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>Email</label>
-            <input className="login-input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="votre@email.com" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
+            <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>Email ou identifiant</label>
+            <input className="login-input" type="text" autoCapitalize="none" autoCorrect="off" value={email} onChange={e=>setEmail(e.target.value)} placeholder="votre@email.com ou identifiant" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
           </div>
           <div style={{ marginBottom:24 }}>
             <label style={{ fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)", display:"block", marginBottom:8 }}>Mot de passe</label>
