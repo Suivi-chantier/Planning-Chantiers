@@ -3277,7 +3277,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     <option value="">— Aucun lot —</option>
                     {lots.map(l=>(<option key={l.id} value={l.id}>{l.label}</option>))}
                   </select>
-                  <select className="ti" value={g.equipe_id||""} onChange={e=>updGroupeType(i,{equipe_id:e.target.value})}
+                  <select className="ti" value={g.equipe_id||""} onChange={e=>updGroupeType(i,{equipe_id:e.target.value,ouvriers_prio:[]})}
                     title="Équipe par défaut : proposée lors de l'affectation, jamais imposée"
                     style={{flex:"1 1 150px",minWidth:130,cursor:"pointer",
                       ...(g.equipe_id&&!equipes.some(eq=>eq.id===g.equipe_id)?{color:"#f5a623",fontWeight:700}:{})}}>
@@ -3289,6 +3289,45 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     <Icon as={Trash2} size={11}/>
                     Supprimer
                   </button>
+                  {/* Ouvriers prioritaires : qui de l'équipe intervient sur ce
+                      groupe (un OU plusieurs). Aucun coché = toute l'équipe. */}
+                  {(() => {
+                    const eq = equipes.find(x => x.id === g.equipe_id);
+                    if (!eq || eq.externe) return null;
+                    const membres = [...new Set([eq.responsable, ...(eq.membres||[]).map(m=>m.ouvrier)].filter(Boolean))];
+                    if (membres.length === 0) return null;
+                    const prios = Array.isArray(g.ouvriers_prio) ? g.ouvriers_prio : [];
+                    const toggle = (nom) => updGroupeType(i, {
+                      ouvriers_prio: prios.includes(nom) ? prios.filter(p=>p!==nom) : [...prios, nom],
+                    });
+                    return (
+                      <div style={{flexBasis:"100%",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",paddingLeft:76}}>
+                        <span style={{fontSize:FONT.xs.size,fontWeight:700,color:T.textMuted}}
+                          title="Ouvriers de l'équipe proposés en priorité sur ce groupe — si aucun n'est coché, toute l'équipe est proposée">
+                          Prioritaires :
+                        </span>
+                        {membres.map(nom => {
+                          const on = prios.includes(nom);
+                          return (
+                            <button key={nom} onClick={()=>toggle(nom)}
+                              title={on ? `${nom} est prioritaire sur « ${g.nom} » — cliquer pour retirer` : `Proposer ${nom} en priorité sur « ${g.nom} »`}
+                              style={{
+                                padding:"3px 10px",borderRadius:999,cursor:"pointer",fontFamily:"inherit",
+                                fontSize:FONT.xs.size,fontWeight:700,
+                                border:`1px solid ${on ? acc.accent : T.border}`,
+                                background:on ? acc.bg10 : "transparent",
+                                color:on ? acc.accent : T.textSub,
+                              }}>
+                              {on ? "✓ " : ""}{nom}
+                            </button>
+                          );
+                        })}
+                        <span style={{fontSize:FONT.xs.size,color:T.textMuted,fontStyle:"italic"}}>
+                          {prios.length===0 ? "aucun → toute l'équipe est proposée" : ""}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>
@@ -3545,6 +3584,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                       }}>
                         <span style={{width:9,height:9,borderRadius:999,background:g.couleur||"#888",flexShrink:0}}/>
                         {g.nom}
+                        {(g.ouvriers_prio||[]).length > 0 && (
+                          <span style={{color:T.textMuted,fontWeight:600}}> · {g.ouvriers_prio.join(", ")}</span>
+                        )}
                       </span>
                     ))}
                   </div>

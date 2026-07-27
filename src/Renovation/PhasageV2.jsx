@@ -1225,22 +1225,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   };
   // ─── Équipe par défaut d'un groupe chrono ─────────────────────────────────
   // Résolution : groupe.groupe_type_id → groupe type → equipe_id → équipe.
-  // L'équipe est PROPOSÉE (bouton sur le groupe), jamais imposée.
-  const equipePourGroupe = (g) => {
+  // Renvoie null ou { equipe, noms, prioritaires } : `noms` = les OUVRIERS
+  // PRIORITAIRES du groupe type s'ils sont définis (ex : Peinture → Margaux,
+  // pas Davy), sinon toute l'équipe disponible. Toujours proposé, jamais imposé.
+  const propositionPourGroupe = (g) => {
     if (!g?.groupe_type_id) return null;
     const gt = groupesTypes.find(x => x.id === g.groupe_type_id);
     if (!gt?.equipe_id) return null;
-    return equipes.find(e => e.id === gt.equipe_id) || null;
+    const equipe = equipes.find(e => e.id === gt.equipe_id);
+    if (!equipe) return null;
+    const dispo = membresEquipe(equipe); // filtre déjà les date_dispo futures
+    const prios = (gt.ouvriers_prio || []).filter(p => dispo.includes(p));
+    return { equipe, noms: prios.length ? prios : dispo, prioritaires: prios.length > 0 };
   };
-  // Pré-remplit taches[].ouvriers des tâches du groupe avec les membres de
-  // l'équipe (responsable + membres). mode "ajouter" : complète sans retirer
-  // les ouvriers déjà saisis ; mode "remplacer" : écrase (après confirmation
-  // côté UI). Passe par patchTaches — le même mécanisme que le reste de la
-  // vue chrono — et le flux vers le planning reste envoyerDansPlanning, qui
-  // lit taches[].ouvriers à l'envoi : aucun second chemin.
-  const affecterEquipeAuGroupe = (groupeId, equipe, mode) => {
-    const noms = membresEquipe(equipe);
-    if (!noms.length) return;
+  // Pré-remplit taches[].ouvriers des tâches du groupe avec les ouvriers
+  // proposés. mode "ajouter" : complète sans retirer les ouvriers déjà
+  // saisis ; mode "remplacer" : écrase (après confirmation côté UI). Passe
+  // par patchTaches — le même mécanisme que le reste de la vue chrono — et le
+  // flux vers le planning reste envoyerDansPlanning, qui lit taches[].ouvriers
+  // à l'envoi : aucun second chemin.
+  const affecterOuvriersAuGroupe = (groupeId, noms, mode) => {
+    if (!noms?.length) return;
     const patch = {};
     ouvrages.forEach(o => (o.taches || []).forEach(t => {
       if (t.chrono_groupe_id !== groupeId) return;
@@ -2597,7 +2602,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           updateTache={updateTache}
           onInitGroupesTypes={groupesTypes.length > 0 ? initChronoDepuisGroupesTypes : null}
           chronoVierge={chronoVierge} nbGtManquants={gtManquants.length}
-          equipePourGroupe={equipePourGroupe} onAffecterEquipe={affecterEquipeAuGroupe}
+          propositionPourGroupe={propositionPourGroupe} onAffecterOuvriers={affecterOuvriersAuGroupe}
           onMarquerExterne={marquerGroupeExterne}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
@@ -4140,7 +4145,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, equipePourGroupe, onAffecterEquipe, onMarquerExterne }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   // Tout est REPLIÉ par défaut : on mémorise les groupes DÉPLIÉS (local à la
@@ -4668,11 +4673,14 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                 <strong style={{ color: st.avg >= 100 ? "#22c55e" : T.textSub }}>{st.avg}%</strong>
               </span>
             </div>
-            {/* Équipe par défaut (groupe type → équipe) : proposée, jamais imposée. */}
+            {/* Équipe par défaut (groupe type → équipe) : proposée, jamais imposée.
+                `noms` = ouvriers prioritaires du groupe type si définis, sinon
+                toute l'équipe disponible. */}
             {(() => {
-              const eq = equipePourGroupe?.(g);
-              if (!eq) return null;
-              const noms = membresEquipe(eq);
+              const prop = propositionPourGroupe?.(g);
+              if (!prop) return null;
+              const eq = prop.equipe;
+              const noms = prop.noms;
               const tachesGroupe = itemsOfGroup(g.id).map(it => it.tache);
               if (eq.externe) {
                 // Prestataire externe : pas d'ouvriers internes à pré-remplir.
@@ -4726,13 +4734,13 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                 <button
                   disabled={tachesGroupe.length === 0 || dejaTous}
                   onClick={() => nbAvecOuvriers > 0
-                    ? setAffectConfirm({ groupeId: g.id, equipe: eq, nbAvecOuvriers })
-                    : onAffecterEquipe(g.id, eq, "ajouter")}
+                    ? setAffectConfirm({ groupeId: g.id, equipe: eq, noms, nbAvecOuvriers })
+                    : onAffecterOuvriers(g.id, noms, "ajouter")}
                   title={tachesGroupe.length === 0
                     ? "Aucune tâche dans ce groupe"
                     : dejaTous
                       ? `${noms.join(", ")} — déjà affectés à toutes les tâches du groupe`
-                      : `Pré-remplir les ouvriers des ${tachesGroupe.length} tâche(s) du groupe avec ${noms.join(", ")} — proposé, jamais imposé`}
+                      : `Pré-remplir les ouvriers des ${tachesGroupe.length} tâche(s) du groupe avec ${noms.join(", ")}${prop.prioritaires ? " (prioritaires sur ce groupe)" : " (toute l'équipe)"} — proposé, jamais imposé`}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 5,
                     padding: "3px 9px", borderRadius: 999,
@@ -4743,7 +4751,9 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                     opacity: (tachesGroupe.length === 0 || dejaTous) ? .55 : 1,
                   }}>
                   <Icon as={HardHat} size={11} />
-                  {dejaTous ? `Équipe ${eq.nom} affectée` : `Affecter l'équipe ${eq.nom}`}
+                  {dejaTous
+                    ? (prop.prioritaires ? `${noms.join(" + ")} affecté${noms.length > 1 ? "s" : ""}` : `Équipe ${eq.nom} affectée`)
+                    : (prop.prioritaires ? `Affecter ${noms.join(" + ")} (${eq.nom})` : `Affecter l'équipe ${eq.nom}`)}
                 </button>
               );
             })()}
@@ -4906,8 +4916,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
 
       {/* Confirmation : des tâches du groupe ont déjà des ouvriers saisis. */}
       {affectConfirm && (() => {
-        const { groupeId, equipe, nbAvecOuvriers } = affectConfirm;
-        const noms = membresEquipe(equipe);
+        const { groupeId, equipe, noms, nbAvecOuvriers } = affectConfirm;
         return (
           <div onClick={() => setAffectConfirm(null)} style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000,
@@ -4934,7 +4943,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                   borderRadius: RADIUS.md, padding: "9px 16px", color: T.textSub,
                   fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
                 }}>Annuler</button>
-                <button onClick={() => { onAffecterEquipe(groupeId, equipe, "remplacer"); setAffectConfirm(null); }} style={{
+                <button onClick={() => { onAffecterOuvriers(groupeId, noms, "remplacer"); setAffectConfirm(null); }} style={{
                   display: "inline-flex", alignItems: "center", gap: 6,
                   background: "transparent", color: "#e15a5a", border: "1px solid #e15a5a",
                   borderRadius: RADIUS.md, padding: "9px 16px",
@@ -4943,7 +4952,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                   <Icon as={AlertTriangle} size={13} />
                   Remplacer les ouvriers
                 </button>
-                <button onClick={() => { onAffecterEquipe(groupeId, equipe, "ajouter"); setAffectConfirm(null); }} style={{
+                <button onClick={() => { onAffecterOuvriers(groupeId, noms, "ajouter"); setAffectConfirm(null); }} style={{
                   display: "inline-flex", alignItems: "center", gap: 6,
                   background: acc.accent, color: acc.onAccent, border: "none",
                   borderRadius: RADIUS.md, padding: "9px 16px",

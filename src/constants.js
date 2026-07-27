@@ -505,11 +505,14 @@ export async function loadLots() {
 // l'entreprise. Distincts des phases v1 ET des groupes chrono par chantier :
 // les groupes types servent à SEMER les groupes de la vue Chronologique d'un
 // phasage (chaque groupe semé garde un lien groupe_type_id vers son origine).
-// Forme : { id, nom, couleur, ordre, lot_id, equipe_id }
+// Forme : { id, nom, couleur, ordre, lot_id, equipe_id, ouvriers_prio }
 //  - ordre : rang d'exécution, de 10 en 10 pour intercaler sans renuméroter.
 //  - lot_id : lot (devis) rattaché — un id de lots_travaux ("" si aucun).
 //  - equipe_id : équipe par défaut ("" tant que le référentiel équipes n'est
 //    pas branché). Proposée, jamais imposée.
+//  - ouvriers_prio : prénoms des ouvriers de l'équipe qui interviennent EN
+//    PRIORITÉ sur ce groupe (ex : Peinture → Margaux, pas Davy). S'ils sont
+//    définis, l'affectation ne propose qu'eux ; liste vide = toute l'équipe.
 // Personnalisables via Admin → onglet Groupes types (planning_config/groupes_types).
 export const GROUPES_TYPES_DEFAUT = [
   { id: "gt_demolition",      nom: "Démolition",             couleur: "#e15a5a", ordre: 10,  lot_id: "demolition",    equipe_id: "eq_externe" },
@@ -541,6 +544,7 @@ export async function loadGroupesTypes() {
         ordre:     (typeof g.ordre === "number") ? g.ordre : (i + 1) * 10,
         lot_id:    g.lot_id    || "",
         equipe_id: g.equipe_id || "",
+        ouvriers_prio: Array.isArray(g.ouvriers_prio) ? g.ouvriers_prio.filter(Boolean) : [],
       })).sort((a, b) => a.ordre - b.ordre);
     }
   } catch (e) { console.warn("loadGroupesTypes:", e?.message || e); }
