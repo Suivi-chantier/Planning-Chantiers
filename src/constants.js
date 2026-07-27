@@ -496,18 +496,18 @@ export async function loadLots() {
 //    pas branché). Proposée, jamais imposée.
 // Personnalisables via Admin → onglet Groupes types (planning_config/groupes_types).
 export const GROUPES_TYPES_DEFAUT = [
-  { id: "gt_demolition",      nom: "Démolition",             couleur: "#e15a5a", ordre: 10,  lot_id: "demolition",    equipe_id: "" },
-  { id: "gt_menuiserie_ext",  nom: "Menuiserie extérieure",  couleur: "#8b5cf6", ordre: 20,  lot_id: "menuiserie",    equipe_id: "" },
-  { id: "gt_couverture_ext",  nom: "Couverture extérieure",  couleur: "#94a3b8", ordre: 30,  lot_id: "",              equipe_id: "" },
-  { id: "gt_reseau_plomberie",nom: "Passage réseau plomberie", couleur: "#3b82f6", ordre: 40, lot_id: "plomberie",    equipe_id: "" },
-  { id: "gt_ossature_placo",  nom: "Ossature placo",         couleur: "#d97706", ordre: 50,  lot_id: "murs_cloison",  equipe_id: "" },
-  { id: "gt_reseau_elec",     nom: "Passage réseau élec",    couleur: "#f5c400", ordre: 60,  lot_id: "electricite",   equipe_id: "" },
-  { id: "gt_laine_placo",     nom: "Laine / Placo / Enduit", couleur: "#10b981", ordre: 70,  lot_id: "murs_cloison",  equipe_id: "" },
-  { id: "gt_peinture",        nom: "Peinture",               couleur: "#ec4899", ordre: 80,  lot_id: "finitions_gen", equipe_id: "" },
-  { id: "gt_sols",            nom: "Sols",                   couleur: "#14b8a6", ordre: 90,  lot_id: "finitions_gen", equipe_id: "" },
-  { id: "gt_appareillage_elec",nom: "Appareillage élec",     couleur: "#eab308", ordre: 100, lot_id: "electricite",   equipe_id: "" },
-  { id: "gt_appareillage_plomberie", nom: "Appareillage plomberie", couleur: "#0ea5e9", ordre: 110, lot_id: "plomberie", equipe_id: "" },
-  { id: "gt_finition_generale",nom: "Finition générale",     couleur: "#a78bfa", ordre: 120, lot_id: "finitions_gen", equipe_id: "" },
+  { id: "gt_demolition",      nom: "Démolition",             couleur: "#e15a5a", ordre: 10,  lot_id: "demolition",    equipe_id: "eq_externe" },
+  { id: "gt_menuiserie_ext",  nom: "Menuiserie extérieure",  couleur: "#8b5cf6", ordre: 20,  lot_id: "menuiserie",    equipe_id: "eq_second_oeuvre" },
+  { id: "gt_couverture_ext",  nom: "Couverture extérieure",  couleur: "#94a3b8", ordre: 30,  lot_id: "",              equipe_id: "eq_externe" },
+  { id: "gt_reseau_plomberie",nom: "Passage réseau plomberie", couleur: "#3b82f6", ordre: 40, lot_id: "plomberie",    equipe_id: "eq_plomberie" },
+  { id: "gt_ossature_placo",  nom: "Ossature placo",         couleur: "#d97706", ordre: 50,  lot_id: "murs_cloison",  equipe_id: "eq_second_oeuvre" },
+  { id: "gt_reseau_elec",     nom: "Passage réseau élec",    couleur: "#f5c400", ordre: 60,  lot_id: "electricite",   equipe_id: "eq_elec" },
+  { id: "gt_laine_placo",     nom: "Laine / Placo / Enduit", couleur: "#10b981", ordre: 70,  lot_id: "murs_cloison",  equipe_id: "eq_second_oeuvre" },
+  { id: "gt_peinture",        nom: "Peinture",               couleur: "#ec4899", ordre: 80,  lot_id: "finitions_gen", equipe_id: "eq_second_oeuvre" },
+  { id: "gt_sols",            nom: "Sols",                   couleur: "#14b8a6", ordre: 90,  lot_id: "finitions_gen", equipe_id: "eq_second_oeuvre" },
+  { id: "gt_appareillage_elec",nom: "Appareillage élec",     couleur: "#eab308", ordre: 100, lot_id: "electricite",   equipe_id: "eq_elec" },
+  { id: "gt_appareillage_plomberie", nom: "Appareillage plomberie", couleur: "#0ea5e9", ordre: 110, lot_id: "plomberie", equipe_id: "eq_plomberie" },
+  { id: "gt_finition_generale",nom: "Finition générale",     couleur: "#a78bfa", ordre: 120, lot_id: "finitions_gen", equipe_id: "eq_second_oeuvre" },
 ];
 
 // Charge les groupes types depuis Supabase (planning_config/groupes_types,

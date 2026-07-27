@@ -3108,7 +3108,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             <div>
               <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Groupes types</div>
               <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
-                Liste standard <strong style={{color:T.text}}>ordonnée</strong> des étapes d'exécution d'un chantier. Elle servira à pré-remplir les groupes de la vue <strong style={{color:T.text}}>Chronologique</strong> d'un chantier. Chaque groupe est rattaché à un lot (devis). L'équipe par défaut sera branchée à l'étape suivante.
+                Liste standard <strong style={{color:T.text}}>ordonnée</strong> des étapes d'exécution d'un chantier. Elle servira à pré-remplir les groupes de la vue <strong style={{color:T.text}}>Chronologique</strong> d'un chantier. Chaque groupe est rattaché à un lot (devis) et à une <strong style={{color:T.text}}>équipe par défaut</strong> — proposée lors de l'affectation, jamais imposée.
               </div>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -3164,6 +3164,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     style={{flex:"1 1 150px",minWidth:130,cursor:"pointer"}}>
                     <option value="">— Aucun lot —</option>
                     {lots.map(l=>(<option key={l.id} value={l.id}>{l.label}</option>))}
+                  </select>
+                  <select className="ti" value={g.equipe_id||""} onChange={e=>updGroupeType(i,{equipe_id:e.target.value})}
+                    title="Équipe par défaut : proposée lors de l'affectation, jamais imposée"
+                    style={{flex:"1 1 150px",minWidth:130,cursor:"pointer",
+                      ...(g.equipe_id&&!equipes.some(eq=>eq.id===g.equipe_id)?{color:"#f5a623",fontWeight:700}:{})}}>
+                    <option value="">— Aucune équipe —</option>
+                    {g.equipe_id&&!equipes.some(eq=>eq.id===g.equipe_id)&&<option value={g.equipe_id}>(équipe supprimée)</option>}
+                    {equipes.map(eq=>(<option key={eq.id} value={eq.id}>{eq.nom}{eq.externe?" (externe)":""}</option>))}
                   </select>
                   <button className="btn-d" onClick={()=>setGtToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
                     <Icon as={Trash2} size={11}/>
@@ -3290,6 +3298,11 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             // elle n'y figure pas (prénom pas encore créé dans l'onglet Ouvriers).
             const horsListe = (val) => val && !ouvriers.includes(val);
             const membresPris = (eq.membres || []).map(m => m.ouvrier);
+            // Groupes prioritaires : CALCULÉS depuis equipe_id des groupes types
+            // (source de vérité unique) — jamais stockés sur l'équipe.
+            const groupesPrioritaires = groupesTypes
+              .filter(g => g.equipe_id === eq.id)
+              .sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
             return (
             <div key={eq.id || i} style={{
               border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:"14px 16px",
@@ -3384,6 +3397,36 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   </div>
                 </>
               )}
+
+              {/* Groupes prioritaires (lecture seule, calculés depuis les groupes types) */}
+              <div style={{
+                display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap",
+                marginTop:12,paddingTop:10,borderTop:`1px dashed ${T.border}`,
+              }}>
+                <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92,paddingTop:3}}
+                  title="Groupes types dont cette équipe est l'équipe par défaut — se règle dans l'onglet Groupes types">
+                  Groupes prioritaires
+                </span>
+                {groupesPrioritaires.length === 0 ? (
+                  <span style={{fontSize:FONT.xs.size+1,color:T.textMuted,paddingTop:3}}>
+                    Aucun — se règle dans l'onglet <strong style={{color:T.textSub}}>Groupes types</strong> (menu « équipe par défaut »).
+                  </span>
+                ) : (
+                  <div style={{flex:1,display:"flex",flexWrap:"wrap",gap:6}}>
+                    {groupesPrioritaires.map(g => (
+                      <span key={g.id} style={{
+                        display:"inline-flex",alignItems:"center",gap:6,
+                        padding:"4px 10px",borderRadius:999,
+                        border:`1px solid ${T.border}`,background:T.bg,
+                        fontSize:FONT.xs.size+1,fontWeight:600,color:T.text,
+                      }}>
+                        <span style={{width:9,height:9,borderRadius:999,background:g.couleur||"#888",flexShrink:0}}/>
+                        {g.nom}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             );
           })}
