@@ -530,3 +530,45 @@ export async function loadGroupesTypes() {
   } catch (e) { console.warn("loadGroupesTypes:", e?.message || e); }
   return GROUPES_TYPES_DEFAUT;
 }
+
+// ─── ÉQUIPES (référentiel global) ────────────────────────────────────────────
+// Équipes stables de l'entreprise, avec un responsable et des membres pris
+// dans la liste d'ouvriers du planning. Les ouvriers sont référencés par
+// PRÉNOM (la clé de jointure de toute l'appli : planning_cells.ouvriers,
+// rapports.ouvrier, tauxHoraires…), pas par id de compte.
+// Forme : { id, nom, responsable, membres: [{ ouvrier, date_dispo? }], externe, couleur }
+//  - responsable : prénom-planning du chef d'équipe ("" si aucun).
+//  - membres[].date_dispo : date ISO à partir de laquelle le membre est
+//    disponible (ex : embauche à venir). Avant cette date il est visible mais
+//    ne devra être ni proposé ni compté dans l'effectif.
+//  - externe : true pour un prestataire → pas de membres internes, ne compte
+//    pas dans les heures internes.
+// Personnalisables via Admin → onglet Équipes (planning_config/equipes).
+export const EQUIPES_DEFAUT = [
+  { id: "eq_plomberie",     nom: "Plomberie",     responsable: "Wanceslas", membres: [{ ouvrier: "Selman" }], externe: false, couleur: "#3b82f6" },
+  { id: "eq_elec",          nom: "Élec",          responsable: "Steven",    membres: [{ ouvrier: "Keita", date_dispo: "2026-09-01" }], externe: false, couleur: "#eab308" },
+  { id: "eq_second_oeuvre", nom: "Second œuvre",  responsable: "Davy",      membres: [{ ouvrier: "Margaux" }, { ouvrier: "Kev" }], externe: false, couleur: "#10b981" },
+  { id: "eq_externe",       nom: "Externe",       responsable: "",          membres: [], externe: true,  couleur: "#94a3b8" },
+];
+
+// Charge les équipes depuis Supabase (planning_config/equipes, forme
+// { items: [...] } comme les lots et groupes types), sinon EQUIPES_DEFAUT.
+export async function loadEquipes() {
+  try {
+    const { data } = await _supabase.from("planning_config").select("value").eq("key", "equipes").maybeSingle();
+    const items = data?.value?.items;
+    if (Array.isArray(items) && items.length > 0) {
+      return items.map((e, i) => ({
+        id:          e.id          || `eq_${i}`,
+        nom:         e.nom         || `Équipe ${i + 1}`,
+        responsable: e.responsable || "",
+        membres:     Array.isArray(e.membres)
+          ? e.membres.filter(m => m && m.ouvrier).map(m => ({ ouvrier: m.ouvrier, ...(m.date_dispo ? { date_dispo: m.date_dispo } : {}) }))
+          : [],
+        externe:     !!e.externe,
+        couleur:     e.couleur     || "#888888",
+      }));
+    }
+  } catch (e) { console.warn("loadEquipes:", e?.message || e); }
+  return EQUIPES_DEFAUT;
+}

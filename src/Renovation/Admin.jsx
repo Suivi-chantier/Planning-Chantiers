@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
@@ -2096,6 +2096,12 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [gtToDelete, setGtToDelete]           = useState(null);
   const [resetGtConfirm, setResetGtConfirm]   = useState(false);
 
+  // ─── ÉQUIPES (référentiel global) ────────────────────────────────────────
+  const [equipes, setEquipes]                 = useState(EQUIPES_DEFAUT);
+  const [editEqColIdx, setEditEqColIdx]       = useState(null);
+  const [eqToDelete, setEqToDelete]           = useState(null);
+  const [resetEqConfirm, setResetEqConfirm]   = useState(false);
+
   // ─── EMAIL TEMPLATES (Bloc 3) ────────────────────────────────────────────
   const [emailTemplates, setEmailTemplates] = useState(EMAIL_TEMPLATES_DEFAUT);
 
@@ -2107,7 +2113,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "lots_travaux", "groupes_types", "email_templates", "phasage_templates"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["societe", "heures_par_jour", "phrases_bank", "phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates", "phasage_templates"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "societe" && r.value)         setSociete({ ...SOCIETE_DEFAUT, ...r.value });
@@ -2121,6 +2127,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "groupes_types" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
             setGroupesTypes([...r.value.items].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0)));
+          }
+          if (r.key === "equipes" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
+            setEquipes(r.value.items);
           }
           if (r.key === "email_templates" && r.value) {
             setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
@@ -2343,6 +2352,57 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const resetGroupesTypes = () => {
     saveGroupesTypes(GROUPES_TYPES_DEFAUT.map(g => ({ ...g })));
     setResetGtConfirm(false);
+  };
+
+  // ─── ÉQUIPES CRUD ────────────────────────────────────────────────────────
+  const saveEquipes = async (next) => {
+    setEquipes(next);
+    await saveConfig("equipes", { items: next });
+  };
+  const addEquipe = () => {
+    saveEquipes([...equipes, {
+      id: `eq_${Date.now()}`,
+      nom: "Nouvelle équipe",
+      responsable: "",
+      membres: [],
+      externe: false,
+      couleur: COULEURS_PALETTE[equipes.length % COULEURS_PALETTE.length],
+    }]);
+  };
+  const updEquipe = (i, patch) => {
+    const next = equipes.map((eq, idx) => idx === i ? { ...eq, ...patch } : eq);
+    setEquipes(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("equipes", { items: next }), 600);
+  };
+  const removeEquipe = () => {
+    if (eqToDelete === null) return;
+    saveEquipes(equipes.filter((_, idx) => idx !== eqToDelete));
+    setEqToDelete(null);
+  };
+  const addMembre = (i, prenom) => {
+    if (!prenom) return;
+    const eq = equipes[i];
+    if ((eq.membres || []).some(m => m.ouvrier === prenom)) return;
+    updEquipe(i, { membres: [...(eq.membres || []), { ouvrier: prenom }] });
+  };
+  const updMembre = (i, j, patch) => {
+    const eq = equipes[i];
+    const nm = (eq.membres || []).map((m, idx) => {
+      if (idx !== j) return m;
+      const next = { ...m, ...patch };
+      if (!next.date_dispo) delete next.date_dispo;
+      return next;
+    });
+    updEquipe(i, { membres: nm });
+  };
+  const removeMembre = (i, j) => {
+    const eq = equipes[i];
+    updEquipe(i, { membres: (eq.membres || []).filter((_, idx) => idx !== j) });
+  };
+  const resetEquipes = () => {
+    saveEquipes(EQUIPES_DEFAUT.map(eq => ({ ...eq, membres: eq.membres.map(m => ({ ...m })) })));
+    setResetEqConfirm(false);
   };
 
   // ─── BACKUP JSON ─────────────────────────────────────────────────────────
@@ -2643,6 +2703,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ["phases",       "Phases",          ClipboardCheck],
     ["lots",         "Lots",            Boxes],
     ["groupes_types","Groupes types",   ListOrdered],
+    ["equipes",      "Équipes",         Users],
     ["templates",    "Templates phasage", FileText],
     ["societe",      "Société",         Briefcase],
     ["planning",     "Planning",        Clock],
@@ -3177,6 +3238,220 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
                   }}>Annuler</button>
                   <button onClick={resetGroupesTypes} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:acc.accent,color:acc.onAccent,border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Check} size={13}/>
+                    Restaurer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ÉQUIPES ── */}
+      {adminTab==="equipes" && (
+        <div className="ac">
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Équipes</div>
+              <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
+                Équipes stables de l'entreprise : un <strong style={{color:T.text}}>responsable</strong> et des <strong style={{color:T.text}}>membres</strong> pris dans la liste des ouvriers du planning. Elles serviront à pré-remplir les ouvriers des groupes d'un chantier — toujours proposé, jamais imposé.
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>setResetEqConfirm(true)} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"7px 12px",borderRadius:RADIUS.md,
+                border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:600,cursor:"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11}/>
+                Restaurer par défaut
+              </button>
+              <button onClick={addEquipe} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:acc.accent,color:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Plus} size={12}/>
+                Ajouter une équipe
+              </button>
+            </div>
+          </div>
+
+          {equipes.map((eq, i) => {
+            // Sélecteur d'ouvrier : la liste du planning + la valeur courante si
+            // elle n'y figure pas (prénom pas encore créé dans l'onglet Ouvriers).
+            const horsListe = (val) => val && !ouvriers.includes(val);
+            const membresPris = (eq.membres || []).map(m => m.ouvrier);
+            return (
+            <div key={eq.id || i} style={{
+              border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:"14px 16px",
+              marginBottom:12,background:T.surface,
+            }}>
+              {/* En-tête : couleur, nom, externe, supprimer */}
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:eq.externe?4:12}}>
+                <div onClick={()=>setEditEqColIdx(editEqColIdx===i?null:i)}
+                  style={{
+                    width:30,height:30,borderRadius:RADIUS.md,flexShrink:0,
+                    background:eq.couleur||"#888",border:`2px solid ${T.border}`,cursor:"pointer",
+                  }} title="Couleur de l'équipe"/>
+                <input className="ti" value={eq.nom||""} onChange={e=>updEquipe(i,{nom:e.target.value})}
+                  placeholder="Nom de l'équipe" style={{flex:"1 1 160px",minWidth:130,fontWeight:700}}/>
+                <label style={{display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer",
+                  fontSize:FONT.xs.size+1,fontWeight:600,color:eq.externe?"#f5a623":T.textSub,userSelect:"none"}}
+                  title="Prestataire externe : pas de membres internes, ne compte pas dans les heures internes">
+                  <input type="checkbox" checked={!!eq.externe}
+                    onChange={e=>updEquipe(i, e.target.checked ? { externe:true, responsable:"", membres:[] } : { externe:false })}
+                    style={{accentColor:"#f5a623",width:15,height:15,cursor:"pointer"}}/>
+                  Externe
+                </label>
+                <button className="btn-d" onClick={()=>setEqToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
+                  <Icon as={Trash2} size={11}/>
+                  Supprimer
+                </button>
+              </div>
+
+              {editEqColIdx===i && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                  {COULEURS_PALETTE.map(col=>(
+                    <div key={col} onClick={()=>{updEquipe(i,{couleur:col});setEditEqColIdx(null);}}
+                      className={`cdot ${eq.couleur===col?"sel":""}`} style={{background:col,cursor:"pointer"}}/>
+                  ))}
+                </div>
+              )}
+
+              {eq.externe ? (
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.5}}>
+                  Prestataire externe — pas de membres internes. Sert de repère sur les groupes (démolition, couverture…) sans compter dans les heures internes.
+                </div>
+              ) : (
+                <>
+                  {/* Responsable */}
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                    <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92}}>Responsable</span>
+                    <select className="ti" value={eq.responsable||""} onChange={e=>updEquipe(i,{responsable:e.target.value})}
+                      style={{flex:"0 1 220px",minWidth:150,cursor:"pointer",
+                        ...(horsListe(eq.responsable)?{color:"#f5a623",fontWeight:700}:{})}}>
+                      <option value="">— Aucun —</option>
+                      {horsListe(eq.responsable) && <option value={eq.responsable}>{eq.responsable} (hors liste planning)</option>}
+                      {ouvriers.filter(Boolean).map(o=>(<option key={o} value={o}>{o}</option>))}
+                    </select>
+                    {horsListe(eq.responsable) && (
+                      <span style={{fontSize:FONT.xs.size,color:"#f5a623",display:"inline-flex",alignItems:"center",gap:4}}>
+                        <Icon as={AlertTriangle} size={11}/>
+                        à créer dans l'onglet Ouvriers
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Membres */}
+                  <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92,paddingTop:7}}>Membres</span>
+                    <div style={{flex:"1 1 300px",display:"flex",flexDirection:"column",gap:6}}>
+                      {(eq.membres||[]).map((m, j) => (
+                        <div key={j} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <select className="ti" value={m.ouvrier||""} onChange={e=>updMembre(i,j,{ouvrier:e.target.value})}
+                            style={{flex:"0 1 200px",minWidth:140,cursor:"pointer",
+                              ...(horsListe(m.ouvrier)?{color:"#f5a623",fontWeight:700}:{})}}>
+                            {horsListe(m.ouvrier) && <option value={m.ouvrier}>{m.ouvrier} (hors liste planning)</option>}
+                            {ouvriers.filter(Boolean).filter(o=>o===m.ouvrier||!membresPris.includes(o)).map(o=>(<option key={o} value={o}>{o}</option>))}
+                          </select>
+                          <label style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:FONT.xs.size,color:T.textMuted}}
+                            title="Date à partir de laquelle ce membre est disponible (laisser vide si déjà disponible)">
+                            dispo à partir du
+                            <input type="date" className="ti" value={m.date_dispo||""}
+                              onChange={e=>updMembre(i,j,{date_dispo:e.target.value})}
+                              style={{width:140,...(m.date_dispo?{color:"#f5a623",fontWeight:700}:{})}}/>
+                          </label>
+                          <button className="ib" onClick={()=>removeMembre(i,j)} title="Retirer ce membre">
+                            <Icon as={X} size={12}/>
+                          </button>
+                        </div>
+                      ))}
+                      <select className="ti" value="" onChange={e=>addMembre(i, e.target.value)}
+                        style={{flex:"0 1 200px",minWidth:140,maxWidth:200,cursor:"pointer",color:T.textMuted}}>
+                        <option value="">+ Ajouter un membre…</option>
+                        {ouvriers.filter(Boolean).filter(o=>!membresPris.includes(o)&&o!==eq.responsable).map(o=>(<option key={o} value={o}>{o}</option>))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            );
+          })}
+
+          {eqToDelete !== null && (
+            <div onClick={()=>setEqToDelete(null)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={AlertTriangle} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer cette équipe&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  L'équipe <strong style={{color:T.text}}>« {equipes[eqToDelete]?.nom} »</strong> sera retirée du référentiel.
+                  <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les ouvriers eux-mêmes ne sont pas touchés, ni les affectations déjà faites sur les chantiers.</span>
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setEqToDelete(null)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={removeEquipe} style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"#e15a5a",color:"#fff",border:"none",
+                    borderRadius:RADIUS.md,padding:"9px 18px",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+                  }}>
+                    <Icon as={Trash2} size={13}/>
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {resetEqConfirm && (
+            <div onClick={()=>setResetEqConfirm(false)} style={{
+              position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+              display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+                width:"100%",maxWidth:440,border:`1px solid ${T.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(245,166,35,0.16)",color:"#f5a623",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon as={RefreshCw} size={20}/>
+                  </div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Restaurer les équipes par défaut&nbsp;?</div>
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+                  Ta liste actuelle sera remplacée par les 4 équipes standards : Plomberie, Élec, Second œuvre et Externe.
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setResetEqConfirm(false)} style={{
+                    background:"transparent",border:`1px solid ${T.border}`,
+                    borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                    fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+                  }}>Annuler</button>
+                  <button onClick={resetEquipes} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:acc.accent,color:acc.onAccent,border:"none",
                     borderRadius:RADIUS.md,padding:"9px 18px",
