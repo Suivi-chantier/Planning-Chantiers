@@ -3383,6 +3383,17 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                               onChange={e=>updMembre(i,j,{date_dispo:e.target.value})}
                               style={{width:140,...(m.date_dispo?{color:"#f5a623",fontWeight:700}:{})}}/>
                           </label>
+                          {m.date_dispo && String(m.date_dispo).slice(0,10) > new Date().toISOString().slice(0,10) && (
+                            <span title="Visible dans l'équipe, mais ni proposé au pré-remplissage ni compté dans l'effectif avant cette date"
+                              style={{
+                                display:"inline-flex",alignItems:"center",gap:4,
+                                padding:"2px 8px",borderRadius:999,
+                                border:"1px solid #f5a623",color:"#f5a623",
+                                fontSize:FONT.xs.size,fontWeight:700,
+                              }}>
+                              à partir du {new Date(m.date_dispo).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}
+                            </span>
+                          )}
                           <button className="ib" onClick={()=>removeMembre(i,j)} title="Retirer ce membre">
                             <Icon as={X} size={12}/>
                           </button>

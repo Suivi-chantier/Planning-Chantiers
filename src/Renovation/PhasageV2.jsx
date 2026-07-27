@@ -24,10 +24,19 @@ import { fetchPointages, indexPointagesParTache, sumLibreEtIndirect } from "../p
 const rid = () => Math.random().toString(36).slice(2, 10);
 
 // Membres proposables d'une équipe : responsable + membres, par prénom
-// (la clé de jointure de toute l'appli), sans doublon. L'équipe Externe
-// (externe: true, sans membres) renvoie donc une liste vide.
+// (la clé de jointure de toute l'appli), sans doublon. Un membre avec une
+// date_dispo FUTURE (embauche à venir, ex : Keita en septembre) reste visible
+// dans l'Admin mais n'est ni proposé au pré-remplissage ni compté ici tant
+// que sa date n'est pas atteinte. L'équipe Externe (externe: true, sans
+// membres) renvoie donc une liste vide.
 const membresEquipe = (eq) => {
-  const list = [eq?.responsable, ...(eq?.membres || []).map(m => m.ouvrier)].filter(Boolean);
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const list = [
+    eq?.responsable,
+    ...(eq?.membres || [])
+      .filter(m => !m.date_dispo || String(m.date_dispo).slice(0, 10) <= aujourdhui)
+      .map(m => m.ouvrier),
+  ].filter(Boolean);
   return [...new Set(list)];
 };
 
@@ -430,8 +439,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       const duree = arrondiQuart(planifDuree) || 0;
       // tache_id : lie la ligne du planning à la tâche du phasage — déplacer
       // la ligne dans le planning semaine met alors à jour date_prevue.
-      const newTask = { id: rid(), tache_id: tache.id, text: tache.nom || "", duree, ouvriers: ouvriersTache };
-      const nouveauPlanifie = base.planifie ? `${base.planifie}\n${tache.nom || ""}` : (tache.nom || "");
+      // Tâche externe (prestataire) : le marqueur suit dans le planning comme
+      // repère — texte suffixé « (externe) » et flag sur la tâche de cellule.
+      // Aucun ouvrier interne n'est ajouté, donc rien ne change aux heures.
+      const newTask = { id: rid(), tache_id: tache.id, text: tache.nom || "", duree, ouvriers: ouvriersTache, ...(tache.externe ? { externe: true } : {}) };
+      const ligne = (tache.nom || "") + (tache.externe ? " (externe)" : "");
+      const nouveauPlanifie = base.planifie ? `${base.planifie}\n${ligne}` : ligne;
       const upsertPayload = {
         week_id: planifSemaine,
         chantier_id: chantierId,
@@ -1234,6 +1247,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       const actuels = Array.isArray(t.ouvriers) ? t.ouvriers : [];
       const next = mode === "remplacer" ? noms : [...actuels, ...noms.filter(n => !actuels.includes(n))];
       if (next.length !== actuels.length || next.some((n, i) => n !== actuels[i])) patch[t.id] = { ouvriers: next };
+    }));
+    if (Object.keys(patch).length) patchTaches(patch);
+  };
+  // Marque (ou démarque) les tâches d'un groupe comme réalisées par un
+  // PRESTATAIRE EXTERNE (équipe externe: true). Le marqueur `externe` est un
+  // simple repère : on n'ajoute AUCUN ouvrier interne, donc pas d'heures
+  // internes ni d'effectif interne — les calculs existants ne voient rien.
+  const marquerGroupeExterne = (groupeId, on) => {
+    const patch = {};
+    ouvrages.forEach(o => (o.taches || []).forEach(t => {
+      if (t.chrono_groupe_id !== groupeId) return;
+      if (!!t.externe !== !!on) patch[t.id] = { externe: !!on };
     }));
     if (Object.keys(patch).length) patchTaches(patch);
   };
@@ -2573,6 +2598,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           onInitGroupesTypes={groupesTypes.length > 0 ? initChronoDepuisGroupesTypes : null}
           chronoVierge={chronoVierge} nbGtManquants={gtManquants.length}
           equipePourGroupe={equipePourGroupe} onAffecterEquipe={affecterEquipeAuGroupe}
+          onMarquerExterne={marquerGroupeExterne}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
           onShowRapports={(tache, list) => setRapportsModal({ tacheNom: tache.nom, tacheId: tache.id, rapports: list })}
@@ -4114,7 +4140,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, equipePourGroupe, onAffecterEquipe }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, equipePourGroupe, onAffecterEquipe, onMarquerExterne }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   const [collapsed, setCollapsed] = useState(() => new Set());  // ids de groupes repliés (local)
@@ -4429,6 +4455,14 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {t.externe && (
+              <span title="Réalisée par un prestataire externe — aucune heure interne"
+                style={{
+                  display: "inline-block", verticalAlign: "middle", marginRight: 6,
+                  padding: "0 5px", borderRadius: 4, border: "1px solid #f5a623",
+                  color: "#f5a623", fontSize: 9, fontWeight: 800, letterSpacing: .4, lineHeight: "14px",
+                }}>EXT</span>
+            )}
             {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
           </div>
           <div style={{ fontSize: FONT.xs.size, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -4638,18 +4672,48 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
               if (!eq) return null;
               const noms = membresEquipe(eq);
               const tachesGroupe = itemsOfGroup(g.id).map(it => it.tache);
-              if (noms.length === 0) {
-                // Équipe sans membre interne (ex : prestataire externe) :
-                // simple repère visuel, rien à pré-remplir.
+              if (eq.externe) {
+                // Prestataire externe : pas d'ouvriers internes à pré-remplir.
+                // Le bouton marque les tâches du groupe `externe: true` — un
+                // repère (groupe + planning) qui n'ajoute aucune heure interne.
+                const marquees = tachesGroupe.filter(t => t.externe).length;
+                const toutesMarquees = tachesGroupe.length > 0 && marquees === tachesGroupe.length;
                 return (
-                  <span title={eq.externe ? "Équipe externe (prestataire) — pas de membres internes" : "Équipe sans membre — se règle dans Admin → Équipes"}
+                  <button
+                    disabled={tachesGroupe.length === 0}
+                    onClick={() => onMarquerExterne?.(g.id, !toutesMarquees)}
+                    title={tachesGroupe.length === 0
+                      ? "Aucune tâche dans ce groupe"
+                      : toutesMarquees
+                        ? `Tâches marquées « ${eq.nom} » (prestataire) — cliquer pour retirer le marquage`
+                        : `Marquer les ${tachesGroupe.length} tâche(s) du groupe comme réalisées par le prestataire externe — aucun ouvrier interne, aucune heure interne`}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "3px 9px", borderRadius: 999,
+                      border: `1px solid ${toutesMarquees ? "#f5a623" : T.border}`,
+                      background: toutesMarquees ? "rgba(245,166,35,0.12)" : "transparent",
+                      color: toutesMarquees ? "#f5a623" : T.textSub,
+                      fontFamily: "inherit", fontSize: 10, fontWeight: 700,
+                      cursor: tachesGroupe.length === 0 ? "default" : "pointer",
+                      opacity: tachesGroupe.length === 0 ? .55 : 1,
+                    }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: eq.couleur || "#888" }} />
+                    {toutesMarquees ? `${eq.nom} (externe) ✓` : `Marquer externe · ${eq.nom}`}
+                  </button>
+                );
+              }
+              if (noms.length === 0) {
+                // Équipe interne sans membre disponible (tous « à venir »,
+                // ou équipe vide) : simple repère visuel.
+                return (
+                  <span title="Aucun membre disponible aujourd'hui — se règle dans Admin → Équipes"
                     style={{
                       display: "inline-flex", alignItems: "center", gap: 5,
                       padding: "3px 9px", borderRadius: 999, border: `1px solid ${T.border}`,
                       fontSize: 10, fontWeight: 700, color: T.textSub,
                     }}>
                     <span style={{ width: 8, height: 8, borderRadius: 999, background: eq.couleur || "#888" }} />
-                    {eq.nom}{eq.externe ? " (externe)" : ""}
+                    {eq.nom}
                   </span>
                 );
               }
